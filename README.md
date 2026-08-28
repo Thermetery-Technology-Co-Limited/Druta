@@ -94,6 +94,10 @@ read-only).
   frequency steady but can be a step *down* from what the card is boosting
   to. The lock holds at idle on this card with no GPU load needed, which
   makes it the cheap instrument for characterising a clock domain.
+  `Ctrl+H` in the curve editor drives this *same* driver-side lock (see
+  "Hold this point" below), so the app keeps one record of what is locked
+  and why: taking a hold, or pressing `Lock` / `Lock max` / `Release`,
+  always leaves the on-screen state agreeing with the driver.
 - **Fan duty (%)** — manual duty with the hardware-reported minimum enforced
   as a floor (queried live via `nvmlDeviceGetMinMaxFanSpeed`; measured 41%
   on this card, with 30% used only as a fallback if that query fails).
@@ -179,13 +183,54 @@ tiny voltages.
 The plot itself: drag any dot (left-click grabs the nearest point by
 voltage and moves it vertically — voltage is fixed by the table, so only
 frequency moves, snapped to 15 MHz bins), A/D to step the selection, W/S to
-nudge ±15 MHz (hold Shift for ×3), or the −75/−15/+15/+75 buttons / `Set MHz`
+nudge ±15 MHz (hold Shift for ×3), `Ctrl+H` to hold the selected point, or
+the −75/−15/+15/+75 buttons / `Set MHz`
 box for precise moves. Everything happens on a working copy; **Revert
 edits** discards uncommitted changes, and re-reading the curve with pending
 edits requires confirming twice so a refused write isn't silently lost.
 **Reset curve to stock** zeros every point's delta (Turing's factory deltas
 are 0, so there's no persisted baseline to poison); a reboot also clears all
 deltas.
+
+### Hold this point (Ctrl+H)
+
+This is TitanTune's answer to Afterburner's `Ctrl+L` curve lock. `Ctrl+H`
+holds the selected V/F point; `Ctrl+H` again releases it. The hold is shown
+as a green vertical line at the point's voltage on the plot and as a status
+line on the Control tab, above the collapsible knob groups so it stays
+visible whatever is collapsed. Both clear on release.
+
+**It is built out of locked clocks, not the hard VF lock.** The card is
+pinned with `nvmlDeviceSetGpuLockedClocks(f, f)` at the selected point's
+frequency, and the boost arbiter then supplies that point's voltage — the
+same observable result as a curve lock. The alternative, NvAPI `0x39442CFB`
+(per-domain hard VF lock), is deliberately *not* used: its write struct is
+unverified against this card and it is rail-adjacent, so this app only ever
+reads lock state through it (see "Deliberately not wired to a button"
+below). `SetGpuLockedClocks` is documented, reversible, releasable in one
+call, and proven to hold at idle here with no GPU load needed.
+
+**A point's frequency is often not lockable, so the hold snaps DOWN.** The
+lockable set and the V/F curve are unrelated mechanisms (see "Lockable
+clocks are not a ceiling"): this card's table tops out at 2160 MHz while
+the curve reaches 2175. The hold therefore takes the highest lockable value
+*at or below* the point's frequency — never above, the same standing rule
+as every other snap in this app, so a hold can lose a bin but can never
+gain clock nobody asked for. It says so plainly in the log when it happens
+("point 96 is 2175 MHz; held at 2160 MHz, the highest lockable value") and
+repeats it in the status line. If no lockable value sits at or below the
+point, the hold is refused rather than approximated upward.
+
+Two further details:
+
+- The frequency used is the point's **hardware** frequency, not its staged
+  editor value. The arbiter reads the curve that is in the card, so a point
+  with an unwritten edit would otherwise be held at a frequency that curve
+  does not carry at that voltage. The log notes this when it applies.
+- Holding *and releasing* are both behind "Unlock controls", exactly like
+  the `Release` button. Making one write path exempt would mean "read-only"
+  no longer described the app; re-ticking the checkbox is always available,
+  and a reboot clears the lock regardless.
 
 ## Device tab
 
@@ -225,7 +270,9 @@ commands to run them by hand, never fired blind by this app:
   display output** on this card; never run blind.
 - The hard per-domain VF lock (NvAPI `0x39442CFB`) — the write struct is
   unverified against this hardware, so the app only reads lock state (shown
-  on Monitor via `BoostLock`/`0xE440B867`) and never writes it.
+  on Monitor via `BoostLock`/`0xE440B867`) and never writes it. `Ctrl+H`
+  ("Hold this point", above) gets the same observable result out of
+  `nvmlDeviceSetGpuLockedClocks` instead.
 
 This is research software written against one specific frankencard
 (Titan RTX die, Turing TU102, on an ASUS RTX 2080 Ti Strix PCB, driver

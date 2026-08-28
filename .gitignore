@@ -12,3 +12,7 @@ __pycache__/
 
 # Probe scratch output
 ping_ui_result.txt
+
+# Automatic pre-write undo points are session state, not tunes worth keeping.
+# Named profiles ARE tracked: they are per-card, and this repo is one card.
+profiles/autosave-*.json

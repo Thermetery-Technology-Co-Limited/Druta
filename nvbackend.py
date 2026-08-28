@@ -330,6 +330,12 @@ PERF_DECREASE_BITS = [
     (0x04, "AC/battery"),
     (0x08, "API triggered"),
     (0x10, "Insufficient aux power"),
+    # NVAPI's REASON_UNKNOWN. It sits far outside the 0x01..0x10 run, so it is
+    # easy to leave off the end of the list - and then the driver can report a
+    # decrease while every lamp on the panel stays dark, which reads as "nothing
+    # is holding the card back". A named lamp says the driver knows something we
+    # cannot decode, which is the honest answer.
+    (0x80000000, "Unknown"),
 ]
 
 
@@ -389,7 +395,26 @@ def _synchronized(fn):
     return wrapper
 
 
+class ResetStep(tuple):
+    """One step of reset_all: still the plain (ok, message) pair every caller
+    unpacks, plus the name of the knob it moved.
+
+    The name is there because one step - the clock-lock release - has a
+    consequence past its log line: the UI's record of what IT has locked may
+    only be cleared when that particular step succeeded, and a caller reading a
+    flat list of pairs cannot tell which pair that was (nor should it count
+    positions, since the tail steps are conditional)."""
+
+    def __new__(cls, name, res):
+        step = super().__new__(cls, res)
+        step.name = name
+        return step
+
+
 class GPU:
+    # names for the reset_all steps a caller has to single out (see ResetStep)
+    LOCK_STEP = "clock lock"
+
     def __init__(self):
         self._lock = threading.RLock()
         self.nvapi = NvAPI()
@@ -1031,19 +1056,25 @@ class GPU:
         return self.apply_vf_deltas({i: 0 for i in range(VFP_POINTS)})
 
     def reset_all(self):
-        """Return a list of (ok, message) so the caller can flag partial resets."""
-        steps = [self.set_clock_offset(0, 0),
-                 self.set_clock_offset(2, 0)]
+        """Return a list of (ok, message) so the caller can flag partial resets.
+        Each element is a ResetStep, so it also unpacks as that pair while
+        naming the knob it moved - GPU.LOCK_STEP is the clock-lock release."""
+        steps = [ResetStep("core offset", self.set_clock_offset(0, 0)),
+                 ResetStep("mem offset", self.set_clock_offset(2, 0))]
         if self.static.get("pl_def_mw"):
-            steps.append(self.set_power_limit_mw(self.static["pl_def_mw"]))
+            steps.append(ResetStep(
+                "power limit", self.set_power_limit_mw(self.static["pl_def_mw"])))
         else:
-            steps.append((False, "power limit: default unknown, left unchanged"))
-        steps.append(self.reset_gpu_clocks())
-        steps.append(self.reset_fan())
+            steps.append(ResetStep(
+                "power limit",
+                (False, "power limit: default unknown, left unchanged")))
+        steps.append(ResetStep(self.LOCK_STEP, self.reset_gpu_clocks()))
+        steps.append(ResetStep("fan", self.reset_fan()))
         if self.nvapi.ok and self.nvapi.VoltCtrlGet and self.nvapi.VoltCtrlSet:
-            steps.append(self.set_voltage_boost(0))
+            steps.append(ResetStep("voltage boost", self.set_voltage_boost(0)))
         if self.nvapi.ok and self.nvapi.BoostTableSet:
-            steps.append(self.reset_vf_curve())   # curve edits live here too
+            # curve edits live here too
+            steps.append(ResetStep("vf curve", self.reset_vf_curve()))
         return steps
 
 

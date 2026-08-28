@@ -17,7 +17,7 @@ Safety model, carried over from the Tk version:
   * every write is behind the "Unlock controls" gate (except reset-to-stock,
     which only ever moves toward stock)
   * footgun knobs (force P-state, TCC, CUDA clocks, hard VF lock) are documented
-    in Info, never wired to a button
+    in README.md, never wired to a button
   * Tk's modal confirmations have no ImGui equivalent, so every write path that
     had one (editor apply, reset-curve, reset-all) is now a press-again
     confirmation: the first press states the plan, the second commits it.
@@ -79,6 +79,14 @@ class TitanTune:
         self._vf_reset_armed = False
         self._apply_armed = None   # the exact edit set the user confirmed
         self._drag_idx = None
+        # THE record of what this app has locked the GPU clock to and why:
+        # None, or {"why": "hold"|"manual", "lo", "hi", (+ idx/mv/want)}.
+        # Hold and the Clocks menu drive the SAME nvmlDeviceSetGpuLockedClocks,
+        # so a second source of truth would let the on-screen hold outlive a
+        # Release that already dropped it in the driver.
+        self._clk_lock = None
+        self._lockable = None      # cached top-mem-row lockable clock list
+        self._hold_t = 0.0         # last accepted Ctrl+H (key auto-repeat)
         self._snap = None
         self._snap_err = None
         self._snap_t = None        # when the last GOOD read landed
@@ -321,6 +329,21 @@ class TitanTune:
     def sub_wrap(self, tw):
         return max(self.s(80), tw - self.s(26))
 
+    def menu_h(self):
+        """Height the viewport menu bar takes out of the client area. DPG draws
+        it OVER the top of the primary window instead of insetting it, so the
+        tabs really have this much less room than get_viewport_client_height()
+        reports - sizing from the raw figure pushes the bottom row under the
+        window edge. Measured once DPG will say, guessed from the font before
+        the first frame."""
+        if not dpg.does_item_exist("menubar"):
+            return 0
+        try:
+            h = dpg.get_item_rect_size("menubar")[1]
+        except Exception:
+            h = 0
+        return int(h) if h else (self.text_h("Ag", "ui") or self.s(19)) + self.s(8)
+
     def relayout(self, *_a):
         """Size the panels from the CURRENT viewport instead of fixed pixels.
         At 150% DPI the old fixed sizes overflowed and every panel grew its own
@@ -332,6 +355,10 @@ class TitanTune:
             return
         if W < 100 or H < 100:
             return
+        mh = self.menu_h()
+        if dpg.does_item_exist("menu_pad"):
+            dpg.configure_item("menu_pad", height=mh)
+        H -= mh
         pad = self.s(10)
         # six tiles across the full width
         tw = max(self.s(120), (W - pad * (len(self.TILES) + 2)) // len(self.TILES))
@@ -356,7 +383,7 @@ class TitanTune:
                                                      int(H * 0.34)))
         if dpg.does_item_exist("log"):
             dpg.configure_item("log", height=max(self.s(90), int(H * 0.13)))
-        for tag in ("vf_info", "vf_status", "vf_sel_info"):
+        for tag in ("vf_info", "vf_status", "vf_sel_info", "hold_info"):
             if dpg.does_item_exist(tag):
                 dpg.configure_item(tag, wrap=W - self.s(40))
 
@@ -459,97 +486,98 @@ class TitanTune:
     # ====================================================================== #
     #  CONTROL                                                               #
     # ====================================================================== #
+    # label / slider / Apply / extra, in UNSCALED px. Every knob group builds
+    # its table from this one tuple, so Apply is a straight column down the tab
+    # instead of landing wherever each row's label happened to end.
+    KNOB_COLS = (230, 340, 90, 80)
+
+    def knob_cols(self):
+        for w in self.KNOB_COLS:
+            dpg.add_table_column(width_fixed=True,
+                                 init_width_or_weight=self.s(w))
+
     def build_control(self):
         st = self.gpu.static
         with dpg.tab(label="  Control  "):
-            # Default ON: the only people running this are vetted internal
-            # users, and the extra click bought nothing. Untick to make the app
-            # read-only.
-            dpg.add_checkbox(label="Unlock controls", tag="unlock",
-                             default_value=True,
-                             callback=lambda s, a, u: self.sync_lock_ui())
+            with dpg.group(horizontal=True):
+                # Default ON: the only people running this are vetted internal
+                # users, and the extra click bought nothing. Untick to make the
+                # app read-only.
+                dpg.add_checkbox(label="Unlock controls", tag="unlock",
+                                 default_value=True,
+                                 callback=lambda s, a, u: self.sync_lock_ui())
+                dpg.add_spacer(width=self.s(40))
+                # sits with the gate, not inside a knob group: it undoes every
+                # group at once (and the curve), so it belongs to the tab
+                dpg.add_button(label="Reset all to stock", callback=self.reset_all,
+                               width=self.s(200), height=self.s(28))
             dpg.add_text("writes ENABLED - untick for read-only. "
                          "All changes are reversible and reset on reboot",
                          tag="unlock_note", color=DIM)
             dpg.add_separator()
 
-            core_lo, core_hi = -200, 300
-            if st.get("core_off_range"):
-                core_lo, core_hi = st["core_off_range"][0], st["core_off_range"][1]
-            self.slider_row("core", "Core clock offset (MHz)", core_lo, core_hi,
-                            0, self.apply_core,
-                            note=f"Apply snaps DOWN to the {VF_STEP_KHZ//1000} "
-                                 f"MHz grid, then shows what was written")
-
-            mscale, munit = self.gpu.mem_offset_scale()
-            mlo, mhi = -500, 1500
-            if st.get("mem_off_range"):
-                mlo = int(st["mem_off_range"][0] / mscale)
-                mhi = int(st["mem_off_range"][1] / mscale)
-            self.slider_row("mem", f"Memory offset ({munit})", mlo, mhi, 0,
-                            self.apply_mem)
-
-            pl_lo = st.get("pl_min_mw", 100000) // 1000
-            pl_hi = st.get("pl_max_mw", 320000) // 1000
-            pl_def = st.get("pl_def_mw", 260000) // 1000
-            self.slider_row("pl", "Power limit (W)", pl_lo, pl_hi, pl_def,
-                            self.apply_pl)
-
-            vb = self.gpu.read_voltage_boost()
-            self.slider_row("volt", "Core voltage boost (%)", 0, 100,
-                            0 if vb is None else max(0, min(100, int(vb))),
-                            self.apply_volt,
-                            note="raises the reliability-voltage ceiling")
-
-            fan_floor = st.get("fan_min", 30)
-            self.slider_row("fan", "Fan duty (%)", fan_floor, 100, fan_floor,
-                            self.apply_fan, extra=("Auto", self.fan_auto))
-
-            dpg.add_separator()
-            gmin = st.get("gfx_min", 300)
-            gmax = st.get("gfx_max", 2160)
-            with dpg.group(horizontal=True):
-                dpg.add_text("GPU clock lock")
-                # clamped to the supported range for the same reason as the
-                # sliders: an input_int carries DPG's default 0..100 bounds and
-                # ignores them on entry, so a typo here reaches lock_gpu_clocks
-                # and comes back as a refusal in the log
-                dpg.add_input_int(tag="lock_min", default_value=gmin,
-                                  width=self.s(110), step=15,
-                                  min_value=gmin, max_value=gmax,
-                                  min_clamped=True, max_clamped=True)
-                dpg.add_input_int(tag="lock_max", default_value=gmax,
-                                  width=self.s(110), step=15,
-                                  min_value=gmin, max_value=gmax,
-                                  min_clamped=True, max_clamped=True)
-                dpg.add_button(label="Lock", tag="go_lock",
-                               callback=self.apply_lock, width=self.s(90))
-                dpg.add_button(label="Release", tag="go_release",
-                               callback=self.release_lock, width=self.s(90))
-                dpg.add_button(label="Lock max", tag="go_lockmax",
-                               callback=self.lock_max, width=self.s(100))
-                with dpg.tooltip(dpg.last_item()):
-                    dpg.add_text(
-                        f"Pins both ends to {gmax} MHz - the top of the\n"
-                        "driver's LOCKABLE table.\n\n"
-                        "That table is not a boost ceiling: the V/F curve\n"
-                        "reaches clocks above it (it is floor((base+delta)\n"
-                        "/15)*15, never checked against this list). So if\n"
-                        "the card is already boosting past it, locking max\n"
-                        "will LOWER the clock. This is for holding one\n"
-                        "frequency steady, not for going fast.")
-                dpg.add_text(f"({gmin}-{gmax} lockable)", color=DIM)
-            self._ctl_widgets += ["lock_min", "lock_max", "go_lock",
-                                  "go_release", "go_lockmax"]
-
-            dpg.add_separator()
+            # OUTSIDE the collapsing groups on purpose: this line is the only
+            # in-app confirmation that an applied offset or clock lock actually
+            # took effect, so it has to stay on screen whatever is collapsed.
             dpg.add_text("", tag="ctl_clocks", color=TEXT)
             self.bind("ctl_clocks", "mono")
+            # Outside the collapsing groups for the same reason as ctl_clocks,
+            # and one more: Ctrl+H is a window-wide key, so a hold can be taken
+            # and released with the V/F header that owns the feature collapsed.
+            # This is then the only thing on screen saying the clock is pinned.
+            dpg.add_text("", tag="hold_info", color=GOOD)
             dpg.add_separator()
-            dpg.add_button(label="Reset all to stock", callback=self.reset_all,
-                           width=self.s(200), height=self.s(34))
-            dpg.add_separator()
-            self.build_vf()
+
+            with dpg.collapsing_header(label="Clock offsets", default_open=True):
+                with dpg.table(header_row=False, no_host_extendX=True,
+                               policy=dpg.mvTable_SizingFixedFit):
+                    self.knob_cols()
+                    core_lo, core_hi = -200, 300
+                    if st.get("core_off_range"):
+                        core_lo = st["core_off_range"][0]
+                        core_hi = st["core_off_range"][1]
+                    self.slider_row("core", "Core clock offset (MHz)",
+                                    core_lo, core_hi, 0, self.apply_core,
+                                    note=f"Apply snaps DOWN to the "
+                                         f"{VF_STEP_KHZ//1000} MHz grid, then "
+                                         f"shows what was written")
+
+                    mscale, munit = self.gpu.mem_offset_scale()
+                    mlo, mhi = -500, 1500
+                    if st.get("mem_off_range"):
+                        mlo = int(st["mem_off_range"][0] / mscale)
+                        mhi = int(st["mem_off_range"][1] / mscale)
+                    self.slider_row("mem", f"Memory offset ({munit})",
+                                    mlo, mhi, 0, self.apply_mem)
+
+            # Voltage boost is grouped with the limits, not the offsets: it moves
+            # no clock at all, it raises a ceiling the arbiter is allowed to
+            # reach - the same shape of knob as the power limit.
+            with dpg.collapsing_header(label="Limits", default_open=True):
+                with dpg.table(header_row=False, no_host_extendX=True,
+                               policy=dpg.mvTable_SizingFixedFit):
+                    self.knob_cols()
+                    pl_lo = st.get("pl_min_mw", 100000) // 1000
+                    pl_hi = st.get("pl_max_mw", 320000) // 1000
+                    pl_def = st.get("pl_def_mw", 260000) // 1000
+                    self.slider_row("pl", "Power limit (W)", pl_lo, pl_hi,
+                                    pl_def, self.apply_pl)
+
+                    vb = self.gpu.read_voltage_boost()
+                    self.slider_row("volt", "Core voltage boost (%)", 0, 100,
+                                    0 if vb is None else max(0, min(100, int(vb))),
+                                    self.apply_volt,
+                                    note="raises the reliability-voltage ceiling")
+
+                    fan_floor = st.get("fan_min", 30)
+                    self.slider_row("fan", "Fan duty (%)", fan_floor, 100,
+                                    fan_floor, self.apply_fan,
+                                    extra=("Auto", self.fan_auto))
+
+            with dpg.collapsing_header(label="V/F curve editor",
+                                       default_open=True):
+                self.build_vf()
+
             dpg.add_separator()
             dpg.add_text("log  (newest line first)", color=DIM)
             dpg.add_input_text(tag="log", multiline=True, readonly=True,
@@ -557,25 +585,32 @@ class TitanTune:
             self.bind("log", "mono")
 
     def slider_row(self, key, label, lo, hi, init, cb, note=None, extra=None):
-        with dpg.group(horizontal=True):
-            # clamped: in DPG min_value/max_value only bound the DRAG. Ctrl+click
-            # turns a slider into a text field that accepts anything, so without
-            # this the UI happily shows 150% voltage boost or a +5000 MHz offset,
-            # the backend refuses the write, and the only sign is one log line
-            # while the knob keeps displaying a value the card never took.
-            dpg.add_slider_int(tag=f"sl_{key}", label="", default_value=init,
-                               min_value=lo, max_value=hi, clamped=True,
-                               width=self.s(340))
-            dpg.add_button(label="Apply", tag=f"go_{key}", width=self.s(80),
+        """One knob = one row of the enclosing knob table (see knob_cols), so
+        every Apply lands in the same column even though the labels, the notes
+        and the presence of an extra button all differ per row."""
+        with dpg.table_row():
+            dpg.add_text(label, color=TEXT)
+            with dpg.group():
+                # clamped: in DPG min_value/max_value only bound the DRAG.
+                # Ctrl+click turns a slider into a text field that accepts
+                # anything, so without this the UI happily shows 150% voltage
+                # boost or a +5000 MHz offset, the backend refuses the write, and
+                # the only sign is one log line while the knob keeps displaying a
+                # value the card never took.
+                dpg.add_slider_int(tag=f"sl_{key}", label="", default_value=init,
+                                   min_value=lo, max_value=hi, clamped=True,
+                                   width=-1)
+                if note:
+                    dpg.add_text(note, color=DIM,
+                                 wrap=self.s(self.KNOB_COLS[1] - 10))
+            # width=-1 fills the cell, which is what makes the buttons one width
+            dpg.add_button(label="Apply", tag=f"go_{key}", width=-1,
                            callback=lambda: cb(dpg.get_value(f"sl_{key}")))
             self._ctl_widgets += [f"sl_{key}", f"go_{key}"]
             if extra:
                 dpg.add_button(label=extra[0], tag=f"go_{key}_x",
-                               width=self.s(70), callback=lambda: extra[1]())
+                               width=-1, callback=lambda: extra[1]())
                 self._ctl_widgets.append(f"go_{key}_x")
-            dpg.add_text(label, color=TEXT)
-        if note:
-            dpg.add_text(f"      {note}", color=DIM)
 
     def sync_lock_ui(self):
         """Grey out every write widget while the gate is clear. Tk kept the same
@@ -642,13 +677,25 @@ class TitanTune:
             self.report(self.gpu.reset_fan())
 
     def apply_lock(self):
-        if self.guard():
-            self.report(self.gpu.lock_gpu_clocks(dpg.get_value("lock_min"),
-                                                 dpg.get_value("lock_max")))
+        if not self.guard():
+            return
+        mn, mx = int(dpg.get_value("lock_min")), int(dpg.get_value("lock_max"))
+        ok, m = self.gpu.lock_gpu_clocks(mn, mx)
+        self.report((ok, m))
+        if ok:
+            self.set_lock_state({"why": "manual", "lo": mn, "hi": mx})
 
     def release_lock(self):
-        if self.guard():
-            self.report(self.gpu.reset_gpu_clocks())
+        """The ONE release path - Ctrl+H routes here too. Both drive the same
+        driver-side lock, so sharing the code is what makes it impossible for
+        the hold banner to survive a Release (or to be dropped while the driver
+        still holds the clock, if the release fails)."""
+        if not self.guard():
+            return
+        ok, m = self.gpu.reset_gpu_clocks()
+        self.report((ok, m))
+        if ok:
+            self.set_lock_state(None)
 
     def lock_max(self):
         """Pin to the top of the driver's lockable table. Warns when that is
@@ -668,7 +715,36 @@ class TitanTune:
                      f"lock ceiling - locking will step it DOWN", ok=False)
         dpg.set_value("lock_min", gmax)
         dpg.set_value("lock_max", gmax)
-        self.report(self.gpu.lock_gpu_clocks(gmax, gmax))
+        ok, m = self.gpu.lock_gpu_clocks(gmax, gmax)
+        self.report((ok, m))
+        if ok:
+            self.set_lock_state({"why": "manual", "lo": gmax, "hi": gmax})
+
+    def set_lock_state(self, state):
+        """Record what the clock lock is now, and redraw both indicators. Every
+        path that moves the driver-side lock - Lock, Lock max, Release, Ctrl+H,
+        Reset all - ends here, which is what stops a stale HOLD banner from
+        claiming a point the card was already released from."""
+        self._clk_lock = state
+        held = state if state and state["why"] == "hold" else None
+        if dpg.does_item_exist("vf_holdline"):
+            dpg.set_value("vf_holdline", [[held["mv"]] if held else []])
+        if not dpg.does_item_exist("hold_info"):
+            return
+        if held:
+            txt = (f"HOLD  point {held['idx']} @ {held['mv']:.2f} mV - clock "
+                   f"pinned at {held['hi']} MHz"
+                   + (f", snapped DOWN from the point's {held['want']} MHz "
+                      f"(the highest lockable value at or below it)"
+                      if held["hi"] != held["want"] else "")
+                   + "   •   Ctrl+H releases")
+        elif state:
+            txt = (f"clock locked to [{state['lo']}..{state['hi']}] MHz from "
+                   f"the Clocks menu - no V/F point is held")
+        else:
+            txt = ""
+        dpg.set_value("hold_info", txt)
+        dpg.configure_item("hold_info", color=GOOD if held else WARN)
 
     def reset_all(self):
         if not self._reset_armed:
@@ -682,6 +758,11 @@ class TitanTune:
         for ok, m in self.gpu.reset_all():
             self.log(m, ok)
             failed += (0 if ok else 1)
+        # reset_all() releases the clock lock as one of its steps, so the hold
+        # record has to go with it - a HOLD banner left over a released lock
+        # would name a point the card is no longer pinned to. A release that
+        # failed is one of the `failed` steps and is already in the log above.
+        self.set_lock_state(None)
         st = self.gpu.static
         dpg.set_value("sl_core", 0)
         dpg.set_value("sl_mem", 0)
@@ -779,6 +860,11 @@ class TitanTune:
                 # number in a box.
                 dpg.add_inf_line_series([1091.0], label="cap",
                                         tag="vf_capline")
+                # A hold changes what the CARD does while leaving the curve
+                # untouched, so nothing on this plot would move to show it.
+                # Drawn at the held point's voltage, in a different colour from
+                # the cap line so the two are never read as one thing.
+                dpg.add_inf_line_series([], label="held", tag="vf_holdline")
         # Every V/F point is a drag target, so the dots have to be big
         # enough to aim at: DPG's 4 px default disappears at 150% DPI.
         dpg.bind_item_theme("vf_cur",
@@ -795,6 +881,13 @@ class TitanTune:
                 dpg.add_theme_style(dpg.mvPlotStyleVar_LineWeight,
                                     self.s(2), category=dpg.mvThemeCat_Plots)
         dpg.bind_item_theme("vf_capline", capth)
+        with dpg.theme() as holdth:
+            with dpg.theme_component(dpg.mvAll):
+                dpg.add_theme_color(dpg.mvPlotCol_Line, GOOD,
+                                    category=dpg.mvThemeCat_Plots)
+                dpg.add_theme_style(dpg.mvPlotStyleVar_LineWeight,
+                                    self.s(3), category=dpg.mvThemeCat_Plots)
+        dpg.bind_item_theme("vf_holdline", holdth)
         # NOTE: no per-point drag widgets. Click-and-drag anywhere on the
         # plot grabs the NEAREST point (by voltage) and moves it, which is
         # how the Tk editor behaved and keeps every dot draggable without
@@ -842,7 +935,8 @@ class TitanTune:
         dpg.add_text("--", tag="vf_sel_info", color=TEXT)
         self.bind("vf_sel_info", "mono")
         dpg.add_text("drag any dot  \u2022  A/D select  \u2022  W/S move "
-                     "\u00b115 MHz  \u2022  hold Shift for \u00b145",
+                     "\u00b115 MHz  \u2022  hold Shift for \u00b145  \u2022  "
+                     "Ctrl+H hold the selected point (again to release)",
                      color=DIM)
 
         # plot-wide mouse + keyboard control (panning is on the middle button,
@@ -860,6 +954,7 @@ class TitanTune:
             for key, step in ((dpg.mvKey_A, -1), (dpg.mvKey_D, 1)):
                 dpg.add_key_press_handler(key, user_data=step,
                                           callback=self.on_key_select)
+            dpg.add_key_press_handler(dpg.mvKey_H, callback=self.on_key_hold)
 
     def wf(self, idx):
         """Working (edited) frequency in kHz for a point index."""
@@ -1108,6 +1203,106 @@ class TitanTune:
             return
         pos = max(0, min(len(order) - 1, pos + int(user_data or 1) * mult))
         self.vf_select(order[pos])
+
+    # ---- hold this point (Ctrl+H) ----------------------------------------- #
+    HOLD_REPEAT_S = 0.4
+
+    def on_key_hold(self, sender=None, app_data=None, user_data=None):
+        """Ctrl+H. The registry is window-wide, so both guards matter: a bare H
+        must not pin the clock, and Ctrl+H typed into a number box must not
+        either (same rule as W/A/S/D)."""
+        if self.typing() or not dpg.is_key_down(dpg.mvKey_ModCtrl):
+            return
+        # DPG's key-press handler is ImGui::IsKeyPressed(key) with repeat ON, so
+        # a key leaned on auto-repeats ~20x/sec after 275 ms. That is what W/S
+        # want; here every fire is a driver write, and the repeat would toggle
+        # the clock lock on and off twenty times a second. One deliberate press,
+        # one toggle.
+        now = time.monotonic()
+        if now - self._hold_t < self.HOLD_REPEAT_S:
+            return
+        self._hold_t = now
+        self.hold_toggle()
+
+    def lockable_list(self):
+        """Graphics clocks nvmlDeviceSetGpuLockedClocks will accept, from the
+        TOP memory-clock row - the row lock_gpu_clocks validates against, since
+        static['gfx_min'/'gfx_max'] are read from that same row. Cached: it is
+        one NVML enumeration per memory state, it cannot change while the driver
+        is loaded, and this runs on the UI thread from a keystroke.
+
+        Empty is not cached (`not`, not `is None`): a driver that failed to
+        enumerate would otherwise refuse every hold for the rest of the run."""
+        if not self._lockable:
+            rows = self.gpu.lockable_clocks_by_mem()
+            self._lockable = sorted(max(rows, key=lambda r: r[0])[1]) \
+                if rows else []
+        return self._lockable
+
+    def snap_lockable(self, mhz):
+        """Highest lockable clock at or below `mhz`, or None if there is none.
+        DOWN only, like every other snap here: a V/F point's frequency is often
+        not IN the lockable table at all (this card's curve reaches 2175 MHz
+        against a 2160 MHz table), and a request may lose a bin but must never
+        gain clock nobody asked for."""
+        below = [c for c in self.lockable_list() if c <= mhz]
+        return max(below) if below else None
+
+    def hold_toggle(self):
+        if self._clk_lock and self._clk_lock["why"] == "hold":
+            # straight through the Release button's own handler: one release
+            # path means the banner and the driver cannot end up disagreeing
+            self.release_lock()
+        else:
+            self.hold_point()
+
+    def hold_point(self):
+        """TitanTune's answer to Afterburner's Ctrl+L curve lock: pin the card
+        at the selected point's frequency with nvmlDeviceSetGpuLockedClocks, and
+        the boost arbiter then supplies that point's voltage - the same
+        observable result, built from the one clock write this app makes.
+
+        Deliberately NOT the hard per-domain VF lock (NvAPI 0x39442CFB): its
+        write struct is unverified on this card and it is rail-adjacent, so it
+        stays read-only (see README). The locked-clock path is documented,
+        reversible, and proven to hold at idle here with no load needed."""
+        if not self.guard():
+            return
+        if self.vf_sel is None or self.vf_sel not in self.vf_by_idx:
+            self.log("hold: no point selected - read the curve first", False)
+            return
+        idx = self.vf_sel
+        p = self.vf_by_idx[idx]
+        # the HARDWARE frequency, not wf(): the arbiter reads the curve that is
+        # in the card, so a staged edit this point has not been written yet
+        # would name a frequency that curve does not carry at this voltage
+        want = int(round(p["freq_mhz"]))
+        f = self.snap_lockable(want)
+        if f is None:
+            lst = self.lockable_list()
+            self.log(f"cannot hold point {idx}: {want} MHz is below every "
+                     f"lockable clock"
+                     + (f" (the lowest is {lst[0]} MHz)" if lst else
+                        " - the driver enumerated none"), False)
+            return
+        ok, m = self.gpu.lock_gpu_clocks(f, f)
+        if not ok:
+            self.log(m, False)
+            return
+        # no report() on success: the backend's "GPU clock locked to [f..f]"
+        # says less than the line below and would push the snap note off the
+        # ~9 rows the log shows
+        self.set_lock_state({"why": "hold", "lo": f, "hi": f, "idx": idx,
+                             "mv": p["volt_mv"], "want": want})
+        if f != want:
+            self.log(f"point {idx} is {want} MHz; held at {f} MHz, the highest "
+                     f"lockable value", None)
+        if self.vf_work.get(idx) != self.vf_orig.get(idx):
+            self.log(f"note: point {idx} has a staged edit that is not in the "
+                     f"card yet - the hold uses its hardware frequency", None)
+        self.log(f"holding point {idx} @ {p['volt_mv']:.2f} mV at {f} MHz - the "
+                 f"arbiter supplies that point's voltage. Ctrl+H releases",
+                 True)
 
     def vf_select(self, idx):
         if not self.vf_points:
@@ -1389,7 +1584,7 @@ class TitanTune:
             self.vf_read(force=True)
 
     # ====================================================================== #
-    #  INFO                                                                  #
+    #  DEVICE REPORT                                                         #
     # ====================================================================== #
     def lockable_summary(self):
         """The lockable-clock table is per memory clock, not one range. The
@@ -1442,15 +1637,172 @@ deliberately does not put behind a button."""
         except Exception as e:
             self.log(f"clipboard unavailable: {e}", ok=False)
 
-    def build_device(self):
-        with dpg.tab(label="  Device  "):
+    # ====================================================================== #
+    #  MENU BAR + TOOL WINDOWS                                               #
+    # ====================================================================== #
+    def show_win(self, sender=None, app_data=None, user_data=None):
+        """Open one of the tool windows. They are built once and hidden, not
+        created per click, so a second open restores the size and position the
+        user left them at. Focusing is not optional: an already-open window
+        sitting behind the main one would make the menu item look dead."""
+        tag = user_data
+        if not dpg.does_item_exist(tag):
+            return
+        dpg.configure_item(tag, show=True)
+        dpg.focus_item(tag)
+
+    def build_menu_bar(self):
+        """dpg.viewport_menu_bar is a TOP-LEVEL container - it belongs to the
+        viewport, not to 'root', so it must be built OUTSIDE that window. DPG
+        then draws it over the primary window rather than insetting it, which
+        is what the menu_pad spacer in run() and menu_h() in relayout() are
+        both paying for."""
+        st = self.gpu.static
+        gmin = st.get("gfx_min", 300)
+        gmax = st.get("gfx_max", 2160)
+        with dpg.viewport_menu_bar(tag="menubar"):
+            with dpg.menu(label="File"):
+                dpg.add_menu_item(label="Exit",
+                                  callback=lambda s, a, u: dpg.stop_dearpygui())
+            with dpg.menu(label="Device"):
+                dpg.add_menu_item(label="Device report...", user_data="win_device",
+                                  callback=self.show_win)
+                dpg.add_menu_item(label="Copy device report",
+                                  callback=self.copy_device_report)
+            # The clock lock lives up here because it was eating the widest row
+            # on the Control tab. It is the same widgets with the same tags, so
+            # guard() and the unlock gate (_ctl_widgets, below) still cover it.
+            # Ctrl+H (hold a V/F point) drives this SAME driver-side lock from
+            # the curve editor - see set_lock_state for why there is exactly one
+            # record of what is locked.
+            with dpg.menu(label="Clocks"):
+                dpg.add_text("GPU CLOCK LOCK", color=ACCENT)
+                dpg.add_text(f"{gmin}-{gmax} MHz lockable", color=DIM)
+                dpg.add_separator()
+                # clamped to the supported range for the same reason as the
+                # sliders: an input_int carries DPG's default 0..100 bounds and
+                # ignores them on entry, so a typo here reaches lock_gpu_clocks
+                # and comes back as a refusal in the log
+                dpg.add_input_int(tag="lock_min", label="min MHz",
+                                  default_value=gmin,
+                                  width=self.s(130), step=15,
+                                  min_value=gmin, max_value=gmax,
+                                  min_clamped=True, max_clamped=True)
+                dpg.add_input_int(tag="lock_max", label="max MHz",
+                                  default_value=gmax,
+                                  width=self.s(130), step=15,
+                                  min_value=gmin, max_value=gmax,
+                                  min_clamped=True, max_clamped=True)
+                dpg.add_spacer(height=self.s(4))
+                with dpg.group(horizontal=True):
+                    dpg.add_button(label="Lock", tag="go_lock",
+                                   callback=self.apply_lock, width=self.s(90))
+                    dpg.add_button(label="Release", tag="go_release",
+                                   callback=self.release_lock, width=self.s(90))
+                    dpg.add_button(label="Lock max", tag="go_lockmax",
+                                   callback=self.lock_max, width=self.s(100))
+                    with dpg.tooltip(dpg.last_item()):
+                        dpg.add_text(
+                            f"Pins both ends to {gmax} MHz - the top of the\n"
+                            "driver's LOCKABLE table.\n\n"
+                            "That table is not a boost ceiling: the V/F curve\n"
+                            "reaches clocks above it (it is floor((base+delta)\n"
+                            "/15)*15, never checked against this list). So if\n"
+                            "the card is already boosting past it, locking max\n"
+                            "will LOWER the clock. This is for holding one\n"
+                            "frequency steady, not for going fast.")
+                dpg.add_text("the result is one line in the Control tab log.\n"
+                             "Ctrl+H on the curve editor drives this same lock",
+                             color=DIM)
+            self._ctl_widgets += ["lock_min", "lock_max", "go_lock",
+                                  "go_release", "go_lockmax"]
+            with dpg.menu(label="Help"):
+                dpg.add_menu_item(label="Keyboard shortcuts",
+                                  user_data="win_keys", callback=self.show_win)
+                dpg.add_menu_item(label="About", user_data="win_about",
+                                  callback=self.show_win)
+
+    # Only the bindings that EXIST in build_vf's handler_registry. A shortcut
+    # list that names a key nothing implements is worse than no list at all, so
+    # anything added to that registry has to gain a row here in the same change.
+    VF_KEYS = [
+        ("W / S", "move the selected point +/- 15 MHz (one clock bin)"),
+        ("A / D", "select the previous / next point along the curve"),
+        ("Shift + W/S", "move 3 bins at once (+/- 45 MHz)"),
+        ("Shift + A/D", "step the selection 3 points at a time"),
+        ("left-click", "select the dot nearest the click, by voltage"),
+        ("left-drag", "move the grabbed dot; it snaps to whole 15 MHz bins"),
+        ("middle-drag", "pan the plot (the left button belongs to the dots)"),
+        ("Ctrl + H", "hold the selected point: pins the clock there so the "
+                     "boost arbiter supplies that point's voltage. Press "
+                     "again to release. The point's frequency snaps DOWN to "
+                     "the nearest lockable clock, never up"),
+    ]
+
+    def build_tool_windows(self):
+        """Everything the menu bar opens. Built hidden, at startup, because the
+        device report is a snapshot of what the driver said when the app came up
+        - the same text the retired Device tab rendered."""
+        # wide on purpose: the report's longest lines (the offset ranges, the
+        # per-mem-clock lockable table) are what a bug report needs, and a
+        # readonly multiline box clips them rather than wrapping
+        with dpg.window(label="Device report", tag="win_device", show=False,
+                        width=self.s(1000), height=self.s(600),
+                        pos=[self.s(70), self.s(70)]):
             dpg.add_button(label="Copy device report",
                            callback=self.copy_device_report,
                            width=self.s(200))
+            # tag "info" follows the text here from the Device tab: typing()
+            # names it, so W/S must still not retune the curve behind this box
             dpg.add_input_text(tag="info", multiline=True, readonly=True,
                                default_value=self.device_report(),
                                width=-1, height=-1)
             self.bind("info", "mono")
+
+        with dpg.window(label="Keyboard shortcuts", tag="win_keys", show=False,
+                        width=self.s(620), height=self.s(460),
+                        pos=[self.s(140), self.s(120)]):
+            dpg.add_text("V/F CURVE EDITOR", color=ACCENT)
+            dpg.add_separator()
+            with dpg.table(header_row=False, no_host_extendX=True,
+                           policy=dpg.mvTable_SizingFixedFit):
+                dpg.add_table_column(width_fixed=True,
+                                     init_width_or_weight=self.s(130))
+                dpg.add_table_column(width_fixed=True,
+                                     init_width_or_weight=self.s(430))
+                for keys, what in self.VF_KEYS:
+                    with dpg.table_row():
+                        dpg.add_text(keys, color=ACCENT)
+                        # wrapped to the column: a fixed-fit table does not
+                        # wrap on its own, so the longer rows would run out
+                        # past the window edge instead of onto a second line
+                        dpg.add_text(what, color=TEXT, wrap=self.s(420))
+            dpg.add_spacer(height=self.s(8))
+            dpg.add_text("The key handlers are window-wide, not plot-local, but "
+                         "they stand down while a text or number box has focus - "
+                         "so W/A/S/D typed into the cap, index or MHz box do not "
+                         "also retune the curve.", color=DIM, wrap=self.s(580))
+
+        with dpg.window(label="About TitanTune", tag="win_about", show=False,
+                        width=self.s(620), height=self.s(300),
+                        pos=[self.s(180), self.s(160)]):
+            dpg.add_text("TitanTune", color=ACCENT)
+            dpg.add_text("Monitor and tuner for the Titan RTX (TU102) die on an "
+                         "ASUS RTX 2080 Ti Strix board.", wrap=self.s(580))
+            dpg.add_spacer(height=self.s(6))
+            dpg.add_text("README.md, shipped beside this app, is the single "
+                         "source of truth for the hardware: the 15 MHz clock "
+                         "quantisation and phase rules, the two-knob voltage "
+                         "mechanism, what is reversible, and the footguns this "
+                         "tool deliberately does not put behind a button.",
+                         color=DIM, wrap=self.s(580))
+            dpg.add_spacer(height=self.s(6))
+            dpg.add_text("The core/mem offset sliders and the V/F curve are the "
+                         "SAME delta table, and Afterburner writes it too - "
+                         "drive clocks from ONE tool at a time.", color=WARN,
+                         wrap=self.s(580))
+            dpg.add_spacer(height=self.s(6))
+            dpg.add_text(f"backend: {self.gpu.status_line()}", color=DIM)
 
     # ====================================================================== #
     #  main                                                                  #
@@ -1465,7 +1817,13 @@ deliberately does not put behind a button."""
         self.load_fonts()
 
         st = self.gpu.static
+        self.build_menu_bar()             # viewport-owned, so NOT inside 'root'
         with dpg.window(tag="root"):
+            # DPG draws the viewport menu bar OVER the primary window instead of
+            # insetting it, so without this pad the title row is half-hidden
+            # behind File/Device/Clocks/Help. relayout() keeps it in step with
+            # the bar's measured height.
+            dpg.add_spacer(tag="menu_pad", height=self.menu_h())
             with dpg.group(horizontal=True):
                 dpg.add_text("TitanTune", tag="hdr", color=ACCENT)
                 self.bind("hdr", "big")
@@ -1479,7 +1837,7 @@ deliberately does not put behind a button."""
             with dpg.tab_bar():
                 self.build_monitor()
                 self.build_control()      # the V/F editor lives inside this tab
-                self.build_device()
+        self.build_tool_windows()         # hidden until the menu bar asks
 
         dpg.setup_dearpygui()
         dpg.show_viewport()
