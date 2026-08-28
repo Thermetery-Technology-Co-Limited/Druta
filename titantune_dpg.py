@@ -53,7 +53,9 @@ import time
 
 import dearpygui.dearpygui as dpg
 
+import gpuload
 import profiles
+import timings
 from nvbackend import (GPU, EVENT_REASONS, PERF_DECREASE_BITS, VF_STEP_KHZ,
                        VFP_POINTS, below_cap,
                        PRIV_CONFIRMED, PRIV_DOMAIN_ID, PRIV_LIKELY,
@@ -126,6 +128,17 @@ class TitanTune:
         self._plan_themes = {}     # plan-banner box themes, one per band
         self._plan_band = None
         self._pending_load = None  # (name, why) awaiting a cross-card confirm
+        # ---- Timings tab (read-only; see the TIMINGS section) ------------- #
+        self._tim_lock = threading.Lock()
+        self._tim = None           # latest timings.Snapshot
+        self._tim_avail = None     # latest timings.Availability
+        self._tim_busy = False     # a capture thread is running
+        self._tim_new = False      # there is a result the UI has not drawn
+        self._tim_caps = {}        # memory clock -> Snapshot, the comparison
+        self._tim_p0_in = False    # card is inside its top memory state now
+        self._tim_note = ""        # where the last induced load landed
+        self._tim_what = ""        # what the worker is doing, for the button
+        self._tim_auto_t = 0.0     # last AUTOMATIC capture (anti-thrash)
 
     # ---- helpers ---------------------------------------------------------- #
     def s(self, n):
@@ -612,7 +625,40 @@ class TitanTune:
         for tag in ("vf_info", "vf_status", "vf_sel_info", "hold_info"):
             if dpg.does_item_exist(tag):
                 dpg.configure_item(tag, wrap=W - self.s(40))
+        # timings tab: the header is sized to its CONTENT like the monitor
+        # tiles are - it carries the memory clock the whole tab is counted
+        # against plus a warning that wraps - and the panels below split what
+        # is left. The divergence panel is usually hidden and takes no share.
+        wrapw = W - self.s(40)
+        for tag in ("tim_ro", "tim_reason", "tim_warn", "tim_sub", "cmp_hint",
+                    "cmp_legend", "div_sub", "tim_state", "tim_induce_note"):
+            if dpg.does_item_exist(tag):
+                dpg.configure_item(tag, wrap=wrapw)
+        if dpg.does_item_exist("pan_tim_hdr"):
+            hdr_h = self.tim_hdr_h(wrapw)
+            dpg.configure_item("pan_tim_hdr", height=hdr_h)
+            rest = max(self.s(320), H - hdr_h - self.s(104))
+            div_h = (max(self.s(120), int(rest * 0.20))
+                     if dpg.is_item_shown("pan_div") else 0)
+            tim_h = max(self.s(180), int((rest - div_h) * 0.56))
+            cmp_h = max(self.s(150), rest - div_h - tim_h - self.s(30))
+            for tag, h in (("pan_tim", tim_h), ("pan_cmp", cmp_h),
+                           ("pan_div", div_h)):
+                if h and dpg.does_item_exist(tag):
+                    dpg.configure_item(tag, height=h)
         self.size_plan_banner()
+
+    def tim_hdr_h(self, wrap):
+        """Measured, not guessed - same reason as tile_height(): the warning
+        line wraps, and at some widths a fixed height would either clip the
+        clock this tab's whole ns column depends on or leave a scrollbar on a
+        box with nothing to scroll."""
+        lh = self.text_h("Ag", "ui") or self.s(19)
+        h = lh * 3 + self.s(28)
+        if dpg.does_item_exist("tim_warn") and dpg.is_item_shown("tim_warn"):
+            h += self.text_h(dpg.get_value("tim_warn") or "Ag", "ui",
+                             wrap) or lh
+        return int(h)
 
     def mem_fmt(self, reported):
         """True memory clock when the type is known, else raw NVAPI figure."""
@@ -2751,6 +2797,692 @@ deliberately does not put behind a button."""
             dpg.add_text(f"backend: {self.gpu.status_line()}", color=DIM)
 
     # ====================================================================== #
+    #  TIMINGS  -  READ-ONLY                                                 #
+    # ====================================================================== #
+    # This tab CANNOT write. timings.py talks to nvtune through a whitelist of
+    # read-only subcommands and refuses --commit/--force/set/restore/apply/
+    # daemon before a process is created; nothing here builds an argv at all.
+    # Writing an FBPA timing register can hang the machine and corrupt VRAM,
+    # so the refusal is code, not a convention (see timings._check_argv).
+    #
+    # WHAT THE TAB IS FOR: a timing register holds a CYCLE COUNT, and a cycle
+    # count is meaningless without the memory clock it was counted against.
+    # The same registers read as garbage at idle and as textbook GDDR6 at P0.
+    # So every number here is shown WITH the clock its snapshot was taken at,
+    # and the comparison view puts what a field's cycle count did next to what
+    # the clock did between the same two states - two ratios agreeing is what
+    # proves the decode is real.
+    TIM_COLS = (("field", 118), ("register", 88), ("bits", 76),
+                ("cycles", 62), ("ns at the capture clock", 250),
+                ("what it is", 560))
+
+    TIM_READONLY = ("READ-ONLY. This tab decodes the framebuffer-partition "
+                    "memory timing registers through nvtune's read-only "
+                    "subcommands. It cannot write one: TitanTune has no code "
+                    "path that can build a writing nvtune command line.")
+
+    # verdict -> colour for the comparison table. 'flat' is DIM, not red: a
+    # field that does not move with the clock is usually a mode or bus
+    # turnaround value counted in cycles by design, not a broken decode.
+    CMP_COL = {"tracks": GOOD, "flat": DIM, "partial": WARN, "--": DIM}
+
+    def build_timings(self):
+        with dpg.tab(label="  Timings  ", tag="tab_tim"):
+            with dpg.group(horizontal=True):
+                dpg.add_button(label="Capture", tag="tim_cap",
+                               width=self.s(150), callback=self.timings_capture)
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(
+                        "Reads the timing registers and files the result under\n"
+                        "the memory clock it was taken at.\n\n"
+                        "Capture at TWO memory states to prove the decode: let\n"
+                        "the card idle (the memory clock drops to ~810) and\n"
+                        "capture, then put it under load (P0, ~7428) and\n"
+                        "capture again. The comparison below then shows each\n"
+                        "field's cycle ratio beside the clock ratio.\n\n"
+                        "Nothing here writes to the GPU.")
+                # INDUCE, never "force": nothing here commands a p-state,
+                # because nothing on this card can (see gpuload's header).
+                # It runs a workload and reports what the driver decided.
+                dpg.add_button(label="Induce P-state (GPU load)",
+                               tag="tim_induce", width=self.s(250),
+                               callback=self.timings_induce)
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(
+                        "Runs a CUDA device-to-device memcpy load, waits for\n"
+                        "the memory clock to settle, captures WHILE THE LOAD\n"
+                        "IS STILL RUNNING, then stops it.\n\n"
+                        "This is ENOUGH to read the timings. It reaches\n"
+                        "p-state 2 (memory 7228, ~450 GB/s) rather than P0,\n"
+                        "and that does not matter: measured on this card the\n"
+                        "registers are BIT-IDENTICAL at 7228 and at 7428,\n"
+                        "because timings are picked per clock BAND, not per\n"
+                        "p-state. No game, no benchmark, no '-cc 1' needed.\n\n"
+                        "What IS useless is an idle capture - 405 and 810\n"
+                        "program genuinely slacker values.\n\n"
+                        "If the card is ALREADY at P0 this skips the load and\n"
+                        "captures directly - measured, starting a CUDA context\n"
+                        "on a P0 card pulls it DOWN to P2.\n\n"
+                        "It is an ordinary workload. It writes no register.")
+                dpg.add_button(label="Forget captures", tag="tim_clear",
+                               width=self.s(170), callback=self.timings_clear)
+                # Armed by default: the memory P-state CANNOT be forced on this
+                # card, so waiting for the card to reach P0 on its own is the
+                # only way to get a capture that means anything (see
+                # timings_p0_watch). Costs nothing while it waits.
+                dpg.add_checkbox(label="Auto-capture at P0", tag="tim_auto",
+                                 default_value=True,
+                                 callback=self.timings_auto_toggled)
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(
+                        "Watches the memory clock on the telemetry poll and\n"
+                        "captures the FIRST time the card reaches its top\n"
+                        "memory state, then again on each re-entry after it\n"
+                        "has dropped out. One capture per entry.\n\n"
+                        "Start a game or a benchmark and come back: a valid\n"
+                        "P0 capture will be waiting.\n\n"
+                        "This exists because the memory P-state cannot be\n"
+                        "pinned on this card - nvmlDeviceSetMemoryLockedClocks\n"
+                        "returns NOT_SUPPORTED, and locking the graphics clock\n"
+                        "alone only pulls memory to 810. Measured: only a\n"
+                        "sustained 3D load reaches the top state.\n\n"
+                        "It reads. It never writes.")
+                dpg.add_text("", tag="tim_busy", color=ACCENT)
+            # THE headline. A capture taken at idle is the same class of error
+            # as a capture taken across a reclock - an authoritative-looking
+            # number measured against the wrong state - so it gets the same
+            # loudness, at the top, before the table anyone would read.
+            dpg.add_text("", tag="tim_state", color=WARN, wrap=self.s(1100))
+            # where the last induced load actually landed, and what lever is
+            # left if it landed short
+            dpg.add_text("", tag="tim_induce_note", color=WARN, show=False,
+                         wrap=self.s(1100))
+            dpg.add_text(self.TIM_READONLY, tag="tim_ro", color=DIM,
+                         wrap=self.s(1100))
+            # the specific degradation: which of the two halves is missing
+            dpg.add_text("", tag="tim_reason", color=WARN, show=False,
+                         wrap=self.s(1100))
+
+            # ---- header: the identity, and THE clock this decode is against #
+            with dpg.child_window(tag="pan_tim_hdr", width=-1,
+                                  height=self.s(104), border=True,
+                                  no_scrollbar=True, no_scroll_with_mouse=True):
+                dpg.add_text("--", tag="tim_ident", color=ACCENT)
+                dpg.add_text("--", tag="tim_clock")
+                dpg.add_text("", tag="tim_warn", color=BAD, show=False,
+                             wrap=self.s(1100))
+                dpg.add_text("", tag="tim_words", color=DIM)
+                for t in ("tim_ident", "tim_clock", "tim_words"):
+                    self.bind(t, "mono")
+
+            dpg.add_spacer(height=self.s(4))
+            with dpg.child_window(tag="pan_tim", width=-1, height=self.s(360)):
+                dpg.add_text("DECODED TIMINGS  ·  broadcast aperture",
+                             tag="tim_title", color=ACCENT)
+                dpg.add_text("", tag="tim_sub", color=DIM, wrap=self.s(1100))
+                dpg.add_separator()
+                with dpg.table(tag="tim_table", header_row=True,
+                               no_host_extendX=True,
+                               policy=dpg.mvTable_SizingFixedFit,
+                               borders_innerH=True, borders_innerV=True):
+                    self.tim_columns()
+
+            dpg.add_spacer(height=self.s(4))
+            with dpg.child_window(tag="pan_cmp", width=-1, height=self.s(300)):
+                dpg.add_text("CAPTURES COMPARED  ·  cycle ratio vs clock "
+                             "ratio", color=ACCENT)
+                dpg.add_text("", tag="cmp_hint", color=DIM, wrap=self.s(1100))
+                dpg.add_text("", tag="cmp_legend", color=TEXT,
+                             wrap=self.s(1100), show=False)
+                dpg.add_separator()
+                dpg.add_table(tag="cmp_table", header_row=True,
+                              no_host_extendX=True,
+                              policy=dpg.mvTable_SizingFixedFit,
+                              borders_innerH=True, borders_innerV=True)
+
+            dpg.add_spacer(height=self.s(4))
+            # Hidden while the partitions agree, which is the normal case on
+            # this card - six identical copies of the same table would bury the
+            # one line that actually matters.
+            with dpg.child_window(tag="pan_div", width=-1, height=self.s(150),
+                                  show=False):
+                dpg.add_text("PARTITION DIVERGENCE", color=BAD)
+                dpg.add_text("", tag="div_sub", color=DIM, wrap=self.s(1100))
+                dpg.add_separator()
+                dpg.add_table(tag="div_table", header_row=True,
+                              no_host_extendX=True,
+                              policy=dpg.mvTable_SizingFixedFit,
+                              borders_innerH=True, borders_innerV=True)
+
+    def tim_columns(self):
+        # parent named explicitly: these columns are re-created on every
+        # redraw, when there is no container stack to deduce a parent from
+        for label, w in self.TIM_COLS:
+            dpg.add_table_column(label=label, parent="tim_table",
+                                 width_fixed=True,
+                                 init_width_or_weight=self.s(w))
+
+    # ---- the worker ------------------------------------------------------- #
+    def timings_capture(self, sender=None, app_data=None, user_data=None):
+        """Take one snapshot OFF the UI thread. nvtune is a subprocess and
+        gpu.read() is a driver round trip; done inline they would stall the
+        render loop exactly the way the Tk build stalled the desktop."""
+        with self._tim_lock:
+            if self._tim_busy:
+                return
+            self._tim_busy = True
+            self._tim_what = "reading…"
+        threading.Thread(target=self._timings_worker, daemon=True,
+                         name="titantune-timings").start()
+
+    def _timings_worker(self):
+        av = timings.available()
+        snap = timings.snapshot(self.gpu) if av.ok else None
+        with self._tim_lock:
+            self._tim_avail = av
+            # a plain capture is not the induced one: its landing note would
+            # be describing a load that is no longer running
+            self._tim_note = ""
+            self._tim_what = ""
+            if snap is not None:
+                self._tim = snap
+                # Only a snapshot whose clock HELD STILL is filed as a capture:
+                # the captures are keyed by memory clock, and one taken across
+                # a reclock has no single clock to be keyed by.
+                if snap.ok and snap.mem_stable and snap.key:
+                    self._tim_caps[snap.key] = snap
+            self._tim_busy = False
+            self._tim_new = True
+
+    def timings_clear(self, sender=None, app_data=None, user_data=None):
+        with self._tim_lock:
+            self._tim_caps.clear()
+            self._tim_new = True
+        # an explicit "start over" also drops the anti-thrash floor, so the
+        # next time the card reaches P0 it is captured immediately
+        self._tim_auto_t = 0.0
+
+    def timings_auto_toggled(self, sender=None, app_data=None,
+                             user_data=None):
+        """Re-arm on every toggle. Ticking the box while the card is ALREADY
+        at P0 should capture now, not wait for the next time it drops out and
+        climbs back - that wait could be the rest of the session."""
+        self._tim_p0_in = False
+        self.log("timings: auto-capture at P0 "
+                 + ("armed" if app_data else "off"))
+
+    # ---- waiting for P0, because it cannot be commanded -------------------- #
+    def mem_states(self):
+        """Every memory clock the driver enumerates. On this card
+        [405, 810, 5001, 6801, 7001] - and the card reaches 7428 under load,
+        because the memory offset rides on top of the top state."""
+        return sorted(self.gpu.static.get("mem_clocks") or [])
+
+    def mem_top(self):
+        st = self.mem_states()
+        return st[-1] if st else None
+
+    def is_p0(self, mem, pstate):
+        """The ONE P0 test in the UI, so the status line, the auto-capture
+        watcher and the snapshot cannot disagree.
+
+        The p-state decides, not the clock: a CUDA load sits at memory 7228,
+        ABOVE the top enumerated 7001, and is still P2. A clock-only test calls
+        that P0 and it is not."""
+        top = self.mem_top()
+        if not top or mem is None:
+            return False
+        if pstate is not None:
+            return pstate == 0 and mem >= top
+        return mem >= top
+
+    # ---- induce a load, capture during it --------------------------------- #
+    def timings_induce(self, sender=None, app_data=None, user_data=None):
+        """Run a GPU load and capture while it runs. Off the UI thread: it
+        holds the card busy for seconds."""
+        with self._tim_lock:
+            if self._tim_busy:
+                return
+            self._tim_busy = True
+            self._tim_what = "inducing GPU load…"
+        threading.Thread(target=self._induce_worker, daemon=True,
+                         name="titantune-induce").start()
+
+    def _induce_worker(self):
+        note, snap = "", None
+        try:
+            av = timings.available()
+            if not av.ok:
+                note = av.reason
+            else:
+                mem, ps = None, None
+                try:
+                    d = self.gpu.read()
+                    mem, ps = d.get("mem"), d.get("pstate")
+                except Exception:
+                    pass
+                if self.is_p0(mem, ps):
+                    # MEASURED: creating a CUDA context on a card already at P0
+                    # drops it to P2 (7428/P0 -> 7228/P2). Running the load
+                    # here would destroy the very state we came for.
+                    snap = timings.snapshot(self.gpu)
+                    note = (f"The card was ALREADY at P0 (memory {mem}, "
+                            f"p-state {ps}), so no load was started and the "
+                            f"capture was taken directly. Measured: opening a "
+                            f"CUDA context on a card at P0 pulls it DOWN to "
+                            f"P2, so inducing here would have cost you the "
+                            f"state you already had.")
+                else:
+                    ok, why = gpuload.available()
+                    if not ok:
+                        note = why
+                    else:
+                        res = gpuload.induce(
+                            self.gpu,
+                            on_settled=lambda: timings.snapshot(self.gpu))
+                        snap = res.get("result")
+                        note = self.induce_note(res, snap)
+        except Exception as e:
+            note = f"induce failed: {type(e).__name__}: {e}"
+        with self._tim_lock:
+            self._tim_avail = timings.available()
+            if snap is not None:
+                self._tim = snap
+                if snap.ok and snap.mem_stable and snap.key:
+                    self._tim_caps[snap.key] = snap
+            self._tim_note = note
+            self._tim_busy = False
+            self._tim_what = ""
+            self._tim_new = True
+        if note:
+            self.log("timings: " + note.replace("\n", " ")[:180],
+                     True if (snap is not None and snap.ok) else False)
+
+    def induce_note(self, res, snap):
+        """Say plainly where the load landed.
+
+        A P2 landing is a SUCCESS and is written as one. The registers are
+        bit-identical to P0's on this card, so describing P2 as 'short' would
+        send the reader chasing a graphics load and a compute-cap flag for
+        data they already have - a false shortfall, which is the same kind of
+        misinformation as a false authority."""
+        if res.get("error"):
+            return f"the GPU load did not run: {res['error']}"
+        st = res.get("stats") or {}
+        how = (f"CUDA memcpy load: {st.get('buf_mib', '?')} MiB x2 out of "
+               f"{st.get('free_mib', '?')} MiB free, "
+               f"{st.get('gbps_traffic', 0):.0f} GB/s of memory traffic"
+               if st else "CUDA memcpy load")
+        mem, ps = res.get("mem"), res.get("pstate")
+        if snap is not None and snap.ok:
+            mem, ps = snap.mem_nvml, snap.pstate
+        if snap is not None and snap.at_p0:
+            return f"The load induced P0 (memory {mem}). {how}."
+        if snap is not None and snap.perf_band:
+            return (
+                f"The load induced P-STATE {ps} (memory {mem}) — the TOP "
+                f"CLOCK BAND, and a fully valid reading. {how}.\n"
+                f"This is the same timing data a 3D load would give you: "
+                f"measured on this card, CONFIG0..CONFIG5 and TIMING22 are "
+                f"BIT-IDENTICAL at 7228 (P2) and 7428 (P0), because timings "
+                f"are selected per clock BAND and the 50 MHz of true clock "
+                f"between the two does not cross a band boundary. Nothing "
+                f"further is needed to read them — no game, no benchmark, no "
+                f"compute-cap change.\n"
+                f"That identity is for READING. A throughput benchmark would "
+                f"still have to run in the state it claims to describe.")
+        return (f"The load reached memory {mem}, p-state {ps} — below the top "
+                f"clock band, so these are not timings worth reading. {how}. "
+                f"Try again, or run any 3D workload with 'Auto-capture at P0' "
+                f"armed.")
+
+    # An idle card does not sit still at P0. MEASURED here: it bounces
+    # 5000/P3 -> 7428/P0 -> 5000/P3 every 3-4 seconds with nothing running, so
+    # "one capture per entry" on its own produced four captures in ten seconds.
+    AUTO_MIN_GAP = 30.0
+
+    def auto_wanted(self, mem):
+        """Is another AUTOMATIC capture worth taking? (The Capture button is
+        never gated by this - an explicit press always reads.)
+
+        Auto-capture exists to leave a valid sample waiting for someone who
+        walked away. Once one exists for that memory state there is nothing
+        further to learn from re-entering it, so a re-entry only captures a
+        state not already held - with a time floor as a backstop against a
+        clock that lands a few units differently each time."""
+        with self._tim_lock:
+            have = self._tim_caps.get(mem)
+            last = self._tim_auto_t
+        if have is not None and have.perf_band:
+            return False
+        return (time.monotonic() - last) >= self.AUTO_MIN_GAP
+
+    def timings_p0_watch(self, mem, pstate, busy):
+        """Edge-trigger a capture when the card ENTERS its top memory state.
+
+        The tab cannot FORCE a memory p-state - nothing on this card can:
+        nvmlDeviceSetMemoryLockedClocks answers NOT_SUPPORTED and nvidia-smi
+        -lmc fails identically. It can only INDUCE one and be ready when the
+        driver decides. This is the ready-and-waiting half; 'Induce P-state'
+        is the other.
+
+        Edge-triggered with hysteresis, and the exit threshold is the NEXT
+        enumerated state down (6801 here), not the entry one: a clock wobbling
+        either side of the top would otherwise re-fire every tick, and this
+        spawns a process each time."""
+        top = self.mem_top()
+        if not top or mem is None:
+            return
+        if self.is_p0(mem, pstate):
+            if not self._tim_p0_in:
+                self._tim_p0_in = True
+                if (dpg.get_value("tim_auto") and not busy
+                        and self.auto_wanted(mem)):
+                    self._tim_auto_t = time.monotonic()
+                    # a receipt: the point of arming this is to walk away, so
+                    # the log has to say it happened while nobody was looking
+                    self.log(f"timings: memory reached {mem} (P0, top "
+                             f"enumerated {top}) - auto-capturing", True)
+                    self.timings_capture()
+            return
+        states = self.mem_states()
+        exit_below = states[-2] if len(states) > 1 else top
+        if self._tim_p0_in and mem < exit_below:
+            self._tim_p0_in = False
+
+    # ---- drawing ---------------------------------------------------------- #
+    def refresh_timings(self, d):
+        """Called on the 4 Hz panel tick like every other panel. Cheap unless
+        a capture landed: the tables are rebuilt only when there is new data,
+        never per tick."""
+        if not dpg.does_item_exist("tim_cap"):
+            return
+        with self._tim_lock:
+            new, snap, av = self._tim_new, self._tim, self._tim_avail
+            busy, caps = self._tim_busy, dict(self._tim_caps)
+            note, what = self._tim_note, self._tim_what
+            self._tim_new = False
+        for tag in ("tim_cap", "tim_induce", "tim_clear"):
+            dpg.configure_item(tag, enabled=not busy)
+        dpg.set_value("tim_busy", f"  {what}" if busy else "")
+        # The live clock, so the user can see WHEN a state worth capturing is
+        # available - and, when it is not, that the tab is waiting for one.
+        mem, ps = d.get("mem"), d.get("pstate")
+        if mem is not None and not busy:
+            div = self.gpu.static.get("mem_div")
+            true = f" ({mem / div:.0f} MHz true)" if div else ""
+            top = self.mem_top()
+            at_p0 = self.is_p0(mem, ps)
+            have = "captured" if mem in caps else "not captured"
+            wait = ("" if at_p0 or not dpg.get_value("tim_auto")
+                    else f" · waiting for P0 (≥{top}, p-state 0)" if top else "")
+            dpg.set_value("tim_busy", f"  card is at {mem}{true} · P{ps} · "
+                          f"{'P0' if at_p0 else 'below P0'} · {have}{wait}")
+            dpg.configure_item("tim_busy", color=GOOD if at_p0 else DIM)
+        # armed or not, the edge is tracked so that arming mid-P0 still fires
+        self.timings_p0_watch(mem, ps, busy)
+        if new:
+            try:
+                self.draw_timings(snap, av, caps, note)
+            except Exception as e:
+                self.log_once("timings", f"timings panel: {e}")
+
+    def draw_timings(self, snap, av, caps, note=""):
+        # where the last induced load landed, and the remedy if it fell short
+        dpg.configure_item("tim_induce_note", show=bool(note))
+        if note:
+            dpg.set_value("tim_induce_note", note)
+        # ---- availability, named specifically ----------------------------- #
+        bad = (av is not None and not av.ok)
+        dpg.configure_item("tim_reason", show=bad)
+        if bad:
+            dpg.set_value("tim_reason", av.reason + "\n\nThe tab is read-only "
+                          "either way - nothing here can write a timing "
+                          "register.")
+        if snap is None or not snap.ok:
+            dpg.set_value("tim_state", "")
+            dpg.set_value("tim_ident", "no snapshot")
+            dpg.set_value("tim_clock", (snap.error if snap else
+                                        "nvtune has not been read yet"))
+            dpg.configure_item("tim_warn", show=False)
+            dpg.set_value("tim_words", "")
+            dpg.delete_item("tim_table", children_only=True)
+            self.tim_columns()
+            # the captures still have to be redrawn: 'Forget captures' lands
+            # here whenever the most recent snapshot failed, and a comparison
+            # left standing over captures that no longer exist is a lie
+            self.draw_comparison(caps)
+            return
+
+        # ---- WHICH MEMORY STATE, before anything else --------------------- #
+        # Red, first, and in full. The startup capture almost always lands at
+        # idle, and an idle capture presented calmly under a confident ns table
+        # is exactly the mistake this tab exists to stop people making.
+        # The loud case is an IDLE capture. A P2 capture is bit-identical to a
+        # P0 one on this card, so calling it second-rate would be its own
+        # false-authority error - the exact thing this banner exists to stop.
+        band = snap.perf_band
+        dpg.set_value("tim_state", ("✔ " if band else "⚠ ")
+                      + snap.state_headline)
+        dpg.configure_item("tim_state",
+                           color=GOOD if band else (WARN if band is None
+                                                    else BAD))
+        dpg.set_value("tim_title", (
+            f"DECODED TIMINGS  ·  broadcast aperture  ·  "
+            f"{snap.state_tag}, top clock band" if band else
+            "DECODED TIMINGS  ·  IDLE STATE — NOT PERFORMANCE-RELEVANT"))
+        dpg.configure_item("tim_title", color=ACCENT if band else BAD)
+
+        # ---- header ------------------------------------------------------- #
+        dpg.set_value("tim_ident",
+                      f"{snap.codename}  ·  PCI {snap.pci_id}  ·  "
+                      f"slot {snap.slot}  ·  FBPA aperture {snap.aperture}"
+                      f"  ·  BOOT_0 {snap.boot0}")
+        true = snap.mem_true_mhz
+        clk = (f"sampled at memory clock {snap.mem_nvml} reported"
+               + (f"  =  {true:.0f} MHz true ({snap.mem_type})" if true else "")
+               + f"   ·   {time.strftime('%H:%M:%S', time.localtime(snap.wall))}"
+               f"   ·   {len(snap.scopes)} partitions")
+        dpg.set_value("tim_clock", clk)
+        dpg.configure_item("tim_clock",
+                           color=TEXT if snap.ns_trustworthy else WARN)
+        warn = "\n".join("⚠ " + w for w in snap.warnings)
+        dpg.configure_item("tim_warn", show=bool(warn))
+        dpg.set_value("tim_warn", warn)
+        dpg.set_value("tim_words", "   ".join(
+            f"{r} {v:#010X}" for r, v in snap.registers["broadcast"].items()))
+
+        # ---- the decode table --------------------------------------------- #
+        n_ns = sum(1 for r in snap.readings if r.ns is not None)
+        dpg.set_value("tim_sub", (
+            f"{len(snap.readings)} fields, bit ranges parsed from `nvtune "
+            f"fields` at runtime so the decode cannot drift from the installed "
+            f"tool. {n_ns} convert to nanoseconds"
+            + ("" if snap.ns_trustworthy else
+               " - but NOT shown, because the clock moved during this capture")
+            + ". A cycle count is only a time when you know the clock it was "
+            "counted against; that clock is on the line above."))
+        dpg.delete_item("tim_table", children_only=True)
+        self.tim_columns()
+        for r in snap.readings:
+            f = r.field
+            with dpg.table_row(parent="tim_table"):
+                dpg.add_text(f.name, color=WARN if f.inferred else TEXT)
+                if f.inferred:
+                    with dpg.tooltip(dpg.last_item()):
+                        dpg.add_text("register offset is INFERRED, not "
+                                     "established:\n"
+                                     + timings.field_table().note_text(
+                                         f.register), wrap=self.s(520))
+                dpg.add_text(f.register, color=DIM)
+                dpg.add_text(f.bits, color=DIM)
+                self.bind(dpg.last_item(), "mono")
+                dpg.add_text("--" if r.cycles is None else str(r.cycles))
+                self.bind(dpg.last_item(), "mono")
+                self.tim_ns_cell(r, snap)
+                desc = f.description + (" [structural]" if f.structural else "")
+                dpg.add_text(desc, color=DIM if f.structural else TEXT,
+                             wrap=self.s(self.TIM_COLS[-1][1] - 14))
+        self.draw_comparison(caps)
+        self.draw_divergence(snap)
+
+    def tim_ns_cell(self, r, snap):
+        """The one cell this feature exists to get right: a number ONLY when
+        the field converts and the clock it would be converted against held
+        still. Everything else says which of those failed, in the cell."""
+        if not snap.ns_trustworthy:
+            # measured: a capture straddling an 810 -> 7428 reclock turned
+            # RC's 42 ns into 385 ns. That number must not reach the screen.
+            dpg.add_text("clock moved — no ns", color=BAD)
+            self.tim_cell_tip("The memory clock changed while these registers "
+                              "were being read, so there is no single clock to "
+                              "count them against. Capture again once it "
+                              "settles.")
+            return
+        if r.ns is not None:
+            # amber only for an IDLE capture: the figure is a true statement
+            # about a state nobody runs work in, and it should not read like
+            # the answer to "what are my timings". A P2 capture gets plain
+            # text - it IS the answer, bit-identical to P0's.
+            dpg.add_text(f"{r.ns:8.2f} ns",
+                         color=TEXT if snap.perf_band else WARN)
+            self.bind(dpg.last_item(), "mono")
+            return
+        # RFC and WL land here, and they are never given a number
+        dpg.add_text("encodes differently — not ns",
+                     color=WARN if r.field.ns_unreliable else DIM)
+        self.tim_cell_tip(r.ns_refusal or "no nanosecond conversion")
+
+    def tim_cell_tip(self, text):
+        with dpg.tooltip(dpg.last_item()):
+            dpg.add_text(text, wrap=self.s(460))
+
+    # ---- the payload: two ratios, side by side ---------------------------- #
+    def draw_comparison(self, caps):
+        """For each field, its cycle count at every captured memory state and
+        the ratio between them, NEXT TO the memory-clock ratio over the same
+        states. If a field is a cycle count of a fixed physical time, the two
+        must agree - that agreement is the whole proof, so it is drawn as two
+        numbers in the same cell rather than left for the reader to divide."""
+        base, cratios, rows = timings.compare(caps.values())
+        dpg.delete_item("cmp_table", children_only=True)
+        if len(caps) < 2:
+            dpg.configure_item("cmp_legend", show=False)
+            dpg.set_value("cmp_hint", (
+                f"{len(caps)} capture{'' if len(caps) == 1 else 's'}. Two are "
+                "needed, at DIFFERENT memory "
+                "clocks. Let the card idle until the memory clock drops "
+                "(~810 reported / ~203 MHz true) and press Capture, then load "
+                "it to P0 (~7428 / ~1857 MHz) and press Capture again. The "
+                "same registers decode to different cycle counts at the two "
+                "states, and this table is where that stops looking like "
+                "noise and starts being the proof."))
+            return
+        snaps = sorted((s for s in caps.values() if s.ok and s.mem_nvml),
+                       key=lambda s: s.mem_nvml)
+        dpg.set_value("cmp_hint", (
+            f"Baseline is the slowest capture. Each column is one captured "
+            f"memory state: the cycle count, then × its ratio to the "
+            f"baseline. The column heading carries what the CLOCK did over the "
+            f"same two states. A field that is a cycle count of a fixed time "
+            f"has to move by the clock ratio - the two numbers agreeing is the "
+            f"decode being right. Cycle counts are integers, so small ones "
+            f"round hard and their ratios are coarse; that is rounding, not "
+            f"disagreement."))
+        dpg.configure_item("cmp_legend", show=True)
+        # every capture labelled with the state it was taken at: a cross-state
+        # ratio is what verified the decode, so the idle captures EARN their
+        # place here - but not one of them may be mistaken for the reading that
+        # describes how the card performs
+        dpg.set_value("cmp_legend", "   ".join(
+            f"[{s.mem_nvml} reported = "
+            + (f"{s.mem_true_mhz:.0f} MHz true" if s.mem_true_mhz else "? MHz")
+            + (f", P{s.pstate}" if s.pstate is not None else "")
+            + (" — top band, PERFORMANCE-RELEVANT" if s.perf_band
+               else " — idle, read-only evidence")
+            + f", clock ×{c:.2f}]"
+            for s, c in zip(snaps, cratios)))
+
+        dpg.add_table_column(label="field", parent="cmp_table",
+                             width_fixed=True, init_width_or_weight=self.s(118))
+        dpg.add_table_column(label="register", parent="cmp_table",
+                             width_fixed=True, init_width_or_weight=self.s(88))
+        for s, c in zip(snaps, cratios):
+            tag = s.state_tag
+            lab = (f"{s.mem_nvml} {tag}" if c == 1.0
+                   else f"{s.mem_nvml} {tag}  (clock ×{c:.2f})")
+            dpg.add_table_column(label=lab, parent="cmp_table",
+                                 width_fixed=True,
+                                 init_width_or_weight=self.s(168))
+        dpg.add_table_column(label="verdict", parent="cmp_table",
+                             width_fixed=True, init_width_or_weight=self.s(90))
+        dpg.add_table_column(label="", parent="cmp_table", width_fixed=True,
+                             init_width_or_weight=self.s(430))
+
+        tally = {}
+        for row in rows:
+            tally[row.verdict] = tally.get(row.verdict, 0) + 1
+            with dpg.table_row(parent="cmp_table"):
+                dpg.add_text(row.name)
+                dpg.add_text(row.register, color=DIM)
+                for i, (cyc, rat) in enumerate(zip(row.cycles, row.ratios)):
+                    if cyc is None:
+                        dpg.add_text("--", color=DIM)
+                    elif i == 0:
+                        dpg.add_text(f"{cyc:>5}", color=TEXT)
+                    else:
+                        # measured ratio sits directly under the clock ratio in
+                        # the heading; that vertical pairing IS the comparison
+                        dpg.add_text(f"{cyc:>5}   ×{rat:5.2f}",
+                                     color=self.CMP_COL.get(row.verdict, TEXT))
+                    self.bind(dpg.last_item(), "mono")
+                dpg.add_text(row.verdict,
+                             color=self.CMP_COL.get(row.verdict, TEXT))
+                dpg.add_text(row.note, color=DIM, wrap=self.s(416))
+        n = tally.get("tracks", 0)
+        dpg.set_value("cmp_hint", dpg.get_value("cmp_hint") + (
+            f"\n{n} of {len(rows)} fields moved by the memory-clock ratio "
+            f"(within the rounding a whole-cycle count carries)"
+            f"   ·   {tally.get('flat', 0)} flat"
+            f"   ·   {tally.get('partial', 0)} partial"
+            f"   ·   {tally.get('--', 0)} no data."))
+
+    def draw_divergence(self, snap):
+        """Per-FBPA differences, and NOTHING when there are none. All six
+        partitions carry identical words on this card, so the quiet case is one
+        line in the table above, not six more tables."""
+        dpg.delete_item("div_table", children_only=True)
+        if not snap.divergence:
+            dpg.configure_item("pan_div", show=False)
+            dpg.set_value("tim_sub", dpg.get_value("tim_sub") +
+                          f"\nAll {len(snap.scopes)} partitions "
+                          f"({', '.join(snap.scopes)}) match the broadcast "
+                          f"aperture exactly, so they are not drawn again.")
+            return
+        dpg.configure_item("pan_div", show=True)
+        dpg.set_value("div_sub",
+                      f"{len(snap.divergence)} field(s) differ from the "
+                      f"broadcast aperture. The broadcast window writes all "
+                      f"partitions at once, so a partition reading back "
+                      f"differently means one of them is not taking the same "
+                      f"timings - worth knowing before trusting the table "
+                      f"above as 'the' memory timing.")
+        for label, w in (("partition", 110), ("field", 118), ("register", 88),
+                         ("broadcast", 90), ("this partition", 110)):
+            dpg.add_table_column(label=label, parent="div_table",
+                                 width_fixed=True,
+                                 init_width_or_weight=self.s(w))
+        for dv in snap.divergence:
+            with dpg.table_row(parent="div_table"):
+                dpg.add_text(dv["scope"], color=WARN)
+                dpg.add_text(dv["field"])
+                dpg.add_text(dv["register"], color=DIM)
+                dpg.add_text(str(dv["broadcast"]))
+                self.bind(dpg.last_item(), "mono")
+                dpg.add_text(str(dv["value"]), color=BAD)
+                self.bind(dpg.last_item(), "mono")
+
+    # ====================================================================== #
     #  main                                                                  #
     # ====================================================================== #
     def run(self):
@@ -2800,6 +3532,7 @@ deliberately does not put behind a button."""
             with dpg.tab_bar():
                 self.build_monitor()
                 self.build_control()      # the V/F editor lives inside this tab
+                self.build_timings()      # read-only; see the TIMINGS section
         self.build_tool_windows()         # hidden until the menu bar asks
 
         dpg.setup_dearpygui()
@@ -2813,6 +3546,11 @@ deliberately does not put behind a button."""
         self.sync_lock_ui()          # the gate must LOOK like whatever it is
         self.log(f"backend: {self.gpu.status_line()}")
         self.vf_read()
+        # One read-only timing capture at startup, on its own thread, so the
+        # Timings tab has something in it the first time it is opened instead
+        # of an empty table and a button. It cannot write and it cannot block:
+        # worst case the tab says why nvtune or its driver is unavailable.
+        self.timings_capture()
 
         last = 0.0
         # try/finally, not a bare loop: the tail below is what stops this app
@@ -2843,7 +3581,8 @@ deliberately does not put behind a button."""
                     # took effect.
                     if d:
                         for name, fn in (("monitor", self.refresh_monitor),
-                                         ("control", self.refresh_control)):
+                                         ("control", self.refresh_control),
+                                         ("timings", self.refresh_timings)):
                             try:
                                 fn(d)
                                 self.clear_once(name)

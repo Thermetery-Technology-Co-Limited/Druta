@@ -35,12 +35,15 @@ Tk build is kept only as a parity reference.
 
 ## Layout
 
-Two tabs, plus a menu bar:
+Three tabs, plus a menu bar:
 
 - **Monitor** — read-only telemetry, refreshed from a background poll
   thread at 1 Hz.
 - **Control** — the write knobs, plus the V/F curve editor in its lower
   half.
+- **Timings** — read-only decode of the memory timing registers, with a
+  built-in GPU load to induce a readable P-state. Needs the `nvtune` tool and
+  its driver; see "Timings tab" below.
 - **Menu bar** — `Device > Device report...` (driver-reported identity and
   ranges for this specific card, copyable as a bug report), `Clocks` (the
   GPU clock lock), and `Help` (keyboard shortcuts, about).
@@ -445,6 +448,192 @@ Three further details:
   while that gate was open, and gating it would mean unticking the checkbox
   mid-hold and quitting pinned the card with nothing left able to see it.
 
+## Timings tab
+
+Decodes the framebuffer-partition (FBPA) memory timing registers —
+`CONFIG0`..`CONFIG5` and `TIMING22`, at `0x9A0000 + 0x290 + n*4` — and shows
+what each field means in nanoseconds at the memory clock it was sampled at.
+
+**It is read-only, and not merely by convention.** `nvtune` can write these
+registers, and writing one can hang the machine and corrupt VRAM. TitanTune
+therefore has no code path that can build a writing command line: `timings.py`
+whitelists the read-only subcommands (`list`, `fields`, `dump`, `get`, `save`,
+`probe`, `vbios`) and rejects `set`, `restore`, `apply`, `daemon`, `--commit`
+and `--force` before a process is created. Nothing about the tab — no flag, no
+disabled button, no dead branch — can change a timing.
+
+**It needs two things, and says which one is missing.** `nvtune.exe` (looked
+for beside TitanTune, then in `C:\Users\Administrator\Desktop\nvtune`, then on
+`PATH`; override with the `TITANTUNE_NVTUNE` environment variable, which is
+exclusive — a bad override fails rather than quietly running some other copy),
+and its kernel driver service `nvtunedrv`, which maps the BAR0 FBPA aperture
+(`sc start nvtunedrv`, elevated). With either absent the tab explains which,
+and stays read-only regardless.
+
+### A cycle count is not a time until you know its clock
+
+This is the whole reason the tab exists. A timing register holds a **cycle
+count**. The same registers read as nonsense at idle and as textbook GDDR6 at
+P0. Measured on this card — same registers, three memory states, GDDR6 true
+clock = the reported NVAPI/NVML figure ÷ 4:
+
+| reported | true clock | RC | RFC | RAS | RP | CL | RD_RCD |
+|---------:|-----------:|---:|----:|----:|---:|---:|-------:|
+|   405    |   101 MHz  |  6 |  13 |   4 |  2 |  9 |      2 |
+|   810    |   203 MHz  | 11 |  25 |   7 |  4 |  9 |      4 |
+|  7428    |  1857 MHz  | 78 | 210 |  52 | 26 | 24 |     26 |
+
+At 1857 MHz those are RC 42.0 ns, RAS 28.0 ns, RP 14.0 ns, CL 12.9 ns — real
+GDDR6 numbers. The same RC of 6 cycles at 101 MHz is 59 ns, and reading the
+idle registers *as if* they were the P0 ones is what made this feature's first
+two dumps look like garbage.
+
+So every capture **brackets the register read with a memory-clock read**, one
+immediately before and one immediately after. If the two disagree the card
+reclocked mid-capture, and the tab prints `clock moved — no ns` in every
+nanosecond cell rather than a number: measured, a capture that straddled an
+810 → 7428 reclock turned RC's 42 ns into 385 ns. The cycle counts are still
+shown; only the conversion is withheld.
+
+### RFC and WL do not convert
+
+Both are shown as cycle counts with `encodes differently — not ns`, never as
+nanoseconds:
+
+- **RFC** — 210 cycles is 113 ns against a 240–350 ns GDDR6 tRFC. It is a
+  multiplier, or its range splits with `TIMING22.RFCSBA`/`RFCSBR`.
+- **WL** — 5 cycles is 2.7 ns. GDDR6 write latency is expressed *relative to
+  CL*, not as an absolute delay.
+
+Fields nvtune marks `[structural]` (`REFRESH_LO`, `DELAY0`+`_MSB`/`_HI`,
+`OFFSET0..2`, `ADR_MIN`) are refused too — they are fragments of a value split
+across bit ranges. So is `REFRESH`, which carries only the bits above
+`REFRESH_LO`. `TIMING22`'s offset is marked INFERRED by the tool; its two
+fields are drawn in amber with that note on hover.
+
+### An idle capture is worthless. A P2 capture is not.
+
+Timings are selected per **clock band**, not per P-state. Measured on this
+card: the registers are **bit-identical** under a CUDA load at NVML mem 7228
+(pstate 2) and under a 3D load at 7428 (pstate 0) — `CONFIG0` `0x1A68D24E`,
+`CONFIG1` `0x45068298`, `CONFIG2` `0x771B0900`, `CONFIG3` `0x2200204C`,
+`CONFIG4` `0xC0820025`, `CONFIG5` `0xD7D270F6`, `TIMING22` `0x12000009`, and
+every decoded field (RC 78, RFC 210, RAS 52, RP 26, CL 24, WL 5, RD_RCD 26,
+WR_RCD 16, CDLR 9, WR 27, FAW 16, RRD 4, REFRESH 4). The 50 MHz of true clock
+between P2 and P0 does not cross a VBIOS timing band.
+
+405 and 810 *do* program different, far slacker values. So the axis that
+matters is **the band, not the P-state**: a capture at or above the
+second-highest enumerated state (6801 here) is worth reading, and an idle one
+is not. The tab shouts about idle captures and treats a P2 capture as what it
+is — the same data a game would give you.
+
+This identity is established **for reading**. If a write phase ever happens, a
+bandwidth benchmark has to run in the state it claims to describe; measuring
+throughput at P2 and reporting it as a P0 result would be a different error
+that this finding does not excuse.
+
+### Force vs. induce
+
+**Force** would mean commanding the P-state through an API. **Not available on
+this card.** `nvmlDeviceSetMemoryLockedClocks` returns `NVML_ERROR_NOT_SUPPORTED`,
+and `nvidia-smi -lmc 7001,7001` fails identically ("Setting locked Memory
+clocks is not supported for GPU 00000000:01:00.0") — two independent entry
+points, one answer. Memory-clock locking does exist in NVML and works on
+datacenter parts, so this is most likely a consumer-segment restriction rather
+than a Turing architectural limit; that is *not* proven here and is not
+claimed. The scope of the measurement is: not supported on **this card through
+this driver path**.
+
+**Induce** means creating the conditions under which the driver raises the
+state itself, then watching what it decides. That works — and the state stays
+the driver's to withdraw at any moment. **That is exactly why every capture is
+bracketed** with a clock and P-state read on each side: a forced state could be
+read at leisure, an induced one can drop out mid-read. Measured, a capture that
+straddled an 810 → 7428 reclock computed RC as 385 ns instead of 42.
+
+Nothing in TitanTune forces a memory P-state, because nothing can.
+
+| lever | reaches |
+|---|---|
+| `nvmlDeviceSetMemoryLockedClocks` | **unsupported** on this card |
+| `nvidia-smi -lmc 7001,7001` | **unsupported** — same answer, independent path |
+| graphics clock lock alone | memory only 810 |
+| **CUDA memcpy load** (built in) | **pstate 2, mem 7228**, ~450 GB/s traffic |
+| 3D / graphics load | pstate 0, mem 7428 |
+| `nvidia-smi -cc 1` | lifts the compute P2 cap (restore `-cc 0`, admin) — **not needed to read timings**, and not wired to any button |
+
+The two top states are identified by the same arithmetic: **7228 − 427 = 6801**
+and **7428 − 427 = 7001**, the identical memory offset on both. That is what
+establishes 6801 as the P2 state and 7001 as P0 — and it is why the P0 test
+uses the **P-state**, not the clock. 7228 is *above* the top clock the driver
+enumerates (7001) while still being P2; a clock-only test calls that P0 and is
+wrong. (The proof-of-concept this was built from made exactly that mistake.)
+
+### Induce P-state (GPU load)
+
+Runs a CUDA device-to-device memcpy load through `nvcuda.dll` — driver API via
+ctypes, no toolkit, no compiler, no PTX, because a memcpy needs no kernel —
+waits for the memory clock to settle, **captures while the load is still
+running**, then stops it. Buffers are sized from free VRAM, the duration is
+bounded, and the allocations and context are released in a `finally:` chain: a
+leaked CUDA context would hold the card in a raised P-state after the load
+ended, the same class of invisible leftover as a clock lock that outlives the
+app.
+
+This is a complete substitute for a game or benchmark when reading timings.
+
+If the card is **already** at P0 the load is skipped and the capture is taken
+directly — measured, opening a CUDA context on a P0 card pulls it *down* to P2,
+so inducing there would cost you the state you already had.
+
+**Auto-capture at P0** (armed by default) watches the memory clock on the
+existing telemetry poll and captures the first time the card reaches P0 on its
+own, and again on each re-entry after it drops out — one capture per entry.
+Start a game, come back, and a genuine P0 sample is waiting. It is edge
+triggered with the exit threshold one enumerated state below the entry one, so
+a clock wobbling near the boundary cannot re-fire it every tick.
+
+Running a GPU load is an ordinary workload. It writes no register.
+
+### Capture, and the comparison that proves the decode
+
+**Capture** files a snapshot under the memory clock it was taken at (a capture
+that straddled a reclock is not filed — it has no single clock to be filed
+under). Every capture is labelled with its memory clock *and* its P-state.
+With two or more states captured, the comparison table shows each field's
+cycle count at every state, the ratio between them, and — in the column
+heading — what the **clock** did over the same states. Those two numbers
+agreeing is the proof that the decode is real: RFC went 25 → 210 between the
+810 and 7428 states while the clock went ×9.17.
+
+Idle captures are kept and are useful *here*, even though they are useless as a
+statement about performance: the cross-state ratio is exactly what verified the
+decode. The comparison marks which captures are performance-relevant so the two
+roles cannot be confused.
+
+To get a second state: let the card idle until the memory clock drops (~810
+reported) and press Capture, then press **Induce P-state** for a top-band
+sample.
+
+Verdicts are deliberately not pass/fail. `tracks` means the count moved by the
+clock ratio; `flat` means it did not move at all, which is normal for mode and
+bus-turnaround fields; `partial` means it moved by something else. Two things
+make `partial` unremarkable: cycle counts are integers, so a 2-cycle baseline
+rounds hard, and the VBIOS programs each p-state separately and *relaxes*
+timings at low clocks (RC really is 42 ns at P0 and 59 ns at idle). The
+comparison is judged in cycles, with a rounding allowance of ±1 cycle at each
+end, rather than as a flat percentage on the ratio.
+
+Per-partition rows appear **only if a partition disagrees** with the broadcast
+aperture. All six are identical on this card, so the normal case is one line
+saying so rather than six copies of the same table.
+
+The field list, bit ranges and limits are parsed from `nvtune fields` at
+runtime rather than hardcoded, so the decode cannot drift from the installed
+tool. Raw `nvtune save` JSON is written to a per-process temp directory, never
+into the repo, and is kept as the evidence behind each decode.
+
 ## Device report (menu bar: `Device`)
 
 Only what the running program can read back from the driver, and nothing
@@ -466,7 +655,11 @@ be duplicated into the app as well, and the two copies drifted.
 
 ## Safety
 
-**Reversible, no admin needed to read:** all Monitor-tab telemetry.
+**Reversible, no admin needed to read:** all Monitor-tab telemetry, and the
+Timings tab (which cannot write at all — see "Timings tab"; its `nvtunedrv`
+driver does need admin to *start*, but not to read through once running). The
+Timings tab's GPU load is an ordinary CUDA workload: it makes the card busy for
+a few seconds, writes no register, and releases its context in a `finally:`.
 
 **Reversible, needs admin to write:** clock offsets (core/mem), power limit,
 GPU clock lock, fan duty, voltage boost %, and V/F curve edits. Every one of
@@ -481,9 +674,13 @@ commands to run them by hand, never fired blind by this app:
 
 - Forcing P-state P0 (NvAPI `SetForcePstate`, `0x025BFB10`) — pins max
   clocks with no clean auto-release short of a driver reload.
-- CUDA P2-cap removal (`nvidia-smi -cc 1`, restore with `-cc 0`).
+- CUDA P2-cap removal (`nvidia-smi -cc 1`, restore with `-cc 0`). Not needed
+  for the Timings tab — P2 and P0 program identical timing registers here.
 - Driver-model TCC (`nvidia-smi -dm 1`, restore with `-dm 0`) — **drops
   display output** on this card; never run blind.
+- Writing a memory timing register (`nvtune set`/`apply`/`restore`/`daemon`,
+  or any `--commit`) — it can hang the machine and corrupt VRAM. The Timings
+  tab reads these registers and is structurally incapable of writing one.
 - The hard per-domain VF lock (NvAPI `0x39442CFB`) — the write struct is
   unverified against this hardware, so the app only reads lock state (shown
   on Monitor via `BoostLock`/`0xE440B867`) and never writes it. `Ctrl+H`
