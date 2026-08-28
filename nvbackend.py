@@ -8,8 +8,16 @@ NVAPI ids and NVML field numbers were confirmed against the hardware, not guesse
 
 Design rule: readers never change state. Writers are explicit, each returns
 (ok, message), and only the reversible knobs are wired (clock offsets, power
-limit, locked clocks, fan). Footgun knobs (force P-state, TCC, CUDA-clocks) are
-surfaced as telemetry + documented commands elsewhere, never fired blind.
+limit, locked clocks, the per-domain V/F point lock, fan). Footgun knobs (force
+P-state, TCC, CUDA-clocks) are surfaced as telemetry + documented commands
+elsewhere, never fired blind.
+
+An unverified setter is not wired on the strength of a plausible struct. It
+earns its place by climbing a ladder: the id RESOLVES, then an IDENTITY WRITE
+of the getter's own bytes is accepted and changes nothing, then a single-field
+read-modify-write moves the one thing it was supposed to move and writing the
+original bytes back restores it exactly. The V/F point lock below is the worked
+example, and vf_lock_self_test() keeps the middle rung runnable on any machine.
 """
 import ctypes
 import sys
@@ -66,7 +74,12 @@ class NvAPI:
         self.CurrentPstate = self._i(0x927DA4F6, PTR, ctypes.POINTER(u32))
         self.AllClocks = self._i(0xDCB616C3, PTR, PTR)
         self.AllClocksPriv = self._i(0x1BD69F49, PTR, PTR)
+        # Per-domain V/F point lock. BoostLock is its GETTER; VfLockSet is the
+        # matching setter, and BOTH take the same 780-byte _ClockLock. That
+        # shared layout is the whole safety argument: every write hands back a
+        # buffer this getter produced (see GPU.set_vf_lock).
         self.BoostLock = self._i(0xE440B867, PTR, PTR)
+        self.VfLockSet = self._i(0x39442CFB, PTR, PTR)
         # VF curve: evaluated points, per-point delta table (get/set = AB's pair)
         self.VfpCurve = self._i(0x21537AD4, PTR, PTR)
         self.BoostTableGet = self._i(0x23F1B133, PTR, PTR)
@@ -272,6 +285,54 @@ class _LockEntry(ctypes.Structure):
 class _ClockLock(ctypes.Structure):
     _fields_ = [("version", u32), ("flags", u32), ("count", u32),
                 ("locks", _LockEntry * 32)]
+
+
+# The per-domain V/F point lock, verified end to end on this card (getter
+# 0xE440B867, setter 0x39442CFB, ONE _ClockLock for both). Clean-room: the
+# layout came from the driver's own GET output, never from disassembly.
+#
+# lockMode 3 does NOT mean "run at exactly this voltage". It means LOCK TO THE
+# HIGHEST V/F POINT AT OR BELOW the requested voltage - the same "<= cap" rule
+# below_cap() states for the de-flatten cap. Measured here: asking 900000 uV
+# delivered 893.75 mV = 143 * 6.25, a real point on the 6.25 mV grid, and core
+# went 1950 -> 1740. So the point actually held may sit BELOW the one asked for.
+#
+# AND THE STRUCT DOES NOT TELL YOU WHICH. volt_uV stores the REQUEST verbatim:
+# a 900000 uV lock reads straight back as 900000 while the rail sits at 893.75,
+# and this card was found holding a 1137500 uV lock on a curve that stops at
+# 1087500. Reading the getter therefore answers "what was asked for", never
+# "what is held" - GPU.resolve_vf_point() answers the second, against the
+# curve, and the vcore rail confirms it. A read-back is still mandatory, but
+# for a different reason: it is how a concurrent tuner overwriting the lock
+# gets noticed.
+#
+# THE NVML FREQUENCY LOCK LIVES IN THIS SAME TABLE, and the mode is the only
+# thing telling them apart. nvmlDeviceSetGpuLockedClocks(lo, hi) writes TWO
+# mode-2 entries whose "volt_uV" field is a FREQUENCY IN kHz, not a voltage:
+# domain 0 takes hi, domain 1 takes lo (measured with an asymmetric lock -
+# 1350..1800 produced domain 0 = 1800000 and domain 1 = 1350000). They coexist
+# with the mode-3 entry; reset_gpu_clocks clears the mode-2 pair and leaves
+# mode 3 alone. So every lookup here matches on MODE, never on "lockMode != 0":
+# reading a mode-2 entry as a voltage yields a confident 1350.00 mV, and
+# clearing one from this side would silently release the other mechanism's
+# lock - the exact confusion the two-mechanism split exists to prevent.
+VF_LOCK_VERSION = 2                 # version = sizeof | (2<<16) = 0x0002030C
+VF_LOCK_MODE_OFF = 0                # entry present, not locked
+VF_LOCK_MODE_FREQ = 2               # NVML locked clocks; field is kHz
+VF_LOCK_MODE_POINT = 3              # locked to the point at or below volt_uV
+# domain 0 carries the max and domain 1 the min of an NVML frequency lock
+CLK_LOCK_DOMAIN_MAX, CLK_LOCK_DOMAIN_MIN = 0, 1
+# The domain that carries the lock on this card. Only a fallback: an existing
+# lock is always re-targeted at whatever domain the driver already has it on,
+# so a card that uses a different one keeps working without a code change.
+VF_LOCK_DOMAIN = 6
+# Garbage guard only, in the spirit of MAX_ABS_DELTA_KHZ - not a safety limit.
+# It cannot be one: mode 3 resolves DOWN onto an existing point, so an absurdly
+# high request lands on the top point of the curve and an absurdly low one on
+# the bottom. This exists to catch a caller that passed millivolts.
+VF_LOCK_MIN_UV, VF_LOCK_MAX_UV = 400_000, 1_300_000
+
+assert ctypes.sizeof(_ClockLock) == 0x030C   # 780; wrong size => version lies
 
 
 # VF structs: Turing has 103 CONTIGUOUS GPU points (the 80+23 split in older
@@ -487,8 +548,11 @@ class ResetStep(tuple):
 
 
 class GPU:
-    # names for the reset_all steps a caller has to single out (see ResetStep)
+    # names for the reset_all steps a caller has to single out (see ResetStep).
+    # There are TWO lock mechanisms and a caller clearing its on-screen record
+    # has to know which one the reset actually released.
     LOCK_STEP = "clock lock"
+    VF_LOCK_STEP = "v/f point lock"
 
     def __init__(self):
         self._lock = threading.RLock()
@@ -870,15 +934,36 @@ class GPU:
             if nv.dll.nvmlDeviceGetTotalEnergyConsumption(
                     nv.dev, ctypes.byref(v)) == 0:
                 d["energy_j"] = v.value / 1000.0
-        # hard VF lock state (read only; write path documented, not fired)
+        # V/F point-lock state. Version 2 is the verified one; the other two are
+        # kept as a fallback for a driver that numbers this struct differently.
+        # This is the read-back for a knob the app now WRITES (set_vf_lock), so
+        # it carries the lock voltage too. That voltage is the one REQUESTED,
+        # not the point held (the struct echoes it back verbatim) - which is
+        # exactly why it is worth showing: it is how a lock somebody else set,
+        # at a value this app would never pick, becomes visible.
         if a.ok and a.BoostLock:
-            for ver in (2, 1, 3):
+            for ver in (VF_LOCK_VERSION, 1, 3):
                 bl = _ClockLock(version=a.ver(_ClockLock, ver))
-                if a.BoostLock(a.gpu, ctypes.byref(bl)) == 0:
-                    locked = [bl.locks[k].domain for k in range(min(bl.count, 32))
-                              if bl.locks[k].lockMode != 0]
-                    d["vf_locked_domains"] = locked
-                    break
+                if a.BoostLock(a.gpu, ctypes.byref(bl)) != 0:
+                    continue
+                ents = [bl.locks[k] for k in range(min(bl.count, 32))]
+                # split by MODE. Both mechanisms live in this table and their
+                # shared field means different things (uV vs kHz), so one
+                # merged "locked domains" list would print a 1350 MHz clock
+                # lock as a 1350.00 mV point lock.
+                d["vf_locked_domains"] = [e.domain for e in ents
+                                          if e.lockMode == VF_LOCK_MODE_POINT]
+                for e in ents:
+                    if e.lockMode == VF_LOCK_MODE_POINT:
+                        d["vf_lock_mv"] = e.volt_uV / 1000.0
+                        break
+                freq = {e.domain: e.volt_uV for e in ents
+                        if e.lockMode == VF_LOCK_MODE_FREQ}
+                if CLK_LOCK_DOMAIN_MAX in freq:
+                    hi = freq[CLK_LOCK_DOMAIN_MAX]
+                    d["clk_lock_mhz"] = (freq.get(CLK_LOCK_DOMAIN_MIN, hi) // 1000,
+                                         hi // 1000)
+                break
 
     # ---- writers (guarded, reversible) ----------------------------------- #
     def mem_offset_scale(self):
@@ -982,6 +1067,230 @@ class GPU:
         if st == 0:
             return True, "GPU clock lock released"
         return False, f"reset failed: {nv.errstr(st)}"
+
+    # ---- per-domain V/F point lock ---------------------------------------- #
+    # A SECOND, entirely separate lock mechanism from the NVML locked clocks
+    # above. They are not two views of one thing and neither call reads or
+    # clears the other, so anything holding both must release both:
+    #
+    #   nvmlDeviceSetGpuLockedClocks  pins a FREQUENCY range. On this card at
+    #       idle it leaves the memory clock in the low state (mem 810).
+    #   the V/F point lock              pins a V/F POINT by voltage. Measured
+    #       here it holds TRUE P0 - pstate 0, mem 7000 - with the card at ~5%
+    #       utilisation, which is strictly better for holding a tune steady.
+    #
+    # Both are volatile: a reboot clears them.
+    def _vf_lock_available(self):
+        """Both ends of the pair must resolve. The getter alone is a reader;
+        without the setter there is no write path, and half a pair must never
+        look like a working one."""
+        a = self.nvapi
+        return bool(a.ok and a.BoostLock and a.VfLockSet)
+
+    def _vf_lock_read_raw(self):
+        """The driver's OWN 780-byte lock buffer, or None if the getter did not
+        answer. Every write path in this section starts here. Handing back a
+        buffer the driver produced - rather than one we assembled from a struct
+        definition - is what makes this setter safe, and it is how it was
+        validated. Nothing below ever constructs a _ClockLock to write."""
+        a = self.nvapi
+        if not (a.ok and a.BoostLock):
+            return None
+        cl = _ClockLock(version=a.ver(_ClockLock, VF_LOCK_VERSION))
+        if a.BoostLock(a.gpu, ctypes.byref(cl)) != 0:
+            return None
+        return cl
+
+    @staticmethod
+    def _vf_lock_entries(cl):
+        """The entries the driver says are real - count, not the 32 the struct
+        reserves. count is 7 here; reading past it would report stale slots as
+        lockable domains."""
+        return [cl.locks[k] for k in range(min(cl.count, 32))]
+
+    def read_vf_lock(self):
+        """The V/F point lock the card is holding NOW, or None when nothing is
+        locked (or the getter did not answer - same as read_voltage_boost).
+
+            {domain, lockMode, volt_uV, volt_mv, count}
+
+        volt_mv is the voltage the lock was REQUESTED at, not the point the
+        hardware resolved to - the driver stores the request verbatim (see the
+        VF_LOCK_* block). Pass it through resolve_vf_point() to name the point
+        actually held. What this call is authoritative about is WHETHER a lock
+        is in force and WHOSE number is in it, which is how a concurrent tuner
+        re-asserting its own value gets caught."""
+        cl = self._vf_lock_read_raw()
+        if cl is None:
+            return None
+        for e in self._vf_lock_entries(cl):
+            # mode 3 ONLY - a mode-2 entry in this table is the NVML frequency
+            # lock and its field is kHz, so reporting it here would hand the
+            # caller 1350.00 "mV" for a 1350 MHz clock lock
+            if e.lockMode == VF_LOCK_MODE_POINT:
+                return {"domain": e.domain, "lockMode": e.lockMode,
+                        "volt_uV": e.volt_uV, "volt_mv": e.volt_uV / 1000.0,
+                        "count": cl.count}
+        return None
+
+    def read_clk_lock(self):
+        """The NVML frequency lock, read back out of the SAME table as
+        (min_mhz, max_mhz), or None when it is not set.
+
+        Worth having because NVML itself cannot answer this on this card -
+        nvmlDeviceGetGpuLockedClocks is absent from the DLL, which is why a
+        lock left behind by an earlier run used to be invisible to the next
+        one. The mode-2 entries make it readable after all."""
+        cl = self._vf_lock_read_raw()
+        if cl is None:
+            return None
+        by_dom = {e.domain: e.volt_uV for e in self._vf_lock_entries(cl)
+                  if e.lockMode == VF_LOCK_MODE_FREQ}
+        if not by_dom:
+            return None
+        hi = by_dom.get(CLK_LOCK_DOMAIN_MAX)
+        lo = by_dom.get(CLK_LOCK_DOMAIN_MIN, hi)
+        if hi is None:
+            return None
+        return (lo // 1000, hi // 1000)
+
+    def set_vf_lock(self, volt_uv, domain=None):
+        """Lock the curve to the highest V/F point AT OR BELOW volt_uv.
+
+        READ-MODIFY-WRITE, never a fresh struct: the buffer written is the one
+        the getter just produced, with lockMode and volt_uV changed on ONE
+        entry and every other byte - flags, count, the three unknown dwords per
+        entry, the six other domains - left exactly as the driver wrote them.
+
+        `domain` defaults to whichever entry is already locked, so a second
+        call MOVES the lock instead of adding a second one; with nothing locked
+        it falls back to VF_LOCK_DOMAIN.
+
+        The read-back afterwards is not there to learn what the hardware
+        resolved to - the struct only ever echoes the request - but to catch a
+        concurrent tuner that took the lock straight back. Callers that need to
+        name the point really held must resolve the request against the curve
+        (resolve_vf_point) or read the vcore rail."""
+        a = self.nvapi
+        if not self._vf_lock_available():
+            return False, ("V/F point lock unavailable: 0xE440B867 / 0x39442CFB "
+                           "did not both resolve")
+        volt_uv = int(volt_uv)
+        if not (VF_LOCK_MIN_UV <= volt_uv <= VF_LOCK_MAX_UV):
+            return False, (f"V/F lock: {volt_uv} uV outside the sanity envelope "
+                           f"[{VF_LOCK_MIN_UV}..{VF_LOCK_MAX_UV}] uV "
+                           f"- the argument is MICROvolts")
+        cl = self._vf_lock_read_raw()
+        if cl is None:
+            return False, "V/F lock: getter failed, refusing to write blind"
+        entries = self._vf_lock_entries(cl)
+        if domain is None:
+            # mode 3 only: an NVML frequency lock puts mode-2 entries on
+            # domains 0 and 1, and re-targeting one of those would convert the
+            # other mechanism's lock into a voltage lock on the wrong domain
+            held = [e for e in entries if e.lockMode == VF_LOCK_MODE_POINT]
+            domain = held[0].domain if held else VF_LOCK_DOMAIN
+        target = next((e for e in entries if e.domain == domain), None)
+        if target is None:
+            return False, (f"V/F lock: domain {domain} is not in the driver's "
+                           f"lock table (it lists {[e.domain for e in entries]})")
+        target.lockMode = VF_LOCK_MODE_POINT
+        target.volt_uV = volt_uv
+        cl.version = a.ver(_ClockLock, VF_LOCK_VERSION)  # re-stamp; keep the rest
+        st = a.VfLockSet(a.gpu, ctypes.byref(cl))
+        if st != 0:
+            return False, f"V/F lock write failed (status {st}) - needs admin"
+        got = self.read_vf_lock()
+        if got is None:
+            return False, ("V/F lock write returned OK but the card reports no "
+                           "lock - another tool may have taken it straight back")
+        if got["volt_uV"] != volt_uv:
+            return False, (f"V/F lock: wrote {volt_uv / 1000.0:.2f} mV but the card "
+                           f"reports {got['volt_mv']:.2f} mV on domain "
+                           f"{got['domain']} - another tool holds this lock")
+        return True, (f"V/F point lock set on domain {got['domain']}, requested "
+                      f"{volt_uv / 1000.0:.2f} mV - the hardware holds the highest "
+                      f"V/F point at or below that")
+
+    def clear_vf_lock(self):
+        """Release the V/F point lock: lockMode 0 on every locked entry, by the
+        same read-modify-write.
+
+        volt_uV is deliberately left as the driver has it. Mode 0 is what an
+        unlocked entry reads back as anyway, and a later session cannot know
+        what that field held before somebody locked it - inventing a value
+        would be exactly the from-scratch write this section refuses to make.
+
+        Mode-2 entries are left strictly alone. They are the NVML frequency
+        lock sharing this table, and reset_gpu_clocks() owns those; clearing
+        them from here would mean "release the V/F lock" quietly released the
+        other mechanism too."""
+        a = self.nvapi
+        if not self._vf_lock_available():
+            return False, ("V/F point lock unavailable: 0xE440B867 / 0x39442CFB "
+                           "did not both resolve")
+        cl = self._vf_lock_read_raw()
+        if cl is None:
+            return False, "V/F lock: getter failed, refusing to write blind"
+        held = [e for e in self._vf_lock_entries(cl)
+                if e.lockMode == VF_LOCK_MODE_POINT]
+        if not held:
+            return True, "no V/F point lock was set"
+        doms = [e.domain for e in held]
+        for e in held:
+            e.lockMode = VF_LOCK_MODE_OFF
+        cl.version = a.ver(_ClockLock, VF_LOCK_VERSION)
+        st = a.VfLockSet(a.gpu, ctypes.byref(cl))
+        if st != 0:
+            return False, f"V/F lock release failed (status {st}) - needs admin"
+        # read back: the release is the one call whose failure would leave the
+        # card pinned with nothing on screen saying so
+        if self.read_vf_lock() is not None:
+            return False, ("V/F lock release returned OK but the card still "
+                           "reports a lock - another tool is re-asserting it")
+        return True, (f"V/F point lock released "
+                      f"(domain{'s' if len(doms) > 1 else ''} "
+                      f"{', '.join(str(x) for x in doms)})")
+
+    def vf_lock_self_test(self):
+        """Hand the driver back the exact bytes its getter just produced.
+
+        A verified no-op: NVAPI_OK, nothing moves. That makes it the cheap
+        proof, ON THIS MACHINE, that both ids resolved and that the 780-byte
+        layout is the one this driver expects - without touching a knob. It is
+        the middle rung of the ladder in the module docstring, and the reason
+        the read-modify-write above was safe to attempt at all."""
+        a = self.nvapi
+        if not self._vf_lock_available():
+            return False, ("V/F lock self-test: 0xE440B867 / 0x39442CFB did not "
+                           "both resolve")
+        cl = self._vf_lock_read_raw()
+        if cl is None:
+            return False, "V/F lock self-test: getter 0xE440B867 did not answer"
+        before = ctypes.string_at(ctypes.addressof(cl), ctypes.sizeof(cl))
+        st = a.VfLockSet(a.gpu, ctypes.byref(cl))
+        if st != 0:
+            return False, (f"V/F lock self-test: the driver REFUSED an identity "
+                           f"write (status {st}) - do not use the V/F lock here")
+        after = self._vf_lock_read_raw()
+        if after is None:
+            return False, ("V/F lock self-test: identity write was accepted but "
+                           "the getter stopped answering")
+        same = ctypes.string_at(ctypes.addressof(after),
+                                ctypes.sizeof(after)) == before
+        n = min(cl.count, 32)
+        held = [f"{cl.locks[k].domain}:mode{cl.locks[k].lockMode}"
+                for k in range(n) if cl.locks[k].lockMode != VF_LOCK_MODE_OFF]
+        if not same:
+            # not necessarily a fault - a concurrent tuner (Afterburner) moving
+            # its own lock between the two reads looks identical from here - but
+            # a self-test that cannot prove "changed nothing" has not passed
+            return False, (f"V/F lock self-test: identity write accepted but the "
+                           f"state CHANGED - either the layout is wrong or "
+                           f"another tool wrote between the reads")
+        return True, (f"V/F lock self-test passed: identity write accepted, "
+                      f"state unchanged, {n} entries, locked "
+                      f"{held if held else 'none'}")
 
     def set_fan(self, pct):
         nv = self.nvml
@@ -1089,6 +1398,36 @@ class GPU:
         peak = max(p["freq_mhz"] for p in points)
         at = [p for p in points if p["freq_mhz"] == peak]
         return peak, at[0]["idx"], at[0]["volt_mv"], len(at)
+
+    @staticmethod
+    def resolve_vf_point(points, volt_mv):
+        """The point the card will ACTUALLY sit on for a lockMode-3 request of
+        `volt_mv`, or None when the whole curve sits above it. `points` is
+        read_vf_curve() shape.
+
+        TWO stages, and skipping the second one gets the voltage wrong:
+          1. the lock resolves the request DOWN to the highest point at or
+             below it - that fixes the FREQUENCY;
+          2. the boost arbiter then runs that frequency at the LOWEST voltage
+             any point maps it to, the same flat rule peak_info() describes.
+
+        Measured on the rail, both stages at once: requesting 900.00 mV (curve
+        idx 72, 1740 MHz) held 1740 MHz but at 893.75 mV, because idx 71 is the
+        other half of a 1740 MHz flat. Requesting 950.00 mV held 950.00 mV /
+        1830 MHz, idx 80 being the lowest member of its own flat. A request
+        above the whole curve clamps to the top point: this card was found
+        holding a 1137.50 mV lock and running the 1087.50 mV / 1950 MHz point.
+
+        This has to be derived because the lock struct cannot answer it -
+        volt_uV echoes the request back verbatim (see the VF_LOCK_* block).
+        below_cap() does stage 1 so this and every other "at or below the cap"
+        readout in the app share one definition of the boundary."""
+        under = [p for p in points if below_cap(p["volt_mv"], volt_mv)]
+        if not under:
+            return None
+        cap = max(under, key=lambda p: p["volt_mv"])
+        flat = [p for p in points if p["freq_mhz"] == cap["freq_mhz"]]
+        return min(flat, key=lambda p: p["volt_mv"])
 
     EXTRA_POINTS_ABOVE_CAP = 1   # target one VF point past the cap (safety)
 
@@ -1220,6 +1559,13 @@ class GPU:
                 "power limit",
                 (False, "power limit: default unknown, left unchanged")))
         steps.append(ResetStep(self.LOCK_STEP, self.reset_gpu_clocks()))
+        # The V/F point lock is a DIFFERENT mechanism: reset_gpu_clocks does not
+        # touch it, so a reset that stopped at the step above would report a
+        # clean card while this one still pinned it. Appended only when one is
+        # actually held, so the ordinary reset does not grow a step that always
+        # says "nothing was locked".
+        if self._vf_lock_available() and self.read_vf_lock() is not None:
+            steps.append(ResetStep(self.VF_LOCK_STEP, self.clear_vf_lock()))
         steps.append(ResetStep("fan", self.reset_fan()))
         if self.nvapi.ok and self.nvapi.VoltCtrlGet and self.nvapi.VoltCtrlSet:
             steps.append(ResetStep("voltage boost", self.set_voltage_boost(0)))
@@ -1272,8 +1618,13 @@ def _fmt_snapshot(g):
     out.append(f"  gen {d.get('pcie_gen','?')} x{d.get('pcie_width','?')}   "
                f"errors total {d.get('pcie_err_total','?')} "
                f"(since start {d.get('pcie_err_since','?')})")
+    mv = d.get("vf_lock_mv")
+    ck = d.get("clk_lock_mhz")
     out.append(f"  energy {d.get('energy_j','?')} J   "
-               f"vf-locked domains {d.get('vf_locked_domains','?')}")
+               f"vf-locked domains {d.get('vf_locked_domains','?')}"
+               + (f" @ {mv:.2f} mV requested" if mv else "")
+               + (f"   clk-locked [{ck[0]}..{ck[1]}] MHz" if ck else ""))
+    out.append(f"  vf lock self-test: {g.vf_lock_self_test()[1]}")
     out.append(f"  offset ranges: core {s.get('core_off_range')}  "
                f"mem {s.get('mem_off_range')}")
     return "\n".join(out)
@@ -1293,5 +1644,7 @@ for _m in ("read", "read_clock_domains", "read_vf_curve", "apply_vf_deltas",
            "reset_vf_curve",
            "rephase_deltas", "set_clock_offset", "set_power_limit_mw",
            "lock_gpu_clocks", "reset_gpu_clocks", "set_fan", "reset_fan",
+           "read_vf_lock", "read_clk_lock", "set_vf_lock", "clear_vf_lock",
+           "vf_lock_self_test",
            "set_voltage_boost", "read_voltage_boost", "reset_all"):
     setattr(GPU, _m, _synchronized(getattr(GPU, _m)))

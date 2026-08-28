@@ -18,8 +18,11 @@ Safety model, carried over from the Tk version:
     ever move toward stock: reset-to-stock, and releasing this app's own clock
     lock on exit (see release_on_exit - the lock is the one write that would
     otherwise outlive the process unseen)
-  * footgun knobs (force P-state, TCC, CUDA clocks, hard VF lock) are documented
-    in README.md, never wired to a button
+  * footgun knobs (force P-state, TCC, CUDA clocks) are documented in
+    README.md, never wired to a button. The per-domain V/F point lock used to
+    be on that list and has come off it: it was validated end to end on this
+    card (id resolves -> identity write -> single-field read-modify-write, each
+    rung checked before the next), so Ctrl+H now drives it. See README.
   * Tk's modal confirmations have no ImGui equivalent. A press-again arm stood
     in for them, but a plan that only appears once the user has already pressed
     is a RECEIPT, not a warning. So the two curve writes - 'Apply to GPU' and
@@ -104,11 +107,14 @@ class TitanTune:
         # click with no per-knob undo of its own (see reset_all).
         self._reset_armed = False
         self._drag_idx = None
-        # THE record of what this app has locked the GPU clock to and why:
-        # None, or {"why": "hold"|"manual", "lo", "hi", (+ idx/mv/want)}.
-        # Hold and the Clocks menu drive the SAME nvmlDeviceSetGpuLockedClocks,
-        # so a second source of truth would let the on-screen hold outlive a
-        # Release that already dropped it in the driver.
+        # THE record of what this app is holding the card with, and how:
+        #   None, or {"kind": LOCK_NVML|LOCK_VF, ...per-mechanism fields}
+        # There are now TWO unrelated driver mechanisms behind this (see
+        # LOCK_NAME): the Clocks menu's frequency lock and Ctrl+H's V/F point
+        # lock. One record, carrying which - because a second source of truth
+        # would let an on-screen hold outlive a Release that already dropped
+        # it, and because releasing the WRONG mechanism returns OK while the
+        # card stays pinned.
         self._clk_lock = None
         self._lockable = None      # cached top-mem-row lockable clock list
         self._hold_t = 0.0         # last accepted Ctrl+H (key auto-repeat)
@@ -752,12 +758,23 @@ class TitanTune:
         mscale, munit = self.gpu.mem_offset_scale()
         moff = d.get("mem_off", 0)
         mdisp = int(moff / mscale) if isinstance(moff, int) else 0
+        # BOTH lock mechanisms, read back from the driver rather than from this
+        # app's own record - so a lock set by another tuner, or left behind by
+        # an earlier run, shows up here even though nothing in this session
+        # took it. The V/F voltage is the one REQUESTED, not the point held
+        # (the driver echoes it back - see nvbackend's VF_LOCK_* block), so it
+        # is labelled as a request.
+        vfmv = d.get("vf_lock_mv")
+        ck = d.get("clk_lock_mhz")
         dpg.set_value("state",
                       f"energy {d.get('energy_j',0):.0f} J\n{fantxt}\n"
                       f"offsets: core {d.get('core_off',0):+d} MHz   "
                       f"mem {mdisp:+d} {munit}\n"
                       f"volt-boost {d.get('vboost_pct','--')}%   "
-                      f"VF-locked {d.get('vf_locked_domains') or 'none'}")
+                      f"VF-locked {d.get('vf_locked_domains') or 'none'}"
+                      + (f" (asked {vfmv:.2f} mV)" if vfmv else "")
+                      + (f"   clk-locked [{ck[0]}..{ck[1]}] MHz" if ck
+                         else "   clk-locked none"))
 
     # ====================================================================== #
     #  CONTROL                                                               #
@@ -957,35 +974,90 @@ class TitanTune:
         if self.guard():
             self.report(self.gpu.reset_fan())
 
+    # ---- the two lock mechanisms ------------------------------------------ #
+    # The card can be pinned two completely different ways, and neither driver
+    # call reads or clears the other:
+    #   LOCK_NVML  nvmlDeviceSetGpuLockedClocks - pins a FREQUENCY range. At
+    #              idle it leaves memory in the low state (mem 810 here).
+    #   LOCK_VF    the NvAPI per-domain V/F point lock - pins a VOLTAGE, and
+    #              holds true P0 (mem 7000) with the card near idle.
+    # _clk_lock carries which one is in force, because "release the lock" has
+    # to become the right call and a wrong one succeeds silently.
+    LOCK_NVML = "nvml"
+    LOCK_VF = "vf"
+    LOCK_NAME = {LOCK_NVML: "NVML locked clocks (Clocks menu)",
+                 LOCK_VF: "V/F point lock (Ctrl+H)"}
+
+    def release_current(self):
+        """Drive the release that matches the record, and return its (ok, msg).
+        With no record it falls back to the NVML reset: that is the mechanism
+        the Clocks-menu Release button names, and it is the one a lock left by
+        an earlier run of THIS app would be in. It deliberately does not clear
+        an unrecorded V/F lock - that one is almost certainly another tuner's
+        (this card was found holding Afterburner's), and taking someone else's
+        lock away because a button was nearby is not this app's business."""
+        if self._clk_lock and self._clk_lock.get("kind") == self.LOCK_VF:
+            return self.gpu.clear_vf_lock()
+        return self.gpu.reset_gpu_clocks()
+
+    def handover(self, kind):
+        """Release a lock of the OTHER mechanism before taking this one.
+
+        There is exactly one lock record, so a second mechanism taken on top of
+        the first would overwrite the record and leave the first one held in
+        the driver with nothing on screen naming it - invisible until a reboot.
+        Returns False when the old lock could NOT be released, in which case
+        the new one must not be taken either: the record has to keep describing
+        what the card is really doing."""
+        cur = self._clk_lock
+        if not cur or cur.get("kind") == kind:
+            return True
+        ok, m = self.release_current()
+        self.log(f"releasing the {self.LOCK_NAME[cur['kind']]} first - {m}", ok)
+        if not ok:
+            self.log("the new lock was NOT taken: the old one is still held and "
+                     "two locks cannot both be tracked", False)
+            return False
+        self.set_lock_state(None)
+        return True
+
     def apply_lock(self):
         if not self.guard():
             return
         mn, mx = int(dpg.get_value("lock_min")), int(dpg.get_value("lock_max"))
+        if not self.handover(self.LOCK_NVML):
+            return
         ok, m = self.gpu.lock_gpu_clocks(mn, mx)
         self.report((ok, m))
         if ok:
-            self.set_lock_state({"why": "manual", "lo": mn, "hi": mx})
+            self.set_lock_state({"kind": self.LOCK_NVML,
+                                 "lo": mn, "hi": mx})
 
     def release_lock(self):
-        """The ONE release path - Ctrl+H routes here too. Both drive the same
-        driver-side lock, so sharing the code is what makes it impossible for
-        the hold banner to survive a Release (or to be dropped while the driver
-        still holds the clock, if the release fails)."""
+        """The ONE release path - Ctrl+H routes here too. Sharing the code is
+        what makes it impossible for the hold banner to survive a Release (or
+        to be dropped while the driver still holds the card, if the release
+        fails). It now also picks WHICH driver call to make, from the record."""
         if not self.guard():
             return
-        ok, m = self.gpu.reset_gpu_clocks()
+        ok, m = self.release_current()
         self.report((ok, m))
         if ok:
             self.set_lock_state(None)
 
     def release_on_exit(self):
-        """Drop a clock lock THIS app is still holding, as the window closes.
-        The lock is the one write here that outlives the process: it sits in the
-        driver until something resets it or the machine reboots, and NVML on this
-        card will not read it back (nvmlDeviceGetGpuLockedClocks is absent), so a
-        lock left behind is invisible to the next run and to every other tool.
-        Every other knob this app writes is undone by 'Reset all to stock' from a
-        later session; this one could not be, so it is undone here.
+        """Drop whichever lock THIS app is still holding, as the window closes.
+        A lock is the one write here that outlives the process: it sits in the
+        driver until something resets it or the machine reboots. The NVML one is
+        not even readable back on this card (nvmlDeviceGetGpuLockedClocks is
+        absent), so leaving it is invisible to the next run and to every other
+        tool. Every other knob this app writes is undone by 'Reset all to stock'
+        from a later session; this one could not be, so it is undone here.
+
+        Both mechanisms are covered - release_current() picks the call that
+        matches the record. A V/F point lock is if anything the more important
+        of the two to drop: it is the one that holds the card in true P0, so
+        leaving it behind costs idle power for as long as the machine is up.
 
         Deliberately NOT behind guard(): the unlock gate stops the app making
         writes the user did not ask for, and this only takes back a write the app
@@ -998,9 +1070,9 @@ class TitanTune:
         log widget is written for consistency and never appears on screen."""
         if not self._clk_lock:
             return
-        why = "Ctrl+H hold" if self._clk_lock["why"] == "hold" else "Clocks menu"
-        ok, m = self.gpu.reset_gpu_clocks()
-        note = f"exit: releasing the clock lock this app took ({why}) - {m}"
+        what = self.LOCK_NAME[self._clk_lock["kind"]]
+        ok, m = self.release_current()
+        note = f"exit: releasing the {what} this app took - {m}"
         print(note)
         self.log(note, ok)
         if ok:
@@ -1024,36 +1096,53 @@ class TitanTune:
                      f"lock ceiling - locking will step it DOWN", ok=False)
         dpg.set_value("lock_min", gmax)
         dpg.set_value("lock_max", gmax)
+        if not self.handover(self.LOCK_NVML):
+            return
         ok, m = self.gpu.lock_gpu_clocks(gmax, gmax)
         self.report((ok, m))
         if ok:
-            self.set_lock_state({"why": "manual", "lo": gmax, "hi": gmax})
+            self.set_lock_state({"kind": self.LOCK_NVML,
+                                 "lo": gmax, "hi": gmax})
 
     def set_lock_state(self, state):
-        """Record what the clock lock is now, and redraw both indicators. Every
-        path that moves the driver-side lock - Lock, Lock max, Release, Ctrl+H,
-        Reset all - ends here, which is what stops a stale HOLD banner from
-        claiming a point the card was already released from."""
+        """Record what is holding the card now, and redraw both indicators.
+        Every path that moves either driver-side lock - Lock, Lock max,
+        Release, Ctrl+H, Reset all, exit - ends here, which is what stops a
+        stale HOLD banner from claiming a point the card was already released
+        from.
+
+        The indicator names the MECHANISM, not just the numbers. Two different
+        locks that both read 'locked' would leave the user guessing which
+        Release applies, and the wrong one succeeds without doing anything."""
         self._clk_lock = state
-        held = state if state and state["why"] == "hold" else None
+        held = state if state and state["kind"] == self.LOCK_VF else None
+        # drawn at the voltage the card is really ON, not the one requested:
+        # the line is the only place the plot shows the hold, so it has to land
+        # on the point the rail settled at (see hold_point)
         if dpg.does_item_exist("vf_holdline"):
-            dpg.set_value("vf_holdline", [[held["mv"]] if held else []])
+            dpg.set_value("vf_holdline", [[held["got_mv"]] if held else []])
         if not dpg.does_item_exist("hold_info"):
             return
         if held:
-            txt = (f"HOLD  point {held['idx']} @ {held['mv']:.2f} mV - clock "
-                   f"pinned at {held['hi']} MHz"
-                   + (f", snapped DOWN from the point's {held['want']} MHz "
-                      f"(the highest lockable value at or below it)"
-                      if held["hi"] != held["want"] else "")
+            exact = held["got_idx"] == held["idx"]
+            txt = (f"HOLD  V/F point lock on domain {held['domain']}  •  "
+                   + (f"point {held['idx']} @ {held['got_mv']:.2f} mV, "
+                      f"{held['got_mhz']:.0f} MHz"
+                      if exact else
+                      f"asked for point {held['idx']} @ {held['req_mv']:.2f} mV, "
+                      f"the card holds the point at or below it: "
+                      f"point {held['got_idx']} @ {held['got_mv']:.2f} mV, "
+                      f"{held['got_mhz']:.0f} MHz")
                    + "   •   Ctrl+H releases")
         elif state:
-            txt = (f"clock locked to [{state['lo']}..{state['hi']}] MHz from "
-                   f"the Clocks menu - no V/F point is held")
+            txt = (f"clock locked to [{state['lo']}..{state['hi']}] MHz from the "
+                   f"Clocks menu (NVML locked clocks) - no V/F point is held")
         else:
             txt = ""
         dpg.set_value("hold_info", txt)
-        dpg.configure_item("hold_info", color=GOOD if held else WARN)
+        dpg.configure_item("hold_info",
+                           color=GOOD if (held and held["got_idx"] == held["idx"])
+                           else WARN)
 
     def reset_all(self):
         """The ONE write that keeps its press-again arm, at the user's explicit
@@ -1070,25 +1159,34 @@ class TitanTune:
         self._reset_armed = False
         self.autosave_before("reset-all")
         failed = 0
-        lock_ok = False
+        # One flag per MECHANISM. reset_all releases both, and the record may
+        # only be dropped when the step matching what THIS app holds succeeded
+        # - clearing it because the other one worked is how the banner would
+        # come down over a card that is still pinned.
+        released = {}
         for step in self.gpu.reset_all():
             ok, m = step
             self.log(m, ok)
             failed += (0 if ok else 1)
             # ResetStep names the knob each step moved; the tail steps are
-            # conditional, so the release cannot be found by position.
-            if getattr(step, "name", None) == GPU.LOCK_STEP:
-                lock_ok = ok
-        # reset_all() releases the clock lock as one of its steps, so the hold
-        # record goes with it - but ONLY when that step actually succeeded. A
-        # failed release that still dropped the banner would leave the driver
-        # holding a clock nothing on screen names, which is the exact
-        # disagreement release_lock refuses to create (see its docstring).
-        if lock_ok:
+            # conditional, so neither release can be found by position.
+            name = getattr(step, "name", None)
+            if name == GPU.LOCK_STEP:
+                released[self.LOCK_NVML] = ok
+            elif name == GPU.VF_LOCK_STEP:
+                released[self.LOCK_VF] = ok
+        # A failed release that still dropped the banner would leave the driver
+        # holding a card nothing on screen names, which is the exact
+        # disagreement release_lock refuses to create (see its docstring). The
+        # V/F step is only emitted when one was actually held, so a missing
+        # entry for the recorded kind means nothing needed releasing.
+        kind = (self._clk_lock or {}).get("kind")
+        if kind is None or released.get(kind, True):
             self.set_lock_state(None)
-        elif self._clk_lock:
-            self.log("clock lock NOT released - the indicator stays up because "
-                     "the driver is still holding the clock", False)
+        else:
+            self.log(f"the {self.LOCK_NAME[kind]} was NOT released - the "
+                     f"indicator stays up because the driver is still "
+                     f"holding the card", False)
         st = self.gpu.static
         dpg.set_value("sl_core", 0)
         dpg.set_value("sl_mem", 0)
@@ -1762,12 +1860,20 @@ class TitanTune:
         DOWN only, like every other snap here: a V/F point's frequency is often
         not IN the lockable table at all (this card's curve reaches 2175 MHz
         against a 2160 MHz table), and a request may lose a bin but must never
-        gain clock nobody asked for."""
+        gain clock nobody asked for.
+
+        NOT on the Ctrl+H path any more. The hold moved to the V/F point lock,
+        which takes a VOLTAGE and lets the hardware resolve it, so there is
+        nothing to snap; this stays as the NVML mechanism's own rule, where the
+        lockable table is what the request has to land in. Nothing calls it at
+        present - kept rather than deleted because the rule is the correct one
+        for that mechanism and re-deriving it later would be re-deriving a
+        measurement (see 'Lockable clocks are not a ceiling' in README)."""
         below = [c for c in self.lockable_list() if c <= mhz]
         return max(below) if below else None
 
     def hold_toggle(self):
-        if self._clk_lock and self._clk_lock["why"] == "hold":
+        if self._clk_lock and self._clk_lock["kind"] == self.LOCK_VF:
             # straight through the Release button's own handler: one release
             # path means the banner and the driver cannot end up disagreeing
             self.release_lock()
@@ -1776,14 +1882,22 @@ class TitanTune:
 
     def hold_point(self):
         """TitanTune's answer to Afterburner's Ctrl+L curve lock: pin the card
-        at the selected point's frequency with nvmlDeviceSetGpuLockedClocks, and
-        the boost arbiter then supplies that point's voltage - the same
-        observable result, built from the one clock write this app makes.
+        onto the selected V/F point with the per-domain V/F point lock (NvAPI
+        setter 0x39442CFB over the getter 0xE440B867's own buffer).
 
-        Deliberately NOT the hard per-domain VF lock (NvAPI 0x39442CFB): its
-        write struct is unverified on this card and it is rail-adjacent, so it
-        stays read-only (see README). The locked-clock path is documented,
-        reversible, and proven to hold at idle here with no load needed."""
+        This is a VOLTAGE request, not a frequency one, so there is no
+        snap-to-a-lockable-clock step here: the hardware resolves the request
+        itself, onto the highest point at or below it. The old
+        nvmlDeviceSetGpuLockedClocks path is still what the Clocks menu drives,
+        but it is the weaker hold - measured on this card, it leaves memory at
+        810 MHz on an idle card, where the V/F lock keeps true P0 (mem 7000) at
+        ~5% utilisation.
+
+        What the hardware delivers can sit BELOW what was asked for, twice
+        over: the request resolves DOWN to a point, and the arbiter then runs
+        that point's frequency at the lowest voltage carrying it. So nothing
+        here claims the selected point was held - it reads back and reports the
+        point the card is really on (see GPU.resolve_vf_point)."""
         if not self.guard():
             return
         if self.vf_sel is None or self.vf_sel not in self.vf_by_idx:
@@ -1791,36 +1905,62 @@ class TitanTune:
             return
         idx = self.vf_sel
         p = self.vf_by_idx[idx]
-        # the HARDWARE frequency, not wf(): the arbiter reads the curve that is
-        # in the card, so a staged edit this point has not been written yet
-        # would name a frequency that curve does not carry at this voltage
-        want = int(round(p["freq_mhz"]))
-        f = self.snap_lockable(want)
-        if f is None:
-            lst = self.lockable_list()
-            self.log(f"cannot hold point {idx}: {want} MHz is below every "
-                     f"lockable clock"
-                     + (f" (the lowest is {lst[0]} MHz)" if lst else
-                        " - the driver enumerated none"), False)
+        # the point's own voltage, so the "at or below" rule resolves back onto
+        # the point that was picked. Voltage is fixed by the VF table and the
+        # editor cannot move it, so unlike the old frequency-based hold this
+        # number can never be a staged edit.
+        req_mv = p["volt_mv"]
+        req_uv = int(round(req_mv * 1000))
+        if not self.handover(self.LOCK_VF):
             return
-        ok, m = self.gpu.lock_gpu_clocks(f, f)
+        ok, m = self.gpu.set_vf_lock(req_uv)
         if not ok:
             self.log(m, False)
             return
-        # no report() on success: the backend's "GPU clock locked to [f..f]"
-        # says less than the line below and would push the snap note off the
-        # ~9 rows the log shows
-        self.set_lock_state({"why": "hold", "lo": f, "hi": f, "idx": idx,
-                             "mv": p["volt_mv"], "want": want})
-        if f != want:
-            self.log(f"point {idx} is {want} MHz; held at {f} MHz, the highest "
-                     f"lockable value", None)
+        # the driver echoes the REQUEST back, so this read-back proves only
+        # that the lock is ours and still in force - which is the thing worth
+        # proving on a machine where another tuner may be re-asserting its own
+        st = self.gpu.read_vf_lock()
+        if st is None:
+            self.log("hold: the write was accepted but the card now reports no "
+                     "V/F lock - something else took it back", False)
+            self.set_lock_state(None)
+            return
+        # Where the card actually ends up is derived from the curve, because
+        # the lock struct cannot say (see GPU.resolve_vf_point). Resolved
+        # against the curve the PLOT is showing, not a fresh read, so the
+        # banner and the picture agree. The point identity that comes out of
+        # this is exact either way - point voltages are fixed on the 6.25 mV
+        # grid and never move - but the MHz is only as fresh as the last
+        # 'Read curve': the driver re-evaluates the curve with temperature, and
+        # a cool card was measured a whole 15 MHz bin above a warm one.
+        got = GPU.resolve_vf_point(self.vf_points or [], st["volt_mv"])
+        if got is None:
+            # only reachable if the curve went empty under us - the request is
+            # a point's own voltage, so it normally resolves back onto that
+            # point at worst. Fall back to naming what was ASKED for, and say
+            # that is what the readout now means.
+            self.log(f"held at {st['volt_mv']:.2f} mV, but no point on the curve "
+                     f"sits at or below that - the readout below names the "
+                     f"point requested, not a point read back", False)
+            got = p
+        self.set_lock_state({"kind": self.LOCK_VF,
+                             "idx": idx, "req_mv": req_mv,
+                             "domain": st["domain"],
+                             "got_idx": got["idx"], "got_mv": got["volt_mv"],
+                             "got_mhz": got["freq_mhz"]})
+        if got["idx"] != idx:
+            self.log(f"asked for point {idx} @ {req_mv:.2f} mV; the card holds "
+                     f"point {got['idx']} @ {got['volt_mv']:.2f} mV "
+                     f"({got['freq_mhz']:.0f} MHz) - the highest point at or "
+                     f"below the request", None)
         if self.vf_work.get(idx) != self.vf_orig.get(idx):
             self.log(f"note: point {idx} has a staged edit that is not in the "
-                     f"card yet - the hold uses its hardware frequency", None)
-        self.log(f"holding point {idx} @ {p['volt_mv']:.2f} mV at {f} MHz - the "
-                 f"arbiter supplies that point's voltage. Ctrl+H releases",
-                 True)
+                     f"card yet - the frequency held is the one the card's "
+                     f"curve carries at this voltage", None)
+        self.log(f"holding point {got['idx']} @ {got['volt_mv']:.2f} mV = "
+                 f"{got['freq_mhz']:.0f} MHz via the V/F point lock on domain "
+                 f"{st['domain']}. Ctrl+H releases", True)
 
     def vf_select(self, idx):
         if not self.vf_points:
@@ -2592,9 +2732,11 @@ deliberately does not put behind a button."""
             # The clock lock lives up here because it was eating the widest row
             # on the Control tab. It is the same widgets with the same tags, so
             # guard() and the unlock gate (_ctl_widgets, below) still cover it.
-            # Ctrl+H (hold a V/F point) drives this SAME driver-side lock from
-            # the curve editor - see set_lock_state for why there is exactly one
-            # record of what is locked.
+            # This is the NVML frequency lock. Ctrl+H drives the OTHER
+            # mechanism (the V/F point lock) - see set_lock_state and LOCK_NAME
+            # for why one record has to say which of the two is in force, and
+            # handover() for what happens when this menu is used while a Ctrl+H
+            # hold is up.
             with dpg.menu(label="Clocks"):
                 dpg.add_text("GPU CLOCK LOCK", color=ACCENT)
                 dpg.add_text(f"{gmin}-{gmax} MHz lockable", color=DIM)
@@ -2632,7 +2774,9 @@ deliberately does not put behind a button."""
                             "will LOWER the clock. This is for holding one\n"
                             "frequency steady, not for going fast.")
                 dpg.add_text("the result is one line in the Control tab log.\n"
-                             "Ctrl+H on the curve editor drives this same lock",
+                             "Ctrl+H on the curve editor is a DIFFERENT lock\n"
+                             "(V/F point, by voltage); taking one releases the\n"
+                             "other, and at idle this one drops memory to 810",
                              color=DIM)
             self._ctl_widgets += ["lock_min", "lock_max", "go_lock",
                                   "go_release", "go_lockmax"]
@@ -2668,11 +2812,14 @@ deliberately does not put behind a button."""
          "release. Middle-drag does nothing"),
         ("scroll wheel", "zoom the plot (pan and zoom are bounded; 'Fit view' "
                          "puts the whole curve back on screen)"),
-        ("Ctrl + H", "hold the selected point: pins the clock there so the "
-                     "boost arbiter supplies that point's voltage. Press "
-                     "again to release. The point's frequency snaps DOWN to "
-                     "the nearest lockable clock, never up. Both the hold and "
-                     "its release are behind 'Unlock controls'"),
+        ("Ctrl + H", "hold the selected point with the V/F point lock: the "
+                     "card is pinned to the point by VOLTAGE, and holds true "
+                     "P0 while it is. Press again to release. The hardware "
+                     "resolves the request DOWN to the highest point at or "
+                     "below it, so the point held can be lower than the one "
+                     "selected - the status line always names the point the "
+                     "card is really on. Both the hold and its release are "
+                     "behind 'Unlock controls'"),
     ]
 
     def build_tool_windows(self):

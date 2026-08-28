@@ -56,7 +56,9 @@ that: the full 9-reason clocks-event mask, the NVAPI perf-decrease bits
 (including the insufficient-aux-power bit — a canary for the transplant's
 power wiring), a GPU/board power split, per-domain utilisation, PCIe
 link generation/width with AER error counters, and a state line (energy
-counter, fan duty/RPM, applied offsets, voltage boost %, VF-locked domains).
+counter, fan duty/RPM, applied offsets, voltage boost %, and BOTH lock
+mechanisms read straight from the driver — the V/F-locked domains with the
+voltage that was requested, and the NVML clock-lock range).
 
 Between the tiles and those panels sits **ALL CLOCK DOMAINS** — every domain
 the private getter populates, one row each, with the *programmed* frequency
@@ -180,24 +182,30 @@ read-only).
   useful for holding one frequency steady but can be a step *down* from
   what the card is boosting to. The lock holds at idle on this card with no
   GPU load needed, which makes it the cheap instrument for characterising a
-  clock domain. `Ctrl+H` in the curve editor drives this *same* driver-side
-  lock (see "Hold this point" below), so the app keeps one record of what is
-  locked and why.
+  clock domain. `Ctrl+H` in the curve editor drives a **different** mechanism
+  (the V/F point lock — see "The V/F point lock, and the two lock mechanisms"
+  below); the app keeps one record of which of the two is in force, and taking
+  either one releases the other first rather than leaving an untracked lock
+  behind.
 
   **What that record does and does not cover.** It covers the locks *this
   run of the app* took. Within a session, every lock action — `Lock`,
-  `Lock max`, `Release`, `Ctrl+H`, and the release inside `Reset all to
+  `Lock max`, `Release`, `Ctrl+H`, and the releases inside `Reset all to
   stock` — leaves the on-screen indicator agreeing with the driver, and a
   release that *fails* deliberately keeps the indicator up rather than
-  clearing it. What the app cannot do is *discover* a lock:
-  `nvmlDeviceGetGpuLockedClocks` is not available on this card, so there is
-  no way to read the driver's lock state back, and a lock left by a previous
-  run, by a killed instance, or by another tool is invisible here. An empty
-  indicator therefore means "this app is not holding a lock", not "the card
-  is not locked". `Release` (or `Reset all to stock`) clears such a lock
-  anyway, even with nothing on screen naming it, and so does a reboot. On
-  exit the app *attempts* to release a lock it is itself holding — see
-  "Hold this point" below for what happens when that attempt fails.
+  clearing it. An empty indicator means "this app is not holding a lock", not
+  "the card is not locked": another tuner may be holding one, and this card was
+  in fact found holding somebody else's V/F point lock at 1137.50 mV.
+
+  **Both locks can now be read back**, which was not true before. NVML's own
+  `nvmlDeviceGetGpuLockedClocks` is absent on this card, but both mechanisms
+  live in the `0xE440B867` table, so the Monitor state line reports each of them
+  straight from the driver rather than from the app's record — which is how a
+  lock left by a previous run, by a killed instance, or by another tool becomes
+  visible. `Release` (or `Reset all to stock`) clears a lock this app is
+  holding; a reboot clears any of them. On exit the app *attempts* to release
+  the one it is itself holding — see "Hold this point" below for what happens
+  when that attempt fails.
 - **Fan duty (%)** — manual duty with the hardware-reported minimum enforced
   as a floor (queried live via `nvmlDeviceGetMinMaxFanSpeed`; measured 41%
   on this card, with 30% used only as a fallback if that query fails).
@@ -240,6 +248,94 @@ The V/F curve is a **separate mechanism**. Its clock is
 the curve editor reaches clocks the lock cannot — 2175 MHz observed on this
 card against a 2160 MHz lock ceiling. The two disagreeing is expected, not a
 bug.
+
+### The V/F point lock, and the two lock mechanisms
+
+The card can be pinned **two completely different ways**. They are not two
+views of one thing, and the app tracks which one is in force because releasing
+the wrong one returns OK and leaves the card pinned.
+
+| | NVML locked clocks | V/F point lock |
+| --- | --- | --- |
+| driven from | `Clocks` menu | `Ctrl+H` |
+| call | `nvmlDeviceSetGpuLockedClocks` | NvAPI `0x39442CFB` |
+| you ask for | a **frequency** range | a **voltage** |
+| at idle here | pstate 5, **mem 810** | pstate 0, **mem 7000** |
+| readable back | see below | yes, `0xE440B867` |
+| survives reboot | no | no |
+
+The V/F point lock is the stronger hold: measured on this card at ~5%
+utilisation it keeps **true P0** — pstate 0, memory 7000 — for as long as it is
+held, where `SetGpuLockedClocks` pins the graphics clock but lets the card fall
+to pstate 5 and memory 810. Both are volatile; a reboot clears either.
+
+**Ids and struct.** The getter is `NvAPI_GPU_...BoostLock` `0xE440B867`, already
+wired for telemetry; the setter is `0x39442CFB`. Both take the **same** 780-byte
+struct (`_ClockLock` / `_LockEntry` in `nvbackend.py`), version
+`0x0002030C` = `sizeof | (2<<16)`, `count = 7`, entries
+`{domain, unk1, lockMode, unk2, volt_uV, unk3}`. This was established
+clean-room: the layout came from the driver's own GET output, and Afterburner's
+binary was never inspected.
+
+**`lockMode 3` means "the highest V/F point at or below the requested
+voltage"** — the same `≤ cap` semantics as the de-flatten voltage cap, and
+`below_cap()` is the single shared definition of that boundary. Measured:
+requesting **900000 µV delivered 893.75 mV**, which is 143 × 6.25, a real point
+on the 6.25 mV grid, and core moved 1950 → 1740. It held stable for 8 s, and
+writing the original bytes back restored it exactly. `lockMode 0` is "not
+locked". Domain **6** is the one that carries the lock on this card.
+
+**The struct tells you what was ASKED, never what is held.** `volt_uV` is
+echoed back verbatim: a 900000 µV lock reads straight back as 900000 while the
+rail sits at 893.75, and this card was found holding a **1137500 µV** lock on a
+curve that stops at 1087500. So the point actually held has to be *derived*,
+which `GPU.resolve_vf_point()` does in two stages — resolve down to a point,
+then apply the flat rule that makes the arbiter run the lowest voltage carrying
+that frequency. All three observed cases reproduce: 900.00 → idx 71 @ 893.75 /
+1740, 950.00 → idx 80 @ 950.00 / 1830, 1137.50 → idx 96 @ 1050.00 / 1950.
+
+**Both mechanisms share this one table, and only the mode separates them.**
+`nvmlDeviceSetGpuLockedClocks(lo, hi)` writes **two `lockMode 2` entries whose
+`volt_uV` field is a frequency in kHz**, not a voltage: domain 0 takes `hi`,
+domain 1 takes `lo` (verified with an asymmetric lock — 1350..1800 produced
+domain 0 = 1800000 and domain 1 = 1350000). They coexist with the mode-3 entry,
+and `nvmlDeviceResetGpuLockedClocks` clears the mode-2 pair while leaving mode 3
+alone. Every lookup in `nvbackend.py` therefore matches on **mode**, never on
+`lockMode != 0`: reading a mode-2 entry as a voltage yields a confident and
+entirely wrong "1350.00 mV", and clearing one from the V/F side would silently
+release the other mechanism's lock.
+
+A side effect worth having: this makes the NVML lock **readable back**
+(`read_clk_lock()`), which `nvmlDeviceGetGpuLockedClocks` cannot do here — it is
+absent from the DLL. A clock lock left behind by an earlier run used to be
+invisible to the next one. The Monitor state line now shows both locks, read
+from the driver rather than from the app's own record, so a lock set by another
+tuner shows up too.
+
+### The validation ladder
+
+This setter was wired only after climbing a ladder, and that ladder — not the
+plausibility of the struct — is why it was safe. Any future unverified setter
+gets the same treatment:
+
+1. **The id resolves.** `nvapi_QueryInterface` returns a pointer for both the
+   getter and the setter. Half a pair is not a write path, and the code guards
+   every route on *both* resolving.
+2. **An identity write is accepted and changes nothing.** GET, then hand the
+   driver back the exact bytes it just produced. It returns `NVAPI_OK` and the
+   state is byte-identical afterwards. This proves the id and the 780-byte
+   layout on the running machine while moving nothing, and it is kept as
+   `vf_lock_self_test()` so it stays runnable — it is in the standalone
+   `python nvbackend.py` snapshot.
+3. **A single-field read-modify-write moves exactly one thing, and reverses.**
+   Change one entry's `volt_uV`, confirm the card moved as predicted, write the
+   original bytes back and confirm it returns exactly.
+
+Rung 2 is what makes rung 3 safe, and it is the reason nothing here ever
+**constructs** a `_ClockLock` to write. Every write in this section starts from
+a buffer the driver produced and edits one field of it; the unknown dwords,
+the flags word and the six other domains go back exactly as they came. A struct
+assembled from a header would be a guess wearing the same shape.
 
 ## The V/F curve editor
 
@@ -390,44 +486,63 @@ as a green vertical line at the point's voltage on the plot and as a status
 line on the Control tab, above the collapsible knob groups so it stays
 visible whatever is collapsed. Both clear on release.
 
-**It is built out of locked clocks, not the hard VF lock.** The card is
-pinned with `nvmlDeviceSetGpuLockedClocks(f, f)` at the selected point's
-frequency, and the boost arbiter then supplies that point's voltage — the
-same observable result as a curve lock. The alternative, NvAPI `0x39442CFB`
-(per-domain hard VF lock), is deliberately *not* used: its write struct is
-unverified against this card and it is rail-adjacent, so this app only ever
-reads lock state through it (see "Deliberately not wired to a button"
-below). `SetGpuLockedClocks` is documented, reversible, releasable in one
-call, and proven to hold at idle here with no GPU load needed.
+**It is built out of the per-domain V/F point lock** (NvAPI setter
+`0x39442CFB` over the getter `0xE440B867`), *not* out of locked clocks. It
+used to be the other way round, while that setter was unverified; it has now
+been validated end to end on this card and is the better hold. See "V/F point
+lock" below for the ids, the semantics and the measurements.
 
-**A point's frequency is often not lockable, so the hold snaps DOWN.** The
-lockable set and the V/F curve are unrelated mechanisms (see "Lockable
-clocks are not a ceiling"): this card's table tops out at 2160 MHz while
-the curve reaches 2175. The hold therefore takes the highest lockable value
-*at or below* the point's frequency — never above, the same standing rule
-as every other snap in this app, so a hold can lose a bin but can never
-gain clock nobody asked for. It says so plainly in the log when it happens
-("point 96 is 2175 MHz; held at 2160 MHz, the highest lockable value") and
-repeats it in the status line. If no lockable value sits at or below the
-point, the hold is refused rather than approximated upward.
+**It is a VOLTAGE request, so there is no snap-to-a-lockable-clock step.**
+`Ctrl+H` asks the hardware to lock at the selected point's own voltage, and
+the hardware resolves that itself. The old path had to snap the point's
+*frequency* down onto the driver's lockable table (which tops out at 2160 MHz
+while the curve reaches 2175); none of that applies here, because the lockable
+table is not involved at all.
 
-Three further details:
+**The point actually held can still be BELOW the one selected, twice over,**
+and the app never claims otherwise:
 
-- The frequency used is the point's **hardware** frequency, not its staged
-  editor value. The arbiter reads the curve that is in the card, so a point
-  with an unwritten edit would otherwise be held at a frequency that curve
-  does not carry at that voltage. The log notes this when it applies.
+1. the lock resolves the request down to the highest V/F point *at or below*
+   the requested voltage;
+2. the boost arbiter then runs that point's frequency at the **lowest** voltage
+   any point maps it to — the same flat rule that makes `peak_info` report a
+   "park" point.
+
+So selecting a point that is the upper half of a flat holds the lower half.
+Measured: with idx 71 and 72 both at 1740 MHz, holding idx 72 (900.00 mV) put
+the card on idx 71 at 893.75 mV. The status line and the log both name the
+point the card is *really* on, and say what was asked for when the two differ
+("asked for point 72 @ 900.00 mV, the card holds the point at or below it:
+point 71 @ 893.75 mV, 1740 MHz"). When they agree, the line simply names the
+point. If no point on the curve sits at or below the request, the app says it
+cannot identify the point rather than guessing.
+
+Four further details:
+
+- **The point identity is exact; the MHz is a snapshot.** Point voltages are
+  fixed on the 6.25 mV grid and never move, so the resolved index and voltage
+  are always right. The *frequency* attached to a point is re-evaluated by the
+  driver with temperature — a cool card was measured a whole 15 MHz bin above
+  a warm one with all 103 deltas at zero — so the MHz in the banner is as fresh
+  as the last `Read curve`. The resolution is deliberately done against the
+  curve the plot is showing, so the banner and the picture cannot disagree.
+- A point with an **unapplied editor edit** is noted in the log. Voltage is
+  fixed by the VF table and the editor cannot move it, so the hold still lands
+  on the intended point; what a staged edit changes is the frequency that point
+  will deliver once applied, and until then the card runs the curve it has.
 - Holding *and releasing* are both behind "Unlock controls", exactly like
   the `Release` button. Making one write path exempt would mean "read-only"
   no longer described the app; re-ticking the checkbox is always available,
   and a reboot clears the lock regardless.
 - **Quitting tries to release it, and tells stdout if it couldn't.** Closing
-  the window calls `nvmlDeviceResetGpuLockedClocks` for whatever lock the app
-  is still holding — a `Ctrl+H` hold and a `Clocks`-menu `Lock` alike. The
-  lock is the only write here that outlives the process *and* the only one no
-  later session could find again (nothing can read it back — see "GPU clock
-  lock" above), so leaving it behind would break this app's one standing
-  promise: everything it does is reversible.
+  the window releases whatever lock the app is still holding, picking the call
+  that matches the mechanism — `clear_vf_lock()` for a `Ctrl+H` hold,
+  `nvmlDeviceResetGpuLockedClocks` for a `Clocks`-menu `Lock`. Releasing the
+  wrong one returns OK and leaves the card pinned, which is why the app keeps
+  one record saying *which*. A lock is the only write here that outlives the
+  process, so leaving it behind would break this app's one standing promise:
+  everything it does is reversible. A V/F point lock is the more expensive one
+  to leave, because it is the one that holds the card in true P0.
 
   **When that release fails, the card stays pinned.** The usual cause is
   running without administrator rights, which is also the case where the lock
@@ -662,12 +777,12 @@ Timings tab's GPU load is an ordinary CUDA workload: it makes the card busy for
 a few seconds, writes no register, and releases its context in a `finally:`.
 
 **Reversible, needs admin to write:** clock offsets (core/mem), power limit,
-GPU clock lock, fan duty, voltage boost %, and V/F curve edits. Every one of
-these resets on reboot, and `Reset all to stock` walks them back without one.
-Writes are gated behind "Unlock controls", with two exceptions, both of
-which only ever move the card toward stock: `Reset all to stock`, and the
-release of this app's own clock lock when the window closes (see "Hold this
-point").
+the NVML GPU clock lock, the V/F point lock, fan duty, voltage boost %, and V/F
+curve edits. Every one of these resets on reboot, and `Reset all to stock`
+walks them back without one. Writes are gated behind "Unlock controls", with
+two exceptions, both of which only ever move the card toward stock: `Reset all
+to stock`, and the release of this app's own lock when the window closes (see
+"Hold this point").
 
 **Deliberately not wired to a button** — documented here with the
 commands to run them by hand, never fired blind by this app:
@@ -681,11 +796,13 @@ commands to run them by hand, never fired blind by this app:
 - Writing a memory timing register (`nvtune set`/`apply`/`restore`/`daemon`,
   or any `--commit`) — it can hang the machine and corrupt VRAM. The Timings
   tab reads these registers and is structurally incapable of writing one.
-- The hard per-domain VF lock (NvAPI `0x39442CFB`) — the write struct is
-  unverified against this hardware, so the app only reads lock state (shown
-  on Monitor via `BoostLock`/`0xE440B867`) and never writes it. `Ctrl+H`
-  ("Hold this point", above) gets the same observable result out of
-  `nvmlDeviceSetGpuLockedClocks` instead.
+The per-domain V/F point lock (NvAPI `0x39442CFB`) **used to be on this
+list** and has come off it. It is no longer unverified: it was validated end to
+end on this card by the ladder in "The validation ladder" above — id resolves,
+identity write accepted and byte-identical afterwards, then a single-field
+read-modify-write that moved the card as predicted and reversed exactly. It is
+reversible and volatile, and `Ctrl+H` now drives it. Everything else on the
+list above stays off, for the reasons given.
 
 This is research software written against one specific frankencard
 (Titan RTX die, Turing TU102, on an ASUS RTX 2080 Ti Strix PCB, driver
