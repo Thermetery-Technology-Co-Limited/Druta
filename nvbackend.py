@@ -1054,9 +1054,28 @@ class GPU:
         if lo is not None and hi is not None and not (
                 lo <= mn_mhz <= hi and lo <= mx_mhz <= hi):
             return False, f"lock: values must be within [{lo}..{hi}] MHz"
-        st = nv.dll.nvmlDeviceSetGpuLockedClocks(nv.dev, u32(mn_mhz), u32(mx_mhz))
+        # Range-checking is not enough: the driver accepts any in-range value,
+        # reports success at the value asked for, records it verbatim in its
+        # own lock table - and then runs the next ENUMERATED clock UP. Measured:
+        # a 1234 request (between the valid 1230 and 1245) ran at 1245, with
+        # both the API and the lock record still claiming 1234. That is clock
+        # nobody asked for, reported as if it were the request. So snap DOWN to
+        # a member of the table first, the same rule the core offset follows.
+        rows = self.lockable_clocks_by_mem()
+        table = rows[-1][1] if rows else []
+        snapped = []
+        for want in (mn_mhz, mx_mhz):
+            below = [c for c in table if c <= want]
+            snapped.append(max(below) if below else want)
+        sn_mn, sn_mx = snapped
+        if table and (sn_mn, sn_mx) != (mn_mhz, mx_mhz):
+            note = (f" (snapped down from [{mn_mhz}..{mx_mhz}]: the driver "
+                    f"would have rounded UP to a clock you did not ask for)")
+        else:
+            note = ""
+        st = nv.dll.nvmlDeviceSetGpuLockedClocks(nv.dev, u32(sn_mn), u32(sn_mx))
         if st == 0:
-            return True, f"GPU clock locked to [{mn_mhz}..{mx_mhz}] MHz"
+            return True, f"GPU clock locked to [{sn_mn}..{sn_mx}] MHz{note}"
         return False, f"lock failed: {nv.errstr(st)} (needs admin)"
 
     def reset_gpu_clocks(self):
