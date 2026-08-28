@@ -1222,22 +1222,22 @@ class TitanTune:
         """Built INSIDE the Control tab (see build_control) - not its own tab."""
         with dpg.group(horizontal=True):
             dpg.add_text("voltage cap (mV)")
-            dpg.add_input_float(tag="vcap", default_value=1091.0,
+            dpg.add_input_float(tag="vcap", default_value=1093.0,
                                 width=self.s(130), step=6.25, format="%.2f",
-                                min_value=800.0, max_value=1200.0,
+                                min_value=600.0, max_value=1300.0,
                                 min_clamped=True, max_clamped=True,
                                 callback=self.vcap_changed)
             with dpg.tooltip(dpg.last_item()):
                 dpg.add_text(
-                    "Voltage ceiling to tune toward (clamped 800-1200 mV).\n"
+                    "Voltage ceiling for the deflattener (clamped 600-1300 mV).\n"
                     "VF points are 6.25 mV apart, so the reachable top is\n"
                     "the highest point at or below this value - and editing\n"
                     "this box snaps it DOWN onto that same 6.25 mV grid, so\n"
                     "+/- always lands on a voltage a point really has.")
             dpg.add_button(label="Read curve", callback=lambda: self.vf_read(),
                            width=self.s(110))
-            dpg.add_button(label="Re-phase", tag="go_rephase",
-                           callback=self.vf_rephase, width=self.s(100))
+            dpg.add_button(label="Re-phase to 15MHz increments", tag="go_rephase",
+                           callback=self.vf_rephase, width=self.s(350))
             with dpg.tooltip(dpg.last_item()):
                 dpg.add_text(
                     "Puts every point back on ONE 15 MHz phase.\n\n"
@@ -1245,19 +1245,19 @@ class TitanTune:
                     "only move together when their deltas share a remainder\n"
                     "mod 15 MHz. A stray point crosses bin boundaries at a\n"
                     "different offset and silently re-creates a flat.\n\n"
-                    "Off-phase deltas are rounded DOWN, never up, so a point\n"
-                    "can only lose one bin. It is NOT a reset - if every\n"
-                    "point already agrees it does nothing.")
+                    "Off-phase deltas are rounded DOWN, never up. Any given\n"
+                    "point on the V/F curve can only drop by a maximum of 15Mhz. \n\n"
+                    "Rephase is NOT a reset function.\n"
+                    "if every point already agrees to the 15Mhz increment, it does nothing.")
             dpg.add_button(label="De-flatten \u2264 cap",
                            callback=self.vf_deflatten, width=self.s(150))
             with dpg.tooltip(dpg.last_item()):
                 dpg.add_text(
                     "Stages a plan (nothing is written yet):\n"
-                    "makes the first point PAST the cap the UNIQUE top, so\n"
-                    "the boost arbiter - which runs the LOWEST voltage of\n"
-                    "any peak-frequency flat - parks there.\n"
-                    "Points BELOW the cap are deliberately left alone.\n"
-                    "Press Apply to GPU to write it.")
+                    "makes the entire V/F curve strictly increasing for voltage values below the voltage cap\n"
+                    "with no flat portions.\n\n"
+                    "This ensures that the boosting algorithm always picks the highest possible voltage."
+                    )
             dpg.add_button(label="Fit view", callback=self.fit_view,
                            width=self.s(90))
             dpg.add_button(label="Reset curve to stock", tag="go_vfreset",
