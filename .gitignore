@@ -1,0 +1,14 @@
+# PyInstaller build products - the EXE is rebuilt from source, not tracked
+build/
+build2/
+dist/
+*.spec
+build_log.txt
+build2_log.txt
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Probe scratch output
+ping_ui_result.txt
