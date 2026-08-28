@@ -526,8 +526,21 @@ class TitanTune:
                                callback=self.apply_lock, width=self.s(90))
                 dpg.add_button(label="Release", tag="go_release",
                                callback=self.release_lock, width=self.s(90))
-                dpg.add_text(f"({gmin}-{gmax} supported)", color=DIM)
-            self._ctl_widgets += ["lock_min", "lock_max", "go_lock", "go_release"]
+                dpg.add_button(label="Lock max", tag="go_lockmax",
+                               callback=self.lock_max, width=self.s(100))
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(
+                        f"Pins both ends to {gmax} MHz - the top of the\n"
+                        "driver's LOCKABLE table.\n\n"
+                        "That table is not a boost ceiling: the V/F curve\n"
+                        "reaches clocks above it (it is floor((base+delta)\n"
+                        "/15)*15, never checked against this list). So if\n"
+                        "the card is already boosting past it, locking max\n"
+                        "will LOWER the clock. This is for holding one\n"
+                        "frequency steady, not for going fast.")
+                dpg.add_text(f"({gmin}-{gmax} lockable)", color=DIM)
+            self._ctl_widgets += ["lock_min", "lock_max", "go_lock",
+                                  "go_release", "go_lockmax"]
 
             dpg.add_separator()
             dpg.add_text("", tag="ctl_clocks", color=TEXT)
@@ -636,6 +649,26 @@ class TitanTune:
     def release_lock(self):
         if self.guard():
             self.report(self.gpu.reset_gpu_clocks())
+
+    def lock_max(self):
+        """Pin to the top of the driver's lockable table. Warns when that is
+        BELOW what the card is currently boosting to - the lockable list and
+        the V/F curve are unrelated mechanisms, so 'max' here can be a
+        step down."""
+        if not self.guard():
+            return
+        gmax = self.gpu.static.get("gfx_max")
+        if not gmax:
+            self.log("no lockable clock range reported by the driver", ok=False)
+            return
+        with self._lock:          # the poll thread owns _snap
+            live = (self._snap or {}).get("core")
+        if live and live > gmax:
+            self.log(f"note: card is at {live} MHz, above the {gmax} MHz "
+                     f"lock ceiling - locking will step it DOWN", ok=False)
+        dpg.set_value("lock_min", gmax)
+        dpg.set_value("lock_max", gmax)
+        self.report(self.gpu.lock_gpu_clocks(gmax, gmax))
 
     def reset_all(self):
         if not self._reset_armed:
@@ -1358,6 +1391,16 @@ class TitanTune:
     # ====================================================================== #
     #  INFO                                                                  #
     # ====================================================================== #
+    def lockable_summary(self):
+        """The lockable-clock table is per memory clock, not one range. The
+        Device tab reports the top-mem row, which hides that; spell it out."""
+        rows = self.gpu.lockable_clocks_by_mem()
+        if not rows:
+            return "        (driver did not enumerate them)"
+        return "\n".join(
+            f"        mem {m:>5} MHz -> {len(g):>3} clocks, {g[0]}-{g[-1]} MHz"
+            for m, g in rows)
+
     def device_report(self):
         """Everything the RUNNING program knows that a README cannot state:
         per-card, per-driver values read back from NVAPI/NVML at startup. This
@@ -1375,7 +1418,13 @@ Driver : {st.get('driver')}     VBIOS : {st.get('vbios')}
 Memory : {st.get('mem_type')} (id {st.get('mem_type_id','?')}), true-clock divisor {st.get('mem_div')}
 Offsets: core {cr} (MHz, 1:1)   mem {mr} (NVML units)   [min, max, applied now]
 Power  : {st.get('pl_min_mw','?')}..{st.get('pl_max_mw','?')} mW, default {st.get('pl_def_mw','?')}
-Clocks : {st.get('gfx_min','?')}-{st.get('gfx_max','?')} MHz supported
+Lockable clocks: {st.get('gfx_min','?')}-{st.get('gfx_max','?')} MHz
+    nvmlDeviceGetSupportedGraphicsClocks at the TOP memory clock. These are
+    the only values SetGpuLockedClocks accepts - NOT a boost ceiling. The
+    V/F curve is a separate mechanism (floor((base+delta)/15)*15) and is
+    never checked against this list, so the card can and does run above it.
+    The list also shrinks with the memory clock on this card:
+{self.lockable_summary()}
 Backend: {self.gpu.status_line()}
 
 CAUTION

@@ -88,7 +88,12 @@ read-only).
 - **Memory offset** — shown in true memory MHz when the memory type is
   known (NVML units ÷ `2 * divisor`), else raw/effective NVML units.
 - **Power limit (W)** — clamped to the driver-reported min/max.
-- **GPU clock lock** — min/max MHz, `Lock` / `Release`.
+- **GPU clock lock** — min/max MHz, `Lock` / `Release` / `Lock max`.
+  See "Lockable clocks are not a ceiling" below; `Lock max` pins both ends
+  to the top of the lockable table, which is useful for holding one
+  frequency steady but can be a step *down* from what the card is boosting
+  to. The lock holds at idle on this card with no GPU load needed, which
+  makes it the cheap instrument for characterising a clock domain.
 - **Fan duty (%)** — manual duty with the hardware-reported minimum enforced
   as a floor (queried live via `nvmlDeviceGetMinMaxFanSpeed`; measured 41%
   on this card, with 30% used only as a fallback if that query fails).
@@ -107,6 +112,29 @@ read-only).
 
 A live readout row shows current core/VRAM clocks next to their P0 target
 maximums, so the effect of any knob is visible without switching tabs.
+
+### Lockable clocks are not a ceiling
+
+The Device tab's "lockable clocks" figure comes from
+`nvmlDeviceGetSupportedGraphicsClocks`, and it is easy to misread as the
+card's maximum. It is not. It is the enumerated set of values
+`nvmlDeviceSetGpuLockedClocks` will accept, and it is reported **per memory
+clock** — on this TU102:
+
+| memory clock | lockable graphics clocks |
+| --- | --- |
+| 405 MHz | 24 values, 300–645 MHz |
+| 810 MHz | 121 values, 300–2100 MHz |
+| 5001 / 6801 / 7001 MHz | 121 values, 360–2160 MHz |
+
+The Device tab headline shows the top-memory-clock row (360–2160), so a lock
+the driver would accept at one memory state can be refused at another.
+
+The V/F curve is a **separate mechanism**. Its clock is
+`floor((base + delta) / 15) * 15` and is never checked against this list, so
+the curve editor reaches clocks the lock cannot — 2175 MHz observed on this
+card against a 2160 MHz lock ceiling. The two disagreeing is expected, not a
+bug.
 
 ## The V/F curve editor
 

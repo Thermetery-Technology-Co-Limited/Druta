@@ -759,6 +759,28 @@ class GPU:
             return True, f"power limit set to {mw/1000:.0f} W"
         return False, f"power limit failed: {nv.errstr(st)}"
 
+    @_synchronized
+    def lockable_clocks_by_mem(self):
+        """[(mem_mhz, [graphics clocks])] - the driver enumerates a DIFFERENT
+        lockable set per memory clock (on TU102: 24 clocks 300-645 at mem 405,
+        but 121 clocks 360-2160 at the top mem clock). static['gfx_min/max']
+        only carries the top-mem row, which is why a lock that the driver
+        would accept at one memory state is refused at another."""
+        nv = self.nvml
+        out = []
+        if not (nv.ok and nv.has("nvmlDeviceGetSupportedGraphicsClocks")):
+            return out
+        for m in (self.static.get("mem_clocks") or []):
+            n = u32(256)
+            arr = (u32 * 256)()
+            if nv.dll.nvmlDeviceGetSupportedGraphicsClocks(
+                    nv.dev, u32(m), ctypes.byref(n), arr) != 0:
+                continue
+            g = sorted(arr[i] for i in range(min(n.value, 256)))
+            if g:
+                out.append((m, g))
+        return out
+
     def lock_gpu_clocks(self, mn_mhz, mx_mhz):
         nv = self.nvml
         if not nv.ok or not nv.has("nvmlDeviceSetGpuLockedClocks"):
