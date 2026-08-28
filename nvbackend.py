@@ -1480,7 +1480,15 @@ class GPU:
         flat = [p for p in points if p["freq_mhz"] == cap["freq_mhz"]]
         return min(flat, key=lambda p: p["volt_mv"])
 
-    EXTRA_POINTS_ABOVE_CAP = 1   # target one VF point past the cap (safety)
+    # 0, not 1. Aiming one point PAST the cap was a sensible margin while the
+    # table appeared to end at 1087.50 - the cap was then an approximation of
+    # the ceiling. With the full 128-point table the cap snaps to a real grid
+    # point and IS the reachable ceiling, so +1 lands above the rail: it makes
+    # unique a point the card cannot reach and leaves the flat run that
+    # actually pins it untouched. Measured on the stock curve at cap 1093.75:
+    # extra=0 moves the park 96@1050.00 -> 103@1093.75 (run 8 -> 1); extra=1
+    # and extra=2 leave it at 96@1050.00 with the run still 8 deep.
+    EXTRA_POINTS_ABOVE_CAP = 0
 
     @staticmethod
     def compute_deflatten(points, vcap_mv, max_khz=None, extra_points_above=None):
