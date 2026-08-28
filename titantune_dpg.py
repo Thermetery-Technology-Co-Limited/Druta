@@ -14,16 +14,36 @@ the last code worth rewriting.
 
 Safety model, carried over from the Tk version:
   * telemetry is read on a background thread; the UI never blocks on the driver
-  * every write is behind the "Unlock controls" gate (except reset-to-stock,
-    which only ever moves toward stock)
+  * every write is behind the "Unlock controls" gate, except the two that only
+    ever move toward stock: reset-to-stock, and releasing this app's own clock
+    lock on exit (see release_on_exit - the lock is the one write that would
+    otherwise outlive the process unseen)
   * footgun knobs (force P-state, TCC, CUDA clocks, hard VF lock) are documented
     in README.md, never wired to a button
-  * Tk's modal confirmations have no ImGui equivalent, so every write path that
-    had one (editor apply, reset-curve, reset-all) is now a press-again
-    confirmation: the first press states the plan, the second commits it.
-    De-flatten is NOT one of them because it writes nothing - where Tk previewed
-    it on a canvas, it STAGES onto the working curve, so the plan is visible on
-    the plot and only 'Apply to GPU' can commit it.
+  * Tk's modal confirmations have no ImGui equivalent. A press-again arm stood
+    in for them, but a plan that only appears once the user has already pressed
+    is a RECEIPT, not a warning. So the two curve writes - 'Apply to GPU' and
+    'Reset curve to stock' - are one click, and the consequence is on screen
+    continuously BEFORE the click, in the plan banner above them (see
+    update_plan_banner). What pays for the missing second press is
+    profiles.autosave(): every write that touches the 103-row VF delta
+    table - 'Apply to GPU', 'Reset curve to stock', 'Re-phase', the CORE
+    offset Apply (it is the same table), 'Reset all to stock' and a profile
+    Load - takes an undo point immediately beforehand, restorable from
+    Profiles > Undo last write. Those are the writes whose previous state is
+    nowhere on screen; the single-knob applies (memory offset, power limit,
+    voltage boost, fan) do not take one, because each moves one number its
+    own slider still shows, and the clock lock cannot have one because a
+    profile does not record it - Release / Ctrl+H is its undo. A snapshot
+    that failed to capture the curve says so and is NOT called an undo
+    point (see autosave_before).
+    'Reset all to stock' is the ONE exception and still arms on the first
+    press - it discards every knob at once (offsets, voltage boost, power
+    limit, fan and all 103 deltas), so a stray click there costs a whole tune
+    rather than one table.
+    De-flatten is not a write at all - where Tk previewed it on a canvas, it
+    STAGES onto the working curve, so the plan is visible on the plot and only
+    'Apply to GPU' can commit it.
 """
 import ctypes
 import math
@@ -33,8 +53,11 @@ import time
 
 import dearpygui.dearpygui as dpg
 
+import profiles
 from nvbackend import (GPU, EVENT_REASONS, PERF_DECREASE_BITS, VF_STEP_KHZ,
-                       VFP_POINTS, below_cap)
+                       VFP_POINTS, below_cap,
+                       PRIV_CONFIRMED, PRIV_DOMAIN_ID, PRIV_LIKELY,
+                       PRIV_N_DOMAINS, PRIV_PCIE_GEN, PRIV_UNNAMED)
 
 # ---- palette (ImGui takes 0-255 RGBA) ------------------------------------- #
 TEXT = (230, 232, 236)
@@ -75,9 +98,9 @@ class TitanTune:
         self.vf_sel = None
         self._fitted = False
         self._discard_armed = False
+        # 'Reset all to stock' is the only write left that arms: it is the one
+        # click with no per-knob undo of its own (see reset_all).
         self._reset_armed = False
-        self._vf_reset_armed = False
-        self._apply_armed = None   # the exact edit set the user confirmed
         self._drag_idx = None
         # THE record of what this app has locked the GPU clock to and why:
         # None, or {"why": "hold"|"manual", "lo", "hi", (+ idx/mv/want)}.
@@ -98,6 +121,11 @@ class TitanTune:
         self._ctl_widgets = []     # write widgets greyed out while locked
         self._bar_themes = {}
         self._bar_band = {}
+        self._dom_band = {}        # per-domain A-vs-B divergence colour band
+        self._dom_shown = set()    # domains whose table row is currently shown
+        self._plan_themes = {}     # plan-banner box themes, one per band
+        self._plan_band = None
+        self._pending_load = None  # (name, why) awaiting a cross-card confirm
 
     # ---- helpers ---------------------------------------------------------- #
     def s(self, n):
@@ -250,6 +278,13 @@ class TitanTune:
                         dpg.add_text("", tag=f"s_{key}", color=DIM, wrap=self.s(165))
             dpg.add_spacer(height=self.s(6))
 
+            # Directly under the tiles on purpose: the CORE CLOCK tile above
+            # shows the PROGRAMMED target, and this is the panel that says what
+            # the card is measured to be doing instead. Put it at the bottom of
+            # the page and the number it qualifies is off screen.
+            self.build_domains()
+            dpg.add_spacer(height=self.s(6))
+
             with dpg.group(horizontal=True):
                 with dpg.child_window(tag="pan_thr", width=self.s(430),
                                       height=self.s(300)):
@@ -300,6 +335,185 @@ class TitanTune:
             with dpg.theme_component(dpg.mvProgressBar):
                 dpg.add_theme_color(dpg.mvThemeCol_PlotHistogram, col)
         return th
+
+    # ---- all clock domains ------------------------------------------------ #
+    # header / width in UNSCALED px. The unit lives in the CELL, not the
+    # header, because the column is not homogeneous: domain 31 is a PCIe link
+    # generation and prints "gen 3" where every other row prints MHz.
+    DOM_COLS = (("dom", 46), ("domain", 165), ("programmed  A", 145),
+                ("measured  B", 145), ("Δ  B-A", 135),
+                ("flags", 90), ("srcid", 80))
+
+    # A name we earned is written plainly; a name that is only elimination gets
+    # amber and a '?', so nobody goes debugging the wrong domain on our say-so.
+    GRADE_COL = {PRIV_CONFIRMED: TEXT, PRIV_LIKELY: WARN, PRIV_UNNAMED: DIM}
+
+    # Divergence bands, in whole 15 MHz clock bins. Inside one bin is the
+    # counter jittering; past one bin the card is genuinely not running at the
+    # frequency the tiles report.
+    DOM_WARN_MHZ = VF_STEP_KHZ / 1000.0
+    DOM_BAD_MHZ = 3 * VF_STEP_KHZ / 1000.0
+    DOM_BAND_COL = {"ok": DIM, "warn": WARN, "bad": BAD}
+
+    def build_domains(self):
+        """Every domain the private getter populates, PROGRAMMED beside
+        MEASURED. The tiles show array A - the target the driver programmed,
+        always exactly on the 15 MHz grid - and this panel is the only thing in
+        the app that says what the card is measured to be doing instead. A
+        monitor that only ever quotes the optimistic number of the two is the
+        failure mode it exists to close.
+
+        Measured (see nvbackend's header for the full table): settled and under
+        load the two agree to within ~3 MHz, or by an exact 15 MHz bin with B
+        the HIGHER of the two. The wide readings are a clock change in flight
+        (~1-2 s, either sign, hundreds of MHz) or an idle card, where B
+        measures a gated clock and sits hundreds of MHz low indefinitely.
+
+        All 32 rows are built once and the unpopulated ones hidden rather than
+        created per tick: a domain that only appears at some other pstate then
+        shows up IN PLACE instead of renumbering the table under the reader."""
+        with dpg.child_window(tag="pan_dom", width=-1, height=self.s(300)):
+            dpg.add_text("ALL CLOCK DOMAINS  ·  private NvAPI "
+                         "GetAllClocks (0x1BD69F49)", color=ACCENT,
+                         tag="dom_title")
+            with dpg.tooltip("dom_title"):
+                dpg.add_text(
+                    "The 288-dword payload is two arrays over the same 32\n"
+                    "domains, an exact partition verified over a 192-sample\n"
+                    "sweep:  A = 2 dwords per domain at 2*d {freq, flags},\n"
+                    "B = 7 dwords per domain at 64+7*d {freq, srcid, 0...}.\n\n"
+                    "MEM is the RAW NVAPI figure (half the data rate) - the\n"
+                    "MEM CLOCK tile converts it to the true memory clock, so\n"
+                    "the two are meant to differ by the GDDR divisor.\n\n"
+                    "Measured on this card, GPC, 40 samples per case:\n"
+                    "  settled + ~99% load, free boost   A 1950.0 / B 1949.9\n"
+                    "  settled + load, locked 1920       within 3 MHz\n"
+                    "  settled + load, locked 1350       B 1364.9: one 15 MHz\n"
+                    "                                    bin ABOVE A, steady\n"
+                    "  ~1-2 s after any clock change     hundreds of MHz,\n"
+                    "                                    either sign\n"
+                    "  idle, no load                     B sits hundreds low\n"
+                    "                                    and never settles -\n"
+                    "                                    the clock is gated\n"
+                    "                                    and B is its average\n"
+                    "So a wide delta means 'mid-change or idle'. A wide one on\n"
+                    "a busy card that has been at one clock for seconds is the\n"
+                    "case worth reading: there the tiles are optimistic.\n\n"
+                    "Domain 31 is not a clock: array A holds the PCIe link\n"
+                    "generation. Its array-B word has not been identified,\n"
+                    "so it is shown raw rather than dressed up as anything.")
+            dpg.add_separator()
+            # The legend is on the page, not in the tooltip: a hedged name is
+            # only honest if the thing that hedges it is visible without
+            # hovering.
+            dpg.add_text(
+                "A = the target the driver PROGRAMMED (always on the 15 MHz "
+                "grid; this is what the tiles above show)   ·   B = a "
+                "free-running MEASURED counter   ·   Δ turns amber "
+                "past one 15 MHz bin and red past three. Measured: settled and "
+                "under load the two agree to within ~3 MHz. Δ is wide for "
+                "~1-2 s after any clock change (either sign), and wide "
+                "PERMANENTLY on an idle card - with no work the clock gates "
+                "and B measures its average, hundreds of MHz low. A steady Δ "
+                "on a busy card is the one that counts: there the tiles are "
+                "optimistic.\n"
+                "Names:  plain = CONFIRMED   ·   amber '?' = LIKELY, by "
+                "elimination only - domain 31 is one of these, drawn as 'PCIe "
+                "link gen?' because it is a link generation and not a clock at "
+                "all   ·   '--' = populated but unidentified, so it stays a "
+                "number (3/6/20/22, static here).",
+                tag="dom_legend", color=DIM, wrap=self.s(1100))
+            dpg.add_text("", tag="dom_err", color=BAD, show=False)
+            with dpg.table(tag="dom_table", header_row=True,
+                           no_host_extendX=True,
+                           policy=dpg.mvTable_SizingFixedFit,
+                           borders_innerH=True, borders_innerV=True):
+                for label, w in self.DOM_COLS:
+                    dpg.add_table_column(label=label, width_fixed=True,
+                                         init_width_or_weight=self.s(w))
+                for dom in range(PRIV_N_DOMAINS):
+                    name, grade, _kind = PRIV_DOMAIN_ID.get(
+                        dom, ("", PRIV_UNNAMED, None))
+                    with dpg.table_row(tag=f"dom_row_{dom}", show=False):
+                        dpg.add_text(f"{dom:>2}", tag=f"dom_{dom}_ix",
+                                     color=DIM)
+                        # the name and its grade come from a static table, so
+                        # they are written ONCE here instead of on every tick
+                        dpg.add_text((name + "?") if grade == PRIV_LIKELY
+                                     else (name or "--"),
+                                     tag=f"dom_{dom}_name",
+                                     color=self.GRADE_COL[grade])
+                        for col in ("prog", "meas", "delta", "flags", "srcid"):
+                            dpg.add_text("--", tag=f"dom_{dom}_{col}",
+                                         color=DIM if col == "delta" else TEXT)
+                        # monospace: these columns are read by comparing one
+                        # row against another, which proportional digits fight
+                        for col in ("ix", "prog", "meas", "delta", "flags",
+                                    "srcid"):
+                            self.bind(f"dom_{dom}_{col}", "mono")
+
+    @staticmethod
+    def flag_fmt(v):
+        """The capability field. One byte on every domain this card populates,
+        but printed full width if anything ever sets more - a flag word
+        silently truncated to its low byte would be a lie in hex."""
+        return f"0x{v:02X}" if v <= 0xFF else f"0x{v:08X}"
+
+    def dom_band(self, delta_mhz):
+        if delta_mhz is None:
+            return "ok"
+        d = abs(delta_mhz)
+        return ("bad" if d >= self.DOM_BAD_MHZ else
+                "warn" if d >= self.DOM_WARN_MHZ else "ok")
+
+    def refresh_domains(self, d):
+        rows = d.get("clk_domains")
+        err = d.get("clk_domains_err")
+        if dpg.does_item_exist("dom_err"):
+            dpg.configure_item("dom_err", show=bool(err))
+            if err:
+                dpg.set_value("dom_err", err)
+        present = set()
+        for r in (rows or []):
+            dom = r["domain"]
+            present.add(dom)
+            if r["kind"] == PRIV_PCIE_GEN:
+                # 1/2/3, NOT kHz. Divided by 1000 like every other row it
+                # would print as a wholly believable 0.0 MHz domain.
+                # Zero is not a generation, and dword 62 does read 0 here (4 of
+                # 4 samples in one run) - printing "gen 0" invents a link that
+                # negotiated down to nothing. Unknown is '--', like every other
+                # value this panel will not vouch for.
+                prog = f"gen {r['prog_khz']}" if r["prog_khz"] else "--"
+                meas = f"raw {r['meas_khz']}"
+                delta = "--"
+            else:
+                prog = f"{r['prog_mhz']:.1f} MHz"
+                meas = f"{r['meas_mhz']:.1f} MHz"
+                dv = r["delta_mhz"]
+                # +0.0, never "-0.0": the counter's 1-3 Hz jitter puts a static
+                # domain a hair under its target, and a minus sign on a
+                # zero-to-one-decimal delta reads as a real deficit.
+                # (-0.0 + 0.0 is +0.0 in IEEE 754.)
+                delta = "--" if dv is None else f"{round(dv, 1) + 0.0:+.1f} MHz"
+            dpg.set_value(f"dom_{dom}_prog", prog)
+            dpg.set_value(f"dom_{dom}_meas", meas)
+            dpg.set_value(f"dom_{dom}_delta", delta)
+            dpg.set_value(f"dom_{dom}_flags", self.flag_fmt(r["flags"]))
+            dpg.set_value(f"dom_{dom}_srcid", str(r["srcid"]))
+            # re-theme only on a band change, same reason as the bars
+            band = self.dom_band(r["delta_mhz"])
+            if self._dom_band.get(dom) != band:
+                self._dom_band[dom] = band
+                dpg.configure_item(f"dom_{dom}_delta",
+                                   color=self.DOM_BAND_COL[band])
+        # row visibility is 32 configure_item calls, so it is only touched when
+        # the populated set actually changes - which on this card is never
+        if present != self._dom_shown:
+            for dom in range(PRIV_N_DOMAINS):
+                if dpg.does_item_exist(f"dom_row_{dom}"):
+                    dpg.configure_item(f"dom_row_{dom}", show=dom in present)
+            self._dom_shown = present
 
     def text_h(self, txt, font_name, wrap=-1.0):
         """Rendered height of `txt`, or None if the font is not ready yet."""
@@ -371,8 +585,20 @@ class TitanTune:
                 dpg.configure_item(f"s_{key}", wrap=wrap)
         # two columns; give the mid row whatever is left after tiles + bottom
         colw = max(self.s(300), (W - pad * 3) // 2)
-        bot_h = max(self.s(110), int(H * 0.16))
-        mid_h = max(self.s(220), H - tile_h - bot_h - self.s(96))
+        # 0.16 was over-generous now that a fourth row competes for the height:
+        # PCIE LINK is two lines and STATE four, so 0.12 still clears both and
+        # hands the difference to the two panels that are genuinely long.
+        bot_h = max(self.s(110), int(H * 0.12))
+        # The all-domains table is a full-width row of its own (width=-1, so
+        # only its height is managed here). 11 populated rows plus the legend
+        # do not fit beside anything, and it is a child_window - past its
+        # share it scrolls internally rather than pushing the page.
+        dom_h = max(self.s(240), int(H * 0.34))
+        mid_h = max(self.s(220), H - tile_h - dom_h - bot_h - self.s(102))
+        if dpg.does_item_exist("pan_dom"):
+            dpg.configure_item("pan_dom", height=dom_h)
+        if dpg.does_item_exist("dom_legend"):
+            dpg.configure_item("dom_legend", wrap=W - self.s(40))
         for tag, h in (("pan_thr", mid_h), ("pan_pwr", mid_h),
                        ("pan_pcie", bot_h), ("pan_state", bot_h)):
             if dpg.does_item_exist(tag):
@@ -386,6 +612,7 @@ class TitanTune:
         for tag in ("vf_info", "vf_status", "vf_sel_info", "hold_info"):
             if dpg.does_item_exist(tag):
                 dpg.configure_item(tag, wrap=W - self.s(40))
+        self.size_plan_banner()
 
     def mem_fmt(self, reported):
         """True memory clock when the type is known, else raw NVAPI figure."""
@@ -401,6 +628,9 @@ class TitanTune:
         return f"{reported:.0f}", f"{mtype} \u00b7 {gbps:.2f} Gbps (raw)"
 
     def refresh_monitor(self, d):
+        # first: it qualifies the CORE CLOCK tile written just below it, and
+        # it rides the same snapshot - no extra driver call (see GPU.read)
+        self.refresh_domains(d)
         dpg.set_value("t_core", str(d.get("core", "--")))
         dpg.set_value("s_core", f"P{d.get('pstate','?')}")
         # XBAR: measured to follow core frequency, NOT the voltage rail
@@ -654,6 +884,11 @@ class TitanTune:
         mhz = max(mhz, int(math.ceil(lo / step)) * step)
         if mhz != int(v):
             dpg.set_value("sl_core", mhz)
+        # An undo point, unlike the other sliders: this offset lands in the
+        # SAME 103-row delta table as the curve (see nvbackend.set_clock_offset),
+        # so one drag and one Apply overwrites a hand-tuned curve that is
+        # nowhere on screen. It is a curve write wearing a slider.
+        self.autosave_before("core-offset")
         self.report(self.gpu.set_clock_offset(0, mhz))
 
     def apply_mem(self, v):
@@ -694,6 +929,34 @@ class TitanTune:
             return
         ok, m = self.gpu.reset_gpu_clocks()
         self.report((ok, m))
+        if ok:
+            self.set_lock_state(None)
+
+    def release_on_exit(self):
+        """Drop a clock lock THIS app is still holding, as the window closes.
+        The lock is the one write here that outlives the process: it sits in the
+        driver until something resets it or the machine reboots, and NVML on this
+        card will not read it back (nvmlDeviceGetGpuLockedClocks is absent), so a
+        lock left behind is invisible to the next run and to every other tool.
+        Every other knob this app writes is undone by 'Reset all to stock' from a
+        later session; this one could not be, so it is undone here.
+
+        Deliberately NOT behind guard(): the unlock gate stops the app making
+        writes the user did not ask for, and this only takes back a write the app
+        itself made while the gate was open. Untick the gate mid-hold, then quit,
+        and the gated version would pin the card with nothing left in the app
+        able to see it. A Ctrl+H hold and a Clocks-menu Lock are released alike -
+        both are this app's own doing.
+
+        Printed as well as logged: no frame renders after the loop exits, so the
+        log widget is written for consistency and never appears on screen."""
+        if not self._clk_lock:
+            return
+        why = "Ctrl+H hold" if self._clk_lock["why"] == "hold" else "Clocks menu"
+        ok, m = self.gpu.reset_gpu_clocks()
+        note = f"exit: releasing the clock lock this app took ({why}) - {m}"
+        print(note)
+        self.log(note, ok)
         if ok:
             self.set_lock_state(None)
 
@@ -747,6 +1010,11 @@ class TitanTune:
         dpg.configure_item("hold_info", color=GOOD if held else WARN)
 
     def reset_all(self):
+        """The ONE write that keeps its press-again arm, at the user's explicit
+        call: a stray click here discards the entire tune at once - both
+        offsets, voltage boost, power limit, fan and all 103 deltas - and
+        unlike Apply there is no single thing on screen whose consequence a
+        banner could state, because it undoes every knob on the tab."""
         if not self._reset_armed:
             self._reset_armed = True
             self.log("this zeroes offsets + voltage boost, restores the default "
@@ -754,15 +1022,27 @@ class TitanTune:
                      "and resets the V/F curve - press again to confirm", False)
             return
         self._reset_armed = False
+        self.autosave_before("reset-all")
         failed = 0
-        for ok, m in self.gpu.reset_all():
+        lock_ok = False
+        for step in self.gpu.reset_all():
+            ok, m = step
             self.log(m, ok)
             failed += (0 if ok else 1)
+            # ResetStep names the knob each step moved; the tail steps are
+            # conditional, so the release cannot be found by position.
+            if getattr(step, "name", None) == GPU.LOCK_STEP:
+                lock_ok = ok
         # reset_all() releases the clock lock as one of its steps, so the hold
-        # record has to go with it - a HOLD banner left over a released lock
-        # would name a point the card is no longer pinned to. A release that
-        # failed is one of the `failed` steps and is already in the log above.
-        self.set_lock_state(None)
+        # record goes with it - but ONLY when that step actually succeeded. A
+        # failed release that still dropped the banner would leave the driver
+        # holding a clock nothing on screen names, which is the exact
+        # disagreement release_lock refuses to create (see its docstring).
+        if lock_ok:
+            self.set_lock_state(None)
+        elif self._clk_lock:
+            self.log("clock lock NOT released - the indicator stays up because "
+                     "the driver is still holding the clock", False)
         st = self.gpu.static
         dpg.set_value("sl_core", 0)
         dpg.set_value("sl_mem", 0)
@@ -845,8 +1125,17 @@ class TitanTune:
         # argument parser DROPS unknown keywords instead of raising, so it
         # read as an applied setting while doing nothing. Line smoothing is
         # a per-series style, not a plot flag.
+        # Pan on LEFT: it is the button a user reaches for when zoomed in, and
+        # a middle-button-only pan made the plot feel frozen. on_plot_click
+        # parks pan on an unused button for exactly as long as a dot is held,
+        # so the two left-drag gestures never fight over the same press.
+        # no_mouse_pos kills DPG's built-in cursor readout - a cursor
+        # coordinate answers "where is my mouse", which is not the question
+        # being asked while editing; vf_corner below answers "what am I
+        # editing" in the same corner.
         with dpg.plot(tag="vf_plot", height=self.s(380), width=-1,
-                      pan_button=dpg.mvMouseButton_Middle):
+                      no_mouse_pos=True,
+                      pan_button=dpg.mvMouseButton_Left):
             dpg.add_plot_legend()
             dpg.add_plot_axis(dpg.mvXAxis, label="mV", tag="vf_x")
             with dpg.plot_axis(dpg.mvYAxis, label="MHz", tag="vf_y"):
@@ -865,6 +1154,13 @@ class TitanTune:
                 # Drawn at the held point's voltage, in a different colour from
                 # the cap line so the two are never read as one thing.
                 dpg.add_inf_line_series([], label="held", tag="vf_holdline")
+            # Anchored to a corner of the VIEW, not to a data point, which is
+            # why update_vf_corner has to re-place it every frame rather than
+            # only on redraw: panning moves the corner, not the curve.
+            dpg.add_plot_annotation(tag="vf_corner", label="",
+                                    default_value=(0.0, 0.0),
+                                    offset=(-self.s(8), -self.s(8)),
+                                    show=False)
         # Every V/F point is a drag target, so the dots have to be big
         # enough to aim at: DPG's 4 px default disappears at 150% DPI.
         dpg.bind_item_theme("vf_cur",
@@ -888,10 +1184,31 @@ class TitanTune:
                 dpg.add_theme_style(dpg.mvPlotStyleVar_LineWeight,
                                     self.s(3), category=dpg.mvThemeCat_Plots)
         dpg.bind_item_theme("vf_holdline", holdth)
-        # NOTE: no per-point drag widgets. Click-and-drag anywhere on the
-        # plot grabs the NEAREST point (by voltage) and moves it, which is
-        # how the Tk editor behaved and keeps every dot draggable without
-        # 103 separate items.
+        # NOTE: no per-point drag widgets - every dot stays draggable without
+        # 103 separate items. The grab is a PIXEL hit test against the marker
+        # (see nearest_idx): the Tk-era "nearest by voltage, anywhere on the
+        # plot" rule made empty sky a drag handle for whatever point shared
+        # that column, which is how a pan attempt became a 300 MHz edit.
+
+        # THE PRE-CLICK WARNING, and the whole reason Apply is one press again.
+        # It sits BETWEEN the plot and the buttons because that is the reading
+        # path to the click, and it is a filled, bordered, colour-banded box
+        # rather than a fourth line of text: vf_info and vf_status are both
+        # status lines a few pixels above it, and a status line is exactly what
+        # this must not be mistaken for. It describes the NEXT click, not the
+        # last one.
+        for band, (_fg, bg, border) in self.PLAN_BANDS.items():
+            self._plan_themes[band] = self.plan_theme(bg, border)
+        # scrollbar deliberately NOT suppressed here (the tiles do suppress
+        # theirs): plan_h measures this box, and if it ever measures short the
+        # tail must still be reachable rather than silently cut off.
+        with dpg.child_window(tag="vf_plan", width=-1, height=self.s(130),
+                              border=True, no_scroll_with_mouse=True):
+            dpg.add_text("", tag="vf_plan_head", wrap=self.s(1100))
+            self.bind("vf_plan_head", "big")
+            dpg.add_text("", tag="vf_plan_body", color=TEXT, wrap=self.s(1100))
+            dpg.add_text("", tag="vf_plan_reset", color=DIM, wrap=self.s(1100))
+        self.update_plan_banner()
 
         with dpg.group(horizontal=True):
             dpg.add_text("selected")
@@ -934,13 +1251,15 @@ class TitanTune:
         self._ctl_widgets += ["go_rephase", "go_vfapply", "go_vfreset"]
         dpg.add_text("--", tag="vf_sel_info", color=TEXT)
         self.bind("vf_sel_info", "mono")
-        dpg.add_text("drag any dot  \u2022  A/D select  \u2022  W/S move "
+        dpg.add_text("drag a dot to move it  \u2022  drag anywhere else to "
+                     "pan  \u2022  A/D select  \u2022  W/S move "
                      "\u00b115 MHz  \u2022  hold Shift for \u00b145  \u2022  "
                      "Ctrl+H hold the selected point (again to release)",
                      color=DIM)
 
-        # plot-wide mouse + keyboard control (panning is on the middle button,
-        # so the left button belongs to the dots)
+        # plot-wide mouse + keyboard control. The left button is shared: the
+        # plot pans with it, and these handlers steal it for a drag only while
+        # the press actually landed on a dot (end_drag hands it back).
         with dpg.handler_registry():
             dpg.add_mouse_click_handler(button=dpg.mvMouseButton_Left,
                                         callback=self.on_plot_click)
@@ -989,9 +1308,6 @@ class TitanTune:
         self.vf_by_idx = {p["idx"]: p for p in pts}
         self.vf_orig = {p["idx"]: p["delta_khz"] for p in pts}
         self.vf_work = dict(self.vf_orig)
-        # a confirmed plan dies with the edits it described - otherwise
-        # re-composing the same edit set later would write without asking
-        self._apply_armed = None
         # also reseed when a re-read comes back WITHOUT the selected index: wf()
         # is a bare dict lookup, so a stale selection raises KeyError out of
         # sync_sel_inputs below and aborts vf_read before the redraw, the axis
@@ -1035,15 +1351,29 @@ class TitanTune:
     def fit_view(self):
         self.clamp_axes(fit=True)
 
+    # Y pan/zoom bounds. These are NOT derived from the curve, and that is the
+    # whole point: get_plot_mouse_pos - a drag's only source of position - is
+    # bounded by the visible axis range, so a ceiling of "highest point + 200"
+    # is also a hard CLOCK ceiling, and one that shrinks to whatever the curve
+    # happens to be right now. A Titan RTX clears 2300 MHz under LN2, so the
+    # headroom is fixed and generous; the constraint still exists only to stop
+    # the pan-to-infinity that made the plot impossible to get back.
+    # (The write path was never the limit - apply_vf_deltas takes +/-1 GHz.)
+    VF_Y_CEIL = 3000.0
+    VF_Y_FLOOR = 0.0
+
     def clamp_axes(self, fit=False):
         """Stop the plot being dragged off to infinity: constrain pan/zoom to a
-        little beyond the actual data."""
+        little beyond the actual data horizontally, and to LN2-scale headroom
+        vertically. Re-run on every redraw so a curve edited ABOVE the fixed
+        ceiling carries the ceiling up with it instead of hitting a wall."""
         if not self.vf_points:
             return
         xs = [p["volt_mv"] for p in self.vf_points]
         ys = [self.wf(p["idx"]) / 1000.0 for p in self.vf_points]
         x0, x1 = min(xs) - 25, max(xs) + 25
-        y0, y1 = min(ys) - 120, max(ys) + 200
+        y0 = min(self.VF_Y_FLOOR, min(ys) - 120)
+        y1 = max(self.VF_Y_CEIL, max(ys) + 200)
         try:
             # Constraints bound how far the view may pan/zoom but still allow
             # zooming; hard set_axis_limits would freeze the view entirely.
@@ -1054,8 +1384,11 @@ class TitanTune:
             if fit:
                 dpg.fit_axis_data("vf_x")
                 dpg.fit_axis_data("vf_y")
+            self.clear_once("axisclamp")
         except Exception as e:
-            self.log(f"axis clamp: {e}", False)
+            # deduplicated now that this runs on every redraw: a drag would
+            # otherwise write ~60 identical failures a second into the log
+            self.log_once("axisclamp", f"axis clamp: {e}")
 
     def work_pts(self):
         """The WORKING curve in read_vf_curve() shape, so the planner and every
@@ -1119,6 +1452,10 @@ class TitanTune:
     def vf_redraw(self):
         if dpg.does_item_exist("vf_capline"):
             dpg.set_value("vf_capline", [[float(dpg.get_value("vcap"))]])
+        # BEFORE the early return: every path that changes what Apply would
+        # write ends here, and the banner is the only thing standing between a
+        # staged plan and a single click - it may never be one redraw stale.
+        self.update_plan_banner()
         if not self.vf_points:
             return
         xs = [p["volt_mv"] for p in self.vf_points]
@@ -1127,6 +1464,10 @@ class TitanTune:
         dpg.set_value("vf_cur", [xs, cur])
         dpg.set_value("vf_edit", [xs, edit])
         self.update_vf_info()
+        # The pan bound is what a drag can reach, so it has to follow the
+        # WORKING curve as it is edited, not sit where the last hardware read
+        # left it - otherwise the ceiling goes stale the moment editing starts.
+        self.clamp_axes()
         if self.vf_sel is not None and self.vf_sel in self.vf_by_idx:
             p = self.vf_by_idx[self.vf_sel]
             dpg.set_value("vf_selpt",
@@ -1141,6 +1482,34 @@ class TitanTune:
                 f"delta {self.vf_work[self.vf_sel]/1000:+.0f} MHz   |   "
                 f"edits pending: {pend}")
 
+    def update_vf_corner(self):
+        """Put the SELECTED point in the plot's bottom-right corner, where DPG
+        used to print the mouse position. Called per frame, not per redraw: the
+        anchor is the corner of the VIEW, so every pan and zoom moves it while
+        the curve and the selection stand still."""
+        if not dpg.does_item_exist("vf_corner"):
+            return
+        if (self.vf_sel is None or self.vf_sel not in self.vf_by_idx
+                or self.vf_sel not in self.vf_work):
+            dpg.configure_item("vf_corner", show=False)
+            return
+        try:
+            x1 = dpg.get_axis_limits("vf_x")[1]
+            y0 = dpg.get_axis_limits("vf_y")[0]
+        except Exception:
+            return
+        p = self.vf_by_idx[self.vf_sel]
+        txt = (f"idx {self.vf_sel}   {p['volt_mv']:.2f} mV   "
+               f"{self.wf(self.vf_sel) / 1000:.0f} MHz   "
+               f"delta {self.vf_work[self.vf_sel] / 1000:+.0f}")
+        # clamped=True keeps the label inside the plot once it is anchored to
+        # the corner, so the offset only has to lift it off the axis lines
+        if dpg.get_item_label("vf_corner") != txt:
+            dpg.configure_item("vf_corner", label=txt)
+        if not dpg.is_item_shown("vf_corner"):
+            dpg.configure_item("vf_corner", show=True)
+        dpg.set_value("vf_corner", (x1, y0))
+
     SHIFT_MULT = 3          # hold Shift to move 3 bins at a time
 
     def typing(self):
@@ -1149,23 +1518,90 @@ class TitanTune:
         return any(dpg.does_item_exist(t)
                    and (dpg.is_item_focused(t) or dpg.is_item_active(t))
                    for t in ("vcap", "vf_idx", "vf_set", "lock_min", "lock_max",
-                             "log", "info"))
+                             "log", "info", "prof_name"))
 
-    def nearest_idx(self, volt_mv):
+    def plot_units_per_px(self):
+        """(mV per pixel, MHz per pixel) for the V/F plot AS CURRENTLY VIEWED,
+        or None before the plot has a size. DPG exposes no plot<->pixel
+        transform, so derive one: the axis limits are what the plot's rect
+        shows. get_item_rect_size covers the axis labels and tick text as well
+        as the data area, so the rect is a few percent too BIG and the returned
+        units-per-pixel a few percent too SMALL - which makes every distance
+        converted with it read a few percent too LARGE. The grab test is
+        therefore slightly STRICTER than its nominal radius, never more
+        forgiving, and that is the safe direction for a test whose false
+        positive is an unintended edit."""
+        try:
+            w, h = dpg.get_item_rect_size("vf_plot")[:2]
+            x0, x1 = dpg.get_axis_limits("vf_x")[:2]
+            y0, y1 = dpg.get_axis_limits("vf_y")[:2]
+        except Exception:
+            return None
+        if w <= 0 or h <= 0 or x1 <= x0 or y1 <= y0:
+            return None
+        return (x1 - x0) / w, (y1 - y0) / h
+
+    # Grab radius, in pixels before DPI scaling. The dot it aims at is drawn at
+    # self.s(6), so this forgives a shaky 4K cursor without reaching the
+    # next dot along - VF points are 6.25 mV apart, which is far wider than
+    # this at any zoom that shows fewer than ~150 points.
+    GRAB_PX = 14
+
+    def nearest_idx(self, volt_mv, freq_mhz):
+        """The point the cursor is actually ON, or None if it is on none.
+
+        Voltage alone is not a hit test. The columns are 6.25 mV apart while
+        the plot is ~1000 MHz tall, so "nearest by mV" matches a click anywhere
+        in a column - empty sky included - and the caller then yanks that point
+        to the cursor. Two accidental multi-hundred-MHz edits came from exactly
+        that. Distance therefore has to be measured in PIXELS: the two axes'
+        units are not comparable, and only the pixel view is what the user is
+        aiming at."""
         if not self.vf_points:
             return None
-        return min(self.vf_points,
-                   key=lambda p: abs(p["volt_mv"] - volt_mv))["idx"]
+        scale = self.plot_units_per_px()
+        if scale is None:
+            return None
+        xu, yu = scale
+
+        def dpx(p):
+            return (abs(p["volt_mv"] - volt_mv) / xu,
+                    abs(self.wf(p["idx"]) / 1000.0 - freq_mhz) / yu)
+
+        near = min(self.vf_points, key=lambda p: math.hypot(*dpx(p)))
+        # a true RADIUS, which is what the tooltip, the shortcut list and the
+        # README all promise. `dx <= r and dy <= r` is a SQUARE, and its corners
+        # reach 1.41x the stated distance - a grab the words on screen say is a
+        # miss.
+        return (near["idx"] if math.hypot(*dpx(near)) <= self.s(self.GRAB_PX)
+                else None)
 
     def on_plot_click(self, sender=None, app_data=None, user_data=None):
-        """Left-click on the plot selects the nearest dot and begins a drag."""
+        """Left-click ON a dot selects it and begins a drag. A press that lands
+        anywhere else is left alone for the plot to pan with.
+
+        EVERY exit that does not take a grab clears the drag state first. A new
+        press ends whatever the last one held, and a _drag_idx surviving a MISS
+        is the accidental-edit bug the pixel hit test was added to prevent,
+        reached by another door: click empty sky, then drag anywhere, and the
+        previously grabbed point is yanked to the cursor."""
         if not self.vf_points or not dpg.is_item_hovered("vf_plot"):
+            self.end_drag()
             return
-        x, y = dpg.get_plot_mouse_pos()[:2]
-        idx = self.nearest_idx(x)
+        try:
+            x, y = dpg.get_plot_mouse_pos()[:2]
+        except Exception:
+            self.end_drag()
+            return
+        idx = self.nearest_idx(x, y)
         if idx is None:
+            self.end_drag()
             return
         self._drag_idx = idx
+        # Left now belongs to the pan, so it has to be taken away for the life
+        # of the grab or the curve and the view would move together. X2 is a
+        # button this app never uses, i.e. a pan that cannot be triggered.
+        self.set_pan_button(dpg.mvMouseButton_X2)
         self.vf_select(idx)
 
     def on_plot_drag(self, sender=None, app_data=None, user_data=None):
@@ -1182,7 +1618,43 @@ class TitanTune:
         self.vf_redraw()
 
     def on_plot_release(self, sender=None, app_data=None, user_data=None):
+        self.end_drag()
+
+    def set_pan_button(self, button):
+        if not dpg.does_item_exist("vf_plot"):
+            return
+        try:
+            dpg.configure_item("vf_plot", pan_button=button)
+        except Exception as e:
+            self.log_once("panbtn", f"plot pan button: {e}")
+
+    def end_drag(self):
+        """The one way out of a dot drag. The pan button is a MODE, not an
+        event, so it is restored UNCONDITIONALLY here rather than only when a
+        drag was in flight: this handler is registry-wide, so it also catches
+        the release that happens outside the plot, and a single missed restore
+        would leave the plot permanently unpannable."""
         self._drag_idx = None
+        self.set_pan_button(dpg.mvMouseButton_Left)
+
+    def drag_watchdog(self):
+        """End a grab whose mouse-up never arrived. This CANNOT live inside
+        on_plot_drag, where it used to: DPG's mvMouseDragHandler is
+        ImGui::IsMouseDragging(button), which already requires MouseDown[button]
+        - so a 'the button is up' test there is false by construction and the
+        branch was dead. The case that really strands a grab is focus loss,
+        where ImGui clears MouseDown without ever delivering a release; that
+        stops the drag handler firing at all, so the check has to run per frame
+        instead. Left unfixed, the plot stays permanently unpannable (pan is
+        parked on X2 for the life of the grab)."""
+        if self._drag_idx is None:
+            return
+        try:
+            down = dpg.is_mouse_button_down(dpg.mvMouseButton_Left)
+        except Exception:
+            return
+        if not down:
+            self.end_drag()
 
     def on_key_move(self, sender=None, app_data=None, user_data=None):
         """W / S nudge the selected dot by one 15 MHz bin (x3 with Shift)."""
@@ -1384,7 +1856,6 @@ class TitanTune:
 
     def vf_revert(self):
         self.vf_work = dict(self.vf_orig)
-        self._apply_armed = None
         # the boxes have to follow the working copy back, or Set-MHz still holds
         # the reverted frequency and one click silently re-applies the edit that
         # was just undone
@@ -1403,45 +1874,172 @@ class TitanTune:
                   default=0.0)
         return top, max((p["freq_mhz"] for p in pts), default=0.0)
 
-    def vf_apply(self):
-        if not self.guard() or not self.vf_points:
+    # ---- the plan banner (the warning that arrives BEFORE the click) ------- #
+    # (head colour, box fill, border) per band. The FILL is the point: colour
+    # alone would just make this a fourth coloured status line on a tab that
+    # already has three.
+    PLAN_BANDS = {
+        "idle": (DIM, (32, 35, 42, 255), (72, 78, 92, 255)),
+        "warn": (WARN, (58, 44, 10, 255), WARN),
+        "bad": (BAD, (66, 20, 20, 255), BAD),
+    }
+
+    def plan_theme(self, bg, border):
+        with dpg.theme() as th:
+            with dpg.theme_component(dpg.mvChildWindow):
+                dpg.add_theme_color(dpg.mvThemeCol_ChildBg, bg)
+                dpg.add_theme_color(dpg.mvThemeCol_Border, border)
+                dpg.add_theme_style(dpg.mvStyleVar_ChildBorderSize, self.s(2))
+                dpg.add_theme_style(dpg.mvStyleVar_WindowPadding,
+                                    self.s(12), self.s(8))
+        return th
+
+    def plan_wrap(self):
+        try:
+            W = dpg.get_viewport_client_width()
+        except Exception:
+            W = 0
+        # wider inset than the page's own wrap: this text is inside a padded,
+        # bordered box, so wrapping it at the page width would clip the tail
+        return max(self.s(300), W - self.s(80))
+
+    def plan_h(self):
+        """Measured height of the plan banner, the way tile_height measures a
+        tile. The text is rebuilt on every edit and it wraps, so a fixed height
+        would either clip the peak-lowering warning - the one line in this app
+        that must never go unread - or leave a slab of empty colour under a
+        single short line."""
+        wrap = self.plan_wrap()
+        lh = self.text_h("Ag", "ui") or self.s(19)
+        # generous: get_text_size can read a hair short, and this box is the one
+        # place in the app where a few pixels of over-measure costs nothing and
+        # an under-measure hides a warning
+        h = self.s(30)          # window padding + border, top and bottom
+        for tag, font in (("vf_plan_head", "big"), ("vf_plan_body", "ui"),
+                          ("vf_plan_reset", "ui")):
+            if not dpg.does_item_exist(tag):
+                continue
+            fallback = self.s(31) if font == "big" else lh
+            txt = dpg.get_value(tag) or "Ag"
+            h += (self.text_h(txt, font, wrap) or fallback) + self.s(5)
+        return int(h)
+
+    def size_plan_banner(self):
+        """Re-wrap and re-measure. Called from relayout (the window changed
+        width) AND from update_plan_banner (the text changed): at 4 Hz the
+        relayout tick alone would leave a freshly grown warning clipped for a
+        quarter second, which is a quarter second in which the box is lying."""
+        if not dpg.does_item_exist("vf_plan"):
             return
+        wrap = self.plan_wrap()
+        for tag in ("vf_plan_head", "vf_plan_body", "vf_plan_reset"):
+            if dpg.does_item_exist(tag):
+                dpg.configure_item(tag, wrap=wrap)
+        dpg.configure_item("vf_plan", height=self.plan_h())
+
+    def apply_plan(self):
+        """Exactly what 'Apply to GPU' would write RIGHT NOW, or None when
+        nothing is staged. ONE computation with two consumers - the banner that
+        has to be true before the click, and the log receipt written at the
+        click - so the description the user acted on and the description in the
+        log can never be two different plans."""
+        if not self.vf_points:
+            return None
         changed = {i: self.vf_work[i] for i in self.vf_work
                    if self.vf_work[i] != self.vf_orig[i]}
         if not changed:
-            self._apply_armed = None
-            self.log("no edits to apply")
-            return
+            return None
         cap = float(dpg.get_value("vcap"))
         wpts = self.work_pts()
         top, peak = self.curve_top(wpts, cap)
         _hw_top, hw_peak = self.curve_top(self.vf_points, cap)
         _pk, pidx, pmv, npk = GPU.peak_info(wpts)
-        # Tk asked in a modal dialog carrying the ceiling and the reversibility
-        # note; ImGui has no modal, so the first press states the plan and the
-        # second commits it. The arm is keyed to the exact edit set: move one
-        # point after arming and it must be confirmed again, so what was
-        # described is always what gets written.
-        plan = (round(cap, 2), tuple(sorted(changed.items())))
-        if self._apply_armed != plan:
-            self._apply_armed = plan
-            # De-flatten's peak warning has to reach the moment of commit: its
-            # line is one of ~9 visible in the log and any nudge since pushes it
-            # off the fold, so a plan that drags the peak DOWN (a cap that
-            # landed in the low-voltage floor) would otherwise be confirmed
-            # against a message that only ever reads like a raise.
-            warn = (f"WARNING: this LOWERS the curve's peak from "
-                    f"{hw_peak:.0f} to {peak:.0f} MHz. " if peak < hw_peak
-                    else "")
-            self.log(warn + f"about to write {len(changed)} edited point(s): "
-                     f"top ≤{cap:.0f} mV becomes {top:.0f} MHz, peak "
-                     f"{peak:.0f} MHz held by {npk} point(s), the card would "
-                     f"park at idx {pidx} @ {pmv:.2f} mV - press Apply to GPU "
-                     f"again to write it. Reversible via 'Reset curve to "
-                     f"stock' or a reboot", False)
+        # A plan that drags the peak DOWN (a cap that landed in the low-voltage
+        # floor levels the whole upper curve onto it) otherwise reads exactly
+        # like a raise - it was the case Tk's confirm dialog existed to catch.
+        return {
+            "changed": changed,
+            "lowers_peak": peak < hw_peak,
+            "warn": (f"WARNING: this LOWERS the curve's peak from "
+                     f"{hw_peak:.0f} to {peak:.0f} MHz. "
+                     if peak < hw_peak else ""),
+            "text": (f"{len(changed)} edited point(s): top ≤{cap:.0f} mV "
+                     f"becomes {top:.0f} MHz, peak {peak:.0f} MHz held by "
+                     f"{npk} point(s), the card parks at idx {pidx} @ "
+                     f"{pmv:.2f} mV"),
+        }
+
+    def update_plan_banner(self):
+        """Say what the NEXT click on Apply does, continuously. This is the
+        whole exchange for single-click Apply: the summary that used to arrive
+        with the first of two presses is now on screen before either."""
+        if not dpg.does_item_exist("vf_plan_head"):
             return
-        self._apply_armed = None
+        plan = self.apply_plan()
+        pending = len(plan["changed"]) if plan else 0
+        if plan is None:
+            band = "idle"
+            head = "APPLY TO GPU  ·  nothing staged"
+            body = ("Drag a dot, nudge with W/S, Set MHz or De-flatten, and "
+                    "this box says exactly what one click on 'Apply to GPU' "
+                    "will write - before the click, not after it.")
+        else:
+            band = "bad" if plan["lowers_peak"] else "warn"
+            head = ("APPLY TO GPU  ·  ONE CLICK LOWERS THE PEAK"
+                    if plan["lowers_peak"] else
+                    "APPLY TO GPU  ·  ONE CLICK WRITES THIS")
+            # The undo-point sentence is the pre-click half of the bargain that
+            # bought single-click Apply, so it may only promise what the click
+            # really delivers: the snapshot is ATTEMPTED first, and if it comes
+            # back without the delta table (or not at all) the status line
+            # below says so in red and the write still goes ahead. Promising a
+            # restore here that autosave_before then could not take would be
+            # the one lie this box cannot afford.
+            body = (plan["warn"] + "Writes " + plan["text"]
+                    + ".\nAn undo point is taken immediately before the write "
+                      "and Profiles > Undo last write puts this state back - "
+                      "unless the status line reports that the snapshot came "
+                      "back incomplete, in which case the write still happens "
+                      "and the curve is NOT recoverable from it. Zeroing the "
+                      "table is always available via 'Reset curve to stock' "
+                      "or a reboot.")
+        reset = (f"'Reset curve to stock' is one click too: it zeroes all "
+                 f"{VFP_POINTS} deltas back to the factory curve and discards "
+                 f"{pending} staged edit(s).")
+        dpg.set_value("vf_plan_head", head)
+        dpg.set_value("vf_plan_body", body)
+        dpg.set_value("vf_plan_reset", reset)
+        # re-theme only on a band change, same reason as the bars and the
+        # domain deltas: rebinding a theme every frame is pure churn, and this
+        # runs from vf_redraw, i.e. on every frame of a drag
+        if self._plan_band != band:
+            self._plan_band = band
+            dpg.configure_item("vf_plan_head", color=self.PLAN_BANDS[band][0])
+            if band in self._plan_themes:
+                dpg.bind_item_theme("vf_plan", self._plan_themes[band])
+        self.size_plan_banner()
+
+    def vf_apply(self):
+        """ONE CLICK. The plan banner directly above this button has been
+        saying what the click writes for as long as the edits have existed
+        (update_plan_banner), and autosave_before makes the write recoverable -
+        which is strictly more than the press-again arm gave, since that only
+        described the plan once the user had already committed to pressing."""
+        if not self.guard() or not self.vf_points:
+            return
+        plan = self.apply_plan()
+        if plan is None:
+            self.log("no edits to apply")
+            return
+        changed = plan["changed"]
         predicted = {i: self.wf(i) for i in changed}
+        self.autosave_before("vf-apply")
+        # the log is the only receipt a write leaves anywhere in the app, so
+        # the plan goes into it at the moment of commit as well as standing in
+        # the banner beforehand - and it lands directly under the undo point
+        # that would take it back
+        self.log(plan["warn"] + "writing " + plan["text"],
+                 False if plan["lowers_peak"] else None)
         ok, m = self.gpu.apply_vf_deltas(changed)
         self.report((ok, m))
         if not ok:
@@ -1556,6 +2154,12 @@ class TitanTune:
                      f"{pending} staged edit(s) it cannot see - 'Apply to GPU' "
                      f"or 'Revert edits' first", False)
             return
+        # The one LOSSY write in this app, so the one that most needs an undo
+        # point: off-phase deltas are rounded DOWN onto the common phase and
+        # the original remainders are gone. 'Reset curve to stock' zeroes the
+        # table, which is not the same thing as putting them back - only a
+        # snapshot can.
+        self.autosave_before("vf-rephase")
         ok, m = self.gpu.rephase_deltas()
         self.report((ok, m))
         if ok:
@@ -1564,20 +2168,18 @@ class TitanTune:
     def vf_reset(self):
         """Zeroing every delta only moves the card toward stock, but it is still
         a full 103-row table write AND it re-reads with force=True, which throws
-        staged edits away with no undo. So it arms and commits the way 'Reset
-        all to stock' does - that button does strictly more and still asks -
-        and it sits behind the unlock gate like every other write."""
+        staged edits away. ONE CLICK, like Apply: the plan banner above states
+        both consequences continuously, and autosave_before makes even the
+        discarded edits recoverable. 'Reset all to stock' is the one that still
+        arms - it drops every knob at once, not just this table. Behind the
+        unlock gate like every other write."""
         if not self.guard():
             return
         pending = sum(1 for i in self.vf_work
                       if self.vf_work.get(i) != self.vf_orig.get(i))
-        if not self._vf_reset_armed:
-            self._vf_reset_armed = True
-            self.log(f"this zeroes all {VFP_POINTS} V/F deltas - the factory "
-                     f"curve - and discards {pending} staged edit(s) with no "
-                     f"undo; press again to confirm", False)
-            return
-        self._vf_reset_armed = False
+        self.autosave_before("vf-reset")
+        self.log(f"zeroing all {VFP_POINTS} V/F deltas back to the factory "
+                 f"curve, discarding {pending} staged edit(s)", None)
         ok, m = self.gpu.reset_vf_curve()
         self.report((ok, m))
         if ok:
@@ -1638,6 +2240,257 @@ deliberately does not put behind a button."""
             self.log(f"clipboard unavailable: {e}", ok=False)
 
     # ====================================================================== #
+    #  PROFILES                                                              #
+    # ====================================================================== #
+    def autosave_before(self, action):
+        """Undo point taken IMMEDIATELY before a destructive write. This is the
+        other half of single-click Apply: the banner makes the click informed,
+        this makes it reversible. Returns True only when a snapshot was taken
+        AND it is whole.
+
+        WHICH writes call this, and why not the rest. Every write that can
+        destroy state you cannot read back off a slider takes one: 'Apply to
+        GPU', 'Reset curve to stock', 'Re-phase', the core-offset Apply,
+        'Reset all to stock' and a profile Load. All six write the same 103-row
+        delta table, whose previous contents appear nowhere on screen - and
+        Re-phase is the only genuinely LOSSY write in the app (off-phase deltas
+        are rounded down and the original remainders are gone, so not even
+        'Reset curve to stock' can recover them).
+        The single-knob applies - memory offset, power limit, voltage boost,
+        fan - deliberately do NOT: each moves one number that its own slider
+        still shows, and putting them in the ring would evict the curve
+        snapshots that nothing else can reconstruct. The clock lock does not
+        either, and could not: profiles.capture does not record it, so an undo
+        point would silently fail to take it back. Release / Ctrl+H does.
+
+        A failed or partial snapshot does NOT block the write - three of the
+        callers only ever move the card toward stock, and refusing to let
+        someone back out because a JSON file would not open is the wrong
+        failure. It says so as an error instead, which reddens the V/F tab's
+        status line as well as the log."""
+        try:
+            name, _path, missing = profiles.autosave(self.gpu, action)
+        except Exception as e:
+            self.log(f"could NOT save an undo point before {action}: {e} - "
+                     f"the write is going ahead unprotected", False)
+            return False
+        if missing:
+            # An incomplete snapshot must not be announced as an undo point.
+            # The one field that goes missing is the V/F delta table, i.e.
+            # precisely what the write about to happen overwrites: restore()
+            # would put every other knob back and leave the curve where the
+            # write left it, while the log claimed the state was saved.
+            self.log(f"undo point '{name}' is INCOMPLETE: {'; '.join(missing)}."
+                     f" 'Undo last write' will NOT put the curve back - the "
+                     f"write is going ahead anyway", False)
+            return False
+        self.log(f"undo point saved as '{name}' - Profiles > Undo last "
+                 f"write restores it", None)
+        return True
+
+    def save_profile(self):
+        """Named snapshot of every knob this tool can write. Saving touches no
+        GPU state at all, so unlike load it is not behind guard()."""
+        name = (dpg.get_value("prof_name") or "").strip()
+        if not name:
+            self.log("give the profile a name first", False)
+            return
+        try:
+            state = profiles.capture(self.gpu)
+            path = profiles.save(name, state)
+        except Exception as e:
+            self.log(f"save profile '{name}': {e}", False)
+            return
+        if dpg.does_item_exist("win_save"):
+            dpg.configure_item("win_save", show=False)
+        self.log(f"saved '{os.path.basename(path)}' - "
+                 f"{profiles.summarize(state)}", True)
+        self.refresh_profile_list()
+
+    def open_save_profile(self, sender=None, app_data=None, user_data=None):
+        # seeded with a timestamp so the box is never empty: profiles are
+        # slugged onto disk by name, so an unnamed one would be "unnamed.json"
+        # and the next save would silently overwrite it
+        if dpg.does_item_exist("prof_name") and not dpg.get_value("prof_name"):
+            dpg.set_value("prof_name", time.strftime("tune-%Y%m%d-%H%M"))
+        self.show_win(user_data="win_save")
+
+    def open_profiles(self, sender=None, app_data=None, user_data=None):
+        self.refresh_profile_list()
+        self.show_win(user_data="win_profiles")
+
+    # header / width in UNSCALED px, same shape as DOM_COLS. 'contents' is the
+    # widest because summarize() is what tells one autosave from another - the
+    # names are all timestamps.
+    PROF_COLS = (("profile", 300), ("saved", 175), ("contents", 470),
+                 ("", 90))
+    # tag prefix for the per-row Load buttons. They are built and destroyed on
+    # every refresh, so they need a predictable name to be pruned OUT of
+    # _ctl_widgets again - see refresh_profile_list.
+    PROF_LOAD_TAG = "prof_load_"
+
+    def refresh_profile_list(self):
+        """Rebuild the rows from disk, newest first (list_profiles sorts them).
+        Deleting a table's children takes its COLUMNS with them, so those are
+        re-added here rather than only at build time."""
+        if not dpg.does_item_exist("prof_table"):
+            return
+        # a pending cross-card confirmation is keyed to one row; rebuilding the
+        # rows out from under it would leave the warning pointing at nothing
+        self.set_pending_load(None)
+        # the Load buttons about to be destroyed leave the unlock gate with
+        # them, or the list would grow by one dead tag per refresh forever
+        self._ctl_widgets = [t for t in self._ctl_widgets
+                             if not str(t).startswith(self.PROF_LOAD_TAG)]
+        dpg.delete_item("prof_table", children_only=True)
+        for label, w in self.PROF_COLS:
+            dpg.add_table_column(label=label, parent="prof_table",
+                                 width_fixed=True,
+                                 init_width_or_weight=self.s(w))
+        try:
+            rows = profiles.list_profiles()
+        except Exception as e:
+            rows = []
+            self.log(f"profile list: {e}", False)
+        if not rows:
+            with dpg.table_row(parent="prof_table"):
+                dpg.add_text("no profiles saved yet", color=DIM)
+            return
+        for row_i, (name, _path, when, is_auto) in enumerate(rows):
+            try:
+                state = profiles.load(name)
+                summary = profiles.summarize(state)
+            except Exception as e:
+                state, summary = None, f"unreadable: {e}"
+            with dpg.table_row(parent="prof_table"):
+                # autosaves are the app's own undo points, not tunes anyone
+                # chose to keep, so they are dimmed - a hand-named profile has
+                # to stand out in a list that is mostly machine-made
+                dpg.add_text(name, color=DIM if is_auto else TEXT,
+                             wrap=self.s(self.PROF_COLS[0][1] - 10))
+                dpg.add_text(when or "?", color=DIM)
+                dpg.add_text(summary, color=TEXT if state else BAD,
+                             wrap=self.s(self.PROF_COLS[2][1] - 10))
+                if state is None:
+                    dpg.add_text("--", color=DIM)
+                else:
+                    tag = f"{self.PROF_LOAD_TAG}{row_i}"
+                    dpg.add_button(label="Load", tag=tag, width=-1,
+                                   user_data=name,
+                                   callback=lambda s, a, u: self.load_profile(u))
+                    self._ctl_widgets.append(tag)
+        # the rows were just created, so they are born ignoring the gate - one
+        # pass puts every write control, new and old, back in step with it
+        self.sync_lock_ui()
+
+    def set_pending_load(self, pend):
+        """Show or clear the cross-card warning. It lives in the Profiles
+        window and not only in the log, because the log is on another tab and
+        this is the one message that has to be read where the button is."""
+        self._pending_load = pend
+        if not dpg.does_item_exist("prof_warn"):
+            return
+        dpg.set_value("prof_warn", "" if not pend else
+                      f"⚠  '{pend[0]}': {pend[1]}.\nA 103-point V/F table "
+                      f"is 103 frequencies measured on ONE piece of silicon - "
+                      f"on another die they are a guess. Press Load on that "
+                      f"row again to restore it anyway.")
+        dpg.configure_item("prof_warn", show=bool(pend))
+        # a refusal the user cannot see is just a dead button. This is also
+        # reached from the menu's 'Undo last write', where the window may not
+        # be open at all, so put the confirmation in front of them.
+        if pend and dpg.does_item_exist("win_profiles"):
+            dpg.configure_item("win_profiles", show=True)
+            dpg.focus_item("win_profiles")
+
+    def load_profile(self, name):
+        """Restoring is a destructive write like any other, so it goes through
+        the unlock gate, takes its own undo point first, and reports every knob
+        restore() moved - a profile that half-applied must not look clean."""
+        if not self.guard():
+            return
+        try:
+            state = profiles.load(name)
+        except Exception as e:
+            self.log(f"load '{name}': {e}", False)
+            return
+        warn = profiles.device_mismatch(state, self.gpu)
+        if warn and (self._pending_load or (None,))[0] != name:
+            self.set_pending_load((name, warn))
+            self.log(f"'{name}' {warn} - nothing written; confirm it in "
+                     f"Profiles > Load profile before this is restored", False)
+            return
+        self.set_pending_load(None)
+        # the action label is bounded: undoing an undo would otherwise compose
+        # 'load-autosave-load-autosave-...' into a filename that only grows
+        self.autosave_before(f"load-{name}"[:40])
+        self.log(f"restoring '{name}' ({state.get('saved_at','?')}): "
+                 f"{profiles.summarize(state)}", None)
+        for ok, msg in profiles.restore(self.gpu, state):
+            self.log(msg, ok)
+        self.sync_sliders_from_gpu(state)
+        # the delta table is written LAST and wins over the core offset (see
+        # profiles.restore) - rebase the editor on what is now in the card
+        self.vf_read(force=True)
+
+    def undo_last_write(self):
+        """Restore the snapshot taken just before the most recent covered write
+        (see autosave_before for which those are). list_profiles() is newest
+        first - ordered on a sub-second timestamp, because two autosaves in the
+        same second used to tie and be broken by the action label, which could
+        hand back the OLDER of the two states. This goes through load_profile,
+        i.e. it takes an undo point of its own - undoing an undo is just
+        another load, and pressing this twice must not strand anyone."""
+        try:
+            autos = [r for r in profiles.list_profiles() if r[3]]
+        except Exception as e:
+            self.log(f"undo: {e}", False)
+            return
+        if not autos:
+            self.log("undo: nothing to undo - a snapshot is written "
+                     "immediately before every write that touches the V/F "
+                     "delta table (Apply, Reset curve, Re-phase, the core "
+                     "offset, Reset all, a profile Load), and none has "
+                     "happened yet", False)
+            return
+        # rows first: a cross-card snapshot bounces into the Profiles window
+        # for confirmation (set_pending_load), and an empty table there would
+        # leave the user with a warning and no row to confirm it on
+        self.refresh_profile_list()
+        self.load_profile(autos[0][0])
+
+    def sync_sliders_from_gpu(self, state=None):
+        """Put the knobs back in step with the CARD after a restore. Read back
+        rather than echoing the profile: a knob whose write the driver refused
+        would otherwise leave its slider displaying a value the card never
+        took, which is the exact lie the sliders' own clamp exists to stop."""
+        try:
+            d = self.gpu.read()
+        except Exception as e:
+            self.log(f"sliders not re-synced: {e} - they may not match the "
+                     f"card until the next Apply", False)
+            return
+        mscale = self.gpu.mem_offset_scale()[0] or 1
+        moff = d.get("mem_off")
+        for tag, val in (("sl_core", d.get("core_off")),
+                         ("sl_mem", int(moff / mscale)
+                          if isinstance(moff, int) else None),
+                         ("sl_pl", (d.get("pl_now_mw") or 0) // 1000 or None)):
+            if val is not None and dpg.does_item_exist(tag):
+                dpg.set_value(tag, int(val))
+        vb = self.gpu.read_voltage_boost()
+        if vb is not None and dpg.does_item_exist("sl_volt"):
+            dpg.set_value("sl_volt", max(0, min(100, int(vb))))
+        # fan duty ONLY when the profile actually pinned the fans. On the
+        # temperature curve the duty is a reading, not a setting, and parking
+        # the slider on it would make the next Apply freeze the fans at
+        # whatever they happened to be doing (same rule as profiles.restore).
+        fans = d.get("fans") or []
+        if state and state.get("fan_manual") and fans \
+                and dpg.does_item_exist("sl_fan"):
+            dpg.set_value("sl_fan", int(fans[0][0]))
+
+    # ====================================================================== #
     #  MENU BAR + TOOL WINDOWS                                               #
     # ====================================================================== #
     def show_win(self, sender=None, app_data=None, user_data=None):
@@ -1669,6 +2522,27 @@ deliberately does not put behind a button."""
                                   callback=self.show_win)
                 dpg.add_menu_item(label="Copy device report",
                                   callback=self.copy_device_report)
+            # Up here rather than on the Control tab for the same reason as the
+            # clock lock: these are whole-machine actions, not one more knob.
+            # 'Undo last write' is the safety net that lets Apply and Reset
+            # curve be one click - see autosave_before.
+            with dpg.menu(label="Profiles"):
+                dpg.add_menu_item(label="Save profile...",
+                                  callback=self.open_save_profile)
+                dpg.add_menu_item(label="Load profile...",
+                                  callback=self.open_profiles)
+                dpg.add_separator()
+                # in _ctl_widgets like every other write control: this reaches
+                # load_profile, which writes the whole delta table. guard()
+                # already refuses it while the gate is clear, but a control
+                # that stays lit is a control that looks like it will work.
+                dpg.add_menu_item(label="Undo last write", tag="mi_undo",
+                                  callback=self.undo_last_write)
+                self._ctl_widgets.append("mi_undo")
+                dpg.add_text("restores the snapshot taken automatically\n"
+                             "immediately before the most recent write.\n"
+                             "It is a write itself, so it takes one too.",
+                             color=DIM)
             # The clock lock lives up here because it was eating the widest row
             # on the Control tab. It is the same widgets with the same tags, so
             # guard() and the unlock gate (_ctl_widgets, below) still cover it.
@@ -1722,21 +2596,37 @@ deliberately does not put behind a button."""
                 dpg.add_menu_item(label="About", user_data="win_about",
                                   callback=self.show_win)
 
-    # Only the bindings that EXIST in build_vf's handler_registry. A shortcut
-    # list that names a key nothing implements is worse than no list at all, so
-    # anything added to that registry has to gain a row here in the same change.
+    # Only the bindings that EXIST in build_vf's handler_registry, and only the
+    # gestures on_plot_click / on_plot_drag really implement. A list naming a
+    # key nothing implements is worse than no list at all - and so is one
+    # describing a gesture the code has since replaced, which is what the
+    # Tk-era "nearest by voltage" and "middle-drag pans" rows had become. Both
+    # rules bind the same way: anything added to that registry, or any change to
+    # which button does what, has to move these rows in the same change.
     VF_KEYS = [
         ("W / S", "move the selected point +/- 15 MHz (one clock bin)"),
         ("A / D", "select the previous / next point along the curve"),
         ("Shift + W/S", "move 3 bins at once (+/- 45 MHz)"),
         ("Shift + A/D", "step the selection 3 points at a time"),
-        ("left-click", "select the dot nearest the click, by voltage"),
-        ("left-drag", "move the grabbed dot; it snaps to whole 15 MHz bins"),
-        ("middle-drag", "pan the plot (the left button belongs to the dots)"),
+        ("left-click ON a dot",
+         "select it. The hit test is in SCREEN PIXELS - the press has to land "
+         "within ~14 px of the drawn marker - not 'the nearest point by "
+         "voltage', which made empty sky a grab handle for whatever dot shared "
+         "that column"),
+        ("left-drag ON a dot",
+         "move it; snaps to whole 15 MHz bins. Vertical only: voltage is fixed "
+         "by the VF table"),
+        ("left-drag anywhere else",
+         "pan the plot. The left button is shared - a press that misses every "
+         "dot leaves it with the pan, and the grab hands it straight back on "
+         "release. Middle-drag does nothing"),
+        ("scroll wheel", "zoom the plot (pan and zoom are bounded; 'Fit view' "
+                         "puts the whole curve back on screen)"),
         ("Ctrl + H", "hold the selected point: pins the clock there so the "
                      "boost arbiter supplies that point's voltage. Press "
                      "again to release. The point's frequency snaps DOWN to "
-                     "the nearest lockable clock, never up"),
+                     "the nearest lockable clock, never up. Both the hold and "
+                     "its release are behind 'Unlock controls'"),
     ]
 
     def build_tool_windows(self):
@@ -1758,6 +2648,62 @@ deliberately does not put behind a button."""
                                default_value=self.device_report(),
                                width=-1, height=-1)
             self.bind("info", "mono")
+
+        with dpg.window(label="Save profile", tag="win_save", show=False,
+                        width=self.s(560), height=self.s(210),
+                        pos=[self.s(200), self.s(180)]):
+            dpg.add_text("Snapshots both offsets, the power limit, the voltage "
+                         "boost, the fan POLICY (not just its duty) and all "
+                         f"{VFP_POINTS} V/F deltas, as JSON in profiles/ next "
+                         "to the app. Saving writes nothing to the GPU.",
+                         color=DIM, wrap=self.s(520))
+            dpg.add_spacer(height=self.s(6))
+            # on_enter as well as the button: this box is a name prompt, and
+            # Enter is what a name prompt is expected to take. typing() names
+            # it too, so W/A/S/D typed in here do not also retune the curve.
+            dpg.add_input_text(tag="prof_name", width=-1, hint="profile name",
+                               on_enter=True, callback=self.save_profile)
+            dpg.add_text("saved under this name, slugged - an existing profile "
+                         "of the same name is overwritten", color=DIM,
+                         wrap=self.s(520))
+            dpg.add_spacer(height=self.s(6))
+            with dpg.group(horizontal=True):
+                dpg.add_button(label="Save", width=self.s(130),
+                               callback=self.save_profile)
+                dpg.add_button(label="Cancel", width=self.s(130),
+                               callback=lambda: dpg.configure_item(
+                                   "win_save", show=False))
+
+        with dpg.window(label="Profiles", tag="win_profiles", show=False,
+                        width=self.s(1080), height=self.s(560),
+                        pos=[self.s(90), self.s(90)]):
+            dpg.add_text("Loading is a destructive write: it sets the power "
+                         "limit, voltage boost, both offsets and the fan "
+                         "policy, then the whole delta table LAST - which wins "
+                         "over the core offset, because they are the same "
+                         f"{VFP_POINTS} driver rows. An undo point is taken "
+                         "first, and every knob reports into the Control tab "
+                         "log.", color=WARN, wrap=self.s(1040))
+            with dpg.group(horizontal=True):
+                dpg.add_button(label="Refresh", width=self.s(130),
+                               callback=self.refresh_profile_list)
+                dpg.add_button(label="Save profile...", width=self.s(170),
+                               callback=self.open_save_profile)
+            dpg.add_text("", tag="prof_warn", color=BAD, show=False,
+                         wrap=self.s(1040))
+            dpg.add_separator()
+            # the table lives in a child_window for the same reason pan_dom
+            # does: the autosave ring alone is profiles.KEEP_AUTOSAVES rows, so
+            # past its share the LIST scrolls rather than pushing Refresh and
+            # the warning line off the top of the window
+            with dpg.child_window(width=-1, height=-1):
+                with dpg.table(tag="prof_table", header_row=True,
+                               no_host_extendX=True,
+                               policy=dpg.mvTable_SizingFixedFit,
+                               borders_innerH=True, borders_innerV=True):
+                    for label, w in self.PROF_COLS:
+                        dpg.add_table_column(label=label, width_fixed=True,
+                                             init_width_or_weight=self.s(w))
 
         with dpg.window(label="Keyboard shortcuts", tag="win_keys", show=False,
                         width=self.s(620), height=self.s(460),
@@ -1812,8 +2758,25 @@ deliberately does not put behind a button."""
             print("No GPU backend:", self.gpu.status_line())
             return
         dpg.create_context()
-        dpg.create_viewport(title="TitanTune", width=self.s(1180),
-                            height=self.s(860))
+        # Taller than the old 860: the Monitor tab gained the all-domains
+        # table, and relayout() only divides up whatever the viewport gives it
+        # - at the old height the new panel could show barely half its rows
+        # without starving the throttle lamps beside it. Clamped to the real
+        # display so a screen smaller than this 4K one still gets a window that
+        # fits on it (dpi_scale() has already declared DPI awareness, so
+        # GetSystemMetrics reports physical pixels).
+        vh = self.s(1120)
+        try:
+            screen_h = ctypes.windll.user32.GetSystemMetrics(1)  # SM_CYSCREEN
+        except Exception:
+            screen_h = 0
+        if screen_h:
+            # the s(600) floor is applied INSIDE the screen bound, not after
+            # it: max() taken last hands any display shorter than s(670) a
+            # window taller than itself, which is the one thing this clamp
+            # exists to prevent.
+            vh = min(vh, max(self.s(600), screen_h - self.s(70)), screen_h)
+        dpg.create_viewport(title="TitanTune", width=self.s(1180), height=vh)
         self.load_fonts()
 
         st = self.gpu.static
@@ -1821,8 +2784,8 @@ deliberately does not put behind a button."""
         with dpg.window(tag="root"):
             # DPG draws the viewport menu bar OVER the primary window instead of
             # insetting it, so without this pad the title row is half-hidden
-            # behind File/Device/Clocks/Help. relayout() keeps it in step with
-            # the bar's measured height.
+            # behind File/Device/Profiles/Clocks/Help. relayout() keeps it in
+            # step with the bar's measured height.
             dpg.add_spacer(tag="menu_pad", height=self.menu_h())
             with dpg.group(horizontal=True):
                 dpg.add_text("TitanTune", tag="hdr", color=ACCENT)
@@ -1852,35 +2815,59 @@ deliberately does not put behind a button."""
         self.vf_read()
 
         last = 0.0
-        while dpg.is_dearpygui_running():
-            now = time.perf_counter()
-            if now - last >= 0.25:
-                last = now
-                self.relayout()
-                with self._lock:
-                    d, err, snap_t = self._snap, self._snap_err, self._snap_t
-                if err:
-                    self.log_once("read", f"read error: {err}")
-                else:
-                    self.clear_once("read")
-                self.set_stale(err, snap_t)
-                # Panels refresh even while a read is failing (Tk did the same:
-                # the snapshot is simply the last good one), and each panel gets
-                # its OWN try/except - sharing one meant a Monitor glitch also
-                # silenced the Control tab's live clock readout, the only
-                # confirmation that an applied offset took effect.
-                if d:
-                    for name, fn in (("monitor", self.refresh_monitor),
-                                     ("control", self.refresh_control)):
-                        try:
-                            fn(d)
-                            self.clear_once(name)
-                        except Exception as e:
-                            self.log_once(name, f"{name} panel: {e}")
-            dpg.render_dearpygui_frame()
-
-        self._stop.set()
-        dpg.destroy_context()
+        # try/finally, not a bare loop: the tail below is what stops this app
+        # leaving the card pinned, and the lock is the ONE write that outlives
+        # the process unread. Anything the loop raises - a DPG call on a
+        # deleted item, a driver hiccup inside relayout - must not be able to
+        # skip it. Per-call guards inside the loop keep the app alive; this
+        # keeps the promise even when one of them is missing.
+        try:
+            while dpg.is_dearpygui_running():
+                now = time.perf_counter()
+                if now - last >= 0.25:
+                    last = now
+                    self.relayout()
+                    with self._lock:
+                        d, err, snap_t = (self._snap, self._snap_err,
+                                          self._snap_t)
+                    if err:
+                        self.log_once("read", f"read error: {err}")
+                    else:
+                        self.clear_once("read")
+                    self.set_stale(err, snap_t)
+                    # Panels refresh even while a read is failing (Tk did the
+                    # same: the snapshot is simply the last good one), and each
+                    # panel gets its OWN try/except - sharing one meant a
+                    # Monitor glitch also silenced the Control tab's live clock
+                    # readout, the only confirmation that an applied offset
+                    # took effect.
+                    if d:
+                        for name, fn in (("monitor", self.refresh_monitor),
+                                         ("control", self.refresh_control)):
+                            try:
+                                fn(d)
+                                self.clear_once(name)
+                            except Exception as e:
+                                self.log_once(name, f"{name} panel: {e}")
+                # per FRAME, not on the 4 Hz panel tick: this readout is pinned
+                # to a corner of the plot's view, and at 4 Hz it would visibly
+                # lag behind the user's own pan. Guarded like the panels above
+                # rather than left bare: it ran unprotected directly beneath
+                # two deliberate try/excepts, and the drag watchdog now shares
+                # the same tick.
+                try:
+                    self.drag_watchdog()
+                    self.update_vf_corner()
+                    self.clear_once("corner")
+                except Exception as e:
+                    self.log_once("corner", f"plot corner: {e}")
+                dpg.render_dearpygui_frame()
+        finally:
+            self._stop.set()
+            # before destroy_context: the release goes through set_lock_state,
+            # and the DPG items it writes only exist while the context does
+            self.release_on_exit()
+            dpg.destroy_context()
 
 
 if __name__ == "__main__":

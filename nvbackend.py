@@ -179,10 +179,85 @@ class _ClkFreqs(ctypes.Structure):
 # Private NvAPI_GPU_GetAllClocks (0x1BD69F49). Community docs call it
 # "probably deprecated"; it answers on Turing (status 0) and is the only
 # user-mode path to the domains the public getter hides - XBAR in particular.
-# Layout verified on TU102: 288 dwords, stride 2, slot = 2*domain, value in
-# kHz; the odd slot is a small per-domain flag/source field, not a frequency.
+#
+# Layout verified on TU102 over a 192-sample sweep: the 288 dwords are TWO
+# arrays over the same 32 domains, an exact partition -
+#     A: dwords 0..63,   2 per domain at 2*d,      {freq_kHz, capability flags}
+#     B: dwords 64..287, 7 per domain at 64+7*d,   {freq_kHz, srcid, 0,0,0,0,0}
+# They are NOT two views of one number. A is the PROGRAMMED target: always
+# exactly on the 15 MHz grid, and bit-identical across samples for a fixed
+# domain. B is a MEASURED counter: it jitters 1-3 Hz and never lands on the
+# grid. Anything quoting one of them has to say WHICH.
+#
+# HOW FAR APART THEY ACTUALLY RUN, measured on this card under ~99% GPU load,
+# sampled >=8 s after the clock last changed (40 samples per locked case,
+# 20 free-boosting), GPC:
+#     free-boosting at 1950   A 1950.0   B 1949.90          -0.10 MHz
+#     locked at 1920          A 1920.0   B 1917.03-1921.37  within 3 MHz
+#     locked at 1350          A 1350.0   B 1364.91-1364.94  +14.9, dead steady
+#     XBAR and domains 2/5, all three cases                 within 0.14 MHz
+# Settled AND loaded they agree to a few MHz. Where they do not, B is HIGHER,
+# not lower: at the 1350 lock the card really is running one 15 MHz bin above
+# what array A reports (domain 2's own programmed word reads 1365 there too).
+#
+# The two WIDE cases are real, and neither is a steady state:
+#   * for ~1-2 s after any clock change, either sign, hundreds of MHz up to
+#     1.7 GHz (+600 locking down from 1950; -1700 locking up from idle). An
+#     earlier "A 1920.0 vs B 1886.7" reading came from a sweep that settled
+#     0.22 s - that is this transient, not a steady divergence, and it was
+#     re-measured to 3 MHz once the clock was given time to arrive.
+#   * at IDLE it never settles at all: with no work the GPC clock gates and B
+#     measures the average of a mostly-off clock, so at a 1350 lock B wandered
+#     470-573 MHz for tens of seconds (delta ~ -840). A wide delta on an idle
+#     card is expected and says nothing about the tune.
+#
+# PRIV_SLOT is in array-A dword numbers (slot = 2 * domain), i.e. the
+# PROGRAMMED figure - that is what the tiles have always shown.
 _PRIV_CLK_DWORDS = 288
 PRIV_SLOT = {"core": 0, "xbar": 2, "mem": 8, "video": 42}
+PRIV_A_BASE, PRIV_A_STRIDE = 0, 2
+PRIV_B_BASE, PRIV_B_STRIDE = 64, 7
+PRIV_N_DOMAINS = 32
+# The domains that carry anything in either array on this card. Kept as a
+# constant so a monitor's row set is stable across ticks; read_clock_domains()
+# also reports any domain OUTSIDE it that turns up non-zero, so a surprise is
+# visible rather than filtered away.
+PRIV_POPULATED = (0, 1, 2, 3, 4, 5, 6, 20, 21, 22, 31)
+PRIV_UNAVAIL = "private NvAPI_GPU_GetAllClocks (0x1BD69F49) did not answer"
+
+# the partition is exact - a wrong stride would read B's srcids as frequencies
+assert PRIV_B_BASE == PRIV_N_DOMAINS * PRIV_A_STRIDE
+assert PRIV_B_BASE + PRIV_N_DOMAINS * PRIV_B_STRIDE == _PRIV_CLK_DWORDS
+
+# How far each domain's NAME may be trusted. The frequencies are measured
+# either way; the grade is about our right to put a word next to them. A wrong
+# name on a monitor page is worse than a bare index: it sends someone debugging
+# the wrong domain and nothing on screen says they were misled.
+PRIV_CONFIRMED = "confirmed"   # identified against known behaviour
+PRIV_LIKELY = "likely"         # behaviour confirmed, NAME only by elimination
+PRIV_UNNAMED = "unnamed"       # populated, but no name has been earned
+
+PRIV_FREQ, PRIV_PCIE_GEN = "freq", "pcie_gen"
+
+PRIV_DOMAIN_ID = {
+    0:  ("GPC", PRIV_CONFIRMED, PRIV_FREQ),
+    1:  ("XBAR", PRIV_CONFIRMED, PRIV_FREQ),
+    # a third core-rail domain with its own V/F table. The BEHAVIOUR is
+    # confirmed; SYSCLK is a guess by elimination, so it may only ever be
+    # displayed hedged.
+    2:  ("SYSCLK", PRIV_LIKELY, PRIV_FREQ),
+    4:  ("MEM", PRIV_CONFIRMED, PRIV_FREQ),
+    # a fourth core-rail domain, ceilings hard at 1350 MHz. Same hedge.
+    5:  ("LTCCLK", PRIV_LIKELY, PRIV_FREQ),
+    21: ("VIDEO", PRIV_CONFIRMED, PRIV_FREQ),
+    # NOT a clock. Dword 62 holds the PCIe link generation (1/2/3), tracks the
+    # pstate and ceilings at nvmlDeviceGetMaxPcieLinkGeneration. Rendered in
+    # kHz it would read as a perfectly believable 0.003 MHz domain.
+    31: ("PCIe link gen", PRIV_LIKELY, PRIV_PCIE_GEN),
+}
+# Domains 3, 6, 20 and 22 are deliberately absent: their values are confirmed
+# static here (405 / 1080 / 540 / 108 MHz) but no NAME for them has been
+# earned, so they stay numbered.
 
 
 class _AllClocksPriv(ctypes.Structure):
@@ -517,7 +592,17 @@ class GPU:
     # ---- live telemetry --------------------------------------------------- #
     def read(self):
         d = {}
-        self._read_clocks(d)
+        # ONE private-getter call per tick, shared: the tiles take their four
+        # slots out of it and the all-domains readout takes all 32 out of the
+        # SAME instant. Two round trips would also compare a programmed target
+        # against a counter sampled at a different moment, which is precisely
+        # the comparison read_clock_domains exists to make honest.
+        pc = self._priv_clocks()
+        self._read_clocks(d, pc)
+        if pc is None:
+            d["clk_domains"], d["clk_domains_err"] = None, PRIV_UNAVAIL
+        else:
+            d["clk_domains"], d["clk_domains_err"] = self.read_clock_domains(pc)
         self._read_temps(d)
         self._read_power(d)
         self._read_fan(d)
@@ -530,7 +615,71 @@ class GPU:
     def _na(self, api):
         return self.nvapi if api == "a" else self.nvml
 
-    def _read_clocks(self, d):
+    def _priv_clocks(self):
+        """One raw private-getter payload, or None if it did not answer. Split
+        out so the tile path below and read_clock_domains can be fed from a
+        single call per tick (see read())."""
+        a = self.nvapi
+        if not (a.ok and a.AllClocksPriv):
+            return None
+        pc = _AllClocksPriv(version=a.ver(_AllClocksPriv, 2))
+        if a.AllClocksPriv(a.gpu, ctypes.byref(pc)) != 0:
+            return None
+        return pc
+
+    def read_clock_domains(self, pc=None):
+        """(rows, err) - every populated domain of the private getter, BOTH
+        arrays, one dict per domain:
+
+            domain      index 0..31
+            name        '' when no name has been earned
+            grade       PRIV_CONFIRMED / PRIV_LIKELY / PRIV_UNNAMED - how far
+                        `name` may be trusted, never how good the reading is
+            kind        PRIV_FREQ, or PRIV_PCIE_GEN for domain 31, which is a
+                        link generation and not a frequency at all
+            prog_khz    array-A dword: the PROGRAMMED target
+            meas_khz    array-B dword: the MEASURED counter
+            prog_mhz / meas_mhz / delta_mhz
+                        the same in MHz, None when the row is not a frequency
+            flags       array-A's odd dword, the per-domain capability field
+                        (constant across every sample of a given domain)
+            srcid       array-B's second dword
+
+        delta is measured MINUS programmed, so a card running slower than it
+        was told to reads negative - which is the normal case under load.
+
+        `pc` lets a caller that already read a payload this tick hand it over
+        instead of paying for a second round trip."""
+        if pc is None:
+            pc = self._priv_clocks()
+        if pc is None:
+            return None, PRIV_UNAVAIL
+        rows = []
+        for dom in range(PRIV_N_DOMAINS):
+            ai = PRIV_A_BASE + PRIV_A_STRIDE * dom
+            bi = PRIV_B_BASE + PRIV_B_STRIDE * dom
+            prog, flags = pc.w[ai], pc.w[ai + 1]
+            meas, srcid = pc.w[bi], pc.w[bi + 1]
+            # an unlisted domain is reported only if it actually carries
+            # something: silently dropping one would make the panel lie by
+            # omission, but listing 21 empty rows would bury the 11 real ones
+            if dom not in PRIV_POPULATED and not (prog or meas or flags):
+                continue
+            name, grade, kind = PRIV_DOMAIN_ID.get(
+                dom, ("", PRIV_UNNAMED, PRIV_FREQ))
+            row = {"domain": dom, "name": name, "grade": grade, "kind": kind,
+                   "prog_khz": prog, "meas_khz": meas,
+                   "flags": flags, "srcid": srcid,
+                   "prog_mhz": None, "meas_mhz": None, "delta_mhz": None}
+            if kind == PRIV_FREQ:
+                row["prog_mhz"] = prog / 1000.0
+                row["meas_mhz"] = meas / 1000.0
+                if prog and meas:
+                    row["delta_mhz"] = (meas - prog) / 1000.0
+            rows.append(row)
+        return rows, None
+
+    def _read_clocks(self, d, pc=None):
         a = self.nvapi
         if a.ok and a.AllClocks:
             cf = _ClkFreqs()
@@ -544,13 +693,15 @@ class GPU:
         # XBAR (and a fallback for the domains above) via the private getter.
         # XBAR is not a fixed offset from GPC: it has its own V/F table on the
         # same rail, so it must be read, not derived.
-        if a.ok and a.AllClocksPriv:
-            pc = _AllClocksPriv(version=a.ver(_AllClocksPriv, 2))
-            if a.AllClocksPriv(a.gpu, ctypes.byref(pc)) == 0:
-                for key, slot in PRIV_SLOT.items():
-                    v = pc.w[slot] // 1000
-                    if v and (key == "xbar" or key not in d):
-                        d[key] = v
+        # These are array-A slots, i.e. the PROGRAMMED target - not what the
+        # card is measured to be running. read_clock_domains() reports both.
+        if pc is None:
+            pc = self._priv_clocks()
+        if pc is not None:
+            for key, slot in PRIV_SLOT.items():
+                v = pc.w[slot] // 1000
+                if v and (key == "xbar" or key not in d):
+                    d[key] = v
         # applied offsets (NVML) - note: invisible knob vs the VF-point table
         nv = self.nvml
         if nv.ok and nv.has("nvmlDeviceGetClockOffsets"):
@@ -1138,7 +1289,8 @@ if __name__ == "__main__":
 
 
 # Serialize every driver-touching entry point (RLock => nested calls are fine).
-for _m in ("read", "read_vf_curve", "apply_vf_deltas", "reset_vf_curve",
+for _m in ("read", "read_clock_domains", "read_vf_curve", "apply_vf_deltas",
+           "reset_vf_curve",
            "rephase_deltas", "set_clock_offset", "set_power_limit_mw",
            "lock_gpu_clocks", "reset_gpu_clocks", "set_fan", "reset_fan",
            "set_voltage_boost", "read_voltage_boost", "reset_all"):
