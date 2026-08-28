@@ -1358,10 +1358,17 @@ class TitanTune:
     # ====================================================================== #
     #  INFO                                                                  #
     # ====================================================================== #
-    def build_info(self):
+    def device_report(self):
+        """Everything the RUNNING program knows that a README cannot state:
+        per-card, per-driver values read back from NVAPI/NVML at startup. This
+        is what belongs in a bug report, so it is built as one pasteable block.
+
+        The hardware explanations that used to live here (quantisation, phase,
+        the arbiter rule, the footgun list) moved to README.md. They were
+        duplicated prose, and the two copies had already drifted apart."""
         st = self.gpu.static
         cr, mr = st.get("core_off_range"), st.get("mem_off_range")
-        txt = f"""TitanTune - Dear PyGui edition
+        return f"""TitanTune - device report
 
 Device : {st.get('name')}
 Driver : {st.get('driver')}     VBIOS : {st.get('vbios')}
@@ -1369,104 +1376,31 @@ Memory : {st.get('mem_type')} (id {st.get('mem_type_id','?')}), true-clock divis
 Offsets: core {cr} (MHz, 1:1)   mem {mr} (NVML units)   [min, max, applied now]
 Power  : {st.get('pl_min_mw','?')}..{st.get('pl_max_mw','?')} mW, default {st.get('pl_def_mw','?')}
 Clocks : {st.get('gfx_min','?')}-{st.get('gfx_max','?')} MHz supported
+Backend: {self.gpu.status_line()}
 
-WHY DEAR PYGUI
-    The Tk build dragged in slow motion and stalled the whole desktop. Measured
-    cause: Tk creates a native HWND per widget (~50 on the control page) and, on
-    WM_ENTERSIZEMOVE, drains its entire idle queue and after() timers inside
-    Windows' modal move loop. Dear ImGui draws the whole UI as GPU geometry in
-    ONE window: measured 0 child HWNDs, ~120 FPS while dragging.
+CAUTION
+    The core/mem offset sliders and the V/F curve are the SAME delta table,
+    and Afterburner writes it too - drive clocks from ONE tool at a time.
 
-CLOCK GRID / QUANTISATION (measured on this card)
-    Legal core clocks are EXACTLY multiples of 15 MHz (121 of them, 360..2160).
-    A VF point evaluates as floor((base + delta) / 15) * 15, and the delta is
-    stored verbatim. `base` is NOT readable - the reported frequency is already
-    floored - so it hides a remainder in [0,15). 101 of this card's 103 base
-    frequencies are off-grid by 5 MHz. Therefore a delta computed from an
-    absolute target lands mid-bin and floors DOWN, re-creating the flat you were
-    removing. This tool only ever moves a delta by whole 15 MHz bins.
+See README.md for the clock-quantisation and phase rules, the two-knob
+voltage mechanism, what is reversible, and the footguns this tool
+deliberately does not put behind a button."""
 
-PHASE
-    Uniform offsets are only grid-safe when every delta shares a remainder mod
-    15 MHz. The core-offset slider is therefore snapped to 15 MHz on Apply -
-    DOWNWARD, and the slider is moved to the value actually written, because the
-    backend would otherwise round to the NEAREST bin and hand back clock nobody
-    asked for. "Re-phase" pulls stray points back onto the common grid (also
-    rounding DOWN, so a point can only ever lose a bin).
+    def copy_device_report(self):
+        try:
+            dpg.set_clipboard_text(self.device_report())
+            self.log("device report copied to clipboard", ok=True)
+        except Exception as e:
+            self.log(f"clipboard unavailable: {e}", ok=False)
 
-VOLTAGE - TWO KNOBS ARE NEEDED
-    1. "Core voltage boost %" raises the reliability-voltage CEILING toward the
-       ~1.093 V VBIOS cap (NvAPI ClientVoltRailsSetControl 0xB9306D9B). At 0%
-       the card refuses to exceed ~1.062 V no matter how the curve looks.
-    2. De-flatten makes ONE point - the first past the cap - the unique top, so
-       the arbiter (which runs the LOWEST voltage of any peak-frequency flat)
-       parks there. Points BELOW the cap are left alone on purpose: the idle
-       floor is dozens of points at minimum clock and ramping them would make
-       the card demand high clocks at tiny voltages.
-    Turing headroom is only ~30 mV, so this is a ceiling unlock, not a big
-    absolute jump; the effect shows under load, not at idle.
-
-VOLTAGE GRID vs THE CAP FIELD
-    VF points are spaced 6.25 mV, so the cap does not have to land on a point:
-    the reachable top is the highest point at or BELOW it. With cap = 1091 mV
-    that is idx 89 @ 1087.50 mV, so the card lands at ~1.087 V - correct, not a
-    failure. The next point up is 1093.75 mV: to try for it, set the cap to
-    1094. Whether the card holds there depends on the real VBIOS/driver lock
-    (~1.09x V); if it refuses, 1087.50 mV is the ceiling. Editing the field
-    snaps it DOWN onto the 6.25 mV grid (1091 -> 1087.50), so the number in the
-    box is the point that is planned against and the +/- buttons step one real
-    point at a time; the 1091.0 it starts at is the observed rail-lock value,
-    not a point. The field is clamped to 800-1200 mV, and the cap is drawn on
-    the plot as a vertical line - watch
-    it, because a cap dragged down into the low-voltage floor makes de-flatten
-    plan a boundary inside the floor and level the whole upper curve DOWN onto
-    it. That plan is staged, never written; a plan that lowers the curve's PEAK
-    is logged as a warning, and the warning is repeated on the Apply
-    confirmation. "Revert edits" throws it away.
-
-WHAT IS REVERSIBLE (nothing here needs a saved baseline)
-    "Reset curve to stock" zeroes every delta - stock Turing deltas ARE 0, so
-    that is the factory curve. "Reset all to stock" additionally zeroes the
-    offsets and voltage boost, restores the default power limit, releases the
-    clock lock and returns the fans to auto. A reboot clears all of it too.
-    "Reset all to stock" is deliberately usable while the controls are locked -
-    it only ever moves toward stock. "Reset curve to stock" is gated like any
-    other write: it rewrites all 103 delta rows and drops any staged edit, so it
-    is unlocked-only and asks twice.
-
-WIRED IN THIS TOOL (all reversible)
-    core / memory clock offset   NVML nvmlDeviceSetClockOffsets
-    power limit                  NVML nvmlDeviceSetPowerManagementLimit
-    core voltage boost %         NvAPI ClientVoltRailsSetControl 0xB9306D9B
-    GPU clock min/max lock       NVML Set/ResetGpuLockedClocks          (admin)
-    fan duty / auto              NVML SetFanSpeed_v2 / SetDefaultFanSpeed_v2
-                                                                       (admin)
-    V/F curve edit + de-flatten  NvAPI SetClockBoostTable 0x0733E009
-        (read back via ClkVfPointsGetStatus 0x21537AD4 + boost table 0x23F1B133)
-
-MEMORY CLOCK
-    NVAPI reports GDDR at half the data rate; GPU-Z shows the TRUE clock. The
-    divisor comes from NvAPI_GPU_GetRamType: GDDR5 /2, GDDR5X /4, GDDR6 /4,
-    anything unrecognised is shown RAW and labelled. This card = GDDR6 (id 14),
-    so 7254 / 4 = 1813.5 MHz, matching GPU-Z exactly.
-
-TELEMETRY AFTERBURNER DOES NOT SHOW ON TURING
-    hotspot vs edge delta (0x65FE3AAD), GPU-vs-BOARD power split (0xEDCF624E),
-    the 9-reason clocks-event mask, the insufficient-aux-power canary
-    (0x7F7F4600 bit 0x10 - the transplant power-wiring alarm), PCIe error
-    counters, and the core rail in microvolts (0x465F9BCF).
-
-NOT WIRED TO A BUTTON (run yourself, deliberately)
-    force P-state P0 (NvAPI 0x025BFB10), CUDA P2-cap removal (nvidia-smi -cc 1),
-    driver model TCC (nvidia-smi -dm 1 - DROPS DISPLAY OUTPUT),
-    per-domain hard VF lock (NvAPI 0x39442CFB, write struct unverified here).
-
-NOTE the core/mem offset sliders and the V/F curve are the SAME delta table, and
-Afterburner writes it too - drive clocks from ONE tool at a time.
-"""
-        with dpg.tab(label="  Info  "):
+    def build_device(self):
+        with dpg.tab(label="  Device  "):
+            dpg.add_button(label="Copy device report",
+                           callback=self.copy_device_report,
+                           width=self.s(200))
             dpg.add_input_text(tag="info", multiline=True, readonly=True,
-                               default_value=txt, width=-1, height=-1)
+                               default_value=self.device_report(),
+                               width=-1, height=-1)
             self.bind("info", "mono")
 
     # ====================================================================== #
@@ -1496,7 +1430,7 @@ Afterburner writes it too - drive clocks from ONE tool at a time.
             with dpg.tab_bar():
                 self.build_monitor()
                 self.build_control()      # the V/F editor lives inside this tab
-                self.build_info()
+                self.build_device()
 
         dpg.setup_dearpygui()
         dpg.show_viewport()

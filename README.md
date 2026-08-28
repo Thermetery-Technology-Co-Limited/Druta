@@ -41,8 +41,8 @@ Three tabs:
   thread at 1 Hz.
 - **Control** — the write knobs, plus the V/F curve editor in its lower
   half.
-- **Info** — driver-reported ranges, the exact API behind each knob, and the
-  footgun knobs that are deliberately not wired to a button.
+- **Device** — driver-reported identity and ranges for this specific card,
+  copyable as a bug report.
 
 ## Monitor tab
 
@@ -159,12 +159,23 @@ edits requires confirming twice so a refused write isn't silently lost.
 are 0, so there's no persisted baseline to poison); a reboot also clears all
 deltas.
 
-## Info tab
+## Device tab
 
-Driver-reported identity and ranges (device, driver/VBIOS version, memory
-type and true-clock divisor, offset ranges, power range, clock range), the
-same explanations as above in text form, and the footgun knobs (next
-section) with the exact commands to run them yourself.
+Only what the running program can read back from the driver, and nothing
+that belongs in this file: device name, driver and VBIOS version, memory
+type with its true-clock divisor, the core/mem offset ranges, the power
+range, the supported clock range, and the backend status line. **Copy
+device report** puts the whole block on the clipboard, formatted for
+pasting into a bug report.
+
+It also carries the one caution that matters at the moment of use rather
+than at reading time: the offset sliders and the V/F curve are the same
+delta table, and Afterburner writes it too, so drive clocks from one tool
+at a time.
+
+The hardware explanations (quantisation, phase, the two-knob voltage
+mechanism, reversibility, footguns) live in this README only. They used to
+be duplicated into the app as well, and the two copies drifted.
 
 ## Safety
 
@@ -176,7 +187,7 @@ these resets on reboot, and `Reset all to stock` walks them back without one.
 Writes are gated behind "Unlock controls"; `Reset all to stock` is the one
 exception, since it only ever moves the card toward stock.
 
-**Deliberately not wired to a button** — documented in Info with the
+**Deliberately not wired to a button** — documented here with the
 commands to run them by hand, never fired blind by this app:
 
 - Forcing P-state P0 (NvAPI `SetForcePstate`, `0x025BFB10`) — pins max
