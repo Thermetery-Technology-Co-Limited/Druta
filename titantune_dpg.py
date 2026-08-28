@@ -1222,7 +1222,7 @@ class TitanTune:
         """Built INSIDE the Control tab (see build_control) - not its own tab."""
         with dpg.group(horizontal=True):
             dpg.add_text("voltage cap (mV)")
-            dpg.add_input_float(tag="vcap", default_value=1093.0,
+            dpg.add_input_float(tag="vcap", default_value=self.VCAP_DEFAULT,
                                 width=self.s(130), step=6.25, format="%.2f",
                                 min_value=600.0, max_value=1300.0,
                                 min_clamped=True, max_clamped=True,
@@ -1291,7 +1291,7 @@ class TitanTune:
                 # ON the picture: a mistyped cap that sits down in the
                 # low-voltage floor is obvious as a line, invisible as a
                 # number in a box.
-                dpg.add_inf_line_series([1091.0], label="cap",
+                dpg.add_inf_line_series([self.VCAP_DEFAULT], label="cap",
                                         tag="vf_capline")
                 # A hold changes what the CARD does while leaving the curve
                 # untouched, so nothing on this plot would move to show it.
@@ -1467,8 +1467,8 @@ class TitanTune:
             dpg.configure_item("vf_idx", min_value=min(self.vf_by_idx),
                                max_value=max(self.vf_by_idx),
                                min_clamped=True, max_clamped=True)
-        peak, pidx, pmv, _npk = GPU.peak_info(pts)
         cap = dpg.get_value("vcap")
+        peak, pidx, pmv, _npk = GPU.peak_info(pts, cap)
         flats = self.count_flats(pts, cap)
         self.sync_sel_inputs()
         self.vf_redraw()          # rewrites vf_info from the working copy
@@ -1554,7 +1554,7 @@ class TitanTune:
             return
         pts = self.work_pts()
         cap = float(dpg.get_value("vcap"))
-        peak, pidx, pmv, npk = GPU.peak_info(pts)
+        peak, pidx, pmv, npk = GPU.peak_info(pts, cap)
         under = [p for p in pts if below_cap(p["volt_mv"], cap)]
         top = under[-1] if under else None
         pend = sum(1 for i in self.vf_work
@@ -1572,19 +1572,28 @@ class TitanTune:
         dpg.configure_item("vf_info", color=WARN if pend else DIM)
 
     VCAP_STEP = 6.25        # the VF table's own voltage spacing
+    # On the grid (175 * 6.25), so the box shows a real point from the first
+    # frame rather than a number that only becomes one once the field is
+    # touched. Whether the CURVE reaches it is a per-card question: this one
+    # stops at idx 102 @ 1087.50, so the cap resolves there instead.
+    VCAP_DEFAULT = 1093.75
 
     def vcap_changed(self, sender=None, app_data=None, user_data=None):
         """Snap the cap onto the 6.25 mV VF-point grid. The +/- buttons step by
-        6.25 mV from whatever is in the box, and the 1091.0 default is the
-        observed rail-lock value, not a point - so unsnapped stepping walks
-        1097.25, 1103.50 ... and never names a voltage this curve has.
+        6.25 mV from whatever is in the box, so an unsnapped start walks
+        1097.25, 1103.50 ... and never names a voltage any curve has.
 
         DOWNWARD, like every other snap in this app: below_cap() already
         resolves a cap to the highest point at or below it, so flooring makes
-        the number in the box the cap that is actually planned against (1091 ->
-        1087.50, the very point the Info tab says 1091 lands on) and a typo can
-        only ever ask for LESS voltage than typed, never more. The widget's own
-        800-1200 clamp still holds: both ends are multiples of the step."""
+        the number in the box the cap that is actually planned against, and a
+        typo can only ever ask for LESS voltage than typed, never more.
+
+        Note the cap cannot raise the delivered voltage past where the CURVE
+        ends. Measured on this card: the table stops at idx 102 @ 1087.50 mV,
+        so 1094 and 1300 resolve alike. And when the top of the curve is a flat
+        run the arbiter drops to its LOWEST voltage anyway - here 7 points hold
+        1965 MHz, so the card parks at idx 96 @ 1050.00 whatever the cap says.
+        Raising the ceiling is De-flatten's job, not this field's."""
         v = float(dpg.get_value("vcap"))
         # epsilon: float slop must not drop a value that IS on the grid to the
         # point below it, which would make every keystroke walk the cap down
@@ -2139,7 +2148,7 @@ class TitanTune:
         wpts = self.work_pts()
         top, peak = self.curve_top(wpts, cap)
         _hw_top, hw_peak = self.curve_top(self.vf_points, cap)
-        _pk, pidx, pmv, npk = GPU.peak_info(wpts)
+        _pk, pidx, pmv, npk = GPU.peak_info(wpts, cap)
         # A plan that drags the peak DOWN (a cap that landed in the low-voltage
         # floor levels the whole upper curve onto it) otherwise reads exactly
         # like a raise - it was the case Tk's confirm dialog existed to catch.

@@ -339,7 +339,14 @@ assert ctypes.sizeof(_ClockLock) == 0x030C   # 780; wrong size => version lies
 # community layouts is a Pascal artefact). Total sizes must equal the original
 # community structs (7208 / 9248 bytes) because the driver validates version
 # = sizeof | ver<<16.
-VFP_POINTS = 103
+# 128, not 103. The mask is 4 u32 = 128 bits and the driver returns a point for
+# every bit set; asking for 103 returned exactly 103 and looked like the whole
+# table. It is not: all 128 bits yield 128 points spanning 450.00-1243.75 mV
+# with a 2010 MHz peak, against the 450.00-1087.50 / 1965 MHz that 103 showed.
+# The point the user could reach in Afterburner but not here - 1093.75 mV - is
+# idx 103, the first one past the old window. Asking for 8 or 16 mask words is
+# rejected, so the mask really is 4 words and `unk[12]` is something else.
+VFP_POINTS = 128
 # The GPU's legal core clocks are EXACTLY multiples of 15 MHz (verified live:
 # nvmlDeviceGetSupportedGraphicsClocks = 121 entries, 360..2160, step 15).
 # The driver evaluates a VF point as floor((base + delta) / 15MHz) * 15MHz and
@@ -359,7 +366,10 @@ class _VfpEntry(ctypes.Structure):
 
 class _VfpCurve(ctypes.Structure):
     _fields_ = [("version", u32), ("masks", u32 * 4), ("unk", u32 * 12),
-                ("entries", _VfpEntry * VFP_POINTS), ("tail", u32 * 1064)]
+                # tail shrinks as `entries` grows: the driver validates the
+                # struct SIZE through the version word, so 7208 is fixed and
+                # only the split between entries and tail may move.
+                ("entries", _VfpEntry * VFP_POINTS), ("tail", u32 * 889)]
 
 
 class _BoostRow(ctypes.Structure):
@@ -368,7 +378,7 @@ class _BoostRow(ctypes.Structure):
 
 class _BoostTable(ctypes.Structure):
     _fields_ = [("version", u32), ("masks", u32 * 4), ("unk", u32 * 12),
-                ("rows", _BoostRow * VFP_POINTS), ("tail", u32 * 1368)]
+                ("rows", _BoostRow * VFP_POINTS), ("tail", u32 * 1143)]
 
 
 assert ctypes.sizeof(_VfpCurve) == 7208
@@ -386,7 +396,7 @@ def _set_all_point_masks(obj):
     obj.masks[0] = 0xFFFFFFFF
     obj.masks[1] = 0xFFFFFFFF
     obj.masks[2] = 0xFFFFFFFF
-    obj.masks[3] = 0x7F
+    obj.masks[3] = 0xFFFFFFFF   # was 0x7F, which asked for only 103 of 128
 
 
 # --------------------------------------------------------------------------- #
@@ -1408,15 +1418,36 @@ class GPU:
         return points, None
 
     @staticmethod
-    def peak_info(points):
-        """(peak_mhz, park_idx, park_mv, n_at_peak) - the peak frequency and the
-        LOWEST-voltage point holding it. When several voltages map to the same
-        frequency the driver runs the lowest of them, so this - not the
-        highest-voltage point below the cap - is where the card actually sits."""
+    def peak_info(points, cap_mv=None):
+        """(peak_mhz, park_idx, park_mv, n_at_peak) for the REACHABLE curve.
+
+        FLATTENING-AWARE: when several voltages carry the peak frequency the
+        arbiter runs the LOWEST of them, so the park point is the bottom of
+        that flat run and not the top of the curve. `n_at_peak` is the run's
+        length, which is the number de-flatten exists to drive to 1 - at 1 the
+        peak is already unique and there is nothing to do.
+
+        CAP-AWARE, and it has to be: the table on this card runs to 1243.75 mV
+        while the rail stops at the VBIOS cap near 1.093 V, so every point
+        above the cap describes a frequency the card can never request.
+        Uncapped, this reported a 2010 MHz peak parked at 1175.00 mV while the
+        card was demonstrably sitting at 1050.00 mV / 1965 MHz. That is not a
+        rounding error, it is the wrong operating point - so pass the same cap
+        the planner uses. Omitting cap_mv keeps the old whole-table behaviour,
+        which is only correct when the caller has already filtered.
+
+        (The bug was invisible until VFP_POINTS went 103 -> 128: the truncated
+        read stopped below the cap, so an uncapped max happened to be right.)"""
         if not points:
             return 0.0, None, 0.0, 0
-        peak = max(p["freq_mhz"] for p in points)
-        at = [p for p in points if p["freq_mhz"] == peak]
+        usable = ([p for p in points if below_cap(p["volt_mv"], cap_mv)]
+                  if cap_mv is not None else list(points))
+        if not usable:
+            return 0.0, None, 0.0, 0
+        peak = max(p["freq_mhz"] for p in usable)
+        # sort explicitly rather than trusting index order to be voltage order
+        at = sorted((p for p in usable if p["freq_mhz"] == peak),
+                    key=lambda p: p["volt_mv"])
         return peak, at[0]["idx"], at[0]["volt_mv"], len(at)
 
     @staticmethod
