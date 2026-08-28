@@ -971,7 +971,8 @@ class GPU:
         NVML mem units are DDR-doubled: reported clock delta = NVML/2. For a known
         GDDR type the slider is in TRUE memory MHz (reported = true*div), so
         NVML = true * 2 * div. For an unknown type the slider stays in the raw
-        reported ('effective') scale, NVML = eff * 2."""
+        reported ('effective') scale, NVML = eff * 2. That is to say, for GDDR5, 5X, and 6, 
+        the adjustment is numerically faithful to what you see in GPU-Z"""
         div = self.static.get("mem_div")
         return (2 * div, "MHz true") if div else (2, "MHz eff")
 
@@ -1523,12 +1524,12 @@ class GPU:
                           f"(idx {sorted(new)}) onto the common 15 MHz grid")
         return False, m
 
-    MAX_ABS_DELTA_KHZ = 1_000_000  # garbage guard only: |delta| never exceeds 1 GHz
+    MAX_ABS_DELTA_KHZ = 1_000_000  # Mouse-slip-pepega guard only: |delta| never exceeds 1 GHz
 
     def apply_vf_deltas(self, new_deltas):
         """Read-modify-write the whole delta table (AB-style). new_deltas maps
         idx -> absolute delta_khz; only differing rows are touched. Bounds only
-        against garbage (|delta| <= 1 GHz), so legitimate de-flatten compounding
+        against accidental user mouse slip or other sorts of garbage (|delta| <= 1 GHz), so legitimate de-flatten compounding
         and deliberate editor moves are never blocked."""
         a = self.nvapi
         if not (a.ok and a.BoostTableGet and a.BoostTableSet):
@@ -1545,7 +1546,7 @@ class GPU:
                 return False, f"point index {idx} out of range"
             if abs(delta) > self.MAX_ABS_DELTA_KHZ:
                 return False, (f"refusing point {idx}: delta {delta // 1000} MHz "
-                               f"exceeds the +/-1000 MHz sanity bound")
+                               f"More than a whole gigahertz of delta? Lol, bro thinks he's Seby. Caught you with a mouse-slip and saved you a total driver crash this time. Don't do it next time. :copege:")
             if bt.rows[idx].w[5] != delta:
                 bt.rows[idx].w[5] = delta
                 nchg += 1
