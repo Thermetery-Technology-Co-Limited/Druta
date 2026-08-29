@@ -1951,13 +1951,53 @@ class GPU:
         for i in range(B + 1, n):          # flat top at target; park = boundary
             if khz[i] != target:
                 new[i] = target
+
+        # RAISING IS NOT THE ONLY WAY TO MAKE THE BOUNDARY UNIQUE, and on some
+        # cards it is not an available way at all. When the cap point already
+        # holds the hardware maximum - GP102 stock peaks at 1911 = gfx_max, with
+        # the point below it at 1911 too - there is no headroom above to raise
+        # into, and this used to give up with "a point below it already holds
+        # the hardware max clock".
+        #
+        # But the arbiter rule only cares that the boundary is the LOWEST
+        # voltage carrying the peak. Lowering whatever shadows it achieves that
+        # exactly as well as raising it would, and costs no clock at the point
+        # the card actually parks on - the shadowing points are ones the card
+        # could never occupy anyway, because they held the same frequency at a
+        # higher voltage.
+        #
+        # Walk DOWN from the boundary giving each shadowing point one bin less
+        # than the one above it, and stop at the first point already low enough.
+        # A stock curve is non-decreasing in voltage order, so everything below
+        # that point is below it too - one pass is sufficient.
+        # Only the points that actually SHADOW the boundary, and no further. A
+        # naive descent that steps down a bin per point never terminates early
+        # on this hardware, because the stock curve descends at almost exactly
+        # one bin per point too - it cost 24 points reaching down to 850 mV to
+        # fix a two-point flat. A point is done as soon as it sits below the one
+        # above it; everything under that is below it too.
+        lowered = 0
+        if target <= peak_below and B > 0:
+            above_val = target
+            for i in range(B - 1, -1, -1):
+                if khz[i] < above_val:
+                    break
+                want = above_val - step
+                if want <= 0:
+                    break
+                new[i] = want
+                above_val = want
+                lowered += 1
+
         changes = [(points[i]["idx"], points[i]["volt_mv"], khz[i] / 1000.0,
                     new[i] / 1000.0,
                     points[i]["delta_khz"] + (new[i] - khz[i]))
                    for i in sorted(new)]
         return (changes, ceil_before / 1000.0, target / 1000.0,
                 {"clamped": clamped, "boundary_idx": points[B]["idx"],
-                 "unique": target > peak_below})
+                 "unique": target > peak_below or lowered > 0,
+                 "lowered": lowered,
+                 "lowered_by_mhz": (lowered * step) / 1000.0})
 
     @staticmethod
     def evaluate_curve_law(khz, max_rise_khz=None):
@@ -2218,7 +2258,8 @@ class GPU:
                 "floor_after_mhz": 0.0, "floor_cost_mhz": 0.0,
                 "leveled_above": 0, "under_band_mhz": None,
                 "shadowed": 0, "delivered": 0, "lifted_below": 0,
-                "lift_max_mhz": 0.0, "lift_lowest_mv": None}
+                "lift_max_mhz": 0.0, "lift_lowest_mv": None,
+                "dropped_rungs": 0, "dropped_reason": ""}
         if not band:
             return [], 0.0, 0.0, meta
         L, B = band[0], band[-1]
@@ -2229,6 +2270,43 @@ class GPU:
         top = asc_top
         if max_khz is not None and top > max_khz:
             top, meta["clamped"] = int(max_khz), True
+
+        # SHRINK THE BAND TO WHAT THE HEADROOM ACTUALLY ALLOWS.
+        #
+        # A clipped ramp keeps its rung count and slides the whole descent down,
+        # which puts the bottom rungs UNDER the untouched point below the band -
+        # and the shape law's non-decreasing pass then raises them all back onto
+        # that point as ONE FLAT. That is the exact pathology a ramp exists to
+        # remove, so emitting a plan that causes it is worse than emitting a
+        # smaller plan. Measured on GP102: a 10-rung band from 1000 mV clipped
+        # at gfx_max delivered 8 distinct frequencies, with idx 55/56/57 all
+        # collapsed onto the neighbour's 1822.5.
+        #
+        # So drop rungs from the BOTTOM until the floor clears the point below
+        # it. The dropped points keep their stock values, which are already
+        # increasing - leaving them alone beats flattening them. Shrinking from
+        # the bottom rather than the top because the top is the end that is
+        # pinned: the cap point has to stay the highest, or the arbiter parks
+        # somewhere else entirely.
+        dropped = 0
+        while len(band) > 1:
+            below_band = [i for i in range(n)
+                          if points[i]["volt_mv"] < points[band[0]]["volt_mv"] - 0.01]
+            if not below_band:
+                break
+            un = max(below_band, key=lambda i: points[i]["volt_mv"])
+            if top - (len(band) - 1) * grid >= khz[un]:
+                break
+            band = band[1:]
+            dropped += 1
+        if dropped:
+            L, rungs = band[0], len(band)
+            meta["dropped_rungs"] = dropped
+            meta["dropped_reason"] = (
+                "the band's lower rungs had no headroom: their targets landed "
+                "under the untouched point below the band, where the shape law "
+                "would have raised them all onto it as one flat")
+
         new = {}
         for step, i in enumerate(band):
             want = top - (rungs - 1 - step) * grid

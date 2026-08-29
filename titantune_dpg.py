@@ -1323,28 +1323,23 @@ class TitanTune:
                     "+/- always lands on a voltage a point really has.")
             dpg.add_button(label="Read curve", callback=lambda: self.vf_read(),
                            width=self.s(110))
-            dpg.add_button(label="Re-phase to 15MHz increments", tag="go_rephase",
+            gs = self.step_khz() / 1000.0
+            dpg.add_button(label=f"Re-phase to {gs:.4g} MHz increments",
+                           tag="go_rephase",
                            callback=self.vf_rephase, width=self.s(350))
             with dpg.tooltip(dpg.last_item()):
                 dpg.add_text(
-                    "Puts every point back on ONE 15 MHz phase.\n\n"
-                    "The clock is floor((base+delta)/15)*15, so two points\n"
+                    f"Puts every point back on ONE {gs:.4g} MHz phase - this\n"
+                    f"card's own grid, read from the driver's lockable-clock\n"
+                    f"table, not a fixed 15 MHz.\n\n"
+                    f"The clock is floor((base+delta)/step)*step, so two points\n"
                     "only move together when their deltas share a remainder\n"
-                    "mod 15 MHz. A stray point crosses bin boundaries at a\n"
+                    "mod the step. A stray point crosses bin boundaries at a\n"
                     "different offset and silently re-creates a flat.\n\n"
-                    "Off-phase deltas are rounded DOWN, never up. Any given\n"
-                    "point on the V/F curve can only drop by a maximum of 15Mhz. \n\n"
+                    f"Off-phase deltas are rounded DOWN, never up, so a point\n"
+                    f"can only drop, by at most {gs:.4g} MHz.\n\n"
                     "Rephase is NOT a reset function.\n"
-                    "if every point already agrees to the 15Mhz increment, it does nothing.")
-            dpg.add_button(label="De-flatten \u2264 cap",
-                           callback=self.vf_deflatten, width=self.s(150))
-            with dpg.tooltip(dpg.last_item()):
-                dpg.add_text(
-                    "Stages a plan (nothing is written yet):\n"
-                    "makes the entire V/F curve strictly increasing for voltage values below the voltage cap\n"
-                    "with no flat portions.\n\n"
-                    "This ensures that the boosting algorithm always picks the highest possible voltage."
-                    )
+                    "If every point already agrees, it does nothing.")
             dpg.add_button(label="Fit view", callback=self.fit_view,
                            width=self.s(90))
             dpg.add_button(label="Reset curve to stock", tag="go_vfreset",
@@ -1378,26 +1373,32 @@ class TitanTune:
                     "The wider the band, the more the top clips - and a clipped\n"
                     "ramp pays for it at the floor. The staged plan says by how\n"
                     "much, in MHz, before you press Apply.")
-            dpg.add_button(label="Ramp ≤ cap", tag="go_ramp",
+            dpg.add_button(label="De-flatten", tag="go_ramp",
                            width=self.s(150), callback=self.vf_ramp)
             with dpg.tooltip(dpg.last_item()):
                 dpg.add_text(
-                    "Stages a plan (nothing is written yet): rebuilds every\n"
-                    "point from the ramp floor up to the cap as a STRICTLY\n"
-                    "INCREASING 15 MHz ramp - one distinct frequency per\n"
-                    "voltage point, no ties.\n\n"
-                    "De-flatten fixes where the card PARKS. This fixes what\n"
-                    "happens when it cannot park there: a throttling card walks\n"
-                    "LEFT down the curve until it is under budget, and the\n"
-                    "arbiter can only sit at the LOWEST voltage carrying each\n"
-                    "frequency - so every flat run is a voltage band it cannot\n"
-                    "use at all. Stock, between 1050 and 1175 mV, 21 points\n"
-                    "exist and 4 are usable.\n\n"
-                    "The cap point takes the highest allowed clock and each\n"
-                    "point below it drops one 15 MHz bin. That is an OVERCLOCK\n"
-                    "as well as a granularity fix - every rung asks for more\n"
-                    "clock at its voltage than stock did, so every rung has to\n"
-                    "be stable.")
+                    f"THE DE-FLATTEN TOOL. Stages a plan (nothing is written\n"
+                    f"yet): rebuilds every point from the floor up to the cap\n"
+                    f"as a STRICTLY INCREASING {gs:.4g} MHz ramp - one distinct\n"
+                    f"frequency per voltage point, no ties.\n\n"
+                    "A throttling card walks LEFT down the curve until it is\n"
+                    "under budget, and the arbiter can only sit at the LOWEST\n"
+                    "voltage carrying each frequency - so every flat run is a\n"
+                    "voltage band it cannot use at all. Stock on TU102, between\n"
+                    "1050 and 1175 mV, 21 points exist and 4 are usable.\n\n"
+                    f"The cap point takes the highest allowed clock and each\n"
+                    f"point below it drops one {gs:.4g} MHz bin. Where the cap\n"
+                    f"point is ALREADY at the hardware maximum there is nothing\n"
+                    f"to raise into, so the band shrinks to the rungs that fit\n"
+                    f"rather than sliding down and being flattened - the plan\n"
+                    f"says how many were dropped and why.\n\n"
+                    "Where it does have headroom this is an OVERCLOCK as well\n"
+                    "as a granularity fix - every rung asks for more clock at\n"
+                    "its voltage than stock did, so every rung has to be\n"
+                    "stable in its own right.\n\n"
+                    "'Limited de-flatten' (Clocks menu) is the narrow version:\n"
+                    "it only makes the cap point the unique top and leaves the\n"
+                    "rest of the band alone.")
         # COLLAPSED, and in a header of its own. Not tidiness: this mode is
         # inert - worse, fatal - on a card without an external voltage mod, so it
         # should take a deliberate act to even see its controls. Keeping it out
@@ -2742,8 +2743,14 @@ class TitanTune:
                          f"(lowest is {lo:.2f} mV) - nothing matched, no plan",
                          False)
             elif not meta.get("unique", True):
-                self.log(f"idx {b} cannot be made the unique top: a point below "
-                         f"it already holds the hardware max clock", False)
+                # Reaching here now means BOTH routes are blocked - the boundary
+                # cannot be raised (hardware max) and nothing below it could be
+                # lowered either. That used to be the common case; since
+                # compute_deflatten learned to lower the shadowing points it is
+                # a genuine dead end rather than a missing feature.
+                self.log(f"idx {b} cannot be made the unique top: it is at the "
+                         f"hardware max and the points shadowing it cannot be "
+                         f"lowered either", False)
             else:
                 self.log(f"idx {b} is already the unique top at "
                          f"\u2264{cap:.0f} mV - nothing to do", True)
@@ -2755,13 +2762,19 @@ class TitanTune:
         self.vf_redraw()
         top_after, peak_after = self.curve_top(self.work_pts(), cap)
         note = (" (clamped at hw max)" if meta.get("clamped") else "")
+        lowered = meta.get("lowered") or 0
+        if lowered:
+            # The boundary was already at the hardware maximum, so it was made
+            # unique by lowering what shadowed it rather than by raising it.
+            # Say which happened: one costs nothing at the park point, the other
+            # is an overclock, and they should not read the same in the log.
+            note += (f" - the boundary was already at the hardware max, so "
+                     f"{lowered} shadowing point(s) below it were LOWERED by "
+                     f"{meta.get('lowered_by_mhz', 0):.0f} MHz instead of "
+                     f"raising it")
         if not meta.get("unique", True):
-            # meta['unique'] is False when a point BELOW the boundary already
-            # holds the hardware max, i.e. de-flatten cannot make the boundary
-            # the sole peak - the case where the operation does not do what its
-            # name says. Tk said so in the dialog; it must not be silent here.
-            note += (" - a point below is already at the max clock, so "
-                     "de-flatten alone cannot lift the top")
+            note += (" - a point below is already at the max clock and could "
+                     "not be lowered either, so the top cannot be made unique")
         # The top ≤cap says nothing about the points ABOVE the boundary, which
         # are all levelled onto the boundary's new value. A cap that lands in
         # the low-voltage floor therefore reads as a tidy +15 MHz while dragging
@@ -2831,6 +2844,13 @@ class TitanTune:
         band = (f"{meta['rungs']} rungs → {meta['delivered']} distinct "
                 f"operating points, {meta['lo_mv']:.2f} → "
                 f"{meta['cap_mv']:.2f} mV, top {meta['top_mhz']:.0f} MHz")
+        # Dropped rungs are not a failure and must not read as one: the band was
+        # wider than the headroom, and the alternative to dropping them was
+        # emitting rungs the driver would have flattened onto one value.
+        if meta.get("dropped_rungs"):
+            band += (f"\n{meta['dropped_rungs']} lower rung(s) dropped - "
+                     f"{meta['dropped_reason']}. They keep their stock values, "
+                     f"which are already increasing.")
         # The floor is the one number the generic banner cannot reach: it talks
         # about the top ≤cap, the peak and the park point, all of which a ramp
         # RAISES. A clipped ramp pays for that at the bottom of the band, and
@@ -3407,6 +3427,21 @@ deliberately does not put behind a button."""
             # handover() for what happens when this menu is used while a Ctrl+H
             # hold is up.
             with dpg.menu(label="Clocks"):
+                # DEMOTED here from the V/F button row. It answers a narrower
+                # question than the main de-flatten - it only makes the cap
+                # point the unique top, leaving every flat below it in place -
+                # which is what you want for severe thermal throttling with
+                # aggressive undervolting, and not what you want the rest of
+                # the time. The full ramp is the default now.
+                dpg.add_text("LIMITED DE-FLATTEN", color=ACCENT)
+                dpg.add_text("Makes only the cap point the unique top; leaves\n"
+                             "the rest of the band alone. Niche - the V/F tab's\n"
+                             "'De-flatten' rebuilds the whole band and is the\n"
+                             "one to reach for first.", color=DIM)
+                dpg.add_button(label="Limited de-flatten ≤ cap",
+                               tag="go_deflat_ltd", width=self.s(230),
+                               callback=self.vf_deflatten)
+                dpg.add_separator()
                 dpg.add_text("GPU CLOCK LOCK", color=ACCENT)
                 dpg.add_text(f"{gmin}-{gmax} MHz lockable", color=DIM)
                 dpg.add_separator()
