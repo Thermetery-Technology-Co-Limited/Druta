@@ -1677,15 +1677,30 @@ class TitanTune:
                            callback=self.vf_set_freq)
             dpg.add_button(label="Revert edits", width=self.s(120),
                            callback=self.vf_revert)
-            dpg.add_button(label="Apply to GPU", tag="go_vfapply",
-                           width=self.s(140), callback=self.vf_apply)
+            # GREEN, and the only coloured button on this row: it is the one
+            # control here that reaches the hardware. Its name says both halves
+            # of what it does - the re-phase is not a separate step the user has
+            # to remember any more (see vf_apply).
+            dpg.add_button(label="Re-phase and apply V/F curve to GPU",
+                           tag="go_vfapply",
+                           width=self.s(300), callback=self.vf_apply)
+            with dpg.theme() as vfapply_th:
+                with dpg.theme_component(dpg.mvAll):
+                    dpg.add_theme_color(dpg.mvThemeCol_Button, (28, 92, 48))
+                    dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered,
+                                        (40, 124, 65))
+                    dpg.add_theme_color(dpg.mvThemeCol_ButtonActive,
+                                        (52, 152, 82))
+                    dpg.add_theme_color(dpg.mvThemeCol_Text, (232, 248, 236))
+            dpg.bind_item_theme("go_vfapply", vfapply_th)
         self._ctl_widgets += ["go_rephase", "go_vfapply", "go_vfreset"]
         dpg.add_text("--", tag="vf_sel_info", color=TEXT)
         self.bind("vf_sel_info", "mono")
-        dpg.add_text("drag a dot to move it  \u2022  drag anywhere else to "
-                     "pan  \u2022  A/D select  \u2022  W/S move "
-                     "\u00b115 MHz  \u2022  hold Shift for \u00b145  \u2022  "
-                     "Ctrl+H hold the selected point (again to release)",
+        dpg.add_text(f"drag a dot to move it  \u2022  drag anywhere else to "
+                     f"pan  \u2022  A/D select  \u2022  W/S move "
+                     f"\u00b1{self.step_mhz()} MHz  \u2022  hold Shift for "
+                     f"\u00b1{self.step_mhz() * self.SHIFT_MULT}  \u2022  "
+                     f"Ctrl+H hold the selected point (again to release)",
                      color=DIM)
 
         # plot-wide mouse + keyboard control. The left button is shared: the
@@ -2628,10 +2643,12 @@ class TitanTune:
         if plan is None:
             band = "idle"
             head = "APPLY TO GPU  ·  nothing staged"
-            body = ("Drag a dot, nudge with W/S, Set MHz, De-flatten, Ramp or "
-                    "Hard de-flatten, and this box says exactly what one "
-                    "click on 'Apply to GPU' "
-                    "will write - before the click, not after it.")
+            body = ("Drag a dot, nudge with W/S, Set MHz, De-flatten or Hard "
+                    "de-flatten, and this box says exactly what one click on "
+                    "'Re-phase and apply V/F curve to GPU' will write - before "
+                    "the click, not after it. That click also re-phases the "
+                    "table afterwards, which is usually a no-op and is lossy "
+                    "when it is not.")
         else:
             # A hard de-flatten is red for the same reason a peak-lowering plan
             # is: both are one click away from a result the user did not want.
@@ -2730,6 +2747,42 @@ class TitanTune:
                      f"{predicted[i0]/1000:.0f}, hardware "
                      f"{actual[i0]/1000:.0f} MHz) - clamped, or another tool "
                      f"is writing this table", False)
+        # RE-PHASE, AFTER the write and only after it.
+        #
+        # The order is forced: vf_rephase() refuses while edits are staged,
+        # because it plans off the HARDWARE deltas and would write a table that
+        # never saw them. After the apply the two agree, so this is the only
+        # point in the cycle where re-phasing is safe.
+        #
+        # Usually a no-op, deliberately: set_work_freq moves deltas by whole
+        # grid bins, so anything done in this editor is already on one phase.
+        # What is not is the CORE OFFSET slider, which lands in this same table
+        # in whole MHz - on GP102 a +64 MHz offset is 64000 kHz against a 12657
+        # kHz grid, off-phase by 715. Mixing the slider with curve edits is
+        # exactly the case that silently re-creates flats, and it is the case
+        # this now cleans up without the user having to know that.
+        #
+        # gpu.rephase_deltas() is called rather than vf_rephase(): the latter
+        # takes its own undo point and does its own re-read, and one apply
+        # should leave one of each.
+        ok_rp, m_rp = self.gpu.rephase_deltas()
+        if not ok_rp:
+            self.log(f"re-phase after apply failed: {m_rp} - the deltas are "
+                     f"written, but may sit on mixed phases", False)
+        elif "already share" not in (m_rp or ""):
+            # rephase_deltas() says "all N deltas already share one X MHz phase"
+            # when it did nothing. Matching that is how a no-op stays silent -
+            # an apply that changed no phases should not print a line implying
+            # it did.
+            # LOSSY when it does bite: off-phase deltas round DOWN, and the
+            # original remainders are gone. Say so rather than leaving it in
+            # the log as a tidy-sounding success.
+            self.log(f"re-phased after apply: {m_rp} (off-phase deltas are "
+                     f"rounded DOWN - the undo point above predates this)",
+                     None)
+            pts2, err2 = self.gpu.read_vf_curve()
+            if not err2:
+                pts = pts2
         # rebase on the points just read, not on a third NVAPI round trip: two
         # back-to-back curve reads stall the UI thread, and the second one could
         # return something the prediction check above never saw
@@ -2813,7 +2866,7 @@ class TitanTune:
                  + (f" - WARNING: this pulls the curve's PEAK down from "
                     f"{peak_before:.0f} to {peak_after:.0f} MHz. Check the cap "
                     f"line on the plot; 'Revert edits' drops the plan" if down
-                    else " - press Apply to GPU to write"),
+                    else " - press 'Re-phase and apply V/F curve to GPU' to write"),
                  not down)
 
     def vf_ramp(self, sender=None, app_data=None, user_data=None):
@@ -3048,8 +3101,9 @@ class TitanTune:
                       if self.vf_work.get(i) != self.vf_orig.get(i))
         if pending:
             self.log(f"re-phase rewrites the hardware deltas and would discard "
-                     f"{pending} staged edit(s) it cannot see - 'Apply to GPU' "
-                     f"or 'Revert edits' first", False)
+                     f"{pending} staged edit(s) it cannot see - apply or revert "
+                     f"first. (Apply now re-phases for you afterwards, so this "
+                     f"button is only for re-phasing without an edit.)", False)
             return
         # The one LOSSY write in this app, so the one that most needs an undo
         # point: off-phase deltas are rounded DOWN onto the common phase and

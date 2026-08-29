@@ -2390,12 +2390,15 @@ class GPU:
         new = {p["idx"]: p["delta_khz"] - ((p["delta_khz"] % grid - target)
                                            % grid)
                for p in pts if p["delta_khz"] % grid != target}
+        gm = grid / 1000.0
         if not new:
-            return True, f"all {len(pts)} deltas already share one 15 MHz phase"
+            return True, (f"all {len(pts)} deltas already share one "
+                          f"{gm:.4g} MHz phase")
         ok, m = self.apply_vf_deltas(new)
         if ok:
             return True, (f"re-phased {len(new)} off-phase point(s) "
-                          f"(idx {sorted(new)}) onto the common 15 MHz grid")
+                          f"(idx {sorted(new)}) onto the common {gm:.4g} MHz "
+                          f"grid")
         return False, m
 
     MAX_ABS_DELTA_KHZ = 1_000_000  # Mouse-slip-pepega guard only: |delta| never exceeds 1 GHz
