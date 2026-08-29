@@ -131,6 +131,9 @@ class TitanTune:
         self._clk_lock = None
         self._lockable = None      # cached top-mem-row lockable clock list
         self._hold_t = 0.0         # last accepted Ctrl+H (key auto-repeat)
+        self._undo_t = 0.0         # last accepted Ctrl+Z/Y (same reason)
+        self._undo = []            # [(label, vf_work snapshot)], oldest first
+        self._redo = []            # the branch Ctrl+Z walked back out of
         self._snap = None
         self._snap_err = None
         self._snap_t = None        # when the last GOOD read landed
@@ -1700,7 +1703,8 @@ class TitanTune:
                      f"pan  \u2022  A/D select  \u2022  W/S move "
                      f"\u00b1{self.step_mhz()} MHz  \u2022  hold Shift for "
                      f"\u00b1{self.step_mhz() * self.SHIFT_MULT}  \u2022  "
-                     f"Ctrl+H hold the selected point (again to release)",
+                     f"Ctrl+H hold the selected point (again to release)  \u2022  "
+                     f"Ctrl+Z / Ctrl+Y undo and redo staged edits",
                      color=DIM)
 
         # plot-wide mouse + keyboard control. The left button is shared: the
@@ -1720,6 +1724,8 @@ class TitanTune:
                 dpg.add_key_press_handler(key, user_data=step,
                                           callback=self.on_key_select)
             dpg.add_key_press_handler(dpg.mvKey_H, callback=self.on_key_hold)
+            dpg.add_key_press_handler(dpg.mvKey_Z, callback=self.on_key_undo)
+            dpg.add_key_press_handler(dpg.mvKey_Y, callback=self.on_key_redo)
 
     def wf(self, idx):
         """Working (edited) frequency in kHz for a point index."""
@@ -1761,6 +1767,14 @@ class TitanTune:
         # reason: it authorised THAT plan, and a write arrives back here.
         self._plan_note = None
         self.clear_hard_ack()
+        # The undo history goes too, and it has to. Every snapshot is a set of
+        # deltas that only means anything against the baseline it was taken
+        # under; after a rebase, restoring one would re-stage edits measured
+        # from a curve the card no longer has. Undoing a WRITE is a different
+        # feature with a different mechanism - the autosave point Apply takes,
+        # reachable from 'Undo last write'.
+        self._undo.clear()
+        self._redo.clear()
         # also reseed when a re-read comes back WITHOUT the selected index: wf()
         # is a bare dict lookup, so a stale selection raises KeyError out of
         # sync_sel_inputs below and aborts vf_read before the redraw, the axis
@@ -2173,6 +2187,12 @@ class TitanTune:
             self.end_drag()
             return
         self._drag_idx = idx
+        # ONE undo point per grab, taken here rather than in on_plot_drag: the
+        # drag callback fires every frame the mouse moves, so snapshotting there
+        # would fill the history with sub-pixel steps and make Ctrl+Z useless.
+        # A grab that never moves the point leaves a no-op entry, which is
+        # cheaper than the alternative and still undoes to the same curve.
+        self.push_undo(f"drag idx {idx}")
         # Left now belongs to the pan, so it has to be taken away for the life
         # of the grab or the curve and the view would move together. X2 is a
         # button this app never uses, i.e. a pan that cannot be triggered.
@@ -2252,6 +2272,79 @@ class TitanTune:
         self.vf_select(order[pos])
 
     # ---- hold this point (Ctrl+H) ----------------------------------------- #
+    # ---- undo / redo for the working copy --------------------------------- #
+    # This is UNDO FOR THE EDITOR, not for the card. It moves the STAGED plan
+    # backwards and forwards and never touches hardware - the undo that reaches
+    # the GPU is the autosave point Apply takes ('Undo last write'). Keeping the
+    # two separate matters: Ctrl+Z after an Apply must not silently re-write the
+    # table, which is exactly what a single merged history would do.
+    UNDO_MAX = 64
+
+    def push_undo(self, label):
+        """Snapshot the working copy before a mutation. Every stage-changing
+        operation calls this, so one Ctrl+Z undoes one user action rather than
+        one point."""
+        self._undo.append((label, dict(self.vf_work)))
+        if len(self._undo) > self.UNDO_MAX:
+            self._undo.pop(0)
+        # A new edit invalidates the redo branch, same as every editor.
+        self._redo.clear()
+
+    def _restore_work(self, snap):
+        self.vf_work = dict(snap)
+        self.sync_sel_inputs()
+        self.vf_redraw()
+
+    def vf_undo(self):
+        if not self._undo:
+            self.log("nothing to undo", None)
+            return
+        label, snap = self._undo.pop()
+        self._redo.append((label, dict(self.vf_work)))
+        self._restore_work(snap)
+        pend = sum(1 for i in self.vf_work
+                   if self.vf_work.get(i) != self.vf_orig.get(i))
+        self.log(f"undo: {label} ({len(self._undo)} more) - {pend} edit(s) "
+                 f"still staged", None)
+
+    def vf_redo(self):
+        if not self._redo:
+            self.log("nothing to redo", None)
+            return
+        label, snap = self._redo.pop()
+        self._undo.append((label, dict(self.vf_work)))
+        self._restore_work(snap)
+        self.log(f"redo: {label} ({len(self._redo)} more)", None)
+
+    def on_key_undo(self, sender=None, app_data=None, user_data=None):
+        """Ctrl+Z. Same two guards as Ctrl+H: the registry is window-wide, so a
+        bare Z must not fire and neither must Ctrl+Z typed into a number box -
+        where it is the text box's own undo and stealing it would be worse than
+        not having the shortcut."""
+        if self.typing() or not dpg.is_key_down(dpg.mvKey_ModCtrl):
+            return
+        # Auto-repeat is ON in DPG's key-press handler, so a leaned-on Ctrl+Z
+        # would unwind the whole stack in half a second. Rate-limited like the
+        # hold toggle - though here the cost is a lost plan, not a driver write.
+        now = time.monotonic()
+        if now - self._undo_t < self.HOLD_REPEAT_S:
+            return
+        self._undo_t = now
+        if dpg.is_key_down(dpg.mvKey_ModShift):   # Ctrl+Shift+Z = redo
+            self.vf_redo()
+        else:
+            self.vf_undo()
+
+    def on_key_redo(self, sender=None, app_data=None, user_data=None):
+        """Ctrl+Y."""
+        if self.typing() or not dpg.is_key_down(dpg.mvKey_ModCtrl):
+            return
+        now = time.monotonic()
+        if now - self._undo_t < self.HOLD_REPEAT_S:
+            return
+        self._undo_t = now
+        self.vf_redo()
+
     HOLD_REPEAT_S = 0.4
 
     def on_key_hold(self, sender=None, app_data=None, user_data=None):
@@ -2445,6 +2538,7 @@ class TitanTune:
     def vf_nudge(self, mhz):
         if self.vf_sel is None or not self.vf_points:
             return
+        self.push_undo(f"nudge idx {self.vf_sel} {int(mhz):+} MHz")
         self.set_work_freq(self.vf_sel, self.wf(self.vf_sel) + int(mhz) * 1000)
         self.sync_sel_inputs()
         self.vf_redraw()
@@ -2463,6 +2557,7 @@ class TitanTune:
         base_f = int(round(self.vf_by_idx[self.vf_sel]["freq_mhz"] * 1000))
         grid = self.step_khz()
         bins = int(math.floor((want - base_f) / grid))
+        self.push_undo(f"set idx {self.vf_sel} to {want_mhz} MHz")
         self.set_work_freq(self.vf_sel, base_f + bins * grid)
         # write the LANDED frequency back into the box: the request is floored to
         # a bin, so leaving the asked-for number sitting there would make the
@@ -2470,9 +2565,15 @@ class TitanTune:
         self.sync_sel_inputs()
         self.vf_redraw()
         self.log(f"idx {self.vf_sel}: asked {want/1000:.0f} -> landed "
-                 f"{self.wf(self.vf_sel)/1000:.0f} MHz (15 MHz grid)")
+                 f"{self.wf(self.vf_sel)/1000:.0f} MHz "
+                 f"({grid/1000:.4g} MHz grid)")
 
     def vf_revert(self):
+        # Revert is itself undoable: dropping a whole plan by accident is the
+        # single most expensive misclick in this editor, and 'Revert' sits one
+        # button away from Apply.
+        if self.vf_work != self.vf_orig:
+            self.push_undo("revert edits")
         self.vf_work = dict(self.vf_orig)
         self._plan_note = None      # the plan it described has just been dropped
         self.clear_hard_ack()       # and so has the thing it authorised
@@ -2703,6 +2804,28 @@ class TitanTune:
         described the plan once the user had already committed to pressing."""
         if not self.guard() or not self.vf_points:
             return
+        # RE-PHASE THE STAGED DELTAS, BEFORE PLANNING, so exactly one write
+        # happens and the plan describes what that write contains. Doing it
+        # after the write (as this did briefly) meant two writes and a banner
+        # that had promised the first one.
+        #
+        # Normally there is nothing to do: set_work_freq moves deltas by whole
+        # grid bins, so anything edited here already shares a phase. What does
+        # not is the CORE OFFSET slider - it lands in this same table in whole
+        # MHz, and on GP102 a +64 MHz offset is 64000 kHz against a 12657 kHz
+        # grid. Those arrive in the working copy through Read curve, so they are
+        # points the user never touched, which is why this is logged loudly
+        # rather than folded silently into the plan.
+        rp, _ph = GPU.compute_rephase(dict(self.vf_work), self.step_khz())
+        if rp:
+            for i, d in rp.items():
+                self.vf_work[i] = int(d)
+            self.vf_redraw()
+            self.log(f"re-phased {len(rp)} off-phase point(s) (idx "
+                     f"{sorted(rp)}) onto one "
+                     f"{self.step_khz()/1000:.4g} MHz phase before writing - "
+                     f"rounded DOWN, so this is more than the banner above "
+                     f"described", None)
         plan = self.apply_plan()
         if plan is None:
             self.log("no edits to apply")
@@ -2747,42 +2870,8 @@ class TitanTune:
                      f"{predicted[i0]/1000:.0f}, hardware "
                      f"{actual[i0]/1000:.0f} MHz) - clamped, or another tool "
                      f"is writing this table", False)
-        # RE-PHASE, AFTER the write and only after it.
-        #
-        # The order is forced: vf_rephase() refuses while edits are staged,
-        # because it plans off the HARDWARE deltas and would write a table that
-        # never saw them. After the apply the two agree, so this is the only
-        # point in the cycle where re-phasing is safe.
-        #
-        # Usually a no-op, deliberately: set_work_freq moves deltas by whole
-        # grid bins, so anything done in this editor is already on one phase.
-        # What is not is the CORE OFFSET slider, which lands in this same table
-        # in whole MHz - on GP102 a +64 MHz offset is 64000 kHz against a 12657
-        # kHz grid, off-phase by 715. Mixing the slider with curve edits is
-        # exactly the case that silently re-creates flats, and it is the case
-        # this now cleans up without the user having to know that.
-        #
-        # gpu.rephase_deltas() is called rather than vf_rephase(): the latter
-        # takes its own undo point and does its own re-read, and one apply
-        # should leave one of each.
-        ok_rp, m_rp = self.gpu.rephase_deltas()
-        if not ok_rp:
-            self.log(f"re-phase after apply failed: {m_rp} - the deltas are "
-                     f"written, but may sit on mixed phases", False)
-        elif "already share" not in (m_rp or ""):
-            # rephase_deltas() says "all N deltas already share one X MHz phase"
-            # when it did nothing. Matching that is how a no-op stays silent -
-            # an apply that changed no phases should not print a line implying
-            # it did.
-            # LOSSY when it does bite: off-phase deltas round DOWN, and the
-            # original remainders are gone. Say so rather than leaving it in
-            # the log as a tidy-sounding success.
-            self.log(f"re-phased after apply: {m_rp} (off-phase deltas are "
-                     f"rounded DOWN - the undo point above predates this)",
-                     None)
-            pts2, err2 = self.gpu.read_vf_curve()
-            if not err2:
-                pts = pts2
+        # (the phase correction happened BEFORE the write, at the top of this
+        # method, so there is nothing to do here and only one write occurred)
         # rebase on the points just read, not on a third NVAPI round trip: two
         # back-to-back curve reads stall the UI thread, and the second one could
         # return something the prediction check above never saw
@@ -2832,6 +2921,7 @@ class TitanTune:
                          f"\u2264{cap:.0f} mV - nothing to do", True)
             return
         top_before, peak_before = self.curve_top(pts, cap)
+        self.push_undo("limited de-flatten")
         for idx, _v, _o, _n, nd in ch:
             self.vf_work[idx] = int(nd)
         self.sync_sel_inputs()
@@ -2898,10 +2988,11 @@ class TitanTune:
                          f"this curve; nothing to plan", False)
             else:
                 self.log(f"{meta['rungs']} point(s) from {meta['lo_mv']:.2f} to "
-                         f"{meta['cap_mv']:.2f} mV are already a 15 MHz ramp "
-                         f"topping out at {meta['top_mhz']:.0f} MHz - nothing "
-                         f"to do", True)
+                         f"{meta['cap_mv']:.2f} mV are already a "
+                         f"{self.step_khz()/1000:.4g} MHz ramp topping out at "
+                         f"{meta['top_mhz']:.0f} MHz - nothing to do", True)
             return
+        self.push_undo("de-flatten")
         for idx, _v, _o, _n, nd in ch:
             self.vf_work[idx] = int(nd)
         self.sync_sel_inputs()
@@ -3051,6 +3142,7 @@ class TitanTune:
                          f"already at {meta['target_mhz']:.0f} MHz - nothing to "
                          f"do", True)
             return
+        self.push_undo("hard de-flatten")
         for idx, _v, _o, _n, nd in ch:
             self.vf_work[idx] = int(nd)
         self.sync_sel_inputs()
@@ -3090,31 +3182,37 @@ class TitanTune:
                  + " - read the plan box above before pressing Apply", False)
 
     def vf_rephase(self):
-        if not self.guard():
+        """Stage a phase correction onto the WORKING COPY - preview only, like
+        every other planner here.
+
+        It used to write the HARDWARE deltas immediately, and refuse whenever an
+        edit was staged. Both were wrong way round: the staged deltas are the
+        ones about to be written, so they are the ones whose phases have to
+        agree, and re-phasing what the card currently holds while a plan sits on
+        top of it corrects a curve that is about to be replaced. With nothing
+        staged the working copy IS the hardware, so the no-edit case still does
+        what it always did - it just goes through Apply like everything else."""
+        if not self.vf_points:
+            self.log("read the curve first", False)
             return
-        # Re-phase plans off the HARDWARE deltas and writes them, then re-reads
-        # with force=True - which would drop staged edits the plan never saw.
-        # Refuse instead of arming: unlike Read curve there is no version of
-        # this the user could want, since Apply first (or Revert) makes the
-        # hardware and the plan agree.
-        pending = sum(1 for i in self.vf_work
-                      if self.vf_work.get(i) != self.vf_orig.get(i))
-        if pending:
-            self.log(f"re-phase rewrites the hardware deltas and would discard "
-                     f"{pending} staged edit(s) it cannot see - apply or revert "
-                     f"first. (Apply now re-phases for you afterwards, so this "
-                     f"button is only for re-phasing without an edit.)", False)
+        gm = self.step_khz() / 1000.0
+        changes, _phase = GPU.compute_rephase(dict(self.vf_work),
+                                              self.step_khz())
+        if not changes:
+            self.log(f"all {len(self.vf_work)} staged deltas already share one "
+                     f"{gm:.4g} MHz phase - nothing to do", True)
             return
-        # The one LOSSY write in this app, so the one that most needs an undo
-        # point: off-phase deltas are rounded DOWN onto the common phase and
-        # the original remainders are gone. 'Reset curve to stock' zeroes the
-        # table, which is not the same thing as putting them back - only a
-        # snapshot can.
-        self.autosave_before("vf-rephase")
-        ok, m = self.gpu.rephase_deltas()
-        self.report((ok, m))
-        if ok:
-            self.vf_read(force=True)
+        self.push_undo("re-phase")
+        for i, d in changes.items():
+            self.vf_work[i] = int(d)
+        self.sync_sel_inputs()
+        self.vf_redraw()
+        # Still the lossy one, and saying so matters more now that it stages:
+        # the rounding is visible on the plot before the write instead of being
+        # discovered in the log after it.
+        self.log(f"staged: re-phase, {len(changes)} off-phase point(s) "
+                 f"(idx {sorted(changes)}) rounded DOWN onto one {gm:.4g} MHz "
+                 f"phase - press the green Apply to write", None)
 
     def vf_reset(self):
         """Zeroing every delta only moves the card toward stock, but it is still

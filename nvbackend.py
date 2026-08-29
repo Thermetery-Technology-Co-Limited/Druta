@@ -2368,6 +2368,30 @@ class GPU:
                    for i in sorted(new)]
         return changes, khz[B] / 1000.0, top / 1000.0, meta
 
+    @staticmethod
+    def compute_rephase(deltas, step_khz):
+        """Pure phase math: {idx: delta_khz} -> {idx: corrected_delta_khz}.
+
+        Returns (changes, phase). `changes` holds only the points that move.
+
+        Split out of rephase_deltas so it can be run against a STAGED plan
+        rather than only against what the hardware currently holds. Re-phasing
+        the hardware while an edit is staged answers a question nobody asked:
+        the staged deltas are the ones about to be written, so they are the ones
+        whose phases have to agree. Doing it before the write also means ONE
+        write instead of a write followed by a corrective second one."""
+        if not deltas:
+            return {}, 0
+        grid = int(step_khz)
+        counts = {}
+        for d in deltas.values():
+            r = int(d) % grid
+            counts[r] = counts.get(r, 0) + 1
+        phase = max(counts, key=lambda r: counts[r])
+        changes = {i: int(d) - ((int(d) % grid - phase) % grid)
+                   for i, d in deltas.items() if int(d) % grid != phase}
+        return changes, phase
+
     def rephase_deltas(self):
         """Force every delta onto ONE grid phase. Uniform offsets (the core
         slider, or any whole-curve move) only stay grid-exact if all deltas share
@@ -2382,14 +2406,8 @@ class GPU:
         if err:
             return False, err
         grid = self.clock_step_khz()
-        counts = {}
-        for p in pts:
-            r = p["delta_khz"] % grid
-            counts[r] = counts.get(r, 0) + 1
-        target = max(counts, key=lambda r: counts[r])
-        new = {p["idx"]: p["delta_khz"] - ((p["delta_khz"] % grid - target)
-                                           % grid)
-               for p in pts if p["delta_khz"] % grid != target}
+        new, _phase = GPU.compute_rephase(
+            {p["idx"]: p["delta_khz"] for p in pts}, grid)
         gm = grid / 1000.0
         if not new:
             return True, (f"all {len(pts)} deltas already share one "
