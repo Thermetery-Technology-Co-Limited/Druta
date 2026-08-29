@@ -358,6 +358,23 @@ VFP_POINTS = 128
 # collides with the point below and re-creates the flat you were removing.)
 VF_STEP_KHZ = 15000
 
+# THE SHAPE LAW. The delta table takes whatever you write - every delta reads
+# back verbatim - but the curve the driver EVALUATES from it is not free-form.
+# Measured on this card (see GPU.evaluate_curve_law for the two experiments and
+# the 22 points they reproduce exactly), the evaluated curve always satisfies
+#
+#     0 <= f[i] - f[i-1] <= 45 MHz          (points in voltage order)
+#
+# and the driver repairs a violation by RAISING the lower of the pair. Both
+# halves bite in practice and neither is visible in the delta table:
+#   * the lower bound means a point written BELOW the one under it is silently
+#     raised to it - a run of them becomes one flat, which is exactly the thing
+#     a ramp exists to remove;
+#   * the upper bound means a point written far ABOVE the one under it drags
+#     that one up too, so an edit can move points OUTSIDE the range it wrote.
+# 45000 is 3 * VF_STEP_KHZ, and the fit is exact rather than approximate.
+VF_MAX_RISE_KHZ = 45000
+
 
 class _VfpEntry(ctypes.Structure):
     _fields_ = [("u0", u32), ("freq_kHz", u32), ("volt_uV", u32),
@@ -389,6 +406,17 @@ def below_cap(volt_mv, cap_mv):
     """Single definition of 'at or below the voltage cap' (shared by the planner
     and every readout, so the number in a dialog is the number that was planned)."""
     return volt_mv <= cap_mv + 0.01
+
+
+def above_floor(volt_mv, lo_mv):
+    """The other end of a band, and it resolves the OPPOSITE way to below_cap:
+    the cap is the highest point AT OR BELOW the number, the floor is the lowest
+    point AT OR ABOVE it. Both round the band INWARDS, so a bound can never
+    quietly acquire a point on the far side of the value that was typed - and
+    for the floor that is a safety property, not a nicety: everything below it
+    is left alone, and the points just under a ramp's floor are the idle rungs
+    pinned at minimum clock (see compute_ramp)."""
+    return volt_mv >= lo_mv - 0.01
 
 
 def _set_all_point_masks(obj):
@@ -1506,6 +1534,17 @@ class GPU:
         clocks at tiny voltages - instant instability. de-flatten only removes
         the top tie (about +1 bin); the overall ceiling is raised by the core
         offset, not here. Every move is a whole 15 MHz bin.
+
+        CAVEAT on "left untouched", and it applies to every planner in this
+        file: that is a statement about the DELTA TABLE, which is the only thing
+        written. The curve the driver EVALUATES is reshaped afterwards
+        (VF_MAX_RISE_KHZ, evaluate_curve_law) and a point raised here can drag
+        the points below it up with it, 45 MHz at a time, without a delta being
+        written to any of them. De-flatten's +1 bin is far too small for that to
+        bite - a 15 MHz raise can never open a 45 MHz gap that was not already
+        there - but the claim is only safe because the move is small, not
+        because writing no delta means writing no change. compute_hard_deflatten
+        is where the same rule turns into a 16-point cascade.
         Returns (changes, ceil_before_mhz, ceil_after_mhz, meta)."""
         if extra_points_above is None:
             extra_points_above = GPU.EXTRA_POINTS_ABOVE_CAP
@@ -1536,6 +1575,326 @@ class GPU:
         return (changes, ceil_before / 1000.0, target / 1000.0,
                 {"clamped": clamped, "boundary_idx": points[B]["idx"],
                  "unique": target > peak_below})
+
+    @staticmethod
+    def evaluate_curve_law(khz):
+        """Given a whole curve's frequencies in kHz, IN VOLTAGE ORDER, return
+        what the driver will actually evaluate from it. See VF_MAX_RISE_KHZ.
+
+        The delta table is not the curve. Deltas read back exactly as written -
+        verified, 14 rows, zero mismatches - while the frequencies attached to
+        those points come back reshaped, and nothing in the write path reports
+        it. So the planner predicts the reshape instead of being surprised by it.
+
+        Two passes, and one of each is enough: the forward pass can only raise a
+        point to its left neighbour (which cannot break the backward rule for the
+        pair it just fixed), and the backward pass only ever raises a point
+        towards its right neighbour, which leaves it still at or above its own
+        left neighbour.
+
+        MEASURED, both experiments on the stock curve of this card, and this
+        function reproduces every point of both:
+
+          A. idx 60 (825.00 mV, 1605) written +150 -> 1755. Read back, the four
+             points BELOW it had moved with it - 1575 / 1620 / 1665 / 1710 at idx
+             56-59, each exactly 45 MHz under the next, stopping the moment idx
+             55's untouched 1530 was within 45 of idx 56. Points above collapsed
+             onto 1755 up to idx 72, which already held it.
+          B. the bottom 15 rungs of an 800 mV ramp written for real (1425..1635
+             at idx 56-70, against an untouched idx 55 at 1530). Eight rungs -
+             everything asked for below 1530 - came back AS 1530: one flat run
+             where eight distinct operating points had been planned. At the other
+             end idx 69/70 were pulled UP to 1650/1695 by idx 71's untouched
+             1740, the same 45 MHz rule from the other side."""
+        out = [int(v) for v in khz]
+        for i in range(1, len(out)):          # non-decreasing
+            if out[i] < out[i - 1]:
+                out[i] = out[i - 1]
+        for i in range(len(out) - 2, -1, -1):  # at most 45 MHz per point
+            if out[i] < out[i + 1] - VF_MAX_RISE_KHZ:
+                out[i] = out[i + 1] - VF_MAX_RISE_KHZ
+        return out
+
+    @staticmethod
+    def predict_curve(points, khz, new):
+        """(real, pos) for a staged plan: the frequencies the driver will
+        actually evaluate (evaluate_curve_law), and an idx -> voltage-position
+        map to read them with. `new` is idx -> planned kHz for the points the
+        plan moves; everything else keeps `khz`.
+
+        One definition, because every planner in this file needs the same
+        answer and a second copy would drift from the measurements."""
+        order = sorted(range(len(points)), key=lambda i: points[i]["volt_mv"])
+        pos = {i: k for k, i in enumerate(order)}
+        return GPU.evaluate_curve_law([new.get(i, khz[i]) for i in order]), pos
+
+    @staticmethod
+    def cascade_meta(points, khz, real, pos, idxs):
+        """How far the shape law reaches into points the plan did NOT write:
+        how many move, the lowest voltage that moves, and the worst rise. This
+        is the difference between "we wrote no delta there" and "the card is not
+        asked for more clock there", and only the second one is a safety claim."""
+        lifted = [i for i in idxs if real[pos[i]] != khz[i]]
+        return {"lifted_below": len(lifted),
+                "lift_max_mhz": (max(real[pos[i]] - khz[i] for i in lifted)
+                                 / 1000.0 if lifted else 0.0),
+                "lift_lowest_mv": (min(points[i]["volt_mv"] for i in lifted)
+                                   if lifted else None)}
+
+    # The floor of HARD DE-FLATTEN. A hardware-modification number, not a taste:
+    # with `refin_adj` deactivated on the PCB and the core rail driven by an
+    # external mod, the GPU still BELIEVES it is at 800 mV and computes its power
+    # from that belief, so it stops throttling - while the real rail, now
+    # unreadable to any GPU software including this app, is driven higher from
+    # outside. Without that mod the card really is at 800 mV, the flat top
+    # demands clocks it cannot hold, and it crashes. Every caller has to say so.
+    HARD_FLOOR_MV = 800.00
+
+    @staticmethod
+    def compute_hard_deflatten(points, floor_mv, target_khz):
+        """Set EVERY point at or above `floor_mv` to ONE frequency - deliberately
+        make the curve completely flat above the floor - so the boost arbiter
+        parks AT the floor. Returns (changes, floor_before_mhz, target_mhz, meta),
+        the same shape as compute_deflatten and compute_ramp.
+
+        THIS IS THE OPPOSITE OF compute_ramp, and on purpose. The ramp removes
+        flats so a throttling card has fine-grained operating points to descend
+        through. This one builds the largest flat it can, because the arbiter
+        runs the LOWEST voltage of any peak-frequency flat run: make 72 points
+        share one frequency and the card requests that frequency at the bottom
+        of the run. The ramp is for throttling that is going to happen anyway;
+        this is for throttling that should not happen at all.
+
+        WHAT IT IS ACTUALLY FOR: DECEIVING THE POWER ESTIMATOR. The GPU believes
+        it is running at `floor_mv` - 800.00 by default - and computes its power
+        from that belief, so it stops throttling. The real rail is driven
+        externally by a hard mod and is invisible to all GPU software, this app
+        included. The target must be high enough to keep the card in P0, which is
+        why it defaults to the curve's own peak rather than to a round number.
+
+        IT REQUIRES THE MOD, and the caller must gate on an explicit
+        acknowledgement, not a tooltip. Without a functional external voltage mod
+        - `refin_adj`, or the equivalent circuit on that board, rendered
+        completely nonoperational - the card really is at 800 mV, the flat top
+        demands clocks it cannot hold there, the cascade below demands high
+        clocks all the way down to 700 mV, and the driver crashes.
+
+        THE CASCADE IS THE THING TO SHOW. The shape law (VF_MAX_RISE_KHZ) lets no
+        two neighbouring points differ by more than 45 MHz, and repairs a
+        violation by RAISING the lower one. A flat top at 2010 from 800.00 mV
+        therefore drags 16 points BELOW the floor up with it - idx 40 (700.00 mV)
+        through idx 55 (793.75 mV), worst case 1530 -> 1965 MHz at a nominal
+        793.75 mV - without a delta being written to any of them. "Points below
+        the floor are left untouched" is true of what this app WRITES and false
+        of what the driver EVALUATES, so meta carries the predicted cascade
+        (`lifted_below`, `lift_lowest_mv`, `lift_max_mhz`) and the caller shows
+        it before the click.
+
+        The park point in meta is derived from the PREDICTED curve, not from the
+        plan: if the target is low enough that untouched points below the floor
+        still hold it, the arbiter parks on one of those instead and the whole
+        exercise misses. `parks_at_floor` says which happened."""
+        n = len(points)
+        khz = [int(round(p["freq_mhz"] * 1000)) for p in points]
+        # DOWN onto the 15 MHz grid, like every other frequency in this app: a
+        # mid-bin target floors on evaluation and the "one frequency" the whole
+        # mechanism depends on would silently become two.
+        target = max(0, int(target_khz) // VF_STEP_KHZ) * VF_STEP_KHZ
+        band = sorted((i for i in range(n)
+                       if above_floor(points[i]["volt_mv"], floor_mv)),
+                      key=lambda i: points[i]["volt_mv"])
+        meta = {"floor_idx": None, "floor_mv": None, "target_mhz": target / 1000.0,
+                "n_flat": 0, "park_idx": None, "park_mv": None,
+                "park_mhz": 0.0, "parks_at_floor": False,
+                "lifted_below": 0, "lift_max_mhz": 0.0, "lift_lowest_mv": None}
+        if not band:
+            return [], 0.0, 0.0, meta
+        F = band[0]
+        new = {i: target for i in band if khz[i] != target}
+        real, pos = GPU.predict_curve(points, khz, new)
+        # the arbiter's rule, applied to the curve the DRIVER will have: highest
+        # frequency anywhere, then the lowest voltage carrying it
+        peak = max(real)
+        park = min((i for i in range(n) if real[pos[i]] == peak),
+                   key=lambda i: points[i]["volt_mv"])
+        under = [i for i in range(n)
+                 if points[i]["volt_mv"] < points[F]["volt_mv"] - 0.01]
+        meta.update({
+            "floor_idx": points[F]["idx"], "floor_mv": points[F]["volt_mv"],
+            "target_mhz": target / 1000.0, "n_flat": len(band),
+            "park_idx": points[park]["idx"], "park_mv": points[park]["volt_mv"],
+            "park_mhz": peak / 1000.0,
+            "parks_at_floor": park == F,
+        })
+        meta.update(GPU.cascade_meta(points, khz, real, pos, under))
+        changes = [(points[i]["idx"], points[i]["volt_mv"], khz[i] / 1000.0,
+                    new[i] / 1000.0,
+                    points[i]["delta_khz"] + (new[i] - khz[i]))
+                   for i in sorted(new)]
+        return changes, khz[F] / 1000.0, target / 1000.0, meta
+
+    @staticmethod
+    def compute_ramp(points, lo_mv, cap_mv, max_khz=None):
+        """Rebuild the band [lo_mv, cap_mv] as a STRICTLY INCREASING ramp on the
+        15 MHz grid - one distinct frequency per voltage point, no ties anywhere
+        in the band. Returns (changes, ceil_before_mhz, ceil_after_mhz, meta),
+        the same shape as compute_deflatten.
+
+        WHY THIS EXISTS, and it is not de-flatten's reason. De-flatten makes ONE
+        point unique (the boundary) and levels everything above it. That fixes
+        the steady-state park point and nothing else. A power- or thermally
+        throttling card does not sit at the park point: it walks LEFT through the
+        V/F curve until it is under budget, and from there the GRANULARITY of the
+        available operating points decides the performance. The arbiter can only
+        occupy, for each distinct frequency, the LOWEST voltage carrying it, so a
+        flat run is a voltage band the card cannot sit in at all.
+
+        Measured on this card's stock curve, the usable operating points:
+
+            below 1050 mV: uniform 12.50 mV / 15 MHz steps
+            1175.00/2010 -> 1137.50/1995   drops 37.50 mV in one step
+            1137.50/1995 -> 1106.25/1980   drops 31.25 mV
+            1106.25/1980 -> 1050.00/1965   drops 56.25 mV
+
+        Between 1050 and 1175 mV there are 21 voltage points and only 4 are
+        usable; 17 are shadowed. Power goes roughly as f*V^2, so shedding 56 mV
+        to give up 15 MHz dumps far more power than the budget ever asked for and
+        the card undershoots badly - up to 7% of a benchmark, measured, with an
+        imperfect power-limit bypass (shunt mods, where the GPU's own
+        current-sensing heuristics still throttle).
+
+        ANCHOR AT THE TOP AND DESCEND. The cap point takes the highest allowed
+        frequency and every point below it is exactly one 15 MHz bin lower, down
+        to the floor. The alternative - ascend from the floor - CLIPS: from
+        800 mV the unclipped top is 2250 MHz against this card's 2130 max, so the
+        top eight points get clipped onto 2130 and a nine-point flat run reappears
+        exactly where it hurts most. Descending cannot clip, by construction.
+
+        The ceiling itself is min(max_khz, the unclipped ascending top), which is
+        what keeps a low cap honest: anchoring unconditionally at the hardware
+        max would demand 2130 MHz at whatever voltage the cap happens to name.
+
+        WHAT IT COSTS. For the regular band the price is zero: descending 15
+        rungs from 2130 lands on exactly 1905 at 1000.00 mV, which is what stock
+        already has there. For a 48-point band from 800 mV the clip costs 120 MHz
+        at the floor (1425 against stock's 1545) - that is the honest price of
+        monotonicity over a wide span, so meta carries it and every caller
+        reports it rather than hiding it.
+
+        AND WHAT THE DRIVER THEN DOES TO IT. The delta table takes the plan
+        verbatim; the evaluated curve does not (VF_MAX_RISE_KHZ,
+        evaluate_curve_law). A clipped floor lands below the untouched point
+        under the band and the driver raises those rungs onto it - measured, the
+        800 mV band's bottom eight rungs all come back as the 1530 MHz of the
+        point below, one flat run where eight operating points were planned. So
+        meta reports `delivered`, the number of DISTINCT operating points the
+        band will really have, next to `rungs`, the number that were asked for;
+        the first is the number this feature is actually judged on. A band can
+        never deliver more than (top - the point below it)/15 + 1 rungs, however
+        many points it spans. `lifted_below` is the other half of the same law:
+        a floor placed more than 45 MHz above the point beneath it drags that
+        point up, so "nothing below the floor is touched" is a promise about the
+        delta table and this is the promise about the rail.
+
+        Points BELOW lo_mv are left untouched, for the reason compute_deflatten
+        gives: the low-voltage floor is many points pinned at the minimum clock,
+        and ramping them means demanding high clocks at tiny voltages.
+
+        Points ABOVE the cap are levelled onto the top rung. They are unreachable
+        on this card (the rail stops near 1.093 V), and levelling keeps the cap
+        point the LOWEST-voltage member of the top flat, which is where the
+        arbiter then parks - the same trick de-flatten ends on.
+
+        The granularity and the overclock are the SAME edit: every rung demands
+        more clock at its voltage than stock did, so every rung has to be
+        stable in its own right."""
+        n = len(points)
+        khz = [int(round(p["freq_mhz"] * 1000)) for p in points]
+        # sorted by VOLTAGE, not by position: the descent assigns one bin per
+        # step down the band, so it has to walk the band in the order the rail
+        # does. peak_info() declines to trust index order for the same reason.
+        band = sorted((i for i in range(n)
+                       if above_floor(points[i]["volt_mv"], lo_mv)
+                       and below_cap(points[i]["volt_mv"], cap_mv)),
+                      key=lambda i: points[i]["volt_mv"])
+        above = [i for i in range(n)
+                 if not below_cap(points[i]["volt_mv"], cap_mv)]
+        meta = {"clamped": False, "boundary_idx": None, "unique": False,
+                "lo_idx": None, "cap_idx": None, "lo_mv": None, "cap_mv": None,
+                "rungs": 0, "top_mhz": 0.0, "floor_before_mhz": 0.0,
+                "floor_after_mhz": 0.0, "floor_cost_mhz": 0.0,
+                "leveled_above": 0, "under_band_mhz": None,
+                "shadowed": 0, "delivered": 0, "lifted_below": 0,
+                "lift_max_mhz": 0.0, "lift_lowest_mv": None}
+        if not band:
+            return [], 0.0, 0.0, meta
+        L, B = band[0], band[-1]
+        rungs = len(band)
+        # the ascending top is what the band would reach if the floor kept its
+        # current frequency and every point above it gained one bin
+        asc_top = khz[L] + (rungs - 1) * VF_STEP_KHZ
+        top = asc_top
+        if max_khz is not None and top > max_khz:
+            top, meta["clamped"] = int(max_khz), True
+        new = {}
+        for step, i in enumerate(band):
+            want = top - (rungs - 1 - step) * VF_STEP_KHZ
+            if khz[i] != want:
+                new[i] = want
+        for i in above:                    # flat top; park = the cap point
+            if khz[i] != top:
+                new[i] = top
+        floor_after = top - (rungs - 1) * VF_STEP_KHZ
+        # The point immediately UNDER the band keeps whatever it had, so a
+        # clipped ramp can land its floor below its own neighbour. On paper that
+        # is a step down at the band edge; in hardware it never becomes one,
+        # because the shape law raises the offending rungs back onto the
+        # neighbour instead - which is the far worse outcome and the reason the
+        # next block exists.
+        under = [i for i in range(n)
+                 if points[i]["volt_mv"] < points[L]["volt_mv"] - 0.01]
+        u = max(under, key=lambda i: points[i]["volt_mv"]) if under else None
+        # WHAT THE CARD WILL ACTUALLY RUN, which is not what was just planned:
+        # the driver reshapes the evaluated curve (VF_MAX_RISE_KHZ). At the floor
+        # a clipped ramp's bottom rungs get raised onto the untouched point below
+        # and collapse into one flat - the exact pathology a ramp is for - and a
+        # floor sitting far ABOVE that point drags it, and its own neighbours,
+        # up. Both are measured; both are invisible in the delta table; so both
+        # are counted here rather than discovered after the write.
+        real, pos = GPU.predict_curve(points, khz, new)
+        in_band = [pos[i] for i in band]
+        shadowed = sum(1 for i in band
+                       if real[pos[i]] != new.get(i, khz[i]))
+        meta.update({
+            "boundary_idx": points[B]["idx"],
+            # the band itself cannot tie - every rung is one bin apart - so the
+            # only thing that can steal the park point is an UNTOUCHED point
+            # below the floor still holding the top frequency. Monotone curves
+            # never do; a clipped one-rung band could, and that is worth saying
+            # rather than asserting True and being wrong once.
+            "unique": u is None or khz[u] < top,
+            "lo_idx": points[L]["idx"], "cap_idx": points[B]["idx"],
+            "lo_mv": points[L]["volt_mv"], "cap_mv": points[B]["volt_mv"],
+            "rungs": rungs, "top_mhz": top / 1000.0,
+            "floor_before_mhz": khz[L] / 1000.0,
+            "floor_after_mhz": floor_after / 1000.0,
+            "floor_cost_mhz": (khz[L] - floor_after) / 1000.0,
+            "leveled_above": sum(1 for i in above if i in new),
+            "under_band_mhz": (khz[u] / 1000.0) if u is not None else None,
+            # rungs the driver will refuse to place where they were planned...
+            "shadowed": shadowed,
+            # ...leaving this many distinct operating points across the band,
+            # which is the number the whole feature is judged on
+            "delivered": len({real[k] for k in in_band}),
+        })
+        # points BELOW the floor the driver will move anyway - shared with
+        # compute_hard_deflatten, where the same law reaches 16 points deep
+        meta.update(GPU.cascade_meta(points, khz, real, pos, under))
+        changes = [(points[i]["idx"], points[i]["volt_mv"], khz[i] / 1000.0,
+                    new[i] / 1000.0,
+                    points[i]["delta_khz"] + (new[i] - khz[i]))
+                   for i in sorted(new)]
+        return changes, khz[B] / 1000.0, top / 1000.0, meta
 
     def rephase_deltas(self):
         """Force every delta onto ONE 15 MHz phase. Uniform offsets (the core

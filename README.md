@@ -344,7 +344,7 @@ editor writes (read `0x21537AD4` / `0x23F1B133`, write `0x0733E009`) — drive
 clocks from one tool at a time, since applying an Afterburner profile
 clobbers curve edits made here.
 
-It's built around three hardware laws that aren't obvious from the driver's
+It's built around four hardware laws that aren't obvious from the driver's
 public surface:
 
 1. **The clock quantises, and the base is unreadable.** A VF point evaluates
@@ -369,6 +369,10 @@ public surface:
    boundary point (the last point at/below the cap, plus one point past it)
    by whole 15 MHz bins until it — and only it — is the unique top, so the
    arbiter has nowhere to park but there.
+4. **The delta table is not the curve** — see "The shape law" below. Deltas
+   read back exactly as written; the *frequencies* the driver evaluates from
+   them are reshaped to satisfy `0 ≤ f[i] − f[i−1] ≤ 45 MHz`, and neither half
+   of that is visible in the table you wrote.
 
 De-flatten only stages a plan onto the working copy; nothing reaches the GPU
 until **Apply to GPU**, which flags any point that lands off-prediction after
@@ -378,7 +382,10 @@ stands in the plan banner above the button for as long as the edits exist
 (see "One click, with the warning first"). Points below the
 cap are deliberately left untouched — ramping the low-voltage floor (many
 points pinned at minimum clock) would make the card demand high clocks at
-tiny voltages.
+tiny voltages. Rebuilding a *bounded* band below the cap is what the ramp does
+instead, and it keeps the same rule: everything under its own floor is left
+alone (see "Ramp" below). "Left alone" means no delta is written there — which
+is not the same as nothing changing there; see "The shape law".
 
 The plot itself: drag a dot to move it (left-click has to land within ~14 px
 of the drawn marker — a true radius in screen pixels, not "the nearest point
@@ -399,6 +406,175 @@ edits requires confirming twice so a refused write isn't silently lost.
 are 0, so there's no persisted baseline to poison); a reboot also clears all
 deltas.
 
+Vertical lines mark the bounds the planners work to: the **cap** (amber,
+`voltage cap`), the **ramp floor** (violet), and the **hard floor** (red), that
+last one drawn only while the hard-de-flatten acknowledgement is ticked. They
+are on the picture for the same reason — a bound that has landed somewhere silly
+is obvious as a line and invisible as a number in a box — and all three snap
+**down** onto the table's own 6.25 mV grid. The cap and a floor round the band
+*inwards* from opposite sides: the cap resolves to the highest point at or below
+it, a floor to the lowest point at or above it (`below_cap` / `above_floor`), so
+neither bound can quietly annex a point on the far side of the value typed. Both
+floors are clamped to the voltages this curve actually has (450.00–1243.75 mV
+here) rather than to 800: setting either lower than 800 is deliberately allowed.
+
+### Ramp: the granularity a throttling card actually runs on
+
+De-flatten fixes **where the card parks**. It makes one point unique and levels
+everything above it, and that is the whole of it. But a card that is power- or
+thermally throttling is not *at* the park point — it walks **left** through the
+V/F curve until it is under budget, and from there what decides performance is
+the granularity of the operating points it has to choose from.
+
+The arbiter can only occupy, for each distinct frequency, the **lowest voltage
+carrying it**. So a flat run is not merely wasted headroom at the top: it is a
+voltage band the card cannot sit in *at all*. Measured on this card's stock
+curve, the operating points that actually exist:
+
+| from | to | voltage dropped |
+|---|---|---|
+| below 1050 mV | uniform | 12.50 mV per 15 MHz |
+| 1175.00 / 2010 | 1137.50 / 1995 | **37.50 mV** |
+| 1137.50 / 1995 | 1106.25 / 1980 | **31.25 mV** |
+| 1106.25 / 1980 | 1050.00 / 1965 | **56.25 mV** |
+
+Between 1050 and 1175 mV there are **21 voltage points and only 4 are usable** —
+17 are shadowed. Power goes roughly as `f·V²`, so shedding 56 mV to give up
+15 MHz dumps far more power than the budget asked for, and the card undershoots
+badly. Internal testing measures **up to 7% of a benchmark** lost this way with
+an imperfect power-limit bypass (shunt mods, where the GPU's own current-sensing
+heuristics still throttle).
+
+**Ramp ≤ cap** rebuilds the band between the *ramp floor* box and the voltage
+cap as a strictly increasing 15 MHz ramp: one distinct frequency per voltage
+point, no ties. Like De-flatten it only **stages** — nothing reaches the GPU
+until `Apply to GPU`, and the plan banner says what the click will write for as
+long as the edits exist.
+
+**Top-anchored, and that is the design decision.** The cap point takes the
+highest allowed frequency and each point below it drops exactly one 15 MHz bin.
+Ascending from the floor instead **clips**: from 800 mV the unclipped top would
+be 2250 MHz against this card's 2130 max, so the top eight rungs get clipped
+onto 2130 and a nine-point flat run reappears exactly where it hurts most.
+Descending from the ceiling cannot clip, by construction. The ceiling itself is
+`min(hardware max, the unclipped ascending top)`, which is what keeps a low cap
+honest — anchoring unconditionally at the hardware max would demand 2130 MHz at
+whatever voltage the cap happened to name.
+
+**What it costs at the floor.** For the default 1000.00 mV band, nothing:
+descending 15 rungs from 2130 lands on exactly 1905 at 1000.00 mV, which is what
+stock already has there. For the 48-point band from 800 mV the clip costs
+**120 MHz at the floor** — 1425 against stock's 1545. That is the honest price of
+monotonicity over a wide span, and the staged plan states it in MHz rather than
+hiding it.
+
+**Points below the floor are left alone**, for the same reason De-flatten leaves
+the sub-cap points alone: the low-voltage floor is many points pinned at the
+minimum clock, and ramping them means demanding high clocks at tiny voltages.
+Points above the cap are levelled onto the top rung — they are unreachable here
+(the rail stops near 1.093 V) and levelling keeps the cap point the
+lowest-voltage member of the top flat, which is where the arbiter then parks.
+
+**The granularity gain and the overclock are the same edit.** Every rung asks
+for more clock at its voltage than stock did — the default band goes from 5
+usable operating points to 16, and it does that by demanding up to +165 MHz at
+the cap. There is no version of this that improves granularity without also
+being an overclock, so **every rung has to be stable in its own right**.
+
+### The shape law: the delta table is not the curve
+
+The delta table takes whatever you write — verified, a 14-row ramp read back
+with **zero** delta mismatches — but the curve the driver *evaluates* from it is
+not free-form. Measured on this card, the evaluated curve always satisfies
+
+```
+0  ≤  f[i] − f[i−1]  ≤  45 MHz          (points in voltage order)
+```
+
+and the driver repairs a violation by **raising the lower** of the pair. Both
+halves bite, and neither is visible in the table you wrote:
+
+- **Lower bound.** A point written below the one under it is silently raised to
+  it. Measured: idx 60 (825.00 mV, 1605 MHz) written to 1545 read back as 1590,
+  its left neighbour's value.
+- **Upper bound.** A point written far above the one under it drags that one up
+  too — so an edit can move points *outside* the range it wrote. Measured: idx 60
+  written +150 to 1755 pulled idx 56–59 up to 1575 / 1620 / 1665 / 1710, each
+  exactly 45 MHz under the next, stopping the instant idx 55's untouched 1530
+  was within 45 of idx 56.
+
+`GPU.evaluate_curve_law()` applies the rule (one forward pass, one backward
+pass) and reproduces every point of both experiments exactly, so the planner
+predicts the reshape instead of discovering it after the write.
+
+**This is why a ramp reports two numbers.** The plan says `48 rungs → 41
+distinct operating points`, because the 800 mV band's floor lands at 1425 while
+the untouched point under it holds 1530: the bottom **eight** rungs are all
+raised onto 1530 and arrive as one flat run — the exact pathology the ramp
+exists to remove. Written for real (idx 56–70, low-voltage rungs only), that is
+precisely what came back. A band can never deliver more than
+`(top − the point below it) / 15 + 1` distinct rungs however many points it
+spans, so the second number is the one the feature is judged on.
+
+### Hard de-flatten — the opposite transform, and it needs a hardware mod
+
+**Hard de-flatten is the opposite of a ramp**, and it is deliberately so. The
+ramp *removes* flats so a throttling card has fine steps to descend through.
+This one *builds* the largest flat it can, because it exploits the arbiter's
+lowest-voltage rule instead of working around it:
+
+- `hard de-flatten floor` (default **800.00 mV**, user-settable, allowed lower).
+- Every point **at or above** that voltage is set to **one** target frequency —
+  the curve above the floor is made completely flat, on purpose.
+- The arbiter runs the **lowest voltage of any peak-frequency flat run**, so the
+  card then parks **at the floor**.
+- The target must be high enough to hold the card in P0, so it defaults to
+  `peak_info`'s max clock (2010 MHz on the stock curve here) and is adjustable.
+
+The point is not performance-through-granularity. It is **deceiving the power
+estimator**: the GPU believes it is running at 800 mV, computes a low power
+figure from that belief, and stops throttling — while the real rail is driven
+externally by the hard mod and is invisible to all GPU software, this app
+included. The ramp is for throttling that is going to happen anyway; this is for
+throttling that should not happen at all.
+
+Measured through the planner, on the stock curve with the floor at 800.00 and
+the target at 2010: the peak ends up held by **72 points** and the card parks at
+**idx 56 @ 800.00 mV**. It lands on the floor at every floor tested — 900.00 →
+idx 72, 800.00 → idx 56, 750.00 → idx 48 — and `parks_at_floor` in the plan says
+so explicitly, because a target low enough that an untouched point *below* the
+floor still holds the peak would quietly take the park point with it.
+
+**The shape law makes this reach below the floor, and that is what the plan
+shows you.** Nothing is written below the floor, and that is *not* the same
+claim as nothing changing there: the 45 MHz max-rise repair drags **16 points**
+up with the flat top — idx 40 (**700.00 mV**) through idx 55 (793.75 mV), worst
+case **1530 → 1965 MHz at a nominal 793.75 mV** — with no delta written to any
+of them. The staged plan states the count, the lowest voltage affected and the
+worst rise, before the click. (`compute_deflatten` carries the same caveat in
+its docstring: its +1 bin is far too small for the rule to bite, but that is
+because the move is small, not because writing no delta means writing no
+change.)
+
+**It is gated on an explicit acknowledgement, not a tooltip.** The controls live
+in their own collapsed header, and the button refuses unless a checkbox is
+ticked stating: *I have a functional hardware voltage mod on this card, and
+`refin_adj` (or this board's equivalent circuit) is completely nonoperational.*
+A tooltip is something a reader can decline to read; what is being acknowledged
+is a fact about the user's soldering iron that no software can check. **Without
+that mod the card really is at the floor voltage**, cannot hold the flat top, is
+asked for high clocks hundreds of mV lower by the repair cascade, and crashes
+the driver.
+
+The tick is never remembered: it starts clear every session — nothing writes it
+to disk — and clears itself again as soon as the plan it authorised is written
+or dropped, so one tick buys exactly one hard de-flatten. While it is set, the
+hard floor is drawn on the plot **in red**, so "this card is armed for a mode
+that assumes a soldering iron" is visible without opening the header.
+
+It is for cards that need the mod in the first place: the RTX 2080 Ti 300-non-A
+bin, the 3060, mobile GPU transplants.
+
 ### One click, with the warning first
 
 `Apply to GPU` and `Reset curve to stock` each take **one** click. They used
@@ -410,6 +586,35 @@ the buttons, recomputed on every edit, naming the number of edited points,
 the resulting top ≤cap, the peak and how many points hold it, where the card
 would park, and — in red — whether the plan **lowers** the curve's peak.
 It also states, continuously, what `Reset curve to stock` would discard.
+
+A staged **ramp** or **hard de-flatten** pushes a note into the same box,
+because those four words describe every plan in terms that read as good news —
+the ramp raises all of them, and a hard de-flatten's park point moving to 800 mV
+looks like a triumph rather than a claim about somebody's soldering. None of
+them can say "this drops the floor 120 MHz", "the driver will flatten the bottom
+eight rungs", "16 points below the floor get dragged up with it" or "this
+crashes any card without an external voltage mod".
+
+A hard de-flatten colours the box red and takes the headline, and **keeps** it
+for as long as its points are staged — planning a ramp on top does not unstage
+the flat underneath, and one `Apply` still writes both, so the note says that
+too. Everything is cleared wherever the working copy is reset (`Revert edits`,
+`Read curve`): the staged edits, the note, the banner colour, the red floor line
+on the plot, **and** the hard-mod acknowledgement. A staged plan that survived a
+revert would be the one way this could bite somebody who changed their mind.
+
+The banner is measured, not fixed, so it grows with what it has to say — and the
+plot gives up exactly those pixels rather than letting the box push `Apply to
+GPU` off the bottom of the page. A warning that scrolls its own button out of
+view has defeated itself. The gated hard-de-flatten header is in the same
+budget, since it sits above the plot too; measured at 150% DPI, `Apply to GPU`
+stays fully on screen in every state including the worst one (header open *and*
+a hard plan staged, where the plot is down to its floor). For the same reason
+the *log* line a planner writes is a one-line summary: `log()` mirrors its last
+line into the status text above the plot, and logging the whole note there moved
+the page a hundred pixels to repeat what the banner is already saying
+permanently. The full note goes into the log at the moment of the **write**,
+where a permanent receipt is the point.
 
 What pays for the missing second press is that every write to the 103-row
 delta table now takes an undo point first (see "Profiles and undo" for exactly
@@ -783,6 +988,17 @@ walks them back without one. Writes are gated behind "Unlock controls", with
 two exceptions, both of which only ever move the card toward stock: `Reset all
 to stock`, and the release of this app's own lock when the window closes (see
 "Hold this point").
+
+Reversible is not the same as harmless. A V/F curve edit asks the card for a
+clock at a voltage, and if the silicon cannot hold it the machine crashes —
+which a reboot then clears, since no delta survives one. `Ramp ≤ cap` is an
+overclock by construction (every rung asks for more than stock at its voltage),
+and **`Hard de-flatten` is an overclock that assumes a hardware modification
+exists**: on an unmodified card the 800 mV floor is not a trick played on the
+power estimator, it is simply 800 mV, and both the flat top above it and the
+shape-law cascade below it will crash the driver. That is why it is the one
+operation in this app behind an explicit acknowledgement checkbox rather than
+just a warning. See "Hard de-flatten".
 
 **Deliberately not wired to a button** — documented here with the
 commands to run them by hand, never fired blind by this app:

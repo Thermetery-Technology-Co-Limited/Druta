@@ -46,7 +46,18 @@ Safety model, carried over from the Tk version:
     rather than one table.
     De-flatten is not a write at all - where Tk previewed it on a canvas, it
     STAGES onto the working curve, so the plan is visible on the plot and only
-    'Apply to GPU' can commit it.
+    'Apply to GPU' can commit it. The same is true of the other two planners,
+    which are opposites of each other: 'Ramp <= cap' (vf_ramp) makes a band
+    strictly increasing so a THROTTLING card has fine steps to descend
+    through, and 'Hard de-flatten' (vf_hard_deflatten) makes everything above
+    a floor completely FLAT so the arbiter parks at that floor and the power
+    estimator is deceived into not throttling at all. Both push a note into
+    the plan banner, because the generic sentence describes every plan in
+    terms that read as good news - top, peak, park - and cannot say "this
+    drops the floor 120 MHz", "the driver will drag 16 points below the floor
+    up with it" or "this crashes any card without an external voltage mod".
+    Hard de-flatten is additionally gated on an explicit acknowledgement
+    checkbox that no tooltip can substitute for.
 """
 import ctypes
 import math
@@ -133,6 +144,14 @@ class TitanTune:
         self._dom_shown = set()    # domains whose table row is currently shown
         self._plan_themes = {}     # plan-banner box themes, one per band
         self._plan_band = None
+        # What a staged RAMP or HARD DE-FLATTEN is, in the plan banner's own
+        # words, or None. apply_plan() describes any staged edit generically -
+        # point count, top ≤cap, peak, park - and none of those words can say
+        # "this plan lowers the floor by 120 MHz", "the driver will drag 16
+        # points below the floor up with it" or "without the voltage mod this
+        # crashes". The note is cleared wherever the working copy is reset
+        # (vf_read, vf_revert), so it can never outlive the edits it describes.
+        self._plan_note = None     # None, or {"text": str, "hard": bool}
         self._pending_load = None  # (name, why) awaiting a cross-card confirm
         # ---- Timings tab (read-only; see the TIMINGS section) ------------- #
         self._tim_lock = threading.Lock()
@@ -624,8 +643,21 @@ class TitanTune:
                 dpg.configure_item(tag, width=colw, height=h)
         # control tab: plot and log share the lower half
         if dpg.does_item_exist("vf_plot"):
-            dpg.configure_item("vf_plot", height=max(self.s(240),
-                                                     int(H * 0.34)))
+            # The plot and the plan banner share ONE budget, and the banner is
+            # served first. It is measured, not fixed, and it grows with what it
+            # has to warn about - a hard de-flatten's note runs three lines longer than
+            # "nothing staged" - so left alone it pushes 'Apply to GPU' down the
+            # page until the button the banner describes is off screen. A
+            # warning that scrolls its own button out of view has defeated
+            # itself, and the plot is the one thing here that degrades
+            # gracefully: it has a s(240) floor and a fixed 0-3000 MHz pan range,
+            # so it loses rows, never reach. PLAN_H_IDLE is what the box measures
+            # with nothing staged, i.e. the height this split was tuned around.
+            budget = int(H * 0.34) + self.s(self.PLAN_H_IDLE)
+            dpg.configure_item("vf_plot",
+                               height=max(self.s(240),
+                                          budget - self.plan_h()
+                                          - self.hard_block_h()))
         if dpg.does_item_exist("log"):
             dpg.configure_item("log", height=max(self.s(90), int(H * 0.13)))
         for tag in ("vf_info", "vf_status", "vf_sel_info", "hold_info"):
@@ -1262,6 +1294,152 @@ class TitanTune:
                            width=self.s(90))
             dpg.add_button(label="Reset curve to stock", tag="go_vfreset",
                            callback=self.vf_reset, width=self.s(170))
+        # SECOND row, and deliberately its own: the ramp planners answer a
+        # different question from de-flatten (granularity while throttling, not
+        # the steady-state park point) and they take a second bound of their
+        # own. Sharing the row would have read as four variants of one button.
+        with dpg.group(horizontal=True):
+            dpg.add_text("ramp floor (mV)")
+            # min/max are widened to the CURVE's own range by vf_read, exactly
+            # like vf_idx: an input_float carries DPG's bounds and ignores them
+            # on entry, so a floor no point has would plan against an empty
+            # band. The owner asked to be able to go below 800, so nothing here
+            # stops at 800 - only the table's own lowest point does.
+            dpg.add_input_float(tag="rfloor",
+                                default_value=self.RAMP_FLOOR_DEFAULT,
+                                width=self.s(130), step=self.VCAP_STEP,
+                                format="%.2f",
+                                min_value=300.0, max_value=1300.0,
+                                min_clamped=True, max_clamped=True,
+                                callback=self.rfloor_changed)
+            with dpg.tooltip(dpg.last_item()):
+                dpg.add_text(
+                    "Bottom of the band the ramp rebuilds. Snapped DOWN onto\n"
+                    "the same 6.25 mV grid as the voltage cap, and clamped to\n"
+                    "the voltages this curve actually has.\n\n"
+                    "Everything BELOW this is left alone: the low-voltage floor\n"
+                    "is many points pinned at the minimum clock, and ramping\n"
+                    "them means demanding high clocks at tiny voltages.\n\n"
+                    "The wider the band, the more the top clips - and a clipped\n"
+                    "ramp pays for it at the floor. The staged plan says by how\n"
+                    "much, in MHz, before you press Apply.")
+            dpg.add_button(label="Ramp ≤ cap", tag="go_ramp",
+                           width=self.s(150), callback=self.vf_ramp)
+            with dpg.tooltip(dpg.last_item()):
+                dpg.add_text(
+                    "Stages a plan (nothing is written yet): rebuilds every\n"
+                    "point from the ramp floor up to the cap as a STRICTLY\n"
+                    "INCREASING 15 MHz ramp - one distinct frequency per\n"
+                    "voltage point, no ties.\n\n"
+                    "De-flatten fixes where the card PARKS. This fixes what\n"
+                    "happens when it cannot park there: a throttling card walks\n"
+                    "LEFT down the curve until it is under budget, and the\n"
+                    "arbiter can only sit at the LOWEST voltage carrying each\n"
+                    "frequency - so every flat run is a voltage band it cannot\n"
+                    "use at all. Stock, between 1050 and 1175 mV, 21 points\n"
+                    "exist and 4 are usable.\n\n"
+                    "The cap point takes the highest allowed clock and each\n"
+                    "point below it drops one 15 MHz bin. That is an OVERCLOCK\n"
+                    "as well as a granularity fix - every rung asks for more\n"
+                    "clock at its voltage than stock did, so every rung has to\n"
+                    "be stable.")
+        # COLLAPSED, and in a header of its own. Not tidiness: this mode is
+        # inert - worse, fatal - on a card without an external voltage mod, so it
+        # should take a deliberate act to even see its controls. Keeping it out
+        # of the button row also keeps the plan banner and 'Apply to GPU' on
+        # screen together, which three more rows of always-visible widgets would
+        # have cost (see relayout).
+        with dpg.collapsing_header(tag="hdf_hdr",
+                                   label="Hard de-flatten  (needs an external "
+                                         "voltage mod - read this before using)",
+                                   default_open=False):
+            # THE GATE, and it is a checkbox rather than a tooltip on purpose: a
+            # tooltip is something you can decline to read, and this one is a
+            # statement about the user's soldering, not about the software.
+            dpg.add_checkbox(
+                tag="hdf_ack", default_value=False, callback=self.hdf_ack_changed,
+                label="I have a functional hardware voltage mod on this card, "
+                      "and `refin_adj` (or this board's equivalent circuit) is "
+                      "completely nonoperational")
+            with dpg.tooltip(dpg.last_item()):
+                dpg.add_text(
+                    "This tick is never remembered. It starts clear every\n"
+                    "session - nothing in this app writes it to disk - and it\n"
+                    "clears itself again as soon as the plan it authorised is\n"
+                    "written or dropped, so one tick buys exactly one hard\n"
+                    "de-flatten.\n\n"
+                    "While it is set, the hard floor is drawn on the plot in\n"
+                    "red, so 'this card is armed for a mode that assumes a\n"
+                    "soldering iron' is visible without opening this header.")
+            # the DANGER stays here in red, not in that tooltip: a tooltip is
+            # something a user can decline to read, and this is the sentence the
+            # whole gate exists for
+            dpg.add_text(
+                "Without it the card really IS at the floor voltage, cannot "
+                "hold the flat top, is asked for high clocks hundreds of mV "
+                "lower by the 45 MHz repair, and crashes the driver.",
+                tag="hdf_warn", color=BAD, wrap=self.s(1100))
+            with dpg.group(horizontal=True):
+                dpg.add_text("floor (mV)")
+                dpg.add_input_float(
+                    tag="hdf_floor", default_value=GPU.HARD_FLOOR_MV,
+                    width=self.s(130), step=self.VCAP_STEP, format="%.2f",
+                    min_value=300.0, max_value=1300.0,
+                    min_clamped=True, max_clamped=True,
+                    callback=self.hdf_floor_changed)
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(
+                        "The voltage the GPU will BELIEVE it is running at, and\n"
+                        "the voltage the card will park at. Everything at or\n"
+                        "above it is flattened onto one frequency; the arbiter\n"
+                        "runs the lowest voltage of a flat run, so that bottom\n"
+                        "point is where it lands.\n\n"
+                        "800.00 by default. Lower is allowed and lowers the\n"
+                        "believed voltage further - it also deepens the cascade\n"
+                        "the driver drags out from under the floor, which the\n"
+                        "staged plan states in points and MHz.")
+                dpg.add_text("   target (MHz)")
+                # seeded from the curve's own peak on every read (see vf_read):
+                # the target only has to be high enough to keep the card in P0,
+                # and the curve's peak is the one number on screen that is
+                # certainly high enough and certainly reachable.
+                dpg.add_input_int(
+                    tag="hdf_target", default_value=2010, step=15,
+                    width=self.s(130),
+                    min_value=self.gpu.static.get("gfx_min", 300),
+                    max_value=self.gpu.static.get("gfx_max", 2160),
+                    min_clamped=True, max_clamped=True,
+                    callback=self.hdf_target_changed)
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(
+                        "The single frequency every point at or above the floor\n"
+                        "is set to. Snapped DOWN to the 15 MHz grid - a mid-bin\n"
+                        "target floors on evaluation and the ONE frequency the\n"
+                        "whole mechanism depends on would quietly become two.\n\n"
+                        "It has to be high enough to hold the card in P0, so it\n"
+                        "is seeded from the curve's own peak on every read.")
+                dpg.add_button(label="Hard de-flatten", tag="go_hardflat",
+                               width=self.s(170),
+                               callback=self.vf_hard_deflatten)
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(
+                        "Stages a plan (nothing is written yet): sets EVERY\n"
+                        "point at or above the floor to the target frequency -\n"
+                        "deliberately making the curve completely flat.\n\n"
+                        "THE OPPOSITE OF THE RAMP, on purpose. The ramp removes\n"
+                        "flats so a throttling card has fine steps to walk down.\n"
+                        "This builds the biggest flat it can, because the arbiter\n"
+                        "runs the LOWEST voltage of a peak-frequency flat run:\n"
+                        "flatten 72 points onto one frequency and the card asks\n"
+                        "for that frequency at the bottom of the run.\n\n"
+                        "The point is not performance through granularity, it is\n"
+                        "DECEIVING THE POWER ESTIMATOR: the GPU believes it is at\n"
+                        "800 mV, computes low power from that belief and stops\n"
+                        "throttling - while the real rail is driven externally by\n"
+                        "the hard mod and is invisible to all GPU software,\n"
+                        "including this app.\n\n"
+                        "Needs the acknowledgement above ticked. Without the mod\n"
+                        "the card really is at 800 mV and this will crash it.")
         dpg.add_text("--", tag="vf_info", color=DIM, wrap=self.s(1100))
         dpg.add_text("", tag="vf_status", color=WARN, wrap=self.s(1100))
 
@@ -1293,6 +1471,20 @@ class TitanTune:
                 # number in a box.
                 dpg.add_inf_line_series([self.VCAP_DEFAULT], label="cap",
                                         tag="vf_capline")
+                # Same argument as the cap line, and the ramp needs it more:
+                # the floor decides how WIDE the band is, and width is what
+                # decides whether the top clips and the floor pays for it. A
+                # floor sitting down in the idle rungs is obvious as a line and
+                # invisible as a number in a box.
+                dpg.add_inf_line_series([self.RAMP_FLOOR_DEFAULT],
+                                        label="ramp floor", tag="vf_floorline")
+                # Shown ONLY while the hard-mod acknowledgement is ticked, which
+                # makes "this card is armed for a mode that assumes a soldering
+                # iron" a thing you can see on the picture rather than a
+                # checkbox state inside a collapsed header. It is also why it is
+                # red where the ramp floor is violet.
+                dpg.add_inf_line_series([], label="hard floor",
+                                        tag="vf_hardline")
                 # A hold changes what the CARD does while leaving the curve
                 # untouched, so nothing on this plot would move to show it.
                 # Drawn at the held point's voltage, in a different colour from
@@ -1321,6 +1513,22 @@ class TitanTune:
                 dpg.add_theme_style(dpg.mvPlotStyleVar_LineWeight,
                                     self.s(2), category=dpg.mvThemeCat_Plots)
         dpg.bind_item_theme("vf_capline", capth)
+        # a third colour, not a second amber one: cap, floor and hold are three
+        # different things and two of them bound the same band
+        with dpg.theme() as floorth:
+            with dpg.theme_component(dpg.mvAll):
+                dpg.add_theme_color(dpg.mvPlotCol_Line, VIOLET,
+                                    category=dpg.mvThemeCat_Plots)
+                dpg.add_theme_style(dpg.mvPlotStyleVar_LineWeight,
+                                    self.s(2), category=dpg.mvThemeCat_Plots)
+        dpg.bind_item_theme("vf_floorline", floorth)
+        with dpg.theme() as hardth:
+            with dpg.theme_component(dpg.mvAll):
+                dpg.add_theme_color(dpg.mvPlotCol_Line, BAD,
+                                    category=dpg.mvThemeCat_Plots)
+                dpg.add_theme_style(dpg.mvPlotStyleVar_LineWeight,
+                                    self.s(3), category=dpg.mvThemeCat_Plots)
+        dpg.bind_item_theme("vf_hardline", hardth)
         with dpg.theme() as holdth:
             with dpg.theme_component(dpg.mvAll):
                 dpg.add_theme_color(dpg.mvPlotCol_Line, GOOD,
@@ -1452,6 +1660,13 @@ class TitanTune:
         self.vf_by_idx = {p["idx"]: p for p in pts}
         self.vf_orig = {p["idx"]: p["delta_khz"] for p in pts}
         self.vf_work = dict(self.vf_orig)
+        # the working copy has just been rebased on the hardware, so any staged
+        # plan is gone and the note describing it must go with it - the banner
+        # would otherwise keep warning about a plan that no longer exists. The
+        # hard-mod acknowledgement goes at the same moment and for the same
+        # reason: it authorised THAT plan, and a write arrives back here.
+        self._plan_note = None
+        self.clear_hard_ack()
         # also reseed when a re-read comes back WITHOUT the selected index: wf()
         # is a bare dict lookup, so a stale selection raises KeyError out of
         # sync_sel_inputs below and aborts vf_read before the redraw, the axis
@@ -1467,6 +1682,36 @@ class TitanTune:
             dpg.configure_item("vf_idx", min_value=min(self.vf_by_idx),
                                max_value=max(self.vf_by_idx),
                                min_clamped=True, max_clamped=True)
+        # and the ramp floor to the voltages this curve HAS - same reason, one
+        # dimension over. A floor below the lowest point plans against the whole
+        # table (including the idle rungs the ramp exists to leave alone) and a
+        # floor above the top one plans against nothing at all.
+        if dpg.does_item_exist("rfloor"):
+            vlo = min(p["volt_mv"] for p in pts)
+            vhi = max(p["volt_mv"] for p in pts)
+            dpg.configure_item("rfloor", min_value=vlo, max_value=vhi,
+                               min_clamped=True, max_clamped=True)
+            # set_value bypasses DPG's clamp, so a default outside this card's
+            # range would sit in the box unenforced until first edited
+            dpg.set_value("rfloor",
+                          min(vhi, max(vlo, float(dpg.get_value("rfloor")))))
+        if dpg.does_item_exist("hdf_floor"):
+            vlo = min(p["volt_mv"] for p in pts)
+            vhi = max(p["volt_mv"] for p in pts)
+            dpg.configure_item("hdf_floor", min_value=vlo, max_value=vhi,
+                               min_clamped=True, max_clamped=True)
+            dpg.set_value("hdf_floor",
+                          min(vhi, max(vlo, float(dpg.get_value("hdf_floor")))))
+        # The hard-de-flatten target is SEEDED from the curve's own peak on every
+        # read, uncapped - peak_info's max clock. It only has to be high enough
+        # to hold the card in P0, and the curve's peak is the one number on
+        # screen that is certainly high enough and certainly reachable. Seeded
+        # rather than left alone for the same reason vf_set is: a target carried
+        # over from another curve names a frequency this one may not have.
+        if dpg.does_item_exist("hdf_target"):
+            pk, _pi, _pm, _n = GPU.peak_info(pts)
+            if pk:
+                dpg.set_value("hdf_target", int(pk))
         cap = dpg.get_value("vcap")
         peak, pidx, pmv, _npk = GPU.peak_info(pts, cap)
         flats = self.count_flats(pts, cap)
@@ -1577,6 +1822,70 @@ class TitanTune:
     # touched. Whether the CURVE reaches it is a per-card question: this one
     # stops at idx 102 @ 1087.50, so the cap resolves there instead.
     VCAP_DEFAULT = 1093.75
+    # Bottom of the regular ramp band, on the same grid. 1000.00 is not an
+    # arbitrary round number: it is where this card's V/F table stops being
+    # uniform. Below it the stock curve already steps 12.50 mV / 15 MHz with
+    # nothing shadowed, so a ramp there would rewrite points that are already
+    # as fine-grained as the grid allows; above it the steps blow out to 31-56
+    # mV and 17 of 21 points become unreachable. It is also the widest band
+    # whose ramp does not clip on this card - 15 rungs down from 2130 lands on
+    # exactly the 1905 stock already has at 1000.00 mV.
+    RAMP_FLOOR_DEFAULT = 1000.00
+
+    def rfloor_changed(self, sender=None, app_data=None, user_data=None):
+        """Snap the ramp floor onto the 6.25 mV VF-point grid, DOWNWARD, for the
+        same reasons as vcap_changed - the +/- buttons step 6.25 mV from
+        whatever is in the box, and an unsnapped start walks values no curve has.
+
+        Note the two bounds round the band in OPPOSITE directions and both round
+        it inwards: the cap resolves to the highest point at or BELOW it, the
+        floor to the lowest point at or ABOVE it (below_cap / above_floor). So
+        snapping the floor down can only ever make the box name a voltage the
+        band does not reach down to - never quietly annex a point under it."""
+        v = float(dpg.get_value("rfloor"))
+        snapped = math.floor(v / self.VCAP_STEP + 1e-9) * self.VCAP_STEP
+        if abs(snapped - v) > 1e-6:
+            dpg.set_value("rfloor", snapped)
+        self.vf_redraw()
+
+    def hdf_floor_changed(self, sender=None, app_data=None, user_data=None):
+        """Same 6.25 mV snap as the cap and the ramp floor. This one is also the
+        voltage the GPU will be told it is running at, so the number in the box
+        is a claim about the hardware mod as much as a planner bound."""
+        v = float(dpg.get_value("hdf_floor"))
+        snapped = math.floor(v / self.VCAP_STEP + 1e-9) * self.VCAP_STEP
+        if abs(snapped - v) > 1e-6:
+            dpg.set_value("hdf_floor", snapped)
+        self.vf_redraw()
+
+    def hdf_target_changed(self, sender=None, app_data=None, user_data=None):
+        """Snap the target DOWN to the 15 MHz grid. compute_hard_deflatten does
+        this too, but doing it in the box as well is the difference between the
+        user being told what will happen and being shown it: a mid-bin target
+        floors on evaluation, and the ONE frequency this whole mechanism depends
+        on would quietly become two."""
+        v = int(dpg.get_value("hdf_target"))
+        step = VF_STEP_KHZ // 1000
+        snapped = (v // step) * step
+        if snapped != v:
+            dpg.set_value("hdf_target", snapped)
+
+    def hdf_ack_changed(self, sender=None, app_data=None, user_data=None):
+        """Ticking the acknowledgement puts the hard floor on the plot; unticking
+        takes it off. The redraw is the whole callback - the gate itself is read
+        at the moment the button is pressed, not cached here, so there is one
+        place that decides whether this mode may run."""
+        self.vf_redraw()
+
+    def clear_hard_ack(self):
+        """Untick the acknowledgement. Called wherever the working copy is reset
+        (vf_read, vf_revert), i.e. whenever the plan it authorised stops
+        existing - a write goes through vf_read(force) on its way back, so one
+        tick buys exactly one hard de-flatten. It also means the tick cannot
+        persist across sessions even by accident: a fresh process starts with the
+        box clear, and nothing in this app ever writes it to disk."""
+        if dpg.does_item_exist("hdf_ack") and dpg.get_value("hdf_ack"):
+            dpg.set_value("hdf_ack", False)
 
     def vcap_changed(self, sender=None, app_data=None, user_data=None):
         """Snap the cap onto the 6.25 mV VF-point grid. The +/- buttons step by
@@ -1593,7 +1902,9 @@ class TitanTune:
         so 1094 and 1300 resolve alike. And when the top of the curve is a flat
         run the arbiter drops to its LOWEST voltage anyway - here 7 points hold
         1965 MHz, so the card parks at idx 96 @ 1050.00 whatever the cap says.
-        Raising the ceiling is De-flatten's job, not this field's."""
+        Raising the ceiling is De-flatten's or a ramp's job, not this field's -
+        this field only says where the band those two plan against ENDS (the
+        ramp floor box says where it begins)."""
         v = float(dpg.get_value("vcap"))
         # epsilon: float slop must not drop a value that IS on the grid to the
         # point below it, which would make every keystroke walk the cap down
@@ -1605,6 +1916,14 @@ class TitanTune:
     def vf_redraw(self):
         if dpg.does_item_exist("vf_capline"):
             dpg.set_value("vf_capline", [[float(dpg.get_value("vcap"))]])
+        if dpg.does_item_exist("vf_floorline"):
+            dpg.set_value("vf_floorline", [[float(dpg.get_value("rfloor"))]])
+        if dpg.does_item_exist("vf_hardline"):
+            # empty list = no line drawn, so the armed state and the picture
+            # cannot disagree
+            dpg.set_value("vf_hardline",
+                          [[float(dpg.get_value("hdf_floor"))]]
+                          if dpg.get_value("hdf_ack") else [[]])
         # BEFORE the early return: every path that changes what Apply would
         # write ends here, and the banner is the only thing standing between a
         # staged plan and a single click - it may never be one redraw stale.
@@ -2051,6 +2370,8 @@ class TitanTune:
 
     def vf_revert(self):
         self.vf_work = dict(self.vf_orig)
+        self._plan_note = None      # the plan it described has just been dropped
+        self.clear_hard_ack()       # and so has the thing it authorised
         # the boxes have to follow the working copy back, or Set-MHz still holds
         # the reverted frequency and one click silently re-applies the edit that
         # was just undone
@@ -2073,6 +2394,15 @@ class TitanTune:
     # (head colour, box fill, border) per band. The FILL is the point: colour
     # alone would just make this a fourth coloured status line on a tab that
     # already has three.
+    # What plan_h() measures with nothing staged, in UNSCALED pixels (156 px at
+    # this desktop's 150%). relayout() hands the plot 0.34 of the height PLUS
+    # this, then serves the banner out of that pot first - so at idle the split
+    # is exactly what it always was, and every line the banner grows comes off
+    # the plot instead of off the bottom of the page. Not measured live, because
+    # the thing being asked is "how tall is this box when it has nothing to say",
+    # which cannot be measured while it is saying something.
+    PLAN_H_IDLE = 104
+
     PLAN_BANDS = {
         "idle": (DIM, (32, 35, 42, 255), (72, 78, 92, 255)),
         "warn": (WARN, (58, 44, 10, 255), WARN),
@@ -2119,6 +2449,31 @@ class TitanTune:
             h += (self.text_h(txt, font, wrap) or fallback) + self.s(5)
         return int(h)
 
+    # unscaled, and measured rather than guessed for the part that wraps: the
+    # checkbox row plus the floor/target/button row, which do not.
+    HARD_BLOCK_ROWS = 70
+
+    def hard_block_h(self):
+        """Vertical cost of the gated hard-de-flatten block, or 0 while its
+        header is collapsed. It sits ABOVE the plot, so an open header pushes
+        everything under it down - including 'Apply to GPU', which is the one
+        thing that may not go off screen while the banner above it is warning
+        about a plan. Same treatment as the banner, then: the plot pays."""
+        # A CHILD's visibility, not dpg.is_item_toggled_open(): that flag tracks
+        # the user's click and stays False when the header is opened any other
+        # way (measured - configure_item(default_open=True) opens the header and
+        # leaves toggled_open False). is_item_visible on something inside it
+        # answers the question actually being asked, which is whether this block
+        # is on the page. It also reads False while another TAB is in front,
+        # which is harmless: the plot is not on screen then either, and the next
+        # relayout tick (4 Hz) sizes it correctly the moment Control comes back.
+        if not (dpg.does_item_exist("hdf_warn")
+                and dpg.is_item_visible("hdf_warn")):
+            return 0
+        return ((self.text_h(dpg.get_value("hdf_warn") or "Ag", "ui",
+                             self.plan_wrap()) or self.s(60))
+                + self.s(self.HARD_BLOCK_ROWS))
+
     def size_plan_banner(self):
         """Re-wrap and re-measure. Called from relayout (the window changed
         width) AND from update_plan_banner (the text changed): at 4 Hz the
@@ -2152,8 +2507,17 @@ class TitanTune:
         # A plan that drags the peak DOWN (a cap that landed in the low-voltage
         # floor levels the whole upper curve onto it) otherwise reads exactly
         # like a raise - it was the case Tk's confirm dialog existed to catch.
+        # A ramp and a hard de-flatten are described by the SAME four words as
+        # any other edit - point count, top ≤cap, peak, park - and every one of
+        # them reads as good news: the ramp raises all four, and a hard
+        # de-flatten's park point moving to 800 mV looks like a triumph rather
+        # than a claim about the user's soldering. The note carries what those
+        # words cannot - the floor cost, the sub-floor cascade, the mod.
+        note = self._plan_note or {}
         return {
             "changed": changed,
+            "note": note.get("text", ""),
+            "note_hard": bool(note.get("hard")),
             "lowers_peak": peak < hw_peak,
             "warn": (f"WARNING: this LOWERS the curve's peak from "
                      f"{hw_peak:.0f} to {peak:.0f} MHz. "
@@ -2175,13 +2539,22 @@ class TitanTune:
         if plan is None:
             band = "idle"
             head = "APPLY TO GPU  ·  nothing staged"
-            body = ("Drag a dot, nudge with W/S, Set MHz or De-flatten, and "
-                    "this box says exactly what one click on 'Apply to GPU' "
+            body = ("Drag a dot, nudge with W/S, Set MHz, De-flatten, Ramp or "
+                    "Hard de-flatten, and this box says exactly what one "
+                    "click on 'Apply to GPU' "
                     "will write - before the click, not after it.")
         else:
-            band = "bad" if plan["lowers_peak"] else "warn"
+            # A hard de-flatten is red for the same reason a peak-lowering plan
+            # is: both are one click away from a result the user did not want.
+            # It does not displace the peak warning - that one names a change
+            # to the curve, this one names a prerequisite outside the computer
+            # - so lowers_peak keeps the headline and the note is printed
+            # either way.
+            band = "bad" if (plan["lowers_peak"] or plan["note_hard"]) else "warn"
             head = ("APPLY TO GPU  ·  ONE CLICK LOWERS THE PEAK"
                     if plan["lowers_peak"] else
+                    "APPLY TO GPU  ·  HARD DE-FLATTEN - WITHOUT THE VOLTAGE "
+                    "MOD THIS WILL CRASH" if plan["note_hard"] else
                     "APPLY TO GPU  ·  ONE CLICK WRITES THIS")
             # The undo-point sentence is the pre-click half of the bargain that
             # bought single-click Apply, so it may only promise what the click
@@ -2191,7 +2564,9 @@ class TitanTune:
             # restore here that autosave_before then could not take would be
             # the one lie this box cannot afford.
             body = (plan["warn"] + "Writes " + plan["text"]
-                    + ".\nAn undo point is taken immediately before the write "
+                    + ".\n"
+                    + (plan["note"] + "\n" if plan["note"] else "")
+                    + "An undo point is taken immediately before the write "
                       "and Profiles > Undo last write puts this state back - "
                       "unless the status line reports that the snapshot came "
                       "back incomplete, in which case the write still happens "
@@ -2233,8 +2608,13 @@ class TitanTune:
         # the plan goes into it at the moment of commit as well as standing in
         # the banner beforehand - and it lands directly under the undo point
         # that would take it back
-        self.log(plan["warn"] + "writing " + plan["text"],
-                 False if plan["lowers_peak"] else None)
+        # the planner's note goes into the receipt as well as the banner: a
+        # hard de-flatten applied to a card with no voltage mod crashes it, and
+        # the log is the only record that survives to say what was written and
+        # on what assumption about the hardware it was written
+        self.log(plan["warn"] + "writing " + plan["text"]
+                 + (". " + plan["note"] if plan["note"] else ""),
+                 False if (plan["lowers_peak"] or plan["note_hard"]) else None)
         ok, m = self.gpu.apply_vf_deltas(changed)
         self.report((ok, m))
         if not ok:
@@ -2333,6 +2713,218 @@ class TitanTune:
                     f"line on the plot; 'Revert edits' drops the plan" if down
                     else " - press Apply to GPU to write"),
                  not down)
+
+    def vf_ramp(self, sender=None, app_data=None, user_data=None):
+        """Stage a strictly-increasing ramp onto the working copy - PREVIEW
+        only, exactly like De-flatten: nothing reaches the GPU until Apply. See
+        GPU.compute_ramp for the reasoning and the measured step table.
+
+        This is the tool for throttling that is going to happen anyway: it gives
+        a descending card fine-grained operating points to walk down through.
+        `Hard de-flatten` (vf_hard_deflatten) is the opposite transform for the
+        opposite problem - throttling that should not happen at all."""
+        if not self.vf_points:
+            self.log("read the curve first", False)
+            return
+        lo = float(dpg.get_value("rfloor"))
+        cap = float(dpg.get_value("vcap"))
+        pts = self.work_pts()
+        gmax = self.gpu.static.get("gfx_max")
+        ch, _cb, _ca, meta = GPU.compute_ramp(
+            pts, lo, cap, max_khz=(gmax * 1000 if gmax else None))
+        if not ch:
+            # Two ways to get here and only one is good news, same distinction
+            # de-flatten draws: an empty band is a bound that matched nothing,
+            # not a curve that is already a ramp.
+            if not meta.get("rungs"):
+                self.log(f"no curve points between {lo:.2f} and {cap:.2f} mV - "
+                         f"the floor is above the cap, or both bounds sit off "
+                         f"this curve; nothing to plan", False)
+            else:
+                self.log(f"{meta['rungs']} point(s) from {meta['lo_mv']:.2f} to "
+                         f"{meta['cap_mv']:.2f} mV are already a 15 MHz ramp "
+                         f"topping out at {meta['top_mhz']:.0f} MHz - nothing "
+                         f"to do", True)
+            return
+        for idx, _v, _o, _n, nd in ch:
+            self.vf_work[idx] = int(nd)
+        self.sync_sel_inputs()
+
+        # Written TIGHT, and that is a constraint rather than a style: the
+        # banner measures itself and grows, and a note long enough to push
+        # 'Apply to GPU' below the fold has defeated the reason the banner sits
+        # between the plot and the button. The full version of the hard-mod
+        # explanation lives in the button's tooltip and in the README; what is
+        # here is what must be read without hovering anything.
+        cost = meta["floor_cost_mhz"]
+        # `rungs` is what was asked for, `delivered` is what the card will run:
+        # the driver reshapes the evaluated curve and the delta table cannot show
+        # it (GPU.evaluate_curve_law). Quoting only the first would be quoting
+        # the one number that is not the point of the feature.
+        band = (f"{meta['rungs']} rungs → {meta['delivered']} distinct "
+                f"operating points, {meta['lo_mv']:.2f} → "
+                f"{meta['cap_mv']:.2f} mV, top {meta['top_mhz']:.0f} MHz")
+        # The floor is the one number the generic banner cannot reach: it talks
+        # about the top ≤cap, the peak and the park point, all of which a ramp
+        # RAISES. A clipped ramp pays for that at the bottom of the band, and
+        # that is the price the owner has to see before the click, not after.
+        if cost > 0:
+            floor_txt = (f"Top clipped at the {meta['top_mhz']:.0f} MHz hw max, "
+                         f"so the floor pays: {meta['lo_mv']:.2f} mV drops "
+                         f"{meta['floor_before_mhz']:.0f} → "
+                         f"{meta['floor_after_mhz']:.0f} MHz (-{cost:.0f})")
+            if meta.get("shadowed"):
+                floor_txt += (f" - below the untouched point under the band "
+                              f"({meta['under_band_mhz']:.0f} MHz), so the "
+                              f"driver raises the bottom {meta['shadowed']} "
+                              f"rung(s) onto it and they arrive as ONE flat")
+        else:
+            # No "the floor went UP" case, and there cannot be one: the ceiling
+            # is min(max_khz, floor + rungs-1 bins), so the floor either keeps
+            # its frequency or pays for a clip. Anything that made the top
+            # anchor unconditionally at the hardware max would break that
+            # invariant - and would also start demanding 2130 MHz at whatever
+            # voltage the cap happened to name.
+            floor_txt = (f"No clip, so the floor keeps its "
+                         f"{meta['floor_after_mhz']:.0f} MHz at "
+                         f"{meta['lo_mv']:.2f} mV")
+        # The one thing that can ask the rail for something OUTSIDE the band. The
+        # ramp alone never causes it - its floor never rises above the frequency
+        # that point already had - but a hand-drag that pulled a point under the
+        # floor down leaves a gap wider than the driver tolerates, and the write
+        # then pulls that point back up. It is the hazard the "leave everything
+        # below the floor alone" rule exists to avoid, so it is named.
+        if meta.get("lifted_below"):
+            floor_txt += (f". {meta['lifted_below']} point(s) BELOW the floor "
+                          f"get dragged up too (max +{meta['lift_max_mhz']:.0f} "
+                          f"MHz): the driver allows at most 45 MHz between "
+                          f"neighbouring points, so the curve under the band is "
+                          f"pulled up to meet it - more clock at LOWER voltages "
+                          f"than the band asked for")
+        note = (f"RAMP - {band}. {floor_txt}. Every rung asks more clock at "
+                f"its voltage than stock did - the granularity fix and the "
+                f"overclock are one edit, so each rung has to be stable.")
+        self.stage_note(note, hard=False)
+        if not meta.get("unique", True):
+            self.log(f"idx {meta['cap_idx']} cannot be made the park point: an "
+                     f"untouched point below the floor already holds "
+                     f"{meta['top_mhz']:.0f} MHz at a lower voltage", False)
+        # BRIEF, and not the note. log() mirrors its last line into vf_status,
+        # which sits ABOVE the plot and wraps - so logging the full note pushed
+        # the plot, the banner and 'Apply to GPU' a hundred pixels down the page
+        # to say a second time what the banner is already saying, permanently,
+        # right above the button. The note goes in the log at the moment of the
+        # WRITE (vf_apply), where a permanent receipt is the point.
+        self.log(f"staged: {band}, {len(ch)} point(s) changed"
+                 + (f", floor -{cost:.0f} MHz" if cost > 0 else "")
+                 + (f", bottom {meta['shadowed']} rung(s) will be flattened by "
+                    f"the driver" if meta.get("shadowed") else "")
+                 + " - read the plan box above before pressing Apply")
+
+    def stage_note(self, note, hard):
+        """Hand a freshly staged plan's note to the banner. ONE place, because
+        both transforms need the same two things done to it and one of them is a
+        safety property.
+
+        STICKY HARD. Staging a ramp on top of a hard de-flatten does not unstage
+        the flat top underneath it - it is still in the working copy and still in
+        what one click on Apply would write - so a later, tamer note must not be
+        allowed to take the red away."""
+        still_hard = hard or bool((self._plan_note or {}).get("hard"))
+        if still_hard and not hard:
+            note += (" A HARD DE-FLATTEN IS STILL STAGED UNDERNEATH THIS and "
+                     "Apply writes both: 'Revert edits' is what drops it.")
+        self._plan_note = {"text": note, "hard": still_hard}
+        self.vf_redraw()          # rebuilds the banner from _plan_note
+
+    def vf_hard_deflatten(self):
+        """Stage a HARD DE-FLATTEN - PREVIEW only, like every other planner here.
+        See GPU.compute_hard_deflatten for the mechanism and the measured
+        cascade; this method is the gate and the explanation.
+
+        THE OPPOSITE OF THE RAMP. `Ramp ≤ cap` removes flats so a throttling card
+        has fine steps to descend through. This builds the biggest flat it can -
+        every point at or above the floor set to one frequency - because the
+        arbiter runs the LOWEST voltage of a peak-frequency flat run, so the card
+        then parks AT the floor. Not performance through granularity: DECEIVING
+        THE POWER ESTIMATOR, so the throttling never starts.
+
+        THE GATE IS A CHECKBOX, NOT A TOOLTIP, and it is read here rather than
+        cached anywhere: a tooltip is something a user can decline to read, and
+        what is being acknowledged is a fact about their soldering iron that no
+        amount of software can check. Without the mod the card really is at the
+        floor voltage, the flat top demands clocks it cannot hold, the shape-law
+        cascade demands high clocks hundreds of millivolts further down, and the
+        driver crashes.
+
+        THE CASCADE IS THE THING TO SHOW. "Nothing below the floor is written" is
+        true and it is not the same claim as "nothing below the floor changes":
+        the 45 MHz shape law drags 16 points below an 800 mV floor upward, as far
+        down as 700.00 mV, worst case 1530 -> 1965 MHz - with no delta written to
+        any of them. That belongs in front of the user before the click, not in a
+        post-mortem, so it goes in the staged plan."""
+        if not self.vf_points:
+            self.log("read the curve first", False)
+            return
+        if not dpg.get_value("hdf_ack"):
+            self.log("hard de-flatten refused: tick the hardware-mod "
+                     "acknowledgement first. This mode only does anything on a "
+                     "card whose core rail is driven externally with `refin_adj` "
+                     "(or the equivalent circuit) dead - on any other card it "
+                     "demands clocks the real 800 mV cannot hold and crashes the "
+                     "driver.", False)
+            return
+        floor = float(dpg.get_value("hdf_floor"))
+        target = int(dpg.get_value("hdf_target"))
+        pts = self.work_pts()
+        ch, before, after, meta = GPU.compute_hard_deflatten(
+            pts, floor, target * 1000)
+        if not ch:
+            if not meta.get("n_flat"):
+                self.log(f"no curve points at or above {floor:.2f} mV - nothing "
+                         f"to flatten", False)
+            else:
+                self.log(f"every point at or above {meta['floor_mv']:.2f} mV is "
+                         f"already at {meta['target_mhz']:.0f} MHz - nothing to "
+                         f"do", True)
+            return
+        for idx, _v, _o, _n, nd in ch:
+            self.vf_work[idx] = int(nd)
+        self.sync_sel_inputs()
+
+        park = (f"the card parks at idx {meta['park_idx']} @ "
+                f"{meta['park_mv']:.2f} mV / {meta['park_mhz']:.0f} MHz")
+        if not meta["parks_at_floor"]:
+            # The one way this plan silently misses: a target low enough that an
+            # untouched point below the floor still holds the peak takes the park
+            # point with it, and the GPU is then told a voltage nobody chose.
+            park += (f", NOT at the {meta['floor_mv']:.2f} mV floor - the target "
+                     f"is too low, a point below the floor still holds the peak. "
+                     f"Raise the target")
+        cascade = ""
+        if meta["lifted_below"]:
+            cascade = (f" The driver then drags {meta['lifted_below']} point(s) "
+                       f"BELOW the floor up with it, as far down as "
+                       f"{meta['lift_lowest_mv']:.2f} mV, worst case "
+                       f"+{meta['lift_max_mhz']:.0f} MHz - no delta is written to "
+                       f"any of them (45 MHz max step, shape law), so this asks "
+                       f"the rail for high clocks well under the floor.")
+        note = (f"HARD DE-FLATTEN - {meta['n_flat']} point(s) at or above "
+                f"{meta['floor_mv']:.2f} mV flattened onto ONE frequency, "
+                f"{meta['target_mhz']:.0f} MHz, so {park}. NEEDS THE EXTERNAL "
+                f"VOLTAGE MOD: the GPU will believe it is at "
+                f"{meta['floor_mv']:.2f} mV and compute low power from that "
+                f"belief, which is the entire point - without the mod it really "
+                f"IS at {meta['floor_mv']:.2f} mV and this crashes it."
+                + cascade)
+        self.stage_note(note, hard=True)
+        self.log(f"staged: hard de-flatten, {len(ch)} point(s) changed, "
+                 f"{meta['n_flat']} flat at {meta['target_mhz']:.0f} MHz from "
+                 f"{meta['floor_mv']:.2f} mV, park idx {meta['park_idx']} @ "
+                 f"{meta['park_mv']:.2f} mV"
+                 + (f", +{meta['lifted_below']} point(s) dragged up below the "
+                    f"floor" if meta["lifted_below"] else "")
+                 + " - read the plan box above before pressing Apply", False)
 
     def vf_rephase(self):
         if not self.guard():
