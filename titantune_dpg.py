@@ -29,7 +29,7 @@ Safety model, carried over from the Tk version:
     'Reset curve to stock' - are one click, and the consequence is on screen
     continuously BEFORE the click, in the plan banner above them (see
     update_plan_banner). What pays for the missing second press is
-    profiles.autosave(): every write that touches the 103-row VF delta
+    profiles.autosave(): every write that touches the VF delta
     table - 'Apply to GPU', 'Reset curve to stock', 'Re-phase', the CORE
     offset Apply (it is the same table), 'Reset all to stock' and a profile
     Load - takes an undo point immediately beforehand, restorable from
@@ -42,7 +42,7 @@ Safety model, carried over from the Tk version:
     point (see autosave_before).
     'Reset all to stock' is the ONE exception and still arms on the first
     press - it discards every knob at once (offsets, voltage boost, power
-    limit, fan and all 103 deltas), so a stray click there costs a whole tune
+    limit, fan and every delta), so a stray click there costs a whole tune
     rather than one table.
     De-flatten is not a write at all - where Tk previewed it on a canvas, it
     STAGES onto the working curve, so the plan is visible on the plot and only
@@ -70,10 +70,12 @@ import dearpygui.dearpygui as dpg
 import gpuload
 import profiles
 import timings
+import timingwrite
 from nvbackend import (GPU, EVENT_REASONS, PERF_DECREASE_BITS, VF_STEP_KHZ,
                        VFP_POINTS, below_cap,
                        PRIV_CONFIRMED, PRIV_DOMAIN_ID, PRIV_LIKELY,
-                       PRIV_N_DOMAINS, PRIV_PCIE_GEN, PRIV_UNNAMED)
+                       PRIV_N_DOMAINS, PRIV_PCIE_GEN, PRIV_UNNAMED,
+                       PRIV_UNPOPULATED)
 
 # ---- palette (ImGui takes 0-255 RGBA) ------------------------------------- #
 TEXT = (230, 232, 236)
@@ -141,6 +143,7 @@ class TitanTune:
         self._bar_themes = {}
         self._bar_band = {}
         self._dom_band = {}        # per-domain A-vs-B divergence colour band
+        self._dom_name = {}        # per-domain (label, grade) actually drawn
         self._dom_shown = set()    # domains whose table row is currently shown
         self._plan_themes = {}     # plan-banner box themes, one per band
         self._plan_band = None
@@ -164,10 +167,46 @@ class TitanTune:
         self._tim_note = ""        # where the last induced load landed
         self._tim_what = ""        # what the worker is doing, for the button
         self._tim_auto_t = 0.0     # last AUTOMATIC capture (anti-thrash)
+        self._tim_ft = None        # timings.FieldTable, once nvtune has answered
+        self._tw_pending = {}      # staged timing writes, field -> new value
+        self._tw_base = {}         # field -> cycle count actually in the reg
+        self._tw_themes = {}       # cached text-colour themes for the cells
+        self._tw_btn = None        # colour band the Apply button is wearing
 
     # ---- helpers ---------------------------------------------------------- #
     def s(self, n):
         return int(round(n * self.scale))
+
+    def step_khz(self):
+        """This card's core-clock grid in kHz - 15000 on TU102, 12657 on GP102.
+
+        Everything in the editor that moves a point by 'one bin' has to ask,
+        because a bin is a per-card quantity. VF_STEP_KHZ is only the fallback
+        the backend uses when the driver's table cannot be measured."""
+        gpu = getattr(self, "gpu", None)
+        return gpu.clock_step_khz() if gpu is not None else VF_STEP_KHZ
+
+    def step_mhz(self):
+        """The grid in whole MHz, for widgets that can only hold integers.
+
+        Rounded, and on a non-integer grid that rounding is real: GP102's
+        12.657 shows here as 13, so a nudge is 'about a bin'. The planners use
+        the exact kHz value; only the arrow keys and the sliders see this."""
+        return max(1, int(round(self.step_khz() / 1000.0)))
+
+    def n_vf_rows(self):
+        """How many V/F delta rows THIS card has, for text that quotes a count.
+
+        Not VFP_POINTS: that is the 128-entry capacity of the NVAPI struct, and
+        it is the GPU point count on Turing only by coincidence. GP102 has 80
+        GPU points inside an 84-entry table whose last four rows are the memory
+        V/F points. Falls back to whatever the editor is currently holding, then
+        to the struct capacity, so this can never raise inside a tooltip."""
+        gpu = getattr(self, "gpu", None)
+        lay = gpu.vfp_layout() if gpu is not None else None
+        if lay is not None:
+            return lay.n_gpu
+        return len(getattr(self, "vf_points", ()) or ()) or VFP_POINTS
 
     def series_theme(self, marker, size, weight):
         """Marker/line style for one plot series. DPG's default marker radius
@@ -384,13 +423,18 @@ class TitanTune:
 
     # A name we earned is written plainly; a name that is only elimination gets
     # amber and a '?', so nobody goes debugging the wrong domain on our say-so.
-    GRADE_COL = {PRIV_CONFIRMED: TEXT, PRIV_LIKELY: WARN, PRIV_UNNAMED: DIM}
+    # 'unpopulated' is a domain reading zero on a card that is demonstrably
+    # running: it gets no name at all, because the alternative - what this panel
+    # actually did on GP102 - is four dead rows labelled GPC / XBAR / SYSCLK /
+    # VIDEO in CONFIRMED styling while the real GPU clock sat unnamed elsewhere.
+    GRADE_COL = {PRIV_CONFIRMED: TEXT, PRIV_LIKELY: WARN, PRIV_UNNAMED: DIM,
+                 PRIV_UNPOPULATED: DIM}
 
     # Divergence bands, in whole 15 MHz clock bins. Inside one bin is the
     # counter jittering; past one bin the card is genuinely not running at the
     # frequency the tiles report.
-    DOM_WARN_MHZ = VF_STEP_KHZ / 1000.0
-    DOM_BAD_MHZ = 3 * VF_STEP_KHZ / 1000.0
+    # (the one- and three-bin thresholds now live in dom_band(), which asks the
+    # card - as class constants they were fixed at Turing's 15/45 MHz)
     DOM_BAND_COL = {"ok": DIM, "warn": WARN, "bad": BAD}
 
     def build_domains(self):
@@ -470,17 +514,16 @@ class TitanTune:
                     dpg.add_table_column(label=label, width_fixed=True,
                                          init_width_or_weight=self.s(w))
                 for dom in range(PRIV_N_DOMAINS):
-                    name, grade, _kind = PRIV_DOMAIN_ID.get(
-                        dom, ("", PRIV_UNNAMED, None))
                     with dpg.table_row(tag=f"dom_row_{dom}", show=False):
                         dpg.add_text(f"{dom:>2}", tag=f"dom_{dom}_ix",
                                      color=DIM)
-                        # the name and its grade come from a static table, so
-                        # they are written ONCE here instead of on every tick
-                        dpg.add_text((name + "?") if grade == PRIV_LIKELY
-                                     else (name or "--"),
-                                     tag=f"dom_{dom}_name",
-                                     color=self.GRADE_COL[grade])
+                        # Written per TICK, not once here. It used to come from
+                        # the static PRIV_DOMAIN_ID table, which is a map from
+                        # DOMAIN NUMBER to name - exactly the thing that moves
+                        # between architectures. The backend now earns each name
+                        # against the driver's own core/memory figures, and a
+                        # name decided per card has to be drawn per card.
+                        dpg.add_text("--", tag=f"dom_{dom}_name", color=DIM)
                         for col in ("prog", "meas", "delta", "flags", "srcid"):
                             dpg.add_text("--", tag=f"dom_{dom}_{col}",
                                          color=DIM if col == "delta" else TEXT)
@@ -501,8 +544,10 @@ class TitanTune:
         if delta_mhz is None:
             return "ok"
         d = abs(delta_mhz)
-        return ("bad" if d >= self.DOM_BAD_MHZ else
-                "warn" if d >= self.DOM_WARN_MHZ else "ok")
+        # bands are ONE and THREE clock bins, so they follow the card's grid
+        # rather than a Turing-sized 15/45 MHz
+        warn = self.step_khz() / 1000.0
+        return ("bad" if d >= 3 * warn else "warn" if d >= warn else "ok")
 
     def refresh_domains(self, d):
         rows = d.get("clk_domains")
@@ -539,6 +584,16 @@ class TitanTune:
             dpg.set_value(f"dom_{dom}_delta", delta)
             dpg.set_value(f"dom_{dom}_flags", self.flag_fmt(r["flags"]))
             dpg.set_value(f"dom_{dom}_srcid", str(r["srcid"]))
+            # the name is now per-card, so it is drawn per tick - but only
+            # re-themed when it actually changes, same as the delta band
+            grade = r.get("grade", PRIV_UNNAMED)
+            label = ((r["name"] + "?") if grade == PRIV_LIKELY
+                     else (r["name"] or "--"))
+            if self._dom_name.get(dom) != (label, grade):
+                self._dom_name[dom] = (label, grade)
+                dpg.set_value(f"dom_{dom}_name", label)
+                dpg.configure_item(f"dom_{dom}_name",
+                                   color=self.GRADE_COL.get(grade, DIM))
             # re-theme only on a band change, same reason as the bars
             band = self.dom_band(r["delta_mhz"])
             if self._dom_band.get(dom) != band:
@@ -863,9 +918,9 @@ class TitanTune:
                         core_hi = st["core_off_range"][1]
                     self.slider_row("core", "Core clock offset (MHz)",
                                     core_lo, core_hi, 0, self.apply_core,
-                                    note=f"Apply snaps DOWN to the "
-                                         f"{VF_STEP_KHZ//1000} MHz grid, then "
-                                         f"shows what was written")
+                                    note=f"Apply snaps DOWN to this card's "
+                                         f"{self.step_khz()/1000:.4g} MHz "
+                                         f"grid, then shows what was written")
 
                     mscale, munit = self.gpu.mem_offset_scale()
                     mlo, mhi = -500, 1500
@@ -943,7 +998,7 @@ class TitanTune:
         nothing on its own, so without this a locked build looks fully live and
         a refused write shows up only as one line in the log. 'Reset all to
         stock' stays live on purpose - it only ever moves toward stock; 'Reset
-        curve to stock' is a 103-row table write that also discards staged
+        curve to stock' is a whole-table write that also discards staged
         edits, so it is gated with the rest."""
         on = self.unlocked()
         for tag in self._ctl_widgets:
@@ -968,7 +1023,7 @@ class TitanTune:
         # add_slider_int has no resolution, so the value is snapped on Apply and
         # written back to the slider - the number on screen is the number in the
         # card.
-        step = VF_STEP_KHZ // 1000
+        step = self.step_mhz()
         mhz = int(math.floor(int(v) / step)) * step
         # ...but never past the driver's own floor. That bound is not a multiple
         # of 15 (-200 snaps DOWN to -210), so at the very bottom of the slider
@@ -980,7 +1035,7 @@ class TitanTune:
         if mhz != int(v):
             dpg.set_value("sl_core", mhz)
         # An undo point, unlike the other sliders: this offset lands in the
-        # SAME 103-row delta table as the curve (see nvbackend.set_clock_offset),
+        # SAME delta table as the curve (see nvbackend.set_clock_offset),
         # so one drag and one Apply overwrites a hand-tuned curve that is
         # nowhere on screen. It is a curve write wearing a slider.
         self.autosave_before("core-offset")
@@ -1179,7 +1234,7 @@ class TitanTune:
     def reset_all(self):
         """The ONE write that keeps its press-again arm, at the user's explicit
         call: a stray click here discards the entire tune at once - both
-        offsets, voltage boost, power limit, fan and all 103 deltas - and
+        offsets, voltage boost, power limit, fan and every delta - and
         unlike Apply there is no single thing on screen whose consequence a
         banner could state, because it undoes every knob on the tab."""
         if not self._reset_armed:
@@ -1537,7 +1592,7 @@ class TitanTune:
                                     self.s(3), category=dpg.mvThemeCat_Plots)
         dpg.bind_item_theme("vf_holdline", holdth)
         # NOTE: no per-point drag widgets - every dot stays draggable without
-        # 103 separate items. The grab is a PIXEL hit test against the marker
+        # one item per point. The grab is a PIXEL hit test against the marker
         # (see nearest_idx): the Tk-era "nearest by voltage, anywhere on the
         # plot" rule made empty sky a drag handle for whatever point shared
         # that column, which is how a pan attempt became a 300 MHz edit.
@@ -1675,7 +1730,7 @@ class TitanTune:
         if self.vf_sel is None or self.vf_sel not in self.vf_by_idx:
             self.vf_sel = pts[len(pts) // 2]["idx"]
         # the index box may only name a point that EXISTS: an input_int carries
-        # DPG's default 0..100 bounds (wrong for a 103-point curve) and ignores
+        # DPG's default 0..100 bounds (wrong for any real curve) and ignores
         # them on entry, and an index the curve does not have would leave the
         # box showing one point while every nudge drove another
         if dpg.does_item_exist("vf_idx"):
@@ -1819,8 +1874,8 @@ class TitanTune:
     VCAP_STEP = 6.25        # the VF table's own voltage spacing
     # On the grid (175 * 6.25), so the box shows a real point from the first
     # frame rather than a number that only becomes one once the field is
-    # touched. Whether the CURVE reaches it is a per-card question: this one
-    # stops at idx 102 @ 1087.50, so the cap resolves there instead.
+    # touched. Whether the RAIL reaches it is a per-card question: this one
+    # stops near 1093.75, which is idx 103 and exactly this default.
     VCAP_DEFAULT = 1093.75
     # Bottom of the regular ramp band, on the same grid. 1000.00 is not an
     # arbitrary round number: it is where this card's V/F table stops being
@@ -1865,7 +1920,7 @@ class TitanTune:
         floors on evaluation, and the ONE frequency this whole mechanism depends
         on would quietly become two."""
         v = int(dpg.get_value("hdf_target"))
-        step = VF_STEP_KHZ // 1000
+        step = self.step_mhz()
         snapped = (v // step) * step
         if snapped != v:
             dpg.set_value("hdf_target", snapped)
@@ -1897,11 +1952,20 @@ class TitanTune:
         the number in the box the cap that is actually planned against, and a
         typo can only ever ask for LESS voltage than typed, never more.
 
-        Note the cap cannot raise the delivered voltage past where the CURVE
-        ends. Measured on this card: the table stops at idx 102 @ 1087.50 mV,
-        so 1094 and 1300 resolve alike. And when the top of the curve is a flat
-        run the arbiter drops to its LOWEST voltage anyway - here 7 points hold
-        1965 MHz, so the card parks at idx 96 @ 1050.00 whatever the cap says.
+        Note the cap cannot raise the delivered voltage past what the RAIL
+        delivers, which on this card stops near 1093.75 mV. It is NOT bounded
+        by where the table ends: on TU102 the 128-point table runs to idx 127 @
+        1243.75 mV, so a cap typed above the rail still resolves to a real
+        table point rather than being clamped to the reachable ceiling. (Under
+        the old 103-point read the table appeared to stop at 1087.50, which is
+        why this docstring used to claim 1094 and 1300 resolve alike. They do
+        not.) And when the top of the curve is a flat run the arbiter drops to
+        its LOWEST voltage anyway - on TU102 8 points hold 1965 MHz from 1050.00
+        to 1093.75, so the card parks at idx 96 @ 1050.00 whatever the cap says.
+
+        GP102 is the same story with different numbers, which is why none of
+        them belong in code: 80 GPU points, and 17 of them hold 1911 MHz from
+        1081.25 mV up, while the rail stops near 1062.5.
         Raising the ceiling is De-flatten's or a ramp's job, not this field's -
         this field only says where the band those two plan against ENDS (the
         ramp floor box says where it begins)."""
@@ -2133,7 +2197,7 @@ class TitanTune:
         if self.vf_sel is None or not self.vf_points or self.typing():
             return
         mult = self.SHIFT_MULT if dpg.is_key_down(dpg.mvKey_ModShift) else 1
-        self.vf_nudge(int(user_data or 1) * (VF_STEP_KHZ // 1000) * mult)
+        self.vf_nudge(int(user_data or 1) * self.step_mhz() * mult)
 
     def on_key_select(self, sender=None, app_data=None, user_data=None):
         """A / D step the selection along the curve (x3 with Shift)."""
@@ -2323,7 +2387,7 @@ class TitanTune:
         """Only ever move a delta by WHOLE 15 MHz bins: the driver evaluates
         floor((base+delta)/15)*15 and `base` has an unknowable sub-15 remainder,
         so an absolute target lands mid-bin and silently floors."""
-        step = VF_STEP_KHZ
+        step = self.step_khz()
         d0 = self.vf_orig[idx]
         lim = GPU.MAX_ABS_DELTA_KHZ
         base_f = int(round(self.vf_by_idx[idx]["freq_mhz"] * 1000))
@@ -2358,8 +2422,9 @@ class TitanTune:
             return
         want = want_mhz * 1000
         base_f = int(round(self.vf_by_idx[self.vf_sel]["freq_mhz"] * 1000))
-        bins = int(math.floor((want - base_f) / VF_STEP_KHZ))
-        self.set_work_freq(self.vf_sel, base_f + bins * VF_STEP_KHZ)
+        grid = self.step_khz()
+        bins = int(math.floor((want - base_f) / grid))
+        self.set_work_freq(self.vf_sel, base_f + bins * grid)
         # write the LANDED frequency back into the box: the request is floored to
         # a bin, so leaving the asked-for number sitting there would make the
         # box disagree with the point it names
@@ -2574,8 +2639,8 @@ class TitanTune:
                       "table is always available via 'Reset curve to stock' "
                       "or a reboot.")
         reset = (f"'Reset curve to stock' is one click too: it zeroes all "
-                 f"{VFP_POINTS} deltas back to the factory curve and discards "
-                 f"{pending} staged edit(s).")
+                 f"{self.n_vf_rows()} deltas back to the factory curve and "
+                 f"discards {pending} staged edit(s).")
         dpg.set_value("vf_plan_head", head)
         dpg.set_value("vf_plan_body", body)
         dpg.set_value("vf_plan_reset", reset)
@@ -2662,7 +2727,8 @@ class TitanTune:
         # Everything below is measured off the curve, by curve_top, exactly as
         # the Apply confirmation measures it.
         ch, _cb, _ca, meta = GPU.compute_deflatten(
-            pts, cap, max_khz=(gmax * 1000 if gmax else None))
+            pts, cap, max_khz=(gmax * 1000 if gmax else None),
+            step_khz=self.step_khz())
         if not ch:
             # Three states land here and only ONE is good news. compute_deflatten
             # returns boundary_idx None when the cap matched no point at all, and
@@ -2731,7 +2797,8 @@ class TitanTune:
         pts = self.work_pts()
         gmax = self.gpu.static.get("gfx_max")
         ch, _cb, _ca, meta = GPU.compute_ramp(
-            pts, lo, cap, max_khz=(gmax * 1000 if gmax else None))
+            pts, lo, cap, max_khz=(gmax * 1000 if gmax else None),
+            step_khz=self.step_khz())
         if not ch:
             # Two ways to get here and only one is good news, same distinction
             # de-flatten draws: an empty band is a bound that matched nothing,
@@ -2878,7 +2945,7 @@ class TitanTune:
         target = int(dpg.get_value("hdf_target"))
         pts = self.work_pts()
         ch, before, after, meta = GPU.compute_hard_deflatten(
-            pts, floor, target * 1000)
+            pts, floor, target * 1000, step_khz=self.step_khz())
         if not ch:
             if not meta.get("n_flat"):
                 self.log(f"no curve points at or above {floor:.2f} mV - nothing "
@@ -2954,7 +3021,7 @@ class TitanTune:
 
     def vf_reset(self):
         """Zeroing every delta only moves the card toward stock, but it is still
-        a full 103-row table write AND it re-reads with force=True, which throws
+        a full table write AND it re-reads with force=True, which throws
         staged edits away. ONE CLICK, like Apply: the plan banner above states
         both consequences continuously, and autosave_before makes even the
         discarded edits recoverable. 'Reset all to stock' is the one that still
@@ -2965,8 +3032,8 @@ class TitanTune:
         pending = sum(1 for i in self.vf_work
                       if self.vf_work.get(i) != self.vf_orig.get(i))
         self.autosave_before("vf-reset")
-        self.log(f"zeroing all {VFP_POINTS} V/F deltas back to the factory "
-                 f"curve, discarding {pending} staged edit(s)", None)
+        self.log(f"zeroing all {self.n_vf_rows()} V/F deltas back to the "
+                 f"factory curve, discarding {pending} staged edit(s)", None)
         ok, m = self.gpu.reset_vf_curve()
         self.report((ok, m))
         if ok:
@@ -3038,7 +3105,7 @@ deliberately does not put behind a button."""
         WHICH writes call this, and why not the rest. Every write that can
         destroy state you cannot read back off a slider takes one: 'Apply to
         GPU', 'Reset curve to stock', 'Re-phase', the core-offset Apply,
-        'Reset all to stock' and a profile Load. All six write the same 103-row
+        'Reset all to stock' and a profile Load. All six write the same
         delta table, whose previous contents appear nowhere on screen - and
         Re-phase is the only genuinely LOSSY write in the app (off-phase deltas
         are rounded down and the original remainders are gone, so not even
@@ -3178,8 +3245,9 @@ deliberately does not put behind a button."""
         if not dpg.does_item_exist("prof_warn"):
             return
         dpg.set_value("prof_warn", "" if not pend else
-                      f"⚠  '{pend[0]}': {pend[1]}.\nA 103-point V/F table "
-                      f"is 103 frequencies measured on ONE piece of silicon - "
+                      f"⚠  '{pend[0]}': {pend[1]}.\nA V/F table is "
+                      f"{self.n_vf_rows()} frequencies measured on ONE piece "
+                      f"of silicon - "
                       f"on another die they are a guess. Press Load on that "
                       f"row again to restore it anyway.")
         dpg.configure_item("prof_warn", show=bool(pend))
@@ -3448,8 +3516,8 @@ deliberately does not put behind a button."""
                         pos=[self.s(200), self.s(180)]):
             dpg.add_text("Snapshots both offsets, the power limit, the voltage "
                          "boost, the fan POLICY (not just its duty) and all "
-                         f"{VFP_POINTS} V/F deltas, as JSON in profiles/ next "
-                         "to the app. Saving writes nothing to the GPU.",
+                         f"{self.n_vf_rows()} V/F deltas, as JSON in profiles/ "
+                         "next to the app. Saving writes nothing to the GPU.",
                          color=DIM, wrap=self.s(520))
             dpg.add_spacer(height=self.s(6))
             # on_enter as well as the button: this box is a name prompt, and
@@ -3475,7 +3543,7 @@ deliberately does not put behind a button."""
                          "limit, voltage boost, both offsets and the fan "
                          "policy, then the whole delta table LAST - which wins "
                          "over the core offset, because they are the same "
-                         f"{VFP_POINTS} driver rows. An undo point is taken "
+                         f"{self.n_vf_rows()} driver rows. An undo point is taken "
                          "first, and every knob reports into the Control tab "
                          "log.", color=WARN, wrap=self.s(1040))
             with dpg.group(horizontal=True):
@@ -3561,13 +3629,21 @@ deliberately does not put behind a button."""
     # the clock did between the same two states - two ratios agreeing is what
     # proves the decode is real.
     TIM_COLS = (("field", 118), ("register", 88), ("bits", 76),
-                ("cycles", 62), ("ns at the capture clock", 250),
-                ("what it is", 560))
+                ("cycles", 62), ("new value", 104),
+                ("ns at the capture clock", 250), ("what it is", 560))
 
-    TIM_READONLY = ("READ-ONLY. This tab decodes the framebuffer-partition "
-                    "memory timing registers through nvtune's read-only "
-                    "subcommands. It cannot write one: TitanTune has no code "
-                    "path that can build a writing nvtune command line.")
+    TIM_READONLY = ("Reading is done through nvtune's read-only subcommands "
+                    "(timings.py still cannot build a writing command line). "
+                    "Writing is a separate module, timingwrite.py, and is the "
+                    "only thing in TitanTune that can - see the Edit panel.")
+
+    TIM_WRITEWARN = (
+        "WRITING A TIMING REGISTER CAN HANG THE MACHINE AND CORRUPT VRAM. "
+        "Measured on our hardware: GP102 (Pascal) accepts these writes; TU102 "
+        "(Turing) rejects every one of them at the hardware. A stock backup for "
+        "THIS card is taken before the first write, and 'Restore stock' puts it "
+        "back. Timings are selected per memory CLOCK BAND, so a write edits the "
+        "band the card is in right now.")
 
     # verdict -> colour for the comparison table. 'flat' is DIM, not red: a
     # field that does not move with the clock is usually a mode or bus
@@ -3664,6 +3740,35 @@ deliberately does not put behind a button."""
                     self.bind(t, "mono")
 
             dpg.add_spacer(height=self.s(4))
+            with dpg.collapsing_header(label="  Edit timings  (writes to the "
+                                             "memory controller)  ",
+                                       tag="tw_hdr", default_open=False):
+                dpg.add_text(self.TIM_WRITEWARN, color=BAD,
+                             wrap=self.s(1100), tag="tw_warn")
+                dpg.add_separator()
+                dpg.add_text("Edit the 'new value' column in the table below. "
+                             "A cell is green while it matches the register and "
+                             "red once it does not; only red rows are written.",
+                             color=DIM, wrap=self.s(1100))
+                dpg.add_separator()
+                dpg.add_text("nothing staged", tag="tw_plan", color=TEXT,
+                             wrap=self.s(1100))
+                with dpg.group(horizontal=True):
+                    dpg.add_button(label="Apply to memory controller",
+                                   tag="tw_apply", width=self.s(240),
+                                   callback=self.tw_apply)
+                    dpg.add_checkbox(label="force (write despite range "
+                                           "warnings)", tag="tw_force")
+                    dpg.add_button(label="Revert edits", tag="tw_clear",
+                                   width=self.s(120), callback=self.tw_clear)
+                    dpg.add_button(label="Restore stock", tag="tw_restore",
+                                   width=self.s(140), callback=self.tw_restore)
+                dpg.add_text("", tag="tw_result", color=TEXT,
+                             wrap=self.s(1100))
+                dpg.add_text("", tag="tw_backup", color=DIM,
+                             wrap=self.s(1100))
+
+            dpg.add_spacer(height=self.s(4))
             with dpg.child_window(tag="pan_tim", width=-1, height=self.s(360)):
                 dpg.add_text("DECODED TIMINGS  ·  broadcast aperture",
                              tag="tim_title", color=ACCENT)
@@ -3709,6 +3814,198 @@ deliberately does not put behind a button."""
             dpg.add_table_column(label=label, parent="tim_table",
                                  width_fixed=True,
                                  init_width_or_weight=self.s(w))
+
+    # ---- the editable cell ------------------------------------------------ #
+    def tw_theme(self, key, colour):
+        """Cached text-colour theme. Built lazily because the table is torn down
+        and rebuilt on every capture, and rebuilding a theme per row per capture
+        leaks DPG items."""
+        th = self._tw_themes.get(key)
+        if th is None:
+            with dpg.theme() as th:
+                with dpg.theme_component(dpg.mvAll):
+                    dpg.add_theme_color(dpg.mvThemeCol_Text, colour)
+            self._tw_themes[key] = th
+        return th
+
+    def tw_cell(self, f, cycles):
+        """The 'new value' cell for one field.
+
+        Green while it still equals the cycle count actually in the register,
+        red the moment it does not - so 'this row will be written' is visible
+        without reading the plan text. A field we would refuse to write anyway
+        (structural, or in an inferred-offset register) gets no input at all:
+        offering an editable box and then rejecting the click is worse than not
+        offering it."""
+        tag = f"twv_{f.name}"
+        if cycles is None or f.structural or f.inferred:
+            dpg.add_text("--", color=DIM)
+            self.bind(dpg.last_item(), "mono")
+            with dpg.tooltip(dpg.last_item()):
+                dpg.add_text(
+                    "not writable: " + ("this register's offset is INFERRED, "
+                                        "not observed" if f.inferred else
+                                        "structural - a training/phase value "
+                                        "with no safe direction to nudge"),
+                    wrap=self.s(420))
+            return
+        self._tw_base[f.name] = cycles
+        staged = self._tw_pending.get(f.name, cycles)
+        dpg.add_input_int(tag=tag, default_value=staged, width=self.s(92),
+                          min_value=0, max_value=f.max_value,
+                          min_clamped=True, max_clamped=True,
+                          step=1, callback=self.tw_cell_edit,
+                          user_data=f.name)
+        dpg.bind_item_theme(tag, self.tw_theme(
+            "chg" if staged != cycles else "ok",
+            BAD if staged != cycles else GOOD))
+
+    def tw_cell_edit(self, sender, app_data, user_data):
+        name, val = user_data, int(app_data)
+        base = self._tw_base.get(name)
+        if base is not None and val == base:
+            self._tw_pending.pop(name, None)
+        else:
+            self._tw_pending[name] = val
+        tag = f"twv_{name}"
+        if dpg.does_item_exist(tag):
+            changed = name in self._tw_pending
+            dpg.bind_item_theme(tag, self.tw_theme("chg" if changed else "ok",
+                                                   BAD if changed else GOOD))
+        self.tw_plan()
+
+    # ---- the write panel -------------------------------------------------- #
+    # These run INLINE rather than on the capture worker's thread. A write is
+    # four short subprocess spawns (dry run, commit, two reads) and finishes in
+    # well under a second; if nvtune ever hangs long enough for that to matter,
+    # the memory controller is in a state where a responsive UI is not the
+    # problem worth solving.
+    def tw_clear(self, sender=None, app_data=None, user_data=None):
+        """Put every cell back to the value in the register. Undoes edits; does
+        NOT undo a write that already happened - that is 'Restore stock'."""
+        self._tw_pending = {}
+        for name, base in self._tw_base.items():
+            tag = f"twv_{name}"
+            if dpg.does_item_exist(tag):
+                dpg.set_value(tag, base)
+                dpg.bind_item_theme(tag, self.tw_theme("ok", GOOD))
+        dpg.set_value("tw_result", "")
+        self.tw_plan()
+
+    def tw_plan(self):
+        """Refresh the staged-plan text and the Apply button's colour.
+
+        Shows OUR refusals first - they are the ones the user can act on - then
+        nvtune's own dry run."""
+        self.tw_button()
+        if not self._tw_pending:
+            dpg.set_value("tw_plan", "no edits - every cell matches the "
+                                     "register")
+            dpg.configure_item("tw_plan", color=TEXT)
+            return
+        ft = getattr(self, "_tim_ft", None)
+        snap = self._tim
+        problems = timingwrite.check(self._tw_pending, ft, snap)
+        try:
+            p = timingwrite.plan(self._tw_pending)
+            body = p.summary()
+            colour = WARN if p.needs_force else GOOD
+        except Exception as e:                                  # noqa: BLE001
+            body, colour = f"dry run failed: {e}", BAD
+        if problems:
+            body = ("REFUSED before nvtune is consulted:\n  - "
+                    + "\n  - ".join(problems) + "\n\n" + body)
+            colour = BAD
+        dpg.set_value("tw_plan", body)
+        dpg.configure_item("tw_plan", color=colour)
+
+    def tw_button(self):
+        """Apply goes red exactly when clicking it would write to the memory
+        controller, and sits neutral when it would do nothing. The button and
+        the red cells are the same signal said twice, which is the point: the
+        control that does the dangerous thing should look like it."""
+        band = "armed" if self._tw_pending else "idle"
+        if self._tw_btn == band or not dpg.does_item_exist("tw_apply"):
+            return
+        self._tw_btn = band
+        if band == "idle":
+            dpg.bind_item_theme("tw_apply", 0)
+            dpg.configure_item("tw_apply", label="Apply to memory controller")
+            return
+        th = self._tw_themes.get("btn")
+        if th is None:
+            with dpg.theme() as th:
+                with dpg.theme_component(dpg.mvAll):
+                    dpg.add_theme_color(dpg.mvThemeCol_Button, (122, 30, 34))
+                    dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered,
+                                        (160, 40, 45))
+                    dpg.add_theme_color(dpg.mvThemeCol_ButtonActive,
+                                        (190, 50, 55))
+                    dpg.add_theme_color(dpg.mvThemeCol_Text, (255, 235, 235))
+            self._tw_themes["btn"] = th
+        dpg.bind_item_theme("tw_apply", th)
+        dpg.configure_item(
+            "tw_apply",
+            label=f"Apply {len(self._tw_pending)} change(s) to the memory "
+                  f"controller")
+
+    def tw_apply(self, sender=None, app_data=None, user_data=None):
+        if not self._tw_pending:
+            return
+        ft = getattr(self, "_tim_ft", None)
+        problems = timingwrite.check(self._tw_pending, ft, self._tim)
+        if problems:
+            dpg.set_value("tw_result", "not applied - " + "; ".join(problems))
+            dpg.configure_item("tw_result", color=BAD)
+            return
+        path, made, err = timingwrite.ensure_backup(self.gpu)
+        dpg.set_value("tw_backup",
+                      (f"stock backup {'taken now' if made else 'already held'}"
+                       f": {path}") if not err else f"BACKUP FAILED: {err}")
+        if err:
+            dpg.set_value("tw_result",
+                          "not applied - refusing to write without a stock "
+                          "backup for this card")
+            dpg.configure_item("tw_result", color=BAD)
+            return
+        self.autosave_before("timing-write")
+        force = bool(dpg.get_value("tw_force"))
+        _plan, results = timingwrite.apply(dict(self._tw_pending), force=force)
+        lines, worst = [], GOOD
+        for r in results:
+            lines.append(f"{r.name}: {r.before} → asked {r.requested}, "
+                         f"reads {r.after}   "
+                         f"{timingwrite.OUTCOME_TEXT[r.outcome]}"
+                         + (f"  ({r.detail})" if r.detail else ""))
+            if r.outcome == timingwrite.LANDED:
+                continue
+            worst = WARN if r.outcome == timingwrite.TOOL_REFUSED else BAD
+        if any(r.outcome == timingwrite.DROPPED for r in results):
+            lines.append("A dropped write REACHED the hardware and was "
+                         "rejected there - that is a property of this GPU, not "
+                         "of the tool. Measured: TU102 rejects all of them.")
+        dpg.set_value("tw_result", "\n".join(lines))
+        dpg.configure_item("tw_result", color=worst)
+        for ln in lines:
+            self.log("timing: " + ln, None)
+        self.timings_capture()
+
+    def tw_restore(self, sender=None, app_data=None, user_data=None):
+        path = timingwrite.card_backup_path(self.gpu)
+        code, boot0 = timingwrite.backup_describes(path)
+        if code is None:
+            dpg.set_value("tw_result", f"no stock backup for this card at {path}")
+            dpg.configure_item("tw_result", color=BAD)
+            return
+        ok, out = timingwrite.restore(path)
+        dpg.set_value("tw_result",
+                      f"restore from {code} backup ({boot0}): "
+                      + ("done" if ok else "FAILED") + f"\n{out}")
+        dpg.configure_item("tw_result", color=GOOD if ok else BAD)
+        self.log(f"timing restore from {path}: {'ok' if ok else 'failed'}", ok)
+        self._tw_pending = {}
+        self.tw_plan()
+        self.timings_capture()
 
     # ---- the worker ------------------------------------------------------- #
     def timings_capture(self, sender=None, app_data=None, user_data=None):
@@ -3761,10 +4058,28 @@ deliberately does not put behind a button."""
 
     # ---- waiting for P0, because it cannot be commanded -------------------- #
     def mem_states(self):
-        """Every memory clock the driver enumerates. On this card
-        [405, 810, 5001, 6801, 7001] - and the card reaches 7428 under load,
-        because the memory offset rides on top of the top state."""
+        """Every memory clock the driver enumerates, ascending. Card-specific:
+        TU102 gives [405, 810, 5001, 6801, 7001] and GP102 [405, 810, 5505,
+        5705]. The card can exceed the top entry under load, because a memory
+        offset rides on top of the top state."""
         return sorted(self.gpu.static.get("mem_clocks") or [])
+
+    def mem_hint(self, i):
+        """'~810 reported / ~203 MHz true' for enumerated state `i`, built from
+        THIS card's table. It used to be a hardcoded pair of Turing numbers,
+        which on a Pascal card told the user to look for a state it does not
+        have."""
+        st = self.mem_states()
+        if not st:
+            return "the top memory state"
+        try:
+            nvml = st[i]
+        except IndexError:
+            nvml = st[-1]
+        div = self.gpu.static.get("mem_div") or 0
+        if not div:
+            return f"~{nvml} reported"
+        return f"~{nvml} reported / ~{nvml / div:.0f} MHz true"
 
     def mem_top(self):
         st = self.mem_states()
@@ -4021,6 +4336,13 @@ deliberately does not put behind a button."""
             "DECODED TIMINGS  ·  IDLE STATE — NOT PERFORMANCE-RELEVANT"))
         dpg.configure_item("tim_title", color=ACCENT if band else BAD)
 
+        # The write panel's field list comes from the same nvtune build that
+        # just answered, so it can only offer fields this binary actually knows.
+        try:
+            self._tim_ft = timings.field_table()
+        except Exception:                                       # noqa: BLE001
+            self._tim_ft = None
+
         # ---- header ------------------------------------------------------- #
         dpg.set_value("tim_ident",
                       f"{snap.codename}  ·  PCI {snap.pci_id}  ·  "
@@ -4067,6 +4389,7 @@ deliberately does not put behind a button."""
                 self.bind(dpg.last_item(), "mono")
                 dpg.add_text("--" if r.cycles is None else str(r.cycles))
                 self.bind(dpg.last_item(), "mono")
+                self.tw_cell(f, r.cycles)
                 self.tim_ns_cell(r, snap)
                 desc = f.description + (" [structural]" if f.structural else "")
                 dpg.add_text(desc, color=DIM if f.structural else TEXT,
@@ -4118,13 +4441,13 @@ deliberately does not put behind a button."""
             dpg.configure_item("cmp_legend", show=False)
             dpg.set_value("cmp_hint", (
                 f"{len(caps)} capture{'' if len(caps) == 1 else 's'}. Two are "
-                "needed, at DIFFERENT memory "
-                "clocks. Let the card idle until the memory clock drops "
-                "(~810 reported / ~203 MHz true) and press Capture, then load "
-                "it to P0 (~7428 / ~1857 MHz) and press Capture again. The "
-                "same registers decode to different cycle counts at the two "
-                "states, and this table is where that stops looking like "
-                "noise and starts being the proof."))
+                "needed, at DIFFERENT memory clocks. Let the card idle until "
+                f"the memory clock drops ({self.mem_hint(-2)}) and press "
+                f"Capture, then load it to the top state ({self.mem_hint(-1)}) "
+                "and press Capture again. The same registers decode to "
+                "different cycle counts at the two states, and this table is "
+                "where that stops looking like noise and starts being the "
+                "proof."))
             return
         snaps = sorted((s for s in caps.values() if s.ok and s.mem_nvml),
                        key=lambda s: s.mem_nvml)

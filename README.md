@@ -287,12 +287,22 @@ locked". Domain **6** is the one that carries the lock on this card.
 
 **The struct tells you what was ASKED, never what is held.** `volt_uV` is
 echoed back verbatim: a 900000 µV lock reads straight back as 900000 while the
-rail sits at 893.75, and this card was found holding a **1137500 µV** lock on a
-curve that stops at 1087500. So the point actually held has to be *derived*,
-which `GPU.resolve_vf_point()` does in two stages — resolve down to a point,
-then apply the flat rule that makes the arbiter run the lowest voltage carrying
-that frequency. All three observed cases reproduce: 900.00 → idx 71 @ 893.75 /
-1740, 950.00 → idx 80 @ 950.00 / 1830, 1137.50 → idx 96 @ 1050.00 / 1950.
+rail sits at 893.75, and this card was found holding a **1137500 µV** lock. So
+the point actually held has to be *derived*, which `GPU.resolve_vf_point()`
+does in two stages — resolve down to a point, then apply the flat rule that
+makes the arbiter run the lowest voltage carrying that frequency. The first two
+observed cases reproduce directly: 900.00 → idx 71 @ 893.75 / 1740, and
+950.00 → idx 80 @ 950.00 / 1830.
+
+**The third case changed when the table turned out to be 128 points**, and it is
+worth keeping as a worked example of why that mattered. Through the old
+103-point window the curve appeared to stop at 1087.50 mV, so a 1137.50 mV
+request fell off the top and was resolved by clamping to the last visible point.
+It does not fall off: the real table runs **450.00–1243.75 mV** and 1137.50 mV
+is a point in it (**idx 110**), so the request resolves there — to 1995 MHz,
+which per the operating-point table below is itself the lowest voltage carrying
+that frequency. Any resolution recorded elsewhere against a 1087.50 mV ceiling
+predates this fix and is wrong for the same reason.
 
 **Both mechanisms share this one table, and only the mode separates them.**
 `nvmlDeviceSetGpuLockedClocks(lo, hi)` writes **two `lockMode 2` entries whose
@@ -616,11 +626,11 @@ the page a hundred pixels to repeat what the banner is already saying
 permanently. The full note goes into the log at the moment of the **write**,
 where a permanent receipt is the point.
 
-What pays for the missing second press is that every write to the 103-row
+What pays for the missing second press is that every write to the 128-row
 delta table now takes an undo point first (see "Profiles and undo" for exactly
 which writes those are, and which deliberately don't). `Reset all to stock` is
 the one exception and still arms on the first press: it drops every knob at
-once — both offsets, voltage boost, power limit, fan and all 103 deltas — so
+once — both offsets, voltage boost, power limit, fan and all 128 deltas — so
 a stray click there costs a whole tune rather than one table.
 
 ### Profiles and undo (menu bar: `Profiles`)
@@ -629,16 +639,16 @@ a stray click there costs a whole tune rather than one table.
 the fan **policy** (not merely its duty — a card idling at 0% on the auto
 curve and one pinned to 0% manually read identically, and handing a captured
 duty back as a manual duty would be a thermal change, not a restore) and all
-103 V/F deltas, as readable JSON in `profiles/` beside the app.
+128 V/F deltas, as readable JSON in `profiles/` beside the app.
 
 `Load profile` lists them newest first with a one-line summary and the time
 they were taken. Restoring is a destructive write like any other: it is
 behind "Unlock controls", it takes its own undo point first, and every knob
 reports its own success or failure into the log. The delta table is written
 **last** and wins, because the core offset and the delta table are the same
-103 driver rows. A profile saved on a different card or VBIOS asks for a
-second, deliberate confirmation before it is restored — 103 V/F points are
-103 frequencies measured on *one* piece of silicon.
+128 driver rows. A profile saved on a different card or VBIOS asks for a
+second, deliberate confirmation before it is restored — 128 V/F points are
+128 frequencies measured on *one* piece of silicon.
 
 `Undo last write` restores the snapshot taken automatically immediately
 before the most recent covered write. It is a write itself, so it takes an
@@ -649,7 +659,7 @@ ordered by a sub-second timestamp, so two writes landing in the same second —
 a double-clicked `Apply` — still undo newest-first.
 
 **Which writes take an undo point, and which don't.** Every write that
-touches the 103-row VF delta table does, because its previous contents appear
+touches the 128-row VF delta table does, because its previous contents appear
 nowhere on screen and cannot be reconstructed:
 
 - `Apply to GPU`
@@ -728,7 +738,7 @@ Four further details:
   fixed on the 6.25 mV grid and never move, so the resolved index and voltage
   are always right. The *frequency* attached to a point is re-evaluated by the
   driver with temperature — a cool card was measured a whole 15 MHz bin above
-  a warm one with all 103 deltas at zero — so the MHz in the banner is as fresh
+  a warm one with all 128 deltas at zero — so the MHz in the banner is as fresh
   as the last `Read curve`. The resolution is deliberately done against the
   curve the plot is showing, so the banner and the picture cannot disagree.
 - A point with an **unapplied editor edit** is noted in the log. Voltage is

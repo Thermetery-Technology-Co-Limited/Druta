@@ -12,7 +12,7 @@ Files are plain JSON in profiles/ next to the script, so they can be diffed,
 kept in git, and hand-edited.
 
 ORDERING NOTE, and it matters: the core clock offset and the V/F delta table are
-the SAME 103-row table in the driver. Whichever is written last wins, so restore
+the SAME table in the driver. Whichever is written last wins, so restore
 writes the delta table LAST and treats it as authoritative; the stored core
 offset is applied first only so the slider reads back sensibly.
 """
@@ -206,7 +206,7 @@ def autosave(gpu, action):
 
 
 def device_mismatch(state, gpu):
-    """Profiles are per-card by nature - the V/F table is 103 points of THIS
+    """Profiles are per-card by nature - the V/F table is the points of THIS
     silicon. Returns a warning string, or None when it is the same card."""
     dev = state.get("device") or {}
     for key, live in (("name", gpu.static.get("name")),

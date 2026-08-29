@@ -249,6 +249,8 @@ assert PRIV_B_BASE + PRIV_N_DOMAINS * PRIV_B_STRIDE == _PRIV_CLK_DWORDS
 PRIV_CONFIRMED = "confirmed"   # identified against known behaviour
 PRIV_LIKELY = "likely"         # behaviour confirmed, NAME only by elimination
 PRIV_UNNAMED = "unnamed"       # populated, but no name has been earned
+PRIV_UNPOPULATED = "unpopulated"   # reads zero on a card that is demonstrably
+#                                    running - not a slow clock, an empty slot
 
 PRIV_FREQ, PRIV_PCIE_GEN = "freq", "pcie_gen"
 
@@ -271,6 +273,106 @@ PRIV_DOMAIN_ID = {
 # Domains 3, 6, 20 and 22 are deliberately absent: their values are confirmed
 # static here (405 / 1080 / 540 / 108 MHz) but no NAME for them has been
 # earned, so they stay numbered.
+#
+# EVERY NAME ABOVE WAS EARNED ON TU102 AND ONLY ON TU102, and the table is a
+# map from DOMAIN NUMBER to name - which is precisely the thing that moves
+# between architectures. Applied blind to GP102 it labels four dead rows:
+# domains 0, 1, 2 and 21 all read 0.0 MHz there while the card runs 1898 MHz,
+# so "GPC" and "XBAR" and "VIDEO" appear in CONFIRMED styling on empty slots
+# while the real GPU clock sits unnamed in domain 15 at 3796 MHz (2x core -
+# Pascal publishes GPC2CLK here, not GPC).
+#
+# That is the exact failure this block's own header warns about: a wrong name
+# is worse than a bare index. So the table is no longer applied by domain
+# number alone - classify_domain_names() below has to earn it against values
+# the driver reports independently, on the card in front of us.
+
+
+def classify_domain_names(rows, core_mhz=None, mem_nvml=None):
+    """Name clock domains by CORRELATION against the driver's own figures.
+
+    `rows` is mutated in place and returned.
+
+    The only two names anybody can be sure of without a per-architecture map
+    are the two the driver will tell us independently: whichever domain carries
+    the GPU clock, and whichever carries the memory clock. Everything else is
+    either a TU102 name that has to prove the card looks like TU102 first, or
+    an index.
+
+    Three rules:
+
+    1. A domain matching the core clock at 1x is GPC; at 2x it is GPC2CLK, and
+       it is named for what it actually holds rather than being silently halved
+       - the core tile already shows the graphics clock.
+    2. A domain reading zero while the card is demonstrably running is marked
+       PRIV_UNPOPULATED and loses its name. An empty slot is not a slow clock.
+    3. The TU102 table is applied only when this card presents the TU102
+       signature - GPC correlating to domain 0. On anything else the extra
+       names are not ours to hand out.
+
+    If the correlation fails outright (no core figure to check against), the
+    table is still applied so a working panel is never blanked by a failed
+    probe, but every CONFIRMED drops to LIKELY: without ground truth the names
+    are inherited assumptions, and should read as such."""
+    def close(a, b, tol=0.005):
+        return bool(b) and abs(a - b) <= max(0.5, abs(b) * tol)
+
+    gpc_dom, gpc_scale, mem_dom = None, 1, None
+    for r in rows:
+        if r.get("kind") != PRIV_FREQ:
+            continue
+        p = r.get("prog_mhz") or 0.0
+        if not p:
+            continue
+        if gpc_dom is None and core_mhz:
+            if close(p, core_mhz):
+                gpc_dom, gpc_scale = r["domain"], 1
+            elif close(p, 2.0 * core_mhz):
+                gpc_dom, gpc_scale = r["domain"], 2
+        if mem_dom is None and close(p, mem_nvml):
+            mem_dom = r["domain"]
+
+    # Domain 0 carrying the GPU clock is the TU102 shape. GP102 puts it at 15.
+    turing_like = (gpc_dom == 0)
+    blind = (gpc_dom is None)
+
+    # GP102's own earned name, gated on the GP102 signature exactly as the
+    # TU102 table is gated on the TU102 one. Domain 16 was identified by a
+    # 10-stop V/F-lock sweep: it holds 0.962-0.970 of GPC2CLK across the whole
+    # top half of the curve, and a +60 MHz core offset moved it by twice the
+    # core's move while changing that ratio by 0.0006 - so it is a 2x domain
+    # riding the core clock.
+    #
+    # LIKELY, not CONFIRMED, and deliberately: what is measured is "a 2x domain
+    # slaved to GPC at ~0.966". Calling that XBAR is an analogy with TU102,
+    # where the domain in the same relationship (~0.95 of GPC) is XBAR. The
+    # behaviour is established; the word is not.
+    pascal_like = (gpc_dom == 15)
+    PASCAL_NAMES = {16: ("XBAR2CLK", PRIV_LIKELY)}
+
+    for r in rows:
+        dom = r["domain"]
+        if (r.get("kind") == PRIV_FREQ and core_mhz
+                and not (r.get("prog_khz") or r.get("meas_khz"))):
+            r["name"], r["grade"] = "", PRIV_UNPOPULATED
+            continue
+        if dom == gpc_dom:
+            r["name"] = "GPC2CLK" if gpc_scale == 2 else "GPC"
+            r["grade"] = PRIV_CONFIRMED
+            r["scale"] = gpc_scale
+        elif dom == mem_dom:
+            r["name"], r["grade"] = "MEM", PRIV_CONFIRMED
+        elif pascal_like and dom in PASCAL_NAMES:
+            r["name"], r["grade"] = PASCAL_NAMES[dom]
+        elif dom in PRIV_DOMAIN_ID and (turing_like or blind
+                                        or r.get("kind") == PRIV_PCIE_GEN):
+            name, grade, _kind = PRIV_DOMAIN_ID[dom]
+            r["name"] = name
+            r["grade"] = PRIV_LIKELY if (blind and grade == PRIV_CONFIRMED) \
+                else grade
+        else:
+            r["name"], r["grade"] = "", PRIV_UNNAMED
+    return rows
 
 
 class _AllClocksPriv(ctypes.Structure):
@@ -299,8 +401,8 @@ class _ClockLock(ctypes.Structure):
 #
 # AND THE STRUCT DOES NOT TELL YOU WHICH. volt_uV stores the REQUEST verbatim:
 # a 900000 uV lock reads straight back as 900000 while the rail sits at 893.75,
-# and this card was found holding a 1137500 uV lock on a curve that stops at
-# 1087500. Reading the getter therefore answers "what was asked for", never
+# and this card was found holding a 1137500 uV lock that the rail cannot deliver
+# (it stops near 1093.75). Reading the getter answers "what was asked for", never
 # "what is held" - GPU.resolve_vf_point() answers the second, against the
 # curve, and the vcore rail confirms it. A read-back is still mandatory, but
 # for a different reason: it is how a concurrent tuner overwriting the lock
@@ -335,7 +437,7 @@ VF_LOCK_MIN_UV, VF_LOCK_MAX_UV = 400_000, 1_300_000
 assert ctypes.sizeof(_ClockLock) == 0x030C   # 780; wrong size => version lies
 
 
-# VF structs: Turing has 103 CONTIGUOUS GPU points (the 80+23 split in older
+# VF structs: Turing's GPU points are CONTIGUOUS (the 80+23 split in older
 # community layouts is a Pascal artefact). Total sizes must equal the original
 # community structs (7208 / 9248 bytes) because the driver validates version
 # = sizeof | ver<<16.
@@ -357,6 +459,12 @@ VFP_POINTS = 128
 # much. (A mid-bin delta silently floors: e.g. asking 2150 yields 2145, which
 # collides with the point below and re-creates the flat you were removing.)
 VF_STEP_KHZ = 15000
+# ^ TU102's grid, and now only the FALLBACK. It is not universal: GP102 steps
+# ~12.657 MHz (the driver's own lockable table is 141 values from 139 to 1911,
+# so 1772/140). Snapping a Pascal core offset to 15 MHz is itself the
+# de-phasing the snap exists to prevent - measured, a "+60 MHz" request moved
+# the core +51. GPU.clock_step_khz() derives it per card; every planner takes
+# it as an argument so nothing silently reaches for this constant.
 
 # THE SHAPE LAW. The delta table takes whatever you write - every delta reads
 # back verbatim - but the curve the driver EVALUATES from it is not free-form.
@@ -373,7 +481,16 @@ VF_STEP_KHZ = 15000
 #   * the upper bound means a point written far ABOVE the one under it drags
 #     that one up too, so an edit can move points OUTSIDE the range it wrote.
 # 45000 is 3 * VF_STEP_KHZ, and the fit is exact rather than approximate.
+#
+# MEASURED ON TU102 ONLY, and the scaling to other cards is an ASSUMPTION we
+# are making explicit rather than hiding: GPU.max_rise_khz() returns 3 * the
+# card's grid step, i.e. it treats the law as "three clock bins" rather than
+# "45 megahertz". Those are the same number on Turing and different everywhere
+# else, and which one the hardware actually implements has not been tested.
+# On a non-Turing card the reshape PREDICTION is therefore unverified - it
+# affects what the plan banner promises, not whether a write is safe.
 VF_MAX_RISE_KHZ = 45000
+VF_MAX_RISE_BINS = 3
 
 
 class _VfpEntry(ctypes.Structure):
@@ -419,12 +536,70 @@ def above_floor(volt_mv, lo_mv):
     return volt_mv >= lo_mv - 0.01
 
 
-def _set_all_point_masks(obj):
-    # bits 0..102: reads return empty unless the point-select masks are set
-    obj.masks[0] = 0xFFFFFFFF
-    obj.masks[1] = 0xFFFFFFFF
-    obj.masks[2] = 0xFFFFFFFF
-    obj.masks[3] = 0xFFFFFFFF   # was 0x7F, which asked for only 103 of 128
+def _set_point_masks(obj, nbits=VFP_POINTS):
+    """Ask for exactly `nbits` points.
+
+    The mask is 4 u32 = 128 bits and the driver returns one entry per bit set -
+    but only up to the number of entries THIS card's table actually has. Ask for
+    one more than that and the whole call fails, with NVAPI -1 (the GENERIC
+    error) rather than -9 INCOMPATIBLE_STRUCT_VERSION, so it reads like the call
+    is unsupported instead of like the request being too wide.
+
+    That is exactly how a Turing-shaped request made a Pascal card look as
+    though it could not read its own curve, while Afterburner read it fine.
+
+    Measured: TU102 accepts 128. GP102 accepts 84 and refuses 85.
+
+    Nothing here caps at a hardcoded per-architecture number - GPU.vfp_layout()
+    probes for it, because a fixed constant is what was wrong both times (103
+    on Turing, then 128 on Pascal)."""
+    nbits = max(0, min(int(nbits), VFP_POINTS))
+    for i in range(4):
+        lo = i * 32
+        if nbits >= lo + 32:
+            obj.masks[i] = 0xFFFFFFFF
+        elif nbits > lo:
+            obj.masks[i] = (1 << (nbits - lo)) - 1
+        else:
+            obj.masks[i] = 0
+
+
+class VfpLayout:
+    """What this card's VF table actually IS, probed rather than assumed.
+
+    Every field here was once a hardcoded Turing constant, and every one of them
+    was wrong on Pascal in a different way:
+
+        n_entries   TU102 128          GP102 84
+        gpu_idx     all of them        the first 80
+        other_idx   none               80..83, the MEMORY points - their
+                                       frequencies are the driver's own
+                                       mem_clocks list, and they are the reason
+                                       the table does not end where the GPU
+                                       points do
+        freq_div    1                  2 - the GPU rows carry GPC2CLK, the 2x
+                                       clock, so the graphics MHz is half
+
+    A card is classified from what the driver answers, never from its device id:
+    a PCI table needs a new row per SKU forever and would not have caught either
+    mistake. These three checks would have caught both."""
+
+    __slots__ = ("n_entries", "gpu_idx", "other_idx", "freq_div", "notes")
+
+    def __init__(self, n_entries, gpu_idx, other_idx, freq_div, notes):
+        self.n_entries = n_entries
+        self.gpu_idx = gpu_idx
+        self.other_idx = other_idx
+        self.freq_div = freq_div
+        self.notes = notes
+
+    @property
+    def n_gpu(self):
+        return len(self.gpu_idx)
+
+    def __repr__(self):
+        return (f"VfpLayout({self.n_entries} entries, {self.n_gpu} GPU, "
+                f"{len(self.other_idx)} other, freq/{self.freq_div})")
 
 
 # --------------------------------------------------------------------------- #
@@ -704,7 +879,12 @@ class GPU:
         if pc is None:
             d["clk_domains"], d["clk_domains_err"] = None, PRIV_UNAVAIL
         else:
-            d["clk_domains"], d["clk_domains_err"] = self.read_clock_domains(pc)
+            # core/mem are already in `d` from _read_clocks above, and they come
+            # from the PUBLIC clock getter whose domain ids are arch-stable.
+            # Handing them over is what lets the domain names be earned against
+            # this card instead of inherited from TU102.
+            d["clk_domains"], d["clk_domains_err"] = self.read_clock_domains(
+                pc, core_mhz=d.get("core"), mem_nvml=d.get("mem"))
         self._read_temps(d)
         self._read_power(d)
         self._read_fan(d)
@@ -729,7 +909,7 @@ class GPU:
             return None
         return pc
 
-    def read_clock_domains(self, pc=None):
+    def read_clock_domains(self, pc=None, core_mhz=None, mem_nvml=None):
         """(rows, err) - every populated domain of the private getter, BOTH
         arrays, one dict per domain:
 
@@ -767,11 +947,15 @@ class GPU:
             # omission, but listing 21 empty rows would bury the 11 real ones
             if dom not in PRIV_POPULATED and not (prog or meas or flags):
                 continue
-            name, grade, kind = PRIV_DOMAIN_ID.get(
+            # `kind` is structural and stays table-driven: domain 31 is a link
+            # generation rather than a frequency on every card we have seen,
+            # and rendering it as MHz would be a units error, not a naming one.
+            # The NAME and GRADE are decided afterwards, by correlation.
+            _n, _g, kind = PRIV_DOMAIN_ID.get(
                 dom, ("", PRIV_UNNAMED, PRIV_FREQ))
-            row = {"domain": dom, "name": name, "grade": grade, "kind": kind,
-                   "prog_khz": prog, "meas_khz": meas,
-                   "flags": flags, "srcid": srcid,
+            row = {"domain": dom, "name": "", "grade": PRIV_UNNAMED,
+                   "kind": kind, "prog_khz": prog, "meas_khz": meas,
+                   "flags": flags, "srcid": srcid, "scale": 1,
                    "prog_mhz": None, "meas_mhz": None, "delta_mhz": None}
             if kind == PRIV_FREQ:
                 row["prog_mhz"] = prog / 1000.0
@@ -779,6 +963,7 @@ class GPU:
                 if prog and meas:
                     row["delta_mhz"] = (meas - prog) / 1000.0
             rows.append(row)
+        classify_domain_names(rows, core_mhz, mem_nvml)
         return rows, None
 
     def _read_clocks(self, d, pc=None):
@@ -1014,8 +1199,66 @@ class GPU:
         div = self.static.get("mem_div")
         return (2 * div, "MHz true") if div else (2, "MHz eff")
 
+    def clock_step_khz(self):
+        """This card's core-clock grid in kHz, derived from the driver.
+
+        The lockable-clock table IS the enumeration of legal core clocks, so
+        the step is just its span divided by its gaps - no per-architecture
+        constant, and it would have caught this the first time. Checked:
+            TU102   360..2160 over 121 entries -> 1800/120 = 15.000 MHz
+            GP102   139..1911 over 141 entries -> 1772/140 = 12.657 MHz
+
+        Span-over-gaps rather than the median difference on purpose: GP102's
+        consecutive differences alternate 12 and 13 because the true step is
+        not an integer, so a median returns 13 and accumulates error across the
+        table. The endpoints do not.
+
+        Falls back to VF_STEP_KHZ when the table is too short to measure or the
+        answer is implausible - a wrong step is worse than a stale one, because
+        every planner multiplies it."""
+        cached = getattr(self, "_clock_step_cache", None)
+        if cached:
+            return cached
+        step = None
+        try:
+            table = self.lockable_clocks_by_mem() or []
+            best = max((cl for _mem, cl in table), key=len, default=[])
+            if len(best) >= 8:
+                span = max(best) - min(best)
+                if span > 0:
+                    step = int(round(span * 1000.0 / (len(best) - 1)))
+        except Exception:                                       # noqa: BLE001
+            step = None
+        # 5-30 MHz brackets every NVIDIA grid we know of; outside it, something
+        # about the table is not what we think and the constant is safer.
+        if not step or not (5000 <= step <= 30000):
+            step, measured = VF_STEP_KHZ, False
+        else:
+            measured = True
+        self._clock_step_cache = step
+        self._clock_step_measured = measured
+        return step
+
+    def max_rise_khz(self):
+        """The shape law's upper bound for this card - see VF_MAX_RISE_KHZ.
+
+        Three grid bins. On Turing that reproduces the measured 45 MHz exactly;
+        elsewhere the multiplier is inherited, not measured."""
+        return VF_MAX_RISE_BINS * self.clock_step_khz()
+
+    def step_is_measured(self):
+        """Did the grid come from the card, or is it the fallback constant?
+
+        The UI says which, because a planner quoting 15 MHz bins on a card whose
+        bins are 12.657 is exactly the failure this change is about - and a
+        card that legitimately measures 15.000 must not be reported as a
+        fallback, so this is a separate flag rather than a comparison against
+        VF_STEP_KHZ."""
+        self.clock_step_khz()
+        return bool(getattr(self, "_clock_step_measured", False))
+
     def set_clock_offset(self, ctype, mhz):
-        """ctype 0=GRAPHICS (mhz in MHz, snapped to the 15 MHz grid),
+        """ctype 0=GRAPHICS (mhz in MHz, snapped to THIS CARD's clock grid),
         2=MEM (mhz in TRUE memory MHz for a known GDDR type, else raw/effective).
         The method converts to the driver's internal units. Reset via 0."""
         nv = self.nvml
@@ -1027,7 +1270,23 @@ class GPU:
             # The core offset lands in the same per-point VF delta table, so an
             # offset that is not a whole 15 MHz bin de-phases the curve: points
             # cross bin boundaries at different offsets and flats reappear.
-            mhz = int(round(mhz / (VF_STEP_KHZ / 1000)) * (VF_STEP_KHZ / 1000))
+            # THIS CARD's grid, not 15 MHz. On GP102 the grid is 12.657, so
+            # the old snap rounded a request onto a lattice the hardware does
+            # not have - measured, "+60 MHz" moved the core +51.
+            #
+            # And the value is rounded UP to the next whole MHz, which is not
+            # tidiness. MEASURED on GP102, three requests, all consistent: the
+            # driver FLOORS the offset to a whole number of bins. Rounding the
+            # snapped value to nearest put it at 4.98 / 1.98 / 7.98 bins - just
+            # under each boundary - so every request came back one bin short
+            # (asked 60, sent 63, moved 51). Ceiling lands just above the
+            # boundary instead, so the floor divides to the bin we intended.
+            #
+            # On an integer grid (TU102's 15) the ceiling is a no-op, so this
+            # changes nothing there.
+            step_mhz = self.clock_step_khz() / 1000.0
+            want = round(mhz / step_mhz) * step_mhz
+            mhz = int(want) + (1 if want > int(want) else 0)
             scale, unit = 1, "MHz"
         else:
             scale, unit = self.mem_offset_scale()
@@ -1422,28 +1681,145 @@ class GPU:
         a = self.nvapi
         if not (a.ok and a.VfpCurve and a.BoostTableGet):
             return None, "VF curve APIs unavailable"
+        lay = self.vfp_layout()
+        if lay is None:
+            return None, "could not determine this card's VF table layout"
         cv = _VfpCurve(version=a.ver(_VfpCurve, 1))
-        _set_all_point_masks(cv)
+        _set_point_masks(cv, lay.n_entries)
         st = a.VfpCurve(a.gpu, ctypes.byref(cv))
         if st != 0:
             return None, f"curve read failed (status {st})"
         bt = _BoostTable(version=a.ver(_BoostTable, 1))
-        _set_all_point_masks(bt)
+        _set_point_masks(bt, lay.n_entries)
         st = a.BoostTableGet(a.gpu, ctypes.byref(bt))
         if st != 0:
             return None, f"delta-table read failed (status {st})"
+        # GPU rows only. The trailing rows on Pascal are the MEMORY points, and
+        # handing those to the curve editor would put a 5705 "MHz" dot at
+        # 756.25 mV and let a de-flatten write a delta to a memory V/F point.
         points = []
-        for i in range(VFP_POINTS):
+        for i in lay.gpu_idx:
             e = cv.entries[i]
             if e.freq_kHz == 0:
                 continue
             points.append({"idx": i,
                            "volt_mv": e.volt_uV / 1000.0,
-                           "freq_mhz": e.freq_kHz / 1000.0,
+                           "freq_mhz": e.freq_kHz / (1000.0 * lay.freq_div),
                            "delta_khz": bt.rows[i].w[5]})
         if not points:
             return None, "curve read returned no points"
         return points, None
+
+    def read_vfp_other_rows(self):
+        """The non-GPU rows of the VF table, or [] - on Pascal these are the
+        four MEMORY V/F points, which is what makes that table 84 entries long
+        rather than 80. Kept separate from read_vf_curve() on purpose: they are
+        real data, but they are not points the curve editor may touch."""
+        a = self.nvapi
+        lay = self.vfp_layout()
+        if lay is None or not lay.other_idx or not (a.ok and a.VfpCurve):
+            return []
+        cv = _VfpCurve(version=a.ver(_VfpCurve, 1))
+        _set_point_masks(cv, lay.n_entries)
+        if a.VfpCurve(a.gpu, ctypes.byref(cv)) != 0:
+            return []
+        mem = set(self.static.get("mem_clocks") or ())
+        out = []
+        for i in lay.other_idx:
+            e = cv.entries[i]
+            raw = e.freq_kHz / 1000.0
+            out.append({"idx": i, "volt_mv": e.volt_uV / 1000.0,
+                        "value": raw,
+                        "kind": "memory" if round(raw) in mem else "unknown"})
+        return out
+
+    # ---- layout probing --------------------------------------------------- #
+    def _probe_vfp_entry_count(self):
+        """How many entries will this driver return for this GPU?
+
+        Acceptance is monotonic - every width at or below the table's size is
+        accepted and every width above it fails - so this binary-searches in
+        about seven calls instead of walking 128. All reads."""
+        a = self.nvapi
+
+        def accepted(n):
+            cv = _VfpCurve(version=a.ver(_VfpCurve, 1))
+            _set_point_masks(cv, n)
+            return a.VfpCurve(a.gpu, ctypes.byref(cv)) == 0
+
+        if accepted(VFP_POINTS):
+            return VFP_POINTS
+        lo, hi = 0, VFP_POINTS          # accepted(lo), not accepted(hi)
+        while hi - lo > 1:
+            mid = (lo + hi) // 2
+            if accepted(mid):
+                lo = mid
+            else:
+                hi = mid
+        return lo
+
+    def vfp_layout(self, force=False):
+        """Probe this card's VF table shape. Cached; pass force=True to redo.
+
+        Three checks, each against something the driver itself reports, because
+        a hardcoded constant has now been wrong twice (103 on Turing, then the
+        corrected 128 on Pascal):
+
+        1. HOW MANY ENTRIES - widen the mask until the call fails.
+        2. WHICH ARE GPU POINTS - the GPU block is the leading run of
+           non-decreasing voltage. On GP102 idx 79 is 1243.75 mV and idx 80 is
+           550.00, and that collapse is the boundary. Matching frequencies
+           against mem_clocks instead would misfire the moment a GPU point
+           happens to sit at 405 or 810 MHz, which is entirely possible.
+        3. WHAT SCALE THE FREQUENCY IS IN - compare the top GPU row against the
+           driver's own gfx_max. GP102 reports GPC2CLK, twice the graphics
+           clock: raw, 60 of its 80 points claim to be above the card's maximum,
+           which cannot be true. Halved, none are.
+
+        Returns None if the curve APIs are unavailable or nothing answers."""
+        cached = getattr(self, "_vfp_layout_cache", None)
+        if cached is not None and not force:
+            return cached
+        a = self.nvapi
+        if not (a.ok and a.VfpCurve):
+            return None
+        n = self._probe_vfp_entry_count()
+        if not n:
+            return None
+        cv = _VfpCurve(version=a.ver(_VfpCurve, 1))
+        _set_point_masks(cv, n)
+        if a.VfpCurve(a.gpu, ctypes.byref(cv)) != 0:
+            return None
+
+        rows = [(i, cv.entries[i].volt_uV / 1000.0, cv.entries[i].freq_kHz)
+                for i in range(n) if cv.entries[i].freq_kHz]
+        gpu_idx, other_idx, prev, broken = [], [], None, False
+        for i, mv, _f in rows:
+            if not broken and (prev is None or mv >= prev - 0.01):
+                gpu_idx.append(i)
+                prev = mv
+            else:
+                broken = True
+                other_idx.append(i)
+
+        freq_div, gfx_max = 1, self.static.get("gfx_max")
+        gset = set(gpu_idx)
+        top_raw = max((f for i, _mv, f in rows if i in gset), default=0) / 1000.0
+        if gfx_max and top_raw > gfx_max * 1.5:
+            freq_div = 2
+
+        mem = set(self.static.get("mem_clocks") or ())
+        n_mem = sum(1 for i, _mv, f in rows
+                    if i in set(other_idx) and round(f / 1000.0) in mem)
+        notes = (f"{n} entries; {len(gpu_idx)} GPU points"
+                 + (f"; {len(other_idx)} trailing rows"
+                    f" ({n_mem} match mem_clocks)" if other_idx else "")
+                 + f"; GPU frequency is {'GPC2CLK (halved)' if freq_div == 2 else 'direct'}"
+                 + (f"; top raw {top_raw:.0f} vs gfx_max {gfx_max}"
+                    if gfx_max else ""))
+        lay = VfpLayout(n, gpu_idx, other_idx, freq_div, notes)
+        self._vfp_layout_cache = lay
+        return lay
 
     @staticmethod
     def peak_info(points, cap_mv=None):
@@ -1493,9 +1869,14 @@ class GPU:
         Measured on the rail, both stages at once: requesting 900.00 mV (curve
         idx 72, 1740 MHz) held 1740 MHz but at 893.75 mV, because idx 71 is the
         other half of a 1740 MHz flat. Requesting 950.00 mV held 950.00 mV /
-        1830 MHz, idx 80 being the lowest member of its own flat. A request
-        above the whole curve clamps to the top point: this card was found
-        holding a 1137.50 mV lock and running the 1087.50 mV / 1950 MHz point.
+        1830 MHz, idx 80 being the lowest member of its own flat.
+
+        A request above the whole curve clamps to the top point - but note that
+        "the whole curve" moved when VFP_POINTS went 103 -> 128. The 1137.50 mV
+        lock this card was found holding was read as a clamp to the top of the
+        103-point window; it is not one, because the real table runs to 1243.75
+        and 1137.50 is a point in it (idx 110). Any resolution recorded against
+        a 1087.50 mV ceiling predates that fix.
 
         This has to be derived because the lock struct cannot answer it -
         volt_uV echoes the request back verbatim (see the VF_LOCK_* block).
@@ -1519,7 +1900,8 @@ class GPU:
     EXTRA_POINTS_ABOVE_CAP = 0
 
     @staticmethod
-    def compute_deflatten(points, vcap_mv, max_khz=None, extra_points_above=None):
+    def compute_deflatten(points, vcap_mv, max_khz=None, extra_points_above=None,
+                          step_khz=None):
         """Make the boundary point - the last point at/below vcap PLUS
         `extra_points_above` points above it - the UNIQUE maximum, so the boost
         arbiter (which runs the lowest voltage of any peak-frequency flat) parks
@@ -1548,6 +1930,7 @@ class GPU:
         Returns (changes, ceil_before_mhz, ceil_after_mhz, meta)."""
         if extra_points_above is None:
             extra_points_above = GPU.EXTRA_POINTS_ABOVE_CAP
+        step = int(step_khz or VF_STEP_KHZ)
         n = len(points)
         khz = [int(round(p["freq_mhz"] * 1000)) for p in points]
         below = [i for i in range(n) if below_cap(points[i]["volt_mv"], vcap_mv)]
@@ -1557,7 +1940,7 @@ class GPU:
         B = min(max(below) + max(0, extra_points_above), n - 1)
         ceil_before = khz[max(below)]
         peak_below = max(khz[:B]) if B > 0 else -1
-        target = max(khz[B], peak_below + VF_STEP_KHZ)
+        target = max(khz[B], peak_below + step)
         clamped = False
         if max_khz is not None and target > max_khz:
             target = max_khz
@@ -1577,9 +1960,14 @@ class GPU:
                  "unique": target > peak_below})
 
     @staticmethod
-    def evaluate_curve_law(khz):
+    def evaluate_curve_law(khz, max_rise_khz=None):
         """Given a whole curve's frequencies in kHz, IN VOLTAGE ORDER, return
         what the driver will actually evaluate from it. See VF_MAX_RISE_KHZ.
+
+        `max_rise_khz` defaults to the TU102-measured 45 MHz. Callers with a GPU
+        should pass GPU.max_rise_khz() so the bound follows the card's grid -
+        the 45 MHz below is three TU102 bins, and on a card whose bins are
+        12.657 MHz the two readings of the law disagree.
 
         The delta table is not the curve. Deltas read back exactly as written -
         verified, 14 rows, zero mismatches - while the frequencies attached to
@@ -1606,17 +1994,18 @@ class GPU:
              where eight distinct operating points had been planned. At the other
              end idx 69/70 were pulled UP to 1650/1695 by idx 71's untouched
              1740, the same 45 MHz rule from the other side."""
+        rise = int(max_rise_khz or VF_MAX_RISE_KHZ)
         out = [int(v) for v in khz]
         for i in range(1, len(out)):          # non-decreasing
             if out[i] < out[i - 1]:
                 out[i] = out[i - 1]
-        for i in range(len(out) - 2, -1, -1):  # at most 45 MHz per point
-            if out[i] < out[i + 1] - VF_MAX_RISE_KHZ:
-                out[i] = out[i + 1] - VF_MAX_RISE_KHZ
+        for i in range(len(out) - 2, -1, -1):  # at most `rise` per point
+            if out[i] < out[i + 1] - rise:
+                out[i] = out[i + 1] - rise
         return out
 
     @staticmethod
-    def predict_curve(points, khz, new):
+    def predict_curve(points, khz, new, max_rise_khz=None):
         """(real, pos) for a staged plan: the frequencies the driver will
         actually evaluate (evaluate_curve_law), and an idx -> voltage-position
         map to read them with. `new` is idx -> planned kHz for the points the
@@ -1626,7 +2015,8 @@ class GPU:
         answer and a second copy would drift from the measurements."""
         order = sorted(range(len(points)), key=lambda i: points[i]["volt_mv"])
         pos = {i: k for k, i in enumerate(order)}
-        return GPU.evaluate_curve_law([new.get(i, khz[i]) for i in order]), pos
+        return GPU.evaluate_curve_law([new.get(i, khz[i]) for i in order],
+                                      max_rise_khz), pos
 
     @staticmethod
     def cascade_meta(points, khz, real, pos, idxs):
@@ -1651,7 +2041,7 @@ class GPU:
     HARD_FLOOR_MV = 800.00
 
     @staticmethod
-    def compute_hard_deflatten(points, floor_mv, target_khz):
+    def compute_hard_deflatten(points, floor_mv, target_khz, step_khz=None):
         """Set EVERY point at or above `floor_mv` to ONE frequency - deliberately
         make the curve completely flat above the floor - so the boost arbiter
         parks AT the floor. Returns (changes, floor_before_mhz, target_mhz, meta),
@@ -1699,7 +2089,8 @@ class GPU:
         # DOWN onto the 15 MHz grid, like every other frequency in this app: a
         # mid-bin target floors on evaluation and the "one frequency" the whole
         # mechanism depends on would silently become two.
-        target = max(0, int(target_khz) // VF_STEP_KHZ) * VF_STEP_KHZ
+        grid = int(step_khz or VF_STEP_KHZ)
+        target = max(0, int(target_khz) // grid) * grid
         band = sorted((i for i in range(n)
                        if above_floor(points[i]["volt_mv"], floor_mv)),
                       key=lambda i: points[i]["volt_mv"])
@@ -1711,7 +2102,8 @@ class GPU:
             return [], 0.0, 0.0, meta
         F = band[0]
         new = {i: target for i in band if khz[i] != target}
-        real, pos = GPU.predict_curve(points, khz, new)
+        real, pos = GPU.predict_curve(points, khz, new,
+                                      VF_MAX_RISE_BINS * grid)
         # the arbiter's rule, applied to the curve the DRIVER will have: highest
         # frequency anywhere, then the lowest voltage carrying it
         peak = max(real)
@@ -1734,7 +2126,7 @@ class GPU:
         return changes, khz[F] / 1000.0, target / 1000.0, meta
 
     @staticmethod
-    def compute_ramp(points, lo_mv, cap_mv, max_khz=None):
+    def compute_ramp(points, lo_mv, cap_mv, max_khz=None, step_khz=None):
         """Rebuild the band [lo_mv, cap_mv] as a STRICTLY INCREASING ramp on the
         15 MHz grid - one distinct frequency per voltage point, no ties anywhere
         in the band. Returns (changes, ceil_before_mhz, ceil_after_mhz, meta),
@@ -1808,6 +2200,7 @@ class GPU:
         The granularity and the overclock are the SAME edit: every rung demands
         more clock at its voltage than stock did, so every rung has to be
         stable in its own right."""
+        grid = int(step_khz or VF_STEP_KHZ)
         n = len(points)
         khz = [int(round(p["freq_mhz"] * 1000)) for p in points]
         # sorted by VOLTAGE, not by position: the descent assigns one bin per
@@ -1832,19 +2225,19 @@ class GPU:
         rungs = len(band)
         # the ascending top is what the band would reach if the floor kept its
         # current frequency and every point above it gained one bin
-        asc_top = khz[L] + (rungs - 1) * VF_STEP_KHZ
+        asc_top = khz[L] + (rungs - 1) * grid
         top = asc_top
         if max_khz is not None and top > max_khz:
             top, meta["clamped"] = int(max_khz), True
         new = {}
         for step, i in enumerate(band):
-            want = top - (rungs - 1 - step) * VF_STEP_KHZ
+            want = top - (rungs - 1 - step) * grid
             if khz[i] != want:
                 new[i] = want
         for i in above:                    # flat top; park = the cap point
             if khz[i] != top:
                 new[i] = top
-        floor_after = top - (rungs - 1) * VF_STEP_KHZ
+        floor_after = top - (rungs - 1) * grid
         # The point immediately UNDER the band keeps whatever it had, so a
         # clipped ramp can land its floor below its own neighbour. On paper that
         # is a step down at the band edge; in hardware it never becomes one,
@@ -1861,7 +2254,8 @@ class GPU:
         # floor sitting far ABOVE that point drags it, and its own neighbours,
         # up. Both are measured; both are invisible in the delta table; so both
         # are counted here rather than discovered after the write.
-        real, pos = GPU.predict_curve(points, khz, new)
+        real, pos = GPU.predict_curve(points, khz, new,
+                                      VF_MAX_RISE_BINS * grid)
         in_band = [pos[i] for i in band]
         shadowed = sum(1 for i in band
                        if real[pos[i]] != new.get(i, khz[i]))
@@ -1897,23 +2291,27 @@ class GPU:
         return changes, khz[B] / 1000.0, top / 1000.0, meta
 
     def rephase_deltas(self):
-        """Force every delta onto ONE 15 MHz phase. Uniform offsets (the core
+        """Force every delta onto ONE grid phase. Uniform offsets (the core
         slider, or any whole-curve move) only stay grid-exact if all deltas share
-        a remainder mod 15 MHz; a point left on another phase crosses bin
+        a remainder mod the grid step; a point left on another phase crosses bin
         boundaries at different offsets and silently re-creates a flat. Off-phase
         deltas are rounded DOWN to the common phase, so a point can only lose a
-        bin, never gain one unasked."""
+        bin, never gain one unasked.
+
+        Uses this card's step, not 15 MHz: rephasing a Pascal curve onto a
+        Turing lattice would BE the de-phasing this exists to remove."""
         pts, err = self.read_vf_curve()
         if err:
             return False, err
+        grid = self.clock_step_khz()
         counts = {}
         for p in pts:
-            r = p["delta_khz"] % VF_STEP_KHZ
+            r = p["delta_khz"] % grid
             counts[r] = counts.get(r, 0) + 1
         target = max(counts, key=lambda r: counts[r])
-        new = {p["idx"]: p["delta_khz"] - ((p["delta_khz"] % VF_STEP_KHZ - target)
-                                           % VF_STEP_KHZ)
-               for p in pts if p["delta_khz"] % VF_STEP_KHZ != target}
+        new = {p["idx"]: p["delta_khz"] - ((p["delta_khz"] % grid - target)
+                                           % grid)
+               for p in pts if p["delta_khz"] % grid != target}
         if not new:
             return True, f"all {len(pts)} deltas already share one 15 MHz phase"
         ok, m = self.apply_vf_deltas(new)
@@ -1932,16 +2330,24 @@ class GPU:
         a = self.nvapi
         if not (a.ok and a.BoostTableGet and a.BoostTableSet):
             return False, "boost-table APIs unavailable"
+        lay = self.vfp_layout()
+        if lay is None:
+            return False, "could not determine this card's VF table layout"
+        writable = set(lay.gpu_idx)
         bt = _BoostTable(version=a.ver(_BoostTable, 1))
-        _set_all_point_masks(bt)
+        _set_point_masks(bt, lay.n_entries)
         st = a.BoostTableGet(a.gpu, ctypes.byref(bt))
         if st != 0:
             return False, f"pre-write table read failed (status {st})"
         nchg = 0
         for idx, delta in new_deltas.items():
             idx, delta = int(idx), int(delta)
-            if not (0 <= idx < VFP_POINTS):
-                return False, f"point index {idx} out of range"
+            # GPU rows only: on Pascal the trailing rows are MEMORY V/F points,
+            # and a delta written there is not a core overclock at all.
+            if idx not in writable:
+                return False, (f"point index {idx} is not a GPU V/F point on "
+                               f"this card ({lay.n_gpu} GPU points of "
+                               f"{lay.n_entries} entries)")
             if abs(delta) > self.MAX_ABS_DELTA_KHZ:
                 return False, (f"refusing point {idx}: delta {delta // 1000} MHz "
                                f"More than a whole gigahertz of delta? Lol, bro thinks he's Seby. Caught you with a mouse-slip and saved you a total driver crash this time. Don't do it next time. :copege:")
@@ -1951,17 +2357,24 @@ class GPU:
         if nchg == 0:
             return True, "no delta changes to apply"
         bt.version = a.ver(_BoostTable, 1)
-        _set_all_point_masks(bt)
+        _set_point_masks(bt, lay.n_entries)
         st = a.BoostTableSet(a.gpu, ctypes.byref(bt))
         if st == 0:
             return True, f"VF delta table written ({nchg} points changed)"
         return False, f"VF table write failed (status {st})"
 
     def reset_vf_curve(self):
-        """Zero every point's delta = factory VF curve. Removes all offsets and
-        any de-flatten/editor edits. Stock Turing deltas are 0, so this is the
-        unambiguous 'back to stock' with no persisted-baseline to be poisoned."""
-        return self.apply_vf_deltas({i: 0 for i in range(VFP_POINTS)})
+        """Zero every GPU point's delta = factory VF curve. Removes all offsets
+        and any de-flatten/editor edits. Stock deltas are 0 on both Turing and
+        Pascal, so this is the unambiguous 'back to stock' with no persisted
+        baseline to be poisoned.
+
+        Scoped to the GPU rows for the same reason apply_vf_deltas is - zeroing
+        'every index' would have written to Pascal's memory V/F rows."""
+        lay = self.vfp_layout()
+        if lay is None:
+            return False, "could not determine this card's VF table layout"
+        return self.apply_vf_deltas({i: 0 for i in lay.gpu_idx})
 
     def reset_all(self):
         """Return a list of (ok, message) so the caller can flag partial resets.

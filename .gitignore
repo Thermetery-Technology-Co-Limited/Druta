@@ -16,3 +16,11 @@ ping_ui_result.txt
 # Automatic pre-write undo points are session state, not tunes worth keeping.
 # Named profiles ARE tracked: they are per-card, and this repo is one card.
 profiles/autosave-*.json
+
+# Correspondence. Findings write-ups addressed to named people outside the
+# company are NEVER tracked here - they quote third parties, discuss their
+# unpublished work, and are drafts written to be sent, not documentation of
+# this tool. Keep them out of the repo entirely rather than relying on
+# remembering not to `git add` them.
+docs/
+findings-for-*.md

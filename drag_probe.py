@@ -125,7 +125,7 @@ class Probe(tk.Tk):
         w = cv.winfo_width() or 900
         h = cv.winfo_height() or 560
         pts = []
-        for i in range(103):                    # same point count as the VF curve
+        for i in range(103):                    # stand-in count; the real VF curve is 128
             x = 40 + i * (w - 60) / 103.0
             y = h - 40 - (i * (h - 80) / 103.0)
             pts += [x, y]
