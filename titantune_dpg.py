@@ -724,13 +724,19 @@ class TitanTune:
         # is left. The divergence panel is usually hidden and takes no share.
         wrapw = W - self.s(40)
         for tag in ("tim_ro", "tim_reason", "tim_warn", "tim_sub", "cmp_hint",
-                    "cmp_legend", "div_sub", "tim_state", "tim_induce_note"):
+                    "cmp_legend", "div_sub", "tim_state", "tim_induce_note",
+                    "tw_warn", "tw_hint", "tw_plan", "tw_result", "tw_backup"):
             if dpg.does_item_exist(tag):
                 dpg.configure_item(tag, wrap=wrapw)
         if dpg.does_item_exist("pan_tim_hdr"):
             hdr_h = self.tim_hdr_h(wrapw)
             dpg.configure_item("pan_tim_hdr", height=hdr_h)
-            rest = max(self.s(320), H - hdr_h - self.s(104))
+            # The write block is always on screen now, and it is not a fixed
+            # height - the hazard text wraps and the plan grows when it has
+            # warnings. Unaccounted, the panels below share a budget that no
+            # longer exists and the comparison table slides off the bottom.
+            rest = max(self.s(320),
+                       H - hdr_h - self.tw_block_h(wrapw) - self.s(104))
             div_h = (max(self.s(120), int(rest * 0.20))
                      if dpg.is_item_shown("pan_div") else 0)
             tim_h = max(self.s(180), int((rest - div_h) * 0.56))
@@ -740,6 +746,23 @@ class TitanTune:
                 if h and dpg.does_item_exist(tag):
                     dpg.configure_item(tag, height=h)
         self.size_plan_banner()
+
+    def tw_block_h(self, wrap):
+        """Vertical cost of the always-visible timing-write block.
+
+        Measured for the same reason tim_hdr_h is: three of its lines wrap and
+        two of them are empty until something happens, so a fixed number would
+        be wrong at every width and wrong again after the first write."""
+        lh = self.text_h("Ag", "ui") or self.s(19)
+        h = lh                                    # the heading line
+        for tag in ("tw_warn", "tw_hint", "tw_plan", "tw_result", "tw_backup"):
+            if dpg.does_item_exist(tag):
+                txt = dpg.get_value(tag) or ""
+                if txt:
+                    h += self.text_h(txt, "ui", wrap) or lh
+        h += 2 * (lh + self.s(12))                # the two button rows
+        h += self.s(20) + lh                      # spacers and the separator
+        return h
 
     def tim_hdr_h(self, wrap):
         """Measured, not guessed - same reason as tile_height(): the warning
@@ -3774,34 +3797,47 @@ deliberately does not put behind a button."""
                 for t in ("tim_ident", "tim_clock", "tim_words"):
                     self.bind(t, "mono")
 
+            # NOT behind a collapsing header. It was, on the reasoning that a
+            # writing control should take a deliberate act to reach - but the
+            # act it actually gated was reading the warning, while the editable
+            # cells it describes sat in plain sight in the table below. A fold
+            # that hides the explanation and not the controls is worse than no
+            # fold, so the whole thing is exposed and the hazard text leads.
+            dpg.add_spacer(height=self.s(6))
+            dpg.add_text("EDIT TIMINGS  ·  writes to the memory controller",
+                         color=BAD)
+            dpg.add_text(self.TIM_WRITEWARN, color=BAD,
+                         wrap=self.s(1100), tag="tw_warn")
+            dpg.add_text("Edit the 'new value' column in the table below. A "
+                         "cell is green while it matches the register and red "
+                         "once it does not; only red rows are written.",
+                         color=DIM, wrap=self.s(1100), tag="tw_hint")
             dpg.add_spacer(height=self.s(4))
-            with dpg.collapsing_header(label="  Edit timings  (writes to the "
-                                             "memory controller)  ",
-                                       tag="tw_hdr", default_open=False):
-                dpg.add_text(self.TIM_WRITEWARN, color=BAD,
-                             wrap=self.s(1100), tag="tw_warn")
-                dpg.add_separator()
-                dpg.add_text("Edit the 'new value' column in the table below. "
-                             "A cell is green while it matches the register and "
-                             "red once it does not; only red rows are written.",
-                             color=DIM, wrap=self.s(1100))
-                dpg.add_separator()
-                dpg.add_text("nothing staged", tag="tw_plan", color=TEXT,
-                             wrap=self.s(1100))
-                with dpg.group(horizontal=True):
-                    dpg.add_button(label="Apply to memory controller",
-                                   tag="tw_apply", width=self.s(240),
-                                   callback=self.tw_apply)
-                    dpg.add_checkbox(label="force (write despite range "
-                                           "warnings)", tag="tw_force")
-                    dpg.add_button(label="Revert edits", tag="tw_clear",
-                                   width=self.s(120), callback=self.tw_clear)
-                    dpg.add_button(label="Restore stock", tag="tw_restore",
-                                   width=self.s(140), callback=self.tw_restore)
-                dpg.add_text("", tag="tw_result", color=TEXT,
-                             wrap=self.s(1100))
-                dpg.add_text("", tag="tw_backup", color=DIM,
-                             wrap=self.s(1100))
+            dpg.add_text("no edits - every cell matches the register",
+                         tag="tw_plan", color=TEXT, wrap=self.s(1100))
+            dpg.add_spacer(height=self.s(4))
+            # Two rows, grouped by what the controls DO. `force` modifies Apply
+            # and belongs beside it; Revert and Restore are the two ways back
+            # and belong together. One ragged row mixing a checkbox with three
+            # different button widths is what this replaced.
+            with dpg.group(horizontal=True):
+                dpg.add_button(label="Apply to memory controller",
+                               tag="tw_apply", width=self.s(260),
+                               callback=self.tw_apply)
+                dpg.add_spacer(width=self.s(10))
+                dpg.add_checkbox(label="force  (write despite range warnings)",
+                                 tag="tw_force")
+            dpg.add_spacer(height=self.s(2))
+            with dpg.group(horizontal=True):
+                dpg.add_button(label="Revert edits", tag="tw_clear",
+                               width=self.s(150), callback=self.tw_clear)
+                dpg.add_spacer(width=self.s(10))
+                dpg.add_button(label="Restore stock", tag="tw_restore",
+                               width=self.s(150), callback=self.tw_restore)
+            dpg.add_text("", tag="tw_result", color=TEXT, wrap=self.s(1100))
+            dpg.add_text("", tag="tw_backup", color=DIM, wrap=self.s(1100))
+            dpg.add_spacer(height=self.s(4))
+            dpg.add_separator()
 
             dpg.add_spacer(height=self.s(4))
             with dpg.child_window(tag="pan_tim", width=-1, height=self.s(360)):
