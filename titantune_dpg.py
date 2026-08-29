@@ -3572,6 +3572,14 @@ deliberately does not put behind a button."""
                                   callback=self.show_win)
                 dpg.add_menu_item(label="Copy device report",
                                   callback=self.copy_device_report)
+                dpg.add_separator()
+                # nvtune is NOT shipped with TitanTune - separate tool, its own
+                # self-signed kernel driver - so the Timings tab
+                # needs to be pointed at it once. This is that once.
+                dpg.add_menu_item(label="Locate nvtune...",
+                                  callback=self.open_locate_nvtune)
+                dpg.add_menu_item(label="Forget nvtune location",
+                                  callback=self.forget_nvtune)
             # Up here rather than on the Control tab for the same reason as the
             # clock lock: these are whole-machine actions, not one more knob.
             # 'Undo last write' is the safety net that lets Apply and Reset
@@ -4229,6 +4237,42 @@ deliberately does not put behind a button."""
         self._tw_pending = {}
         self.tw_plan()
         self.timings_capture()
+
+    # ---- locating nvtune, which this build does not ship ------------------ #
+    def open_locate_nvtune(self, sender=None, app_data=None, user_data=None):
+        """Browse to an nvtune.exe and remember where it is.
+
+        Recreated per open rather than built once: DPG file dialogs keep the
+        directory they were last closed in, and a stale one reopens somewhere
+        the user has since moved away from."""
+        if dpg.does_item_exist("dlg_nvtune"):
+            dpg.delete_item("dlg_nvtune")
+        cur = timings.find_exe()
+        with dpg.file_dialog(tag="dlg_nvtune", directory_selector=False,
+                             modal=True, width=self.s(760), height=self.s(430),
+                             default_path=(os.path.dirname(cur) if cur
+                                           else os.path.expanduser("~")),
+                             default_filename=timings.NVTUNE_EXE,
+                             callback=self.locate_nvtune_done,
+                             cancel_callback=lambda *a: None):
+            dpg.add_file_extension(".exe", color=(150, 220, 150))
+            dpg.add_file_extension(".*")
+
+    def locate_nvtune_done(self, sender=None, app_data=None, user_data=None):
+        path = (app_data or {}).get("file_path_name") or ""
+        ok, msg = timings.set_configured_exe(path)
+        self.log(msg, ok)
+        if ok:
+            # re-check availability immediately: registering a path and then
+            # still seeing "not found" until the next capture would read as the
+            # registration having failed
+            self.timings_capture()
+
+    def forget_nvtune(self, sender=None, app_data=None, user_data=None):
+        ok, msg = timings.set_configured_exe(None)
+        self.log(msg + " - falling back to the derived locations", ok)
+        if ok:
+            self.timings_capture()
 
     # ---- the worker ------------------------------------------------------- #
     def timings_capture(self, sender=None, app_data=None, user_data=None):

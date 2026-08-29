@@ -65,9 +65,92 @@ from dataclasses import dataclass, field as _dc_field
 # ---- where the tool lives -------------------------------------------------- #
 NVTUNE_EXE = "nvtune.exe"
 DRIVER_SERVICE = "nvtunedrv"
-# The contractor's install. Treated as read-only: nothing here writes into it.
-CONTRACTOR_DIR = r"C:\Users\Administrator\Desktop\nvtune"
 ENV_OVERRIDE = "TITANTUNE_NVTUNE"      # full path to nvtune.exe, or its folder
+
+# WHERE NVTUNE LIVES IS DISCOVERED, NEVER WRITTEN DOWN.
+#
+# This used to hold `CONTRACTOR_DIR = r"C:\Users\Administrator\Desktop\nvtune"`,
+# which worked on exactly one machine and one account. Everywhere else the
+# Timings tab went dark for a reason nothing on screen explained, and the
+# username shipped in the repo.
+#
+# nvtune is a SEPARATE tool that this build deliberately does not ship: it is
+# the contractor's binary, its kernel driver is SELF-SIGNED, and whether
+# to install that is the operator's call. So it is treated as an external
+# dependency to be located - by the operator once, or by derivation from the
+# environment - in this order:
+#
+#   1. TITANTUNE_NVTUNE, exclusive: an explicit override never silently falls
+#      back to another copy, because every register offset this feature decodes
+#      comes out of the binary that gets run.
+#   2. the path the operator registered through the UI (config_path()).
+#   3. derived locations - beside TitanTune first, then the usual install roots.
+#   4. PATH, last, being the least predictable.
+CONFIG_DIR_NAME = "TitanTune"
+CONFIG_NAME = "nvtune.json"
+
+
+def config_path():
+    """Where the registered nvtune location is remembered. LOCALAPPDATA rather
+    than beside the app: an EXE in Program Files cannot write next to itself."""
+    base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+    return os.path.join(base, CONFIG_DIR_NAME, CONFIG_NAME)
+
+
+def _as_exe(p):
+    """A path naming either nvtune.exe or the folder holding it -> the exe."""
+    p = os.path.expandvars(os.path.expanduser((p or "").strip().strip('"')))
+    if not p:
+        return None
+    return p if p.lower().endswith(".exe") else os.path.join(p, NVTUNE_EXE)
+
+
+def configured_exe():
+    """The location the operator registered, or None."""
+    try:
+        with open(config_path(), encoding="utf-8") as f:
+            return _as_exe((json.load(f) or {}).get("nvtune_exe"))
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
+def set_configured_exe(path):
+    """Register where nvtune lives, or clear it with None/''. (ok, message).
+
+    Verifies the file is actually there before recording it: a registration
+    that silently points at nothing would turn the one explicit mechanism into
+    another way to be confused about why the tab is empty."""
+    exe = _as_exe(path)
+    if exe and not os.path.isfile(exe):
+        return False, f"no nvtune.exe at {exe}"
+    try:
+        os.makedirs(os.path.dirname(config_path()), exist_ok=True)
+        with open(config_path(), "w", encoding="utf-8") as f:
+            json.dump({"nvtune_exe": exe or ""}, f, indent=2)
+    except OSError as e:
+        return False, f"could not write {config_path()}: {e}"
+    return True, (f"nvtune registered at {exe}" if exe
+                  else "registered nvtune location cleared")
+
+
+def _candidate_dirs():
+    """Plausible homes for an unshipped nvtune, DERIVED from the environment.
+
+    Beside TitanTune comes first so a portable copy always wins. The rest are
+    the ordinary install roots expanded for whoever is actually logged in -
+    which is how the Desktop location this was originally hardcoded to keeps
+    working, without the account name being in the source."""
+    dirs = [_app_dir(), os.path.dirname(os.path.abspath(__file__))]
+    home = os.path.expanduser("~")
+    for base in (os.environ.get("LOCALAPPDATA"),
+                 os.environ.get("PROGRAMFILES"),
+                 os.environ.get("PROGRAMFILES(X86)"),
+                 os.path.join(home, "Desktop"),
+                 os.path.join(home, "Downloads"),
+                 home):
+        if base:
+            dirs.append(os.path.join(base, "nvtune"))
+    return dirs
 
 # ---- THE SAFETY BOUNDARY, IN CODE ------------------------------------------ #
 # Every read-only subcommand nvtune has. Anything not in this set cannot be
@@ -133,11 +216,13 @@ def search_path(override=None):
         # out of that binary.
         return [pin]
     out, seen = [], set()
-    for d in (_app_dir(), os.path.dirname(os.path.abspath(__file__)),
-              CONTRACTOR_DIR):
-        if d and d.lower() not in seen:
-            seen.add(d.lower())
-            out.append(os.path.join(d, NVTUNE_EXE))
+    cfg = configured_exe()
+    cands = ([cfg] if cfg else []) + [os.path.join(d, NVTUNE_EXE)
+                                      for d in _candidate_dirs() if d]
+    for p in cands:
+        if p.lower() not in seen:
+            seen.add(p.lower())
+            out.append(p)
     return out
 
 
@@ -248,10 +333,13 @@ def available(override=None):
                          f"environment variable.")
         else:
             looked = "\n".join("    " + p for p in search_path(override))
-            av.reason = (f"{NVTUNE_EXE} not found. Looked in:\n{looked}\n"
-                         f"    (then PATH)\n"
-                         f"Set the {ENV_OVERRIDE} environment variable to its "
-                         f"full path to point TitanTune at another copy.")
+            av.reason = (
+                f"{NVTUNE_EXE} not found. TitanTune does not ship it - it is a "
+                f"separate tool whose kernel driver is self-signed - so it has "
+                f"to be located. Looked in:\n{looked}\n    (then PATH)\n"
+                f"Use 'Device -> Locate nvtune...' to register where it is "
+                f"(remembered in {config_path()}), or set the {ENV_OVERRIDE} "
+                f"environment variable to its full path.")
         if not running:
             av.reason += (f"\n\nIts kernel driver service '{DRIVER_SERVICE}' "
                           f"is also not running (state: {state}).")

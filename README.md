@@ -792,13 +792,29 @@ whitelists the read-only subcommands (`list`, `fields`, `dump`, `get`, `save`,
 and `--force` before a process is created. Nothing about the tab — no flag, no
 disabled button, no dead branch — can change a timing.
 
-**It needs two things, and says which one is missing.** `nvtune.exe` (looked
-for beside TitanTune, then in `C:\Users\Administrator\Desktop\nvtune`, then on
-`PATH`; override with the `TITANTUNE_NVTUNE` environment variable, which is
-exclusive — a bad override fails rather than quietly running some other copy),
-and its kernel driver service `nvtunedrv`, which maps the BAR0 FBPA aperture
-(`sc start nvtunedrv`, elevated). With either absent the tab explains which,
-and stays read-only regardless.
+**It needs two things, and says which one is missing.** `nvtune.exe` and its
+kernel driver service `nvtunedrv`, which maps the BAR0 FBPA aperture
+(`sc start nvtunedrv`, elevated). With either absent the tab explains which.
+
+**TitanTune does not ship nvtune.** It is a separate tool carrying its own
+SELF-SIGNED kernel driver, and whether to install that is your call — so it is
+located rather than bundled, in this order:
+
+1. `TITANTUNE_NVTUNE`, and it is **exclusive**: a bad override fails rather than
+   quietly running some other copy. Every register offset this tab decodes comes
+   out of the binary that actually runs, so "some other copy" is not a
+   nuisance — it is a wrong answer.
+2. Whatever was registered through **Device → Locate nvtune…**, remembered in
+   `%LOCALAPPDATA%\TitanTune\nvtune.json`. Registration verifies the file is
+   there before recording it.
+3. Derived locations: beside TitanTune first (so a portable copy always wins),
+   then `nvtune\` under `%LOCALAPPDATA%`, both Program Files roots, and the
+   current user's Desktop, Downloads and home.
+4. `PATH`, last, being the least predictable.
+
+No path is hardcoded. An earlier build pinned one absolute directory with an
+account name in it, which worked on exactly one machine and left the tab dark
+everywhere else for a reason nothing on screen explained.
 
 ### A cycle count is not a time until you know its clock
 
