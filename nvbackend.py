@@ -1,5 +1,5 @@
 """
-TitanTune - GPU backend (NVAPI + NVML), read + guarded write.
+Druta - GPU backend (NVAPI + NVML), read + guarded write.
 
 Built for the Titan RTX (TU102, DEV_1E02) on the ASUS 2080 Ti Strix PCB, but
 falls back to GPU index 0 for any NVIDIA card. All struct layouts are lifted

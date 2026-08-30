@@ -1,23 +1,30 @@
-# TitanTune
+# Druta
 
-An Afterburner-style monitor/tuner for the Titan-RTX-die-on-2080Ti-Strix-PCB
-frankencard: it surfaces Turing telemetry Afterburner doesn't show and drives
-the reversible tuning knobs directly through NVAPI/NVML.
+An Afterburner-style monitor/tuner for NVIDIA cards, driven through NVAPI/NVML
+private interfaces: it surfaces telemetry Afterburner doesn't show and drives
+the reversible tuning knobs directly.
 
-The GPU layer (`nvbackend.py`) is shared unchanged between UI builds: every
-NVAPI id, struct layout, and the 15 MHz quantisation law in it was verified
-against this specific card.
+Developed against two cards — a **Titan RTX die on a 2080 Ti Strix PCB**
+(TU102, Turing) and a **stock Titan Xp** (GP102, Pascal). Where the two
+disagree, the tool asks the driver rather than assuming: the V/F point count,
+the clock grid, the clock-domain names and the frequency scale are all **probed
+per card**. Two hardcoded constants have now been wrong twice each, so any
+figure quoted in this README as "the" value is a measurement on one of those two
+cards, not a law.
+
+The GPU layer (`nvbackend.py`) is shared unchanged between UI builds.
 
 ## Run
 
-- `dist\TitanTune2.exe` — the current build (Dear PyGui). Standalone, no
+- `dist\Druta.exe` — the current build (Dear PyGui). Standalone, no
   Python needed.
-- or `python titantune_dpg.py` from source.
+- or `python druta.py` from source.
 - Run **as administrator** for clock-lock, fan, and power-limit writes.
 
-`app.py` / `dist\TitanTune.exe` (Tk) still exists, but it is not a build you
-should reach for — see "Why Dear PyGui" below. Do not edit `app.py`; it is
-kept only as a parity reference for the Dear PyGui port.
+`app.py` (the old Tk UI) still exists, but it is not a build you should reach
+for — see "Why Dear PyGui" below, and note it has no build target of its own
+any more. Do not edit `app.py`; it is kept only as a parity reference for the
+Dear PyGui port.
 
 ## Why Dear PyGui
 
@@ -30,7 +37,7 @@ as long as the drag lasts.
 
 Dear PyGui (Dear ImGui + DirectX 11) renders the whole UI as GPU geometry
 inside a single window: zero child HWNDs, so there's nothing for the modal
-loop to stall on. `titantune_dpg.py` is now the only build worth running; the
+loop to stall on. `druta.py` is now the only build worth running; the
 Tk build is kept only as a parity reference.
 
 ## Layout
@@ -375,7 +382,7 @@ public surface:
 3. **The boost arbiter parks at the lowest voltage of the top flat.** Turing
    runs the *lowest*-voltage point of any flat run at the peak frequency —
    so a flat sitting near the voltage cap stalls the card at that flat's
-   bottom, leaving voltage headroom unused. **De-flatten ≤ cap** raises the
+   bottom, leaving voltage headroom unused. **Limited de-flatten ≤ cap** raises the
    boundary point (the last point at/below the cap, plus one point past it)
    by whole 15 MHz bins until it — and only it — is the unique top, so the
    arbiter has nowhere to park but there.
@@ -385,7 +392,7 @@ public surface:
    of that is visible in the table you wrote.
 
 De-flatten only stages a plan onto the working copy; nothing reaches the GPU
-until **Apply to GPU**, which flags any point that lands off-prediction after
+until **Re-phase and apply V/F curve to GPU**, which flags any point that lands off-prediction after
 the write. The predicted result — resulting top ≤cap, peak, park point, and a
 loud warning when the plan *lowers* the peak — is not shown at the click; it
 stands in the plan banner above the button for as long as the edits exist
@@ -455,10 +462,10 @@ badly. Internal testing measures **up to 7% of a benchmark** lost this way with
 an imperfect power-limit bypass (shunt mods, where the GPU's own current-sensing
 heuristics still throttle).
 
-**Ramp ≤ cap** rebuilds the band between the *ramp floor* box and the voltage
+**De-flatten** rebuilds the band between the *ramp floor* box and the voltage
 cap as a strictly increasing 15 MHz ramp: one distinct frequency per voltage
 point, no ties. Like De-flatten it only **stages** — nothing reaches the GPU
-until `Apply to GPU`, and the plan banner says what the click will write for as
+until `Re-phase and apply V/F curve to GPU`, and the plan banner says what the click will write for as
 long as the edits exist.
 
 **Top-anchored, and that is the design decision.** The cap point takes the
@@ -587,7 +594,7 @@ bin, the 3060, mobile GPU transplants.
 
 ### One click, with the warning first
 
-`Apply to GPU` and `Reset curve to stock` each take **one** click. They used
+`Re-phase and apply V/F curve to GPU` and `Reset curve to stock` each take **one** click. They used
 to arm on the first press and commit on the second, with the plan stated in
 between — but a consequence that only appears once you have already pressed
 is a receipt, not a warning. So the plan moved to where it can actually
@@ -617,7 +624,7 @@ The banner is measured, not fixed, so it grows with what it has to say — and t
 plot gives up exactly those pixels rather than letting the box push `Apply to
 GPU` off the bottom of the page. A warning that scrolls its own button out of
 view has defeated itself. The gated hard-de-flatten header is in the same
-budget, since it sits above the plot too; measured at 150% DPI, `Apply to GPU`
+budget, since it sits above the plot too; measured at 150% DPI, `Re-phase and apply V/F curve to GPU`
 stays fully on screen in every state including the worst one (header open *and*
 a hard plan staged, where the plot is down to its floor). For the same reason
 the *log* line a planner writes is a one-line summary: `log()` mirrors its last
@@ -662,7 +669,7 @@ a double-clicked `Apply` — still undo newest-first.
 touches the 128-row VF delta table does, because its previous contents appear
 nowhere on screen and cannot be reconstructed:
 
-- `Apply to GPU`
+- `Re-phase and apply V/F curve to GPU`
 - `Reset curve to stock`
 - `Re-phase` — the one genuinely *lossy* write in the app. Off-phase deltas
   are rounded down onto the common phase and the original remainders are gone;
@@ -695,7 +702,7 @@ remains the only thing that restores the factory curve.
 
 ### Hold this point (Ctrl+H)
 
-This is TitanTune's answer to Afterburner's `Ctrl+L` curve lock. `Ctrl+H`
+This is Druta's answer to Afterburner's `Ctrl+L` curve lock. `Ctrl+H`
 holds the selected V/F point; `Ctrl+H` again releases it. The hold is shown
 as a green vertical line at the point's voltage on the plot and as a status
 line on the Control tab, above the collapsible knob groups so it stays
@@ -765,10 +772,10 @@ Four further details:
   signposted, and cannot be: the release runs after the render loop has
   exited, so no further frame is drawn — the log line it writes is never seen,
   and the only notice is a line printed to **stdout**, which a `--noconsole`
-  build (`dist\TitanTune2.exe`) discards. The app's own record is kept honest
+  build (`dist\Druta.exe`) discards. The app's own record is kept honest
   either way — a failed release deliberately does not clear it — but the
   process is on its way out, so nothing is left to show it. If you locked
-  clocks in a run that may not have had admin, re-run TitanTune as
+  clocks in a run that may not have had admin, re-run Druta as
   administrator and press `Release`, run `nvidia-smi -rgc`, or reboot; any of
   the three clears it. Launching from a console rather than the desktop
   shortcut is what makes the failure visible at all.
@@ -784,30 +791,51 @@ Decodes the framebuffer-partition (FBPA) memory timing registers —
 `CONFIG0`..`CONFIG5` and `TIMING22`, at `0x9A0000 + 0x290 + n*4` — and shows
 what each field means in nanoseconds at the memory clock it was sampled at.
 
-**It is read-only, and not merely by convention.** `nvtune` can write these
-registers, and writing one can hang the machine and corrupt VRAM. TitanTune
-therefore has no code path that can build a writing command line: `timings.py`
-whitelists the read-only subcommands (`list`, `fields`, `dump`, `get`, `save`,
-`probe`, `vbios`) and rejects `set`, `restore`, `apply`, `daemon`, `--commit`
-and `--force` before a process is created. Nothing about the tab — no flag, no
-disabled button, no dead branch — can change a timing.
+**The tab can write, and the write path is isolated in one file.** Writing an
+FBPA timing register can hang the machine and corrupt VRAM, so the read path and
+the write path are separate modules and only one of them can construct a writing
+command line.
+
+- **`timings.py` — read-only by construction.** It whitelists the read-only
+  subcommands (`list`, `fields`, `dump`, `get`, `save`, `probe`, `vbios`) and
+  rejects `set`, `restore`, `apply`, `daemon`, `--commit` and `--force` before a
+  process is created. No flag, no disabled button and no dead branch in it can
+  change a timing.
+- **`timingwrite.py` — the only module that can.** Everything that writes lives
+  there, in one file, for one auditor to read. It is driven from the **Edit
+  timings** panel on the tab: an editable `new value` column (green while it
+  matches the register, red once it does not), an explicit `force` checkbox for
+  values outside nvtune's own range checks, and `Restore stock`.
+
+Three guards sit in front of every write. A **dry run always runs first**, so a
+tool-side refusal is *observed* rather than inferred from an unchanged
+read-back — the distinction that put four phantom hardware rejections into an
+earlier Turing sweep. A **per-card stock backup** is taken before the first
+write, keyed by card rather than by PCI slot. And structural fields, plus fields
+in a register whose offset is only inferred, get no input at all.
+
+Measured: **GP102 (Pascal) accepts these writes; TU102 (Turing) rejects every
+one of them at the hardware.** Same tool, same driver, same slot.
 
 **It needs two things, and says which one is missing.** `nvtune.exe` and its
 kernel driver service `nvtunedrv`, which maps the BAR0 FBPA aperture
 (`sc start nvtunedrv`, elevated). With either absent the tab explains which.
 
-**TitanTune does not ship nvtune.** It is a separate tool carrying its own
+**Druta does not ship nvtune.** It is a separate tool carrying its own
 signed kernel driver, and redistributing it is not ours to do — so it is located
 rather than bundled, in this order:
 
-1. `TITANTUNE_NVTUNE`, and it is **exclusive**: a bad override fails rather than
+1. `DRUTA_NVTUNE`, and it is **exclusive**: a bad override fails rather than
    quietly running some other copy. Every register offset this tab decodes comes
    out of the binary that actually runs, so "some other copy" is not a
    nuisance — it is a wrong answer.
 2. Whatever was registered through **Device → Locate nvtune…**, remembered in
-   `%LOCALAPPDATA%\TitanTune\nvtune.json`. Registration verifies the file is
+   `%LOCALAPPDATA%\Thermetery\Druta\nvtune.json`. A registration made before the
+   rename is carried across once from `%LOCALAPPDATA%\TitanTune\nvtune.json`
+   (copied, not moved, so a downgrade still works), and the pre-rename
+   `TITANTUNE_NVTUNE` variable is still honoured. Registration verifies the file is
    there before recording it.
-3. Derived locations: beside TitanTune first (so a portable copy always wins),
+3. Derived locations: beside Druta first (so a portable copy always wins),
    then `nvtune\` under `%LOCALAPPDATA%`, both Program Files roots, and the
    current user's Desktop, Downloads and home.
 4. `PATH`, last, being the least predictable.
@@ -898,7 +926,7 @@ bracketed** with a clock and P-state read on each side: a forced state could be
 read at leisure, an induced one can drop out mid-read. Measured, a capture that
 straddled an 810 → 7428 reclock computed RC as 385 ns instead of 42.
 
-Nothing in TitanTune forces a memory P-state, because nothing can.
+Nothing in Druta forces a memory P-state, because nothing can.
 
 | lever | reaches |
 |---|---|
@@ -1001,9 +1029,11 @@ be duplicated into the app as well, and the two copies drifted.
 
 ## Safety
 
-**Reversible, no admin needed to read:** all Monitor-tab telemetry, and the
-Timings tab (which cannot write at all — see "Timings tab"; its `nvtunedrv`
-driver does need admin to *start*, but not to read through once running). The
+**Reversible, no admin needed to read:** all Monitor-tab telemetry, and *reading*
+on the Timings tab (its `nvtunedrv` driver does need admin to *start*, but not to
+read through once running). Timing **writes** are a different category entirely —
+they need admin, they can hang the machine, and they are covered under "Timings
+tab" above. The
 Timings tab's GPU load is an ordinary CUDA workload: it makes the card busy for
 a few seconds, writes no register, and releases its context in a `finally:`.
 
@@ -1017,7 +1047,7 @@ to stock`, and the release of this app's own lock when the window closes (see
 
 Reversible is not the same as harmless. A V/F curve edit asks the card for a
 clock at a voltage, and if the silicon cannot hold it the machine crashes —
-which a reboot then clears, since no delta survives one. `Ramp ≤ cap` is an
+which a reboot then clears, since no delta survives one. `De-flatten` is an
 overclock by construction (every rung asks for more than stock at its voltage),
 and **`Hard de-flatten` is an overclock that assumes a hardware modification
 exists**: on an unmodified card the 800 mV floor is not a trick played on the
@@ -1035,9 +1065,12 @@ commands to run them by hand, never fired blind by this app:
   for the Timings tab — P2 and P0 program identical timing registers here.
 - Driver-model TCC (`nvidia-smi -dm 1`, restore with `-dm 0`) — **drops
   display output** on this card; never run blind.
-- Writing a memory timing register (`nvtune set`/`apply`/`restore`/`daemon`,
-  or any `--commit`) — it can hang the machine and corrupt VRAM. The Timings
-  tab reads these registers and is structurally incapable of writing one.
+Memory timing writes **used to be on this list and have come off it.** They are
+now wired, to the Timings tab's **Edit timings** panel, and they are still the
+most dangerous thing here: a bad one can hang the machine and corrupt VRAM. What
+changed is that they are gated rather than absent — isolated in `timingwrite.py`,
+behind a mandatory dry run, a per-card stock backup and an explicit `force`
+checkbox. See "Timings tab" for the full boundary.
 The per-domain V/F point lock (NvAPI `0x39442CFB`) **used to be on this
 list** and has come off it. It is no longer unverified: it was validated end to
 end on this card by the ladder in "The validation ladder" above — id resolves,
@@ -1046,17 +1079,26 @@ read-modify-write that moved the card as predicted and reversed exactly. It is
 reversible and volatile, and `Ctrl+H` now drives it. Everything else on the
 list above stays off, for the reasons given.
 
-This is research software written against one specific frankencard
-(Titan RTX die, Turing TU102, on an ASUS RTX 2080 Ti Strix PCB, driver
-591.44 at time of writing). Struct layouts, NVAPI ids, and the empirical
-laws above were all verified against that hardware; nothing here should be
-assumed to generalize to a different card without re-verifying.
+This is research software, developed against two cards: a Titan RTX die
+(Turing TU102) on an ASUS RTX 2080 Ti Strix PCB, and a stock Titan Xp
+(Pascal GP102). Struct layouts, NVAPI ids and the empirical laws above were
+verified against those; nothing here should be assumed to generalize to a
+third card without re-verifying.
+
+Two asymmetries between them are measured and worth knowing before trusting a
+number in this document:
+
+- **Memory timing writes land on GP102 and are rejected by TU102 at the
+  hardware.** Same tool, same driver, same slot. Reads work on both.
+- **The V/F shape law was measured on TU102 only.** On any other card the
+  planner's reshape *prediction* is unverified — that affects what the plan
+  banner promises, not whether a write is safe.
 
 ## Build
 
 ```
 pip install dearpygui
-python -m PyInstaller --onefile --noconsole --name TitanTune2 --collect-all dearpygui titantune_dpg.py
+python -m PyInstaller --onefile --noconsole --name Druta --collect-all dearpygui druta.py
 ```
 
-Output lands in `dist\TitanTune2.exe`.
+Output lands in `dist\Druta.exe`.

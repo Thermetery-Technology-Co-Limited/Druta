@@ -1,4 +1,4 @@
-"""Memory-timing WRITES. The only module in TitanTune that can build a writing
+"""Memory-timing WRITES. The only module in Druta that can build a writing
 nvtune command line.
 
 WHY THIS IS A SEPARATE MODULE. `timings.py` states in its own docstring that no
@@ -129,7 +129,7 @@ class Result:
 
 # ---- the single choke point ------------------------------------------------ #
 def _run(args, override=None, timeout=90):
-    """Spawn nvtune. This is the ONLY place in TitanTune that may build an argv
+    """Spawn nvtune. This is the ONLY place in Druta that may build an argv
     containing a writing subcommand."""
     exe = timings.find_exe(override)
     if not exe:
