@@ -1,7 +1,7 @@
 """
 Proof test: does Dear PyGui drag smoothly where Tk does not?
 
-Builds MORE interactive controls than TitanTune's Control tab (the case that is
+Builds MORE interactive controls than Druta's Control tab (the case that is
 still very laggy under Tk): 12 sliders, 12 buttons, 8 inputs, 8 checkboxes,
 plus a live-updating plot and a log - and it also runs a 1 Hz "telemetry"
 callback, so it exercises everything that made Tk struggle.
@@ -9,7 +9,7 @@ callback, so it exercises everything that made Tk struggle.
 The whole UI is ONE native window rendered on the GPU (Dear ImGui core +
 DirectX 11), instead of Tk's one-HWND-per-widget model.
 
-Drag this window by its title bar and compare with TitanTune's Control tab.
+Drag this window by its title bar and compare with Druta's Control tab.
 """
 import ctypes
 import os

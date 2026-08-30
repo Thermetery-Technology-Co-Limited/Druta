@@ -1,5 +1,5 @@
 """
-TitanTune (Dear PyGui edition) - GPU monitor & tuner for the Titan-RTX-on-Strix card.
+Druta (Dear PyGui edition) - GPU monitor & tuner for the Titan-RTX-on-Strix card.
 
 WHY THIS EXISTS: the original Tk UI dragged in slow motion and stalled the whole
 desktop. Root cause, measured: Tk creates a native HWND per widget (~50 on the
@@ -104,7 +104,7 @@ def dpi_scale():
         return 1.0
 
 
-class TitanTune:
+class Druta:
     def __init__(self):
         self.gpu = GPU()
         self.scale = dpi_scale()
@@ -1486,7 +1486,8 @@ class TitanTune:
                 # and the curve's peak is the one number on screen that is
                 # certainly high enough and certainly reachable.
                 dpg.add_input_int(
-                    tag="hdf_target", default_value=2010, step=15,
+                    tag="hdf_target", default_value=2010,
+                    step=self.step_mhz(),
                     width=self.s(130),
                     min_value=self.gpu.static.get("gfx_min", 300),
                     max_value=self.gpu.static.get("gfx_max", 2160),
@@ -1657,8 +1658,14 @@ class TitanTune:
                               min_clamped=True, max_clamped=True,
                               callback=lambda: self.vf_select(
                                   dpg.get_value("vf_idx")))
-            for lbl, delta in (("-75", -75), ("-15", -15),
-                               ("+15", 15), ("+75", 75)):
+            # Labels DERIVED from the card's bin, not hardcoded to Turing's 15.
+            # The write was always correct (set_work_freq snaps to step_khz),
+            # but on GP102 a button labelled "+15" moved +12.657 - and it sat
+            # directly above the keyboard hint, which renders the real figure.
+            # Two controls for the same action disagreeing on screen at once.
+            _b, _b5 = self.step_mhz(), self.step_mhz() * 5
+            for lbl, delta in ((f"-{_b5}", -_b5), (f"-{_b}", -_b),
+                               (f"+{_b}", _b), (f"+{_b5}", _b5)):
                 # user_data carries the step: DPG passes (sender, app_data,
                 # user_data) POSITIONALLY, so a default arg would be
                 # clobbered by user_data=None.
@@ -1671,7 +1678,8 @@ class TitanTune:
             # a frequency no VF point can hold. sync_sel_inputs seeds it
             # with the selected point on every read/select/nudge - DPG
             # clamps user entry only, never set_value.
-            dpg.add_input_int(tag="vf_set", default_value=0, step=15,
+            dpg.add_input_int(tag="vf_set", default_value=0,
+                              step=self.step_mhz(),
                               width=self.s(120),
                               min_value=self.gpu.static.get("gfx_min", 300),
                               max_value=self.gpu.static.get("gfx_max", 2160),
@@ -2405,7 +2413,7 @@ class TitanTune:
             self.hold_point()
 
     def hold_point(self):
-        """TitanTune's answer to Afterburner's Ctrl+L curve lock: pin the card
+        """Druta's answer to Afterburner's Ctrl+L curve lock: pin the card
         onto the selected V/F point with the per-domain V/F point lock (NvAPI
         setter 0x39442CFB over the getter 0xE440B867's own buffer).
 
@@ -3257,7 +3265,7 @@ class TitanTune:
         duplicated prose, and the two copies had already drifted apart."""
         st = self.gpu.static
         cr, mr = st.get("core_off_range"), st.get("mem_off_range")
-        return f"""TitanTune - device report
+        return f"""Druta - device report
 
 Device : {st.get('name')}
 Driver : {st.get('driver')}     VBIOS : {st.get('vbios')}
@@ -3573,7 +3581,7 @@ deliberately does not put behind a button."""
                 dpg.add_menu_item(label="Copy device report",
                                   callback=self.copy_device_report)
                 dpg.add_separator()
-                # nvtune is NOT shipped with TitanTune - separate tool, its own
+                # nvtune is NOT shipped with Druta - separate tool, its own
                 # self-signed kernel driver - so the Timings tab
                 # needs to be pointed at it once. This is that once.
                 dpg.add_menu_item(label="Locate nvtune...",
@@ -3809,12 +3817,16 @@ deliberately does not put behind a button."""
                          "so W/A/S/D typed into the cap, index or MHz box do not "
                          "also retune the curve.", color=DIM, wrap=self.s(580))
 
-        with dpg.window(label="About TitanTune", tag="win_about", show=False,
+        with dpg.window(label="About Druta", tag="win_about", show=False,
                         width=self.s(620), height=self.s(300),
                         pos=[self.s(180), self.s(160)]):
-            dpg.add_text("TitanTune", color=ACCENT)
-            dpg.add_text("Monitor and tuner for the Titan RTX (TU102) die on an "
-                         "ASUS RTX 2080 Ti Strix board.", wrap=self.s(580))
+            dpg.add_text("Thermetery Druta", color=ACCENT)
+            dpg.add_text("Monitor and tuner for TU102 (Titan RTX) and GP102 "
+                         "(Titan Xp). Per-card quantities - V/F point count, "
+                         "clock grid, domain names - are probed from the "
+                         "driver rather than assumed. Developed against a "
+                         "Titan RTX die on an ASUS RTX 2080 Ti Strix board, "
+                         "and a stock Titan Xp.", wrap=self.s(580))
             dpg.add_spacer(height=self.s(6))
             dpg.add_text("README.md, shipped beside this app, is the single "
                          "source of truth for the hardware: the 15 MHz clock "
@@ -3853,7 +3865,7 @@ deliberately does not put behind a button."""
     TIM_READONLY = ("Reading is done through nvtune's read-only subcommands "
                     "(timings.py still cannot build a writing command line). "
                     "Writing is a separate module, timingwrite.py, and is the "
-                    "only thing in TitanTune that can - see the Edit panel.")
+                    "only thing in Druta that can - see the Edit panel.")
 
     TIM_WRITEWARN = (
         "WRITING A TIMING REGISTER CAN HANG THE MACHINE AND CORRUPT VRAM. "
@@ -4285,26 +4297,40 @@ deliberately does not put behind a button."""
             self._tim_busy = True
             self._tim_what = "reading…"
         threading.Thread(target=self._timings_worker, daemon=True,
-                         name="titantune-timings").start()
+                         name="Druta-timings").start()
 
     def _timings_worker(self):
-        av = timings.available()
-        snap = timings.snapshot(self.gpu) if av.ok else None
-        with self._tim_lock:
-            self._tim_avail = av
-            # a plain capture is not the induced one: its landing note would
-            # be describing a load that is no longer running
-            self._tim_note = ""
-            self._tim_what = ""
-            if snap is not None:
-                self._tim = snap
-                # Only a snapshot whose clock HELD STILL is filed as a capture:
-                # the captures are keyed by memory clock, and one taken across
-                # a reclock has no single clock to be keyed by.
-                if snap.ok and snap.mem_stable and snap.key:
-                    self._tim_caps[snap.key] = snap
-            self._tim_busy = False
-            self._tim_new = True
+        # try/finally around the WHOLE body, matching _induce_worker. Without
+        # it, anything raising out of available() or snapshot() kills the thread
+        # before _tim_busy is cleared - and refresh_timings() then leaves
+        # Capture, Induce and Clear disabled for the rest of the session, with
+        # nothing on screen saying why. A dead worker should cost one capture,
+        # not the tab.
+        av, snap, err = None, None, ""
+        try:
+            av = timings.available()
+            snap = timings.snapshot(self.gpu) if av.ok else None
+        except Exception as e:                                  # noqa: BLE001
+            err = f"{type(e).__name__}: {e}"
+        finally:
+            with self._tim_lock:
+                if av is not None:
+                    self._tim_avail = av
+                # a plain capture is not the induced one: its landing note would
+                # be describing a load that is no longer running
+                self._tim_note = ""
+                self._tim_what = ""
+                if snap is not None:
+                    self._tim = snap
+                    # Only a snapshot whose clock HELD STILL is filed as a
+                    # capture: the captures are keyed by memory clock, and one
+                    # taken across a reclock has no single clock to key it by.
+                    if snap.ok and snap.mem_stable and snap.key:
+                        self._tim_caps[snap.key] = snap
+                self._tim_busy = False
+                self._tim_new = True
+        if err:
+            self.log(f"timings capture failed: {err}", False)
 
     def timings_clear(self, sender=None, app_data=None, user_data=None):
         with self._tim_lock:
@@ -4376,7 +4402,7 @@ deliberately does not put behind a button."""
             self._tim_busy = True
             self._tim_what = "inducing GPU load…"
         threading.Thread(target=self._induce_worker, daemon=True,
-                         name="titantune-induce").start()
+                         name="Druta-induce").start()
 
     def _induce_worker(self):
         note, snap = "", None
@@ -4846,7 +4872,8 @@ deliberately does not put behind a button."""
             # window taller than itself, which is the one thing this clamp
             # exists to prevent.
             vh = min(vh, max(self.s(600), screen_h - self.s(70)), screen_h)
-        dpg.create_viewport(title="TitanTune", width=self.s(1180), height=vh)
+        dpg.create_viewport(title="Thermetery Druta", width=self.s(1180),
+                            height=vh)
         self.load_fonts()
 
         st = self.gpu.static
@@ -4858,7 +4885,7 @@ deliberately does not put behind a button."""
             # step with the bar's measured height.
             dpg.add_spacer(tag="menu_pad", height=self.menu_h())
             with dpg.group(horizontal=True):
-                dpg.add_text("TitanTune", tag="hdr", color=ACCENT)
+                dpg.add_text("Thermetery Druta", tag="hdr", color=ACCENT)
                 self.bind("hdr", "big")
                 dpg.add_text(f"   {st.get('name')}  \u2022  driver "
                              f"{st.get('driver')}  \u2022  vbios "
@@ -4880,7 +4907,7 @@ deliberately does not put behind a button."""
         self.relayout()
 
         threading.Thread(target=self.poll_loop, daemon=True,
-                         name="titantune-poll").start()
+                         name="Druta-poll").start()
         self.sync_lock_ui()          # the gate must LOOK like whatever it is
         self.log(f"backend: {self.gpu.status_line()}")
         self.vf_read()
@@ -4948,4 +4975,4 @@ deliberately does not put behind a button."""
 
 
 if __name__ == "__main__":
-    TitanTune().run()
+    Druta().run()

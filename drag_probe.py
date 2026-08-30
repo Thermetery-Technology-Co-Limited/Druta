@@ -14,7 +14,7 @@ events/sec and a small max-gap. A laggy drag shows few events/sec and large gaps
 Modes (what each isolates):
     bare    - empty window, DPI-unaware, 1000x700   -> is plain Tk slow here?
     sized   - empty window, DPI-aware,  1500x1050   -> does size/DPI matter?
-    widgets - TitanTune's widget tree, NO polling   -> is it the widget count?
+    widgets - Druta's widget tree, NO polling   -> is it the widget count?
     canvas  - a 103-point canvas like the VF editor -> is it canvas drawing?
 
 Run:  python drag_probe.py          (launches all four)
@@ -83,7 +83,7 @@ class Probe(tk.Tk):
 
     # ---- payloads ---- #
     def _build_widgets(self):
-        """Approximate TitanTune's tree: tiles + lamps + bars + labels."""
+        """Approximate Druta's tree: tiles + lamps + bars + labels."""
         top = tk.Frame(self, bg=BG)
         top.pack(fill="x", padx=6, pady=6)
         for i in range(6):                      # 6 stat tiles

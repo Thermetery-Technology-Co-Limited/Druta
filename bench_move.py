@@ -156,19 +156,19 @@ def main():
             print(f"{name:10} FAILED: {e}")
     # the real app, if importable
     try:
-        import app as titan
+        import app as legacy_ui
         import nvbackend
-        titan._enable_dpi_awareness()
-        titan.SCALE = titan._detect_scale()
+        legacy_ui._enable_dpi_awareness()
+        legacy_ui.SCALE = legacy_ui._detect_scale()
         g = nvbackend.GPU()
-        a = titan.App(g)
+        a = legacy_ui.App(g)
         a.update()
         med, p95, mx, hwnd = bench(a)
         kids = count_children(hwnd)
-        print(f"{'TitanTune':10} {kids:6d} {med:7.2f}ms {p95:7.2f}ms {mx:7.2f}ms   the real app")
+        print(f"{'Tk app.py':10} {kids:6d} {med:7.2f}ms {p95:7.2f}ms {mx:7.2f}ms   the real app")
         a._on_close()
     except Exception as e:
-        print(f"{'TitanTune':10} skipped: {e}")
+        print(f"{'Tk app.py':10} skipped: {e}")
 
 
 if __name__ == "__main__":
