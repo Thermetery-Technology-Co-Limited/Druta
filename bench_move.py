@@ -160,7 +160,7 @@ def main():
         import nvbackend
         legacy_ui._enable_dpi_awareness()
         legacy_ui.SCALE = legacy_ui._detect_scale()
-        g = nvbackend.GPU()
+        g = nvbackend.GPU(nvbackend.slot_from_argv())
         a = legacy_ui.App(g)
         a.update()
         med, p95, mx, hwnd = bench(a)

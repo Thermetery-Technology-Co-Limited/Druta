@@ -97,6 +97,13 @@ def capture(gpu):
             "name": gpu.static.get("name"),
             "vbios": gpu.static.get("vbios"),
             "driver": gpu.static.get("driver"),
+            # The only two that separate two IDENTICAL cards in one machine,
+            # which name and vbios cannot: the UUID is the card, the slot is
+            # where it was sitting. Both are recorded, and device_mismatch
+            # judges on the UUID - a card moved to another slot is still the
+            # card its V/F deltas were measured on.
+            "uuid": gpu.static.get("uuid"),
+            "slot": gpu.static.get("slot"),
         },
         "core_off_mhz": d.get("core_off"),
         # stored both ways: units is what the driver holds, true MHz is what
@@ -207,8 +214,24 @@ def autosave(gpu, action):
 
 def device_mismatch(state, gpu):
     """Profiles are per-card by nature - the V/F table is the points of THIS
-    silicon. Returns a warning string, or None when it is the same card."""
+    silicon. Returns a warning string, or None when it is the same card.
+
+    The UUID is checked FIRST and, when both sides have one, it is the whole
+    answer: it is the only field that distinguishes two cards of the same model
+    and VBIOS sitting in one machine, where name and vbios match by
+    construction and every per-point delta is still measured on different
+    silicon. Profiles written before the UUID was recorded have none, and those
+    fall back to the name/vbios comparison rather than being called a
+    mismatch."""
     dev = state.get("device") or {}
+    live_uuid = gpu.static.get("uuid")
+    if dev.get("uuid") and live_uuid:
+        if dev["uuid"] == live_uuid:
+            return None
+        return (f"profile was saved on {dev.get('name')} "
+                f"({dev.get('uuid')}, slot {dev.get('slot') or '?'}), this is "
+                f"a DIFFERENT card: {gpu.static.get('name')} ({live_uuid}, "
+                f"slot {gpu.static.get('slot') or '?'})")
     for key, live in (("name", gpu.static.get("name")),
                       ("vbios", gpu.static.get("vbios"))):
         if dev.get(key) and live and dev[key] != live:

@@ -62,6 +62,11 @@ import threading
 import time
 from dataclasses import dataclass, field as _dc_field
 
+# For slot parsing only. nvbackend loads no driver library at import time - the
+# DLLs open in NvAPI/Nvml constructors - so this stays a pure-Python import and
+# does not make merely importing timings.py touch the hardware.
+import nvbackend
+
 # ---- where the tool lives -------------------------------------------------- #
 NVTUNE_EXE = "nvtune.exe"
 DRIVER_SERVICE = "nvtunedrv"
@@ -481,11 +486,30 @@ def _check_argv(subcmd, args):
             raise TimingsError(f"refused: argument '{a}' can write hardware")
 
 
-def _run(exe, subcmd, args=(), timeout=20.0):
+def _run(exe, subcmd, args=(), timeout=20.0, slot=None):
+    """Spawn a read-only nvtune subcommand against ONE card.
+
+    `slot` is not optional in spirit. nvtune's `-d` defaults to "all NVIDIA
+    GPUs", not to the first one, so an un-targeted call on a two-card host does
+    something different from what every caller here assumes. Measured:
+
+        nvtune get FAW RRD   -> two lines, one per card
+        nvtune save -o P     -> card 1 writes P, card 2 fails "cannot replace",
+                                and the file is card 1's registers regardless of
+                                which card the caller meant
+        nvtune set FAW=13    -> plans an op on BOTH cards
+
+    Passing slot=None is still allowed, because `fields` is genuinely
+    card-independent (verified: byte-identical output on TU102 and GP102), but
+    anything decoding registers must name a card."""
     args = [str(a) for a in args]
     _check_argv(subcmd, args)
+    argv = [exe, subcmd]
+    if slot:
+        argv += ["-d", str(slot)]
+    argv += args
     try:
-        return subprocess.run([exe, subcmd] + args, capture_output=True,
+        return subprocess.run(argv, capture_output=True,
                               text=True, timeout=timeout,
                               creationflags=_NO_WINDOW)
     except subprocess.TimeoutExpired:
@@ -677,7 +701,13 @@ _FT_LOCK = threading.Lock()
 
 def field_table(override=None, refresh=False, timeout=20.0, exe=None):
     """Parsed `nvtune fields`, cached per exe path. Cached because it is static
-    for a given tool build and every snapshot needs it."""
+    for a given tool build and every snapshot needs it.
+
+    Keyed by exe and NOT by card, which on a multi-card host is a claim worth
+    checking rather than assuming. Checked: `nvtune fields` is byte-identical
+    (same md5, 45 lines) for `-d` TU102, `-d` GP102, and no `-d` at all. The
+    table describes the TOOL's field definitions, not the silicon, so one entry
+    per build is right and the cache cannot leak a decode across generations."""
     exe = exe or find_exe(override)
     if not exe:
         raise TimingsError(available(override).reason)
@@ -1014,6 +1044,21 @@ def _scope_order(registers):
     return sorted((s for s in registers if s != "broadcast"), key=k)
 
 
+def _slot_of(gpu):
+    """The PCI slot to target, taken from the GPU object the caller passed.
+
+    Deliberately derived from `gpu` rather than accepted as a separate argument:
+    the whole failure this guards against is a snapshot describing one card
+    while the mem_div, memory type and clock used to decode it come from
+    another, and those all come from `gpu`. Tying both to one object makes the
+    two impossible to pass in disagreeing."""
+    try:
+        s = gpu.slot() if gpu is not None else ""
+    except Exception:
+        s = ""
+    return s or ""
+
+
 def snapshot(gpu=None, override=None, timeout=20.0):
     """One `nvtune save`, decoded, with the memory clock captured ATOMICALLY
     around it.
@@ -1054,9 +1099,17 @@ def snapshot(gpu=None, override=None, timeout=20.0):
         # An INDUCED state is not a held one: the driver can drop out of it at
         # any moment, which is exactly why both ends are sampled rather than
         # trusting one reading to describe the whole capture.
+        slot = _slot_of(gpu)
+        if gpu is not None and not slot:
+            snap.error = ("the GPU object could not name its PCI slot, and an "
+                          "un-targeted nvtune save reads whichever card the "
+                          "tool picks - refusing rather than decoding registers "
+                          "that may belong to another card")
+            return snap
+
         snap.mem_before, snap.pstate_before = _state_now(gpu)
         t0 = time.perf_counter()
-        r = _run(av.exe, "save", ["-o", path], timeout=timeout)
+        r = _run(av.exe, "save", ["-o", path], timeout=timeout, slot=slot)
         snap.elapsed = time.perf_counter() - t0
         snap.mem_after, snap.pstate_after = _state_now(gpu)
         # ------------------------------------------------------------------ #
@@ -1072,6 +1125,18 @@ def snapshot(gpu=None, override=None, timeout=20.0):
         snap.fmt = js.get("_format", "")
         snap.taken = js.get("_taken", "")
         snap.slot = js.get("slot", "")
+
+        # The capture names its own card, so the targeting is CHECKED rather
+        # than trusted. Without this, a stale file left at `path` - or an nvtune
+        # that ignored -d - would be decoded against gpu.static's mem_div and
+        # memory type, turning every nanosecond in the table into a confident
+        # lie about the wrong silicon.
+        if slot and snap.slot and not nvbackend.same_slot(snap.slot, slot):
+            snap.error = (f"nvtune was asked for {slot} but the snapshot it "
+                          f"wrote is from {snap.slot} - refusing to decode one "
+                          f"card's registers against another card's memory "
+                          f"clock")
+            return snap
         snap.boot0 = js.get("boot0", "")
         snap.chipset = js.get("chipset", "")
         snap.codename = js.get("codename", "")
@@ -1291,8 +1356,8 @@ if __name__ == "__main__":
           f"   inferred: {ft.inferred_registers() or 'none'}"
           f"   aliases: {ft.aliases}")
     try:
-        from nvbackend import GPU
-        g = GPU()
+        from nvbackend import GPU, slot_from_argv
+        g = GPU(slot_from_argv())
     except Exception as e:
         print(f"(no GPU backend: {e})")
         g = None

@@ -20,6 +20,7 @@ original bytes back restores it exactly. The V/F point lock below is the worked
 example, and vf_lock_self_test() keeps the middle rung runnable on any machine.
 """
 import ctypes
+import re
 import sys
 import threading
 
@@ -27,7 +28,55 @@ u8, u32, i32 = ctypes.c_uint8, ctypes.c_uint32, ctypes.c_int32
 u64, i64 = ctypes.c_uint64, ctypes.c_int64
 PTR = ctypes.c_void_p
 
-TITAN_DEVID = 0x1E02
+# --------------------------------------------------------------------------- #
+#  PCI slot: the one identity all three interfaces agree on                     #
+# --------------------------------------------------------------------------- #
+# NVAPI handle order and NVML index order are NOT the same order. Measured on a
+# two-card rig (Titan RTX at bus 1, Titan Xp at bus 2):
+#
+#     NvAPI_EnumPhysicalGPUs -> [0] = Titan Xp (bus 2), [1] = Titan RTX (bus 1)
+#     nvmlDeviceGetHandleByIndex -> [0] = Titan RTX,    [1] = Titan Xp
+#
+# They are exactly reversed. Pairing the two halves of one GPU object by index
+# would therefore have spliced one card's V/F curve onto the other card's name,
+# memory type and clock table - silently, and only on a multi-card host. Every
+# pairing in this module goes through the PCI slot instead, which is also the
+# identity nvtune's `-d` takes, so all three interfaces are keyed the same way.
+def format_slot(domain, bus, device, function=0):
+    """The canonical spelling, byte-identical to what nvtune prints and
+    accepts: '0000:01:00.0'."""
+    return f"{domain:04x}:{bus:02x}:{device:02x}.{function}"
+
+
+def parse_slot(s):
+    """'0000:01:00.0' -> (domain, bus, device, function), or None.
+
+    Also eats NVML's 8-digit domain ('00000000:01:00.0'), because
+    nvmlDeviceGetPciInfo spells the same slot differently from nvtune."""
+    if not s:
+        return None
+    m = _SLOT_RE.match(str(s).strip())
+    if not m:
+        return None
+    return tuple(int(g, 16) for g in m.groups())
+
+
+def same_slot(a, b):
+    """Do two slot strings name the same card?
+
+    Compared on (bus, device) rather than the whole tuple: NVAPI exposes no PCI
+    DOMAIN, so slots built from it always read 0000, and full-string equality
+    would fail against NVML on any host where the domain is not zero. Bus and
+    device are what actually distinguish cards on the hosts this runs on, and
+    the devid/subsys cross-check in GPU._pair() catches the rest."""
+    pa, pb = parse_slot(a), parse_slot(b)
+    if pa is None or pb is None:
+        return False
+    return pa[1:3] == pb[1:3]
+
+
+_SLOT_RE = re.compile(
+    r"^([0-9a-fA-F]{4,8}):([0-9a-fA-F]{2}):([0-9a-fA-F]{2})\.([0-9a-fA-F])$")
 
 
 def is_admin():
@@ -41,9 +90,11 @@ def is_admin():
 #  NVAPI                                                                       #
 # --------------------------------------------------------------------------- #
 class NvAPI:
-    def __init__(self):
+    def __init__(self, slot=None):
         self.ok = False
         self.gpu = None
+        self.gpus = []
+        self.selected = None
         self.err_detail = ""
         try:
             self.dll = ctypes.WinDLL("nvapi64.dll")
@@ -61,6 +112,11 @@ class NvAPI:
                                  ctypes.POINTER(u32), ctypes.POINTER(u32),
                                  ctypes.POINTER(u32))
         self.GetErrMsg = self._i(0x6C2D048C, ctypes.c_int, ctypes.c_char_p)
+        # Both are PUBLIC SDK entry points, not reverse-engineered ids, and both
+        # returned status 0 on every handle of the two-card rig. They are what
+        # makes a handle addressable as a slot instead of as an index.
+        self.GetBusId = self._i(0x1BE0B8E5, PTR, ctypes.POINTER(u32))
+        self.GetBusSlotId = self._i(0x2A0A350F, PTR, ctypes.POINTER(u32))
 
         # readers
         self.ThermalSettings = self._i(0xE3640A56, PTR, u32, PTR)
@@ -101,18 +157,53 @@ class NvAPI:
         handles = (PTR * 64)()
         cnt = u32(0)
         self.EnumGPUs(handles, ctypes.byref(cnt))
-        first = None
         for i in range(cnt.value):
             did, sub, rev, ext = u32(0), u32(0), u32(0), u32(0)
             self.GetPCIIds(handles[i], ctypes.byref(did), ctypes.byref(sub),
                            ctypes.byref(rev), ctypes.byref(ext))
-            if first is None:
-                first = handles[i]
-            if (did.value >> 16) == TITAN_DEVID:
-                self.gpu = handles[i]
-        if self.gpu is None:
-            self.gpu = first
-        self.ok = self.gpu is not None
+            bus, dev = u32(0), u32(0)
+            has_bus = (self.GetBusId is not None
+                       and self.GetBusId(handles[i], ctypes.byref(bus)) == 0
+                       and self.GetBusSlotId is not None
+                       and self.GetBusSlotId(handles[i],
+                                             ctypes.byref(dev)) == 0)
+            self.gpus.append({
+                "handle": handles[i],
+                "enum_index": i,
+                "devid": did.value >> 16,
+                "subsys": sub.value,
+                # NVAPI exposes bus and device but no PCI domain, so the slot it
+                # yields always reads domain 0000. see same_slot().
+                "slot": format_slot(0, bus.value, dev.value) if has_bus else "",
+            })
+        self._select(slot)
+
+    def _select(self, slot):
+        """Pick the handle this instance speaks for.
+
+        With no slot asked for, the choice is the LOWEST PCI slot rather than
+        enumeration index 0 - so that "the default card" is a property of the
+        machine and not of the order a driver happened to hand back. Asking for
+        a slot that is not present fails rather than falling back to some other
+        card: a caller that named a card wants that card."""
+        if not self.gpus:
+            self.err_detail = self.err_detail or "NvAPI enumerated no GPUs"
+            return
+        if slot:
+            hit = [g for g in self.gpus if same_slot(g["slot"], slot)]
+            if not hit:
+                seen = ", ".join(g["slot"] or "?" for g in self.gpus) or "none"
+                self.err_detail = (f"no NVAPI GPU at slot {slot} "
+                                   f"(NVAPI sees: {seen})")
+                return
+            self.selected = hit[0]
+        else:
+            ordered = sorted(self.gpus,
+                             key=lambda g: (parse_slot(g["slot"]) or
+                                            (0xFFFF, 0xFF, 0xFF, g["enum_index"])))
+            self.selected = ordered[0]
+        self.gpu = self.selected["handle"]
+        self.ok = True
 
     def _i(self, offset, *argtypes):
         p = self._qi(offset)
@@ -688,10 +779,18 @@ PERF_DECREASE_BITS = [
 ]
 
 
+class _NvmlPciInfo(ctypes.Structure):
+    _fields_ = [("busIdLegacy", ctypes.c_char * 16), ("domain", u32),
+                ("bus", u32), ("device", u32), ("pciDeviceId", u32),
+                ("pciSubSystemId", u32), ("busId", ctypes.c_char * 32)]
+
+
 class Nvml:
-    def __init__(self):
+    def __init__(self, slot=None):
         self.ok = False
         self.dev = None
+        self.gpus = []
+        self.selected = None
         self.err_detail = ""
         try:
             self.dll = ctypes.CDLL(r"C:\Windows\System32\nvml.dll")
@@ -703,12 +802,57 @@ class Nvml:
         if st != 0:
             self.err_detail = f"nvmlInit_v2 status {st}"
             return
-        dev = PTR()
-        st = self.dll.nvmlDeviceGetHandleByIndex_v2(0, ctypes.byref(dev))
+        cnt = u32(0)
+        st = self.dll.nvmlDeviceGetCount_v2(ctypes.byref(cnt))
         if st != 0:
-            self.err_detail = f"GetHandleByIndex status {st}"
+            self.err_detail = f"nvmlDeviceGetCount_v2 status {st}"
             return
-        self.dev = dev
+        for i in range(cnt.value):
+            dev = PTR()
+            if self.dll.nvmlDeviceGetHandleByIndex_v2(i,
+                                                      ctypes.byref(dev)) != 0:
+                continue
+            pci = _NvmlPciInfo()
+            entry = {"dev": dev, "nvml_index": i, "slot": "",
+                     "devid": None, "subsys": None, "name": "", "uuid": ""}
+            if self.dll.nvmlDeviceGetPciInfo_v3(dev, ctypes.byref(pci)) == 0:
+                entry["slot"] = format_slot(pci.domain, pci.bus, pci.device)
+                entry["devid"] = pci.pciDeviceId >> 16
+                entry["subsys"] = pci.pciSubSystemId
+            buf = ctypes.create_string_buffer(96)
+            if self.dll.nvmlDeviceGetName(dev, buf, 96) == 0:
+                entry["name"] = buf.value.decode(errors="replace")
+            # The only identity that survives two IDENTICAL cards in one host,
+            # where name and VBIOS are equal by construction. Profiles lean on
+            # it (see profiles.device_mismatch).
+            if self.has("nvmlDeviceGetUUID"):
+                ubuf = ctypes.create_string_buffer(96)
+                if self.dll.nvmlDeviceGetUUID(dev, ubuf, 96) == 0:
+                    entry["uuid"] = ubuf.value.decode(errors="replace")
+            self.gpus.append(entry)
+        self._select(slot)
+
+    def _select(self, slot):
+        """Same rule as NvAPI._select: lowest slot by default, exact match or
+        failure when a slot is named."""
+        if not self.gpus:
+            self.err_detail = "NVML enumerated no GPUs"
+            return
+        if slot:
+            hit = [g for g in self.gpus if same_slot(g["slot"], slot)]
+            if not hit:
+                seen = ", ".join(g["slot"] or "?" for g in self.gpus) or "none"
+                self.err_detail = (f"no NVML device at slot {slot} "
+                                   f"(NVML sees: {seen})")
+                return
+            self.selected = hit[0]
+        else:
+            ordered = sorted(self.gpus,
+                             key=lambda g: (parse_slot(g["slot"]) or
+                                            (0xFFFF, 0xFF, 0xFF,
+                                             g["nvml_index"])))
+            self.selected = ordered[0]
+        self.dev = self.selected["dev"]
         self.ok = True
 
     def has(self, name):
@@ -760,6 +904,55 @@ class ResetStep(tuple):
         return step
 
 
+def enumerate_gpus():
+    """Every NVIDIA GPU on the host, ordered by PCI slot.
+
+    Ordered by SLOT, not by either library's index, so the list the user picks
+    from is stable across driver restarts and reboots and matches the order
+    `nvtune list` prints. Each entry is what is needed to name a card on screen
+    and to construct a GPU for it; nothing here touches clocks or voltage.
+
+    Returns [] when no driver interface answers, which the caller must treat as
+    "no cards" rather than "one default card"."""
+    nvml, nvapi = Nvml(), NvAPI()
+    out = []
+    for g in nvml.gpus:
+        paired = [a for a in nvapi.gpus if same_slot(a["slot"], g["slot"])]
+        out.append({
+            "slot": g["slot"],
+            "name": g["name"] or "GPU",
+            "uuid": g["uuid"],
+            "devid": g["devid"],
+            "subsys": g["subsys"],
+            "nvml_index": g["nvml_index"],
+            "has_nvapi": bool(paired),
+        })
+    # A card NVAPI can see but NVML cannot is still a card, and hiding it would
+    # be the more confusing failure - it is the shape a half-attached GPU takes.
+    for a in nvapi.gpus:
+        if not any(same_slot(a["slot"], o["slot"]) for o in out):
+            out.append({
+                "slot": a["slot"], "name": "GPU (NVML did not enumerate it)",
+                "uuid": "", "devid": a["devid"], "subsys": a["subsys"],
+                "nvml_index": None, "has_nvapi": True,
+            })
+    out.sort(key=lambda o: parse_slot(o["slot"]) or (0xFFFF, 0xFF, 0xFF, 0))
+    return out
+
+
+def slot_from_argv(argv=None):
+    """The slot named by `--gpu SLOT` (or `-d SLOT`) on a command line, else "".
+
+    Shared by every entry point in the tree - the shipped UI, the Tk build and
+    the self-test mains - so that "which card?" is spelled one way everywhere,
+    in nvtune's own slot syntax."""
+    argv = list(sys.argv[1:] if argv is None else argv)
+    for i, a in enumerate(argv):
+        if a in ("--gpu", "-d") and i + 1 < len(argv):
+            return argv[i + 1]
+    return ""
+
+
 class GPU:
     # names for the reset_all steps a caller has to single out (see ResetStep).
     # There are TWO lock mechanisms and a caller clearing its on-screen record
@@ -767,25 +960,75 @@ class GPU:
     LOCK_STEP = "clock lock"
     VF_LOCK_STEP = "v/f point lock"
 
-    def __init__(self):
+    def __init__(self, slot=None):
         self._lock = threading.RLock()
-        self.nvapi = NvAPI()
-        self.nvml = Nvml()
+        # The card this object speaks for, fixed at construction. Nothing
+        # re-targets a live GPU: switching cards builds a NEW GPU, which is what
+        # keeps the probed per-instance caches (_vfp_layout_cache at 128 entries
+        # on TU102 vs 84 on GP102, _clock_step_cache at 15 MHz vs 12.657) from
+        # ever describing a card they were not measured on.
+        self.requested_slot = slot or ""
+        self.nvapi = NvAPI(slot)
+        self.nvml = Nvml(slot)
+        self.pairing_error = self._pair()
         self._pcie_baseline = None
         self.static = self._read_static()
+
+    def _pair(self):
+        """Refuse to be half one card and half another.
+
+        NVAPI and NVML enumerate in different orders, so the two handles this
+        object holds are only the same silicon if something says so. Both were
+        selected by slot, and this re-checks that decision against the PCI
+        device and subsystem ids the two libraries report INDEPENDENTLY. On a
+        mismatch the NVAPI half is dropped rather than used: the app degrades to
+        NVML-only telemetry, which is visibly reduced, instead of writing a V/F
+        curve to whichever card NVAPI happened to be holding."""
+        a, n = self.nvapi.selected, self.nvml.selected
+        if not a or not n:
+            return ""
+        if n["devid"] is None:
+            return ""
+        if a["devid"] == n["devid"] and a["subsys"] == n["subsys"]:
+            return ""
+        msg = (f"NVAPI and NVML disagree about the card at "
+               f"{self.requested_slot or a['slot'] or n['slot']}: NVAPI says "
+               f"devid {a['devid']:04X}/subsys {a['subsys']:08X}, NVML says "
+               f"devid {n['devid']:04X}/subsys {n['subsys']:08X}. "
+               f"NVAPI disabled rather than risk writing the wrong card.")
+        self.nvapi.ok = False
+        self.nvapi.gpu = None
+        self.nvapi.err_detail = msg
+        return msg
 
     # ---- helpers ---------------------------------------------------------- #
     def available(self):
         return self.nvapi.ok or self.nvml.ok
 
+    def slot(self):
+        """The PCI slot of the card this object drives, in nvtune's spelling.
+
+        NVML's is preferred because it carries a real PCI domain; NVAPI's always
+        reads 0000. Empty when neither library could be reached, and every
+        nvtune call refuses to run rather than defaulting to all cards."""
+        for src in (self.nvml.selected, self.nvapi.selected):
+            if src and src.get("slot"):
+                return src["slot"]
+        return self.requested_slot or ""
+
     def status_line(self):
         a = "ok" if self.nvapi.ok else f"FAIL ({self.nvapi.err_detail})"
         n = "ok" if self.nvml.ok else f"FAIL ({self.nvml.err_detail})"
-        return f"NVAPI: {a}   |   NVML: {n}"
+        slot = self.slot()
+        where = f"   |   slot {slot}" if slot else ""
+        return f"NVAPI: {a}   |   NVML: {n}{where}"
 
     # ---- static identity -------------------------------------------------- #
     def _read_static(self):
-        s = {"name": "GPU", "driver": "?", "vbios": "?", "admin": is_admin()}
+        s = {"name": "GPU", "driver": "?", "vbios": "?", "admin": is_admin(),
+             "slot": self.slot(), "uuid": ""}
+        if self.nvml.selected:
+            s["uuid"] = self.nvml.selected.get("uuid", "")
         nv = self.nvml
         if nv.ok:
             buf = ctypes.create_string_buffer(96)
