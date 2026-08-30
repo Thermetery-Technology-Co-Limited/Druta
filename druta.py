@@ -3688,18 +3688,29 @@ deliberately does not put behind a button."""
     # Tk-era "nearest by voltage" and "middle-drag pans" rows had become. Both
     # rules bind the same way: anything added to that registry, or any change to
     # which button does what, has to move these rows in the same change.
-    VF_KEYS = [
-        ("W / S", "move the selected point +/- 15 MHz (one clock bin)"),
+    def vf_keys(self):
+        """Built per card, not a class constant: the bin is 15 MHz on TU102 and
+        12.657 on GP102, and a shortcut list that states the wrong one is the
+        same defect as a button labelled '+15' that moves 12.657."""
+        b = self.step_mhz()
+        return [
+        ("W / S", f"move the selected point +/- {b} MHz (one clock bin)"),
         ("A / D", "select the previous / next point along the curve"),
-        ("Shift + W/S", "move 3 bins at once (+/- 45 MHz)"),
-        ("Shift + A/D", "step the selection 3 points at a time"),
+        ("Shift + W/S",
+         f"move {self.SHIFT_MULT} bins at once (+/- {b * self.SHIFT_MULT} MHz)"),
+        ("Shift + A/D",
+         f"step the selection {self.SHIFT_MULT} points at a time"),
+        ("Ctrl + Z", "undo the last staged edit (64 deep). This moves the "
+                     "STAGED plan only - it never touches the card. Undoing a "
+                     "write is 'Profiles > Undo last write'"),
+        ("Ctrl + Y", "redo (Ctrl+Shift+Z does the same)"),
         ("left-click ON a dot",
          "select it. The hit test is in SCREEN PIXELS - the press has to land "
          "within ~14 px of the drawn marker - not 'the nearest point by "
          "voltage', which made empty sky a grab handle for whatever dot shared "
          "that column"),
         ("left-drag ON a dot",
-         "move it; snaps to whole 15 MHz bins. Vertical only: voltage is fixed "
+         "move it; snaps to whole clock bins. Vertical only: voltage is fixed "
          "by the VF table"),
         ("left-drag anywhere else",
          "pan the plot. The left button is shared - a press that misses every "
@@ -3715,7 +3726,7 @@ deliberately does not put behind a button."""
                      "selected - the status line always names the point the "
                      "card is really on. Both the hold and its release are "
                      "behind 'Unlock controls'"),
-    ]
+        ]
 
     def build_tool_windows(self):
         """Everything the menu bar opens. Built hidden, at startup, because the
@@ -3804,7 +3815,7 @@ deliberately does not put behind a button."""
                                      init_width_or_weight=self.s(130))
                 dpg.add_table_column(width_fixed=True,
                                      init_width_or_weight=self.s(430))
-                for keys, what in self.VF_KEYS:
+                for keys, what in self.vf_keys():
                     with dpg.table_row():
                         dpg.add_text(keys, color=ACCENT)
                         # wrapped to the column: a fixed-fit table does not
