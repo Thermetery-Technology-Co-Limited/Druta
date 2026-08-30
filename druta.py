@@ -137,6 +137,22 @@ class Druta:
         self._reset_armed = False
         # slot awaiting a second click in the Card menu, or None (see switch_gpu)
         self._switch_armed = None
+        # Bumped by every card switch. A worker can be several seconds inside
+        # timings.snapshot() or a CUDA induce when the card changes underneath
+        # it; it captured self.gpu when it started, so its result describes the
+        # card it STARTED on. Each worker stamps this counter on entry and
+        # drops its result if the stamp is stale, which is the difference
+        # between a discarded capture and one card's registers filed under
+        # another card's tab.
+        self._gpu_gen = 0
+        # ids the last build created outside the window tree - themes and
+        # handler registries, which no delete of the tree can reach. See
+        # build_ui.
+        self._orphans = []
+        # True only while the item tree is being torn down and rebuilt. log()
+        # honours it: a worker thread writing to "log" during the window where
+        # the tab holding it does not exist would be writing to a dead tag.
+        self._rebuilding = False
         self._drag_idx = None
         # THE record of what this app is holding the card with, and how:
         #   None, or {"kind": LOCK_NVML|LOCK_VF, ...per-mechanism fields}
@@ -248,6 +264,13 @@ class Druta:
         tag = "" if ok is None else ("[ok] " if ok else "[!!] ")
         self.log_lines.append(tag + msg)
         del self.log_lines[:-200]
+        # The list above is the real log and is always appended to; only the
+        # DRAWING is skipped mid-rebuild, and repaint_log() replays it once the
+        # new items exist. Worker threads call this, so without the flag a
+        # capture finishing during a card switch would write to a tag that is
+        # being deleted on the main thread.
+        if self._rebuilding:
+            return
         if dpg.does_item_exist("log"):
             # NEWEST FIRST. A readonly multiline input_text keeps its own scroll
             # offset, DPG has no scroll-to-end (Tk called log.see('end')) and
@@ -3609,11 +3632,19 @@ deliberately does not put behind a button."""
                             enabled=not cur, user_data=g["slot"],
                             callback=self.switch_gpu)
                     dpg.add_separator()
-                    dpg.add_text("Druta drives ONE card per window.\n"
-                                 "Choosing another relaunches, so no\n"
-                                 "measurement of this card can survive\n"
-                                 "into a window describing that one.",
-                                 color=DIM)
+                    dpg.add_text("This window follows one card at a time.\n"
+                                 "Switching rebuilds every control from the\n"
+                                 "new card's own measurements.", color=DIM)
+                    dpg.add_separator()
+                    with dpg.menu(label="Open a second window on"):
+                        for g in self.gpu_list:
+                            dpg.add_menu_item(
+                                label=f"{g['name']}   {g['slot']}",
+                                user_data=g["slot"],
+                                callback=self.open_gpu_window)
+                        dpg.add_text("for watching both at once, or holding\n"
+                                     "a lock on one while tuning the other",
+                                     color=DIM)
                 dpg.add_separator()
                 dpg.add_menu_item(label="Device report...", user_data="win_device",
                                   callback=self.show_win)
@@ -3679,14 +3710,19 @@ deliberately does not put behind a button."""
                 # sliders: an input_int carries DPG's default 0..100 bounds and
                 # ignores them on entry, so a typo here reaches lock_gpu_clocks
                 # and comes back as a refusal in the log
+                # step from the CARD's clock bin, not 15: these two sat at
+                # Turing's grid while the buttons and hints beside them were
+                # fixed to derive it, so on GP102 the arrows here stepped
+                # 15 MHz onto a 12.657 MHz grid.
+                lstep = self.step_mhz()
                 dpg.add_input_int(tag="lock_min", label="min MHz",
                                   default_value=gmin,
-                                  width=self.s(130), step=15,
+                                  width=self.s(130), step=lstep,
                                   min_value=gmin, max_value=gmax,
                                   min_clamped=True, max_clamped=True)
                 dpg.add_input_int(tag="lock_max", label="max MHz",
                                   default_value=gmax,
-                                  width=self.s(130), step=15,
+                                  width=self.s(130), step=lstep,
                                   min_value=gmin, max_value=gmax,
                                   min_clamped=True, max_clamped=True)
                 dpg.add_spacer(height=self.s(4))
@@ -3886,10 +3922,11 @@ deliberately does not put behind a button."""
                          "tool deliberately does not put behind a button.",
                          color=DIM, wrap=self.s(580))
             dpg.add_spacer(height=self.s(6))
-            dpg.add_text("Druta drives ONE card per window. Device > Card "
-                         "switches, by relaunching - so nothing measured on "
-                         "this card can survive into a window describing "
-                         "another one.", color=DIM, wrap=self.s(580))
+            dpg.add_text("This window follows one card at a time. Device > "
+                         "Card switches in place, rebuilding every control "
+                         "from the new card's own measurements; the same menu "
+                         "opens a second window if you want to watch both.",
+                         color=DIM, wrap=self.s(580))
             dpg.add_spacer(height=self.s(6))
             dpg.add_text("The core/mem offset sliders and the V/F curve are the "
                          "SAME delta table, and Afterburner writes it too - "
@@ -4318,20 +4355,122 @@ deliberately does not put behind a button."""
         self.timings_capture()
 
     # ---- switching cards --------------------------------------------------- #
+    def reset_card_state(self):
+        """Drop everything measured on, or staged against, the outgoing card.
+
+        Every field here is per-card, and the ones that are not are left alone
+        on purpose: log_lines is the session's receipt and outlives the switch,
+        the theme caches are colour definitions rather than measurements, and
+        gpu_list describes the MACHINE, which has not changed.
+
+        The V/F working copy is the important one. It is a table of DELTAS
+        against a specific card's factory curve, at that card's point indices;
+        carried across, "index 74, +90 MHz" would silently mean a different
+        voltage on a table of a different length."""
+        # editor
+        self.vf_points, self.vf_by_idx, self.vf_sel = None, {}, None
+        self.vf_work, self.vf_orig = {}, {}
+        self._undo, self._redo = [], []
+        self._plan_note = None
+        self._fitted = False        # the plot must refit: the cap moves 2160->1911
+        self._lockable = None       # probed from the driver's own clock table
+        self._drag_idx = None
+        # arming flags, so a half-pressed confirm cannot carry over
+        self._discard_armed = False
+        self._reset_armed = False
+        self._pending_load = None
+        # telemetry
+        self._snap, self._snap_err, self._snap_t = None, None, None
+        self._stale = False
+        self._once = {}
+        # drawn-appearance caches: these say "the widget already shows this",
+        # which stops being true the moment the widgets are rebuilt
+        self._bar_band, self._dom_band = {}, {}
+        self._dom_name, self._dom_shown = {}, set()
+        self._tw_btn = None
+        self._plan_band = None
+        # timings tab
+        with self._tim_lock:
+            self._tim = None
+            self._tim_avail = None
+            self._tim_caps = {}
+            self._tim_note = self._tim_what = ""
+            self._tim_p0_in = False
+            self._tim_auto_t = 0.0
+            self._tim_new = False
+            self._tim_ft = None
+            self._tw_pending, self._tw_base = {}, {}
+
+    def repaint_log(self):
+        """Replay the log into the freshly built widgets.
+
+        log() keeps appending to log_lines through a rebuild but skips drawing,
+        so without this the pane comes back empty and the session's receipt
+        looks lost."""
+        if dpg.does_item_exist("log"):
+            dpg.set_value("log", "\n".join(reversed(self.log_lines[-40:])))
+
+    def swap_gpu(self, slot):
+        """Re-point this window at another card, in place.
+
+        Deletes the header and the tabs and builds them again against the new
+        GPU. That is the whole trick: every per-card figure baked into a widget
+        comes back through the same code that derived it correctly at startup,
+        so there is no list of widgets to keep in step (see build_body).
+
+        Runs on the UI thread - DPG dispatches callbacks inside
+        render_dearpygui_frame - so no frame can be drawn against a half-built
+        tree. The background workers are handled by the generation stamp rather
+        than by blocking, because an induce can hold the card for 25 s and
+        refusing to switch for that long would be worse than dropping its
+        result."""
+        old = self.gpu.static.get("name", "?")
+        self._gpu_gen += 1
+        self._rebuilding = True
+        try:
+            self.reset_card_state()
+            # Build the new GPU BEFORE tearing anything down: if the card has
+            # gone (unplugged, driver reset, TDR), the old window is still
+            # standing and the switch can be refused with everything intact.
+            fresh = GPU(slot)
+            if not fresh.available():
+                self.log(f"cannot switch: {fresh.status_line()}", False)
+                return False
+            self.gpu = fresh
+            self.gpu_list = enumerate_gpus()
+            self.build_ui(rebuild=True)
+        finally:
+            self._rebuilding = False
+        st = self.gpu.static
+        if len(self.gpu_list) > 1:
+            dpg.set_viewport_title(f"Thermetery Druta  -  {st.get('name')}  "
+                                   f"{self.gpu.slot()}")
+        self.repaint_log()
+        self.relayout()
+        self.sync_lock_ui()
+        self.log(f"switched from {old} to {st.get('name')} at "
+                 f"{self.gpu.slot()}  -  {self.gpu.status_line()}", True)
+        if self.gpu.pairing_error:
+            self.log(self.gpu.pairing_error, False)
+        self.vf_read()
+        self.timings_capture()
+        return True
+
     def switch_gpu(self, sender=None, app_data=None, user_data=None):
-        """Relaunch this app against another card.
+        """Point this window at another card, after checking it is safe to.
 
         Refuses outright while this window is HOLDING the current card. A clock
-        lock or a V/F point lock is state in the driver, not in this process:
-        walking away from one leaves the card pinned with nothing on any screen
-        saying so, and the new window - pointed at a different card - would show
-        a Release button that releases the wrong GPU. The user is told which
-        mechanism is up and sent to the control that drops it.
+        lock or a V/F point lock is state in the driver, not in this window: a
+        hold left behind stays on the card it was placed on, while the Release
+        button in front of the user would now act on a different GPU. Two clicks
+        - Release, then switch - beats one click with an ambiguous target.
 
         Staged-but-unwritten work is different: losing it costs nothing but the
         typing, so that only arms rather than refuses."""
         slot = user_data
         if not slot:
+            return
+        if same_slot(slot, self.gpu.slot()):
             return
         target = next((g for g in self.gpu_list
                        if same_slot(g["slot"], slot)), None)
@@ -4342,9 +4481,9 @@ deliberately does not put behind a button."""
             self.log(f"not switching to {label}: this window is holding the "
                      f"current card with the "
                      f"{self.LOCK_NAME[self._clk_lock['kind']]}"
-                     f". Release it first - a hold left behind stays in the "
-                     f"driver and the next window cannot see it, let alone "
-                     f"release it.", False)
+                     f". Release it first - the hold stays on the card it was "
+                     f"placed on, and after a switch the Release button would "
+                     f"be aimed at the other GPU.", False)
             return
 
         staged = []
@@ -4359,19 +4498,30 @@ deliberately does not put behind a button."""
                        "nothing on another. Choose it again to confirm.", False)
             return
         self._switch_armed = None
+        self.swap_gpu(slot)
 
+    def open_gpu_window(self, sender=None, app_data=None, user_data=None):
+        """Start a SECOND window on another card, leaving this one alone.
+
+        Kept alongside the in-place switch because they answer different
+        questions: switching is for moving attention, a second window is for
+        watching both cards at once. It is also the only way to hold a lock on
+        one card while working on the other, which the in-place switch refuses
+        by design."""
+        slot = user_data
+        if not slot:
+            return
         try:
             argv = self.relaunch_argv(slot)
         except RuntimeError as e:
-            self.log(f"cannot switch cards: {e}", False)
+            self.log(f"cannot open a second window: {e}", False)
             return
-        self.log(f"switching to {label} - relaunching", True)
         try:
             subprocess.Popen(argv, close_fds=True)
         except OSError as e:
-            self.log(f"could not relaunch: {e}", False)
+            self.log(f"could not start a second window: {e}", False)
             return
-        dpg.stop_dearpygui()
+        self.log(f"opened a second window on {slot}", True)
 
     @staticmethod
     def relaunch_argv(slot):
@@ -4444,29 +4594,39 @@ deliberately does not put behind a button."""
         # nothing on screen saying why. A dead worker should cost one capture,
         # not the tab.
         av, snap, err = None, None, ""
+        gen, gpu = self._gpu_gen, self.gpu
         try:
             av = timings.available()
-            snap = timings.snapshot(self.gpu) if av.ok else None
+            snap = timings.snapshot(gpu) if av.ok else None
         except Exception as e:                                  # noqa: BLE001
             err = f"{type(e).__name__}: {e}"
         finally:
             with self._tim_lock:
-                if av is not None:
-                    self._tim_avail = av
-                # a plain capture is not the induced one: its landing note would
-                # be describing a load that is no longer running
-                self._tim_note = ""
-                self._tim_what = ""
-                if snap is not None:
-                    self._tim = snap
-                    # Only a snapshot whose clock HELD STILL is filed as a
-                    # capture: the captures are keyed by memory clock, and one
-                    # taken across a reclock has no single clock to key it by.
-                    if snap.ok and snap.mem_stable and snap.key:
-                        self._tim_caps[snap.key] = snap
+                # `gpu`, not self.gpu: a switch during the capture leaves this
+                # snapshot describing the card it started on, and filing it
+                # would put one card's registers under another card's tab with
+                # that card's memory divisor applied to the ns column. Written
+                # as an if/else rather than an early return because a `return`
+                # inside `finally` discards whatever exception was in flight.
+                stale = gen != self._gpu_gen
+                if not stale:
+                    if av is not None:
+                        self._tim_avail = av
+                    # a plain capture is not the induced one: its landing note
+                    # would describe a load that is no longer running
+                    self._tim_note = ""
+                    self._tim_what = ""
+                    if snap is not None:
+                        self._tim = snap
+                        # Only a snapshot whose clock HELD STILL is filed as a
+                        # capture: the captures are keyed by memory clock, and
+                        # one taken across a reclock has no single clock to key
+                        # it by.
+                        if snap.ok and snap.mem_stable and snap.key:
+                            self._tim_caps[snap.key] = snap
+                    self._tim_new = True
                 self._tim_busy = False
-                self._tim_new = True
-        if err:
+        if err and not stale:
             self.log(f"timings capture failed: {err}", False)
 
     def timings_clear(self, sender=None, app_data=None, user_data=None):
@@ -4543,6 +4703,10 @@ deliberately does not put behind a button."""
 
     def _induce_worker(self):
         note, snap = "", None
+        # Same stamp-and-drop as _timings_worker, and it matters more here:
+        # this one can spend 25 s running a CUDA load, which is the widest
+        # window in the app for the card to change underneath it.
+        gen, gpu = self._gpu_gen, self.gpu
         try:
             av = timings.available()
             if not av.ok:
@@ -4550,7 +4714,7 @@ deliberately does not put behind a button."""
             else:
                 mem, ps = None, None
                 try:
-                    d = self.gpu.read()
+                    d = gpu.read()
                     mem, ps = d.get("mem"), d.get("pstate")
                 except Exception:
                     pass
@@ -4558,7 +4722,7 @@ deliberately does not put behind a button."""
                     # MEASURED: creating a CUDA context on a card already at P0
                     # drops it to P2 (7428/P0 -> 7228/P2). Running the load
                     # here would destroy the very state we came for.
-                    snap = timings.snapshot(self.gpu)
+                    snap = timings.snapshot(gpu)
                     note = (f"The card was ALREADY at P0 (memory {mem}, "
                             f"p-state {ps}), so no load was started and the "
                             f"capture was taken directly. Measured: opening a "
@@ -4571,13 +4735,16 @@ deliberately does not put behind a button."""
                         note = why
                     else:
                         res = gpuload.induce(
-                            self.gpu,
-                            on_settled=lambda: timings.snapshot(self.gpu))
+                            gpu,
+                            on_settled=lambda: timings.snapshot(gpu))
                         snap = res.get("result")
                         note = self.induce_note(res, snap)
         except Exception as e:
             note = f"induce failed: {type(e).__name__}: {e}"
         with self._tim_lock:
+            if gen != self._gpu_gen:
+                self._tim_busy = False
+                return
             self._tim_avail = timings.available()
             if snap is not None:
                 self._tim = snap
@@ -4986,6 +5153,87 @@ deliberately does not put behind a button."""
     # ====================================================================== #
     #  main                                                                  #
     # ====================================================================== #
+    def build_ui(self, rebuild=False):
+        """Build (or rebuild) everything that depends on which card this is.
+
+        Themes and handler registries are created UNPARENTED, so deleting the
+        header, the tabs and the tool windows does not touch them - they
+        accumulate. Measured before this existed: +129 items per switch, of
+        which 32 themes were merely wasteful and the handler registry was a
+        real defect. Every rebuild added a second live registry with its own
+        copy of the seven key handlers, so after N switches one press of W
+        nudged the selected point N+1 times and one Ctrl+Z walked back N+1
+        edits.
+
+        Rather than keep a list of what to clean up - the same list-maintenance
+        problem that argued for rebuilding in the first place - each build
+        records the ids it created outside the tree, and the next one deletes
+        exactly those. Anything a future build method creates unparented is
+        covered without being enumerated here."""
+        for i in self._orphans:
+            if dpg.does_item_exist(i):
+                dpg.delete_item(i)
+        self._orphans = []
+        if rebuild:
+            # _ctl_widgets is repopulated by the builders; not clearing it
+            # would leave the unlock gate holding dead tags from the old tree
+            # and every guard() call walking them.
+            self._ctl_widgets = []
+            for tag in ("hdr_row", "tabs", "menubar", "win_device", "win_save",
+                        "win_profiles", "win_keys", "win_about"):
+                if dpg.does_item_exist(tag):
+                    dpg.delete_item(tag)
+        before = set(dpg.get_all_items())
+        self.build_menu_bar()             # viewport-owned, so NOT inside 'root'
+        self.build_body()
+        self.build_tool_windows()         # hidden until the menu bar asks
+        self._orphans = [i for i in set(dpg.get_all_items()) - before
+                         if not self._has_parent(i)]
+
+    @staticmethod
+    def _has_parent(item):
+        try:
+            return bool(dpg.get_item_info(item).get("parent"))
+        except Exception:                                       # noqa: BLE001
+            return True     # unreadable: leave it alone rather than delete it
+
+    def build_body(self):
+        """The header row and the three tabs, as children of `root`.
+
+        Split out of run() so a card switch can DELETE and re-run it rather
+        than hunting down the per-card values baked into individual widgets.
+        An audit of what a switch would otherwise have to patch by hand found
+        them in five build methods: the two clock sliders' min/max from
+        gfx_min/gfx_max, their step and the nudge buttons' labels from the
+        card's clock bin, the core-offset slider's range, the keyboard hint,
+        the memory divisor and type on the domains panel, the row counts quoted
+        in the Profiles and Device windows, and the About box's grid figure.
+        Rebuilding re-derives all of them through the same code that got them
+        right at startup - and, unlike a patch list, cannot fall out of date
+        when a widget is added.
+
+        `menu_pad` is deliberately NOT in here. It is the spacer relayout()
+        keeps in step with the menu bar, has nothing per-card about it, and
+        leaving it in place keeps these two rebuilt in the right order after
+        root's other children."""
+        st = self.gpu.static
+        with dpg.group(horizontal=True, tag="hdr_row", parent="root"):
+            dpg.add_text("Thermetery Druta", tag="hdr", color=ACCENT)
+            self.bind("hdr", "big")
+            dpg.add_text(f"   {st.get('name')}  •  driver "
+                         f"{st.get('driver')}  •  vbios "
+                         f"{st.get('vbios')}"
+                         + (f"  •  {st.get('slot')}"
+                            if len(self.gpu_list) > 1 else ""), color=DIM)
+            dpg.add_text("   admin" if st.get("admin")
+                         else "   NOT admin (lock/fan/PL need admin)",
+                         color=GOOD if st.get("admin") else WARN)
+            dpg.add_text("", tag="stale", color=BAD)
+        with dpg.tab_bar(tag="tabs", parent="root"):
+            self.build_monitor()
+            self.build_control()          # the V/F editor lives inside this tab
+            self.build_timings()
+
     def run(self):
         # main() reports this properly (and visibly, on a console-less build)
         # before calling run(); this is the guard for any other caller.
@@ -5020,31 +5268,15 @@ deliberately does not put behind a button."""
         dpg.create_viewport(title=title, width=self.s(1180), height=vh)
         self.load_fonts()
 
-        st = self.gpu.static
-        self.build_menu_bar()             # viewport-owned, so NOT inside 'root'
         with dpg.window(tag="root"):
             # DPG draws the viewport menu bar OVER the primary window instead of
             # insetting it, so without this pad the title row is half-hidden
             # behind File/Device/Profiles/Clocks/Help. relayout() keeps it in
-            # step with the bar's measured height.
+            # step with the bar's measured height. Outside build_ui because it
+            # is the one child of root with nothing per-card about it, and
+            # leaving it in place keeps the rebuilt rows in the right order.
             dpg.add_spacer(tag="menu_pad", height=self.menu_h())
-            with dpg.group(horizontal=True):
-                dpg.add_text("Thermetery Druta", tag="hdr", color=ACCENT)
-                self.bind("hdr", "big")
-                dpg.add_text(f"   {st.get('name')}  \u2022  driver "
-                             f"{st.get('driver')}  \u2022  vbios "
-                             f"{st.get('vbios')}"
-                             + (f"  \u2022  {st.get('slot')}"
-                                if len(self.gpu_list) > 1 else ""), color=DIM)
-                dpg.add_text("   admin" if st.get("admin")
-                             else "   NOT admin (lock/fan/PL need admin)",
-                             color=GOOD if st.get("admin") else WARN)
-                dpg.add_text("", tag="stale", color=BAD)
-            with dpg.tab_bar():
-                self.build_monitor()
-                self.build_control()      # the V/F editor lives inside this tab
-                self.build_timings()      # read-only; see the TIMINGS section
-        self.build_tool_windows()         # hidden until the menu bar asks
+        self.build_ui()
 
         dpg.setup_dearpygui()
         dpg.show_viewport()
@@ -5186,7 +5418,7 @@ def main(argv=None):
                   "  --gpu SLOT   open on that card, e.g. 0000:02:00.0\n"
                   "  --list-gpus  print the slot and name of every card\n\n"
                   "With no --gpu, Druta opens on the lowest PCI slot.\n"
-                  "One card per window; Device > Card switches.")
+                  "Device > Card switches cards in a running window.")
             return 0
         else:
             _tell(f"unknown argument {a!r} (try --help)")
