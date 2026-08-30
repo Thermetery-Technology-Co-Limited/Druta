@@ -328,8 +328,8 @@ if __name__ == "__main__":
     if not ok:
         raise SystemExit(1)
     try:
-        from nvbackend import GPU
-        g = GPU()
+        from nvbackend import GPU, slot_from_argv
+        g = GPU(slot_from_argv())
     except Exception as e:
         print("no GPU backend:", e)
         raise SystemExit(1)

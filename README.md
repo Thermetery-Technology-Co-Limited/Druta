@@ -19,6 +19,35 @@ Developed against two cards:
 - **Run as administrator** for every write path: clock lock, fan, power limit,
   V/F curve, memory timings.
 
+### Picking a card
+
+```
+Druta.exe --list-gpus          # slots and names
+Druta.exe --gpu 0000:02:00.0   # open on that card
+```
+
+With no `--gpu`, Druta opens on the **lowest PCI slot** — a property of the
+machine, not of whichever order a driver happened to enumerate in. In the window
+the picker is **Device → Card**, and the chosen card is in the title bar
+whenever more than one is present.
+
+**One card per window.** Choosing another card relaunches rather than
+re-pointing the live one. Too much of the window is a per-card measurement fixed
+at build time — slider ranges from `gfx_max` (2160 MHz on the Titan RTX, 1911 on
+the Xp), the V/F editor sized by the probed table (128 entries vs 84), every
+nudge a clock bin (15 MHz vs 12.657), domain names earned by correlation against
+that card. A process boundary makes it impossible to miss one; re-deriving them
+all live merely makes it unlikely.
+
+Two windows on two cards is fine and is the intended way to work on both.
+
+The switch refuses while the window is **holding** the card with either lock
+mechanism: a hold lives in the driver, not in this process, so walking away
+leaves the card pinned with nothing on screen saying so — and the next window,
+pointed elsewhere, could not release it. Staged-but-unwritten V/F or timing
+edits only ask for a confirming second click, since losing those costs nothing
+but the typing.
+
 `app.py` (the old Tk UI) is kept only as a parity reference for the Dear PyGui
 port. It has no build target and should not be edited. See
 [Why Dear PyGui](#why-dear-pygui).
@@ -53,6 +82,45 @@ So the tool now derives per-card quantities from the driver at runtime:
 **Read every number in this document as a measurement on a named card, not as a
 property of the architecture.** Where a section states a figure without naming
 the card, it is TU102 — that is where most of this work was done.
+
+## Which card is "this card"
+
+Three interfaces have to agree, and by default two of them do not:
+
+- **NVAPI and NVML enumerate in different orders.** Measured with the Titan RTX
+  at bus 1 and the Titan Xp at bus 2: `NvAPI_EnumPhysicalGPUs` returns the Xp
+  first, `nvmlDeviceGetHandleByIndex` returns the RTX first — exactly reversed.
+  Pairing the two halves of one GPU object by index would splice one card's V/F
+  curve onto the other's name, memory type and clock table.
+- **nvtune's `-d` defaults to _all_ NVIDIA GPUs**, not to the first one.
+
+Everything is therefore keyed on the **PCI slot**, in the one spelling all three
+accept (`0000:02:00.0`), and the pairing is re-checked against the PCI device
+and subsystem ids that NVAPI and NVML report independently. On a mismatch the
+NVAPI half is dropped rather than used: reduced telemetry is a visible failure,
+writing the wrong card is not.
+
+What the un-targeted nvtune default actually did, before this was threaded
+through — all verified on the two-card rig:
+
+| call | without `-d` |
+|---|---|
+| `set FAW=13 --commit` | writes **both** cards; one number in the UI, two different chips |
+| `get FAW` | one line per card; the parser kept whichever came **last**, so a write was graded against the wrong silicon |
+| `save -o P` | card 1 writes `P`, card 2 fails `cannot replace` — so a file *named* for one card holds the other's registers |
+
+That last one is the dangerous one: it is the stock backup. A snapshot decoded
+against the wrong card is also checked now — nvtune's JSON names its own slot,
+and a capture that disagrees with what was asked for is refused rather than
+decoded against another card's memory clock.
+
+Stock backups are keyed by the card's **UUID**, not its slot and not its model
+name. The slot would orphan a backup the moment the card moved — which this
+machine has already done, the Xp's stock file recording `0000:01:00.0` while the
+card now answers at `0000:02:00.0`. The model name cannot separate two identical
+cards. Backups written under the older name/VBIOS scheme are still found and
+reused, because the alternative is taking a fresh "stock" snapshot of a card
+that is currently tuned.
 
 ---
 
@@ -558,10 +626,13 @@ Four guards sit in front of every write:
    rather than inferred from an unchanged read-back. That inference is exactly
    what recorded four of twenty-five fields as hardware rejections in an earlier
    sweep when they had never reached BAR0.
-4. **A per-card stock backup**, keyed by device name and VBIOS — *not* by PCI
-   slot. nvtune's own default is `<slot>.stock.json` with an existence-only
-   check, so swapping cards in one slot silently skipped the backup. Found live:
-   a TU102 backup was occupying the Titan Xp's path.
+4. **A per-card stock backup**, keyed by the card's **UUID** — *not* by PCI
+   slot, and not by model name. nvtune's own default is `<slot>.stock.json` with
+   an existence-only check, so swapping cards in one slot silently skipped the
+   backup. Found live: a TU102 backup was occupying the Titan Xp's path. See
+   [Which card is "this card"](#which-card-is-this-card) for why the UUID rather
+   than the slot, and for the `-d` targeting every one of these calls now
+   carries.
 
 Outcomes are reported as four distinct states — **landed**, **dropped** (reached
 the hardware and was rejected), **refused** (nvtune declined; BAR0 never

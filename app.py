@@ -15,7 +15,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 
 from nvbackend import (GPU, EVENT_REASONS, PERF_DECREASE_BITS,
-                       VF_STEP_KHZ, below_cap)
+                       VF_STEP_KHZ, below_cap, slot_from_argv)
 
 # ---- HiDPI --------------------------------------------------------------- #
 # tkinter is DPI-unaware by default: on a scaled display Windows renders the app
@@ -1786,7 +1786,10 @@ def main():
         SCALE = _detect_scale()
     else:
         SCALE = 1.0
-    gpu = GPU()
+    # Legacy Tk build: no card picker on screen, but it must still be aimable
+    # on a multi-card host rather than silently taking whichever card sorts
+    # first. `--gpu SLOT`, same spelling as druta.py and nvtune.
+    gpu = GPU(slot_from_argv())
     if not gpu.available():
         root = tk.Tk()
         root.withdraw()
