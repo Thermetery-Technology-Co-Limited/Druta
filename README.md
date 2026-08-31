@@ -31,22 +31,37 @@ machine, not of whichever order a driver happened to enumerate in. In the window
 the picker is **Device → Card**, and the chosen card is in the title bar
 whenever more than one is present.
 
-**One card per window.** Choosing another card relaunches rather than
-re-pointing the live one. Too much of the window is a per-card measurement fixed
-at build time — slider ranges from `gfx_max` (2160 MHz on the Titan RTX, 1911 on
-the Xp), the V/F editor sized by the probed table (128 entries vs 84), every
-nudge a clock bin (15 MHz vs 12.657), domain names earned by correlation against
-that card. A process boundary makes it impossible to miss one; re-deriving them
-all live merely makes it unlikely.
+**The switch happens in place**, and works by *rebuilding* the header and the
+three tabs against the new card rather than by patching the widgets that hold
+per-card numbers. That distinction is the whole design. An audit found those
+numbers baked into five separate build methods — the two clock sliders' bounds
+and step, the nudge buttons' labels, the core-offset range, the keyboard hint,
+the memory divisor on the domains panel, the row counts quoted in two tool
+windows, the About box's grid figure. A patch list would have to be kept in step
+with every widget added later; re-running the builders re-derives all of them
+through the same code that got them right at startup, and cannot fall behind.
 
-Two windows on two cards is fine and is the intended way to work on both.
+`Device → Card → Open a second window on…` still starts a separate process, for
+watching both cards at once — and it is the only way to hold a lock on one card
+while tuning the other.
 
 The switch refuses while the window is **holding** the card with either lock
-mechanism: a hold lives in the driver, not in this process, so walking away
-leaves the card pinned with nothing on screen saying so — and the next window,
-pointed elsewhere, could not release it. Staged-but-unwritten V/F or timing
-edits only ask for a confirming second click, since losing those costs nothing
-but the typing.
+mechanism. A hold lives in the driver, not in the window: it stays on the card
+it was placed on, while the Release button in front of you would now be aimed at
+a different GPU. Staged-but-unwritten V/F or timing edits only ask for a
+confirming second click, since losing those costs nothing but the typing.
+
+Two things that are not obvious and are both tested in `test_swap.py`:
+
+- A capture or an induced load can be several seconds — up to 25 — inside a call
+  that started on the *previous* card. Each worker stamps a generation counter on
+  entry and drops its result if the card changed underneath it, so a snapshot
+  cannot be filed under the wrong card's tab with the wrong memory divisor
+  applied to its nanosecond column.
+- Themes and handler registries are created *unparented*, so deleting the tabs
+  does not reach them. Before that was handled, each switch leaked 129 items —
+  and, worse than the memory, a second live handler registry, which made one
+  press of `W` nudge the point twice and one `Ctrl+Z` walk back two edits.
 
 `app.py` (the old Tk UI) is kept only as a parity reference for the Dear PyGui
 port. It has no build target and should not be edited. See
