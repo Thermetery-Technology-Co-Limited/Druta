@@ -43,7 +43,7 @@ def find_windows(substr):
 
 def main():
     dur = float(sys.argv[1]) if len(sys.argv) > 1 else 25.0
-    title = sys.argv[2] if len(sys.argv) > 2 else "TitanTune"
+    title = sys.argv[2] if len(sys.argv) > 2 else "Druta"
     wins = find_windows(title)
     if not wins:
         print(f"no visible window matching {title!r}")

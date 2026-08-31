@@ -1,5 +1,5 @@
 """
-TitanTune (Dear PyGui edition) - GPU monitor & tuner for the Titan-RTX-on-Strix card.
+Druta (Dear PyGui edition) - GPU monitor & tuner for the Titan-RTX-on-Strix card.
 
 WHY THIS EXISTS: the original Tk UI dragged in slow motion and stalled the whole
 desktop. Root cause, measured: Tk creates a native HWND per widget (~50 on the
@@ -62,6 +62,8 @@ Safety model, carried over from the Tk version:
 import ctypes
 import math
 import os
+import subprocess
+import sys
 import threading
 import time
 
@@ -72,7 +74,7 @@ import profiles
 import timings
 import timingwrite
 from nvbackend import (GPU, EVENT_REASONS, PERF_DECREASE_BITS, VF_STEP_KHZ,
-                       VFP_POINTS, below_cap,
+                       VFP_POINTS, below_cap, enumerate_gpus, same_slot,
                        PRIV_CONFIRMED, PRIV_DOMAIN_ID, PRIV_LIKELY,
                        PRIV_N_DOMAINS, PRIV_PCIE_GEN, PRIV_UNNAMED,
                        PRIV_UNPOPULATED)
@@ -104,9 +106,23 @@ def dpi_scale():
         return 1.0
 
 
-class TitanTune:
-    def __init__(self):
-        self.gpu = GPU()
+class Druta:
+    def __init__(self, slot=None):
+        # ONE card per process, chosen here and never re-targeted afterwards.
+        #
+        # Switching cards relaunches (see switch_gpu) instead of re-pointing a
+        # live GPU, because too much of this window is a per-card measurement
+        # baked in at build time to be re-derived safely: the clock sliders take
+        # their range from gfx_min/gfx_max (2160 MHz on the Titan RTX, 1911 on
+        # the Xp), the V/F editor is sized by the probed table (128 entries vs
+        # 84), every nudge is a clock bin (15 MHz vs 12.657), and the domain
+        # table's names were earned by correlation against THIS card. A live
+        # switch would have to find and redo all of it, and the failure mode of
+        # missing one is a control that silently means something else than it
+        # says - which is the exact class of bug this whole change exists to
+        # remove. A process boundary makes that unmissable instead of careful.
+        self.gpu = GPU(slot)
+        self.gpu_list = enumerate_gpus()
         self.scale = dpi_scale()
         self.log_lines = []
         self.vf_points = None
@@ -119,6 +135,8 @@ class TitanTune:
         # 'Reset all to stock' is the only write left that arms: it is the one
         # click with no per-knob undo of its own (see reset_all).
         self._reset_armed = False
+        # slot awaiting a second click in the Card menu, or None (see switch_gpu)
+        self._switch_armed = None
         self._drag_idx = None
         # THE record of what this app is holding the card with, and how:
         #   None, or {"kind": LOCK_NVML|LOCK_VF, ...per-mechanism fields}
@@ -1486,7 +1504,8 @@ class TitanTune:
                 # and the curve's peak is the one number on screen that is
                 # certainly high enough and certainly reachable.
                 dpg.add_input_int(
-                    tag="hdf_target", default_value=2010, step=15,
+                    tag="hdf_target", default_value=2010,
+                    step=self.step_mhz(),
                     width=self.s(130),
                     min_value=self.gpu.static.get("gfx_min", 300),
                     max_value=self.gpu.static.get("gfx_max", 2160),
@@ -1657,8 +1676,14 @@ class TitanTune:
                               min_clamped=True, max_clamped=True,
                               callback=lambda: self.vf_select(
                                   dpg.get_value("vf_idx")))
-            for lbl, delta in (("-75", -75), ("-15", -15),
-                               ("+15", 15), ("+75", 75)):
+            # Labels DERIVED from the card's bin, not hardcoded to Turing's 15.
+            # The write was always correct (set_work_freq snaps to step_khz),
+            # but on GP102 a button labelled "+15" moved +12.657 - and it sat
+            # directly above the keyboard hint, which renders the real figure.
+            # Two controls for the same action disagreeing on screen at once.
+            _b, _b5 = self.step_mhz(), self.step_mhz() * 5
+            for lbl, delta in ((f"-{_b5}", -_b5), (f"-{_b}", -_b),
+                               (f"+{_b}", _b), (f"+{_b5}", _b5)):
                 # user_data carries the step: DPG passes (sender, app_data,
                 # user_data) POSITIONALLY, so a default arg would be
                 # clobbered by user_data=None.
@@ -1671,7 +1696,8 @@ class TitanTune:
             # a frequency no VF point can hold. sync_sel_inputs seeds it
             # with the selected point on every read/select/nudge - DPG
             # clamps user entry only, never set_value.
-            dpg.add_input_int(tag="vf_set", default_value=0, step=15,
+            dpg.add_input_int(tag="vf_set", default_value=0,
+                              step=self.step_mhz(),
                               width=self.s(120),
                               min_value=self.gpu.static.get("gfx_min", 300),
                               max_value=self.gpu.static.get("gfx_max", 2160),
@@ -2405,7 +2431,7 @@ class TitanTune:
             self.hold_point()
 
     def hold_point(self):
-        """TitanTune's answer to Afterburner's Ctrl+L curve lock: pin the card
+        """Druta's answer to Afterburner's Ctrl+L curve lock: pin the card
         onto the selected V/F point with the per-domain V/F point lock (NvAPI
         setter 0x39442CFB over the getter 0xE440B867's own buffer).
 
@@ -3257,7 +3283,7 @@ class TitanTune:
         duplicated prose, and the two copies had already drifted apart."""
         st = self.gpu.static
         cr, mr = st.get("core_off_range"), st.get("mem_off_range")
-        return f"""TitanTune - device report
+        return f"""Druta - device report
 
 Device : {st.get('name')}
 Driver : {st.get('driver')}     VBIOS : {st.get('vbios')}
@@ -3568,12 +3594,33 @@ deliberately does not put behind a button."""
                 dpg.add_menu_item(label="Exit",
                                   callback=lambda s, a, u: dpg.stop_dearpygui())
             with dpg.menu(label="Device"):
+                # The card picker sits at the top of Device because on a
+                # multi-card host it is the control that decides what every
+                # other control in the window means.
+                here = self.gpu.slot()
+                with dpg.menu(label="Card"):
+                    if not self.gpu_list:
+                        dpg.add_text("no NVIDIA GPU enumerated", color=BAD)
+                    for g in self.gpu_list:
+                        cur = same_slot(g["slot"], here)
+                        dpg.add_menu_item(
+                            label=("* " if cur else "   ")
+                                  + f"{g['name']}   {g['slot']}",
+                            enabled=not cur, user_data=g["slot"],
+                            callback=self.switch_gpu)
+                    dpg.add_separator()
+                    dpg.add_text("Druta drives ONE card per window.\n"
+                                 "Choosing another relaunches, so no\n"
+                                 "measurement of this card can survive\n"
+                                 "into a window describing that one.",
+                                 color=DIM)
+                dpg.add_separator()
                 dpg.add_menu_item(label="Device report...", user_data="win_device",
                                   callback=self.show_win)
                 dpg.add_menu_item(label="Copy device report",
                                   callback=self.copy_device_report)
                 dpg.add_separator()
-                # nvtune is NOT shipped with TitanTune - separate tool, its own
+                # nvtune is NOT shipped with Druta - separate tool, its own
                 # self-signed kernel driver - so the Timings tab
                 # needs to be pointed at it once. This is that once.
                 dpg.add_menu_item(label="Locate nvtune...",
@@ -3680,18 +3727,29 @@ deliberately does not put behind a button."""
     # Tk-era "nearest by voltage" and "middle-drag pans" rows had become. Both
     # rules bind the same way: anything added to that registry, or any change to
     # which button does what, has to move these rows in the same change.
-    VF_KEYS = [
-        ("W / S", "move the selected point +/- 15 MHz (one clock bin)"),
+    def vf_keys(self):
+        """Built per card, not a class constant: the bin is 15 MHz on TU102 and
+        12.657 on GP102, and a shortcut list that states the wrong one is the
+        same defect as a button labelled '+15' that moves 12.657."""
+        b = self.step_mhz()
+        return [
+        ("W / S", f"move the selected point +/- {b} MHz (one clock bin)"),
         ("A / D", "select the previous / next point along the curve"),
-        ("Shift + W/S", "move 3 bins at once (+/- 45 MHz)"),
-        ("Shift + A/D", "step the selection 3 points at a time"),
+        ("Shift + W/S",
+         f"move {self.SHIFT_MULT} bins at once (+/- {b * self.SHIFT_MULT} MHz)"),
+        ("Shift + A/D",
+         f"step the selection {self.SHIFT_MULT} points at a time"),
+        ("Ctrl + Z", "undo the last staged edit (64 deep). This moves the "
+                     "STAGED plan only - it never touches the card. Undoing a "
+                     "write is 'Profiles > Undo last write'"),
+        ("Ctrl + Y", "redo (Ctrl+Shift+Z does the same)"),
         ("left-click ON a dot",
          "select it. The hit test is in SCREEN PIXELS - the press has to land "
          "within ~14 px of the drawn marker - not 'the nearest point by "
          "voltage', which made empty sky a grab handle for whatever dot shared "
          "that column"),
         ("left-drag ON a dot",
-         "move it; snaps to whole 15 MHz bins. Vertical only: voltage is fixed "
+         "move it; snaps to whole clock bins. Vertical only: voltage is fixed "
          "by the VF table"),
         ("left-drag anywhere else",
          "pan the plot. The left button is shared - a press that misses every "
@@ -3707,7 +3765,7 @@ deliberately does not put behind a button."""
                      "selected - the status line always names the point the "
                      "card is really on. Both the hold and its release are "
                      "behind 'Unlock controls'"),
-    ]
+        ]
 
     def build_tool_windows(self):
         """Everything the menu bar opens. Built hidden, at startup, because the
@@ -3796,7 +3854,7 @@ deliberately does not put behind a button."""
                                      init_width_or_weight=self.s(130))
                 dpg.add_table_column(width_fixed=True,
                                      init_width_or_weight=self.s(430))
-                for keys, what in self.VF_KEYS:
+                for keys, what in self.vf_keys():
                     with dpg.table_row():
                         dpg.add_text(keys, color=ACCENT)
                         # wrapped to the column: a fixed-fit table does not
@@ -3809,19 +3867,29 @@ deliberately does not put behind a button."""
                          "so W/A/S/D typed into the cap, index or MHz box do not "
                          "also retune the curve.", color=DIM, wrap=self.s(580))
 
-        with dpg.window(label="About TitanTune", tag="win_about", show=False,
+        with dpg.window(label="About Druta", tag="win_about", show=False,
                         width=self.s(620), height=self.s(300),
                         pos=[self.s(180), self.s(160)]):
-            dpg.add_text("TitanTune", color=ACCENT)
-            dpg.add_text("Monitor and tuner for the Titan RTX (TU102) die on an "
-                         "ASUS RTX 2080 Ti Strix board.", wrap=self.s(580))
+            dpg.add_text("Thermetery Druta", color=ACCENT)
+            dpg.add_text("Monitor and tuner for TU102 (Titan RTX) and GP102 "
+                         "(Titan Xp). Per-card quantities - V/F point count, "
+                         "clock grid, domain names - are probed from the "
+                         "driver rather than assumed. Developed against a "
+                         "Titan RTX die on an ASUS RTX 2080 Ti Strix board, "
+                         "and a stock Titan Xp.", wrap=self.s(580))
             dpg.add_spacer(height=self.s(6))
             dpg.add_text("README.md, shipped beside this app, is the single "
-                         "source of truth for the hardware: the 15 MHz clock "
+                         f"source of truth for the hardware: the "
+                         f"{self.step_khz() / 1000:.3f} MHz clock "
                          "quantisation and phase rules, the two-knob voltage "
                          "mechanism, what is reversible, and the footguns this "
                          "tool deliberately does not put behind a button.",
                          color=DIM, wrap=self.s(580))
+            dpg.add_spacer(height=self.s(6))
+            dpg.add_text("Druta drives ONE card per window. Device > Card "
+                         "switches, by relaunching - so nothing measured on "
+                         "this card can survive into a window describing "
+                         "another one.", color=DIM, wrap=self.s(580))
             dpg.add_spacer(height=self.s(6))
             dpg.add_text("The core/mem offset sliders and the V/F curve are the "
                          "SAME delta table, and Afterburner writes it too - "
@@ -3831,13 +3899,19 @@ deliberately does not put behind a button."""
             dpg.add_text(f"backend: {self.gpu.status_line()}", color=DIM)
 
     # ====================================================================== #
-    #  TIMINGS  -  READ-ONLY                                                 #
+    #  TIMINGS                                                               #
     # ====================================================================== #
-    # This tab CANNOT write. timings.py talks to nvtune through a whitelist of
-    # read-only subcommands and refuses --commit/--force/set/restore/apply/
-    # daemon before a process is created; nothing here builds an argv at all.
+    # THE READ PATH cannot write: timings.py talks to nvtune through a
+    # whitelist of read-only subcommands and refuses
+    # --commit/--force/set/restore/apply/daemon before a process is created.
     # Writing an FBPA timing register can hang the machine and corrupt VRAM,
-    # so the refusal is code, not a convention (see timings._check_argv).
+    # so that refusal is code, not a convention (see timings._check_argv).
+    #
+    # THE TAB ITSELF CAN WRITE, through one other module. timingwrite.py is the
+    # only thing in Druta that may build a writing argv, and the Edit panel
+    # below drives it. This banner used to say the tab could not write at all,
+    # which was false from the moment timingwrite.py landed and contradicted
+    # TIM_READONLY twenty lines further down.
     #
     # WHAT THE TAB IS FOR: a timing register holds a CYCLE COUNT, and a cycle
     # count is meaningless without the memory clock it was counted against.
@@ -3853,7 +3927,7 @@ deliberately does not put behind a button."""
     TIM_READONLY = ("Reading is done through nvtune's read-only subcommands "
                     "(timings.py still cannot build a writing command line). "
                     "Writing is a separate module, timingwrite.py, and is the "
-                    "only thing in TitanTune that can - see the Edit panel.")
+                    "only thing in Druta that can - see the Edit panel.")
 
     TIM_WRITEWARN = (
         "WRITING A TIMING REGISTER CAN HANG THE MACHINE AND CORRUPT VRAM. "
@@ -4138,7 +4212,7 @@ deliberately does not put behind a button."""
         snap = self._tim
         problems = timingwrite.check(self._tw_pending, ft, snap)
         try:
-            p = timingwrite.plan(self._tw_pending)
+            p = timingwrite.plan(self._tw_pending, self.gpu.slot())
             body = p.summary()
             colour = WARN if p.needs_force else GOOD
         except Exception as e:                                  # noqa: BLE001
@@ -4201,7 +4275,8 @@ deliberately does not put behind a button."""
             return
         self.autosave_before("timing-write")
         force = bool(dpg.get_value("tw_force"))
-        _plan, results = timingwrite.apply(dict(self._tw_pending), force=force)
+        _plan, results = timingwrite.apply(dict(self._tw_pending),
+                                           self.gpu.slot(), force=force)
         lines, worst = [], GOOD
         for r in results:
             lines.append(f"{r.name}: {r.before} → asked {r.requested}, "
@@ -4222,13 +4297,17 @@ deliberately does not put behind a button."""
         self.timings_capture()
 
     def tw_restore(self, sender=None, app_data=None, user_data=None):
-        path = timingwrite.card_backup_path(self.gpu)
+        # existing_backup_path, not card_backup_path: a backup taken before the
+        # slot joined the filename still restores this card, and offering to
+        # restore only the new name would hide it.
+        path = (timingwrite.existing_backup_path(self.gpu)
+                or timingwrite.card_backup_path(self.gpu))
         code, boot0 = timingwrite.backup_describes(path)
         if code is None:
             dpg.set_value("tw_result", f"no stock backup for this card at {path}")
             dpg.configure_item("tw_result", color=BAD)
             return
-        ok, out = timingwrite.restore(path)
+        ok, out = timingwrite.restore(path, self.gpu.slot())
         dpg.set_value("tw_result",
                       f"restore from {code} backup ({boot0}): "
                       + ("done" if ok else "FAILED") + f"\n{out}")
@@ -4237,6 +4316,76 @@ deliberately does not put behind a button."""
         self._tw_pending = {}
         self.tw_plan()
         self.timings_capture()
+
+    # ---- switching cards --------------------------------------------------- #
+    def switch_gpu(self, sender=None, app_data=None, user_data=None):
+        """Relaunch this app against another card.
+
+        Refuses outright while this window is HOLDING the current card. A clock
+        lock or a V/F point lock is state in the driver, not in this process:
+        walking away from one leaves the card pinned with nothing on any screen
+        saying so, and the new window - pointed at a different card - would show
+        a Release button that releases the wrong GPU. The user is told which
+        mechanism is up and sent to the control that drops it.
+
+        Staged-but-unwritten work is different: losing it costs nothing but the
+        typing, so that only arms rather than refuses."""
+        slot = user_data
+        if not slot:
+            return
+        target = next((g for g in self.gpu_list
+                       if same_slot(g["slot"], slot)), None)
+        label = f"{target['name']} at {slot}" if target else slot
+
+        if self._clk_lock:
+            self._switch_armed = None
+            self.log(f"not switching to {label}: this window is holding the "
+                     f"current card with the "
+                     f"{self.LOCK_NAME[self._clk_lock['kind']]}"
+                     f". Release it first - a hold left behind stays in the "
+                     f"driver and the next window cannot see it, let alone "
+                     f"release it.", False)
+            return
+
+        staged = []
+        if self.vf_work:
+            staged.append(f"{len(self.vf_work)} staged V/F edit(s)")
+        if self._tw_pending:
+            staged.append(f"{len(self._tw_pending)} staged timing write(s)")
+        if staged and self._switch_armed != slot:
+            self._switch_armed = slot
+            self.log(f"switching to {label} discards " + " and ".join(staged)
+                     + " - they are measured against THIS card and mean "
+                       "nothing on another. Choose it again to confirm.", False)
+            return
+        self._switch_armed = None
+
+        try:
+            argv = self.relaunch_argv(slot)
+        except RuntimeError as e:
+            self.log(f"cannot switch cards: {e}", False)
+            return
+        self.log(f"switching to {label} - relaunching", True)
+        try:
+            subprocess.Popen(argv, close_fds=True)
+        except OSError as e:
+            self.log(f"could not relaunch: {e}", False)
+            return
+        dpg.stop_dearpygui()
+
+    @staticmethod
+    def relaunch_argv(slot):
+        """This same program, told to open on `slot`.
+
+        A frozen build IS the executable; a source run needs the interpreter and
+        the script, and sys.argv[0] is resolved to an absolute path because the
+        new process does not inherit this one's working directory reliably."""
+        if getattr(sys, "frozen", False):
+            return [sys.executable, "--gpu", slot]
+        script = os.path.abspath(sys.argv[0] or __file__)
+        if not os.path.isfile(script):
+            raise RuntimeError(f"cannot find this script to relaunch ({script})")
+        return [sys.executable, script, "--gpu", slot]
 
     # ---- locating nvtune, which this build does not ship ------------------ #
     def open_locate_nvtune(self, sender=None, app_data=None, user_data=None):
@@ -4285,26 +4434,40 @@ deliberately does not put behind a button."""
             self._tim_busy = True
             self._tim_what = "reading…"
         threading.Thread(target=self._timings_worker, daemon=True,
-                         name="titantune-timings").start()
+                         name="Druta-timings").start()
 
     def _timings_worker(self):
-        av = timings.available()
-        snap = timings.snapshot(self.gpu) if av.ok else None
-        with self._tim_lock:
-            self._tim_avail = av
-            # a plain capture is not the induced one: its landing note would
-            # be describing a load that is no longer running
-            self._tim_note = ""
-            self._tim_what = ""
-            if snap is not None:
-                self._tim = snap
-                # Only a snapshot whose clock HELD STILL is filed as a capture:
-                # the captures are keyed by memory clock, and one taken across
-                # a reclock has no single clock to be keyed by.
-                if snap.ok and snap.mem_stable and snap.key:
-                    self._tim_caps[snap.key] = snap
-            self._tim_busy = False
-            self._tim_new = True
+        # try/finally around the WHOLE body, matching _induce_worker. Without
+        # it, anything raising out of available() or snapshot() kills the thread
+        # before _tim_busy is cleared - and refresh_timings() then leaves
+        # Capture, Induce and Clear disabled for the rest of the session, with
+        # nothing on screen saying why. A dead worker should cost one capture,
+        # not the tab.
+        av, snap, err = None, None, ""
+        try:
+            av = timings.available()
+            snap = timings.snapshot(self.gpu) if av.ok else None
+        except Exception as e:                                  # noqa: BLE001
+            err = f"{type(e).__name__}: {e}"
+        finally:
+            with self._tim_lock:
+                if av is not None:
+                    self._tim_avail = av
+                # a plain capture is not the induced one: its landing note would
+                # be describing a load that is no longer running
+                self._tim_note = ""
+                self._tim_what = ""
+                if snap is not None:
+                    self._tim = snap
+                    # Only a snapshot whose clock HELD STILL is filed as a
+                    # capture: the captures are keyed by memory clock, and one
+                    # taken across a reclock has no single clock to key it by.
+                    if snap.ok and snap.mem_stable and snap.key:
+                        self._tim_caps[snap.key] = snap
+                self._tim_busy = False
+                self._tim_new = True
+        if err:
+            self.log(f"timings capture failed: {err}", False)
 
     def timings_clear(self, sender=None, app_data=None, user_data=None):
         with self._tim_lock:
@@ -4376,7 +4539,7 @@ deliberately does not put behind a button."""
             self._tim_busy = True
             self._tim_what = "inducing GPU load…"
         threading.Thread(target=self._induce_worker, daemon=True,
-                         name="titantune-induce").start()
+                         name="Druta-induce").start()
 
     def _induce_worker(self):
         note, snap = "", None
@@ -4824,8 +4987,10 @@ deliberately does not put behind a button."""
     #  main                                                                  #
     # ====================================================================== #
     def run(self):
+        # main() reports this properly (and visibly, on a console-less build)
+        # before calling run(); this is the guard for any other caller.
         if not self.gpu.available():
-            print("No GPU backend:", self.gpu.status_line())
+            _tell("No GPU backend: " + self.gpu.status_line())
             return
         dpg.create_context()
         # Taller than the old 860: the Monitor tab gained the all-domains
@@ -4846,7 +5011,13 @@ deliberately does not put behind a button."""
             # window taller than itself, which is the one thing this clamp
             # exists to prevent.
             vh = min(vh, max(self.s(600), screen_h - self.s(70)), screen_h)
-        dpg.create_viewport(title="TitanTune", width=self.s(1180), height=vh)
+        # The card is in the TITLE, not only inside the window: two Drutas open
+        # on two cards are otherwise identical in the taskbar, and picking the
+        # wrong one is picking the wrong GPU to write to.
+        title = "Thermetery Druta"
+        if len(self.gpu_list) > 1:
+            title += f"  -  {self.gpu.static.get('name')}  {self.gpu.slot()}"
+        dpg.create_viewport(title=title, width=self.s(1180), height=vh)
         self.load_fonts()
 
         st = self.gpu.static
@@ -4858,11 +5029,13 @@ deliberately does not put behind a button."""
             # step with the bar's measured height.
             dpg.add_spacer(tag="menu_pad", height=self.menu_h())
             with dpg.group(horizontal=True):
-                dpg.add_text("TitanTune", tag="hdr", color=ACCENT)
+                dpg.add_text("Thermetery Druta", tag="hdr", color=ACCENT)
                 self.bind("hdr", "big")
                 dpg.add_text(f"   {st.get('name')}  \u2022  driver "
                              f"{st.get('driver')}  \u2022  vbios "
-                             f"{st.get('vbios')}", color=DIM)
+                             f"{st.get('vbios')}"
+                             + (f"  \u2022  {st.get('slot')}"
+                                if len(self.gpu_list) > 1 else ""), color=DIM)
                 dpg.add_text("   admin" if st.get("admin")
                              else "   NOT admin (lock/fan/PL need admin)",
                              color=GOOD if st.get("admin") else WARN)
@@ -4880,7 +5053,7 @@ deliberately does not put behind a button."""
         self.relayout()
 
         threading.Thread(target=self.poll_loop, daemon=True,
-                         name="titantune-poll").start()
+                         name="Druta-poll").start()
         self.sync_lock_ui()          # the gate must LOOK like whatever it is
         self.log(f"backend: {self.gpu.status_line()}")
         self.vf_read()
@@ -4947,5 +5120,87 @@ deliberately does not put behind a button."""
             dpg.destroy_context()
 
 
+def _tell(text):
+    """Say something from the command line, from a build that has no console.
+
+    The shipped EXE is built console=False, which leaves sys.stdout as None -
+    so `Druta.exe --list-gpus` would print into nothing and look like it did
+    nothing at all. Three ways out, in order of how much they respect where the
+    user is looking:
+
+      1. a real stdout (source run, or a console build)    - just print
+      2. the console of whatever launched us               - AttachConsole,
+         which is what makes this readable from PowerShell or cmd
+      3. no console anywhere (Explorer, a shortcut)        - a message box
+
+    The message box is LAST because it is modal: reached when a console was
+    available, it would hang a piped invocation waiting for a click."""
+    text = str(text)
+    out = getattr(sys, "stdout", None)
+    if out is not None:
+        try:
+            print(text)
+            return
+        except (OSError, ValueError, AttributeError):
+            pass
+    try:
+        k32 = ctypes.windll.kernel32
+        if k32.GetConsoleWindow() or k32.AttachConsole(-1):  # PARENT_PROCESS
+            with open("CONOUT$", "w", encoding="utf-8", errors="replace") as fh:
+                fh.write(text + "\n")
+            return
+    except (OSError, AttributeError):
+        pass
+    try:
+        ctypes.windll.user32.MessageBoxW(None, text, "Druta", 0x40)
+    except Exception:                                       # noqa: BLE001
+        pass
+
+
+def main(argv=None):
+    """--gpu SLOT picks the card; --list-gpus reports what is available.
+
+    The slot spelling is nvtune's and NVML's, so the three tools can be pointed
+    at one card with one copied string."""
+    argv = list(sys.argv[1:] if argv is None else argv)
+    slot = None
+    while argv:
+        a = argv.pop(0)
+        if a in ("--list-gpus", "-l"):
+            found = enumerate_gpus()
+            if not found:
+                _tell("no NVIDIA GPU enumerated")
+                return 1
+            _tell("\n".join(
+                f"{g['slot']}  {g['name']}"
+                + ("" if g["has_nvapi"] else "   (no NVAPI handle)")
+                for g in found))
+            return 0
+        if a in ("--gpu", "-d"):
+            if not argv:
+                _tell("--gpu needs a PCI slot, e.g. --gpu 0000:01:00.0")
+                return 2
+            slot = argv.pop(0)
+        elif a in ("-h", "--help"):
+            _tell("usage: Druta [--gpu SLOT] [--list-gpus]\n\n"
+                  "  --gpu SLOT   open on that card, e.g. 0000:02:00.0\n"
+                  "  --list-gpus  print the slot and name of every card\n\n"
+                  "With no --gpu, Druta opens on the lowest PCI slot.\n"
+                  "One card per window; Device > Card switches.")
+            return 0
+        else:
+            _tell(f"unknown argument {a!r} (try --help)")
+            return 2
+    app = Druta(slot)
+    if not app.gpu.available():
+        _tell("No GPU backend: " + app.gpu.status_line()
+              + ("\n\ncards present:\n" + "\n".join(
+                  f"  {g['slot']}  {g['name']}" for g in app.gpu_list)
+                 if app.gpu_list else ""))
+        return 1
+    app.run()
+    return 0
+
+
 if __name__ == "__main__":
-    TitanTune().run()
+    sys.exit(main())

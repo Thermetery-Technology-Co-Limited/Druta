@@ -3,7 +3,7 @@ canvas-only large window as control. Each in its own process."""
 import subprocess, sys, tkinter as tk, time
 
 def build(root):
-    """~TitanTune-like visible content."""
+    """~Druta-like visible content."""
     top = tk.Frame(root, bg="#16181d"); top.pack(fill="x")
     for i in range(6):
         f = tk.Frame(top, bg="#1e2128", padx=12, pady=8); f.grid(row=0, column=i, padx=4)

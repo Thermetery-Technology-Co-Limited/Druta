@@ -42,7 +42,7 @@ why snapshot() brackets the register read with a clock sample on each side.
 SAFETY: this module is READ-ONLY BY CONSTRUCTION. `nvtune` can write memory
 controller registers, which can hang the machine and corrupt VRAM. _run()
 accepts only the subcommands in READ_ONLY_SUBCOMMANDS and rejects any argument
-in FORBIDDEN_TOKENS, and it is the ONLY place in TitanTune that spawns nvtune.
+in FORBIDDEN_TOKENS, and it is the ONLY place in Druta that spawns nvtune.
 There is deliberately no code path here - not behind a flag, not disabled, not
 dead - that can build an argv able to write a timing register.
 
@@ -62,10 +62,21 @@ import threading
 import time
 from dataclasses import dataclass, field as _dc_field
 
+# For slot parsing only. nvbackend loads no driver library at import time - the
+# DLLs open in NvAPI/Nvml constructors - so this stays a pure-Python import and
+# does not make merely importing timings.py touch the hardware.
+import nvbackend
+
 # ---- where the tool lives -------------------------------------------------- #
 NVTUNE_EXE = "nvtune.exe"
 DRIVER_SERVICE = "nvtunedrv"
-ENV_OVERRIDE = "TITANTUNE_NVTUNE"      # full path to nvtune.exe, or its folder
+ENV_OVERRIDE = "DRUTA_NVTUNE"      # full path to nvtune.exe, or its folder
+# The pre-rename name, still honoured. Dropping it would have been worse than
+# losing a setting: the override is documented as EXCLUSIVE, so a host with the
+# old variable set would have stopped pinning and quietly fallen through to the
+# derived search - i.e. run a DIFFERENT nvtune, whose register offsets are the
+# whole reason the pin exists. Silently, with nothing on screen.
+LEGACY_ENV_OVERRIDE = "TITANTUNE_NVTUNE"
 
 # WHERE NVTUNE LIVES IS DISCOVERED, NEVER WRITTEN DOWN.
 #
@@ -80,14 +91,17 @@ ENV_OVERRIDE = "TITANTUNE_NVTUNE"      # full path to nvtune.exe, or its folder
 # dependency to be located - by the operator once, or by derivation from the
 # environment - in this order:
 #
-#   1. TITANTUNE_NVTUNE, exclusive: an explicit override never silently falls
+#   1. DRUTA_NVTUNE, exclusive: an explicit override never silently falls
 #      back to another copy, because every register offset this feature decodes
 #      comes out of the binary that gets run.
 #   2. the path the operator registered through the UI (config_path()).
-#   3. derived locations - beside TitanTune first, then the usual install roots.
+#   3. derived locations - beside Druta first, then the usual install roots.
 #   4. PATH, last, being the least predictable.
-CONFIG_DIR_NAME = "TitanTune"
+# Vendor\Product, the Windows convention, and the house mark is the vendor.
+CONFIG_DIR_NAME = os.path.join("Thermetery", "Druta")
 CONFIG_NAME = "nvtune.json"
+# Where this lived before the rename. Read once, to migrate, then never again.
+LEGACY_CONFIG_DIR_NAME = "TitanTune"
 
 
 def config_path():
@@ -95,6 +109,91 @@ def config_path():
     than beside the app: an EXE in Program Files cannot write next to itself."""
     base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
     return os.path.join(base, CONFIG_DIR_NAME, CONFIG_NAME)
+
+
+def legacy_config_path():
+    base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+    return os.path.join(base, LEGACY_CONFIG_DIR_NAME, CONFIG_NAME)
+
+
+def _write_json_atomic(path, data):
+    """Write JSON such that a crash cannot leave a half-file behind.
+
+    `open(path, "w")` TRUNCATES before a single byte is written, so anything
+    that interrupts the dump - kill, power loss, full disk - leaves a zero-byte
+    file where a good config used to be. For the migration that is worse than
+    losing the write: an empty destination then looks 'already migrated' to any
+    existence check and shadows the perfectly good legacy copy forever.
+
+    Temp file in the same directory (so os.replace is a same-volume rename and
+    therefore atomic), fsync before the swap, and the temp is removed on any
+    failure path."""
+    d = os.path.dirname(path)
+    os.makedirs(d, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=".nvtune-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _config_is_readable(path):
+    """Does `path` hold a config we could actually use?
+
+    The migration guard asks THIS rather than os.path.exists, so a truncated or
+    corrupt destination retries the migration instead of permanently shadowing
+    a good legacy file."""
+    try:
+        with open(path, encoding="utf-8-sig") as f:
+            return isinstance(json.load(f), dict)
+    except (OSError, ValueError):
+        return False
+
+
+# Last migration outcome worth telling the operator about. Surfaced through
+# available(); a migration that fails silently is indistinguishable from the
+# feature having been dropped by the upgrade, and the user re-hunts a binary
+# they had already registered.
+_migration_note = ""
+
+
+def migration_note():
+    return _migration_note
+
+
+def migrate_legacy_config():
+    """Carry a pre-rename registration across, once. (moved, message).
+
+    A rename that silently orphans the one setting the operator had to go and
+    find is a bad trade for tidiness - the symptom would be the Timings tab
+    going dark after an upgrade, with the old file still sitting there looking
+    correct. Copies rather than moves, so a downgrade still works.
+
+    The guard is 'is there a USABLE config at the destination', not 'is there a
+    file there', for the reason in _write_json_atomic."""
+    global _migration_note
+    new, old = config_path(), legacy_config_path()
+    if _config_is_readable(new) or not os.path.exists(old):
+        return False, ""
+    try:
+        with open(old, encoding="utf-8-sig") as f:   # BOM-tolerant, see above
+            data = json.load(f)
+        _write_json_atomic(new, data)
+    except (OSError, ValueError) as e:
+        _migration_note = (
+            f"a pre-rename nvtune registration exists at {old} but could not be "
+            f"carried over: {e}. Re-register it with Device -> Locate nvtune...")
+        return False, _migration_note
+    _migration_note = ""
+    return True, f"carried the registered nvtune location over from {old}"
 
 
 def _as_exe(p):
@@ -106,9 +205,18 @@ def _as_exe(p):
 
 
 def configured_exe():
-    """The location the operator registered, or None."""
+    """The location the operator registered, or None.
+
+    Migration is attempted here rather than at startup so it also covers a
+    fresh process that never opens the Timings tab, and it is a no-op the
+    moment a current config exists."""
+    migrate_legacy_config()
     try:
-        with open(config_path(), encoding="utf-8") as f:
+        # utf-8-sig, not utf-8: this file is meant to be hand-editable, and
+        # Notepad (and PowerShell's Set-Content) write a BOM. Reading it as
+        # plain utf-8 raises on the BOM and the registration silently vanishes,
+        # which looks exactly like never having set it.
+        with open(config_path(), encoding="utf-8-sig") as f:
             return _as_exe((json.load(f) or {}).get("nvtune_exe"))
     except (OSError, ValueError, AttributeError):
         return None
@@ -124,9 +232,9 @@ def set_configured_exe(path):
     if exe and not os.path.isfile(exe):
         return False, f"no nvtune.exe at {exe}"
     try:
-        os.makedirs(os.path.dirname(config_path()), exist_ok=True)
-        with open(config_path(), "w", encoding="utf-8") as f:
-            json.dump({"nvtune_exe": exe or ""}, f, indent=2)
+        # atomic for the same reason the migration is: this truncates the live
+        # config, and a half-written one reads as no registration at all
+        _write_json_atomic(config_path(), {"nvtune_exe": exe or ""})
     except OSError as e:
         return False, f"could not write {config_path()}: {e}"
     return True, (f"nvtune registered at {exe}" if exe
@@ -136,7 +244,7 @@ def set_configured_exe(path):
 def _candidate_dirs():
     """Plausible homes for an unshipped nvtune, DERIVED from the environment.
 
-    Beside TitanTune comes first so a portable copy always wins. The rest are
+    Beside Druta comes first so a portable copy always wins. The rest are
     the ordinary install roots expanded for whoever is actually logged in -
     which is how the Desktop location this was originally hardcoded to keeps
     working, without the account name being in the source."""
@@ -187,7 +295,7 @@ class TimingsError(RuntimeError):
 #  discovery                                                                   #
 # ============================================================================ #
 def _app_dir():
-    """Where 'next to TitanTune' means. Under PyInstaller the module lives in
+    """Where 'next to Druta' means. Under PyInstaller the module lives in
     a temp extraction dir, so the frozen build has to look beside the EXE."""
     if getattr(sys, "frozen", False):
         return os.path.dirname(os.path.abspath(sys.executable))
@@ -196,8 +304,13 @@ def _app_dir():
 
 def pinned_exe(override=None):
     """The path an argument or the environment variable pinned us to, or None.
-    An override may name nvtune.exe itself or the folder holding it."""
-    for cand in (override, os.environ.get(ENV_OVERRIDE)):
+    An override may name nvtune.exe itself or the folder holding it.
+
+    LEGACY_ENV_OVERRIDE is honoured after the current name so an operator who
+    set the pre-rename variable keeps their pin - see its comment for why
+    losing it would be a wrong answer rather than an inconvenience."""
+    for cand in (override, os.environ.get(ENV_OVERRIDE),
+                 os.environ.get(LEGACY_ENV_OVERRIDE)):
         if cand and cand.strip():
             cand = os.path.expandvars(os.path.expanduser(cand.strip().strip('"')))
             return (cand if cand.lower().endswith(".exe")
@@ -328,18 +441,24 @@ def available(override=None):
         if pin:
             av.reason = (f"{NVTUNE_EXE} was pinned to a path that does not "
                          f"exist:\n    {pin}\nAn override is exclusive - "
-                         f"TitanTune will not quietly run a different copy - "
+                         f"Druta will not quietly run a different copy - "
                          f"so fix the path or clear the {ENV_OVERRIDE} "
                          f"environment variable.")
         else:
             looked = "\n".join("    " + p for p in search_path(override))
             av.reason = (
-                f"{NVTUNE_EXE} not found. TitanTune does not ship it - it is a "
+                f"{NVTUNE_EXE} not found. Druta does not ship it - it is a "
                 f"separate tool whose kernel driver is self-signed - so it has "
                 f"to be located. Looked in:\n{looked}\n    (then PATH)\n"
                 f"Use 'Device -> Locate nvtune...' to register where it is "
                 f"(remembered in {config_path()}), or set the {ENV_OVERRIDE} "
                 f"environment variable to its full path.")
+            # A failed carry-over is the one cause the operator cannot deduce
+            # from the list above: their registration still exists, just not
+            # where this build looks. Without this they conclude the upgrade
+            # dropped the feature and go re-hunt a binary they already found.
+            if migration_note():
+                av.reason += f"\n\nNOTE: {migration_note()}"
         if not running:
             av.reason += (f"\n\nIts kernel driver service '{DRIVER_SERVICE}' "
                           f"is also not running (state: {state}).")
@@ -367,11 +486,30 @@ def _check_argv(subcmd, args):
             raise TimingsError(f"refused: argument '{a}' can write hardware")
 
 
-def _run(exe, subcmd, args=(), timeout=20.0):
+def _run(exe, subcmd, args=(), timeout=20.0, slot=None):
+    """Spawn a read-only nvtune subcommand against ONE card.
+
+    `slot` is not optional in spirit. nvtune's `-d` defaults to "all NVIDIA
+    GPUs", not to the first one, so an un-targeted call on a two-card host does
+    something different from what every caller here assumes. Measured:
+
+        nvtune get FAW RRD   -> two lines, one per card
+        nvtune save -o P     -> card 1 writes P, card 2 fails "cannot replace",
+                                and the file is card 1's registers regardless of
+                                which card the caller meant
+        nvtune set FAW=13    -> plans an op on BOTH cards
+
+    Passing slot=None is still allowed, because `fields` is genuinely
+    card-independent (verified: byte-identical output on TU102 and GP102), but
+    anything decoding registers must name a card."""
     args = [str(a) for a in args]
     _check_argv(subcmd, args)
+    argv = [exe, subcmd]
+    if slot:
+        argv += ["-d", str(slot)]
+    argv += args
     try:
-        return subprocess.run([exe, subcmd] + args, capture_output=True,
+        return subprocess.run(argv, capture_output=True,
                               text=True, timeout=timeout,
                               creationflags=_NO_WINDOW)
     except subprocess.TimeoutExpired:
@@ -563,7 +701,13 @@ _FT_LOCK = threading.Lock()
 
 def field_table(override=None, refresh=False, timeout=20.0, exe=None):
     """Parsed `nvtune fields`, cached per exe path. Cached because it is static
-    for a given tool build and every snapshot needs it."""
+    for a given tool build and every snapshot needs it.
+
+    Keyed by exe and NOT by card, which on a multi-card host is a claim worth
+    checking rather than assuming. Checked: `nvtune fields` is byte-identical
+    (same md5, 45 lines) for `-d` TU102, `-d` GP102, and no `-d` at all. The
+    table describes the TOOL's field definitions, not the silicon, so one entry
+    per build is right and the cache cannot leak a decode across generations."""
     exe = exe or find_exe(override)
     if not exe:
         raise TimingsError(available(override).reason)
@@ -624,7 +768,7 @@ def output_dir():
     global _OUT_DIR
     with _OUT_LOCK:
         if _OUT_DIR is None:
-            _OUT_DIR = tempfile.mkdtemp(prefix="titantune-timings-")
+            _OUT_DIR = tempfile.mkdtemp(prefix="Druta-timings-")
         return _OUT_DIR
 
 
@@ -900,6 +1044,21 @@ def _scope_order(registers):
     return sorted((s for s in registers if s != "broadcast"), key=k)
 
 
+def _slot_of(gpu):
+    """The PCI slot to target, taken from the GPU object the caller passed.
+
+    Deliberately derived from `gpu` rather than accepted as a separate argument:
+    the whole failure this guards against is a snapshot describing one card
+    while the mem_div, memory type and clock used to decode it come from
+    another, and those all come from `gpu`. Tying both to one object makes the
+    two impossible to pass in disagreeing."""
+    try:
+        s = gpu.slot() if gpu is not None else ""
+    except Exception:
+        s = ""
+    return s or ""
+
+
 def snapshot(gpu=None, override=None, timeout=20.0):
     """One `nvtune save`, decoded, with the memory clock captured ATOMICALLY
     around it.
@@ -940,9 +1099,17 @@ def snapshot(gpu=None, override=None, timeout=20.0):
         # An INDUCED state is not a held one: the driver can drop out of it at
         # any moment, which is exactly why both ends are sampled rather than
         # trusting one reading to describe the whole capture.
+        slot = _slot_of(gpu)
+        if gpu is not None and not slot:
+            snap.error = ("the GPU object could not name its PCI slot, and an "
+                          "un-targeted nvtune save reads whichever card the "
+                          "tool picks - refusing rather than decoding registers "
+                          "that may belong to another card")
+            return snap
+
         snap.mem_before, snap.pstate_before = _state_now(gpu)
         t0 = time.perf_counter()
-        r = _run(av.exe, "save", ["-o", path], timeout=timeout)
+        r = _run(av.exe, "save", ["-o", path], timeout=timeout, slot=slot)
         snap.elapsed = time.perf_counter() - t0
         snap.mem_after, snap.pstate_after = _state_now(gpu)
         # ------------------------------------------------------------------ #
@@ -958,6 +1125,18 @@ def snapshot(gpu=None, override=None, timeout=20.0):
         snap.fmt = js.get("_format", "")
         snap.taken = js.get("_taken", "")
         snap.slot = js.get("slot", "")
+
+        # The capture names its own card, so the targeting is CHECKED rather
+        # than trusted. Without this, a stale file left at `path` - or an nvtune
+        # that ignored -d - would be decoded against gpu.static's mem_div and
+        # memory type, turning every nanosecond in the table into a confident
+        # lie about the wrong silicon.
+        if slot and snap.slot and not nvbackend.same_slot(snap.slot, slot):
+            snap.error = (f"nvtune was asked for {slot} but the snapshot it "
+                          f"wrote is from {snap.slot} - refusing to decode one "
+                          f"card's registers against another card's memory "
+                          f"clock")
+            return snap
         snap.boot0 = js.get("boot0", "")
         snap.chipset = js.get("chipset", "")
         snap.codename = js.get("codename", "")
@@ -1177,8 +1356,8 @@ if __name__ == "__main__":
           f"   inferred: {ft.inferred_registers() or 'none'}"
           f"   aliases: {ft.aliases}")
     try:
-        from nvbackend import GPU
-        g = GPU()
+        from nvbackend import GPU, slot_from_argv
+        g = GPU(slot_from_argv())
     except Exception as e:
         print(f"(no GPU backend: {e})")
         g = None

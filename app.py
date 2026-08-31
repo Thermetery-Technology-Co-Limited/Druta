@@ -1,5 +1,5 @@
 """
-TitanTune - a compact Afterburner alternative for the Titan-RTX-on-Strix card.
+Druta - a compact Afterburner alternative for the Titan-RTX-on-Strix card.
 
 Foregrounds the telemetry Afterburner hides on Turing (hotspot delta, GPU/board
 power split, the 9-reason clocks-event mask, the insufficient-aux-power canary,
@@ -15,7 +15,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 
 from nvbackend import (GPU, EVENT_REASONS, PERF_DECREASE_BITS,
-                       VF_STEP_KHZ, below_cap)
+                       VF_STEP_KHZ, below_cap, slot_from_argv)
 
 # ---- HiDPI --------------------------------------------------------------- #
 # tkinter is DPI-unaware by default: on a scaled display Windows renders the app
@@ -597,7 +597,7 @@ class App(tk.Tk):
         super().__init__()
         self.gpu = gpu
         s = gpu.static
-        self.title("TitanTune")
+        self.title("Thermetery Druta")
         self.configure(bg=BG)
         # match Tk's point->pixel scaling to the display so fonts render crisp
         self.tk.call("tk", "scaling", SCALE * 96.0 / 72.0)
@@ -628,7 +628,7 @@ class App(tk.Tk):
         self._snap_lock = threading.Lock()
         self._stop_evt = threading.Event()
         self._poller = threading.Thread(target=self._poll_loop, daemon=True,
-                                        name="titantune-poll")
+                                        name="druta-poll")
         if not NO_POLL:
             self._poller.start()
         self._build_monitor()
@@ -683,7 +683,7 @@ class App(tk.Tk):
     def _header(self, s):
         h = tk.Frame(self, bg=BG, padx=12, pady=8)
         h.pack(fill="x")
-        tk.Label(h, text="TitanTune", bg=BG, fg=ACCENT,
+        tk.Label(h, text="Thermetery Druta", bg=BG, fg=ACCENT,
                  font=(FONT, 15, "bold")).pack(side="left")
         admin = "admin" if s["admin"] else "NOT admin (clock lock / fan / PL need admin)"
         acol = GOOD if s["admin"] else WARN
@@ -936,7 +936,7 @@ class App(tk.Tk):
         txt.pack(fill="both", expand=True, padx=10, pady=10)
         cr = s.get("core_off_range")
         mr = s.get("mem_off_range")
-        content = f"""TitanTune - discovered-knob reference for this card
+        content = f"""Druta - discovered-knob reference for this card
 
 Device : {s['name']}
 Driver : {s['driver']}    VBIOS : {s['vbios']}
@@ -1786,11 +1786,14 @@ def main():
         SCALE = _detect_scale()
     else:
         SCALE = 1.0
-    gpu = GPU()
+    # Legacy Tk build: no card picker on screen, but it must still be aimable
+    # on a multi-card host rather than silently taking whichever card sorts
+    # first. `--gpu SLOT`, same spelling as druta.py and nvtune.
+    gpu = GPU(slot_from_argv())
     if not gpu.available():
         root = tk.Tk()
         root.withdraw()
-        messagebox.showerror("TitanTune",
+        messagebox.showerror("Thermetery Druta",
                              "No GPU backend available.\n" + gpu.status_line())
         return
     App(gpu).mainloop()

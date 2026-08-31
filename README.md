@@ -1,445 +1,312 @@
-# TitanTune
+# Druta
 
-An Afterburner-style monitor/tuner for the Titan-RTX-die-on-2080Ti-Strix-PCB
-frankencard: it surfaces Turing telemetry Afterburner doesn't show and drives
-the reversible tuning knobs directly through NVAPI/NVML.
+A monitor and tuner for NVIDIA cards, driven through NVAPI/NVML private
+interfaces. It surfaces telemetry Afterburner doesn't show, edits the V/F curve
+with planners built around how the boost arbiter actually behaves, and reads and
+writes the framebuffer-partition memory timing registers.
 
-The GPU layer (`nvbackend.py`) is shared unchanged between UI builds: every
-NVAPI id, struct layout, and the 15 MHz quantisation law in it was verified
-against this specific card.
+Developed against two cards:
+
+| | die | arch | memory | board |
+|---|---|---|---|---|
+| **Titan RTX** | TU102 | Turing | GDDR6 | die transplanted onto an ASUS RTX 2080 Ti Strix PCB |
+| **Titan Xp** | GP102 | Pascal | GDDR5X | stock, unmodified |
 
 ## Run
 
-- `dist\TitanTune2.exe` — the current build (Dear PyGui). Standalone, no
-  Python needed.
-- or `python titantune_dpg.py` from source.
-- Run **as administrator** for clock-lock, fan, and power-limit writes.
+- `dist\Druta.exe` — standalone, no Python needed.
+- or `python druta.py` from source.
+- **Run as administrator** for every write path: clock lock, fan, power limit,
+  V/F curve, memory timings.
 
-`app.py` / `dist\TitanTune.exe` (Tk) still exists, but it is not a build you
-should reach for — see "Why Dear PyGui" below. Do not edit `app.py`; it is
-kept only as a parity reference for the Dear PyGui port.
+### Picking a card
 
-## Why Dear PyGui
+```
+Druta.exe --list-gpus          # slots and names
+Druta.exe --gpu 0000:02:00.0   # open on that card
+```
 
-The original UI was Tk. Dragging the window stalled the whole desktop.
-Measured root cause: Tk creates one native child HWND per widget (~50 of them
-on the control page), and on `WM_ENTERSIZEMOVE` Windows' modal window-move
-loop pumps messages synchronously — so Tk's entire idle queue and `after()`
-timers drain inside that loop instead of after it, and the desktop hangs for
-as long as the drag lasts.
+With no `--gpu`, Druta opens on the **lowest PCI slot** — a property of the
+machine, not of whichever order a driver happened to enumerate in. In the window
+the picker is **Device → Card**, and the chosen card is in the title bar
+whenever more than one is present.
 
-Dear PyGui (Dear ImGui + DirectX 11) renders the whole UI as GPU geometry
-inside a single window: zero child HWNDs, so there's nothing for the modal
-loop to stall on. `titantune_dpg.py` is now the only build worth running; the
-Tk build is kept only as a parity reference.
+**One card per window.** Choosing another card relaunches rather than
+re-pointing the live one. Too much of the window is a per-card measurement fixed
+at build time — slider ranges from `gfx_max` (2160 MHz on the Titan RTX, 1911 on
+the Xp), the V/F editor sized by the probed table (128 entries vs 84), every
+nudge a clock bin (15 MHz vs 12.657), domain names earned by correlation against
+that card. A process boundary makes it impossible to miss one; re-deriving them
+all live merely makes it unlikely.
 
-## Layout
+Two windows on two cards is fine and is the intended way to work on both.
 
-Three tabs, plus a menu bar:
+The switch refuses while the window is **holding** the card with either lock
+mechanism: a hold lives in the driver, not in this process, so walking away
+leaves the card pinned with nothing on screen saying so — and the next window,
+pointed elsewhere, could not release it. Staged-but-unwritten V/F or timing
+edits only ask for a confirming second click, since losing those costs nothing
+but the typing.
 
-- **Monitor** — read-only telemetry, refreshed from a background poll
-  thread at 1 Hz.
-- **Control** — the write knobs, plus the V/F curve editor in its lower
-  half.
-- **Timings** — read-only decode of the memory timing registers, with a
-  built-in GPU load to induce a readable P-state. Needs the `nvtune` tool and
-  its driver; see "Timings tab" below.
-- **Menu bar** — `Device > Device report...` (driver-reported identity and
-  ranges for this specific card, copyable as a bug report), `Clocks` (the
-  GPU clock lock), and `Help` (keyboard shortcuts, about).
+`app.py` (the old Tk UI) is kept only as a parity reference for the Dear PyGui
+port. It has no build target and should not be edited. See
+[Why Dear PyGui](#why-dear-pygui).
 
-## Monitor tab
+## Build
 
-Tiles: core clock, XBAR clock, memory clock (converted to true MHz when the
-memory type is known), edge temp, hotspot temp, power draw, vcore. Below
-that: the full 9-reason clocks-event mask, the NVAPI perf-decrease bits
-(including the insufficient-aux-power bit — a canary for the transplant's
-power wiring), a GPU/board power split, per-domain utilisation, PCIe
-link generation/width with AER error counters, and a state line (energy
-counter, fan duty/RPM, applied offsets, voltage boost %, and BOTH lock
-mechanisms read straight from the driver — the V/F-locked domains with the
-voltage that was requested, and the NVML clock-lock range).
+```
+pip install dearpygui
+python -m PyInstaller --onefile --noconsole --name Druta --collect-all dearpygui druta.py
+```
 
-Between the tiles and those panels sits **ALL CLOCK DOMAINS** — every domain
-the private getter populates, one row each, with the *programmed* frequency
-next to the *measured* one. It is placed directly under the tiles on purpose:
-the tiles quote the programmed figure, and this is the panel that says what
-the card is actually doing. See below for what the two numbers are and how
-far each row's name can be trusted.
+Output lands in `dist\Druta.exe`.
 
-## The private GetAllClocks payload
+---
 
-`NvAPI_GPU_GetAllClocks` (`0x1BD69F49`) — community docs call it "probably
-deprecated," but it answers on Turing (status 0) and is the only user-mode
-path to domains the public clock getter doesn't expose. The struct is 1156
-bytes (`version = 1156 | (2<<16)`), 288 dwords.
+# Probed, not assumed
 
-Those 288 dwords are **two arrays over the same 32 domains, an exact
-partition** (verified over a 192-sample sweep):
+**Two hardcoded constants in this project have each been wrong twice.** The V/F
+table was 103 points, then 128, then 84. The clock grid was 15 MHz, then
+12.657. Each time the constant was confidently documented, and each time it was
+a measurement from one card presented as a law.
+
+So the tool now derives per-card quantities from the driver at runtime:
+
+| quantity | how it is found | TU102 | GP102 |
+|---|---|---|---|
+| V/F table size | widen the point mask until the call fails | 128, all GPU | **84** = 80 GPU + 4 memory |
+| GPU frequency scale | compare the table's top against `gfx_max` | direct MHz | **`GPC2CLK`**, i.e. 2× |
+| clock grid | span ÷ gaps over the driver's lockable-clock table | 15.000 MHz | **12.657 MHz** |
+| clock-domain names | correlate each domain against the driver's own core/memory figures | GPC at domain 0 | **GPC2CLK at domain 15** |
+
+**Read every number in this document as a measurement on a named card, not as a
+property of the architecture.** Where a section states a figure without naming
+the card, it is TU102 — that is where most of this work was done.
+
+## Which card is "this card"
+
+Three interfaces have to agree, and by default two of them do not:
+
+- **NVAPI and NVML enumerate in different orders.** Measured with the Titan RTX
+  at bus 1 and the Titan Xp at bus 2: `NvAPI_EnumPhysicalGPUs` returns the Xp
+  first, `nvmlDeviceGetHandleByIndex` returns the RTX first — exactly reversed.
+  Pairing the two halves of one GPU object by index would splice one card's V/F
+  curve onto the other's name, memory type and clock table.
+- **nvtune's `-d` defaults to _all_ NVIDIA GPUs**, not to the first one.
+
+Everything is therefore keyed on the **PCI slot**, in the one spelling all three
+accept (`0000:02:00.0`), and the pairing is re-checked against the PCI device
+and subsystem ids that NVAPI and NVML report independently. On a mismatch the
+NVAPI half is dropped rather than used: reduced telemetry is a visible failure,
+writing the wrong card is not.
+
+What the un-targeted nvtune default actually did, before this was threaded
+through — all verified on the two-card rig:
+
+| call | without `-d` |
+|---|---|
+| `set FAW=13 --commit` | writes **both** cards; one number in the UI, two different chips |
+| `get FAW` | one line per card; the parser kept whichever came **last**, so a write was graded against the wrong silicon |
+| `save -o P` | card 1 writes `P`, card 2 fails `cannot replace` — so a file *named* for one card holds the other's registers |
+
+That last one is the dangerous one: it is the stock backup. A snapshot decoded
+against the wrong card is also checked now — nvtune's JSON names its own slot,
+and a capture that disagrees with what was asked for is refused rather than
+decoded against another card's memory clock.
+
+Stock backups are keyed by the card's **UUID**, not its slot and not its model
+name. The slot would orphan a backup the moment the card moved — which this
+machine has already done, the Xp's stock file recording `0000:01:00.0` while the
+card now answers at `0000:02:00.0`. The model name cannot separate two identical
+cards. Backups written under the older name/VBIOS scheme are still found and
+reused, because the alternative is taking a fresh "stock" snapshot of a card
+that is currently tuned.
+
+---
+
+# Monitor
+
+Seven tiles: core clock, XBAR clock, memory clock (converted to true MHz when
+the memory type is known), edge temp, hotspot, power, vcore. Subtitles carry the
+p-state, XBAR's delta against core, the memory type and Gbps, the hotspot delta
+over edge, and the power limit.
+
+Below them: **ALL CLOCK DOMAINS**, then the clocks-event and perf-decrease masks
+(including the insufficient-aux-power bit, a canary for a transplant's power
+wiring), a GPU/board power split with per-domain utilisation, PCIe link
+generation and width with AER error counters, and a state line carrying the
+energy counter, fan duty/RPM, applied offsets, voltage boost, and **both** lock
+mechanisms read straight from the driver.
+
+## All clock domains
+
+`NvAPI_GPU_GetAllClocks` (`0x1BD69F49`) is documented by the community as
+"probably deprecated". It answers with status 0 and is the only user-mode path
+to several domains the public getter doesn't expose. The payload is 1156 bytes,
+288 dwords.
+
+Those 288 dwords are **two arrays over the same 32 domains, an exact partition**
+— verified over a 192-sample sweep, and enforced by asserts:
 
 | array | dwords | per domain | at | contents |
 |---|---|---|---|---|
 | A | 0–63 | 2 | `2*d` | `{freq_kHz, capability flags}` |
 | B | 64–287 | 7 | `64 + 7*d` | `{freq_kHz, srcid, 0, 0, 0, 0, 0}` |
 
-They are **not two views of one number.** A is the target the driver
-*programmed*: always exactly on the 15 MHz grid, and bit-identical across
-samples for a fixed domain. B is a *measured* counter: it jitters 1–3 Hz and
-never lands on the grid. Anything quoting one of them has to say which.
-`PRIV_SLOT` — and therefore every tile — is in array-A dword numbers, i.e. the
-programmed figure; XBAR is slot 2 (`PRIV_SLOT["xbar"] = 2` in `nvbackend.py`).
+### A and B are not two views of one number
 
-### How far apart A and B run
+**A is the target the driver programmed.** Always exactly on the clock grid,
+bit-identical across samples for a fixed domain. **B is a measured counter.** It
+jitters and never lands on the grid. The tiles quote A; the panel shows both, so
+you can see when they disagree.
 
-Measured on this card, GPC (domain 0), under ~99% GPU load, sampled ≥ 8 s
-after the clock last changed (40 samples per locked case, 20 free-boosting):
+Measured on TU102, GPC, under ~99% load, sampled ≥8 s after the last clock
+change (40 samples per locked case, 20 free-boosting):
 
 | state | A | B | Δ |
-| --- | --- | --- | --- |
+|---|---|---|---|
 | free-boosting at 1950 | 1950.0 | 1949.90 | −0.10 MHz |
 | locked at 1920 | 1920.0 | 1917.03–1921.37 | within 3 MHz |
 | locked at 1350 | 1350.0 | 1364.91–1364.94 | **+14.9, dead steady** |
-| XBAR and domains 2/5, all three cases | | | within 0.14 MHz |
 
-**Settled and loaded, they agree to a few MHz** — and where they don't, B is
-*higher*, not lower: at the 1350 lock the card really is running one 15 MHz
-bin above what array A reports (domain 2's own programmed word reads 1365
-there too, and NVML reports the locked 1350).
+Settled and loaded they agree to a few MHz — and where they don't, **B reads
+higher**: at the 1350 lock the card really is running one bin above what A
+reports. Domain 2's own programmed word reads 1365 there too.
 
-Two things make Δ wide, and neither is a steady state:
+Two things make Δ wide and neither is a steady state:
 
-- **A clock change in flight**, for ~1–2 s, either sign, hundreds of MHz up to
-  1.7 GHz (+600 measured while locking *down* from 1950; −1700 while locking
-  *up* from idle). An earlier figure quoted here — "at a 1920 MHz lock A reads
-  1920.0 while B reads 1886.7", 33 MHz apart — came from a sweep that allowed
-  0.22 s to settle. It was this transient, not a steady divergence; re-measured
-  with the clock given time to arrive, the same lock holds within 3 MHz.
-- **An idle card**, where Δ never settles at all. With no work the GPC clock
-  gates, and B measures the average of a mostly-off clock: at a 1350 MHz lock
-  with the card idle, B wandered 470–573 MHz (Δ ≈ −840) for tens of seconds.
+- **A clock change in flight**, for ~1–2 s, either sign, up to 1.7 GHz (+600
+  measured while locking *down* from 1950; −1700 while locking *up* from idle).
+- **An idle card.** With no work the GPC clock gates and B measures the average
+  of a mostly-off clock: at a 1350 lock with the card idle, B wandered 470–573
+  MHz for tens of seconds.
 
-So the reading rule the panel's colours are for: a wide Δ on an idle card, or
-in the second after a clock change, is expected and means nothing. **A steady
-wide Δ on a busy card is the one that counts** — there the tiles are
-optimistic and the card is not running at the frequency they quote.
+So a wide Δ on an idle card, or in the second after a clock change, means
+nothing. **A steady wide Δ on a busy card is the one that counts** — there the
+tiles are optimistic. The panel colours one bin amber and three bins red.
 
-### How far the names can be trusted
+An earlier figure in this document — "at a 1920 lock A reads 1920.0 while B
+reads 1886.7" — was **wrong** and is retracted. It came from a sweep that
+allowed 0.22 s to settle, so it measured the transient above.
 
-Eleven domains are populated: 0, 1, 2, 3, 4, 5, 6, 20, 21, 22, 31. The panel
-grades every name, because a wrong one sends you debugging the wrong domain
-with nothing on screen saying you were misled:
+### How a domain earns its name
 
-- **CONFIRMED** (shown plainly) — 0 = GPC, 1 = XBAR, 4 = MEM, 21 = VIDEO.
-- **LIKELY** (shown in amber with a `?`) — behaviour confirmed, *name* only by
-  elimination: 2 = a third core-rail domain with its own V/F table (`SYSCLK?`),
-  5 = a fourth that ceilings hard at 1350 MHz (`LTCCLK?`), and 31 (below).
-- **Unnamed** (shown as `--`, index only) — 3, 6, 20 and 22. Their values are
-  confirmed static here (405 / 1080 / 540 / 108 MHz) but no name for them has
-  been earned, so they stay numbers. Note 22 is the one domain whose value is
-  *not* a multiple of 15 MHz.
+Names are **not** applied by domain number. A domain-number table is exactly the
+thing that moves between architectures: applied blind to GP102 it labelled four
+dead rows GPC / XBAR / SYSCLK / VIDEO in confirmed styling, while the real GPU
+clock sat unnamed in domain 15.
 
-**Domain 31 is not a frequency.** Array-A dword 62 holds the PCIe link
-generation (1/2/3), tracks the pstate, and ceilings at
-`nvmlDeviceGetMaxPcieLinkGeneration`. The panel renders it as `gen N`; divided
-by 1000 like every other row it would print as a perfectly believable 0.0 MHz
-clock. Its array-B word has not been identified and is shown raw.
+Each name is now correlated against figures the driver reports independently:
 
-The odd dwords of array A are per-domain capability flags, constant across
-every sample (`0x01`, `0x09`, `0x11`, `0x19` on this card). The MEM row is the
-**raw** NVAPI figure — half the data rate — where the MEM CLOCK tile converts
-to the true memory clock, so those two are meant to differ by the GDDR divisor.
+- A domain matching the core clock at 1× is **GPC**; at 2× it is **`GPC2CLK`**,
+  named for what it actually holds rather than silently halved.
+- A domain matching the memory clock is **MEM**.
+- A domain reading **zero on a card that is demonstrably running** is marked
+  `unpopulated` and loses its name. An empty slot is not a slow clock.
+- The TU102 name table is applied **only** when the card presents the TU102
+  signature (GPC correlating to domain 0). GP102 gets its own, gated the same
+  way.
 
-## The XBAR clock domain
+Four grades: **CONFIRMED** (correlated against ground truth), **LIKELY** (amber,
+with a `?` — behaviour established, the *word* is an analogy), **unnamed**
+(index only), **unpopulated**.
 
-Measured behaviour on this card: **XBAR tracks core frequency, not the
-voltage rail.** With the clock locked at 1800 MHz and vcore swept from
-912.5 mV to 1068.75 mV, XBAR never moved off 1725 MHz. The empirical law —
-exact on every independently observed point, and within one 15 MHz bin
-across a 104-point sweep — is:
+| domain | TU102 | GP102 |
+|---|---|---|
+| 0 | GPC — confirmed | reads zero |
+| 1 | XBAR — confirmed | reads zero |
+| 4 | MEM — confirmed | MEM — confirmed |
+| 15 | — | **GPC2CLK** — confirmed, exactly 2× core |
+| 16 | — | **XBAR2CLK?** — LIKELY (see below) |
+| 21 | VIDEO — confirmed | reads zero |
+| 31 | PCIe link generation, not a frequency — rendered `gen N` | same |
+
+**GP102 domain 16** was identified by a 10-stop V/F lock sweep: it holds
+0.962–0.970 of `GPC2CLK` across the whole top half of the curve, and a +60 MHz
+core offset moved it by twice the core's move while changing that ratio by
+0.0006. So it is a 2× domain riding the core clock. Calling it *XBAR* is an
+analogy with TU102, where the domain in the same relationship is XBAR — hence
+LIKELY, not confirmed. **Domain 17** holds 0.845–0.850 of `GPC2CLK`, even more
+tightly, and has earned no name at all.
+
+**TU102's XBAR law**, measured there and nowhere else: with the clock locked at
+1800 MHz and vcore swept 912.5 → 1068.75 mV, XBAR never moved off 1725 MHz — it
+tracks *frequency*, not the rail. Exact on every observed point and within one
+bin across a 104-point sweep:
 
 ```
 XBAR = max(540, snap15(0.95 * GPC + 15))
 ```
 
-"XBAR = GPC − 90" is only locally true near 2 GHz; it is not the underlying
-law and drifts off at other clocks.
+`XBAR = GPC − 90` is only locally true near 2 GHz. Nothing in the code computes
+this; it is recorded measurement.
 
-## Control tab
+---
 
-All writes here are reversible and reset on reboot; they're gated behind the
-"Unlock controls" checkbox (on by default — untick it to make the app
-read-only).
+# Control
 
-- **Core clock offset (MHz)** — snapped to the 15 MHz grid before it's sent,
-  because it lands in the same per-point VF delta table the curve editor
-  uses (see below).
-- **Memory offset** — shown in true memory MHz when the memory type is
-  known (NVML units ÷ `2 * divisor`), else raw/effective NVML units.
-- **Power limit (W)** — clamped to the driver-reported min/max.
-- **GPU clock lock** (menu bar: `Clocks`) — min/max MHz, `Lock` /
-  `Release` / `Lock max`. See "Lockable clocks are not a ceiling" below;
-  `Lock max` pins both ends to the top of the lockable table, which is
-  useful for holding one frequency steady but can be a step *down* from
-  what the card is boosting to. The lock holds at idle on this card with no
-  GPU load needed, which makes it the cheap instrument for characterising a
-  clock domain. `Ctrl+H` in the curve editor drives a **different** mechanism
-  (the V/F point lock — see "The V/F point lock, and the two lock mechanisms"
-  below); the app keeps one record of which of the two is in force, and taking
-  either one releases the other first rather than leaving an untracked lock
-  behind.
+Core and memory clock offsets, power limit, voltage boost, fan duty (with an
+Auto button that restores the curve), and the GPU clock lock. All writes sit
+behind the **Unlock controls** checkbox — untick it to make the app read-only.
 
-  **What that record does and does not cover.** It covers the locks *this
-  run of the app* took. Within a session, every lock action — `Lock`,
-  `Lock max`, `Release`, `Ctrl+H`, and the releases inside `Reset all to
-  stock` — leaves the on-screen indicator agreeing with the driver, and a
-  release that *fails* deliberately keeps the indicator up rather than
-  clearing it. An empty indicator means "this app is not holding a lock", not
-  "the card is not locked": another tuner may be holding one, and this card was
-  in fact found holding somebody else's V/F point lock at 1137.50 mV.
+Core offsets snap **down** onto the card's own grid before being sent, because
+they land in the same per-point V/F delta table the curve editor uses.
 
-  **Both locks can now be read back**, which was not true before. NVML's own
-  `nvmlDeviceGetGpuLockedClocks` is absent on this card, but both mechanisms
-  live in the `0xE440B867` table, so the Monitor state line reports each of them
-  straight from the driver rather than from the app's record — which is how a
-  lock left by a previous run, by a killed instance, or by another tool becomes
-  visible. `Release` (or `Reset all to stock`) clears a lock this app is
-  holding; a reboot clears any of them. On exit the app *attempts* to release
-  the one it is itself holding — see "Hold this point" below for what happens
-  when that attempt fails.
-- **Fan duty (%)** — manual duty with the hardware-reported minimum enforced
-  as a floor (queried live via `nvmlDeviceGetMinMaxFanSpeed`; measured 41%
-  on this card, with 30% used only as a fallback if that query fails).
-  Below the floor the app refuses and tells you to use `Auto` for the
-  zero-RPM idle curve instead.
-- **Core voltage boost (%)** — raises the reliability-voltage ceiling toward
-  the VBIOS over-voltage cap via `NvAPI_ClientVoltRailsSetControl`
-  (`0xB9306D9B`, read-modify-write, 0–100%). At 0% the card won't request
-  above its reliability voltage no matter how the curve looks. Turing
-  headroom here is small, so this unlocks a ceiling rather than delivering a
-  large absolute jump, and the effect only shows under load.
-- **Reset all to stock** — two-step (press once to arm, again to confirm);
-  zeroes both offsets, restores the default power limit, releases the clock
-  lock, returns fans to auto, zeros the voltage boost, and resets the V/F
-  curve.
+## Lockable clocks are not a ceiling
 
-A live readout row shows current core/VRAM clocks next to their P0 target
-maximums, so the effect of any knob is visible without switching tabs.
+`nvmlDeviceGetSupportedGraphicsClocks` reports a table *per memory clock*, and
+the top row is what a naive read quotes as the card's maximum. It isn't one. The
+curve editor goes above it and the card runs there — 2175 MHz observed on TU102
+against a 2160 lock ceiling.
 
-### Lockable clocks are not a ceiling
+The lock also needs snapping. **Measured:** a 1234 MHz request (between the valid
+1230 and 1245) ran at **1245**, while both the API and the driver's own lock
+record still claimed 1234. Range-checking is not enough — the driver accepts any
+in-range value, reports success at the value asked for, and then runs the next
+enumerated clock *up*. So requests are snapped down into the table first.
 
-The device report's "lockable clocks" figure comes from
-`nvmlDeviceGetSupportedGraphicsClocks`, and it is easy to misread as the
-card's maximum. It is not. It is the enumerated set of values
-`nvmlDeviceSetGpuLockedClocks` will accept, and it is reported **per memory
-clock** — on this TU102:
+## Two lock mechanisms, one table
 
-| memory clock | lockable graphics clocks |
-| --- | --- |
-| 405 MHz | 24 values, 300–645 MHz |
-| 810 MHz | 121 values, 300–2100 MHz |
-| 5001 / 6801 / 7001 MHz | 121 values, 360–2160 MHz |
+`0xE440B867` (getter) and `0x39442CFB` (setter) share a 780-byte struct, and
+**only `lockMode` separates two entirely different mechanisms**:
 
-The device report's headline shows the top-memory-clock row (360–2160), so a
-lock the driver would accept at one memory state can be refused at another (it
-lists every row underneath).
+- **mode 2** — the NVML clock-range lock. Its `volt_uV` field is a **frequency
+  in kHz**, not a voltage: domain 0 takes `hi`, domain 1 takes `lo`.
+- **mode 3** — the V/F point lock (Ctrl+H).
 
-The V/F curve is a **separate mechanism**. Its clock is
-`floor((base + delta) / 15) * 15` and is never checked against this list, so
-the curve editor reaches clocks the lock cannot — 2175 MHz observed on this
-card against a 2160 MHz lock ceiling. The two disagreeing is expected, not a
-bug.
+Every lookup matches on **mode**, never on `lockMode != 0`. Reading a mode-2
+entry as a voltage yields a confident and entirely wrong "1350.00 mV", and
+clearing one from the V/F side would silently release the other mechanism.
 
-### The V/F point lock, and the two lock mechanisms
+**The struct stores the request, never what is held.** A 900000 µV lock reads
+straight back as 900000 while the rail sits at 893.75. Mode 3 means *lock to the
+highest V/F point at or below the request* — resolution has to be derived
+against the curve, which `resolve_vf_point()` does in two stages: resolve down
+to a point, then apply the flat rule below.
 
-The card can be pinned **two completely different ways**. They are not two
-views of one thing, and the app tracks which one is in force because releasing
-the wrong one returns OK and leaves the card pinned.
+Measured on TU102's rail: requesting 900.00 mV held **1740 MHz at 893.75 mV**,
+because idx 71 is the other half of a 1740 MHz flat. Requesting 950.00 mV held
+950.00 / 1830, idx 80 being the lowest member of its own flat.
 
-| | NVML locked clocks | V/F point lock |
-| --- | --- | --- |
-| driven from | `Clocks` menu | `Ctrl+H` |
-| call | `nvmlDeviceSetGpuLockedClocks` | NvAPI `0x39442CFB` |
-| you ask for | a **frequency** range | a **voltage** |
-| at idle here | pstate 5, **mem 810** | pstate 0, **mem 7000** |
-| readable back | see below | yes, `0xE440B867` |
-| survives reboot | no | no |
+Both locks are **readable back** from the driver, so a lock left by a killed
+instance or another tool is visible. `VF_LOCK_DOMAIN = 6` is only a fallback: an
+existing lock is re-targeted at whatever domain the driver already has it on.
 
-The V/F point lock is the stronger hold: measured on this card at ~5%
-utilisation it keeps **true P0** — pstate 0, memory 7000 — for as long as it is
-held, where `SetGpuLockedClocks` pins the graphics clock but lets the card fall
-to pstate 5 and memory 810. Both are volatile; a reboot clears either.
+---
 
-**Ids and struct.** The getter is `NvAPI_GPU_...BoostLock` `0xE440B867`, already
-wired for telemetry; the setter is `0x39442CFB`. Both take the **same** 780-byte
-struct (`_ClockLock` / `_LockEntry` in `nvbackend.py`), version
-`0x0002030C` = `sizeof | (2<<16)`, `count = 7`, entries
-`{domain, unk1, lockMode, unk2, volt_uV, unk3}`. This was established
-clean-room: the layout came from the driver's own GET output, and Afterburner's
-binary was never inspected.
+# The V/F curve editor
 
-**`lockMode 3` means "the highest V/F point at or below the requested
-voltage"** — the same `≤ cap` semantics as the de-flatten voltage cap, and
-`below_cap()` is the single shared definition of that boundary. Measured:
-requesting **900000 µV delivered 893.75 mV**, which is 143 × 6.25, a real point
-on the 6.25 mV grid, and core moved 1950 → 1740. It held stable for 8 s, and
-writing the original bytes back restored it exactly. `lockMode 0` is "not
-locked". Domain **6** is the one that carries the lock on this card.
+## Why it exists: the arbiter parks at the bottom of a flat
 
-**The struct tells you what was ASKED, never what is held.** `volt_uV` is
-echoed back verbatim: a 900000 µV lock reads straight back as 900000 while the
-rail sits at 893.75, and this card was found holding a **1137500 µV** lock. So
-the point actually held has to be *derived*, which `GPU.resolve_vf_point()`
-does in two stages — resolve down to a point, then apply the flat rule that
-makes the arbiter run the lowest voltage carrying that frequency. The first two
-observed cases reproduce directly: 900.00 → idx 71 @ 893.75 / 1740, and
-950.00 → idx 80 @ 950.00 / 1830.
+**The boost arbiter can only occupy, for each distinct frequency, the lowest
+voltage carrying it.** A flat run in the curve is therefore not merely wasted
+headroom — it is a voltage band the card **cannot sit in at all**.
 
-**The third case changed when the table turned out to be 128 points**, and it is
-worth keeping as a worked example of why that mattered. Through the old
-103-point window the curve appeared to stop at 1087.50 mV, so a 1137.50 mV
-request fell off the top and was resolved by clamping to the last visible point.
-It does not fall off: the real table runs **450.00–1243.75 mV** and 1137.50 mV
-is a point in it (**idx 110**), so the request resolves there — to 1995 MHz,
-which per the operating-point table below is itself the lowest voltage carrying
-that frequency. Any resolution recorded elsewhere against a 1087.50 mV ceiling
-predates this fix and is wrong for the same reason.
+That matters most when throttling, because a throttling card does not sit at its
+park point: it walks **left** down the curve until it is under budget, and what
+decides performance then is how many operating points it has to choose from.
 
-**Both mechanisms share this one table, and only the mode separates them.**
-`nvmlDeviceSetGpuLockedClocks(lo, hi)` writes **two `lockMode 2` entries whose
-`volt_uV` field is a frequency in kHz**, not a voltage: domain 0 takes `hi`,
-domain 1 takes `lo` (verified with an asymmetric lock — 1350..1800 produced
-domain 0 = 1800000 and domain 1 = 1350000). They coexist with the mode-3 entry,
-and `nvmlDeviceResetGpuLockedClocks` clears the mode-2 pair while leaving mode 3
-alone. Every lookup in `nvbackend.py` therefore matches on **mode**, never on
-`lockMode != 0`: reading a mode-2 entry as a voltage yields a confident and
-entirely wrong "1350.00 mV", and clearing one from the V/F side would silently
-release the other mechanism's lock.
-
-A side effect worth having: this makes the NVML lock **readable back**
-(`read_clk_lock()`), which `nvmlDeviceGetGpuLockedClocks` cannot do here — it is
-absent from the DLL. A clock lock left behind by an earlier run used to be
-invisible to the next one. The Monitor state line now shows both locks, read
-from the driver rather than from the app's own record, so a lock set by another
-tuner shows up too.
-
-### The validation ladder
-
-This setter was wired only after climbing a ladder, and that ladder — not the
-plausibility of the struct — is why it was safe. Any future unverified setter
-gets the same treatment:
-
-1. **The id resolves.** `nvapi_QueryInterface` returns a pointer for both the
-   getter and the setter. Half a pair is not a write path, and the code guards
-   every route on *both* resolving.
-2. **An identity write is accepted and changes nothing.** GET, then hand the
-   driver back the exact bytes it just produced. It returns `NVAPI_OK` and the
-   state is byte-identical afterwards. This proves the id and the 780-byte
-   layout on the running machine while moving nothing, and it is kept as
-   `vf_lock_self_test()` so it stays runnable — it is in the standalone
-   `python nvbackend.py` snapshot.
-3. **A single-field read-modify-write moves exactly one thing, and reverses.**
-   Change one entry's `volt_uV`, confirm the card moved as predicted, write the
-   original bytes back and confirm it returns exactly.
-
-Rung 2 is what makes rung 3 safe, and it is the reason nothing here ever
-**constructs** a `_ClockLock` to write. Every write in this section starts from
-a buffer the driver produced and edits one field of it; the unknown dwords,
-the flags word and the six other domains go back exactly as they came. A struct
-assembled from a header would be a guess wearing the same shape.
-
-## The V/F curve editor
-
-The editor operates on the same per-point delta table Afterburner's curve
-editor writes (read `0x21537AD4` / `0x23F1B133`, write `0x0733E009`) — drive
-clocks from one tool at a time, since applying an Afterburner profile
-clobbers curve edits made here.
-
-It's built around four hardware laws that aren't obvious from the driver's
-public surface:
-
-1. **The clock quantises, and the base is unreadable.** A VF point evaluates
-   as `floor((base + delta) / 15 MHz) * 15 MHz`. `base` is never exposed —
-   the frequency the driver reports back is already floored — so it carries
-   an unknowable remainder in `[0, 15)` MHz. That means only *whole-bin*
-   moves on the *delta* are predictable; computing a delta from an absolute
-   target MHz value lands mid-bin and silently floors down, which is exactly
-   how a flat segment gets re-created. `Set MHz` and every nudge button only
-   ever add or subtract whole 15 MHz bins for this reason.
-2. **Deltas must share a phase, or a uniform offset re-creates flats.** A
-   uniform move (e.g. the core-offset slider) only stays grid-exact if every
-   point's delta shares the same remainder mod 15 MHz — a point on a
-   different phase crosses bin boundaries at a different offset and
-   silently re-flattens. **Re-phase** pulls every stray point back onto the
-   majority phase, rounding down only (a point can lose at most one bin,
-   never gain one unasked).
-3. **The boost arbiter parks at the lowest voltage of the top flat.** Turing
-   runs the *lowest*-voltage point of any flat run at the peak frequency —
-   so a flat sitting near the voltage cap stalls the card at that flat's
-   bottom, leaving voltage headroom unused. **De-flatten ≤ cap** raises the
-   boundary point (the last point at/below the cap, plus one point past it)
-   by whole 15 MHz bins until it — and only it — is the unique top, so the
-   arbiter has nowhere to park but there.
-4. **The delta table is not the curve** — see "The shape law" below. Deltas
-   read back exactly as written; the *frequencies* the driver evaluates from
-   them are reshaped to satisfy `0 ≤ f[i] − f[i−1] ≤ 45 MHz`, and neither half
-   of that is visible in the table you wrote.
-
-De-flatten only stages a plan onto the working copy; nothing reaches the GPU
-until **Apply to GPU**, which flags any point that lands off-prediction after
-the write. The predicted result — resulting top ≤cap, peak, park point, and a
-loud warning when the plan *lowers* the peak — is not shown at the click; it
-stands in the plan banner above the button for as long as the edits exist
-(see "One click, with the warning first"). Points below the
-cap are deliberately left untouched — ramping the low-voltage floor (many
-points pinned at minimum clock) would make the card demand high clocks at
-tiny voltages. Rebuilding a *bounded* band below the cap is what the ramp does
-instead, and it keeps the same rule: everything under its own floor is left
-alone (see "Ramp" below). "Left alone" means no delta is written there — which
-is not the same as nothing changing there; see "The shape law".
-
-The plot itself: drag a dot to move it (left-click has to land within ~14 px
-of the drawn marker — a true radius in screen pixels, not "the nearest point
-by voltage"; miss it and nothing moves, and the press keeps the pan it would
-have had), and the point moves vertically only, since voltage is fixed by the
-table; frequency snaps to 15 MHz bins. Left-drag anywhere else pans the view,
-and the corner readout names the *selected* point (index, mV, MHz, delta)
-rather than the cursor. The vertical pan range is deliberately fixed at
-0–3000 MHz rather than fitted to the curve: a drag can only reach what the
-view shows, so a data-derived ceiling would also cap how far a point could be
-dragged, and a Titan RTX clears 2300 MHz under LN2. Also: A/D to step the
-selection, W/S to nudge ±15 MHz (hold Shift for ×3), `Ctrl+H` to hold the
-selected point, or the −75/−15/+15/+75 buttons / `Set MHz`
-box for precise moves. Everything happens on a working copy; **Revert
-edits** discards uncommitted changes, and re-reading the curve with pending
-edits requires confirming twice so a refused write isn't silently lost.
-**Reset curve to stock** zeros every point's delta (Turing's factory deltas
-are 0, so there's no persisted baseline to poison); a reboot also clears all
-deltas.
-
-Vertical lines mark the bounds the planners work to: the **cap** (amber,
-`voltage cap`), the **ramp floor** (violet), and the **hard floor** (red), that
-last one drawn only while the hard-de-flatten acknowledgement is ticked. They
-are on the picture for the same reason — a bound that has landed somewhere silly
-is obvious as a line and invisible as a number in a box — and all three snap
-**down** onto the table's own 6.25 mV grid. The cap and a floor round the band
-*inwards* from opposite sides: the cap resolves to the highest point at or below
-it, a floor to the lowest point at or above it (`below_cap` / `above_floor`), so
-neither bound can quietly annex a point on the far side of the value typed. Both
-floors are clamped to the voltages this curve actually has (450.00–1243.75 mV
-here) rather than to 800: setting either lower than 800 is deliberately allowed.
-
-### Ramp: the granularity a throttling card actually runs on
-
-De-flatten fixes **where the card parks**. It makes one point unique and levels
-everything above it, and that is the whole of it. But a card that is power- or
-thermally throttling is not *at* the park point — it walks **left** through the
-V/F curve until it is under budget, and from there what decides performance is
-the granularity of the operating points it has to choose from.
-
-The arbiter can only occupy, for each distinct frequency, the **lowest voltage
-carrying it**. So a flat run is not merely wasted headroom at the top: it is a
-voltage band the card cannot sit in *at all*. Measured on this card's stock
-curve, the operating points that actually exist:
+Measured on TU102's stock curve:
 
 | from | to | voltage dropped |
 |---|---|---|
@@ -449,614 +316,425 @@ curve, the operating points that actually exist:
 | 1106.25 / 1980 | 1050.00 / 1965 | **56.25 mV** |
 
 Between 1050 and 1175 mV there are **21 voltage points and only 4 are usable** —
-17 are shadowed. Power goes roughly as `f·V²`, so shedding 56 mV to give up
-15 MHz dumps far more power than the budget asked for, and the card undershoots
-badly. Internal testing measures **up to 7% of a benchmark** lost this way with
-an imperfect power-limit bypass (shunt mods, where the GPU's own current-sensing
-heuristics still throttle).
+17 are shadowed. Power goes roughly as `f·V²`, so shedding 56 mV to give up 15
+MHz dumps far more power than the budget asked for and the card undershoots.
+Thermetery internal testing measures **up to 7% of a benchmark** lost this way
+with an imperfect power-limit bypass (shunt mods, where the card's own
+current-sensing still throttles).
 
-**Ramp ≤ cap** rebuilds the band between the *ramp floor* box and the voltage
-cap as a strictly increasing 15 MHz ramp: one distinct frequency per voltage
-point, no ties. Like De-flatten it only **stages** — nothing reaches the GPU
-until `Apply to GPU`, and the plan banner says what the click will write for as
-long as the edits exist.
+**GP102 has the same pathology with different numbers**: 17 of its 80 GPU points
+hold 1911 MHz from 1081.25 mV upward, while the rail stops near 1062.5. Note
+that the *consequence* there is inferred from the TU102 rule — the park rule
+itself has not been separately measured on Pascal.
 
-**Top-anchored, and that is the design decision.** The cap point takes the
-highest allowed frequency and each point below it drops exactly one 15 MHz bin.
-Ascending from the floor instead **clips**: from 800 mV the unclipped top would
-be 2250 MHz against this card's 2130 max, so the top eight rungs get clipped
-onto 2130 and a nine-point flat run reappears exactly where it hurts most.
-Descending from the ceiling cannot clip, by construction. The ceiling itself is
-`min(hardware max, the unclipped ascending top)`, which is what keeps a low cap
-honest — anchoring unconditionally at the hardware max would demand 2130 MHz at
-whatever voltage the cap happened to name.
+## The controls
 
-**What it costs at the floor.** For the default 1000.00 mV band, nothing:
-descending 15 rungs from 2130 lands on exactly 1905 at 1000.00 mV, which is what
-stock already has there. For the 48-point band from 800 mV the clip costs
-**120 MHz at the floor** — 1425 against stock's 1545. That is the honest price of
-monotonicity over a wide span, and the staged plan states it in MHz rather than
-hiding it.
+Everything **stages**. Nothing reaches the GPU until the green apply button, and
+the plan banner above it says exactly what that click will write — before the
+click, not after.
 
-**Points below the floor are left alone**, for the same reason De-flatten leaves
-the sub-cap points alone: the low-voltage floor is many points pinned at the
-minimum clock, and ramping them means demanding high clocks at tiny voltages.
-Points above the cap are levelled onto the top rung — they are unreachable here
-(the rail stops near 1.093 V) and levelling keeps the cap point the
-lowest-voltage member of the top flat, which is where the arbiter then parks.
+| control | what it does |
+|---|---|
+| `Read curve` | re-read the hardware curve, discarding staged edits |
+| `Re-phase to N MHz increments` | stage a phase correction (N is the card's grid) |
+| `De-flatten` | **the main transform** — rebuild the band as a strictly increasing ramp |
+| `Fit view` | put the whole curve back on screen |
+| `Reset curve to stock` | zero every GPU-row delta |
+| `Limited de-flatten ≤ cap` | *(Clocks menu)* make only the cap point the unique top |
+| `Hard de-flatten` | *(collapsed header)* needs an external voltage mod |
+| `Re-phase and apply V/F curve to GPU` | the only thing here that writes |
+
+Keyboard: `W`/`S` nudge one bin (`Shift` for three), `A`/`D` select, `Ctrl+H`
+holds the selected point, **`Ctrl+Z`/`Ctrl+Y` undo and redo staged edits**.
+Drag a dot to move it; drag anywhere else to pan. The grab is a **pixel** hit
+test — the Tk-era "nearest by voltage anywhere on the plot" rule made empty sky
+a drag handle for whatever point shared that column.
+
+## De-flatten
+
+Rebuilds the band between the ramp floor and the voltage cap as a strictly
+increasing ramp: one distinct frequency per voltage point, no ties. On TU102's
+default 1000 mV band that takes the band from **5 usable operating points to
+16**.
+
+**Top-anchored, deliberately.** The cap point takes the highest allowed
+frequency and each point below drops one bin. Ascending from the floor instead
+*clips*: from 800 mV the unclipped top would exceed the card's max, so the top
+rungs get clipped onto it and a flat run reappears exactly where it hurts most.
+
+**Where there is no headroom, it shrinks the band.** A clipped ramp used to keep
+its rung count and slide the whole descent down — which put the bottom rungs
+*under* the untouched point below the band, where the shape law raised them all
+back onto it as one flat, the exact pathology the ramp exists to remove.
+Measured on GP102: a 10-rung band from 1000 mV delivered 8 distinct frequencies,
+with idx 55/56/57 collapsed onto 1822.5. It now drops rungs from the bottom
+until the floor clears its neighbour, and reports how many and why. Dropped
+points keep their stock values, which are already increasing.
 
 **The granularity gain and the overclock are the same edit.** Every rung asks
-for more clock at its voltage than stock did — the default band goes from 5
-usable operating points to 16, and it does that by demanding up to +165 MHz at
-the cap. There is no version of this that improves granularity without also
-being an overclock, so **every rung has to be stable in its own right**.
+for more clock at its voltage than stock did. There is no version of this that
+improves granularity without also being an overclock, so **every rung has to be
+stable in its own right**.
 
-### The shape law: the delta table is not the curve
+## Limited de-flatten
+
+The narrow transform, demoted to the **Clocks** menu: it makes only the cap
+point the unique top and leaves every flat below it alone. Useful for severe
+thermal throttling with aggressive undervolting; the full rebuild is what you
+want the rest of the time.
+
+It has two mechanisms, and which one fires depends on the card:
+
+- **Raise** the boundary above whatever shadows it — the original behaviour.
+- **Lower** the shadowing points instead, when the boundary is *already at the
+  hardware maximum* and there is nothing to raise into. GP102 stock peaks at
+  1911 with the point below it also at 1911, so this is the path there. The
+  arbiter rule only cares that the boundary is the lowest voltage carrying the
+  peak, and lowering a shadowing point costs nothing at the park point — the
+  card could never occupy it anyway.
+
+It stops as soon as a point sits below the one above it. A naive bin-per-point
+descent never terminates early on a stock curve, because the curve descends at
+almost exactly one bin per point too — it cost 24 points reaching down to 850 mV
+to fix a two-point flat before that was fixed.
+
+## Hard de-flatten — the opposite transform, and it needs a hardware mod
+
+**This is the opposite of De-flatten and deliberately so.** De-flatten *removes*
+flats so a throttling card has fine steps to descend through. This one *builds*
+the largest flat it can, to exploit the arbiter's lowest-voltage rule instead of
+working around it:
+
+- Set a floor (default **800.00 mV**, adjustable, allowed lower).
+- Every point at or above it is set to **one** target frequency.
+- The arbiter runs the lowest voltage of any peak-frequency flat, so the card
+  parks **at the floor**.
+- The target must hold P0, so it is seeded from the curve's own peak.
+
+The point is **deceiving the power estimator**: the GPU believes it is at 800
+mV, computes a low power figure from that belief, and stops throttling — while
+the real rail is driven externally and is invisible to all GPU software,
+including this app.
+
+> **It requires `refin_adj` (or the board equivalent) rendered completely
+> nonoperational and voltage driven externally.** Without that it is a driver
+> crash, not an overclock. It sits behind an explicit acknowledgement checkbox
+> that is never persisted and clears itself after one use.
+
+**The shape law makes it reach below the floor.** Nothing is *written* below the
+floor, which is not the same as nothing *changing* there: on TU102 the max-rise
+repair drags **16 points** up with the flat top — idx 40 (700.00 mV) through idx
+55 (793.75 mV), worst case **1530 → 1965 MHz at a nominal 793.75 mV** — with no
+delta written to any of them. The staged plan states the count, the lowest
+voltage affected and the worst rise, before the click.
+
+The numbers this mode reports are **planner predictions**. There is no modded
+card here, so no part of it has been executed on hardware.
+
+## The shape law: the delta table is not the curve
 
 The delta table takes whatever you write — verified, a 14-row ramp read back
-with **zero** delta mismatches — but the curve the driver *evaluates* from it is
-not free-form. Measured on this card, the evaluated curve always satisfies
+with **zero** mismatches. But the curve the driver *evaluates* is not free-form.
+Measured on TU102, it always satisfies
 
 ```
 0  ≤  f[i] − f[i−1]  ≤  45 MHz          (points in voltage order)
 ```
 
 and the driver repairs a violation by **raising the lower** of the pair. Both
-halves bite, and neither is visible in the table you wrote:
+halves bite, and neither is visible in the table you read back:
 
-- **Lower bound.** A point written below the one under it is silently raised to
-  it. Measured: idx 60 (825.00 mV, 1605 MHz) written to 1545 read back as 1590,
-  its left neighbour's value.
-- **Upper bound.** A point written far above the one under it drags that one up
-  too — so an edit can move points *outside* the range it wrote. Measured: idx 60
-  written +150 to 1755 pulled idx 56–59 up to 1575 / 1620 / 1665 / 1710, each
-  exactly 45 MHz under the next, stopping the instant idx 55's untouched 1530
-  was within 45 of idx 56.
+- **Lower bound.** idx 60 (825.00 mV, 1605 MHz) written to 1545 read back as
+  **1590** — its left neighbour's value.
+- **Upper bound.** idx 60 written +150 to 1755 pulled idx 56–59 up to
+  1575/1620/1665/1710, each exactly 45 MHz under the next, stopping the instant
+  idx 55's untouched 1530 was within 45 of idx 56. **An edit can move points
+  outside the range it wrote.**
 
-`GPU.evaluate_curve_law()` applies the rule (one forward pass, one backward
-pass) and reproduces every point of both experiments exactly, so the planner
-predicts the reshape instead of discovering it after the write.
+`evaluate_curve_law()` applies the rule in one forward and one backward pass and
+reproduces every point of both experiments, so the planner predicts the reshape
+instead of discovering it after the write.
 
-**This is why a ramp reports two numbers.** The plan says `48 rungs → 41
-distinct operating points`, because the 800 mV band's floor lands at 1425 while
-the untouched point under it holds 1530: the bottom **eight** rungs are all
-raised onto 1530 and arrive as one flat run — the exact pathology the ramp
-exists to remove. Written for real (idx 56–70, low-voltage rungs only), that is
-precisely what came back. A band can never deliver more than
-`(top − the point below it) / 15 + 1` distinct rungs however many points it
-spans, so the second number is the one the feature is judged on.
+Consequence: **a band can never deliver more than `(top − the point below it) /
+bin + 1` distinct rungs**, however many points it spans.
 
-### Hard de-flatten — the opposite transform, and it needs a hardware mod
+> **Scope.** The 45 MHz bound was measured on **TU102 only**, over two edits at
+> one index. `max_rise_khz()` returns **three grid bins**, which reproduces 45
+> MHz exactly on Turing — but what was measured is "45 megahertz", and treating
+> it as "three bins" is an **assumption**. On GP102 the lower half
+> (non-decreasing, repaired by raising) *is* corroborated; the upper bound is
+> not. On any non-TU102 card the reshape prediction is unverified.
 
-**Hard de-flatten is the opposite of a ramp**, and it is deliberately so. The
-ramp *removes* flats so a throttling card has fine steps to descend through.
-This one *builds* the largest flat it can, because it exploits the arbiter's
-lowest-voltage rule instead of working around it:
+## Re-phase, and why apply does it for you
 
-- `hard de-flatten floor` (default **800.00 mV**, user-settable, allowed lower).
-- Every point **at or above** that voltage is set to **one** target frequency —
-  the curve above the floor is made completely flat, on purpose.
-- The arbiter runs the **lowest voltage of any peak-frequency flat run**, so the
-  card then parks **at the floor**.
-- The target must be high enough to hold the card in P0, so it defaults to
-  `peak_info`'s max clock (2010 MHz on the stock curve here) and is adjustable.
+A V/F point evaluates as `floor((base + delta) / bin) * bin`, and **`base` is
+not readable** — the reported frequency is already floored, so `base` carries an
+unknowable remainder. Deltas must therefore never be computed from an absolute
+target; only whole-bin changes are reliable. Asking for 2150 on a 15 MHz grid
+yields 2145, which collides with the point below and re-creates the flat you
+were removing.
 
-The point is not performance-through-granularity. It is **deceiving the power
-estimator**: the GPU believes it is running at 800 mV, computes a low power
-figure from that belief, and stops throttling — while the real rail is driven
-externally by the hard mod and is invisible to all GPU software, this app
-included. The ramp is for throttling that is going to happen anyway; this is for
-throttling that should not happen at all.
+Two points only move together under a uniform offset if their deltas share a
+remainder mod the bin. A point on another phase crosses bin boundaries at a
+different offset and silently re-creates a flat. **Re-phase** forces them onto
+one phase, rounding off-phase deltas **down**.
 
-Measured through the planner, on the stock curve with the floor at 800.00 and
-the target at 2010: the peak ends up held by **72 points** and the card parks at
-**idx 56 @ 800.00 mV**. It lands on the floor at every floor tested — 900.00 →
-idx 72, 800.00 → idx 56, 750.00 → idx 48 — and `parks_at_floor` in the plan says
-so explicitly, because a target low enough that an untouched point *below* the
-floor still holds the peak would quietly take the park point with it.
+Everything done in the editor is already on-phase, because edits move whole
+bins. What is *not* is the **core offset slider**, which lands in the same delta
+table in whole MHz: on GP102 a +64 MHz offset is 64000 kHz against a 12657 kHz
+grid. Those arrive through `Read curve` — points you never touched.
 
-**The shape law makes this reach below the floor, and that is what the plan
-shows you.** Nothing is written below the floor, and that is *not* the same
-claim as nothing changing there: the 45 MHz max-rise repair drags **16 points**
-up with the flat top — idx 40 (**700.00 mV**) through idx 55 (793.75 mV), worst
-case **1530 → 1965 MHz at a nominal 793.75 mV** — with no delta written to any
-of them. The staged plan states the count, the lowest voltage affected and the
-worst rise, before the click. (`compute_deflatten` carries the same caveat in
-its docstring: its +1 bin is far too small for the rule to bite, but that is
-because the move is small, not because writing no delta means writing no
-change.)
+So the apply button **re-phases the staged plan first, in the same click**, and
+says so in its label. The order is forced: re-phase plans off the deltas about
+to be written, so doing it after the write would mean two writes and a banner
+that described the first. It is a **lossy** step when it bites — the original
+remainders are gone — and it logs that.
 
-**It is gated on an explicit acknowledgement, not a tooltip.** The controls live
-in their own collapsed header, and the button refuses unless a checkbox is
-ticked stating: *I have a functional hardware voltage mod on this card, and
-`refin_adj` (or this board's equivalent circuit) is completely nonoperational.*
-A tooltip is something a reader can decline to read; what is being acknowledged
-is a fact about the user's soldering iron that no software can check. **Without
-that mod the card really is at the floor voltage**, cannot hold the flat top, is
-asked for high clocks hundreds of mV lower by the repair cascade, and crashes
-the driver.
+## Undo and redo
 
-The tick is never remembered: it starts clear every session — nothing writes it
-to disk — and clears itself again as soon as the plan it authorised is written
-or dropped, so one tick buys exactly one hard de-flatten. While it is set, the
-hard floor is drawn on the plot **in red**, so "this card is armed for a mode
-that assumes a soldering iron" is visible without opening the header.
+`Ctrl+Z` / `Ctrl+Y` (and `Ctrl+Shift+Z`), 64 deep, over the **staged** working
+copy. A snapshot is taken per *user action*, not per point: one entry per drag
+(taken on grab — the drag callback fires every frame), per nudge, per Set MHz,
+per planner, and per `Revert edits`, which is itself undoable because it sits
+one button from apply.
 
-It is for cards that need the mod in the first place: the RTX 2080 Ti 300-non-A
-bin, the 3060, mobile GPU transplants.
+**This is undo for the editor, not for the card.** It never touches hardware.
+Undoing a *write* is the separate autosave mechanism behind `Profiles > Undo
+last write`. A single merged history would mean Ctrl+Z after an apply silently
+re-writing the table.
 
-### One click, with the warning first
+The history is **cleared on every rebase** (`Read curve`, or the re-read after a
+write). A snapshot is a set of deltas that only means anything against the
+baseline it was taken under.
 
-`Apply to GPU` and `Reset curve to stock` each take **one** click. They used
-to arm on the first press and commit on the second, with the plan stated in
-between — but a consequence that only appears once you have already pressed
-is a receipt, not a warning. So the plan moved to where it can actually
-change a decision: a coloured, bordered banner sitting between the plot and
-the buttons, recomputed on every edit, naming the number of edited points,
-the resulting top ≤cap, the peak and how many points hold it, where the card
-would park, and — in red — whether the plan **lowers** the curve's peak.
-It also states, continuously, what `Reset curve to stock` would discard.
+## The plan banner, and one-click apply
 
-A staged **ramp** or **hard de-flatten** pushes a note into the same box,
-because those four words describe every plan in terms that read as good news —
-the ramp raises all of them, and a hard de-flatten's park point moving to 800 mV
-looks like a triumph rather than a claim about somebody's soldering. None of
-them can say "this drops the floor 120 MHz", "the driver will flatten the bottom
-eight rungs", "16 points below the floor get dragged up with it" or "this
-crashes any card without an external voltage mod".
+The banner directly above the apply button is recomputed on every edit and
+states what the click will write: edited-point count, top ≤cap, peak, and park
+point. It **reddens and takes the headline** for a plan that lowers the peak or
+for a staged hard de-flatten, and the hard-de-flatten note is sticky underneath
+a later ramp.
 
-A hard de-flatten colours the box red and takes the headline, and **keeps** it
-for as long as its points are staged — planning a ramp on top does not unstage
-the flat underneath, and one `Apply` still writes both, so the note says that
-too. Everything is cleared wherever the working copy is reset (`Revert edits`,
-`Read curve`): the staged edits, the note, the banner colour, the red floor line
-on the plot, **and** the hard-mod acknowledgement. A staged plan that survived a
-revert would be the one way this could bite somebody who changed their mind.
+Apply is **one click**, not two. The press-again arm it replaced only described
+the plan once the user had already committed to pressing; the banner describes
+it continuously, and `autosave_before` makes the write recoverable. `Reset all
+to stock` still takes two, because it drops every knob at once.
 
-The banner is measured, not fixed, so it grows with what it has to say — and the
-plot gives up exactly those pixels rather than letting the box push `Apply to
-GPU` off the bottom of the page. A warning that scrolls its own button out of
-view has defeated itself. The gated hard-de-flatten header is in the same
-budget, since it sits above the plot too; measured at 150% DPI, `Apply to GPU`
-stays fully on screen in every state including the worst one (header open *and*
-a hard plan staged, where the plot is down to its floor). For the same reason
-the *log* line a planner writes is a one-line summary: `log()` mirrors its last
-line into the status text above the plot, and logging the whole note there moved
-the page a hundred pixels to repeat what the banner is already saying
-permanently. The full note goes into the log at the moment of the **write**,
-where a permanent receipt is the point.
+## Profiles and undo points
 
-What pays for the missing second press is that every write to the 128-row
-delta table now takes an undo point first (see "Profiles and undo" for exactly
-which writes those are, and which deliberately don't). `Reset all to stock` is
-the one exception and still arms on the first press: it drops every knob at
-once — both offsets, voltage boost, power limit, fan and all 128 deltas — so
-a stray click there costs a whole tune rather than one table.
+Named profiles snapshot both offsets, the power limit, the voltage boost, the
+fan **policy** (not just its duty — auto-at-0% and manual-at-0% read identically,
+and handing a captured duty back as a manual duty would be a thermal change) and
+every V/F delta, as readable JSON in `profiles/`.
 
-### Profiles and undo (menu bar: `Profiles`)
+The delta table is written **last** and wins, because the core offset and the
+delta table are the same driver rows. A profile from a different card or VBIOS
+asks for a second, deliberate confirmation.
 
-`Save profile` snapshots both offsets, the power limit, the voltage boost,
-the fan **policy** (not merely its duty — a card idling at 0% on the auto
-curve and one pinned to 0% manually read identically, and handing a captured
-duty back as a manual duty would be a thermal change, not a restore) and all
-128 V/F deltas, as readable JSON in `profiles/` beside the app.
+An automatic undo point is taken before each of: the core-offset apply, `Reset
+all to stock`, the V/F apply, `Reset curve to stock`, a profile load, and **a
+memory timing write**. None of these is a stock baseline — `Reset curve to
+stock` zeroes the table, which is not the same as putting a previous state back.
 
-`Load profile` lists them newest first with a one-line summary and the time
-they were taken. Restoring is a destructive write like any other: it is
-behind "Unlock controls", it takes its own undo point first, and every knob
-reports its own success or failure into the log. The delta table is written
-**last** and wins, because the core offset and the delta table are the same
-128 driver rows. A profile saved on a different card or VBIOS asks for a
-second, deliberate confirmation before it is restored — 128 V/F points are
-128 frequencies measured on *one* piece of silicon.
+---
 
-`Undo last write` restores the snapshot taken automatically immediately
-before the most recent covered write. It is a write itself, so it takes an
-undo point too — pressing it twice returns you to where you were. The
-automatic snapshots are kept as a short ring and pruned; they are shown
-dimmed in the list because they are not tunes anyone chose to keep. They are
-ordered by a sub-second timestamp, so two writes landing in the same second —
-a double-clicked `Apply` — still undo newest-first.
+# Timings
 
-**Which writes take an undo point, and which don't.** Every write that
-touches the 128-row VF delta table does, because its previous contents appear
-nowhere on screen and cannot be reconstructed:
+Decodes and edits the framebuffer-partition memory timing registers through
+`nvtune`.
 
-- `Apply to GPU`
-- `Reset curve to stock`
-- `Re-phase` — the one genuinely *lossy* write in the app. Off-phase deltas
-  are rounded down onto the common phase and the original remainders are gone;
-  `Reset curve to stock` zeroes the table, which is not the same as putting
-  them back. Only a snapshot can.
-- **the core-offset `Apply`** — it looks like a slider, but the core offset
-  lands in that same delta table, so one drag and one click overwrites a
-  hand-tuned curve.
-- `Reset all to stock`, and restoring any profile.
+## A cycle count is not a time until you know its clock
 
-The single-knob applies — **memory offset, power limit, voltage boost, fan** —
-deliberately do *not*. Each moves one number that its own slider still shows,
-and filling the ring with them would evict the curve snapshots nothing else
-can reconstruct. The **clock lock** doesn't either, and couldn't: a profile
-doesn't record it, so an undo point would silently fail to take it back —
-`Release` / `Ctrl+H` is its undo.
+A timing register holds a **cycle count**, and a cycle count without the clock
+it was counted against is not a number. The same registers on TU102 at three
+memory states (NVML figure → true clock = NVML ÷ 4):
 
-**A snapshot that came back incomplete is not called an undo point.** The
-capture can fail on exactly the field that matters (the V/F table read is the
-one part that can refuse), which would leave a snapshot able to restore every
-knob *except* the table it was taken to protect. When that happens the log and
-the V/F status line say so in red, the profile row is labelled `INCOMPLETE`,
-and the write goes ahead anyway — three of the covered writes only move the
-card toward stock, so refusing to let you back out because a JSON file
-wouldn't open is the wrong failure.
+```
+NVML  405 (true  101 MHz)   RC=6   RFC=13   RAS=4   RP=2   CL=9   RD_RCD=2
+NVML  810 (true  203 MHz)   RC=11  RFC=25   RAS=7   RP=4   CL=9   RD_RCD=4
+NVML 7428 (true 1857 MHz)   RC=78  RFC=210  RAS=52  RP=26  CL=24  RD_RCD=26
+```
 
-None of this is a "stock" baseline. It never claims to be factory state and
-it is only ever written when something asks for it; `Reset all to stock`
-remains the only thing that restores the factory curve.
+At P0 those convert to RC 42.0 ns, RAS 28.0, RP 14.0, CL 12.9 — real GDDR6
+numbers. The same registers at idle look like garbage, and that is what made the
+first two dumps of this investigation unreadable. GP102 at its top band (mem
+5702 → 1425.5 MHz true) gives RC 58 = 40.69 ns, RAS 36 = 25.25, RP 22 = 15.43,
+CL 19 = 13.33.
 
-### Hold this point (Ctrl+H)
+Every capture **brackets the register read with a memory-clock read on each
+side** and refuses to print a nanosecond column if the clock moved. A capture
+straddling an 810 → 7428 reclock turned RC's 42 ns into 385 ns; that number must
+not reach the screen.
 
-This is TitanTune's answer to Afterburner's `Ctrl+L` curve lock. `Ctrl+H`
-holds the selected V/F point; `Ctrl+H` again releases it. The hold is shown
-as a green vertical line at the point's voltage on the plot and as a status
-line on the Control tab, above the collapsible knob groups so it stays
-visible whatever is collapsed. Both clear on release.
+**Two fields do not convert** and are refused a nanosecond figure: **RFC** (210
+cycles = 113 ns against a 240–350 ns spec, so it is a multiplier or its range
+splits with `TIMING22`) and **WL** (GDDR6 write latency is expressed relative to
+CL, not as an absolute delay).
 
-**It is built out of the per-domain V/F point lock** (NvAPI setter
-`0x39442CFB` over the getter `0xE440B867`), *not* out of locked clocks. It
-used to be the other way round, while that setter was unverified; it has now
-been validated end to end on this card and is the better hold. See "V/F point
-lock" below for the ids, the semantics and the measurements.
+## Timings are selected per clock band, not per p-state
 
-**It is a VOLTAGE request, so there is no snap-to-a-lockable-clock step.**
-`Ctrl+H` asks the hardware to lock at the selected point's own voltage, and
-the hardware resolves that itself. The old path had to snap the point's
-*frequency* down onto the driver's lockable table (which tops out at 2160 MHz
-while the curve reaches 2175); none of that applies here, because the lockable
-table is not involved at all.
+Measured on TU102, `CONFIG0..CONFIG5` are **bit-identical** at 7228 (P2, CUDA
+load) and 7428 (P0, 3D load) — 50 MHz of true clock does not cross a VBIOS band
+boundary. But 405 and 810 program genuinely slacker values.
 
-**The point actually held can still be BELOW the one selected, twice over,**
-and the app never claims otherwise:
+**Re-confirmed on GP102**, with a wider gap: P2 (mem 5508) and P0 (mem 5702) are
+bit-identical across all 49 registers.
 
-1. the lock resolves the request down to the highest V/F point *at or below*
-   the requested voltage;
-2. the boost arbiter then runs that point's frequency at the **lowest** voltage
-   any point maps it to — the same flat rule that makes `peak_info` report a
-   "park" point.
+So the axis that matters is the **band**, not the p-state — an idle capture is
+worthless, a P2 capture is not. The comparison view puts each field's cycle
+ratio beside the clock ratio; two ratios agreeing is what turns the decode from
+plausible into proven.
 
-So selecting a point that is the upper half of a flat holds the lower half.
-Measured: with idx 71 and 72 both at 1740 MHz, holding idx 72 (900.00 mV) put
-the card on idx 71 at 893.75 mV. The status line and the log both name the
-point the card is *really* on, and say what was asked for when the two differ
-("asked for point 72 @ 900.00 mV, the card holds the point at or below it:
-point 71 @ 893.75 mV, 1740 MHz"). When they agree, the line simply names the
-point. If no point on the curve sits at or below the request, the app says it
-cannot identify the point rather than guessing.
+## Force vs. induce
 
-Four further details:
+Nothing here **forces** a memory p-state, because nothing can on these cards:
+`nvmlDeviceSetMemoryLockedClocks` returns `NVML_ERROR_NOT_SUPPORTED` and
+`nvidia-smi -lmc` fails identically. `Induce P-state` runs a CUDA
+device-to-device memcpy, waits for the clock to settle, and captures **while the
+load is still running** — a capture taken after the load stops is a capture of
+the card coming back down.
 
-- **The point identity is exact; the MHz is a snapshot.** Point voltages are
-  fixed on the 6.25 mV grid and never move, so the resolved index and voltage
-  are always right. The *frequency* attached to a point is re-evaluated by the
-  driver with temperature — a cool card was measured a whole 15 MHz bin above
-  a warm one with all 128 deltas at zero — so the MHz in the banner is as fresh
-  as the last `Read curve`. The resolution is deliberately done against the
-  curve the plot is showing, so the banner and the picture cannot disagree.
-- A point with an **unapplied editor edit** is noted in the log. Voltage is
-  fixed by the VF table and the editor cannot move it, so the hold still lands
-  on the intended point; what a staged edit changes is the frequency that point
-  will deliver once applied, and until then the card runs the curve it has.
-- Holding *and releasing* are both behind "Unlock controls", exactly like
-  the `Release` button. Making one write path exempt would mean "read-only"
-  no longer described the app; re-ticking the checkbox is always available,
-  and a reboot clears the lock regardless.
-- **Quitting tries to release it, and tells stdout if it couldn't.** Closing
-  the window releases whatever lock the app is still holding, picking the call
-  that matches the mechanism — `clear_vf_lock()` for a `Ctrl+H` hold,
-  `nvmlDeviceResetGpuLockedClocks` for a `Clocks`-menu `Lock`. Releasing the
-  wrong one returns OK and leaves the card pinned, which is why the app keeps
-  one record saying *which*. A lock is the only write here that outlives the
-  process, so leaving it behind would break this app's one standing promise:
-  everything it does is reversible. A V/F point lock is the more expensive one
-  to leave, because it is the one that holds the card in true P0.
+That reaches P2, which is enough, per the band rule above. If the card is
+*already* at P0 the load is skipped: opening a CUDA context on a P0 card pulls
+it **down** to P2.
 
-  **When that release fails, the card stays pinned.** The usual cause is
-  running without administrator rights, which is also the case where the lock
-  should not have been takeable in the first place. The failure is *not* well
-  signposted, and cannot be: the release runs after the render loop has
-  exited, so no further frame is drawn — the log line it writes is never seen,
-  and the only notice is a line printed to **stdout**, which a `--noconsole`
-  build (`dist\TitanTune2.exe`) discards. The app's own record is kept honest
-  either way — a failed release deliberately does not clear it — but the
-  process is on its way out, so nothing is left to show it. If you locked
-  clocks in a run that may not have had admin, re-run TitanTune as
-  administrator and press `Release`, run `nvidia-smi -rgc`, or reboot; any of
-  the three clears it. Launching from a console rather than the desktop
-  shortcut is what makes the failure visible at all.
+A **V/F point lock holds P0 indefinitely with no load at all**, which is more
+convenient than inducing when you have one.
 
-  This is the single write path not behind "Unlock controls",
-  because it does not make a change — it takes back a change the app made
-  while that gate was open, and gating it would mean unticking the checkbox
-  mid-hold and quitting pinned the card with nothing left able to see it.
+## Writing
 
-## Timings tab
+**The tab can write, and the write path is isolated in one file.**
 
-Decodes the framebuffer-partition (FBPA) memory timing registers —
-`CONFIG0`..`CONFIG5` and `TIMING22`, at `0x9A0000 + 0x290 + n*4` — and shows
-what each field means in nanoseconds at the memory clock it was sampled at.
+- **`timings.py` — read-only by construction.** Whitelists the read-only
+  subcommands and rejects `set`, `restore`, `apply`, `daemon`, `--commit` and
+  `--force` *before a process is created*. No flag, no disabled button and no
+  dead branch in it can change a timing.
+- **`timingwrite.py` — the only module that can.** Driven from the **Edit
+  timings** panel: an editable `new value` column (green while it matches the
+  register, red once it does not — only red rows are written), a `force`
+  checkbox, `Revert edits`, and `Restore stock`.
 
-**It is read-only, and not merely by convention.** `nvtune` can write these
-registers, and writing one can hang the machine and corrupt VRAM. TitanTune
-therefore has no code path that can build a writing command line: `timings.py`
-whitelists the read-only subcommands (`list`, `fields`, `dump`, `get`, `save`,
-`probe`, `vbios`) and rejects `set`, `restore`, `apply`, `daemon`, `--commit`
-and `--force` before a process is created. Nothing about the tab — no flag, no
-disabled button, no dead branch — can change a timing.
+Four guards sit in front of every write:
 
-**It needs two things, and says which one is missing.** `nvtune.exe` and its
-kernel driver service `nvtunedrv`, which maps the BAR0 FBPA aperture
-(`sc start nvtunedrv`, elevated). With either absent the tab explains which.
+1. **The card must be in its top memory band.** Timings are per band, so a write
+   in any other state edits a band you are not tuning.
+2. **Range and structural refusals happen here, before nvtune is consulted.**
+   Structural fields (training and phase fragments, with no "looser" direction)
+   and fields in a register whose offset is only *inferred* get no input at all.
+   The `force` checkbox defeats nvtune's *warning* refusal — not this check.
+3. **A dry run always runs first**, so a tool-side refusal is **observed**
+   rather than inferred from an unchanged read-back. That inference is exactly
+   what recorded four of twenty-five fields as hardware rejections in an earlier
+   sweep when they had never reached BAR0.
+4. **A per-card stock backup**, keyed by the card's **UUID** — *not* by PCI
+   slot, and not by model name. nvtune's own default is `<slot>.stock.json` with
+   an existence-only check, so swapping cards in one slot silently skipped the
+   backup. Found live: a TU102 backup was occupying the Titan Xp's path. See
+   [Which card is "this card"](#which-card-is-this-card) for why the UUID rather
+   than the slot, and for the `-d` targeting every one of these calls now
+   carries.
 
-**TitanTune does not ship nvtune.** It is a separate tool carrying its own
-SELF-SIGNED kernel driver, and whether to install that is your call — so it is
-located rather than bundled, in this order:
+Outcomes are reported as four distinct states — **landed**, **dropped** (reached
+the hardware and was rejected), **refused** (nvtune declined; BAR0 never
+touched), **failed** — because conflating the middle two produces a confident
+wrong conclusion.
 
-1. `TITANTUNE_NVTUNE`, and it is **exclusive**: a bad override fails rather than
-   quietly running some other copy. Every register offset this tab decodes comes
-   out of the binary that actually runs, so "some other copy" is not a
-   nuisance — it is a wrong answer.
+> **Measured: GP102 accepts these writes; TU102 rejects every one of them at the
+> hardware.** Same tool, same driver, same slot. `FAW 24→25` on GP102 applied,
+> verified, held and restored clean. On TU102, 25 of 25 non-structural fields
+> were dropped, and a kernel ioctl doing `WRITE_REGISTER_ULONG` then
+> `READ_REGISTER_ULONG` as adjacent instructions returned the old value 300/300
+> — a hardware rejection, not a software revert.
+
+## Locating nvtune
+
+**Druta does not ship nvtune.** It is a separate tool carrying its own
+SELF-SIGNED kernel driver, and whether to install that is your call. It is
+located, in this order:
+
+1. **`DRUTA_NVTUNE`**, and it is **exclusive** — a bad override fails rather
+   than quietly running some other copy. Every register offset this tab decodes
+   comes out of the binary that actually runs, so "some other copy" is a wrong
+   answer, not an inconvenience. The pre-rename `TITANTUNE_NVTUNE` is still
+   honoured.
 2. Whatever was registered through **Device → Locate nvtune…**, remembered in
-   `%LOCALAPPDATA%\TitanTune\nvtune.json`. Registration verifies the file is
-   there before recording it.
-3. Derived locations: beside TitanTune first (so a portable copy always wins),
-   then `nvtune\` under `%LOCALAPPDATA%`, both Program Files roots, and the
-   current user's Desktop, Downloads and home.
+   `%LOCALAPPDATA%\Thermetery\Druta\nvtune.json`. A registration made before the
+   rename is carried across once from `%LOCALAPPDATA%\TitanTune\nvtune.json`
+   (copied, not moved, so a downgrade still works). Registration verifies the
+   file exists before recording it.
+3. Derived locations — beside Druta first, then `nvtune\` under `%LOCALAPPDATA%`,
+   both Program Files roots, and the current user's Desktop, Downloads and home.
 4. `PATH`, last, being the least predictable.
 
-No path is hardcoded. An earlier build pinned one absolute directory with an
-account name in it, which worked on exactly one machine and left the tab dark
-everywhere else for a reason nothing on screen explained.
+Its driver service must be running: `sc start nvtunedrv`, elevated. With either
+half missing the tab says **which**, lists every path tried, and stays read-only.
 
-### A cycle count is not a time until you know its clock
+---
 
-This is the whole reason the tab exists. A timing register holds a **cycle
-count**. The same registers read as nonsense at idle and as textbook GDDR6 at
-P0. Measured on this card — same registers, three memory states, GDDR6 true
-clock = the reported NVAPI/NVML figure ÷ 4:
+# Safety
 
-| reported | true clock | RC | RFC | RAS | RP | CL | RD_RCD |
-|---------:|-----------:|---:|----:|----:|---:|---:|-------:|
-|   405    |   101 MHz  |  6 |  13 |   4 |  2 |  9 |      2 |
-|   810    |   203 MHz  | 11 |  25 |   7 |  4 |  9 |      4 |
-|  7428    |  1857 MHz  | 78 | 210 |  52 | 26 | 24 |     26 |
+**Reversible, read-only:** all Monitor telemetry, and *reading* on the Timings
+tab. Its driver needs admin to *start*, not to read through once running. The
+induce load is an ordinary CUDA workload — it makes the card busy for a few
+seconds, writes no register, and releases its context in a `finally`.
 
-At 1857 MHz those are RC 42.0 ns, RAS 28.0 ns, RP 14.0 ns, CL 12.9 ns — real
-GDDR6 numbers. The same RC of 6 cycles at 101 MHz is 59 ns, and reading the
-idle registers *as if* they were the P0 ones is what made this feature's first
-two dumps look like garbage.
+**Reversible, needs admin, cleared by a reboot:** clock offsets, power limit,
+voltage boost, fan, both lock mechanisms, and every V/F curve edit. No delta
+survives a reboot.
 
-So every capture **brackets the register read with a memory-clock read**, one
-immediately before and one immediately after. If the two disagree the card
-reclocked mid-capture, and the tab prints `clock moved — no ns` in every
-nanosecond cell rather than a number: measured, a capture that straddled an
-810 → 7428 reclock turned RC's 42 ns into 385 ns. The cycle counts are still
-shown; only the conversion is withheld.
+**Reversible only by restoring:** memory timing writes. They are volatile — the
+driver reprograms these registers per clock band — but the recovery path you
+should rely on is `Restore stock`, backed by the per-card backup.
 
-### RFC and WL do not convert
+**Reversible is not the same as harmless.** A V/F edit asks the card for a clock
+at a voltage; if the silicon cannot hold it the machine crashes. `De-flatten` is
+an overclock by construction. `Hard de-flatten` is an overclock that *assumes a
+hardware modification exists* — on an unmodified card the 800 mV floor is not a
+trick played on the power estimator, it is simply 800 mV, and both the flat top
+and the shape-law cascade below it will crash the driver.
 
-Both are shown as cycle counts with `encodes differently — not ns`, never as
-nanoseconds:
+**Can hang the machine or corrupt VRAM:** memory timing writes. This is the one
+control here with that property, which is why it carries four guards and a
+per-card backup rather than a warning.
 
-- **RFC** — 210 cycles is 113 ns against a 240–350 ns GDDR6 tRFC. It is a
-  multiplier, or its range splits with `TIMING22.RFCSBA`/`RFCSBR`.
-- **WL** — 5 cycles is 2.7 ns. GDDR6 write latency is expressed *relative to
-  CL*, not as an absolute delay.
+## Deliberately not wired to a button
 
-Fields nvtune marks `[structural]` (`REFRESH_LO`, `DELAY0`+`_MSB`/`_HI`,
-`OFFSET0..2`, `ADR_MIN`) are refused too — they are fragments of a value split
-across bit ranges. So is `REFRESH`, which carries only the bits above
-`REFRESH_LO`. `TIMING22`'s offset is marked INFERRED by the tool; its two
-fields are drawn in amber with that note on hover.
+- **VBIOS flashing** and anything writing `0x001850` / PROM beyond nvtune's own
+  restored read.
+- **`nvidia-smi -dm 1`** (driver model TCC) — **drops display output** on these
+  cards. Never run blind.
+- **NvAPI `SetForcePstate` (`0x025BFB10`)** — genuinely absent from the code.
+- **FBPA privilege-mask writes.** `0x9A0148` reads `0xFFFFFFCF` on TU102 and is
+  fully read-gated (`0xBADF1002`) on GP102 — the architecture where writes
+  *work*. Direct host writes to it are dropped, as expected if a PLM protects
+  itself. The identification is by analogy with published GA100 work and is
+  **unconfirmed**; the Pascal reading makes it less certain, not more.
 
-### An idle capture is worthless. A P2 capture is not.
+Memory timing writes **used to be on this list and have come off it.** They are
+now wired, gated as described above.
 
-Timings are selected per **clock band**, not per P-state. Measured on this
-card: the registers are **bit-identical** under a CUDA load at NVML mem 7228
-(pstate 2) and under a 3D load at 7428 (pstate 0) — `CONFIG0` `0x1A68D24E`,
-`CONFIG1` `0x45068298`, `CONFIG2` `0x771B0900`, `CONFIG3` `0x2200204C`,
-`CONFIG4` `0xC0820025`, `CONFIG5` `0xD7D270F6`, `TIMING22` `0x12000009`, and
-every decoded field (RC 78, RFC 210, RAS 52, RP 26, CL 24, WL 5, RD_RCD 26,
-WR_RCD 16, CDLR 9, WR 27, FAW 16, RRD 4, REFRESH 4). The 50 MHz of true clock
-between P2 and P0 does not cross a VBIOS timing band.
+---
 
-405 and 810 *do* program different, far slacker values. So the axis that
-matters is **the band, not the P-state**: a capture at or above the
-second-highest enumerated state (6801 here) is worth reading, and an idle one
-is not. The tab shouts about idle captures and treats a P2 capture as what it
-is — the same data a game would give you.
+# Why Dear PyGui
 
-This identity is established **for reading**. If a write phase ever happens, a
-bandwidth benchmark has to run in the state it claims to describe; measuring
-throughput at P2 and reporting it as a P0 result would be a different error
-that this finding does not excuse.
+The original UI was Tk, and dragging the window stalled the whole desktop.
+Measured root cause: Tk creates one native child HWND per widget (~50 on the
+control page), and on `WM_ENTERSIZEMOVE` Windows' modal window-move loop pumps
+messages synchronously — so Tk's entire idle queue and `after()` timers drain
+*inside* that loop instead of after it, and the desktop hangs for as long as the
+drag lasts.
 
-### Force vs. induce
+Dear PyGui (Dear ImGui + DirectX 11) renders the whole UI as GPU geometry inside
+a single window: zero child HWNDs, so there is nothing for the modal loop to
+stall on.
 
-**Force** would mean commanding the P-state through an API. **Not available on
-this card.** `nvmlDeviceSetMemoryLockedClocks` returns `NVML_ERROR_NOT_SUPPORTED`,
-and `nvidia-smi -lmc 7001,7001` fails identically ("Setting locked Memory
-clocks is not supported for GPU 00000000:01:00.0") — two independent entry
-points, one answer. Memory-clock locking does exist in NVML and works on
-datacenter parts, so this is most likely a consumer-segment restriction rather
-than a Turing architectural limit; that is *not* proven here and is not
-claimed. The scope of the measurement is: not supported on **this card through
-this driver path**.
+---
 
-**Induce** means creating the conditions under which the driver raises the
-state itself, then watching what it decides. That works — and the state stays
-the driver's to withdraw at any moment. **That is exactly why every capture is
-bracketed** with a clock and P-state read on each side: a forced state could be
-read at leisure, an induced one can drop out mid-read. Measured, a capture that
-straddled an 810 → 7428 reclock computed RC as 385 ns instead of 42.
+# Scope
 
-Nothing in TitanTune forces a memory P-state, because nothing can.
-
-| lever | reaches |
-|---|---|
-| `nvmlDeviceSetMemoryLockedClocks` | **unsupported** on this card |
-| `nvidia-smi -lmc 7001,7001` | **unsupported** — same answer, independent path |
-| graphics clock lock alone | memory only 810 |
-| **CUDA memcpy load** (built in) | **pstate 2, mem 7228**, ~450 GB/s traffic |
-| 3D / graphics load | pstate 0, mem 7428 |
-| `nvidia-smi -cc 1` | lifts the compute P2 cap (restore `-cc 0`, admin) — **not needed to read timings**, and not wired to any button |
-
-The two top states are identified by the same arithmetic: **7228 − 427 = 6801**
-and **7428 − 427 = 7001**, the identical memory offset on both. That is what
-establishes 6801 as the P2 state and 7001 as P0 — and it is why the P0 test
-uses the **P-state**, not the clock. 7228 is *above* the top clock the driver
-enumerates (7001) while still being P2; a clock-only test calls that P0 and is
-wrong. (The proof-of-concept this was built from made exactly that mistake.)
-
-### Induce P-state (GPU load)
-
-Runs a CUDA device-to-device memcpy load through `nvcuda.dll` — driver API via
-ctypes, no toolkit, no compiler, no PTX, because a memcpy needs no kernel —
-waits for the memory clock to settle, **captures while the load is still
-running**, then stops it. Buffers are sized from free VRAM, the duration is
-bounded, and the allocations and context are released in a `finally:` chain: a
-leaked CUDA context would hold the card in a raised P-state after the load
-ended, the same class of invisible leftover as a clock lock that outlives the
-app.
-
-This is a complete substitute for a game or benchmark when reading timings.
-
-If the card is **already** at P0 the load is skipped and the capture is taken
-directly — measured, opening a CUDA context on a P0 card pulls it *down* to P2,
-so inducing there would cost you the state you already had.
-
-**Auto-capture at P0** (armed by default) watches the memory clock on the
-existing telemetry poll and captures the first time the card reaches P0 on its
-own, and again on each re-entry after it drops out — one capture per entry.
-Start a game, come back, and a genuine P0 sample is waiting. It is edge
-triggered with the exit threshold one enumerated state below the entry one, so
-a clock wobbling near the boundary cannot re-fire it every tick.
-
-Running a GPU load is an ordinary workload. It writes no register.
-
-### Capture, and the comparison that proves the decode
-
-**Capture** files a snapshot under the memory clock it was taken at (a capture
-that straddled a reclock is not filed — it has no single clock to be filed
-under). Every capture is labelled with its memory clock *and* its P-state.
-With two or more states captured, the comparison table shows each field's
-cycle count at every state, the ratio between them, and — in the column
-heading — what the **clock** did over the same states. Those two numbers
-agreeing is the proof that the decode is real: RFC went 25 → 210 between the
-810 and 7428 states while the clock went ×9.17.
-
-Idle captures are kept and are useful *here*, even though they are useless as a
-statement about performance: the cross-state ratio is exactly what verified the
-decode. The comparison marks which captures are performance-relevant so the two
-roles cannot be confused.
-
-To get a second state: let the card idle until the memory clock drops (~810
-reported) and press Capture, then press **Induce P-state** for a top-band
-sample.
-
-Verdicts are deliberately not pass/fail. `tracks` means the count moved by the
-clock ratio; `flat` means it did not move at all, which is normal for mode and
-bus-turnaround fields; `partial` means it moved by something else. Two things
-make `partial` unremarkable: cycle counts are integers, so a 2-cycle baseline
-rounds hard, and the VBIOS programs each p-state separately and *relaxes*
-timings at low clocks (RC really is 42 ns at P0 and 59 ns at idle). The
-comparison is judged in cycles, with a rounding allowance of ±1 cycle at each
-end, rather than as a flat percentage on the ratio.
-
-Per-partition rows appear **only if a partition disagrees** with the broadcast
-aperture. All six are identical on this card, so the normal case is one line
-saying so rather than six copies of the same table.
-
-The field list, bit ranges and limits are parsed from `nvtune fields` at
-runtime rather than hardcoded, so the decode cannot drift from the installed
-tool. Raw `nvtune save` JSON is written to a per-process temp directory, never
-into the repo, and is kept as the evidence behind each decode.
-
-## Device report (menu bar: `Device`)
-
-Only what the running program can read back from the driver, and nothing
-that belongs in this file: device name, driver and VBIOS version, memory
-type with its true-clock divisor, the core/mem offset ranges, the power
-range, the supported clock range, and the backend status line. It is a
-snapshot of what the driver said at startup, opened as a tool window from
-`Device > Device report...`. **Copy device report** puts the whole block on
-the clipboard, formatted for pasting into a bug report.
-
-It also carries the one caution that matters at the moment of use rather
-than at reading time: the offset sliders and the V/F curve are the same
-delta table, and Afterburner writes it too, so drive clocks from one tool
-at a time.
-
-The hardware explanations (quantisation, phase, the two-knob voltage
-mechanism, reversibility, footguns) live in this README only. They used to
-be duplicated into the app as well, and the two copies drifted.
-
-## Safety
-
-**Reversible, no admin needed to read:** all Monitor-tab telemetry, and the
-Timings tab (which cannot write at all — see "Timings tab"; its `nvtunedrv`
-driver does need admin to *start*, but not to read through once running). The
-Timings tab's GPU load is an ordinary CUDA workload: it makes the card busy for
-a few seconds, writes no register, and releases its context in a `finally:`.
-
-**Reversible, needs admin to write:** clock offsets (core/mem), power limit,
-the NVML GPU clock lock, the V/F point lock, fan duty, voltage boost %, and V/F
-curve edits. Every one of these resets on reboot, and `Reset all to stock`
-walks them back without one. Writes are gated behind "Unlock controls", with
-two exceptions, both of which only ever move the card toward stock: `Reset all
-to stock`, and the release of this app's own lock when the window closes (see
-"Hold this point").
-
-Reversible is not the same as harmless. A V/F curve edit asks the card for a
-clock at a voltage, and if the silicon cannot hold it the machine crashes —
-which a reboot then clears, since no delta survives one. `Ramp ≤ cap` is an
-overclock by construction (every rung asks for more than stock at its voltage),
-and **`Hard de-flatten` is an overclock that assumes a hardware modification
-exists**: on an unmodified card the 800 mV floor is not a trick played on the
-power estimator, it is simply 800 mV, and both the flat top above it and the
-shape-law cascade below it will crash the driver. That is why it is the one
-operation in this app behind an explicit acknowledgement checkbox rather than
-just a warning. See "Hard de-flatten".
-
-**Deliberately not wired to a button** — documented here with the
-commands to run them by hand, never fired blind by this app:
-
-- Forcing P-state P0 (NvAPI `SetForcePstate`, `0x025BFB10`) — pins max
-  clocks with no clean auto-release short of a driver reload.
-- CUDA P2-cap removal (`nvidia-smi -cc 1`, restore with `-cc 0`). Not needed
-  for the Timings tab — P2 and P0 program identical timing registers here.
-- Driver-model TCC (`nvidia-smi -dm 1`, restore with `-dm 0`) — **drops
-  display output** on this card; never run blind.
-- Writing a memory timing register (`nvtune set`/`apply`/`restore`/`daemon`,
-  or any `--commit`) — it can hang the machine and corrupt VRAM. The Timings
-  tab reads these registers and is structurally incapable of writing one.
-The per-domain V/F point lock (NvAPI `0x39442CFB`) **used to be on this
-list** and has come off it. It is no longer unverified: it was validated end to
-end on this card by the ladder in "The validation ladder" above — id resolves,
-identity write accepted and byte-identical afterwards, then a single-field
-read-modify-write that moved the card as predicted and reversed exactly. It is
-reversible and volatile, and `Ctrl+H` now drives it. Everything else on the
-list above stays off, for the reasons given.
-
-This is research software written against one specific frankencard
-(Titan RTX die, Turing TU102, on an ASUS RTX 2080 Ti Strix PCB, driver
-591.44 at time of writing). Struct layouts, NVAPI ids, and the empirical
-laws above were all verified against that hardware; nothing here should be
-assumed to generalize to a different card without re-verifying.
-
-## Build
-
-```
-pip install dearpygui
-python -m PyInstaller --onefile --noconsole --name TitanTune2 --collect-all dearpygui titantune_dpg.py
-```
-
-Output lands in `dist\TitanTune2.exe`.
+Research software, developed against the two cards named at the top. Struct
+layouts, NVAPI ids and the empirical laws above were verified against those;
+nothing here should be assumed to generalise to a third card without
+re-verifying — and the per-card machinery described under
+[Probed, not assumed](#probed-not-assumed) exists because assuming is exactly
+what went wrong the first three times.

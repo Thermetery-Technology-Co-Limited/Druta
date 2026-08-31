@@ -81,7 +81,7 @@ def available():
         return True, ""
     except OSError as e:
         return False, (f"nvcuda.dll could not be loaded ({e}). It ships with "
-                       f"the NVIDIA driver; without it TitanTune cannot run a "
+                       f"the NVIDIA driver; without it Druta cannot run a "
                        f"CUDA load. A game or a benchmark induces P0 anyway - "
                        f"and does it better than this can.")
 
@@ -141,7 +141,7 @@ class BandwidthLoad:
         if self._thread is not None:
             raise LoadError("this load has already been started")
         self._thread = threading.Thread(target=self._run, daemon=True,
-                                        name="titantune-gpuload")
+                                        name="Druta-gpuload")
         self._thread.start()
 
     def stop(self):
@@ -328,8 +328,8 @@ if __name__ == "__main__":
     if not ok:
         raise SystemExit(1)
     try:
-        from nvbackend import GPU
-        g = GPU()
+        from nvbackend import GPU, slot_from_argv
+        g = GPU(slot_from_argv())
     except Exception as e:
         print("no GPU backend:", e)
         raise SystemExit(1)

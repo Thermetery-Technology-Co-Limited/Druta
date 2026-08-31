@@ -1,4 +1,4 @@
-"""Memory-timing WRITES. The only module in TitanTune that can build a writing
+"""Memory-timing WRITES. The only module in Druta that can build a writing
 nvtune command line.
 
 WHY THIS IS A SEPARATE MODULE. `timings.py` states in its own docstring that no
@@ -128,14 +128,43 @@ class Result:
 
 
 # ---- the single choke point ------------------------------------------------ #
-def _run(args, override=None, timeout=90):
-    """Spawn nvtune. This is the ONLY place in TitanTune that may build an argv
-    containing a writing subcommand."""
+def _run(args, override=None, timeout=90, slot=None):
+    """Spawn nvtune. This is the ONLY place in Druta that may build an argv
+    containing a writing subcommand.
+
+    `slot` is MANDATORY here, and missing it raises rather than defaulting.
+    nvtune's `-d` defaults to "all NVIDIA GPUs", so on a two-card host the
+    argv this function builds without a slot does not write the card the user
+    was looking at - it writes EVERY card. Verified on the two-card rig:
+
+        nvtune set FAW=13        (dry run, no -d)
+        0000:01:00.0  TU102 (Turing)   CONFIG3 0x2200104C -> 0x22001A4C  FAW  8 -> 13
+        0000:02:00.0  GP102 (Pascal)   CONFIG3 0x2200194A -> 0x22001B4A  FAW 12 -> 13
+
+    One number entered in the UI, planned into two different chips whose stock
+    values are not even the same. With --commit that is a two-card write, and
+    the second card was never named on screen. The read path has the same shape
+    in reverse: `get FAW` prints one line per card and read_fields() keeps the
+    LAST, so the before/after comparison that classifies a write as LANDED or
+    DROPPED would have been read off the wrong silicon."""
+    if not slot:
+        raise WriteError(
+            "refused: no PCI slot given. nvtune's default target is every "
+            "NVIDIA GPU in the machine, so a write without -d would reach "
+            "cards the user never selected.")
     exe = timings.find_exe(override)
     if not exe:
         raise WriteError("nvtune.exe not found")
-    r = subprocess.run([exe] + list(args), capture_output=True, text=True,
-                       timeout=timeout,
+    args = list(args)
+    if not args:
+        raise WriteError("refused: empty nvtune argv")
+    # -d goes AFTER the subcommand. nvtune parses argv[1] as the command name,
+    # so `nvtune -d SLOT set ...` exits with "unknown command '-d'" - which,
+    # being a non-zero exit with no ops parsed, would have surfaced as a plain
+    # write failure rather than as the argv bug it is.
+    argv = [exe, args[0], "-d", str(slot)] + args[1:]
+    r = subprocess.run(argv, capture_output=True,
+                       text=True, timeout=timeout,
                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     return ((r.stdout or "") + (r.stderr or "")).strip(), r.returncode
 
@@ -169,11 +198,15 @@ def _parse(out):
     return ops, warnings
 
 
-def read_fields(names, override=None):
-    """Current cycle counts for `names`. Read-only; uses the `get` subcommand."""
+def read_fields(names, slot, override=None):
+    """Current cycle counts for `names`. Read-only; uses the `get` subcommand.
+
+    Single-card by contract. With no slot nvtune prints one line per card and
+    the loop below - which keys by field name - would silently keep whichever
+    card came last."""
     if not names:
         return {}
-    out, _rc = _run(["get"] + list(names), override)
+    out, _rc = _run(["get"] + list(names), override, slot=slot)
     vals = {}
     for tok in out.replace(",", " ").split():
         if "=" in tok:
@@ -183,13 +216,13 @@ def read_fields(names, override=None):
     return vals
 
 
-def plan(assignments, override=None):
+def plan(assignments, slot, override=None):
     """Dry run. Writes NOTHING - no --commit is ever built here."""
     if not assignments:
         return Plan({}, [], [], "", ok=True)
     args = ["set"] + [f"{k}={v}" for k, v in assignments.items()]
     try:
-        out, rc = _run(args, override)
+        out, rc = _run(args, override, slot=slot)
     except (OSError, subprocess.SubprocessError, WriteError) as e:
         return Plan(assignments, [], [], "", ok=False, error=str(e))
     ops, warnings = _parse(out)
@@ -226,7 +259,7 @@ def check(assignments, field_table, snapshot=None):
     return problems
 
 
-def apply(assignments, force=False, override=None):
+def apply(assignments, slot, force=False, override=None):
     """Commit, then classify each field by what ACTUALLY happened.
 
     The dry run is executed first, always, so that a tool-side refusal is
@@ -234,9 +267,19 @@ def apply(assignments, force=False, override=None):
     exactly the mistake that put four phantom hardware rejections into our
     Turing results."""
     names = list(assignments)
-    before = read_fields(names, override)
+    # Checked here rather than left to _run's raise: every other exit from this
+    # function is a (Plan, [Result]) pair, and tw_apply() unpacks it without a
+    # try, so raising would surface as a dead button instead of a refusal.
+    if not slot:
+        p = Plan(assignments, [], [], "", ok=False,
+                 error="no PCI slot for the selected card")
+        return p, [Result(n, None, assignments[n], None, FAILED,
+                          "no PCI slot for the selected card - refusing, "
+                          "because an un-targeted nvtune write reaches every "
+                          "card in the machine") for n in names]
+    before = read_fields(names, slot, override)
 
-    pre = plan(assignments, override)
+    pre = plan(assignments, slot, override)
     if not pre.ok:
         return pre, [Result(n, before.get(n), assignments[n], before.get(n),
                             FAILED, pre.error) for n in names]
@@ -250,7 +293,7 @@ def apply(assignments, force=False, override=None):
     args = (["set"] + [f"{k}={v}" for k, v in assignments.items()]
             + ["--commit"] + (["--force"] if force else []))
     try:
-        out, _rc = _run(args, override)
+        out, _rc = _run(args, override, slot=slot)
     except (OSError, subprocess.SubprocessError, WriteError) as e:
         return pre, [Result(n, before.get(n), assignments[n], before.get(n),
                             FAILED, str(e)) for n in names]
@@ -260,7 +303,7 @@ def apply(assignments, force=False, override=None):
                             TOOL_REFUSED, "nvtune refused the commit")
                      for n in names]
 
-    after = read_fields(names, override)
+    after = read_fields(names, slot, override)
     results = []
     for n in names:
         want = int(assignments[n])
@@ -279,15 +322,56 @@ def apply(assignments, force=False, override=None):
 
 
 # ---- backups --------------------------------------------------------------- #
+def _slot_of(gpu):
+    """The PCI slot of the card `gpu` drives, or "" if it cannot say."""
+    try:
+        return (gpu.slot() if gpu is not None else "") or ""
+    except Exception:
+        return ""
+
+
 def card_backup_path(gpu):
-    """A backup path keyed by the CARD, not by the PCI slot.
+    """A backup path keyed by the CARD - specifically by its UUID.
 
     nvtune's own default is `<slot>.stock.json`, and `ensure_stock_backup()`
     only checks whether that file EXISTS. Swap cards in one slot and the first
     write silently skips taking a backup because the previous card's file is
     sitting there - then `restore` correctly refuses it on a boot0 mismatch, and
     there is no way back. Found live: a TU102 backup was occupying the Titan
-    Xp's path."""
+    Xp's path.
+
+    Name and VBIOS fixed that while one card was supported at a time, but two
+    IDENTICAL cards in one host share both, and the second card's write would
+    find the first's backup at its path and skip taking one - the same hole,
+    reopened by a multi-card rig.
+
+    The UUID closes it without reopening the original. The slot deliberately
+    stays OUT of the key: keying on position would orphan a backup the moment
+    the card moved slots, and this machine has already done exactly that (the
+    Titan Xp's stock file records slot 0000:01:00.0 and the card now answers at
+    0000:02:00.0). The UUID is the silicon, wherever it is plugged in. VBIOS
+    stays in because a reflash can change what "stock" means."""
+    base = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
+                        "nvtune")
+    st = getattr(gpu, "static", {}) or {}
+    # Falls back to the slot only when NVML gave no UUID, where a
+    # position-keyed name still beats letting two cards share one file.
+    ident = st.get("uuid") or _slot_of(gpu)
+    tag = re.sub(r"[^A-Za-z0-9]+", "-",
+                 f"{st.get('name', 'gpu')}-{st.get('vbios', '')}"
+                 f"-{ident}").strip("-")
+    return os.path.join(base, f"{tag}.stock.json")
+
+
+def legacy_backup_path(gpu):
+    """Where a stock backup taken BEFORE the slot joined the key would be.
+
+    Not a compatibility nicety. If this were ignored, a card whose stock
+    backup already exists under the old name would look un-backed-up, and
+    ensure_backup() would happily take a fresh "stock" snapshot of a card that
+    is currently TUNED - overwriting nothing, but recording modified timings
+    under the name the restore path trusts. The real stock values would still
+    be on disk, one filename away, with nothing pointing at them."""
     base = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
                         "nvtune")
     st = getattr(gpu, "static", {}) or {}
@@ -296,14 +380,52 @@ def card_backup_path(gpu):
     return os.path.join(base, f"{tag}.stock.json")
 
 
+def existing_backup_path(gpu):
+    """The stock backup this card already has, or "" - new name first.
+
+    The legacy file is accepted only if its boot0 does not contradict this card.
+    That is a weak check and is meant as one: the old filename already encodes
+    name and VBIOS, so a file sitting there is for this MODEL, and boot0 is a
+    chip identifier that two identical cards also share. Neither can separate
+    two same-model cards - which is the collision the slot was added to break,
+    and it is broken only for backups taken from here on. gpu.static carries no
+    boot0 today, so in practice this accepts on the filename."""
+    new = card_backup_path(gpu)
+    if os.path.exists(new):
+        return new
+    old = legacy_backup_path(gpu)
+    if old != new and os.path.exists(old):
+        _code, boot0 = backup_describes(old)
+        live = (getattr(gpu, "static", {}) or {}).get("boot0")
+        if not live or not boot0 or str(boot0).lower() == str(live).lower():
+            return old
+    return ""
+
+
 def ensure_backup(gpu, override=None):
-    """(path, made, err). Takes a card-specific stock snapshot if absent."""
+    """(path, made, err). Takes a card-specific stock snapshot if absent.
+
+    The slot comes from `gpu`, the same object card_backup_path() names the file
+    after, so the contents and the filename cannot disagree about which card
+    they describe. Without -d this was the worst bug in the module: `nvtune save
+    -o P` with two cards saves the FIRST card to P, then fails the second with
+    "cannot replace" - so the file named for the Titan Xp would hold the Titan
+    RTX's registers, `restore` would correctly refuse it on the boot0 mismatch,
+    and the card would have no way back. That is precisely the hazard this
+    function's card-keyed path was introduced to close, reopened one layer
+    down."""
+    held = existing_backup_path(gpu)
+    if held:
+        return held, False, ""
     path = card_backup_path(gpu)
-    if os.path.exists(path):
-        return path, False, ""
+    slot = _slot_of(gpu)
+    if not slot:
+        return path, False, ("the GPU object could not name its PCI slot, so a "
+                             "stock backup would capture whichever card nvtune "
+                             "picked")
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        out, rc = _run(["save", "-o", path], override)
+        out, rc = _run(["save", "-o", path], override, slot=slot)
         if rc != 0 or not os.path.exists(path):
             return path, False, out or f"nvtune save exited {rc}"
     except (OSError, subprocess.SubprocessError, WriteError) as e:
@@ -311,14 +433,16 @@ def ensure_backup(gpu, override=None):
     return path, True, ""
 
 
-def restore(path, override=None):
+def restore(path, slot, override=None):
     """Write a snapshot back. nvtune validates boot0 and refuses a file taken
     on a different chip, which is the one guard we are relying on rather than
-    reimplementing."""
+    reimplementing - but that guard only helps if the restore is aimed at one
+    card. Aimed at all of them, the matching card is restored and the others
+    each refuse, which reads as a partial failure of a successful operation."""
     if not os.path.exists(path):
         return False, f"no backup at {path}"
     try:
-        out, rc = _run(["restore", "-i", path], override)
+        out, rc = _run(["restore", "-i", path], override, slot=slot)
     except (OSError, subprocess.SubprocessError, WriteError) as e:
         return False, str(e)
     return rc == 0, out
