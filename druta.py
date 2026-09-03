@@ -4442,197 +4442,237 @@ deliberately does not put behind a button."""
             # buried in the read-only paragraph: this is the only tab that
             # does nothing at all without a second program installed, and the
             # tab label alone is easy to miss once the tab is open.
+            # THE SETUP SCREEN. Shown INSTEAD of the tab's contents, not above
+            # them: without nvtune every control below is inert, and a live
+            # -looking table nobody can refresh is worse than an empty tab. It
+            # names which of the two halves is missing and puts that half's
+            # action first, because "not available" is not something anyone can
+            # act on - "the exe is not where I looked" and "the driver is not
+            # running" have completely different fixes.
             with dpg.group(tag="tim_needs", show=False):
-                dpg.add_text("REQUIRES NVTUNE  ·  a separate tool "
-                             "(github.com/sebastianmarrufo/nvtune), not "
-                             "shipped with Druta. Everything else in this app "
-                             "works without it.", color=ACCENT,
-                             wrap=self.s(1100))
-                # the specific degradation: which of the two halves is missing
+                dpg.add_spacer(height=self.s(20))
+                dpg.add_text("NVTUNE IS NOT LOADED", tag="tim_setup_head",
+                             color=BAD)
+                self.bind("tim_setup_head", "big")
+                dpg.add_spacer(height=self.s(6))
+                dpg.add_text("", tag="tim_setup_what", color=TEXT,
+                             wrap=self.s(980))
+                dpg.add_spacer(height=self.s(10))
+                # the specific degradation, from timings.available()
                 dpg.add_text("", tag="tim_reason", color=WARN,
-                             wrap=self.s(1100))
+                             wrap=self.s(980))
+                dpg.add_spacer(height=self.s(16))
+                dpg.add_text("", tag="tim_step1", color=ACCENT)
+                self.bind("tim_step1", "sel")
                 dpg.add_spacer(height=self.s(4))
-                # Its driver is test-signed, so it needs a machine in test
-                # signing mode. The button EXPLAINS before it offers - see
-                # open_testsign; the commands are shown, copiable, and the red
-                # one is dead unless the machine can actually take them.
-                dpg.add_button(label="Enable test signing...",
-                               tag="tim_testsign", width=self.s(220),
-                               callback=self.open_testsign)
+                with dpg.group(horizontal=True):
+                    dpg.add_button(label="Locate nvtune.exe...",
+                                   tag="tim_locate", height=self.s(34),
+                                   width=self.s(260),
+                                   callback=self.open_locate_nvtune)
+                    dpg.add_spacer(width=self.s(14))
+                    # Its driver is test-signed, so it needs a machine in test
+                    # signing mode. The button EXPLAINS before it offers - see
+                    # open_testsign; the commands are shown, copiable, and the
+                    # red one is dead unless the machine can take them.
+                    dpg.add_button(label="Enable test signing...",
+                                   tag="tim_testsign", height=self.s(34),
+                                   width=self.s(260),
+                                   callback=self.open_testsign)
+                dpg.add_spacer(height=self.s(16))
+                dpg.add_text(
+                    "nvtune is a separate program by Sebastian Marrufo, "
+                    "GPL-3.0-or-later, not shipped with Druta:",
+                    color=DIM, wrap=self.s(980))
+                dpg.add_input_text(tag="tim_upstream", readonly=True,
+                                   width=self.s(560),
+                                   default_value=timings.NVTUNE_HOME)
+                self.bind("tim_upstream", "mono")
+                dpg.add_spacer(height=self.s(10))
+                dpg.add_text(
+                    "Everything else in Druta works without it - only this tab "
+                    "needs BAR0. Its driver is self-signed, so loading it costs "
+                    "Secure Boot, Memory Integrity and driver-signature "
+                    "enforcement, machine-wide. Read what the button says "
+                    "before you use it.", color=DIM, wrap=self.s(980))
+            # EVERYTHING THE TAB DOES, in one group, so it can be taken
+            # off screen wholesale when nvtune is not loaded. A dead table
+            # over a dead write panel with one small band of explanation
+            # at the top is not a state anyone can act on; the setup panel
+            # above replaces it entirely.
+            with dpg.group(tag="tim_work"):
+                dpg.add_spacer(height=self.s(4))
+                dpg.add_text(self.TIM_READONLY, tag="tim_ro", color=DIM,
+                             wrap=self.s(1100))
+
+                # ---- header: the identity, and THE clock this decode is against #
+                with dpg.child_window(tag="pan_tim_hdr", width=-1,
+                                      height=self.s(104), border=True,
+                                      no_scrollbar=True, no_scroll_with_mouse=True):
+                    dpg.add_text("--", tag="tim_ident", color=ACCENT)
+                    dpg.add_text("--", tag="tim_clock")
+                    dpg.add_text("", tag="tim_warn", color=BAD, show=False,
+                                 wrap=self.s(1100))
+                    dpg.add_text("", tag="tim_words", color=DIM)
+                    for t in ("tim_ident", "tim_clock", "tim_words"):
+                        self.bind(t, "mono")
+
+                # NOT behind a collapsing header. It was, on the reasoning that a
+                # writing control should take a deliberate act to reach - but the
+                # act it actually gated was reading the warning, while the editable
+                # cells it describes sat in plain sight in the table below. A fold
+                # that hides the explanation and not the controls is worse than no
+                # fold, so the whole thing is exposed and the hazard text leads.
+                dpg.add_spacer(height=self.s(6))
+                dpg.add_text("EDIT TIMINGS  ·  writes to the memory controller",
+                             color=BAD)
+                dpg.add_text(self.TIM_WRITEWARN, color=BAD,
+                             wrap=self.s(1100), tag="tw_warn")
+                dpg.add_text("Edit the 'new value' column in the table below. A "
+                             "cell is green while it matches the register and red "
+                             "once it does not; only red rows are written.",
+                             color=DIM, wrap=self.s(1100), tag="tw_hint")
+                dpg.add_spacer(height=self.s(4))
+                dpg.add_text("no edits - every cell matches the register",
+                             tag="tw_plan", color=TEXT, wrap=self.s(1100))
+                dpg.add_spacer(height=self.s(4))
+                # Two rows, grouped by what the controls DO. `force` modifies Apply
+                # and belongs beside it; Revert and Restore are the two ways back
+                # and belong together. One ragged row mixing a checkbox with three
+                # different button widths is what this replaced.
+                with dpg.group(horizontal=True):
+                    dpg.add_button(label="Apply to memory controller",
+                                   tag="tw_apply", width=self.s(260),
+                                   callback=self.tw_apply)
+                    dpg.add_spacer(width=self.s(10))
+                    dpg.add_checkbox(label="force  (write despite range warnings)",
+                                     tag="tw_force")
+                dpg.add_spacer(height=self.s(2))
+                with dpg.group(horizontal=True):
+                    dpg.add_button(label="Revert edits", tag="tw_clear",
+                                   width=self.s(150), callback=self.tw_clear)
+                    dpg.add_spacer(width=self.s(10))
+                    dpg.add_button(label="Restore stock", tag="tw_restore",
+                                   width=self.s(150), callback=self.tw_restore)
+                dpg.add_spacer(height=self.s(6))
+                dpg.add_separator()
+                dpg.add_spacer(height=self.s(6))
+                # READ controls, sharing the write panel's block rather than a row
+                # of their own at the top of the tab. The separator above is what
+                # keeps them out of the red write block: nothing below it writes a
+                # register. (It was described here before it existed - the comment
+                # claimed a boundary the layout did not draw.)
+                with dpg.group(horizontal=True):
+                    # THE read button, and the only one that gets you a reading
+                    # worth having. Blue: it is the primary action on this tab, and
+                    # it is the one that changes the card's state.
+                    dpg.add_button(label="Read memory timings  (will hold P0)",
+                                   tag="tim_read", width=self.s(300),
+                                   callback=self.timings_read_p0)
+                    with dpg.theme() as read_th:
+                        with dpg.theme_component(dpg.mvAll):
+                            dpg.add_theme_color(dpg.mvThemeCol_Button, (26, 84, 152))
+                            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered,
+                                                (34, 108, 192))
+                            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive,
+                                                (44, 132, 232))
+                            dpg.add_theme_color(dpg.mvThemeCol_Text, (238, 245, 255))
+                    dpg.bind_item_theme("tim_read", read_th)
+                    with dpg.tooltip(dpg.last_item()):
+                        dpg.add_text(
+                            "Puts the card in its top memory band and reads the\n"
+                            "timing registers there - the only state whose timings\n"
+                            "mean anything.\n\n"
+                            "It HOLDS P0 with the V/F point lock, the same lock\n"
+                            "Ctrl+H uses, and LEAVES IT ON. That is deliberate:\n"
+                            "the band is still up afterwards, so 'Re-read timings'\n"
+                            "beside this becomes a cheap sanity check instead of\n"
+                            "another round trip. Ctrl+H, Release or 'Reset all to\n"
+                            "stock' drop the hold.\n\n"
+                            "If the hold cannot be taken - controls locked, no\n"
+                            "readable V/F curve - it falls back to a CUDA memcpy\n"
+                            "load and captures while that runs, which reaches the\n"
+                            "same band but only for as long as the load lasts.\n\n"
+                            "If the card is ALREADY at P0 it captures directly:\n"
+                            "measured, opening a CUDA context on a P0 card pulls\n"
+                            "it DOWN to P2.")
+                    dpg.add_spacer(width=self.s(10))
+                    # Demoted from "Capture" to what it is actually for. On its own
+                    # it usually samples idle, which is the error this whole tab
+                    # exists to prevent - it earns its place as the cheap re-read
+                    # once the blue button has the band held.
+                    dpg.add_button(label="Re-read timings", tag="tim_cap",
+                                   width=self.s(150), callback=self.timings_capture)
+                    with dpg.tooltip(dpg.last_item()):
+                        dpg.add_text(
+                            "Reads the registers again, right now, in whatever\n"
+                            "state the card happens to be in, and files the result\n"
+                            "under that memory clock.\n\n"
+                            "A SANITY CHECK, not the way to get a reading: on an\n"
+                            "idle card this returns idle timings, which say nothing\n"
+                            "about performance. Use the blue button for a reading\n"
+                            "worth having, then this to confirm it is stable.\n\n"
+                            "It is also how you capture a SECOND state to prove the\n"
+                            "decode: read held at P0, release, let the card idle,\n"
+                            "re-read. The comparison below then shows each field's\n"
+                            "cycle ratio beside the clock ratio.\n\n"
+                            "Nothing here writes to the GPU.")
+                    dpg.add_spacer(width=self.s(10))
+                    # Armed by default: the memory p-state cannot be forced on this
+                    # card, so catching the top band when it happens is worth
+                    # having on. Costs nothing while it waits.
+                    dpg.add_checkbox(label="Auto-capture at P0", tag="tim_auto",
+                                     default_value=True,
+                                     callback=self.timings_auto_toggled)
+                    with dpg.tooltip(dpg.last_item()):
+                        dpg.add_text(
+                            "Captures the first time the card reaches its top\n"
+                            "memory state, and again on each re-entry. Start a\n"
+                            "game and come back: a valid capture will be waiting.\n\n"
+                            "It reads. It never writes.")
+                dpg.add_text("", tag="tw_result", color=TEXT, wrap=self.s(1100))
+                dpg.add_text("", tag="tw_backup", color=DIM, wrap=self.s(1100))
                 dpg.add_spacer(height=self.s(4))
                 dpg.add_separator()
-            dpg.add_spacer(height=self.s(4))
-            dpg.add_text(self.TIM_READONLY, tag="tim_ro", color=DIM,
-                         wrap=self.s(1100))
 
-            # ---- header: the identity, and THE clock this decode is against #
-            with dpg.child_window(tag="pan_tim_hdr", width=-1,
-                                  height=self.s(104), border=True,
-                                  no_scrollbar=True, no_scroll_with_mouse=True):
-                dpg.add_text("--", tag="tim_ident", color=ACCENT)
-                dpg.add_text("--", tag="tim_clock")
-                dpg.add_text("", tag="tim_warn", color=BAD, show=False,
-                             wrap=self.s(1100))
-                dpg.add_text("", tag="tim_words", color=DIM)
-                for t in ("tim_ident", "tim_clock", "tim_words"):
-                    self.bind(t, "mono")
+                dpg.add_spacer(height=self.s(4))
+                with dpg.child_window(tag="pan_tim", width=-1, height=self.s(360)):
+                    dpg.add_text("DECODED TIMINGS  ·  broadcast aperture",
+                                 tag="tim_title", color=ACCENT)
+                    dpg.add_text("", tag="tim_sub", color=DIM, wrap=self.s(1100))
+                    dpg.add_separator()
+                    with dpg.table(tag="tim_table", header_row=True,
+                                   no_host_extendX=True,
+                                   policy=dpg.mvTable_SizingFixedFit,
+                                   borders_innerH=True, borders_innerV=True):
+                        self.tim_columns()
 
-            # NOT behind a collapsing header. It was, on the reasoning that a
-            # writing control should take a deliberate act to reach - but the
-            # act it actually gated was reading the warning, while the editable
-            # cells it describes sat in plain sight in the table below. A fold
-            # that hides the explanation and not the controls is worse than no
-            # fold, so the whole thing is exposed and the hazard text leads.
-            dpg.add_spacer(height=self.s(6))
-            dpg.add_text("EDIT TIMINGS  ·  writes to the memory controller",
-                         color=BAD)
-            dpg.add_text(self.TIM_WRITEWARN, color=BAD,
-                         wrap=self.s(1100), tag="tw_warn")
-            dpg.add_text("Edit the 'new value' column in the table below. A "
-                         "cell is green while it matches the register and red "
-                         "once it does not; only red rows are written.",
-                         color=DIM, wrap=self.s(1100), tag="tw_hint")
-            dpg.add_spacer(height=self.s(4))
-            dpg.add_text("no edits - every cell matches the register",
-                         tag="tw_plan", color=TEXT, wrap=self.s(1100))
-            dpg.add_spacer(height=self.s(4))
-            # Two rows, grouped by what the controls DO. `force` modifies Apply
-            # and belongs beside it; Revert and Restore are the two ways back
-            # and belong together. One ragged row mixing a checkbox with three
-            # different button widths is what this replaced.
-            with dpg.group(horizontal=True):
-                dpg.add_button(label="Apply to memory controller",
-                               tag="tw_apply", width=self.s(260),
-                               callback=self.tw_apply)
-                dpg.add_spacer(width=self.s(10))
-                dpg.add_checkbox(label="force  (write despite range warnings)",
-                                 tag="tw_force")
-            dpg.add_spacer(height=self.s(2))
-            with dpg.group(horizontal=True):
-                dpg.add_button(label="Revert edits", tag="tw_clear",
-                               width=self.s(150), callback=self.tw_clear)
-                dpg.add_spacer(width=self.s(10))
-                dpg.add_button(label="Restore stock", tag="tw_restore",
-                               width=self.s(150), callback=self.tw_restore)
-            dpg.add_spacer(height=self.s(6))
-            dpg.add_separator()
-            dpg.add_spacer(height=self.s(6))
-            # READ controls, sharing the write panel's block rather than a row
-            # of their own at the top of the tab. The separator above is what
-            # keeps them out of the red write block: nothing below it writes a
-            # register. (It was described here before it existed - the comment
-            # claimed a boundary the layout did not draw.)
-            with dpg.group(horizontal=True):
-                # THE read button, and the only one that gets you a reading
-                # worth having. Blue: it is the primary action on this tab, and
-                # it is the one that changes the card's state.
-                dpg.add_button(label="Read memory timings  (will hold P0)",
-                               tag="tim_read", width=self.s(300),
-                               callback=self.timings_read_p0)
-                with dpg.theme() as read_th:
-                    with dpg.theme_component(dpg.mvAll):
-                        dpg.add_theme_color(dpg.mvThemeCol_Button, (26, 84, 152))
-                        dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered,
-                                            (34, 108, 192))
-                        dpg.add_theme_color(dpg.mvThemeCol_ButtonActive,
-                                            (44, 132, 232))
-                        dpg.add_theme_color(dpg.mvThemeCol_Text, (238, 245, 255))
-                dpg.bind_item_theme("tim_read", read_th)
-                with dpg.tooltip(dpg.last_item()):
-                    dpg.add_text(
-                        "Puts the card in its top memory band and reads the\n"
-                        "timing registers there - the only state whose timings\n"
-                        "mean anything.\n\n"
-                        "It HOLDS P0 with the V/F point lock, the same lock\n"
-                        "Ctrl+H uses, and LEAVES IT ON. That is deliberate:\n"
-                        "the band is still up afterwards, so 'Re-read timings'\n"
-                        "beside this becomes a cheap sanity check instead of\n"
-                        "another round trip. Ctrl+H, Release or 'Reset all to\n"
-                        "stock' drop the hold.\n\n"
-                        "If the hold cannot be taken - controls locked, no\n"
-                        "readable V/F curve - it falls back to a CUDA memcpy\n"
-                        "load and captures while that runs, which reaches the\n"
-                        "same band but only for as long as the load lasts.\n\n"
-                        "If the card is ALREADY at P0 it captures directly:\n"
-                        "measured, opening a CUDA context on a P0 card pulls\n"
-                        "it DOWN to P2.")
-                dpg.add_spacer(width=self.s(10))
-                # Demoted from "Capture" to what it is actually for. On its own
-                # it usually samples idle, which is the error this whole tab
-                # exists to prevent - it earns its place as the cheap re-read
-                # once the blue button has the band held.
-                dpg.add_button(label="Re-read timings", tag="tim_cap",
-                               width=self.s(150), callback=self.timings_capture)
-                with dpg.tooltip(dpg.last_item()):
-                    dpg.add_text(
-                        "Reads the registers again, right now, in whatever\n"
-                        "state the card happens to be in, and files the result\n"
-                        "under that memory clock.\n\n"
-                        "A SANITY CHECK, not the way to get a reading: on an\n"
-                        "idle card this returns idle timings, which say nothing\n"
-                        "about performance. Use the blue button for a reading\n"
-                        "worth having, then this to confirm it is stable.\n\n"
-                        "It is also how you capture a SECOND state to prove the\n"
-                        "decode: read held at P0, release, let the card idle,\n"
-                        "re-read. The comparison below then shows each field's\n"
-                        "cycle ratio beside the clock ratio.\n\n"
-                        "Nothing here writes to the GPU.")
-                dpg.add_spacer(width=self.s(10))
-                # Armed by default: the memory p-state cannot be forced on this
-                # card, so catching the top band when it happens is worth
-                # having on. Costs nothing while it waits.
-                dpg.add_checkbox(label="Auto-capture at P0", tag="tim_auto",
-                                 default_value=True,
-                                 callback=self.timings_auto_toggled)
-                with dpg.tooltip(dpg.last_item()):
-                    dpg.add_text(
-                        "Captures the first time the card reaches its top\n"
-                        "memory state, and again on each re-entry. Start a\n"
-                        "game and come back: a valid capture will be waiting.\n\n"
-                        "It reads. It never writes.")
-            dpg.add_text("", tag="tw_result", color=TEXT, wrap=self.s(1100))
-            dpg.add_text("", tag="tw_backup", color=DIM, wrap=self.s(1100))
-            dpg.add_spacer(height=self.s(4))
-            dpg.add_separator()
+                dpg.add_spacer(height=self.s(4))
+                with dpg.child_window(tag="pan_cmp", width=-1, height=self.s(300)):
+                    dpg.add_text("CAPTURES COMPARED  ·  cycle ratio vs clock "
+                                 "ratio", color=ACCENT)
+                    dpg.add_text("", tag="cmp_hint", color=DIM, wrap=self.s(1100))
+                    dpg.add_text("", tag="cmp_legend", color=TEXT,
+                                 wrap=self.s(1100), show=False)
+                    dpg.add_separator()
+                    dpg.add_table(tag="cmp_table", header_row=True,
+                                  no_host_extendX=True,
+                                  policy=dpg.mvTable_SizingFixedFit,
+                                  borders_innerH=True, borders_innerV=True)
 
-            dpg.add_spacer(height=self.s(4))
-            with dpg.child_window(tag="pan_tim", width=-1, height=self.s(360)):
-                dpg.add_text("DECODED TIMINGS  ·  broadcast aperture",
-                             tag="tim_title", color=ACCENT)
-                dpg.add_text("", tag="tim_sub", color=DIM, wrap=self.s(1100))
-                dpg.add_separator()
-                with dpg.table(tag="tim_table", header_row=True,
-                               no_host_extendX=True,
-                               policy=dpg.mvTable_SizingFixedFit,
-                               borders_innerH=True, borders_innerV=True):
-                    self.tim_columns()
-
-            dpg.add_spacer(height=self.s(4))
-            with dpg.child_window(tag="pan_cmp", width=-1, height=self.s(300)):
-                dpg.add_text("CAPTURES COMPARED  ·  cycle ratio vs clock "
-                             "ratio", color=ACCENT)
-                dpg.add_text("", tag="cmp_hint", color=DIM, wrap=self.s(1100))
-                dpg.add_text("", tag="cmp_legend", color=TEXT,
-                             wrap=self.s(1100), show=False)
-                dpg.add_separator()
-                dpg.add_table(tag="cmp_table", header_row=True,
-                              no_host_extendX=True,
-                              policy=dpg.mvTable_SizingFixedFit,
-                              borders_innerH=True, borders_innerV=True)
-
-            dpg.add_spacer(height=self.s(4))
-            # Hidden while the partitions agree, which is the normal case on
-            # this card - six identical copies of the same table would bury the
-            # one line that actually matters.
-            with dpg.child_window(tag="pan_div", width=-1, height=self.s(150),
-                                  show=False):
-                dpg.add_text("PARTITION DIVERGENCE", color=BAD)
-                dpg.add_text("", tag="div_sub", color=DIM, wrap=self.s(1100))
-                dpg.add_separator()
-                dpg.add_table(tag="div_table", header_row=True,
-                              no_host_extendX=True,
-                              policy=dpg.mvTable_SizingFixedFit,
-                              borders_innerH=True, borders_innerV=True)
+                dpg.add_spacer(height=self.s(4))
+                # Hidden while the partitions agree, which is the normal case on
+                # this card - six identical copies of the same table would bury the
+                # one line that actually matters.
+                with dpg.child_window(tag="pan_div", width=-1, height=self.s(150),
+                                      show=False):
+                    dpg.add_text("PARTITION DIVERGENCE", color=BAD)
+                    dpg.add_text("", tag="div_sub", color=DIM, wrap=self.s(1100))
+                    dpg.add_separator()
+                    dpg.add_table(tag="div_table", header_row=True,
+                                  no_host_extendX=True,
+                                  policy=dpg.mvTable_SizingFixedFit,
+                                  borders_innerH=True, borders_innerV=True)
 
     def tim_columns(self):
         # parent named explicitly: these columns are re-created on every
@@ -5675,10 +5715,36 @@ deliberately does not put behind a button."""
             dpg.set_value("tim_induce_note", note)
         # ---- availability, named specifically ----------------------------- #
         bad = (av is not None and not av.ok)
-        # The REQUIRES NVTUNE banner is for people who do not have it. Shown
-        # unconditionally it shouted at the users it had nothing to tell.
+        # THE WHOLE TAB SWAPS. Setup screen or working tab, never both, and
+        # never a working tab that cannot work.
         dpg.configure_item("tim_needs", show=bad)
-        dpg.configure_item("tim_reason", show=bad)
+        dpg.configure_item("tim_work", show=not bad)
+        if bad:
+            # Which half is missing decides what the screen leads with. A
+            # missing exe is a deployment problem and Locate is the answer; a
+            # stopped driver is a code-signing problem and test signing is.
+            no_exe = not (av and av.exe)
+            dpg.set_value("tim_setup_head",
+                          "NVTUNE NOT FOUND" if no_exe
+                          else "NVTUNE'S DRIVER IS NOT RUNNING")
+            dpg.set_value(
+                "tim_setup_what",
+                "This tab reads and writes the framebuffer-partition memory "
+                "timing registers, and it does that through nvtune - a "
+                "separate program with its own kernel driver. Druta cannot "
+                "reach those registers on its own."
+                if no_exe else
+                "nvtune.exe was found, but its kernel driver is not running, "
+                "so nothing can reach BAR0 yet. The driver is signed with a "
+                "self-signed test certificate, which Windows will not load "
+                "unless the machine is in test signing mode.")
+            dpg.set_value("tim_step1",
+                          "Point Druta at it:" if no_exe
+                          else "Let Windows load its driver:")
+            # the action that is not the answer stays available but stops
+            # looking like the thing to press
+            dpg.configure_item("tim_locate", enabled=True)
+            dpg.configure_item("tim_testsign", enabled=True)
         if bad:
             dpg.set_value("tim_reason", av.reason + "\n\nThe tab is read-only "
                           "either way - nothing here can write a timing "
