@@ -92,7 +92,8 @@ import profiles
 import timings
 import timingwrite
 from nvbackend import (GPU, EVENT_REASONS, PERF_DECREASE_BITS, VF_STEP_KHZ,
-                       VFP_POINTS, below_cap, enumerate_gpus, same_slot,
+                       VFP_POINTS, below_cap, enumerate_gpus, is_admin,
+                       same_slot,
                        PRIV_CONFIRMED, PRIV_DOMAIN_ID, PRIV_LIKELY,
                        PRIV_N_DOMAINS, PRIV_PCIE_GEN, PRIV_UNNAMED,
                        PRIV_UNPOPULATED)
@@ -4167,6 +4168,68 @@ deliberately does not put behind a button."""
                          "so W/A/S/D typed into the cap, index or MHz box do not "
                          "also retune the curve.", color=DIM, wrap=self.s(580))
 
+        with dpg.window(label="Enable test signing", tag="win_testsign",
+                        show=False, modal=True, no_resize=False,
+                        width=self.s(860), height=self.s(620),
+                        pos=[self.s(140), self.s(90)]):
+            dpg.add_text("To load nvtune's driver, Windows must be in test "
+                         "signing mode.", color=ACCENT, wrap=self.s(820))
+            dpg.add_spacer(height=self.s(6))
+            dpg.add_text("Run these in an elevated CMD, with Secure Boot "
+                         "DISABLED in firmware:", wrap=self.s(820))
+            # copiable: a read-only multiline input is selectable and
+            # Ctrl+C-able, which a plain text item is not
+            dpg.add_input_text(tag="ts_cmds", multiline=True, readonly=True,
+                               width=-1, height=self.s(74),
+                               default_value="\n".join(
+                                   " ".join(c) for c in self.TESTSIGN_CMDS))
+            self.bind("ts_cmds", "mono")
+            dpg.add_text("Only the third one does the work. Microsoft "
+                         "documents `testsigning` as what makes Windows load "
+                         "test-signed kernel code; `nointegritychecks` is "
+                         "documented as ignored on modern Windows, and "
+                         "DISABLE_INTEGRITY_CHECKS is not a documented "
+                         "setting at all. The first two are here because they "
+                         "are the recipe known to work on this rig.",
+                         color=DIM, wrap=self.s(820))
+            dpg.add_spacer(height=self.s(6))
+            dpg.add_separator()
+            dpg.add_spacer(height=self.s(6))
+            dpg.add_text("", tag="ts_state", wrap=self.s(820))
+            dpg.add_spacer(height=self.s(4))
+            dpg.add_text("NOTHING TAKES EFFECT UNTIL YOU REBOOT.",
+                         color=WARN, wrap=self.s(820))
+            dpg.add_text(
+                "This lowers a kernel security boundary for the whole "
+                "machine, not just for Druta: any test-signed driver will "
+                "load afterwards, and Windows shows a Test Mode watermark. "
+                "To undo it, run the same shell with:", wrap=self.s(820))
+            dpg.add_input_text(tag="ts_undo", multiline=True, readonly=True,
+                               width=-1, height=self.s(74),
+                               default_value="\n".join(
+                                   " ".join(c) for c in self.TESTSIGN_UNDO))
+            self.bind("ts_undo", "mono")
+            dpg.add_spacer(height=self.s(8))
+            with dpg.group(horizontal=True):
+                dpg.add_button(label="OK", width=self.s(120),
+                               callback=lambda: dpg.configure_item(
+                                   "win_testsign", show=False))
+                dpg.add_spacer(width=self.s(16))
+                dpg.add_button(
+                    label="I accept the risk - run these commands now",
+                    tag="ts_run", width=self.s(430), callback=self.run_testsign)
+                with dpg.theme() as ts_th:
+                    with dpg.theme_component(dpg.mvAll):
+                        dpg.add_theme_color(dpg.mvThemeCol_Button, (140, 28, 32))
+                        dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered,
+                                            (180, 38, 42))
+                        dpg.add_theme_color(dpg.mvThemeCol_ButtonActive,
+                                            (212, 48, 52))
+                        dpg.add_theme_color(dpg.mvThemeCol_Text, (255, 236, 236))
+                dpg.bind_item_theme("ts_run", ts_th)
+            dpg.add_spacer(height=self.s(4))
+            dpg.add_text("", tag="ts_result", wrap=self.s(820))
+
         with dpg.window(label="Licences", tag="win_licence", show=False,
                         width=self.s(860), height=self.s(640),
                         pos=[self.s(120), self.s(90)]):
@@ -4333,16 +4396,27 @@ deliberately does not put behind a button."""
             # buried in the read-only paragraph: this is the only tab that
             # does nothing at all without a second program installed, and the
             # tab label alone is easy to miss once the tab is open.
-            dpg.add_text("REQUIRES NVTUNE  ·  a separate tool "
-                         "(github.com/sebastianmarrufo/nvtune), not shipped "
-                         "with Druta. Everything else in this app works "
-                         "without it.", tag="tim_needs", color=ACCENT,
-                         show=False, wrap=self.s(1100))
+            with dpg.group(tag="tim_needs", show=False):
+                dpg.add_text("REQUIRES NVTUNE  ·  a separate tool "
+                             "(github.com/sebastianmarrufo/nvtune), not "
+                             "shipped with Druta. Everything else in this app "
+                             "works without it.", color=ACCENT,
+                             wrap=self.s(1100))
+                # the specific degradation: which of the two halves is missing
+                dpg.add_text("", tag="tim_reason", color=WARN,
+                             wrap=self.s(1100))
+                dpg.add_spacer(height=self.s(4))
+                # Its driver is test-signed, so it needs a machine in test
+                # signing mode. The button EXPLAINS before it offers - see
+                # open_testsign; the commands are shown, copiable, and the red
+                # one is dead unless the machine can actually take them.
+                dpg.add_button(label="Enable test signing...",
+                               tag="tim_testsign", width=self.s(220),
+                               callback=self.open_testsign)
+                dpg.add_spacer(height=self.s(4))
+                dpg.add_separator()
             dpg.add_spacer(height=self.s(4))
             dpg.add_text(self.TIM_READONLY, tag="tim_ro", color=DIM,
-                         wrap=self.s(1100))
-            # the specific degradation: which of the two halves is missing
-            dpg.add_text("", tag="tim_reason", color=WARN, show=False,
                          wrap=self.s(1100))
 
             # ---- header: the identity, and THE clock this decode is against #
@@ -4718,6 +4792,82 @@ deliberately does not put behind a button."""
         self._tw_pending = {}
         self.tw_plan()
         self.timings_capture()
+
+    def open_testsign(self, sender=None, app_data=None, user_data=None):
+        """Open the dialog, and decide THERE whether the red button is live.
+
+        Every gate is re-read on each open rather than cached: Secure Boot can
+        be turned off in firmware and the machine rebooted between one look at
+        this dialog and the next, and a stale answer would either block a
+        legitimate press or offer one that is going to fail."""
+        sb = self.secure_boot_state()
+        bl = self.bitlocker_on()
+        admin = is_admin()
+        lines, blocked = [], []
+        if sb is True:
+            lines.append("Secure Boot is ON. These commands cannot be applied "
+                         "while it is - Windows refuses nointegritychecks "
+                         "outright. Turn it off in firmware first.")
+            blocked.append("secure boot")
+        elif sb is False:
+            lines.append("Secure Boot: OFF (checked, not assumed).")
+        else:
+            lines.append("Secure Boot state could not be read on this machine. "
+                         "Confirm it is off yourself before running these.")
+        if not admin:
+            lines.append("Druta is NOT running as administrator - bcdedit "
+                         "will refuse. Restart it elevated.")
+            blocked.append("not elevated")
+        if bl:
+            lines.append(f"BITLOCKER IS ON ({bl}). Changing boot "
+                         f"configuration can force a recovery-key prompt at "
+                         f"the next boot. Suspend BitLocker first, and have "
+                         f"your recovery key to hand before you reboot.")
+        elif bl is None:
+            lines.append("BitLocker status could not be read. If any volume is "
+                         "protected, suspend it first - a boot-config change "
+                         "can trigger a recovery-key prompt.")
+        dpg.set_value("ts_state", "\n".join(lines))
+        dpg.configure_item("ts_state",
+                           color=BAD if blocked else (WARN if bl else GOOD))
+        dpg.configure_item("ts_run", enabled=not blocked)
+        dpg.set_value("ts_result", "")
+        dpg.configure_item("win_testsign", show=True)
+        dpg.focus_item("win_testsign")
+
+    def run_testsign(self, sender=None, app_data=None, user_data=None):
+        """Run the three commands, report each one honestly.
+
+        Refuses again here rather than trusting the button's enabled state -
+        the dialog can sit open while the machine changes underneath it, and
+        this is a boot-configuration write."""
+        if self.secure_boot_state() is True or not is_admin():
+            dpg.set_value("ts_result",
+                          "refused: re-checked at the click and the machine is "
+                          "not ready (Secure Boot on, or not elevated).")
+            dpg.configure_item("ts_result", color=BAD)
+            return
+        out, bad = [], 0
+        for cmd in self.TESTSIGN_CMDS:
+            shown = " ".join(cmd)
+            try:
+                r = subprocess.run(cmd, capture_output=True, text=True,
+                                   timeout=30,
+                                   creationflags=getattr(
+                                       subprocess, "CREATE_NO_WINDOW", 0))
+                msg = ((r.stdout or "") + (r.stderr or "")).strip() or "ok"
+                ok = r.returncode == 0
+            except (OSError, subprocess.SubprocessError) as e:
+                ok, msg = False, str(e)
+            bad += (not ok)
+            out.append(f"{'ok  ' if ok else 'FAIL'}  {shown}\n        {msg}")
+            self.log(f"testsigning: {shown} -> {msg}", ok)
+        out.append("")
+        out.append("REBOOT for any of this to take effect." if not bad else
+                   "Some commands failed - nothing may have changed. Read the "
+                   "messages above before rebooting.")
+        dpg.set_value("ts_result", "\n".join(out))
+        dpg.configure_item("ts_result", color=BAD if bad else WARN)
 
     # ---- switching cards --------------------------------------------------- #
     def reset_card_state(self):
@@ -5391,12 +5541,18 @@ deliberately does not put behind a button."""
         # The loud case is an IDLE capture. A P2 capture is bit-identical to a
         # P0 one on this card, so calling it second-rate would be its own
         # false-authority error - the exact thing this banner exists to stop.
+        # ONLY WHEN IT IS WRONG. A capture in the top band needs no sentence -
+        # the title line below already says which band it is in, and a green
+        # paragraph confirming success on every read is the noise that made
+        # this banner worth trimming in the first place. What must never be
+        # quiet is a capture taken OUTSIDE the band, because that is an
+        # authoritative-looking table measured in a state nobody runs work in.
         band = snap.perf_band
-        dpg.set_value("tim_state", ("✔ " if band else "⚠ ")
-                      + snap.state_headline)
-        dpg.configure_item("tim_state",
-                           color=GOOD if band else (WARN if band is None
-                                                    else BAD))
+        dpg.configure_item("tim_state", show=not band)
+        if not band:
+            dpg.set_value("tim_state", "⚠ " + snap.state_headline)
+            dpg.configure_item("tim_state",
+                               color=WARN if band is None else BAD)
         dpg.set_value("tim_title", (
             f"DECODED TIMINGS  ·  broadcast aperture  ·  "
             f"{snap.state_tag}, top clock band" if band else
@@ -5652,6 +5808,67 @@ deliberately does not put behind a button."""
                     f"licence text, and the project repository for the "
                     f"third-party notices.")
 
+    # ---- test signing, which nvtune's driver needs -------------------------- #
+    # Exactly what gets run, in order, as one copiable block. THE THIRD ONE IS
+    # THE LOAD-BEARING COMMAND: Microsoft documents `testsigning` as what makes
+    # Windows "load any type of test-signed kernel-mode code", and documents
+    # `nointegritychecks` as "ignored by Windows 7 and Windows 8" and as
+    # something that "cannot be set when secure boot is enabled".
+    # DISABLE_INTEGRITY_CHECKS is not a documented datatype at all. The first
+    # two are kept because they are the recipe that is known to work on the rig
+    # this was written for - but the dialog says which one does the work rather
+    # than teaching all three as equals.
+    TESTSIGN_CMDS = [
+        ["bcdedit", "/set", "loadoptions", "DISABLE_INTEGRITY_CHECKS"],
+        ["bcdedit", "/set", "nointegritychecks", "on"],
+        ["bcdedit", "/set", "TESTSIGNING", "ON"],
+    ]
+    TESTSIGN_UNDO = [
+        ["bcdedit", "/deletevalue", "loadoptions"],
+        ["bcdedit", "/set", "nointegritychecks", "off"],
+        ["bcdedit", "/set", "TESTSIGNING", "OFF"],
+    ]
+
+    @staticmethod
+    def _ps(script):
+        """One short PowerShell probe. Returns stdout, or "" on any failure."""
+        try:
+            r = subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                 script], capture_output=True, text=True, timeout=25,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            return (r.stdout or "").strip()
+        except (OSError, subprocess.SubprocessError):
+            return ""
+
+    def secure_boot_state(self):
+        """True / False / None(unknown). CHECKED, not asserted.
+
+        The red button used to ask the operator to promise Secure Boot was
+        off. It can be read instead, and it must be: Microsoft documents that
+        nointegritychecks "cannot be set when secure boot is enabled", so a
+        wrong promise buys a half-applied boot configuration and a confusing
+        error rather than an honest refusal."""
+        out = self._ps("try { [string](Confirm-SecureBootUEFI) } "
+                       "catch { 'UNKNOWN' }").lower()
+        return True if out == "true" else (False if out == "false" else None)
+
+    def bitlocker_on(self):
+        """Any volume with protection ON, or None if it cannot be determined.
+
+        This is the failure here that costs DATA rather than security posture:
+        Microsoft's own bcdedit page says to suspend BitLocker before changing
+        boot options, because the change can force a recovery-key prompt at
+        next boot. Someone without their key is locked out of the machine."""
+        out = self._ps(
+            "try { $v = Get-BitLockerVolume -ErrorAction Stop | "
+            "Where-Object { $_.ProtectionStatus -ne 'Off' }; "
+            "if ($v) { ($v.MountPoint) -join ',' } else { 'NONE' } } "
+            "catch { 'UNKNOWN' }")
+        if not out or out == "UNKNOWN":
+            return None
+        return "" if out == "NONE" else out
+
     def build_ui(self, rebuild=False):
         """Build (or rebuild) everything that depends on which card this is.
 
@@ -5680,7 +5897,7 @@ deliberately does not put behind a button."""
             self._ctl_widgets = []
             for tag in ("hdr_row", "tabs", "menubar", "win_device", "win_save",
                         "win_profiles", "win_keys", "win_about",
-                        "win_licence"):
+                        "win_licence", "win_testsign"):
                 if dpg.does_item_exist(tag):
                     dpg.delete_item(tag)
         before = set(dpg.get_all_items())

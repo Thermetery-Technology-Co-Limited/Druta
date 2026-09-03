@@ -758,6 +758,14 @@ is what installing its driver costs you.
 
 ### What the Timings tab actually costs
 
+If nvtune is not found, the tab offers an **Enable test signing…** button
+rather than a wall of text. It shows the exact commands, copiable, says which
+one actually does the work, and only then offers a red button that runs them.
+That button is **dead unless the machine can take them** — Secure Boot is
+checked with `Confirm-SecureBootUEFI` rather than asserted by the user, and
+elevation is checked too. BitLocker is reported if it is on, because a
+boot-config change can force a recovery-key prompt at next boot.
+
 `nvtunedrv.sys` is **signed with a self-signed test certificate**
 (`CN=nvtune test signing`, issuer identical to subject) — not a WHQL or
 attestation signature. It will not load on a stock Windows machine. Making it
