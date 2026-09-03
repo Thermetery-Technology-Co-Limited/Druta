@@ -1,4 +1,6 @@
-How to use Druta (from Sanskrit *druta* meaning fast, and in Hindu performing art, “rapid shift (of expressions)", which is perfect for what it is):
+How to use Druta:
+
+Druta is from Sanskrit *druta* meaning fast. In Hindu performing art, it can also denote a “rapid shift (of expressions)", which is perfect for what this project is. 
 
 # I. Hotkeys built for gamers:
 
@@ -35,12 +37,14 @@ That means you should just overclock the crap out of your core like everyone els
 
 ## 5. Shunt mod corrected power
 
-It currently lives under taskbar > Device > `Shunt mod corrected power`. Simply type in the new effective resistance value to correct the power reading. 
+It currently lives under taskbar > Device > `Shunt mod corrected power`. Simply type in the new effective resistance value to correct the power reading. Planned in the next release is a better per rail calibration. 
 
 # III. How to load `nvtune`?
 
-`nvtune` is shipped by Seby. You must enable test signing for it to work on your machine. 
+`nvtune` is shipped by Seby. You must enable test signing for it to work on your machine. Druta can hunt for it on your desktop and will load it automatically. Druta is an offline tool. It does not download or upload anything.  
 
 You should almost always use `Read memory timings (will hold P0)` (blue) because changing P states can change timings, and reading/changing memory timing when the card is idling at P16 is useless for your endeavors. `read timing` is for sanity checks after you have applied your changes. 
 
 `Load nvtune` and `Enable Test Signing` are conspicuously displayed when nvtune isn't loaded.  
+
+Once `nvtune` EXE is loaded, these buttons move up to the `Device` menus on the taskbar. 
