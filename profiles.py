@@ -291,7 +291,15 @@ def restore(gpu, state, apply_curve=True):
     # policy was the temperature curve - or is simply unknown - hand control
     # back to the driver rather than freezing a captured duty.
     manual, fan = state.get("fan_manual"), state.get("fan_pct")
-    if manual and fan is not None:
+    fan_min = (getattr(gpu, "static", {}) or {}).get("fan_min")
+    if manual and fan is not None and fan_min is not None and fan < fan_min:
+        # A captured duty BELOW the hardware minimum is the zero-RPM idle
+        # curve, which the driver reports as "manual" at 0%. set_fan refuses it
+        # ("0% below hardware minimum 41%") and the fans would then be left
+        # wherever the write that is being undone had put them - at 100% after
+        # a 'Max it'. Auto IS what 0% meant, so hand control back.
+        step(f"fan (captured {fan}% is the zero-RPM curve)", gpu.reset_fan)
+    elif manual and fan is not None:
         step("fan", lambda: gpu.set_fan(int(fan)))
     elif manual is False:
         step("fan", gpu.reset_fan)

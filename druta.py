@@ -1009,14 +1009,19 @@ class Druta:
                         "  1. fan            -> 100%\n"
                         "  2. power limit    -> this card's maximum\n"
                         "  3. voltage boost  -> 100%\n"
-                        "  4. V/F curve      -> de-flatten, then apply\n\n"
+                        "  4. V/F curve      -> de-flatten, apply, then hold\n"
+                        "                       the cap point (same as Ctrl+H)\n\n"
                         "Headroom first, clocks last: cooling before the power\n"
                         "budget rises, budget before the extra voltage spends\n"
                         "it, and the curve last because it is the only step\n"
                         "that asks for more clock.\n\n"
-                        "ONE undo point covers all four - Profiles > Undo last\n"
-                        "write puts it back. 'Reset all to stock' beside this\n"
-                        "returns everything to factory.\n\n"
+                        "ONE undo point covers the four WRITES - Profiles >\n"
+                        "Undo last write puts them back.\n\n"
+                        "IT DOES NOT RELEASE THE HOLD. A lock is driver state,\n"
+                        "not a profile value, so Undo leaves the card pinned.\n"
+                        "Press Ctrl+H, the Release button, or 'Reset all to\n"
+                        "stock' - which returns everything to factory AND\n"
+                        "drops the hold.\n\n"
                         "Steps are independent: a card that refuses one still\n"
                         "gets the rest, and each outcome is logged.\n\n"
                         "The fans stay at 100% MANUAL until you press Auto or\n"
@@ -1204,8 +1209,13 @@ class Druta:
     # ---- the opening ritual, in one click --------------------------------- #
     def oc_max(self, sender=None, app_data=None, user_data=None):
         """Fan 100%, power limit to its ceiling, voltage boost 100%,
-        de-flatten and apply the curve. The four things done by hand at the
-        start of every session, in the order that keeps them safe.
+        de-flatten and apply the curve, then hold the cap point the way Ctrl+H
+        does. The session-opening ritual, in the order that keeps it safe.
+
+        THE HOLD IS WHAT MAKES THE REST STICK. A de-flattened curve is a SHAPE;
+        without a hold the arbiter still chooses where to sit on it, and it
+        picks the lowest voltage of any peak-frequency flat run - the very
+        behaviour de-flatten exists to work around.
 
         THE ORDER IS THE POINT. Headroom first, clocks last: fan before power
         so the cooling is already up when the budget rises, power before
@@ -1213,8 +1223,12 @@ class Druta:
         because it is the only step that asks for more clock. Reversed, each
         step spends headroom the next one is still about to provide.
 
-        ONE undo point covers the whole sequence - vf_apply is called with
-        autosave=False so it does not take a second. That matters: 'Undo last
+        ONE undo point covers the four WRITES - vf_apply is called with
+        autosave=False so it does not take a second. It does NOT cover the
+        hold: a lock is driver state and profiles.capture deliberately does
+        not record one, so 'Undo last write' leaves the card pinned. Ctrl+H,
+        Release, or 'Reset all to stock' drop it. Verified on hardware - the
+        lock reads back as still in force after an undo. That matters: 'Undo last
         write' loads the NEWEST autosave, so a second point taken after the
         three knobs had already moved would undo only the curve and leave fan,
         power and voltage maxed, which is precisely what this promises not to
@@ -1266,10 +1280,20 @@ class Druta:
                          f"Revert them first. This button will not write a "
                          f"plan it did not make. Nothing was changed.", False)
                 return
-            self.vf_deflatten()
-            # De-flatten works BELOW the voltage cap in the vcap box, so "max"
-            # is bounded by whatever is in it. Name the number rather than let
-            # the button quietly mean something different session to session.
+            # vf_RAMP, not vf_deflatten. The two are named the opposite way
+            # round from the buttons: the control labelled "De-flatten" is
+            # go_ramp -> vf_ramp, which rebuilds every point from the floor up
+            # to the cap; vf_deflatten is the DEMOTED narrow one, sitting in
+            # the Clocks menu as "Limited de-flatten". Picking by method name
+            # got the wrong planner - "Max it" reported "idx 103 is already
+            # the unique top - nothing to do" and left all 14 flat runs below
+            # the cap exactly where they were. The curve was not de-flattened,
+            # which is precisely what the button promised to do.
+            self.vf_ramp()
+            # The ramp works BETWEEN the floor and the voltage cap in the two
+            # boxes, so "max" is bounded by them. Name the numbers rather than
+            # let the button quietly mean something different session to
+            # session.
             cap = dpg.get_value("vcap")
             plan = self.apply_plan()
             # A peak-lowering plan is DISCLOSED, not refused. Refusing was the
@@ -1322,15 +1346,42 @@ class Druta:
              lambda: self.gpu.set_voltage_boost(100), "sl_volt", 100)
 
         if curve:
-            self.log(f"max: de-flatten below {cap:.1f} mV", None)
+            self.log(f"max: de-flatten up to {cap:.1f} mV", None)
             # autosave=False: the point above already covers all four. A second
             # one here would be the NEWEST, and 'Undo last write' reads the
             # newest - so one press would put the curve back while leaving fan,
             # power and voltage maxed.
             self.vf_apply(autosave=False)
+            self.hold_cap_point(cap)
         else:
             self.log("max: curve not readable on this card - the other three "
                      "still applied", False)
+
+    def hold_cap_point(self, cap):
+        """Final step: pin the card on the cap point, the way Ctrl+H does.
+
+        Without this the ritual sets a shape and then leaves the arbiter to
+        choose where on it to sit - and the arbiter runs the LOWEST voltage of
+        any peak-frequency flat run, which is the behaviour the de-flatten
+        exists to work around rather than something to trust afterwards. The
+        point lock is what makes the card actually hold the top: measured, it
+        keeps true P0 on an idle card where the NVML clock lock leaves memory
+        at 810.
+
+        Selects the highest point AT OR BELOW the cap - the same below_cap()
+        rule the planner and the readouts use, so the point held is the point
+        the plan was built around. Goes through hold_point() rather than
+        calling the driver directly, so the on-screen hold record, the handover
+        from any existing lock and the read-back all stay in one place."""
+        pts = self.work_pts() or []
+        under = [p for p in pts if below_cap(p["volt_mv"], cap)]
+        if not under:
+            self.log(f"max: no V/F point at or below {cap:.1f} mV to hold",
+                     False)
+            return
+        top = max(under, key=lambda p: p["volt_mv"])
+        self.vf_select(top["idx"])
+        self.hold_point()
 
     # ---- the two lock mechanisms ------------------------------------------ #
     # The card can be pinned two completely different ways, and neither driver

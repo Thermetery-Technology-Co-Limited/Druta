@@ -296,7 +296,7 @@ at the start of a session:
 | 1 | fan | 100% |
 | 2 | power limit | this card's maximum |
 | 3 | voltage boost | 100% |
-| 4 | V/F curve | de-flatten, then apply |
+| 4 | V/F curve | de-flatten, apply, then hold the cap point |
 
 **Headroom first, clocks last.** Cooling before the power budget rises, budget
 before the extra voltage spends it, curve last because it is the only step
@@ -310,7 +310,15 @@ the case that makes that a safety rule rather than tidiness — and it refuses i
 the de-flatten would *lower* the peak clock, which is definitionally not what a
 button called Max it is for. Both leave the card untouched.
 
-**One undo point covers all four.** `vf_apply` is called with `autosave=False`
+**The hold is what makes the rest stick.** A de-flattened curve is a *shape*;
+without a hold the arbiter still chooses where to sit on it, and it picks the
+lowest voltage of any peak-frequency flat run — the very behaviour de-flatten
+exists to work around. The final step is the same V/F point lock `Ctrl+H`
+applies, on the highest point at or below the cap.
+
+**One undo point covers the four writes** — but *not* the hold. A lock is
+driver state, not a profile value, so `Undo last write` leaves the card pinned;
+`Ctrl+H`, Release, or `Reset all to stock` drop it. `vf_apply` is called with `autosave=False`
 so it does not take a second one: `Profiles → Undo last write` loads the
 *newest* snapshot, so a second point taken after the three knobs had moved
 would undo only the curve and leave fan, power and voltage maxed.
