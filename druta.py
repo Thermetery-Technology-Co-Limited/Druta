@@ -5173,24 +5173,98 @@ deliberately does not put behind a button."""
         return [sys.executable, script, "--gpu", slot]
 
     # ---- locating nvtune, which this build does not ship ------------------ #
+    @staticmethod
+    def pick_file_native(title, initial_dir="", filename="", spec=()):
+        """The WINDOWS file picker, through comdlg32.GetOpenFileNameW.
+
+        Dear PyGui's own file dialog is not usable for this. It renders drives
+        as a row of unlabelled buttons ("+ R Drives E C: Users"), has no
+        breadcrumb, no places bar, no typing a path, and no shell integration -
+        so finding a file outside the default directory is a guessing game. The
+        native dialog is the one people already know how to drive.
+
+        ctypes rather than tkinter: tkinter is not in the frozen build (see
+        Druta.spec - no _tkinter.pyd in the bundle) and pulling it in to draw
+        one dialog would be a strange dependency. comdlg32 is already loaded in
+        every Windows process.
+
+        Returns (path, error). Cancel is ("", ""); a real failure carries its
+        reason, because a picker that silently returns nothing is
+        indistinguishable from a user pressing Cancel - and that is exactly how
+        a NameError in this function hid behind a bare except during
+        development."""
+        try:
+            class OFN(ctypes.Structure):
+                _fields_ = [
+                    ("lStructSize", ctypes.c_uint32),
+                    ("hwndOwner", ctypes.c_void_p),
+                    ("hInstance", ctypes.c_void_p),
+                    ("lpstrFilter", ctypes.c_wchar_p),
+                    ("lpstrCustomFilter", ctypes.c_wchar_p),
+                    ("nMaxCustFilter", ctypes.c_uint32),
+                    ("nFilterIndex", ctypes.c_uint32),
+                    ("lpstrFile", ctypes.c_wchar_p),
+                    ("nMaxFile", ctypes.c_uint32),
+                    ("lpstrFileTitle", ctypes.c_wchar_p),
+                    ("nMaxFileTitle", ctypes.c_uint32),
+                    ("lpstrInitialDir", ctypes.c_wchar_p),
+                    ("lpstrTitle", ctypes.c_wchar_p),
+                    ("Flags", ctypes.c_uint32),
+                    ("nFileOffset", ctypes.c_uint16),
+                    ("nFileExtension", ctypes.c_uint16),
+                    ("lpstrDefExt", ctypes.c_wchar_p),
+                    ("lCustData", ctypes.c_void_p),
+                    ("lpfnHook", ctypes.c_void_p),
+                    ("lpTemplateName", ctypes.c_wchar_p),
+                    ("pvReserved", ctypes.c_void_p),
+                    ("dwReserved", ctypes.c_uint32),
+                    ("FlagsEx", ctypes.c_uint32)]
+
+            # the filter is a run of NUL-separated pairs ending in a double NUL
+            flt = "".join(f"{label}\0{pattern}\0" for label, pattern in
+                          (spec or (("All files", "*.*"),))) + "\0"
+            buf = ctypes.create_unicode_buffer(filename or "", 4096)
+            ofn = OFN()
+            ofn.lStructSize = ctypes.sizeof(OFN)
+            ofn.lpstrFilter = flt
+            ofn.lpstrFile = ctypes.cast(buf, ctypes.c_wchar_p)
+            ofn.nMaxFile = 4096
+            ofn.lpstrInitialDir = initial_dir or None
+            ofn.lpstrTitle = title
+            # EXPLORER gives the modern shell dialog; FILEMUSTEXIST and
+            # PATHMUSTEXIST make it reject a typo rather than hand back a path
+            # to nothing; NOCHANGEDIR stops it moving OUR working directory,
+            # which would quietly break every relative path in the process.
+            ofn.Flags = 0x00080000 | 0x00001000 | 0x00000800 | 0x00000008
+            if ctypes.windll.comdlg32.GetOpenFileNameW(ctypes.byref(ofn)):
+                return buf.value, ""
+        except Exception as e:                                  # noqa: BLE001
+            return "", f"{type(e).__name__}: {e}"
+        return "", ""
+
     def open_locate_nvtune(self, sender=None, app_data=None, user_data=None):
         """Browse to an nvtune.exe and remember where it is.
 
-        Recreated per open rather than built once: DPG file dialogs keep the
-        directory they were last closed in, and a stale one reopens somewhere
-        the user has since moved away from."""
-        if dpg.does_item_exist("dlg_nvtune"):
-            dpg.delete_item("dlg_nvtune")
+        Runs the picker on a worker thread. GetOpenFileNameW is modal and
+        blocks until it closes; on the UI thread that would stop
+        render_dearpygui_frame for as long as the dialog is open, leaving a
+        frozen, non-repainting window behind it - which reads as a hang."""
         cur = timings.find_exe()
-        with dpg.file_dialog(tag="dlg_nvtune", directory_selector=False,
-                             modal=True, width=self.s(760), height=self.s(430),
-                             default_path=(os.path.dirname(cur) if cur
-                                           else os.path.expanduser("~")),
-                             default_filename=timings.NVTUNE_EXE,
-                             callback=self.locate_nvtune_done,
-                             cancel_callback=lambda *a: None):
-            dpg.add_file_extension(".exe", color=(150, 220, 150))
-            dpg.add_file_extension(".*")
+        start = os.path.dirname(cur) if cur else os.path.expanduser("~")
+
+        def worker():
+            path, err = self.pick_file_native(
+                "Locate nvtune.exe", start, timings.NVTUNE_EXE,
+                ((f"nvtune ({timings.NVTUNE_EXE})", timings.NVTUNE_EXE),
+                 ("Executables (*.exe)", "*.exe"),
+                 ("All files (*.*)", "*.*")))
+            if err:
+                self.log(f"file picker failed: {err}", False)
+            elif path:
+                self.locate_nvtune_done(app_data={"file_path_name": path})
+
+        threading.Thread(target=worker, daemon=True,
+                         name="Druta-filedlg").start()
 
     def locate_nvtune_done(self, sender=None, app_data=None, user_data=None):
         path = (app_data or {}).get("file_path_name") or ""
