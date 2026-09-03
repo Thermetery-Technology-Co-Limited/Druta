@@ -6043,7 +6043,11 @@ deliberately does not put behind a button."""
             # menu is where you put things people look for, not things they
             # need to see. Large, because it is the label for the whole window.
             dpg.add_spacer(width=self.s(24))
-            dpg.add_text("card", color=DIM)
+            # Same font as the combo it labels. At the body size it read as a
+            # caption on a control three times its height, which made the pair
+            # look like an afterthought rather than the header's main control.
+            dpg.add_text("card", tag="hdr_card_lbl", color=DIM)
+            self.bind("hdr_card_lbl", "sel")
             dpg.add_combo(self.card_labels(), tag="hdr_card",
                           default_value=self.card_label(self.gpu.slot()),
                           width=self.s(420), callback=self.on_pick_card)
