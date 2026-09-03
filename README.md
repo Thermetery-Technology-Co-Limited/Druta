@@ -46,9 +46,12 @@ Druta.exe --gpu 0000:02:00.0   # open on that card
 ```
 
 With no `--gpu`, Druta opens on the **lowest PCI slot** — a property of the
-machine, not of whichever order a driver happened to enumerate in. In the window
-the picker is **Device → Card**, and the chosen card is in the title bar
-whenever more than one is present.
+machine, not of whichever order a driver happened to enumerate in. In the
+window the picker is the **large dropdown in the header**, and the chosen card
+is in the title bar whenever more than one is present. It is not in a menu on
+purpose: every control in the window is pointed at exactly one GPU and means
+different numbers on a different one, so which card is selected is something
+you need to *see*, not something you go looking for.
 
 **The switch happens in place**, and works by *rebuilding* the header and the
 three tabs against the new card rather than by patching the widgets that hold
@@ -60,7 +63,7 @@ windows, the About box's grid figure. A patch list would have to be kept in step
 with every widget added later; re-running the builders re-derives all of them
 through the same code that got them right at startup, and cannot fall behind.
 
-`Device → Card → Open a second window on…` still starts a separate process, for
+`Device → Open a second window on…` still starts a separate process, for
 watching both cards at once — and it is the only way to hold a lock on one card
 while tuning the other.
 
@@ -278,6 +281,45 @@ this; it is recorded measurement.
 ---
 
 # Control
+
+The first tab, because it is what the app is opened to do. Monitor is second,
+Timings third and labelled — it is the only tab that needs a separate program
+installed to do anything at all.
+
+## Max it
+
+One button beside `Reset all to stock`, doing the four things people do by hand
+at the start of a session:
+
+| order | knob | to |
+|---|---|---|
+| 1 | fan | 100% |
+| 2 | power limit | this card's maximum |
+| 3 | voltage boost | 100% |
+| 4 | V/F curve | de-flatten, then apply |
+
+**Headroom first, clocks last.** Cooling before the power budget rises, budget
+before the extra voltage spends it, curve last because it is the only step
+asking for more clock. Reversed, each step spends headroom the next one is
+about to provide.
+
+**Everything is validated before anything is written**, so a refusal costs
+nothing. It refuses outright if V/F edits are already staged — it will not
+write a plan it did not make, and a *hard* de-flatten left staged for a look is
+the case that makes that a safety rule rather than tidiness — and it refuses if
+the de-flatten would *lower* the peak clock, which is definitionally not what a
+button called Max it is for. Both leave the card untouched.
+
+**One undo point covers all four.** `vf_apply` is called with `autosave=False`
+so it does not take a second one: `Profiles → Undo last write` loads the
+*newest* snapshot, so a second point taken after the three knobs had moved
+would undo only the curve and leave fan, power and voltage maxed.
+
+Two things it does not do: the fans stay at **100% manual** until `Auto` or
+`Reset all to stock` — they do not ramp back down — and de-flatten works
+*below* the voltage cap in the V/F editor's cap box, so that box bounds what
+"max" means. The log names the cap it used.
+
 
 Core and memory clock offsets, power limit, voltage boost, fan duty (with an
 Auto button that restores the curve), and the GPU clock lock. All writes sit

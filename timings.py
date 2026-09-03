@@ -1016,26 +1016,29 @@ class Snapshot:
         moved = ("" if self.mem_stable else
                  f", and it moved to {self.mem_after} mid-capture")
         if not self.perf_band:
-            return (f"CAPTURED AT {where}{moved}: these are IDLE-state "
-                    f"timings and say NOTHING about performance - the card "
-                    f"programs genuinely slacker values down here. Run a GPU "
-                    f"load - 'Induce P-state' below is enough - and capture "
-                    f"again in the top clock band (≥{self.band_floor}).")
+            # Still said in full: an idle capture under a confident ns table is
+            # the exact error this module exists to prevent. Ctrl+H rather than
+            # 'Induce P-state' - the V/F point lock holds the top band with no
+            # load at all, which is the shorter road to a valid capture.
+            # "at or above", because perf_band tests >= band_floor - the
+            # exclusive wording said the floor itself did not count, which
+            # contradicts the predicate this very sentence is explaining.
+            # And Induce does not HOLD anything: it captures during a
+            # transient load. Only the V/F point lock holds.
+            return (f"IDLE STATE ({where}){moved} - says NOTHING about "
+                    f"performance. Hold the card in its top band with Ctrl+H "
+                    f"on the V/F curve, or capture under load with 'Induce "
+                    f"P-state', at or above {self.band_floor}.")
         if self.at_p0:
             # the band does not need the p-state, but the P0 LABEL does
             unverified = ("" if ps is not None else
-                          " (p-state unreadable, so the P0 label rests on the "
-                          "clock alone; the band does not depend on it)")
-            return (f"P0, top clock band: captured at {where}{moved}"
-                    f"{unverified}. These are the timings the card runs work "
-                    f"at.")
-        # P2 is not a lesser reading, and must not be described as one.
-        return (f"TOP CLOCK BAND: captured at {where}{moved}. This is the "
-                f"same timing data as P0 - measured on this card, all of "
-                f"CONFIG0..CONFIG5 and TIMING22 are BIT-IDENTICAL at 7228 "
-                f"(P2) and 7428 (P0), because timings are selected per clock "
-                f"BAND, not per p-state. Valid for reading; no 3D load or "
-                f"compute-cap change needed.")
+                          " (p-state unreadable; the band does not depend "
+                          "on it)")
+            return f"P0, top clock band: {where}{moved}{unverified}."
+        # P2 is not a lesser reading and must not be described as one - but
+        # that used to take a paragraph arguing it. It needs one clause.
+        return (f"Top clock band: {where}{moved}. Same timing data as P0 - "
+                f"timings are selected per clock band, not per p-state.")
 
     @property
     def state_tag(self):

@@ -295,6 +295,15 @@ def restore(gpu, state, apply_curve=True):
         step("fan", lambda: gpu.set_fan(int(fan)))
     elif manual is False:
         step("fan", gpu.reset_fan)
+    elif fan is not None:
+        # manual is None: the driver would not say whether the fan was under
+        # manual control when this was captured, so there is nothing safe to
+        # put back. SAY SO. Silence here reads as "fan restored" in a results
+        # list where every other knob reports - and it matters more now that
+        # 'Max it' pins both fans to 100% manual on every press.
+        results.append((False, "fan: the control policy was not readable when "
+                               "this snapshot was taken, so the fan was NOT "
+                               "restored - use Auto or Reset all to stock"))
 
     # LAST, and authoritative: the delta table subsumes the core offset above.
     if apply_curve:
