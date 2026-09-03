@@ -987,6 +987,20 @@ class Druta:
                 dpg.add_button(label="Max it  (fan + power + volts + curve)",
                                tag="go_ocmax", callback=self.oc_max,
                                width=self.s(330), height=self.s(28))
+                # ORANGE. Not red - red in this app means "this writes the
+                # memory controller and can hang the machine" (tw_apply) and
+                # that meaning should not be diluted. Not green either: green
+                # is the ordinary V/F apply. Orange is its own band, for the
+                # one button that moves four knobs at once.
+                with dpg.theme() as ocmax_th:
+                    with dpg.theme_component(dpg.mvAll):
+                        dpg.add_theme_color(dpg.mvThemeCol_Button, (168, 88, 16))
+                        dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered,
+                                            (206, 112, 24))
+                        dpg.add_theme_color(dpg.mvThemeCol_ButtonActive,
+                                            (238, 138, 34))
+                        dpg.add_theme_color(dpg.mvThemeCol_Text, (24, 16, 6))
+                dpg.bind_item_theme("go_ocmax", ocmax_th)
                 self._ctl_widgets.append("go_ocmax")
                 with dpg.tooltip(dpg.last_item()):
                     dpg.add_text(
@@ -1009,8 +1023,12 @@ class Druta:
                         "Reset all to stock - they do not ramp back down.\n\n"
                         "De-flatten works BELOW the voltage cap in the V/F\n"
                         "editor's cap box, so that box bounds what 'max'\n"
-                        "means. Refused if V/F edits are already staged, or\n"
-                        "if the plan would LOWER the peak clock.\n\n"
+                        "means. Refused if V/F edits are already staged - it\n"
+                        "will not write a plan it did not make.\n\n"
+                        "De-flatten usually LOWERS the curve's nominal top:\n"
+                        "the cap point becomes the unique peak so the arbiter\n"
+                        "parks THERE instead of at the bottom of a flat run.\n"
+                        "The log says so each time.\n\n"
                         "This raises voltage, power and clocks together. It is\n"
                         "an overclock, and it can destabilise the driver.")
             dpg.add_text("writes ENABLED - untick for read-only. "
@@ -1205,8 +1223,15 @@ class Druta:
         VALIDATION HAPPENS BEFORE ANY WRITE. The button refuses outright if
         V/F edits are already staged (it will not write a plan it did not
         make - a hard de-flatten left staged for a look is the dangerous case)
-        or if the de-flatten would LOWER the peak clock. Both refusals leave
-        the card untouched.
+        . That refusal leaves the card untouched.
+
+        A de-flatten that LOWERS the nominal peak is DISCLOSED and written
+        anyway. Refusing it was the first cut and it was wrong: on the Titan
+        RTX at the default cap the top moves 1995 -> 1965 MHz, so the button
+        would have refused every press on the card it was written for. Lowering
+        the nominal top is what de-flatten does - the cap point becomes the
+        unique peak so the arbiter parks there instead of at the bottom of a
+        flat run - and the manual path has always allowed it behind a banner.
 
         Steps are independent: a card that refuses one still gets the rest,
         and every outcome is logged. A refusal here is ordinary - not every
@@ -1247,16 +1272,22 @@ class Druta:
             # the button quietly mean something different session to session.
             cap = dpg.get_value("vcap")
             plan = self.apply_plan()
+            # A peak-lowering plan is DISCLOSED, not refused. Refusing was the
+            # first cut and it was wrong: measured on the Titan RTX, de-flatten
+            # at the default 1093.75 mV cap moves the top from 1995 to 1965 MHz,
+            # so the button would have refused every press on that card and
+            # been useless for the ritual it exists to replace. Lowering the
+            # nominal top is what de-flatten DOES - it makes the cap point the
+            # unique peak so the arbiter parks THERE instead of at the bottom
+            # of a flat run - and the manual De-flatten + Apply path has always
+            # allowed it behind a red banner. Being stricter than the manual
+            # path for the same write helps nobody.
             if plan and plan.get("lowers_peak"):
-                # A plan that LOWERS the peak is definitionally not what a
-                # button called "Max it" is for. Left STAGED and visible in
-                # the banner, not written - the editor's own Apply is one
-                # click away for anyone who actually wants it.
-                self.log(f"max: the de-flatten plan below {cap:.1f} mV LOWERS "
-                         f"the peak clock, so it was staged for you to look "
-                         f"at and NOT written. Nothing was changed. Use Apply "
-                         f"on the V/F editor if you want it.", False)
-                return
+                self.log(f"max: heads up - de-flatten below {cap:.1f} mV LOWERS "
+                         f"the curve's nominal top. That is what it does: the "
+                         f"cap point becomes the unique peak so the arbiter "
+                         f"parks there rather than at the bottom of a flat "
+                         f"run. Undo last write reverses it.", False)
 
         # ---- from here on, everything writes ------------------------------ #
         # ONE undo point, and it has to be here: taken before the first write
