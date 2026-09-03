@@ -3918,6 +3918,15 @@ deliberately does not put behind a button."""
                                   callback=self.open_locate_nvtune)
                 dpg.add_menu_item(label="Forget nvtune location",
                                   callback=self.forget_nvtune)
+                # WHERE THIS LIVES IS THE POINT. While nvtune cannot be
+                # loaded, the Timings tab carries the button, because that is
+                # the one screen where the operator is stuck. Once it loads,
+                # the tab drops it and this is all that is left: still
+                # reachable - test signing can be turned back off, or need
+                # re-applying after a Windows update - but no longer in the
+                # way of a tab that now works.
+                dpg.add_menu_item(label="Enable test signing...",
+                                  callback=self.open_testsign)
             # Up here rather than on the Control tab for the same reason as the
             # clock lock: these are whole-machine actions, not one more knob.
             # 'Undo last write' is the safety net that lets Apply and Reset
@@ -4229,6 +4238,43 @@ deliberately does not put behind a button."""
                 dpg.bind_item_theme("ts_run", ts_th)
             dpg.add_spacer(height=self.s(4))
             dpg.add_text("", tag="ts_result", wrap=self.s(820))
+
+        # The outcome gets its OWN modal rather than a line in the dialog
+        # behind it. Two reasons: a bcdedit failure is the thing most worth
+        # not scrolling past, and success needs an answer to a question
+        # ("reboot?") rather than an acknowledgement.
+        with dpg.window(label="Test signing", tag="win_ts_done", show=False,
+                        modal=True, width=self.s(720), height=self.s(400),
+                        pos=[self.s(200), self.s(150)]):
+            dpg.add_text("", tag="tsd_head", wrap=self.s(680))
+            dpg.add_spacer(height=self.s(6))
+            dpg.add_input_text(tag="tsd_detail", multiline=True, readonly=True,
+                               width=-1, height=self.s(190))
+            self.bind("tsd_detail", "mono")
+            dpg.add_spacer(height=self.s(8))
+            with dpg.group(horizontal=True, tag="tsd_ok_row", show=False):
+                dpg.add_button(label="Reboot now", tag="tsd_reboot",
+                               width=self.s(180), callback=self.reboot_now)
+                with dpg.theme() as tsd_th:
+                    with dpg.theme_component(dpg.mvAll):
+                        dpg.add_theme_color(dpg.mvThemeCol_Button, (140, 28, 32))
+                        dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered,
+                                            (180, 38, 42))
+                        dpg.add_theme_color(dpg.mvThemeCol_ButtonActive,
+                                            (212, 48, 52))
+                        dpg.add_theme_color(dpg.mvThemeCol_Text, (255, 236, 236))
+                dpg.bind_item_theme("tsd_reboot", tsd_th)
+                dpg.add_spacer(width=self.s(16))
+                dpg.add_button(label="Later", width=self.s(160),
+                               callback=lambda: dpg.configure_item(
+                                   "win_ts_done", show=False))
+                dpg.add_spacer(width=self.s(16))
+                dpg.add_text("reboot starts in 10s; 'shutdown /a' aborts it",
+                             color=DIM)
+            with dpg.group(horizontal=True, tag="tsd_bad_row", show=False):
+                dpg.add_button(label="Close", width=self.s(160),
+                               callback=lambda: dpg.configure_item(
+                                   "win_ts_done", show=False))
 
         with dpg.window(label="Licences", tag="win_licence", show=False,
                         width=self.s(860), height=self.s(640),
@@ -4862,12 +4908,56 @@ deliberately does not put behind a button."""
             bad += (not ok)
             out.append(f"{'ok  ' if ok else 'FAIL'}  {shown}\n        {msg}")
             self.log(f"testsigning: {shown} -> {msg}", ok)
-        out.append("")
-        out.append("REBOOT for any of this to take effect." if not bad else
-                   "Some commands failed - nothing may have changed. Read the "
-                   "messages above before rebooting.")
-        dpg.set_value("ts_result", "\n".join(out))
-        dpg.configure_item("ts_result", color=BAD if bad else WARN)
+        dpg.set_value("ts_result", "")
+        dpg.configure_item("win_testsign", show=False)
+
+        # Hand the outcome to its own modal. On failure that is the whole
+        # point - a bcdedit error is not something to leave as one more line
+        # in a dialog. On success it is a QUESTION, because none of this has
+        # done anything yet.
+        dpg.set_value("tsd_detail", "\n".join(out))
+        if bad:
+            dpg.set_value("tsd_head",
+                          f"{bad} of {len(self.TESTSIGN_CMDS)} commands "
+                          f"FAILED. The boot configuration may be partly "
+                          f"changed, or not changed at all - read the output "
+                          f"below before rebooting, and check "
+                          f"'bcdedit /enum {{current}}' yourself.")
+            dpg.configure_item("tsd_head", color=BAD)
+        else:
+            dpg.set_value("tsd_head",
+                          "All commands succeeded - and NOTHING HAS CHANGED "
+                          "YET. Test signing takes effect at the next boot. "
+                          "Reboot now?")
+            dpg.configure_item("tsd_head", color=WARN)
+        dpg.configure_item("tsd_ok_row", show=not bad)
+        dpg.configure_item("tsd_bad_row", show=bool(bad))
+        dpg.configure_item("win_ts_done", show=True)
+        dpg.focus_item("win_ts_done")
+
+    def reboot_now(self, sender=None, app_data=None, user_data=None):
+        """Restart the machine, with a window to change your mind.
+
+        /t 10 rather than /t 0 on purpose: this button sits one click from a
+        dialog the operator opened to read, and other applications may have
+        unsaved work. Ten seconds and a documented abort ('shutdown /a') is
+        the difference between a decision and an accident."""
+        try:
+            r = subprocess.run(
+                ["shutdown", "/r", "/t", "10", "/c",
+                 "Druta: applying test signing (shutdown /a aborts)"],
+                capture_output=True, text=True, timeout=20,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            msg = ((r.stdout or "") + (r.stderr or "")).strip()
+            ok = r.returncode == 0
+        except (OSError, subprocess.SubprocessError) as e:
+            ok, msg = False, str(e)
+        self.log(f"reboot requested: {msg or 'in 10s'}", ok)
+        dpg.set_value("tsd_head",
+                      "Rebooting in 10 seconds. Run 'shutdown /a' in a shell "
+                      "to abort." if ok else
+                      f"Could not schedule the reboot: {msg}")
+        dpg.configure_item("tsd_head", color=WARN if ok else BAD)
 
     # ---- switching cards --------------------------------------------------- #
     def reset_card_state(self):
@@ -5897,7 +5987,7 @@ deliberately does not put behind a button."""
             self._ctl_widgets = []
             for tag in ("hdr_row", "tabs", "menubar", "win_device", "win_save",
                         "win_profiles", "win_keys", "win_about",
-                        "win_licence", "win_testsign"):
+                        "win_licence", "win_testsign", "win_ts_done"):
                 if dpg.does_item_exist(tag):
                     dpg.delete_item(tag)
         before = set(dpg.get_all_items())

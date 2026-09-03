@@ -763,8 +763,18 @@ rather than a wall of text. It shows the exact commands, copiable, says which
 one actually does the work, and only then offers a red button that runs them.
 That button is **dead unless the machine can take them** — Secure Boot is
 checked with `Confirm-SecureBootUEFI` rather than asserted by the user, and
-elevation is checked too. BitLocker is reported if it is on, because a
-boot-config change can force a recovery-key prompt at next boot.
+elevation is checked too, both again at the click. BitLocker is reported if it
+is on, because a boot-config change can force a recovery-key prompt at next
+boot.
+
+The outcome gets its own prompt. On failure it shows which command failed and
+what it said, and offers no reboot. On success it asks the question that
+matters — **nothing has taken effect yet** — and offers `Reboot now`, which
+schedules the restart ten seconds out so `shutdown /a` can still abort it.
+
+Once nvtune loads, the button **retires to `Device → Enable test signing…`**.
+It stays reachable — test signing can be turned back off, or need re-applying
+after a Windows update — but it is out of the way of a tab that now works.
 
 `nvtunedrv.sys` is **signed with a self-signed test certificate**
 (`CN=nvtune test signing`, issuer identical to subject) — not a WHQL or
