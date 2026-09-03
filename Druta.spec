@@ -1,7 +1,14 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
 
-datas = []
+# GPL-3.0 section 4, reached for object code through section 6's chapeau
+# ("under the terms of sections 4 and 5"), requires that you "give all
+# recipients a copy of this License along with the Program". This is a ONEFILE
+# build: without these two entries the published artifact is a single .exe with
+# no licence anywhere in or beside it, and someone who downloads only the exe
+# receives no copy of anything. Help > Licences reads them back out of the
+# bundle at runtime (see druta.py resource_path).
+datas = [('COPYING', '.'), ('THIRD-PARTY-NOTICES.md', '.')]
 binaries = []
 hiddenimports = []
 tmp_ret = collect_all('dearpygui')

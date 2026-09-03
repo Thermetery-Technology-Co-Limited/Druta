@@ -3781,6 +3781,11 @@ deliberately does not put behind a button."""
             with dpg.menu(label="Help"):
                 dpg.add_menu_item(label="Keyboard shortcuts",
                                   user_data="win_keys", callback=self.show_win)
+                # Not optional furniture. This is how a recipient of the
+                # onefile exe actually gets at the licence text bundled with
+                # it - see resource_path and Druta.spec's datas.
+                dpg.add_menu_item(label="Licences", user_data="win_licence",
+                                  callback=self.show_win)
                 dpg.add_menu_item(label="About", user_data="win_about",
                                   callback=self.show_win)
 
@@ -3931,6 +3936,33 @@ deliberately does not put behind a button."""
                          "so W/A/S/D typed into the cap, index or MHz box do not "
                          "also retune the curve.", color=DIM, wrap=self.s(580))
 
+        with dpg.window(label="Licences", tag="win_licence", show=False,
+                        width=self.s(860), height=self.s(640),
+                        pos=[self.s(120), self.s(90)]):
+            dpg.add_text("Druta  -  GNU General Public License, version 3 or "
+                         "later", color=ACCENT)
+            dpg.add_text("Copyright (C) 2026 Thermetery Technology Co Limited",
+                         color=DIM)
+            dpg.add_spacer(height=self.s(4))
+            with dpg.tab_bar():
+                with dpg.tab(label="GPL-3.0 (Druta)"):
+                    dpg.add_input_text(default_value=self.read_licence("COPYING"),
+                                       multiline=True, readonly=True,
+                                       width=-1, height=self.s(520),
+                                       tag="lic_gpl")
+                    self.bind("lic_gpl", "mono")
+                with dpg.tab(label="Third-party notices"):
+                    dpg.add_text(
+                        "Licences of software redistributed inside Druta.exe. "
+                        "Running from source redistributes none of it.",
+                        color=DIM, wrap=self.s(820))
+                    dpg.add_input_text(
+                        default_value=self.read_licence(
+                            "THIRD-PARTY-NOTICES.md"),
+                        multiline=True, readonly=True,
+                        width=-1, height=self.s(496), tag="lic_third")
+                    self.bind("lic_third", "mono")
+
         # GPLv3 section 5(d): "If the work has interactive user interfaces,
         # each must display Appropriate Legal Notices." Section 0 defines those
         # as "a convenient and prominently visible feature that (1) displays an
@@ -3954,14 +3986,15 @@ deliberately does not put behind a button."""
                 "This program comes with ABSOLUTELY NO WARRANTY. It is free "
                 "software, and you are welcome to redistribute it under the "
                 "terms of the GNU General Public License, either version 3 of "
-                "the License, or (at your option) any later version. See the "
-                "COPYING file distributed with this program, or "
+                "the License, or (at your option) any later version. See "
+                "Help > Licences for the full text, the COPYING file "
+                "distributed with this program, or "
                 "<https://www.gnu.org/licenses/gpl-3.0.html>.",
                 wrap=self.s(580))
             dpg.add_spacer(height=self.s(6))
             dpg.add_text(
-                "Druta bundles third-party software under its own terms - see "
-                "THIRD-PARTY-NOTICES.md. nvtune is a separate program and is "
+                "Druta bundles third-party software under its own terms - "
+                "see Help > Licences. nvtune is a separate program and is "
                 "not bundled.", color=DIM, wrap=self.s(580))
             dpg.add_spacer(height=self.s(6))
             dpg.add_text(
@@ -5218,6 +5251,35 @@ deliberately does not put behind a button."""
     # ====================================================================== #
     #  main                                                                  #
     # ====================================================================== #
+    @staticmethod
+    def resource_path(name):
+        """A file shipped ALONGSIDE the code, found in both build shapes.
+
+        PyInstaller's onefile bootloader unpacks bundled data to a temp
+        directory and points sys._MEIPASS at it; a source run just looks beside
+        this file. Used for COPYING and THIRD-PARTY-NOTICES.md, which are not
+        decoration: GPL-3.0 section 4 requires the licence to be conveyed with
+        the Program, and a onefile exe has nowhere else to carry it."""
+        base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+        return os.path.join(base, name)
+
+    @classmethod
+    def read_licence(cls, name):
+        try:
+            with open(cls.resource_path(name), encoding="utf-8",
+                      errors="replace") as f:
+                return f.read()
+        except OSError as e:
+            # Never fatal, and never silent: if the licence did not make it
+            # into the build, the window says so rather than showing nothing,
+            # because an empty Licences window looks like a UI bug rather than
+            # the compliance problem it actually is.
+            return (f"{name} was not found in this build ({e}).\n\n"
+                    f"This is a packaging fault - it should be bundled. See\n"
+                    f"https://www.gnu.org/licenses/gpl-3.0.html for the "
+                    f"licence text, and the project repository for the "
+                    f"third-party notices.")
+
     def build_ui(self, rebuild=False):
         """Build (or rebuild) everything that depends on which card this is.
 
@@ -5245,7 +5307,8 @@ deliberately does not put behind a button."""
             # and every guard() call walking them.
             self._ctl_widgets = []
             for tag in ("hdr_row", "tabs", "menubar", "win_device", "win_save",
-                        "win_profiles", "win_keys", "win_about"):
+                        "win_profiles", "win_keys", "win_about",
+                        "win_licence"):
                 if dpg.does_item_exist(tag):
                     dpg.delete_item(tag)
         before = set(dpg.get_all_items())
