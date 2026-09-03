@@ -89,6 +89,7 @@ import dearpygui.dearpygui as dpg
 
 import gpuload
 import profiles
+import shuntmod
 import timings
 import timingwrite
 from nvbackend import (GPU, EVENT_REASONS, PERF_DECREASE_BITS, VF_STEP_KHZ,
@@ -142,6 +143,11 @@ class Druta:
         # remove. A process boundary makes that unmissable instead of careful.
         self.gpu = GPU(slot)
         self.gpu_list = enumerate_gpus()
+        # Shunt-mod correction. Held as (rails, folded correction) so the 4 Hz
+        # tile update multiplies by a number rather than re-folding the rail
+        # list on every frame.
+        self.shunt_rails = shuntmod.load()
+        self.shunt = shuntmod.correction(self.shunt_rails)
         self.scale = dpi_scale()
         self.log_lines = []
         self.vf_points = None
@@ -879,9 +885,27 @@ class Druta:
             dpg.configure_item("t_hot", color=col)
             dpg.set_value("s_hot",
                           f"\u0394 {d.get('temp_delta',0):.0f} \u00b0C over edge")
+        # POWER, corrected for a shunt mod when one is configured. The card
+        # measures rail current as a voltage across a sense resistor and
+        # divides by the resistance it was BUILT to expect, so a modified
+        # shunt makes it under-report by exactly R_orig/R_effective - and the
+        # limit is enforced on the number it believes, which is why the real
+        # ceiling is shown too. See shuntmod.
         pw = d.get("power_w")
-        dpg.set_value("t_pwr", f"{pw:.0f}" if pw is not None else "--")
-        dpg.set_value("s_pwr", f"limit {d.get('pl_now_mw',0)//1000} W")
+        lim = d.get("pl_now_mw", 0) // 1000
+        sh = self.shunt
+        if sh.active and pw is not None:
+            dpg.set_value("t_pwr", f"{sh.apply(pw):.0f}")
+            dpg.configure_item("t_pwr", color=WARN if sh.exact else BAD)
+            dpg.set_value(
+                "s_pwr",
+                f"raw {pw:.0f} W x{sh.factor:.4g}"
+                + ("" if sh.exact else " est")
+                + f"\nlimit {lim} W = {lim * sh.factor:.0f} W real")
+        else:
+            dpg.set_value("t_pwr", f"{pw:.0f}" if pw is not None else "--")
+            dpg.configure_item("t_pwr", color=ACCENT)
+            dpg.set_value("s_pwr", f"limit {lim} W")
         vc = d.get("vcore_mv")
         dpg.set_value("t_vcore", f"{vc:.0f}" if vc is not None else "--")
 
@@ -3927,6 +3951,9 @@ deliberately does not put behind a button."""
                 # way of a tab that now works.
                 dpg.add_menu_item(label="Enable test signing...",
                                   callback=self.open_testsign)
+                dpg.add_separator()
+                dpg.add_menu_item(label="Shunt mod (corrected power)...",
+                                  callback=self.open_shunt)
             # Up here rather than on the Control tab for the same reason as the
             # clock lock: these are whole-machine actions, not one more knob.
             # 'Undo last write' is the safety net that lets Apply and Reset
@@ -4176,6 +4203,61 @@ deliberately does not put behind a button."""
                          "they stand down while a text or number box has focus - "
                          "so W/A/S/D typed into the cap, index or MHz box do not "
                          "also retune the curve.", color=DIM, wrap=self.s(580))
+
+        with dpg.window(label="Shunt mod", tag="win_shunt", show=False,
+                        width=self.s(900), height=self.s(560),
+                        pos=[self.s(150), self.s(110)]):
+            dpg.add_text("Shunt-mod corrected power", color=ACCENT)
+            dpg.add_text(
+                "A board measures rail current as the voltage across a sense "
+                "resistor, then divides by the resistance it was BUILT to "
+                "expect. Lower that resistance and the card believes it is "
+                "drawing less than it is - which is the point, because the "
+                "power limit is enforced on the believed number.",
+                color=DIM, wrap=self.s(860))
+            dpg.add_spacer(height=self.s(4))
+            dpg.add_text(
+                "Give each rail its ORIGINAL and its EFFECTIVE resistance. "
+                "A resistor soldered on top of an existing shunt bridges the "
+                "same two pads, so the two are in PARALLEL and the value "
+                "HALVES: 5 -> 2.5 mOhm is x2. Replacing the part outright "
+                "works the same way - only the two numbers matter, not how "
+                "you got there.", color=DIM, wrap=self.s(860))
+            dpg.add_spacer(height=self.s(8))
+            with dpg.table(tag="shunt_table", header_row=True,
+                           policy=dpg.mvTable_SizingFixedFit,
+                           borders_innerH=True, borders_outerH=True,
+                           borders_innerV=True, borders_outerV=True):
+                for lbl, w in (("rail", 130), ("original mOhm", 150),
+                               ("effective mOhm", 150), ("multiplier", 110),
+                               ("", 90)):
+                    dpg.add_table_column(label=lbl, width_fixed=True,
+                                         init_width_or_weight=self.s(w))
+            dpg.add_spacer(height=self.s(8))
+            with dpg.group(horizontal=True):
+                dpg.add_button(label="Add 8-pin", width=self.s(130),
+                               user_data="pin8", callback=self.shunt_add)
+                dpg.add_button(label="Add 6-pin", width=self.s(130),
+                               user_data="pin6", callback=self.shunt_add)
+                dpg.add_button(label="Add PCIe slot", width=self.s(150),
+                               user_data="slot", callback=self.shunt_add)
+                dpg.add_spacer(width=self.s(20))
+                dpg.add_button(label="Reset to stock (no mod)",
+                               width=self.s(220), callback=self.shunt_reset)
+            dpg.add_spacer(height=self.s(10))
+            dpg.add_separator()
+            dpg.add_spacer(height=self.s(6))
+            dpg.add_text("", tag="shunt_result", wrap=self.s(860))
+            dpg.add_spacer(height=self.s(6))
+            dpg.add_text("", tag="shunt_note", color=DIM, wrap=self.s(860))
+            dpg.add_spacer(height=self.s(10))
+            with dpg.group(horizontal=True):
+                dpg.add_button(label="Save", width=self.s(140),
+                               callback=self.shunt_save)
+                dpg.add_spacer(width=self.s(14))
+                dpg.add_button(label="Close", width=self.s(140),
+                               callback=lambda: dpg.configure_item(
+                                   "win_shunt", show=False))
 
         with dpg.window(label="Enable test signing", tag="win_testsign",
                         show=False, modal=True, no_resize=False,
@@ -6038,6 +6120,93 @@ deliberately does not put behind a button."""
                     f"licence text, and the project repository for the "
                     f"third-party notices.")
 
+    # ---- shunt-mod corrected power ------------------------------------------ #
+    def open_shunt(self, sender=None, app_data=None, user_data=None):
+        self.draw_shunt_rows()
+        dpg.configure_item("win_shunt", show=True)
+        dpg.focus_item("win_shunt")
+
+    def draw_shunt_rows(self):
+        """Rebuild the rail table from self.shunt_rails, and re-fold.
+
+        Rebuilt wholesale rather than patched: rows come and go, and a table
+        that is edited in place has to keep row tags and list indices in step -
+        which is the bug this avoids rather than solves."""
+        dpg.delete_item("shunt_table", children_only=True, slot=1)
+        for i, rail in enumerate(self.shunt_rails):
+            with dpg.table_row(parent="shunt_table"):
+                dpg.add_text(shuntmod.RAIL_KINDS[rail["kind"]][0])
+                dpg.add_input_float(default_value=float(rail["orig"]),
+                                    tag=f"sh_o{i}", width=-1, step=0.5,
+                                    format="%.3f", min_value=0.0,
+                                    min_clamped=True, user_data=("orig", i),
+                                    callback=self.shunt_edit)
+                dpg.add_input_float(default_value=float(rail["mod"]),
+                                    tag=f"sh_m{i}", width=-1, step=0.5,
+                                    format="%.3f", min_value=0.0,
+                                    min_clamped=True, user_data=("mod", i),
+                                    callback=self.shunt_edit)
+                m = shuntmod.rail_multiplier(rail)
+                dpg.add_text(f"x{m:.4g}", tag=f"sh_x{i}",
+                             color=WARN if abs(m - 1.0) > 1e-9 else DIM)
+                dpg.add_button(label="remove", width=-1, user_data=i,
+                               callback=self.shunt_remove)
+        self.shunt_refold()
+
+    def shunt_refold(self):
+        """Recompute the correction and say, in the dialog, what it is."""
+        self.shunt = shuntmod.correction(self.shunt_rails)
+        sh = self.shunt
+        if not sh.active:
+            dpg.set_value("shunt_result",
+                          "No rail is modified - power is reported as the "
+                          "driver gives it.")
+            dpg.configure_item("shunt_result", color=DIM)
+        elif sh.exact:
+            dpg.set_value("shunt_result",
+                          f"x{sh.factor:.4g} on the board total. EXACT: every "
+                          f"rail carries the same multiplier, so how the load "
+                          f"divides between them does not matter.")
+            dpg.configure_item("shunt_result", color=GOOD)
+        else:
+            dpg.set_value("shunt_result",
+                          f"x{sh.factor:.4g} on the board total - ESTIMATE, "
+                          f"not a measurement. {sh.why}.")
+            dpg.configure_item("shunt_result", color=BAD)
+        dpg.set_value("shunt_note", "\n".join(shuntmod.describe(
+            self.shunt_rails)))
+
+    def shunt_edit(self, sender=None, app_data=None, user_data=None):
+        which, i = user_data
+        if 0 <= i < len(self.shunt_rails):
+            self.shunt_rails[i][which] = float(app_data or 0.0)
+            m = shuntmod.rail_multiplier(self.shunt_rails[i])
+            if dpg.does_item_exist(f"sh_x{i}"):
+                dpg.set_value(f"sh_x{i}", f"x{m:.4g}")
+                dpg.configure_item(f"sh_x{i}",
+                                   color=WARN if abs(m - 1.0) > 1e-9 else DIM)
+        self.shunt_refold()
+
+    def shunt_add(self, sender=None, app_data=None, user_data=None):
+        self.shunt_rails.append({"kind": user_data,
+                                 "orig": shuntmod.DEFAULT_MOHM,
+                                 "mod": shuntmod.DEFAULT_MOHM})
+        self.draw_shunt_rows()
+
+    def shunt_remove(self, sender=None, app_data=None, user_data=None):
+        if 0 <= user_data < len(self.shunt_rails):
+            del self.shunt_rails[user_data]
+        self.draw_shunt_rows()
+
+    def shunt_reset(self, sender=None, app_data=None, user_data=None):
+        self.shunt_rails = [dict(r) for r in shuntmod.DEFAULT_RAILS]
+        self.draw_shunt_rows()
+
+    def shunt_save(self, sender=None, app_data=None, user_data=None):
+        ok, msg = shuntmod.save(self.shunt_rails)
+        self.log(msg, ok)
+        self.shunt_refold()
+
     # ---- test signing, which nvtune's driver needs -------------------------- #
     # Exactly what gets run, in order, as one copiable block. THE THIRD ONE IS
     # THE LOAD-BEARING COMMAND: Microsoft documents `testsigning` as what makes
@@ -6127,7 +6296,8 @@ deliberately does not put behind a button."""
             self._ctl_widgets = []
             for tag in ("hdr_row", "tabs", "menubar", "win_device", "win_save",
                         "win_profiles", "win_keys", "win_about",
-                        "win_licence", "win_testsign", "win_ts_done"):
+                        "win_licence", "win_testsign", "win_ts_done",
+                        "win_shunt"):
                 if dpg.does_item_exist(tag):
                     dpg.delete_item(tag)
         before = set(dpg.get_all_items())

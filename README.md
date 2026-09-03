@@ -286,6 +286,42 @@ The first tab, because it is what the app is opened to do. Monitor is second,
 Timings third and labelled — it is the only tab that needs a separate program
 installed to do anything at all.
 
+## Shunt-mod corrected power
+
+`Device → Shunt mod…`. A board measures rail current as the voltage across a
+sense resistor and divides by the resistance it was *built* to expect. Lower
+that resistance and the card believes it is drawing less than it is — which is
+the point, because the power limit is enforced on the believed number.
+
+Give each rail its **original** and its **effective** resistance; the
+multiplier is `R_orig / R_eff`. A resistor soldered on top of an existing shunt
+bridges the same two pads, so the two are in **parallel** and the value
+*halves*: 5 → 2.5 mΩ is ×2. (In series it would rise and the card would
+*over*-report, which is the opposite of what a shunt mod is for.) Replacing the
+part outright works the same way — only the two numbers matter.
+
+The POWER tile then shows the corrected figure, with the raw reading and the
+multiplier beneath it, and the limit restated in real watts — a 320 W limit on
+a ×2 board is really 640 W.
+
+**Uniform mods are exact.** If every rail ends at the same multiplier, the
+board total is scaled by one number and how the load divides between rails is
+irrelevant.
+
+**Mixed mods are an estimate, and are labelled one.** Different multipliers per
+rail need per-rail power, and the driver does not report it — probed on a Titan
+RTX, NVAPI's power topology returns two domains (GPU and board) as per-mille of
+the limit, and NVML's `POWER_AVERAGE` answers only for scope 0 while
+`POWER_INSTANT` is unsupported. A mixed configuration is weighted by each
+rail's rated capacity and the reading turns red with `est` beside it.
+
+Per-rail telemetry does exist on boards that carry an INA3221-class shunt
+monitor — that is where HWiNFO's *PCIe Slot Power* and *8-Pin #1 Power* come
+from, and the per-rail *voltage* alongside them is the giveaway. It is read
+over the card's I2C bus rather than from the driver. Reaching it from here is
+possible in principle (all four `NvAPI_I2C*` entry points resolve) but is not
+implemented.
+
 ## Max it
 
 One button beside `Reset all to stock`, doing the four things people do by hand
