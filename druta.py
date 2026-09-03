@@ -4403,38 +4403,60 @@ deliberately does not put behind a button."""
             # register. (It was described here before it existed - the comment
             # claimed a boundary the layout did not draw.)
             with dpg.group(horizontal=True):
-                dpg.add_button(label="Capture", tag="tim_cap",
+                # THE read button, and the only one that gets you a reading
+                # worth having. Blue: it is the primary action on this tab, and
+                # it is the one that changes the card's state.
+                dpg.add_button(label="Read memory timings  (will hold P0)",
+                               tag="tim_read", width=self.s(300),
+                               callback=self.timings_read_p0)
+                with dpg.theme() as read_th:
+                    with dpg.theme_component(dpg.mvAll):
+                        dpg.add_theme_color(dpg.mvThemeCol_Button, (26, 84, 152))
+                        dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered,
+                                            (34, 108, 192))
+                        dpg.add_theme_color(dpg.mvThemeCol_ButtonActive,
+                                            (44, 132, 232))
+                        dpg.add_theme_color(dpg.mvThemeCol_Text, (238, 245, 255))
+                dpg.bind_item_theme("tim_read", read_th)
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(
+                        "Puts the card in its top memory band and reads the\n"
+                        "timing registers there - the only state whose timings\n"
+                        "mean anything.\n\n"
+                        "It HOLDS P0 with the V/F point lock, the same lock\n"
+                        "Ctrl+H uses, and LEAVES IT ON. That is deliberate:\n"
+                        "the band is still up afterwards, so 'Re-read timings'\n"
+                        "beside this becomes a cheap sanity check instead of\n"
+                        "another round trip. Ctrl+H, Release or 'Reset all to\n"
+                        "stock' drop the hold.\n\n"
+                        "If the hold cannot be taken - controls locked, no\n"
+                        "readable V/F curve - it falls back to a CUDA memcpy\n"
+                        "load and captures while that runs, which reaches the\n"
+                        "same band but only for as long as the load lasts.\n\n"
+                        "If the card is ALREADY at P0 it captures directly:\n"
+                        "measured, opening a CUDA context on a P0 card pulls\n"
+                        "it DOWN to P2.")
+                dpg.add_spacer(width=self.s(10))
+                # Demoted from "Capture" to what it is actually for. On its own
+                # it usually samples idle, which is the error this whole tab
+                # exists to prevent - it earns its place as the cheap re-read
+                # once the blue button has the band held.
+                dpg.add_button(label="Re-read timings", tag="tim_cap",
                                width=self.s(150), callback=self.timings_capture)
                 with dpg.tooltip(dpg.last_item()):
                     dpg.add_text(
-                        "Reads the timing registers and files the result under\n"
-                        "the memory clock it was taken at.\n\n"
-                        "Capture at TWO memory states to prove the decode: one\n"
-                        "at idle, one in the top band. The comparison below\n"
-                        "then shows each field's cycle ratio beside the clock\n"
-                        "ratio.\n\n"
+                        "Reads the registers again, right now, in whatever\n"
+                        "state the card happens to be in, and files the result\n"
+                        "under that memory clock.\n\n"
+                        "A SANITY CHECK, not the way to get a reading: on an\n"
+                        "idle card this returns idle timings, which say nothing\n"
+                        "about performance. Use the blue button for a reading\n"
+                        "worth having, then this to confirm it is stable.\n\n"
+                        "It is also how you capture a SECOND state to prove the\n"
+                        "decode: read held at P0, release, let the card idle,\n"
+                        "re-read. The comparison below then shows each field's\n"
+                        "cycle ratio beside the clock ratio.\n\n"
                         "Nothing here writes to the GPU.")
-                dpg.add_spacer(width=self.s(10))
-                # INDUCE, never "force": nothing here commands a p-state,
-                # because nothing on this card can (see gpuload's header).
-                # It runs a workload and reports what the driver decided.
-                dpg.add_button(label="Induce P-state (GPU load)",
-                               tag="tim_induce", width=self.s(230),
-                               callback=self.timings_induce)
-                with dpg.tooltip(dpg.last_item()):
-                    dpg.add_text(
-                        "Runs a CUDA memcpy load, waits for the memory clock\n"
-                        "to settle, captures WHILE THE LOAD IS RUNNING, then\n"
-                        "stops it. Lands in the top clock band, which is all\n"
-                        "a read needs.\n\n"
-                        "Ctrl+H on the V/F curve is usually easier: the point\n"
-                        "lock holds the top band with no load at all. It needs\n"
-                        "the Control tab, 'Unlock controls' ticked, and a\n"
-                        "point selected on the curve.\n\n"
-                        "If the card is ALREADY at P0 this skips the load -\n"
-                        "measured, opening a CUDA context on a P0 card pulls\n"
-                        "it DOWN to P2.\n\n"
-                        "It is an ordinary workload. It writes no register.")
                 dpg.add_spacer(width=self.s(10))
                 # Armed by default: the memory p-state cannot be forced on this
                 # card, so catching the top band when it happens is worth
@@ -5055,18 +5077,92 @@ deliberately does not put behind a button."""
         return mem >= top
 
     # ---- induce a load, capture during it --------------------------------- #
-    def timings_induce(self, sender=None, app_data=None, user_data=None):
-        """Run a GPU load and capture while it runs. Off the UI thread: it
-        holds the card busy for seconds."""
+    def timings_read_p0(self, sender=None, app_data=None, user_data=None):
+        """THE read button: put the card in its top memory band and capture.
+
+        Two ways to get there, and the order matters. The V/F point lock is
+        tried FIRST because it actually holds - measured, it keeps true P0 on
+        an idle card, where a CUDA load only visits the top band for as long
+        as it runs. Holding is better for reading timings in every way that
+        counts: the capture is not racing a load, and the band is still there
+        afterwards, so 'Re-read timings' beside this button becomes a cheap
+        sanity check rather than another 25-second round trip.
+
+        The load is the FALLBACK, for when the hold cannot be taken - controls
+        locked, no NVAPI, no readable curve. It is what this button used to do
+        unconditionally.
+
+        The hold is left in force. That is the difference the label states:
+        this button changes the card's state and says so. Ctrl+H, the Release
+        button, or 'Reset all to stock' drop it."""
         with self._tim_lock:
             if self._tim_busy:
                 return
             self._tim_busy = True
-            self._tim_what = "inducing GPU load…"
-        threading.Thread(target=self._induce_worker, daemon=True,
-                         name="Druta-induce").start()
+            self._tim_what = "holding P0…"
+        # On the UI thread, before the worker starts: hold_point selects a
+        # point and writes widget values, and a background thread has no
+        # business doing either.
+        held = self.hold_for_read()
+        with self._tim_lock:
+            self._tim_what = "reading at P0…" if held else "inducing GPU load…"
+        threading.Thread(target=self._induce_worker, args=(held,), daemon=True,
+                         name="Druta-read-p0").start()
 
-    def _induce_worker(self):
+    def hold_for_read(self):
+        """Pin the card on the cap point so a capture lands in the top band.
+
+        Returns True only if the lock is really in force. Every failure is a
+        reason to fall back to the load, not to give up: a locked gate, a card
+        with no readable V/F table, or an NVAPI that will not take the lock all
+        leave the CUDA path perfectly able to reach the band."""
+        if not self.unlocked():
+            self.log("read: controls are locked, so the P0 hold was skipped - "
+                     "falling back to a GPU load", None)
+            return False
+        if not self.vf_points:
+            self.vf_read()
+        if not self.vf_points:
+            self.log("read: no readable V/F curve to hold - falling back to a "
+                     "GPU load", None)
+            return False
+        if self._clk_lock and self._clk_lock.get("kind") == self.LOCK_VF:
+            return True                      # already holding; nothing to do
+        try:
+            self.hold_cap_point(dpg.get_value("vcap"))
+        except Exception as e:                                  # noqa: BLE001
+            self.log(f"read: could not take the P0 hold ({e}) - falling back "
+                     f"to a GPU load", None)
+            return False
+        return bool(self._clk_lock
+                    and self._clk_lock.get("kind") == self.LOCK_VF)
+
+    # How long to give the card to climb into its top memory band after the
+    # V/F point lock goes on. MEASURED: it arrives in well under a second on
+    # this card; the margin is for a card busy with something else.
+    HOLD_SETTLE_S = 6.0
+
+    def wait_for_band(self, gpu, seconds=None):
+        """Poll until the card is in its top memory band, or give up.
+
+        The lock is a VOLTAGE request and the clocks follow it, so there is a
+        gap between 'the lock took' and 'the memory clock is up'. Capturing
+        inside that gap would file idle timings under a P0 heading, which is
+        the one mistake this tab exists to prevent."""
+        deadline = time.monotonic() + (seconds or self.HOLD_SETTLE_S)
+        last = (None, None)
+        while time.monotonic() < deadline:
+            try:
+                d = gpu.read()
+                last = (d.get("mem"), d.get("pstate"))
+                if self.is_p0(*last):
+                    return True, last
+            except Exception:                                   # noqa: BLE001
+                pass
+            time.sleep(0.25)
+        return False, last
+
+    def _induce_worker(self, held=False):
         note, snap = "", None
         # Same stamp-and-drop as _timings_worker, and it matters more here:
         # this one can spend 25 s running a CUDA load, which is the widest
@@ -5088,12 +5184,25 @@ deliberately does not put behind a button."""
                     # drops it to P2 (7428/P0 -> 7228/P2). Running the load
                     # here would destroy the very state we came for.
                     snap = timings.snapshot(gpu)
-                    note = (f"The card was ALREADY at P0 (memory {mem}, "
-                            f"p-state {ps}), so no load was started and the "
-                            f"capture was taken directly. Measured: opening a "
-                            f"CUDA context on a card at P0 pulls it DOWN to "
-                            f"P2, so inducing here would have cost you the "
-                            f"state you already had.")
+                    note = (f"Already at P0 (memory {mem}, p-state {ps}) - "
+                            f"captured directly, no load started. Opening a "
+                            f"CUDA context on a P0 card pulls it DOWN to P2.")
+                elif held:
+                    # The lock is on but the clocks follow it with a lag, so
+                    # wait for the band rather than capture into the gap.
+                    up, (mem, ps) = self.wait_for_band(gpu)
+                    snap = timings.snapshot(gpu)
+                    if up:
+                        note = (f"Holding P0 (memory {mem}) with the V/F point "
+                                f"lock - no load needed, and the band stays up "
+                                f"after this capture. 'Re-read timings' is now "
+                                f"a cheap sanity check. Ctrl+H releases.")
+                    else:
+                        note = (f"The V/F point lock is on, but the card was "
+                                f"still at memory {mem}, p-state {ps} after "
+                                f"{self.HOLD_SETTLE_S:.0f}s. Captured anyway - "
+                                f"read the state line above before trusting "
+                                f"the table.")
                 else:
                     ok, why = gpuload.available()
                     if not ok:
@@ -5220,7 +5329,7 @@ deliberately does not put behind a button."""
             busy, caps = self._tim_busy, dict(self._tim_caps)
             note, what = self._tim_note, self._tim_what
             self._tim_new = False
-        for tag in ("tim_cap", "tim_induce"):
+        for tag in ("tim_cap", "tim_read"):
             dpg.configure_item(tag, enabled=not busy)
         dpg.set_value("tim_busy", f"  {what}" if busy else "")
         # The live clock, so the user can see WHEN a state worth capturing is

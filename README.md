@@ -669,21 +669,36 @@ worthless, a P2 capture is not. The comparison view puts each field's cycle
 ratio beside the clock ratio; two ratios agreeing is what turns the decode from
 plausible into proven.
 
-## Force vs. induce
+## Hold, don't induce
 
 Nothing here **forces** a memory p-state, because nothing can on these cards:
 `nvmlDeviceSetMemoryLockedClocks` returns `NVML_ERROR_NOT_SUPPORTED` and
-`nvidia-smi -lmc` fails identically. `Induce P-state` runs a CUDA
-device-to-device memcpy, waits for the clock to settle, and captures **while the
-load is still running** — a capture taken after the load stops is a capture of
-the card coming back down.
+`nvidia-smi -lmc` fails identically.
 
-That reaches P2, which is enough, per the band rule above. If the card is
-*already* at P0 the load is skipped: opening a CUDA context on a P0 card pulls
-it **down** to P2.
+So the tab has two buttons, and only one of them is how you get a reading.
 
-A **V/F point lock holds P0 indefinitely with no load at all**, which is more
-convenient than inducing when you have one.
+**`Read memory timings (will hold P0)`** — blue, the primary action. It takes
+the **V/F point lock** on the highest point at or below the cap, waits for the
+memory clock to arrive in the top band, captures, and **leaves the hold on**.
+The lock is a voltage request that the clocks follow, so the wait is real; a
+capture taken inside that gap would file idle timings under a P0 heading.
+
+Leaving it held is the point: the band is still up afterwards, which is what
+makes the second button cheap.
+
+**`Re-read timings`** — a sanity check, not a way to get a reading. On its own,
+on an idle card, it returns idle timings, which is the exact error this tab
+exists to prevent. Once the blue button has the band held it costs about
+**0.2 s** and confirms the reading is stable. It is also how you capture the
+*second* state that proves the decode: read held at P0, release with `Ctrl+H`,
+let the card idle, re-read.
+
+The **CUDA memcpy load is the fallback**, used when the hold cannot be taken —
+controls locked, no readable V/F curve. It captures *while the load runs*, since
+a capture after it stops is a capture of the card coming back down, and it
+reaches the band only for as long as it lasts. If the card is *already* at P0
+the load is skipped entirely: opening a CUDA context on a P0 card pulls it
+**down** to P2.
 
 ## Writing
 
