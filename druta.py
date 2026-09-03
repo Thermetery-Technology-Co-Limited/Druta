@@ -1,5 +1,23 @@
+# Druta - a monitor and tuner for NVIDIA GPUs.
+# Copyright (C) 2026 Thermetery Technology Co Limited
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """
-Druta (Dear PyGui edition) - GPU monitor & tuner for the Titan-RTX-on-Strix card.
+Druta (Dear PyGui edition) - GPU monitor & tuner for NVIDIA cards.
 
 WHY THIS EXISTS: the original Tk UI dragged in slow motion and stalled the whole
 desktop. Root cause, measured: Tk creates a native HWND per widget (~50 on the
@@ -3651,9 +3669,19 @@ deliberately does not put behind a button."""
                 dpg.add_menu_item(label="Copy device report",
                                   callback=self.copy_device_report)
                 dpg.add_separator()
-                # nvtune is NOT shipped with Druta - separate tool, its own
-                # self-signed kernel driver - so the Timings tab
-                # needs to be pointed at it once. This is that once.
+                # nvtune is NOT shipped with Druta, so the Timings tab needs to
+                # be pointed at it once. This is that once.
+                #
+                # Not a licensing constraint: nvtune is GPL-3.0-or-later, the
+                # same licence as Druta, at github.com/sebastianmarrufo/nvtune.
+                # It is what loading its driver COSTS. nvtunedrv.sys is
+                # self-signed with a test certificate, so using it means Secure
+                # Boot off, Memory Integrity off, testsigning on, and that
+                # certificate imported into LocalMachine\Root - after which it
+                # can sign anything the machine trusts. That is a machine-wide
+                # security decision about nvtune, and it should be taken from
+                # nvtune's author with nvtune's instructions in hand, not
+                # arrive inside a monitoring tool.
                 dpg.add_menu_item(label="Locate nvtune...",
                                   callback=self.open_locate_nvtune)
                 dpg.add_menu_item(label="Forget nvtune location",
@@ -3753,6 +3781,11 @@ deliberately does not put behind a button."""
             with dpg.menu(label="Help"):
                 dpg.add_menu_item(label="Keyboard shortcuts",
                                   user_data="win_keys", callback=self.show_win)
+                # Not optional furniture. This is how a recipient of the
+                # onefile exe actually gets at the licence text bundled with
+                # it - see resource_path and Druta.spec's datas.
+                dpg.add_menu_item(label="Licences", user_data="win_licence",
+                                  callback=self.show_win)
                 dpg.add_menu_item(label="About", user_data="win_about",
                                   callback=self.show_win)
 
@@ -3903,10 +3936,75 @@ deliberately does not put behind a button."""
                          "so W/A/S/D typed into the cap, index or MHz box do not "
                          "also retune the curve.", color=DIM, wrap=self.s(580))
 
+        with dpg.window(label="Licences", tag="win_licence", show=False,
+                        width=self.s(860), height=self.s(640),
+                        pos=[self.s(120), self.s(90)]):
+            dpg.add_text("Druta  -  GNU General Public License, version 3 or "
+                         "later", color=ACCENT)
+            dpg.add_text("Copyright (C) 2026 Thermetery Technology Co Limited",
+                         color=DIM)
+            dpg.add_spacer(height=self.s(4))
+            with dpg.tab_bar():
+                with dpg.tab(label="GPL-3.0 (Druta)"):
+                    dpg.add_input_text(default_value=self.read_licence("COPYING"),
+                                       multiline=True, readonly=True,
+                                       width=-1, height=self.s(520),
+                                       tag="lic_gpl")
+                    self.bind("lic_gpl", "mono")
+                with dpg.tab(label="Third-party notices"):
+                    dpg.add_text(
+                        "Licences of software redistributed inside Druta.exe. "
+                        "Running from source redistributes none of it.",
+                        color=DIM, wrap=self.s(820))
+                    dpg.add_input_text(
+                        default_value=self.read_licence(
+                            "THIRD-PARTY-NOTICES.md"),
+                        multiline=True, readonly=True,
+                        width=-1, height=self.s(496), tag="lic_third")
+                    self.bind("lic_third", "mono")
+
+        # GPLv3 section 5(d): "If the work has interactive user interfaces,
+        # each must display Appropriate Legal Notices." Section 0 defines those
+        # as "a convenient and prominently visible feature that (1) displays an
+        # appropriate copyright notice, and (2) tells the user that there is no
+        # warranty for the work ..., that licensees may convey the work under
+        # this License, and how to view a copy of this License."
+        #
+        # This box is that feature - the GPL's own appendix names an "about
+        # box" as the GUI equivalent of the terminal startup notice. The
+        # s5(d) carve-out ("if the Program has interactive interfaces that do
+        # not display Appropriate Legal Notices, your work need not make them
+        # do so") does NOT apply: it exempts a modifier from retrofitting
+        # notices onto an upstream work that lacked them, and there is no
+        # upstream here - Druta is original work.
         with dpg.window(label="About Druta", tag="win_about", show=False,
-                        width=self.s(620), height=self.s(300),
+                        width=self.s(620), height=self.s(430),
                         pos=[self.s(180), self.s(160)]):
             dpg.add_text("Thermetery Druta", color=ACCENT)
+            dpg.add_text("Copyright (C) 2026 Thermetery Technology Co Limited")
+            dpg.add_text(
+                "This program comes with ABSOLUTELY NO WARRANTY. It is free "
+                "software, and you are welcome to redistribute it under the "
+                "terms of the GNU General Public License, either version 3 of "
+                "the License, or (at your option) any later version. See "
+                "Help > Licences for the full text, the COPYING file "
+                "distributed with this program, or "
+                "<https://www.gnu.org/licenses/gpl-3.0.html>.",
+                wrap=self.s(580))
+            dpg.add_spacer(height=self.s(6))
+            dpg.add_text(
+                "Druta bundles third-party software under its own terms - "
+                "see Help > Licences. nvtune is a separate program and is "
+                "not bundled.", color=DIM, wrap=self.s(580))
+            dpg.add_spacer(height=self.s(6))
+            dpg.add_text(
+                "DRUTA IS AN INDEPENDENT, UNOFFICIAL TOOL. IT IS NOT "
+                "AFFILIATED WITH, SPONSORED BY, OR ENDORSED BY NVIDIA "
+                "CORPORATION, ASUSTEK COMPUTER INC., OR MICRO-STAR "
+                "INTERNATIONAL CO., LTD.", color=WARN, wrap=self.s(580))
+            dpg.add_spacer(height=self.s(6))
+            dpg.add_separator()
+            dpg.add_spacer(height=self.s(6))
             dpg.add_text("Monitor and tuner for TU102 (Titan RTX) and GP102 "
                          "(Titan Xp). Per-card quantities - V/F point count, "
                          "clock grid, domain names - are probed from the "
@@ -5153,6 +5251,35 @@ deliberately does not put behind a button."""
     # ====================================================================== #
     #  main                                                                  #
     # ====================================================================== #
+    @staticmethod
+    def resource_path(name):
+        """A file shipped ALONGSIDE the code, found in both build shapes.
+
+        PyInstaller's onefile bootloader unpacks bundled data to a temp
+        directory and points sys._MEIPASS at it; a source run just looks beside
+        this file. Used for COPYING and THIRD-PARTY-NOTICES.md, which are not
+        decoration: GPL-3.0 section 4 requires the licence to be conveyed with
+        the Program, and a onefile exe has nowhere else to carry it."""
+        base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+        return os.path.join(base, name)
+
+    @classmethod
+    def read_licence(cls, name):
+        try:
+            with open(cls.resource_path(name), encoding="utf-8",
+                      errors="replace") as f:
+                return f.read()
+        except OSError as e:
+            # Never fatal, and never silent: if the licence did not make it
+            # into the build, the window says so rather than showing nothing,
+            # because an empty Licences window looks like a UI bug rather than
+            # the compliance problem it actually is.
+            return (f"{name} was not found in this build ({e}).\n\n"
+                    f"This is a packaging fault - it should be bundled. See\n"
+                    f"https://www.gnu.org/licenses/gpl-3.0.html for the "
+                    f"licence text, and the project repository for the "
+                    f"third-party notices.")
+
     def build_ui(self, rebuild=False):
         """Build (or rebuild) everything that depends on which card this is.
 
@@ -5180,7 +5307,8 @@ deliberately does not put behind a button."""
             # and every guard() call walking them.
             self._ctl_widgets = []
             for tag in ("hdr_row", "tabs", "menubar", "win_device", "win_save",
-                        "win_profiles", "win_keys", "win_about"):
+                        "win_profiles", "win_keys", "win_about",
+                        "win_licence"):
                 if dpg.does_item_exist(tag):
                     dpg.delete_item(tag)
         before = set(dpg.get_all_items())

@@ -1,3 +1,21 @@
+# Druta - a monitor and tuner for NVIDIA GPUs.
+# Copyright (C) 2026 Thermetery Technology Co Limited
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """
 Read-only decode of this card's FBPA memory-timing registers, via `nvtune`.
 
@@ -69,6 +87,16 @@ import nvbackend
 
 # ---- where the tool lives -------------------------------------------------- #
 NVTUNE_EXE = "nvtune.exe"
+# nvtune's upstream. A SEPARATE program by Sebastian Marrufo, GPL-3.0-or-later
+# - the same licence Druta uses - but a separate work, not a component.
+#
+# Deliberately not bundled, and NOT for licensing reasons: GPL permits
+# redistribution. nvtunedrv.sys is signed with a SELF-SIGNED TEST certificate,
+# so loading it costs Secure Boot, Memory Integrity, driver-signature
+# enforcement, and a third-party root certificate in LocalMachine\Root. That is
+# a machine-wide security decision about nvtune and belongs to its author's
+# install instructions, not to a GPU monitor's installer.
+NVTUNE_HOME = "https://github.com/sebastianmarrufo/nvtune"
 DRIVER_SERVICE = "nvtunedrv"
 ENV_OVERRIDE = "DRUTA_NVTUNE"      # full path to nvtune.exe, or its folder
 # The pre-rename name, still honoured. Dropping it would have been worse than
@@ -85,11 +113,14 @@ LEGACY_ENV_OVERRIDE = "TITANTUNE_NVTUNE"
 # Timings tab went dark for a reason nothing on screen explained, and the
 # username shipped in the repo.
 #
-# nvtune is a SEPARATE tool that this build deliberately does not ship: it is
-# the contractor's binary, its kernel driver is SELF-SIGNED, and whether
-# to install that is the operator's call. So it is treated as an external
-# dependency to be located - by the operator once, or by derivation from the
-# environment - in this order:
+# nvtune is a SEPARATE tool that this build deliberately does not ship. Not for
+# licensing reasons - it is GPL-3.0-or-later, the same licence as Druta, and
+# redistribution is permitted (see NVTUNE_HOME). It is that its driver is
+# SELF-SIGNED with a test certificate, so using it costs Secure Boot, Memory
+# Integrity, driver-signature enforcement and a third-party root certificate.
+# That decision belongs to the operator and to nvtune's own install
+# instructions. So it is treated as an external dependency to be located - by
+# the operator once, or by derivation from the environment - in this order:
 #
 #   1. DRUTA_NVTUNE, exclusive: an explicit override never silently falls
 #      back to another copy, because every register offset this feature decodes
@@ -448,8 +479,14 @@ def available(override=None):
             looked = "\n".join("    " + p for p in search_path(override))
             av.reason = (
                 f"{NVTUNE_EXE} not found. Druta does not ship it - it is a "
-                f"separate tool whose kernel driver is self-signed - so it has "
-                f"to be located. Looked in:\n{looked}\n    (then PATH)\n"
+                f"separate tool whose kernel driver is self-signed, so "
+                f"installing it is your decision to make, not ours to make "
+                f"for you - and it has to be located.\n"
+                # Worth saying out loud: before this the message told the
+                # operator to go find a binary without telling them where one
+                # comes from. nvtune is free software and has a public home.
+                f"Get it from {NVTUNE_HOME}\n"
+                f"Looked in:\n{looked}\n    (then PATH)\n"
                 f"Use 'Device -> Locate nvtune...' to register where it is "
                 f"(remembered in {config_path()}), or set the {ENV_OVERRIDE} "
                 f"environment variable to its full path.")

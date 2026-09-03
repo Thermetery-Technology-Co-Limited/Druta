@@ -1,0 +1,14 @@
+# Runtime and build dependencies for Druta, pinned to the versions the
+# published binaries were built against.
+#
+# This file is part of the Corresponding Source under GPL-3.0 section 1: it is
+# what makes "generate the object code" reproducible. Dear PyGui is bundled
+# into the EXE and is NOT a System Library, so the version pinned here
+# identifies the third-party source that goes with a given build.
+#
+# Built and tested on CPython 3.14.4 (Windows, 64-bit).
+
+dearpygui==2.3.1
+
+# Build only - not imported by Druta, not bundled except for its bootloader.
+pyinstaller==6.22.0

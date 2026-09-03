@@ -1,8 +1,10 @@
-# PyInstaller build products - the EXE is rebuilt from source, not tracked
+# PyInstaller build products - the EXE is rebuilt from source, not tracked.
+# Druta.spec is DELIBERATELY NOT ignored: GPL-3.0 section 1 counts "scripts to
+# control those activities" as part of the Corresponding Source, so the recipe
+# that turns these files into the published EXE has to ship with them.
 build/
 build2/
 dist/
-*.spec
 build_log.txt
 build2_log.txt
 
