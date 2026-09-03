@@ -92,7 +92,8 @@ import profiles
 import timings
 import timingwrite
 from nvbackend import (GPU, EVENT_REASONS, PERF_DECREASE_BITS, VF_STEP_KHZ,
-                       VFP_POINTS, below_cap, enumerate_gpus, same_slot,
+                       VFP_POINTS, below_cap, enumerate_gpus, is_admin,
+                       same_slot,
                        PRIV_CONFIRMED, PRIV_DOMAIN_ID, PRIV_LIKELY,
                        PRIV_N_DOMAINS, PRIV_PCIE_GEN, PRIV_UNNAMED,
                        PRIV_UNPOPULATED)
@@ -374,6 +375,10 @@ class Druta:
                 self._fonts["ui"] = dpg.add_font(ui, self.s(16))
             if os.path.exists(sb):
                 self._fonts["big"] = dpg.add_font(sb, self.s(26))
+                # The card selector's own size. Between the title and body
+                # text on purpose: which GPU every control on screen is
+                # pointed at should be readable without looking for it.
+                self._fonts["sel"] = dpg.add_font(sb, self.s(21))
             if os.path.exists(mono):
                 self._fonts["mono"] = dpg.add_font(mono, self.s(14))
         if "ui" in self._fonts:
@@ -976,6 +981,62 @@ class Druta:
                 # group at once (and the curve), so it belongs to the tab
                 dpg.add_button(label="Reset all to stock", callback=self.reset_all,
                                width=self.s(200), height=self.s(28))
+                dpg.add_spacer(width=self.s(20))
+                # Beside 'Reset all to stock' deliberately: they are the two
+                # ends of the same axis, and the way back should never be
+                # further from the hand than the way out.
+                dpg.add_button(label="Max it  (fan + power + volts + curve)",
+                               tag="go_ocmax", callback=self.oc_max,
+                               width=self.s(330), height=self.s(28))
+                # ORANGE. Not red - red in this app means "this writes the
+                # memory controller and can hang the machine" (tw_apply) and
+                # that meaning should not be diluted. Not green either: green
+                # is the ordinary V/F apply. Orange is its own band, for the
+                # one button that moves four knobs at once.
+                with dpg.theme() as ocmax_th:
+                    with dpg.theme_component(dpg.mvAll):
+                        dpg.add_theme_color(dpg.mvThemeCol_Button, (168, 88, 16))
+                        dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered,
+                                            (206, 112, 24))
+                        dpg.add_theme_color(dpg.mvThemeCol_ButtonActive,
+                                            (238, 138, 34))
+                        dpg.add_theme_color(dpg.mvThemeCol_Text, (24, 16, 6))
+                dpg.bind_item_theme("go_ocmax", ocmax_th)
+                self._ctl_widgets.append("go_ocmax")
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(
+                        "The four things done by hand at the start of every\n"
+                        "session, in one click and in a safe order:\n\n"
+                        "  1. fan            -> 100%\n"
+                        "  2. power limit    -> this card's maximum\n"
+                        "  3. voltage boost  -> 100%\n"
+                        "  4. V/F curve      -> de-flatten, apply, then hold\n"
+                        "                       the cap point (same as Ctrl+H)\n\n"
+                        "Headroom first, clocks last: cooling before the power\n"
+                        "budget rises, budget before the extra voltage spends\n"
+                        "it, and the curve last because it is the only step\n"
+                        "that asks for more clock.\n\n"
+                        "ONE undo point covers the four WRITES - Profiles >\n"
+                        "Undo last write puts them back.\n\n"
+                        "IT DOES NOT RELEASE THE HOLD. A lock is driver state,\n"
+                        "not a profile value, so Undo leaves the card pinned.\n"
+                        "Press Ctrl+H, the Release button, or 'Reset all to\n"
+                        "stock' - which returns everything to factory AND\n"
+                        "drops the hold.\n\n"
+                        "Steps are independent: a card that refuses one still\n"
+                        "gets the rest, and each outcome is logged.\n\n"
+                        "The fans stay at 100% MANUAL until you press Auto or\n"
+                        "Reset all to stock - they do not ramp back down.\n\n"
+                        "De-flatten works BELOW the voltage cap in the V/F\n"
+                        "editor's cap box, so that box bounds what 'max'\n"
+                        "means. Refused if V/F edits are already staged - it\n"
+                        "will not write a plan it did not make.\n\n"
+                        "De-flatten usually LOWERS the curve's nominal top:\n"
+                        "the cap point becomes the unique peak so the arbiter\n"
+                        "parks THERE instead of at the bottom of a flat run.\n"
+                        "The log says so each time.\n\n"
+                        "This raises voltage, power and clocks together. It is\n"
+                        "an overclock, and it can destabilise the driver.")
             dpg.add_text("writes ENABLED - untick for read-only. "
                          "All changes are reversible and reset on reboot",
                          tag="unlock_note", color=DIM)
@@ -1145,6 +1206,183 @@ class Druta:
     def fan_auto(self):
         if self.guard():
             self.report(self.gpu.reset_fan())
+
+    # ---- the opening ritual, in one click --------------------------------- #
+    def oc_max(self, sender=None, app_data=None, user_data=None):
+        """Fan 100%, power limit to its ceiling, voltage boost 100%,
+        de-flatten and apply the curve, then hold the cap point the way Ctrl+H
+        does. The session-opening ritual, in the order that keeps it safe.
+
+        THE HOLD IS WHAT MAKES THE REST STICK. A de-flattened curve is a SHAPE;
+        without a hold the arbiter still chooses where to sit on it, and it
+        picks the lowest voltage of any peak-frequency flat run - the very
+        behaviour de-flatten exists to work around.
+
+        THE ORDER IS THE POINT. Headroom first, clocks last: fan before power
+        so the cooling is already up when the budget rises, power before
+        voltage so the extra voltage has a budget to spend, and the curve last
+        because it is the only step that asks for more clock. Reversed, each
+        step spends headroom the next one is still about to provide.
+
+        ONE undo point covers the four WRITES - vf_apply is called with
+        autosave=False so it does not take a second. It does NOT cover the
+        hold: a lock is driver state and profiles.capture deliberately does
+        not record one, so 'Undo last write' leaves the card pinned. Ctrl+H,
+        Release, or 'Reset all to stock' drop it. Verified on hardware - the
+        lock reads back as still in force after an undo. That matters: 'Undo last
+        write' loads the NEWEST autosave, so a second point taken after the
+        three knobs had already moved would undo only the curve and leave fan,
+        power and voltage maxed, which is precisely what this promises not to
+        do.
+
+        VALIDATION HAPPENS BEFORE ANY WRITE. The button refuses outright if
+        V/F edits are already staged (it will not write a plan it did not
+        make - a hard de-flatten left staged for a look is the dangerous case)
+        . That refusal leaves the card untouched.
+
+        A de-flatten that LOWERS the nominal peak is DISCLOSED and written
+        anyway. Refusing it was the first cut and it was wrong: on the Titan
+        RTX at the default cap the top moves 1995 -> 1965 MHz, so the button
+        would have refused every press on the card it was written for. Lowering
+        the nominal top is what de-flatten does - the cap point becomes the
+        unique peak so the arbiter parks there instead of at the bottom of a
+        flat run - and the manual path has always allowed it behind a banner.
+
+        Steps are independent: a card that refuses one still gets the rest,
+        and every outcome is logged. A refusal here is ordinary - not every
+        card exposes a voltage boost, and fan control needs admin."""
+        if not self.guard():
+            return
+        st = self.gpu.static
+
+        # ---- VALIDATE FIRST, WRITE SECOND --------------------------------- #
+        # Every refusal below happens before a single register moves, so a
+        # refused press costs nothing. Written the other way round - knobs
+        # first, curve checks after - a refusal would leave the card sitting
+        # at max fan, max power and max volts with the curve untouched, which
+        # is a state the user never asked for and did not get told about.
+        if not self.vf_points:
+            self.vf_read()
+        curve = bool(self.vf_points)
+
+        if curve:
+            # REFUSE ON A DIRTY WORKING COPY. vf_deflatten stages ON TOP of
+            # whatever is already staged and vf_apply writes everything that
+            # differs from hardware, so without this the button silently
+            # commits edits nobody pressed Apply for. The case that makes it a
+            # bug rather than a surprise is a HARD de-flatten staged for a
+            # look and left there: its acknowledgement is checked when it is
+            # STAGED and never at the write, and the app's own banner says
+            # that plan crashes a card without the external voltage mod.
+            dirty = sum(1 for i in self.vf_work
+                        if self.vf_work[i] != self.vf_orig.get(i))
+            if dirty:
+                self.log(f"max: {dirty} staged V/F edit(s) pending - Apply or "
+                         f"Revert them first. This button will not write a "
+                         f"plan it did not make. Nothing was changed.", False)
+                return
+            # vf_RAMP, not vf_deflatten. The two are named the opposite way
+            # round from the buttons: the control labelled "De-flatten" is
+            # go_ramp -> vf_ramp, which rebuilds every point from the floor up
+            # to the cap; vf_deflatten is the DEMOTED narrow one, sitting in
+            # the Clocks menu as "Limited de-flatten". Picking by method name
+            # got the wrong planner - "Max it" reported "idx 103 is already
+            # the unique top - nothing to do" and left all 14 flat runs below
+            # the cap exactly where they were. The curve was not de-flattened,
+            # which is precisely what the button promised to do.
+            self.vf_ramp()
+            # The ramp works BETWEEN the floor and the voltage cap in the two
+            # boxes, so "max" is bounded by them. Name the numbers rather than
+            # let the button quietly mean something different session to
+            # session.
+            cap = dpg.get_value("vcap")
+            plan = self.apply_plan()
+            # A peak-lowering plan is DISCLOSED, not refused. Refusing was the
+            # first cut and it was wrong: measured on the Titan RTX, de-flatten
+            # at the default 1093.75 mV cap moves the top from 1995 to 1965 MHz,
+            # so the button would have refused every press on that card and
+            # been useless for the ritual it exists to replace. Lowering the
+            # nominal top is what de-flatten DOES - it makes the cap point the
+            # unique peak so the arbiter parks THERE instead of at the bottom
+            # of a flat run - and the manual De-flatten + Apply path has always
+            # allowed it behind a red banner. Being stricter than the manual
+            # path for the same write helps nobody.
+            if plan and plan.get("lowers_peak"):
+                self.log(f"max: heads up - de-flatten below {cap:.1f} mV LOWERS "
+                         f"the curve's nominal top. That is what it does: the "
+                         f"cap point becomes the unique peak so the arbiter "
+                         f"parks there rather than at the bottom of a flat "
+                         f"run. Undo last write reverses it.", False)
+
+        # ---- from here on, everything writes ------------------------------ #
+        # ONE undo point, and it has to be here: taken before the first write
+        # and after every refusal, so the ring never collects a snapshot for a
+        # press that changed nothing.
+        self.autosave_before("one-click max")
+        # No header line: the log renders NEWEST FIRST, so a heading would sit
+        # underneath the block it introduces. Each line names itself instead,
+        # which reads correctly in either direction.
+
+        def step(label, fn, slider=None, value=None):
+            try:
+                ok, msg = fn()
+            except Exception as e:                              # noqa: BLE001
+                ok, msg = False, f"{label}: {e}"
+            self.log(f"max: {label} - {msg}", ok)
+            # keep the slider honest about what the card actually took, so the
+            # knob never shows a value the write did not achieve
+            if ok and slider and dpg.does_item_exist(slider):
+                dpg.set_value(slider, value)
+            return ok
+
+        step("fan 100%", lambda: self.gpu.set_fan(100), "sl_fan", 100)
+        pl_max = st.get("pl_max_mw")
+        if pl_max:
+            step(f"power limit {pl_max // 1000} W",
+                 lambda: self.gpu.set_power_limit_mw(pl_max),
+                 "sl_pl", pl_max // 1000)
+        else:
+            self.log("max: power limit - this card reports no maximum", False)
+        step("voltage boost 100%",
+             lambda: self.gpu.set_voltage_boost(100), "sl_volt", 100)
+
+        if curve:
+            self.log(f"max: de-flatten up to {cap:.1f} mV", None)
+            # autosave=False: the point above already covers all four. A second
+            # one here would be the NEWEST, and 'Undo last write' reads the
+            # newest - so one press would put the curve back while leaving fan,
+            # power and voltage maxed.
+            self.vf_apply(autosave=False)
+            self.hold_cap_point(cap)
+        else:
+            self.log("max: curve not readable on this card - the other three "
+                     "still applied", False)
+
+    def hold_cap_point(self, cap):
+        """Final step: pin the card on the cap point, the way Ctrl+H does.
+
+        Without this the ritual sets a shape and then leaves the arbiter to
+        choose where on it to sit - and the arbiter runs the LOWEST voltage of
+        any peak-frequency flat run, which is the behaviour the de-flatten
+        exists to work around rather than something to trust afterwards. The
+        point lock is what makes the card actually hold the top: measured, it
+        keeps true P0 on an idle card where the NVML clock lock leaves memory
+        at 810.
+
+        Selects the highest point AT OR BELOW the cap - the same below_cap()
+        rule the planner and the readouts use, so the point held is the point
+        the plan was built around. Goes through hold_point() rather than
+        calling the driver directly, so the on-screen hold record, the handover
+        from any existing lock and the read-back all stay in one place."""
+        pts = self.work_pts() or []
+        under = [p for p in pts if below_cap(p["volt_mv"], cap)]
+        if not under:
+            self.log(f"max: no V/F point at or below {cap:.1f} mV to hold",
+                     False)
+            return
+        top = max(under, key=lambda p: p["volt_mv"])
+        self.vf_select(top["idx"])
+        self.hold_point()
 
     # ---- the two lock mechanisms ------------------------------------------ #
     # The card can be pinned two completely different ways, and neither driver
@@ -2863,7 +3101,7 @@ class Druta:
                 dpg.bind_item_theme("vf_plan", self._plan_themes[band])
         self.size_plan_banner()
 
-    def vf_apply(self):
+    def vf_apply(self, autosave=True):
         """ONE CLICK. The plan banner directly above this button has been
         saying what the click writes for as long as the edits have existed
         (update_plan_banner), and autosave_before makes the write recoverable -
@@ -2899,7 +3137,13 @@ class Druta:
             return
         changed = plan["changed"]
         predicted = {i: self.wf(i) for i in changed}
-        self.autosave_before("vf-apply")
+        # `autosave` is False only for oc_max, which already took a point
+        # covering the three knobs it moved first. Taking a second one here
+        # would make it the NEWEST, and "Undo last write" reads the newest -
+        # so one press would restore the curve while leaving fan, power and
+        # voltage maxed, which is exactly what the button promised not to do.
+        if autosave:
+            self.autosave_before("vf-apply")
         # the log is the only receipt a write leaves anywhere in the app, so
         # the plan goes into it at the moment of commit as well as standing in
         # the banner beforehand - and it lands directly under the undo point
@@ -3635,34 +3879,22 @@ deliberately does not put behind a button."""
                 dpg.add_menu_item(label="Exit",
                                   callback=lambda s, a, u: dpg.stop_dearpygui())
             with dpg.menu(label="Device"):
-                # The card picker sits at the top of Device because on a
-                # multi-card host it is the control that decides what every
-                # other control in the window means.
-                here = self.gpu.slot()
-                with dpg.menu(label="Card"):
+                # Picking a card is NOT here any more - it is the combo in the
+                # header. A menu is where you put things people go looking
+                # for; which GPU every control on screen is pointed at is
+                # something they need to SEE. Only the second-window action
+                # stays, because that one genuinely is occasional.
+                with dpg.menu(label="Open a second window on"):
                     if not self.gpu_list:
                         dpg.add_text("no NVIDIA GPU enumerated", color=BAD)
                     for g in self.gpu_list:
-                        cur = same_slot(g["slot"], here)
                         dpg.add_menu_item(
-                            label=("* " if cur else "   ")
-                                  + f"{g['name']}   {g['slot']}",
-                            enabled=not cur, user_data=g["slot"],
-                            callback=self.switch_gpu)
-                    dpg.add_separator()
-                    dpg.add_text("This window follows one card at a time.\n"
-                                 "Switching rebuilds every control from the\n"
-                                 "new card's own measurements.", color=DIM)
-                    dpg.add_separator()
-                    with dpg.menu(label="Open a second window on"):
-                        for g in self.gpu_list:
-                            dpg.add_menu_item(
-                                label=f"{g['name']}   {g['slot']}",
-                                user_data=g["slot"],
-                                callback=self.open_gpu_window)
-                        dpg.add_text("for watching both at once, or holding\n"
-                                     "a lock on one while tuning the other",
-                                     color=DIM)
+                            label=f"{g['name']}   {g['slot']}",
+                            user_data=g["slot"],
+                            callback=self.open_gpu_window)
+                    dpg.add_text("for watching both at once, or holding\n"
+                                 "a lock on one while tuning the other",
+                                 color=DIM)
                 dpg.add_separator()
                 dpg.add_menu_item(label="Device report...", user_data="win_device",
                                   callback=self.show_win)
@@ -3686,6 +3918,15 @@ deliberately does not put behind a button."""
                                   callback=self.open_locate_nvtune)
                 dpg.add_menu_item(label="Forget nvtune location",
                                   callback=self.forget_nvtune)
+                # WHERE THIS LIVES IS THE POINT. While nvtune cannot be
+                # loaded, the Timings tab carries the button, because that is
+                # the one screen where the operator is stuck. Once it loads,
+                # the tab drops it and this is all that is left: still
+                # reachable - test signing can be turned back off, or need
+                # re-applying after a Windows update - but no longer in the
+                # way of a tab that now works.
+                dpg.add_menu_item(label="Enable test signing...",
+                                  callback=self.open_testsign)
             # Up here rather than on the Control tab for the same reason as the
             # clock lock: these are whole-machine actions, not one more knob.
             # 'Undo last write' is the safety net that lets Apply and Reset
@@ -3936,6 +4177,105 @@ deliberately does not put behind a button."""
                          "so W/A/S/D typed into the cap, index or MHz box do not "
                          "also retune the curve.", color=DIM, wrap=self.s(580))
 
+        with dpg.window(label="Enable test signing", tag="win_testsign",
+                        show=False, modal=True, no_resize=False,
+                        width=self.s(860), height=self.s(620),
+                        pos=[self.s(140), self.s(90)]):
+            dpg.add_text("To load nvtune's driver, Windows must be in test "
+                         "signing mode.", color=ACCENT, wrap=self.s(820))
+            dpg.add_spacer(height=self.s(6))
+            dpg.add_text("Run these in an elevated CMD, with Secure Boot "
+                         "DISABLED in firmware:", wrap=self.s(820))
+            # copiable: a read-only multiline input is selectable and
+            # Ctrl+C-able, which a plain text item is not
+            dpg.add_input_text(tag="ts_cmds", multiline=True, readonly=True,
+                               width=-1, height=self.s(74),
+                               default_value="\n".join(
+                                   " ".join(c) for c in self.TESTSIGN_CMDS))
+            self.bind("ts_cmds", "mono")
+            dpg.add_text("Only the third one does the work. Microsoft "
+                         "documents `testsigning` as what makes Windows load "
+                         "test-signed kernel code; `nointegritychecks` is "
+                         "documented as ignored on modern Windows, and "
+                         "DISABLE_INTEGRITY_CHECKS is not a documented "
+                         "setting at all. The first two are here because they "
+                         "are the recipe known to work on this rig.",
+                         color=DIM, wrap=self.s(820))
+            dpg.add_spacer(height=self.s(6))
+            dpg.add_separator()
+            dpg.add_spacer(height=self.s(6))
+            dpg.add_text("", tag="ts_state", wrap=self.s(820))
+            dpg.add_spacer(height=self.s(4))
+            dpg.add_text("NOTHING TAKES EFFECT UNTIL YOU REBOOT.",
+                         color=WARN, wrap=self.s(820))
+            dpg.add_text(
+                "This lowers a kernel security boundary for the whole "
+                "machine, not just for Druta: any test-signed driver will "
+                "load afterwards, and Windows shows a Test Mode watermark. "
+                "To undo it, run the same shell with:", wrap=self.s(820))
+            dpg.add_input_text(tag="ts_undo", multiline=True, readonly=True,
+                               width=-1, height=self.s(74),
+                               default_value="\n".join(
+                                   " ".join(c) for c in self.TESTSIGN_UNDO))
+            self.bind("ts_undo", "mono")
+            dpg.add_spacer(height=self.s(8))
+            with dpg.group(horizontal=True):
+                dpg.add_button(label="OK", width=self.s(120),
+                               callback=lambda: dpg.configure_item(
+                                   "win_testsign", show=False))
+                dpg.add_spacer(width=self.s(16))
+                dpg.add_button(
+                    label="I accept the risk - run these commands now",
+                    tag="ts_run", width=self.s(430), callback=self.run_testsign)
+                with dpg.theme() as ts_th:
+                    with dpg.theme_component(dpg.mvAll):
+                        dpg.add_theme_color(dpg.mvThemeCol_Button, (140, 28, 32))
+                        dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered,
+                                            (180, 38, 42))
+                        dpg.add_theme_color(dpg.mvThemeCol_ButtonActive,
+                                            (212, 48, 52))
+                        dpg.add_theme_color(dpg.mvThemeCol_Text, (255, 236, 236))
+                dpg.bind_item_theme("ts_run", ts_th)
+            dpg.add_spacer(height=self.s(4))
+            dpg.add_text("", tag="ts_result", wrap=self.s(820))
+
+        # The outcome gets its OWN modal rather than a line in the dialog
+        # behind it. Two reasons: a bcdedit failure is the thing most worth
+        # not scrolling past, and success needs an answer to a question
+        # ("reboot?") rather than an acknowledgement.
+        with dpg.window(label="Test signing", tag="win_ts_done", show=False,
+                        modal=True, width=self.s(720), height=self.s(400),
+                        pos=[self.s(200), self.s(150)]):
+            dpg.add_text("", tag="tsd_head", wrap=self.s(680))
+            dpg.add_spacer(height=self.s(6))
+            dpg.add_input_text(tag="tsd_detail", multiline=True, readonly=True,
+                               width=-1, height=self.s(190))
+            self.bind("tsd_detail", "mono")
+            dpg.add_spacer(height=self.s(8))
+            with dpg.group(horizontal=True, tag="tsd_ok_row", show=False):
+                dpg.add_button(label="Reboot now", tag="tsd_reboot",
+                               width=self.s(180), callback=self.reboot_now)
+                with dpg.theme() as tsd_th:
+                    with dpg.theme_component(dpg.mvAll):
+                        dpg.add_theme_color(dpg.mvThemeCol_Button, (140, 28, 32))
+                        dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered,
+                                            (180, 38, 42))
+                        dpg.add_theme_color(dpg.mvThemeCol_ButtonActive,
+                                            (212, 48, 52))
+                        dpg.add_theme_color(dpg.mvThemeCol_Text, (255, 236, 236))
+                dpg.bind_item_theme("tsd_reboot", tsd_th)
+                dpg.add_spacer(width=self.s(16))
+                dpg.add_button(label="Later", width=self.s(160),
+                               callback=lambda: dpg.configure_item(
+                                   "win_ts_done", show=False))
+                dpg.add_spacer(width=self.s(16))
+                dpg.add_text("reboot starts in 10s; 'shutdown /a' aborts it",
+                             color=DIM)
+            with dpg.group(horizontal=True, tag="tsd_bad_row", show=False):
+                dpg.add_button(label="Close", width=self.s(160),
+                               callback=lambda: dpg.configure_item(
+                                   "win_ts_done", show=False))
+
         with dpg.window(label="Licences", tag="win_licence", show=False,
                         width=self.s(860), height=self.s(640),
                         pos=[self.s(120), self.s(90)]):
@@ -4059,10 +4399,14 @@ deliberately does not put behind a button."""
                 ("cycles", 62), ("new value", 104),
                 ("ns at the capture clock", 250), ("what it is", 560))
 
-    TIM_READONLY = ("Reading is done through nvtune's read-only subcommands "
-                    "(timings.py still cannot build a writing command line). "
-                    "Writing is a separate module, timingwrite.py, and is the "
-                    "only thing in Druta that can - see the Edit panel.")
+    # "This tab cannot write" was still being said here long after it stopped
+    # being true - the same claim a comment further up already records as
+    # having been wrong. The boundary is between MODULES, not tabs.
+    TIM_READONLY = ("Reading goes through nvtune's read-only subcommands: "
+                    "timings.py cannot build a writing command line at all. "
+                    "Writing lives in one other module, timingwrite.py, and "
+                    "THIS TAB DRIVES IT - the Apply button below is that "
+                    "module.")
 
     TIM_WRITEWARN = (
         "WRITING A TIMING REGISTER CAN HANG THE MACHINE AND CORRUPT VRAM. "
@@ -4078,67 +4422,13 @@ deliberately does not put behind a button."""
     CMP_COL = {"tracks": GOOD, "flat": DIM, "partial": WARN, "--": DIM}
 
     def build_timings(self):
-        with dpg.tab(label="  Timings  ", tag="tab_tim"):
-            with dpg.group(horizontal=True):
-                dpg.add_button(label="Capture", tag="tim_cap",
-                               width=self.s(150), callback=self.timings_capture)
-                with dpg.tooltip(dpg.last_item()):
-                    dpg.add_text(
-                        "Reads the timing registers and files the result under\n"
-                        "the memory clock it was taken at.\n\n"
-                        "Capture at TWO memory states to prove the decode: let\n"
-                        "the card idle (the memory clock drops to ~810) and\n"
-                        "capture, then put it under load (P0, ~7428) and\n"
-                        "capture again. The comparison below then shows each\n"
-                        "field's cycle ratio beside the clock ratio.\n\n"
-                        "Nothing here writes to the GPU.")
-                # INDUCE, never "force": nothing here commands a p-state,
-                # because nothing on this card can (see gpuload's header).
-                # It runs a workload and reports what the driver decided.
-                dpg.add_button(label="Induce P-state (GPU load)",
-                               tag="tim_induce", width=self.s(250),
-                               callback=self.timings_induce)
-                with dpg.tooltip(dpg.last_item()):
-                    dpg.add_text(
-                        "Runs a CUDA device-to-device memcpy load, waits for\n"
-                        "the memory clock to settle, captures WHILE THE LOAD\n"
-                        "IS STILL RUNNING, then stops it.\n\n"
-                        "This is ENOUGH to read the timings. It reaches\n"
-                        "p-state 2 (memory 7228, ~450 GB/s) rather than P0,\n"
-                        "and that does not matter: measured on this card the\n"
-                        "registers are BIT-IDENTICAL at 7228 and at 7428,\n"
-                        "because timings are picked per clock BAND, not per\n"
-                        "p-state. No game, no benchmark, no '-cc 1' needed.\n\n"
-                        "What IS useless is an idle capture - 405 and 810\n"
-                        "program genuinely slacker values.\n\n"
-                        "If the card is ALREADY at P0 this skips the load and\n"
-                        "captures directly - measured, starting a CUDA context\n"
-                        "on a P0 card pulls it DOWN to P2.\n\n"
-                        "It is an ordinary workload. It writes no register.")
-                dpg.add_button(label="Forget captures", tag="tim_clear",
-                               width=self.s(170), callback=self.timings_clear)
-                # Armed by default: the memory P-state CANNOT be forced on this
-                # card, so waiting for the card to reach P0 on its own is the
-                # only way to get a capture that means anything (see
-                # timings_p0_watch). Costs nothing while it waits.
-                dpg.add_checkbox(label="Auto-capture at P0", tag="tim_auto",
-                                 default_value=True,
-                                 callback=self.timings_auto_toggled)
-                with dpg.tooltip(dpg.last_item()):
-                    dpg.add_text(
-                        "Watches the memory clock on the telemetry poll and\n"
-                        "captures the FIRST time the card reaches its top\n"
-                        "memory state, then again on each re-entry after it\n"
-                        "has dropped out. One capture per entry.\n\n"
-                        "Start a game or a benchmark and come back: a valid\n"
-                        "P0 capture will be waiting.\n\n"
-                        "This exists because the memory P-state cannot be\n"
-                        "pinned on this card - nvmlDeviceSetMemoryLockedClocks\n"
-                        "returns NOT_SUPPORTED, and locking the graphics clock\n"
-                        "alone only pulls memory to 810. Measured: only a\n"
-                        "sustained 3D load reaches the top state.\n\n"
-                        "It reads. It never writes.")
-                dpg.add_text("", tag="tim_busy", color=ACCENT)
+        # The capture controls used to sit in a row of their own at the top of
+        # the tab, above a paragraph arguing that a P2 capture is as good as a
+        # P0 one. Both were written when P0 was hard to reach. Ctrl+H holds it
+        # directly now, so the argument is gone and the buttons have moved down
+        # beside the edit controls - one block of actions instead of two.
+        with dpg.tab(label="  Timings  (needs nvtune)  ", tag="tab_tim"):
+            dpg.add_text("", tag="tim_busy", color=ACCENT)
             # THE headline. A capture taken at idle is the same class of error
             # as a capture taken across a reclock - an authoritative-looking
             # number measured against the wrong state - so it gets the same
@@ -4148,104 +4438,241 @@ deliberately does not put behind a button."""
             # left if it landed short
             dpg.add_text("", tag="tim_induce_note", color=WARN, show=False,
                          wrap=self.s(1100))
-            dpg.add_text(self.TIM_READONLY, tag="tim_ro", color=DIM,
-                         wrap=self.s(1100))
-            # the specific degradation: which of the two halves is missing
-            dpg.add_text("", tag="tim_reason", color=WARN, show=False,
-                         wrap=self.s(1100))
-
-            # ---- header: the identity, and THE clock this decode is against #
-            with dpg.child_window(tag="pan_tim_hdr", width=-1,
-                                  height=self.s(104), border=True,
-                                  no_scrollbar=True, no_scroll_with_mouse=True):
-                dpg.add_text("--", tag="tim_ident", color=ACCENT)
-                dpg.add_text("--", tag="tim_clock")
-                dpg.add_text("", tag="tim_warn", color=BAD, show=False,
+            # Said once, at the top, in the tab's own colour rather than
+            # buried in the read-only paragraph: this is the only tab that
+            # does nothing at all without a second program installed, and the
+            # tab label alone is easy to miss once the tab is open.
+            # THE SETUP SCREEN. Shown INSTEAD of the tab's contents, not above
+            # them: without nvtune every control below is inert, and a live
+            # -looking table nobody can refresh is worse than an empty tab. It
+            # names which of the two halves is missing and puts that half's
+            # action first, because "not available" is not something anyone can
+            # act on - "the exe is not where I looked" and "the driver is not
+            # running" have completely different fixes.
+            with dpg.group(tag="tim_needs", show=False):
+                dpg.add_spacer(height=self.s(20))
+                dpg.add_text("NVTUNE IS NOT LOADED", tag="tim_setup_head",
+                             color=BAD)
+                self.bind("tim_setup_head", "big")
+                dpg.add_spacer(height=self.s(6))
+                dpg.add_text("", tag="tim_setup_what", color=TEXT,
+                             wrap=self.s(980))
+                dpg.add_spacer(height=self.s(10))
+                # the specific degradation, from timings.available()
+                dpg.add_text("", tag="tim_reason", color=WARN,
+                             wrap=self.s(980))
+                dpg.add_spacer(height=self.s(16))
+                dpg.add_text("", tag="tim_step1", color=ACCENT)
+                self.bind("tim_step1", "sel")
+                dpg.add_spacer(height=self.s(4))
+                with dpg.group(horizontal=True):
+                    dpg.add_button(label="Locate nvtune.exe...",
+                                   tag="tim_locate", height=self.s(34),
+                                   width=self.s(260),
+                                   callback=self.open_locate_nvtune)
+                    dpg.add_spacer(width=self.s(14))
+                    # Its driver is test-signed, so it needs a machine in test
+                    # signing mode. The button EXPLAINS before it offers - see
+                    # open_testsign; the commands are shown, copiable, and the
+                    # red one is dead unless the machine can take them.
+                    dpg.add_button(label="Enable test signing...",
+                                   tag="tim_testsign", height=self.s(34),
+                                   width=self.s(260),
+                                   callback=self.open_testsign)
+                dpg.add_spacer(height=self.s(16))
+                dpg.add_text(
+                    "nvtune is a separate program by Sebastian Marrufo, "
+                    "GPL-3.0-or-later, not shipped with Druta:",
+                    color=DIM, wrap=self.s(980))
+                dpg.add_input_text(tag="tim_upstream", readonly=True,
+                                   width=self.s(560),
+                                   default_value=timings.NVTUNE_HOME)
+                self.bind("tim_upstream", "mono")
+                dpg.add_spacer(height=self.s(10))
+                dpg.add_text(
+                    "Everything else in Druta works without it - only this tab "
+                    "needs BAR0. Its driver is self-signed, so loading it costs "
+                    "Secure Boot, Memory Integrity and driver-signature "
+                    "enforcement, machine-wide. Read what the button says "
+                    "before you use it.", color=DIM, wrap=self.s(980))
+            # EVERYTHING THE TAB DOES, in one group, so it can be taken
+            # off screen wholesale when nvtune is not loaded. A dead table
+            # over a dead write panel with one small band of explanation
+            # at the top is not a state anyone can act on; the setup panel
+            # above replaces it entirely.
+            with dpg.group(tag="tim_work"):
+                dpg.add_spacer(height=self.s(4))
+                dpg.add_text(self.TIM_READONLY, tag="tim_ro", color=DIM,
                              wrap=self.s(1100))
-                dpg.add_text("", tag="tim_words", color=DIM)
-                for t in ("tim_ident", "tim_clock", "tim_words"):
-                    self.bind(t, "mono")
 
-            # NOT behind a collapsing header. It was, on the reasoning that a
-            # writing control should take a deliberate act to reach - but the
-            # act it actually gated was reading the warning, while the editable
-            # cells it describes sat in plain sight in the table below. A fold
-            # that hides the explanation and not the controls is worse than no
-            # fold, so the whole thing is exposed and the hazard text leads.
-            dpg.add_spacer(height=self.s(6))
-            dpg.add_text("EDIT TIMINGS  ·  writes to the memory controller",
-                         color=BAD)
-            dpg.add_text(self.TIM_WRITEWARN, color=BAD,
-                         wrap=self.s(1100), tag="tw_warn")
-            dpg.add_text("Edit the 'new value' column in the table below. A "
-                         "cell is green while it matches the register and red "
-                         "once it does not; only red rows are written.",
-                         color=DIM, wrap=self.s(1100), tag="tw_hint")
-            dpg.add_spacer(height=self.s(4))
-            dpg.add_text("no edits - every cell matches the register",
-                         tag="tw_plan", color=TEXT, wrap=self.s(1100))
-            dpg.add_spacer(height=self.s(4))
-            # Two rows, grouped by what the controls DO. `force` modifies Apply
-            # and belongs beside it; Revert and Restore are the two ways back
-            # and belong together. One ragged row mixing a checkbox with three
-            # different button widths is what this replaced.
-            with dpg.group(horizontal=True):
-                dpg.add_button(label="Apply to memory controller",
-                               tag="tw_apply", width=self.s(260),
-                               callback=self.tw_apply)
-                dpg.add_spacer(width=self.s(10))
-                dpg.add_checkbox(label="force  (write despite range warnings)",
-                                 tag="tw_force")
-            dpg.add_spacer(height=self.s(2))
-            with dpg.group(horizontal=True):
-                dpg.add_button(label="Revert edits", tag="tw_clear",
-                               width=self.s(150), callback=self.tw_clear)
-                dpg.add_spacer(width=self.s(10))
-                dpg.add_button(label="Restore stock", tag="tw_restore",
-                               width=self.s(150), callback=self.tw_restore)
-            dpg.add_text("", tag="tw_result", color=TEXT, wrap=self.s(1100))
-            dpg.add_text("", tag="tw_backup", color=DIM, wrap=self.s(1100))
-            dpg.add_spacer(height=self.s(4))
-            dpg.add_separator()
+                # ---- header: the identity, and THE clock this decode is against #
+                with dpg.child_window(tag="pan_tim_hdr", width=-1,
+                                      height=self.s(104), border=True,
+                                      no_scrollbar=True, no_scroll_with_mouse=True):
+                    dpg.add_text("--", tag="tim_ident", color=ACCENT)
+                    dpg.add_text("--", tag="tim_clock")
+                    dpg.add_text("", tag="tim_warn", color=BAD, show=False,
+                                 wrap=self.s(1100))
+                    dpg.add_text("", tag="tim_words", color=DIM)
+                    for t in ("tim_ident", "tim_clock", "tim_words"):
+                        self.bind(t, "mono")
 
-            dpg.add_spacer(height=self.s(4))
-            with dpg.child_window(tag="pan_tim", width=-1, height=self.s(360)):
-                dpg.add_text("DECODED TIMINGS  ·  broadcast aperture",
-                             tag="tim_title", color=ACCENT)
-                dpg.add_text("", tag="tim_sub", color=DIM, wrap=self.s(1100))
+                # NOT behind a collapsing header. It was, on the reasoning that a
+                # writing control should take a deliberate act to reach - but the
+                # act it actually gated was reading the warning, while the editable
+                # cells it describes sat in plain sight in the table below. A fold
+                # that hides the explanation and not the controls is worse than no
+                # fold, so the whole thing is exposed and the hazard text leads.
+                dpg.add_spacer(height=self.s(6))
+                dpg.add_text("EDIT TIMINGS  ·  writes to the memory controller",
+                             color=BAD)
+                dpg.add_text(self.TIM_WRITEWARN, color=BAD,
+                             wrap=self.s(1100), tag="tw_warn")
+                dpg.add_text("Edit the 'new value' column in the table below. A "
+                             "cell is green while it matches the register and red "
+                             "once it does not; only red rows are written.",
+                             color=DIM, wrap=self.s(1100), tag="tw_hint")
+                dpg.add_spacer(height=self.s(4))
+                dpg.add_text("no edits - every cell matches the register",
+                             tag="tw_plan", color=TEXT, wrap=self.s(1100))
+                dpg.add_spacer(height=self.s(4))
+                # Two rows, grouped by what the controls DO. `force` modifies Apply
+                # and belongs beside it; Revert and Restore are the two ways back
+                # and belong together. One ragged row mixing a checkbox with three
+                # different button widths is what this replaced.
+                with dpg.group(horizontal=True):
+                    dpg.add_button(label="Apply to memory controller",
+                                   tag="tw_apply", width=self.s(260),
+                                   callback=self.tw_apply)
+                    dpg.add_spacer(width=self.s(10))
+                    dpg.add_checkbox(label="force  (write despite range warnings)",
+                                     tag="tw_force")
+                dpg.add_spacer(height=self.s(2))
+                with dpg.group(horizontal=True):
+                    dpg.add_button(label="Revert edits", tag="tw_clear",
+                                   width=self.s(150), callback=self.tw_clear)
+                    dpg.add_spacer(width=self.s(10))
+                    dpg.add_button(label="Restore stock", tag="tw_restore",
+                                   width=self.s(150), callback=self.tw_restore)
+                dpg.add_spacer(height=self.s(6))
                 dpg.add_separator()
-                with dpg.table(tag="tim_table", header_row=True,
-                               no_host_extendX=True,
-                               policy=dpg.mvTable_SizingFixedFit,
-                               borders_innerH=True, borders_innerV=True):
-                    self.tim_columns()
-
-            dpg.add_spacer(height=self.s(4))
-            with dpg.child_window(tag="pan_cmp", width=-1, height=self.s(300)):
-                dpg.add_text("CAPTURES COMPARED  ·  cycle ratio vs clock "
-                             "ratio", color=ACCENT)
-                dpg.add_text("", tag="cmp_hint", color=DIM, wrap=self.s(1100))
-                dpg.add_text("", tag="cmp_legend", color=TEXT,
-                             wrap=self.s(1100), show=False)
+                dpg.add_spacer(height=self.s(6))
+                # READ controls, sharing the write panel's block rather than a row
+                # of their own at the top of the tab. The separator above is what
+                # keeps them out of the red write block: nothing below it writes a
+                # register. (It was described here before it existed - the comment
+                # claimed a boundary the layout did not draw.)
+                with dpg.group(horizontal=True):
+                    # THE read button, and the only one that gets you a reading
+                    # worth having. Blue: it is the primary action on this tab, and
+                    # it is the one that changes the card's state.
+                    dpg.add_button(label="Read memory timings  (will hold P0)",
+                                   tag="tim_read", width=self.s(300),
+                                   callback=self.timings_read_p0)
+                    with dpg.theme() as read_th:
+                        with dpg.theme_component(dpg.mvAll):
+                            dpg.add_theme_color(dpg.mvThemeCol_Button, (26, 84, 152))
+                            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered,
+                                                (34, 108, 192))
+                            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive,
+                                                (44, 132, 232))
+                            dpg.add_theme_color(dpg.mvThemeCol_Text, (238, 245, 255))
+                    dpg.bind_item_theme("tim_read", read_th)
+                    with dpg.tooltip(dpg.last_item()):
+                        dpg.add_text(
+                            "Puts the card in its top memory band and reads the\n"
+                            "timing registers there - the only state whose timings\n"
+                            "mean anything.\n\n"
+                            "It HOLDS P0 with the V/F point lock, the same lock\n"
+                            "Ctrl+H uses, and LEAVES IT ON. That is deliberate:\n"
+                            "the band is still up afterwards, so 'Re-read timings'\n"
+                            "beside this becomes a cheap sanity check instead of\n"
+                            "another round trip. Ctrl+H, Release or 'Reset all to\n"
+                            "stock' drop the hold.\n\n"
+                            "If the hold cannot be taken - controls locked, no\n"
+                            "readable V/F curve - it falls back to a CUDA memcpy\n"
+                            "load and captures while that runs, which reaches the\n"
+                            "same band but only for as long as the load lasts.\n\n"
+                            "If the card is ALREADY at P0 it captures directly:\n"
+                            "measured, opening a CUDA context on a P0 card pulls\n"
+                            "it DOWN to P2.")
+                    dpg.add_spacer(width=self.s(10))
+                    # Demoted from "Capture" to what it is actually for. On its own
+                    # it usually samples idle, which is the error this whole tab
+                    # exists to prevent - it earns its place as the cheap re-read
+                    # once the blue button has the band held.
+                    dpg.add_button(label="Re-read timings", tag="tim_cap",
+                                   width=self.s(150), callback=self.timings_capture)
+                    with dpg.tooltip(dpg.last_item()):
+                        dpg.add_text(
+                            "Reads the registers again, right now, in whatever\n"
+                            "state the card happens to be in, and files the result\n"
+                            "under that memory clock.\n\n"
+                            "A SANITY CHECK, not the way to get a reading: on an\n"
+                            "idle card this returns idle timings, which say nothing\n"
+                            "about performance. Use the blue button for a reading\n"
+                            "worth having, then this to confirm it is stable.\n\n"
+                            "It is also how you capture a SECOND state to prove the\n"
+                            "decode: read held at P0, release, let the card idle,\n"
+                            "re-read. The comparison below then shows each field's\n"
+                            "cycle ratio beside the clock ratio.\n\n"
+                            "Nothing here writes to the GPU.")
+                    dpg.add_spacer(width=self.s(10))
+                    # Armed by default: the memory p-state cannot be forced on this
+                    # card, so catching the top band when it happens is worth
+                    # having on. Costs nothing while it waits.
+                    dpg.add_checkbox(label="Auto-capture at P0", tag="tim_auto",
+                                     default_value=True,
+                                     callback=self.timings_auto_toggled)
+                    with dpg.tooltip(dpg.last_item()):
+                        dpg.add_text(
+                            "Captures the first time the card reaches its top\n"
+                            "memory state, and again on each re-entry. Start a\n"
+                            "game and come back: a valid capture will be waiting.\n\n"
+                            "It reads. It never writes.")
+                dpg.add_text("", tag="tw_result", color=TEXT, wrap=self.s(1100))
+                dpg.add_text("", tag="tw_backup", color=DIM, wrap=self.s(1100))
+                dpg.add_spacer(height=self.s(4))
                 dpg.add_separator()
-                dpg.add_table(tag="cmp_table", header_row=True,
-                              no_host_extendX=True,
-                              policy=dpg.mvTable_SizingFixedFit,
-                              borders_innerH=True, borders_innerV=True)
 
-            dpg.add_spacer(height=self.s(4))
-            # Hidden while the partitions agree, which is the normal case on
-            # this card - six identical copies of the same table would bury the
-            # one line that actually matters.
-            with dpg.child_window(tag="pan_div", width=-1, height=self.s(150),
-                                  show=False):
-                dpg.add_text("PARTITION DIVERGENCE", color=BAD)
-                dpg.add_text("", tag="div_sub", color=DIM, wrap=self.s(1100))
-                dpg.add_separator()
-                dpg.add_table(tag="div_table", header_row=True,
-                              no_host_extendX=True,
-                              policy=dpg.mvTable_SizingFixedFit,
-                              borders_innerH=True, borders_innerV=True)
+                dpg.add_spacer(height=self.s(4))
+                with dpg.child_window(tag="pan_tim", width=-1, height=self.s(360)):
+                    dpg.add_text("DECODED TIMINGS  ·  broadcast aperture",
+                                 tag="tim_title", color=ACCENT)
+                    dpg.add_text("", tag="tim_sub", color=DIM, wrap=self.s(1100))
+                    dpg.add_separator()
+                    with dpg.table(tag="tim_table", header_row=True,
+                                   no_host_extendX=True,
+                                   policy=dpg.mvTable_SizingFixedFit,
+                                   borders_innerH=True, borders_innerV=True):
+                        self.tim_columns()
+
+                dpg.add_spacer(height=self.s(4))
+                with dpg.child_window(tag="pan_cmp", width=-1, height=self.s(300)):
+                    dpg.add_text("CAPTURES COMPARED  ·  cycle ratio vs clock "
+                                 "ratio", color=ACCENT)
+                    dpg.add_text("", tag="cmp_hint", color=DIM, wrap=self.s(1100))
+                    dpg.add_text("", tag="cmp_legend", color=TEXT,
+                                 wrap=self.s(1100), show=False)
+                    dpg.add_separator()
+                    dpg.add_table(tag="cmp_table", header_row=True,
+                                  no_host_extendX=True,
+                                  policy=dpg.mvTable_SizingFixedFit,
+                                  borders_innerH=True, borders_innerV=True)
+
+                dpg.add_spacer(height=self.s(4))
+                # Hidden while the partitions agree, which is the normal case on
+                # this card - six identical copies of the same table would bury the
+                # one line that actually matters.
+                with dpg.child_window(tag="pan_div", width=-1, height=self.s(150),
+                                      show=False):
+                    dpg.add_text("PARTITION DIVERGENCE", color=BAD)
+                    dpg.add_text("", tag="div_sub", color=DIM, wrap=self.s(1100))
+                    dpg.add_separator()
+                    dpg.add_table(tag="div_table", header_row=True,
+                                  no_host_extendX=True,
+                                  policy=dpg.mvTable_SizingFixedFit,
+                                  borders_innerH=True, borders_innerV=True)
 
     def tim_columns(self):
         # parent named explicitly: these columns are re-created on every
@@ -4452,6 +4879,126 @@ deliberately does not put behind a button."""
         self.tw_plan()
         self.timings_capture()
 
+    def open_testsign(self, sender=None, app_data=None, user_data=None):
+        """Open the dialog, and decide THERE whether the red button is live.
+
+        Every gate is re-read on each open rather than cached: Secure Boot can
+        be turned off in firmware and the machine rebooted between one look at
+        this dialog and the next, and a stale answer would either block a
+        legitimate press or offer one that is going to fail."""
+        sb = self.secure_boot_state()
+        bl = self.bitlocker_on()
+        admin = is_admin()
+        lines, blocked = [], []
+        if sb is True:
+            lines.append("Secure Boot is ON. These commands cannot be applied "
+                         "while it is - Windows refuses nointegritychecks "
+                         "outright. Turn it off in firmware first.")
+            blocked.append("secure boot")
+        elif sb is False:
+            lines.append("Secure Boot: OFF (checked, not assumed).")
+        else:
+            lines.append("Secure Boot state could not be read on this machine. "
+                         "Confirm it is off yourself before running these.")
+        if not admin:
+            lines.append("Druta is NOT running as administrator - bcdedit "
+                         "will refuse. Restart it elevated.")
+            blocked.append("not elevated")
+        if bl:
+            lines.append(f"BITLOCKER IS ON ({bl}). Changing boot "
+                         f"configuration can force a recovery-key prompt at "
+                         f"the next boot. Suspend BitLocker first, and have "
+                         f"your recovery key to hand before you reboot.")
+        elif bl is None:
+            lines.append("BitLocker status could not be read. If any volume is "
+                         "protected, suspend it first - a boot-config change "
+                         "can trigger a recovery-key prompt.")
+        dpg.set_value("ts_state", "\n".join(lines))
+        dpg.configure_item("ts_state",
+                           color=BAD if blocked else (WARN if bl else GOOD))
+        dpg.configure_item("ts_run", enabled=not blocked)
+        dpg.set_value("ts_result", "")
+        dpg.configure_item("win_testsign", show=True)
+        dpg.focus_item("win_testsign")
+
+    def run_testsign(self, sender=None, app_data=None, user_data=None):
+        """Run the three commands, report each one honestly.
+
+        Refuses again here rather than trusting the button's enabled state -
+        the dialog can sit open while the machine changes underneath it, and
+        this is a boot-configuration write."""
+        if self.secure_boot_state() is True or not is_admin():
+            dpg.set_value("ts_result",
+                          "refused: re-checked at the click and the machine is "
+                          "not ready (Secure Boot on, or not elevated).")
+            dpg.configure_item("ts_result", color=BAD)
+            return
+        out, bad = [], 0
+        for cmd in self.TESTSIGN_CMDS:
+            shown = " ".join(cmd)
+            try:
+                r = subprocess.run(cmd, capture_output=True, text=True,
+                                   timeout=30,
+                                   creationflags=getattr(
+                                       subprocess, "CREATE_NO_WINDOW", 0))
+                msg = ((r.stdout or "") + (r.stderr or "")).strip() or "ok"
+                ok = r.returncode == 0
+            except (OSError, subprocess.SubprocessError) as e:
+                ok, msg = False, str(e)
+            bad += (not ok)
+            out.append(f"{'ok  ' if ok else 'FAIL'}  {shown}\n        {msg}")
+            self.log(f"testsigning: {shown} -> {msg}", ok)
+        dpg.set_value("ts_result", "")
+        dpg.configure_item("win_testsign", show=False)
+
+        # Hand the outcome to its own modal. On failure that is the whole
+        # point - a bcdedit error is not something to leave as one more line
+        # in a dialog. On success it is a QUESTION, because none of this has
+        # done anything yet.
+        dpg.set_value("tsd_detail", "\n".join(out))
+        if bad:
+            dpg.set_value("tsd_head",
+                          f"{bad} of {len(self.TESTSIGN_CMDS)} commands "
+                          f"FAILED. The boot configuration may be partly "
+                          f"changed, or not changed at all - read the output "
+                          f"below before rebooting, and check "
+                          f"'bcdedit /enum {{current}}' yourself.")
+            dpg.configure_item("tsd_head", color=BAD)
+        else:
+            dpg.set_value("tsd_head",
+                          "All commands succeeded - and NOTHING HAS CHANGED "
+                          "YET. Test signing takes effect at the next boot. "
+                          "Reboot now?")
+            dpg.configure_item("tsd_head", color=WARN)
+        dpg.configure_item("tsd_ok_row", show=not bad)
+        dpg.configure_item("tsd_bad_row", show=bool(bad))
+        dpg.configure_item("win_ts_done", show=True)
+        dpg.focus_item("win_ts_done")
+
+    def reboot_now(self, sender=None, app_data=None, user_data=None):
+        """Restart the machine, with a window to change your mind.
+
+        /t 10 rather than /t 0 on purpose: this button sits one click from a
+        dialog the operator opened to read, and other applications may have
+        unsaved work. Ten seconds and a documented abort ('shutdown /a') is
+        the difference between a decision and an accident."""
+        try:
+            r = subprocess.run(
+                ["shutdown", "/r", "/t", "10", "/c",
+                 "Druta: applying test signing (shutdown /a aborts)"],
+                capture_output=True, text=True, timeout=20,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            msg = ((r.stdout or "") + (r.stderr or "")).strip()
+            ok = r.returncode == 0
+        except (OSError, subprocess.SubprocessError) as e:
+            ok, msg = False, str(e)
+        self.log(f"reboot requested: {msg or 'in 10s'}", ok)
+        dpg.set_value("tsd_head",
+                      "Rebooting in 10 seconds. Run 'shutdown /a' in a shell "
+                      "to abort." if ok else
+                      f"Could not schedule the reboot: {msg}")
+        dpg.configure_item("tsd_head", color=WARN if ok else BAD)
+
     # ---- switching cards --------------------------------------------------- #
     def reset_card_state(self):
         """Drop everything measured on, or staged against, the outgoing card.
@@ -4554,6 +5101,36 @@ deliberately does not put behind a button."""
         self.timings_capture()
         return True
 
+    # ---- the header card selector ----------------------------------------- #
+    def card_labels(self):
+        """One entry per GPU, in the same slot order everything else uses."""
+        return [self.card_label(g["slot"]) for g in self.gpu_list] or ["no GPU"]
+
+    def card_label(self, slot):
+        for g in self.gpu_list:
+            if same_slot(g["slot"], slot):
+                return f"{g['name']}   {g['slot']}"
+        return slot or "no GPU"
+
+    def sync_card_combo(self):
+        """Put the combo back on the card actually being driven.
+
+        A dropdown that shows the card you PICKED rather than the card you GOT
+        is a lie, and this one can differ: switch_gpu refuses outright while a
+        lock is held, and asks twice when there are staged edits. Both leave
+        the selection where it was, so the widget has to be walked back."""
+        if dpg.does_item_exist("hdr_card"):
+            dpg.set_value("hdr_card", self.card_label(self.gpu.slot()))
+
+    def on_pick_card(self, sender=None, app_data=None, user_data=None):
+        want = next((g["slot"] for g in self.gpu_list
+                     if self.card_label(g["slot"]) == app_data), "")
+        if want:
+            self.switch_gpu(user_data=want)
+        # unconditional: a successful switch rebuilt the header (and this
+        # combo) against the new card, and a refused one has to be undone
+        self.sync_card_combo()
+
     def switch_gpu(self, sender=None, app_data=None, user_data=None):
         """Point this window at another card, after checking it is safe to.
 
@@ -4636,24 +5213,98 @@ deliberately does not put behind a button."""
         return [sys.executable, script, "--gpu", slot]
 
     # ---- locating nvtune, which this build does not ship ------------------ #
+    @staticmethod
+    def pick_file_native(title, initial_dir="", filename="", spec=()):
+        """The WINDOWS file picker, through comdlg32.GetOpenFileNameW.
+
+        Dear PyGui's own file dialog is not usable for this. It renders drives
+        as a row of unlabelled buttons ("+ R Drives E C: Users"), has no
+        breadcrumb, no places bar, no typing a path, and no shell integration -
+        so finding a file outside the default directory is a guessing game. The
+        native dialog is the one people already know how to drive.
+
+        ctypes rather than tkinter: tkinter is not in the frozen build (see
+        Druta.spec - no _tkinter.pyd in the bundle) and pulling it in to draw
+        one dialog would be a strange dependency. comdlg32 is already loaded in
+        every Windows process.
+
+        Returns (path, error). Cancel is ("", ""); a real failure carries its
+        reason, because a picker that silently returns nothing is
+        indistinguishable from a user pressing Cancel - and that is exactly how
+        a NameError in this function hid behind a bare except during
+        development."""
+        try:
+            class OFN(ctypes.Structure):
+                _fields_ = [
+                    ("lStructSize", ctypes.c_uint32),
+                    ("hwndOwner", ctypes.c_void_p),
+                    ("hInstance", ctypes.c_void_p),
+                    ("lpstrFilter", ctypes.c_wchar_p),
+                    ("lpstrCustomFilter", ctypes.c_wchar_p),
+                    ("nMaxCustFilter", ctypes.c_uint32),
+                    ("nFilterIndex", ctypes.c_uint32),
+                    ("lpstrFile", ctypes.c_wchar_p),
+                    ("nMaxFile", ctypes.c_uint32),
+                    ("lpstrFileTitle", ctypes.c_wchar_p),
+                    ("nMaxFileTitle", ctypes.c_uint32),
+                    ("lpstrInitialDir", ctypes.c_wchar_p),
+                    ("lpstrTitle", ctypes.c_wchar_p),
+                    ("Flags", ctypes.c_uint32),
+                    ("nFileOffset", ctypes.c_uint16),
+                    ("nFileExtension", ctypes.c_uint16),
+                    ("lpstrDefExt", ctypes.c_wchar_p),
+                    ("lCustData", ctypes.c_void_p),
+                    ("lpfnHook", ctypes.c_void_p),
+                    ("lpTemplateName", ctypes.c_wchar_p),
+                    ("pvReserved", ctypes.c_void_p),
+                    ("dwReserved", ctypes.c_uint32),
+                    ("FlagsEx", ctypes.c_uint32)]
+
+            # the filter is a run of NUL-separated pairs ending in a double NUL
+            flt = "".join(f"{label}\0{pattern}\0" for label, pattern in
+                          (spec or (("All files", "*.*"),))) + "\0"
+            buf = ctypes.create_unicode_buffer(filename or "", 4096)
+            ofn = OFN()
+            ofn.lStructSize = ctypes.sizeof(OFN)
+            ofn.lpstrFilter = flt
+            ofn.lpstrFile = ctypes.cast(buf, ctypes.c_wchar_p)
+            ofn.nMaxFile = 4096
+            ofn.lpstrInitialDir = initial_dir or None
+            ofn.lpstrTitle = title
+            # EXPLORER gives the modern shell dialog; FILEMUSTEXIST and
+            # PATHMUSTEXIST make it reject a typo rather than hand back a path
+            # to nothing; NOCHANGEDIR stops it moving OUR working directory,
+            # which would quietly break every relative path in the process.
+            ofn.Flags = 0x00080000 | 0x00001000 | 0x00000800 | 0x00000008
+            if ctypes.windll.comdlg32.GetOpenFileNameW(ctypes.byref(ofn)):
+                return buf.value, ""
+        except Exception as e:                                  # noqa: BLE001
+            return "", f"{type(e).__name__}: {e}"
+        return "", ""
+
     def open_locate_nvtune(self, sender=None, app_data=None, user_data=None):
         """Browse to an nvtune.exe and remember where it is.
 
-        Recreated per open rather than built once: DPG file dialogs keep the
-        directory they were last closed in, and a stale one reopens somewhere
-        the user has since moved away from."""
-        if dpg.does_item_exist("dlg_nvtune"):
-            dpg.delete_item("dlg_nvtune")
+        Runs the picker on a worker thread. GetOpenFileNameW is modal and
+        blocks until it closes; on the UI thread that would stop
+        render_dearpygui_frame for as long as the dialog is open, leaving a
+        frozen, non-repainting window behind it - which reads as a hang."""
         cur = timings.find_exe()
-        with dpg.file_dialog(tag="dlg_nvtune", directory_selector=False,
-                             modal=True, width=self.s(760), height=self.s(430),
-                             default_path=(os.path.dirname(cur) if cur
-                                           else os.path.expanduser("~")),
-                             default_filename=timings.NVTUNE_EXE,
-                             callback=self.locate_nvtune_done,
-                             cancel_callback=lambda *a: None):
-            dpg.add_file_extension(".exe", color=(150, 220, 150))
-            dpg.add_file_extension(".*")
+        start = os.path.dirname(cur) if cur else os.path.expanduser("~")
+
+        def worker():
+            path, err = self.pick_file_native(
+                "Locate nvtune.exe", start, timings.NVTUNE_EXE,
+                ((f"nvtune ({timings.NVTUNE_EXE})", timings.NVTUNE_EXE),
+                 ("Executables (*.exe)", "*.exe"),
+                 ("All files (*.*)", "*.*")))
+            if err:
+                self.log(f"file picker failed: {err}", False)
+            elif path:
+                self.locate_nvtune_done(app_data={"file_path_name": path})
+
+        threading.Thread(target=worker, daemon=True,
+                         name="Druta-filedlg").start()
 
     def locate_nvtune_done(self, sender=None, app_data=None, user_data=None):
         path = (app_data or {}).get("file_path_name") or ""
@@ -4727,14 +5378,6 @@ deliberately does not put behind a button."""
         if err and not stale:
             self.log(f"timings capture failed: {err}", False)
 
-    def timings_clear(self, sender=None, app_data=None, user_data=None):
-        with self._tim_lock:
-            self._tim_caps.clear()
-            self._tim_new = True
-        # an explicit "start over" also drops the anti-thrash floor, so the
-        # next time the card reaches P0 it is captured immediately
-        self._tim_auto_t = 0.0
-
     def timings_auto_toggled(self, sender=None, app_data=None,
                              user_data=None):
         """Re-arm on every toggle. Ticking the box while the card is ALREADY
@@ -4788,18 +5431,92 @@ deliberately does not put behind a button."""
         return mem >= top
 
     # ---- induce a load, capture during it --------------------------------- #
-    def timings_induce(self, sender=None, app_data=None, user_data=None):
-        """Run a GPU load and capture while it runs. Off the UI thread: it
-        holds the card busy for seconds."""
+    def timings_read_p0(self, sender=None, app_data=None, user_data=None):
+        """THE read button: put the card in its top memory band and capture.
+
+        Two ways to get there, and the order matters. The V/F point lock is
+        tried FIRST because it actually holds - measured, it keeps true P0 on
+        an idle card, where a CUDA load only visits the top band for as long
+        as it runs. Holding is better for reading timings in every way that
+        counts: the capture is not racing a load, and the band is still there
+        afterwards, so 'Re-read timings' beside this button becomes a cheap
+        sanity check rather than another 25-second round trip.
+
+        The load is the FALLBACK, for when the hold cannot be taken - controls
+        locked, no NVAPI, no readable curve. It is what this button used to do
+        unconditionally.
+
+        The hold is left in force. That is the difference the label states:
+        this button changes the card's state and says so. Ctrl+H, the Release
+        button, or 'Reset all to stock' drop it."""
         with self._tim_lock:
             if self._tim_busy:
                 return
             self._tim_busy = True
-            self._tim_what = "inducing GPU load…"
-        threading.Thread(target=self._induce_worker, daemon=True,
-                         name="Druta-induce").start()
+            self._tim_what = "holding P0…"
+        # On the UI thread, before the worker starts: hold_point selects a
+        # point and writes widget values, and a background thread has no
+        # business doing either.
+        held = self.hold_for_read()
+        with self._tim_lock:
+            self._tim_what = "reading at P0…" if held else "inducing GPU load…"
+        threading.Thread(target=self._induce_worker, args=(held,), daemon=True,
+                         name="Druta-read-p0").start()
 
-    def _induce_worker(self):
+    def hold_for_read(self):
+        """Pin the card on the cap point so a capture lands in the top band.
+
+        Returns True only if the lock is really in force. Every failure is a
+        reason to fall back to the load, not to give up: a locked gate, a card
+        with no readable V/F table, or an NVAPI that will not take the lock all
+        leave the CUDA path perfectly able to reach the band."""
+        if not self.unlocked():
+            self.log("read: controls are locked, so the P0 hold was skipped - "
+                     "falling back to a GPU load", None)
+            return False
+        if not self.vf_points:
+            self.vf_read()
+        if not self.vf_points:
+            self.log("read: no readable V/F curve to hold - falling back to a "
+                     "GPU load", None)
+            return False
+        if self._clk_lock and self._clk_lock.get("kind") == self.LOCK_VF:
+            return True                      # already holding; nothing to do
+        try:
+            self.hold_cap_point(dpg.get_value("vcap"))
+        except Exception as e:                                  # noqa: BLE001
+            self.log(f"read: could not take the P0 hold ({e}) - falling back "
+                     f"to a GPU load", None)
+            return False
+        return bool(self._clk_lock
+                    and self._clk_lock.get("kind") == self.LOCK_VF)
+
+    # How long to give the card to climb into its top memory band after the
+    # V/F point lock goes on. MEASURED: it arrives in well under a second on
+    # this card; the margin is for a card busy with something else.
+    HOLD_SETTLE_S = 6.0
+
+    def wait_for_band(self, gpu, seconds=None):
+        """Poll until the card is in its top memory band, or give up.
+
+        The lock is a VOLTAGE request and the clocks follow it, so there is a
+        gap between 'the lock took' and 'the memory clock is up'. Capturing
+        inside that gap would file idle timings under a P0 heading, which is
+        the one mistake this tab exists to prevent."""
+        deadline = time.monotonic() + (seconds or self.HOLD_SETTLE_S)
+        last = (None, None)
+        while time.monotonic() < deadline:
+            try:
+                d = gpu.read()
+                last = (d.get("mem"), d.get("pstate"))
+                if self.is_p0(*last):
+                    return True, last
+            except Exception:                                   # noqa: BLE001
+                pass
+            time.sleep(0.25)
+        return False, last
+
+    def _induce_worker(self, held=False):
         note, snap = "", None
         # Same stamp-and-drop as _timings_worker, and it matters more here:
         # this one can spend 25 s running a CUDA load, which is the widest
@@ -4821,12 +5538,25 @@ deliberately does not put behind a button."""
                     # drops it to P2 (7428/P0 -> 7228/P2). Running the load
                     # here would destroy the very state we came for.
                     snap = timings.snapshot(gpu)
-                    note = (f"The card was ALREADY at P0 (memory {mem}, "
-                            f"p-state {ps}), so no load was started and the "
-                            f"capture was taken directly. Measured: opening a "
-                            f"CUDA context on a card at P0 pulls it DOWN to "
-                            f"P2, so inducing here would have cost you the "
-                            f"state you already had.")
+                    note = (f"Already at P0 (memory {mem}, p-state {ps}) - "
+                            f"captured directly, no load started. Opening a "
+                            f"CUDA context on a P0 card pulls it DOWN to P2.")
+                elif held:
+                    # The lock is on but the clocks follow it with a lag, so
+                    # wait for the band rather than capture into the gap.
+                    up, (mem, ps) = self.wait_for_band(gpu)
+                    snap = timings.snapshot(gpu)
+                    if up:
+                        note = (f"Holding P0 (memory {mem}) with the V/F point "
+                                f"lock - no load needed, and the band stays up "
+                                f"after this capture. 'Re-read timings' is now "
+                                f"a cheap sanity check. Ctrl+H releases.")
+                    else:
+                        note = (f"The V/F point lock is on, but the card was "
+                                f"still at memory {mem}, p-state {ps} after "
+                                f"{self.HOLD_SETTLE_S:.0f}s. Captured anyway - "
+                                f"read the state line above before trusting "
+                                f"the table.")
                 else:
                     ok, why = gpuload.available()
                     if not ok:
@@ -4875,24 +5605,17 @@ deliberately does not put behind a button."""
         if snap is not None and snap.ok:
             mem, ps = snap.mem_nvml, snap.pstate
         if snap is not None and snap.at_p0:
-            return f"The load induced P0 (memory {mem}). {how}."
+            return f"Induced P0 (memory {mem}). {how}."
         if snap is not None and snap.perf_band:
-            return (
-                f"The load induced P-STATE {ps} (memory {mem}) — the TOP "
-                f"CLOCK BAND, and a fully valid reading. {how}.\n"
-                f"This is the same timing data a 3D load would give you: "
-                f"measured on this card, CONFIG0..CONFIG5 and TIMING22 are "
-                f"BIT-IDENTICAL at 7228 (P2) and 7428 (P0), because timings "
-                f"are selected per clock BAND and the 50 MHz of true clock "
-                f"between the two does not cross a band boundary. Nothing "
-                f"further is needed to read them — no game, no benchmark, no "
-                f"compute-cap change.\n"
-                f"That identity is for READING. A throughput benchmark would "
-                f"still have to run in the state it claims to describe.")
-        return (f"The load reached memory {mem}, p-state {ps} — below the top "
-                f"clock band, so these are not timings worth reading. {how}. "
-                f"Try again, or run any 3D workload with 'Auto-capture at P0' "
-                f"armed.")
+            # This used to be three paragraphs proving a P2 capture is as good
+            # as a P0 one. It was written when P0 was hard to reach; Ctrl+H
+            # holds it directly now, so the argument is no longer load-bearing
+            # and the claim can just be stated.
+            return (f"Induced p-state {ps} (memory {mem}) — top clock band, a "
+                    f"valid reading. {how}.")
+        return (f"Reached memory {mem}, p-state {ps} — below the top clock "
+                f"band, so not worth reading. {how}. Hold the card with "
+                f"Ctrl+H on the V/F curve, or arm 'Auto-capture'.")
 
     # An idle card does not sit still at P0. MEASURED here: it bounces
     # 5000/P3 -> 7428/P0 -> 5000/P3 every 3-4 seconds with nothing running, so
@@ -4960,7 +5683,7 @@ deliberately does not put behind a button."""
             busy, caps = self._tim_busy, dict(self._tim_caps)
             note, what = self._tim_note, self._tim_what
             self._tim_new = False
-        for tag in ("tim_cap", "tim_induce", "tim_clear"):
+        for tag in ("tim_cap", "tim_read"):
             dpg.configure_item(tag, enabled=not busy)
         dpg.set_value("tim_busy", f"  {what}" if busy else "")
         # The live clock, so the user can see WHEN a state worth capturing is
@@ -4992,7 +5715,36 @@ deliberately does not put behind a button."""
             dpg.set_value("tim_induce_note", note)
         # ---- availability, named specifically ----------------------------- #
         bad = (av is not None and not av.ok)
-        dpg.configure_item("tim_reason", show=bad)
+        # THE WHOLE TAB SWAPS. Setup screen or working tab, never both, and
+        # never a working tab that cannot work.
+        dpg.configure_item("tim_needs", show=bad)
+        dpg.configure_item("tim_work", show=not bad)
+        if bad:
+            # Which half is missing decides what the screen leads with. A
+            # missing exe is a deployment problem and Locate is the answer; a
+            # stopped driver is a code-signing problem and test signing is.
+            no_exe = not (av and av.exe)
+            dpg.set_value("tim_setup_head",
+                          "NVTUNE NOT FOUND" if no_exe
+                          else "NVTUNE'S DRIVER IS NOT RUNNING")
+            dpg.set_value(
+                "tim_setup_what",
+                "This tab reads and writes the framebuffer-partition memory "
+                "timing registers, and it does that through nvtune - a "
+                "separate program with its own kernel driver. Druta cannot "
+                "reach those registers on its own."
+                if no_exe else
+                "nvtune.exe was found, but its kernel driver is not running, "
+                "so nothing can reach BAR0 yet. The driver is signed with a "
+                "self-signed test certificate, which Windows will not load "
+                "unless the machine is in test signing mode.")
+            dpg.set_value("tim_step1",
+                          "Point Druta at it:" if no_exe
+                          else "Let Windows load its driver:")
+            # the action that is not the answer stays available but stops
+            # looking like the thing to press
+            dpg.configure_item("tim_locate", enabled=True)
+            dpg.configure_item("tim_testsign", enabled=True)
         if bad:
             dpg.set_value("tim_reason", av.reason + "\n\nThe tab is read-only "
                           "either way - nothing here can write a timing "
@@ -5006,9 +5758,9 @@ deliberately does not put behind a button."""
             dpg.set_value("tim_words", "")
             dpg.delete_item("tim_table", children_only=True)
             self.tim_columns()
-            # the captures still have to be redrawn: 'Forget captures' lands
-            # here whenever the most recent snapshot failed, and a comparison
-            # left standing over captures that no longer exist is a lie
+            # the captures still have to be redrawn: this path is reached
+            # whenever the most recent snapshot failed, and a comparison left
+            # standing over captures that no longer exist is a lie
             self.draw_comparison(caps)
             return
 
@@ -5019,12 +5771,18 @@ deliberately does not put behind a button."""
         # The loud case is an IDLE capture. A P2 capture is bit-identical to a
         # P0 one on this card, so calling it second-rate would be its own
         # false-authority error - the exact thing this banner exists to stop.
+        # ONLY WHEN IT IS WRONG. A capture in the top band needs no sentence -
+        # the title line below already says which band it is in, and a green
+        # paragraph confirming success on every read is the noise that made
+        # this banner worth trimming in the first place. What must never be
+        # quiet is a capture taken OUTSIDE the band, because that is an
+        # authoritative-looking table measured in a state nobody runs work in.
         band = snap.perf_band
-        dpg.set_value("tim_state", ("✔ " if band else "⚠ ")
-                      + snap.state_headline)
-        dpg.configure_item("tim_state",
-                           color=GOOD if band else (WARN if band is None
-                                                    else BAD))
+        dpg.configure_item("tim_state", show=not band)
+        if not band:
+            dpg.set_value("tim_state", "⚠ " + snap.state_headline)
+            dpg.configure_item("tim_state",
+                               color=WARN if band is None else BAD)
         dpg.set_value("tim_title", (
             f"DECODED TIMINGS  ·  broadcast aperture  ·  "
             f"{snap.state_tag}, top clock band" if band else
@@ -5280,6 +6038,67 @@ deliberately does not put behind a button."""
                     f"licence text, and the project repository for the "
                     f"third-party notices.")
 
+    # ---- test signing, which nvtune's driver needs -------------------------- #
+    # Exactly what gets run, in order, as one copiable block. THE THIRD ONE IS
+    # THE LOAD-BEARING COMMAND: Microsoft documents `testsigning` as what makes
+    # Windows "load any type of test-signed kernel-mode code", and documents
+    # `nointegritychecks` as "ignored by Windows 7 and Windows 8" and as
+    # something that "cannot be set when secure boot is enabled".
+    # DISABLE_INTEGRITY_CHECKS is not a documented datatype at all. The first
+    # two are kept because they are the recipe that is known to work on the rig
+    # this was written for - but the dialog says which one does the work rather
+    # than teaching all three as equals.
+    TESTSIGN_CMDS = [
+        ["bcdedit", "/set", "loadoptions", "DISABLE_INTEGRITY_CHECKS"],
+        ["bcdedit", "/set", "nointegritychecks", "on"],
+        ["bcdedit", "/set", "TESTSIGNING", "ON"],
+    ]
+    TESTSIGN_UNDO = [
+        ["bcdedit", "/deletevalue", "loadoptions"],
+        ["bcdedit", "/set", "nointegritychecks", "off"],
+        ["bcdedit", "/set", "TESTSIGNING", "OFF"],
+    ]
+
+    @staticmethod
+    def _ps(script):
+        """One short PowerShell probe. Returns stdout, or "" on any failure."""
+        try:
+            r = subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                 script], capture_output=True, text=True, timeout=25,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            return (r.stdout or "").strip()
+        except (OSError, subprocess.SubprocessError):
+            return ""
+
+    def secure_boot_state(self):
+        """True / False / None(unknown). CHECKED, not asserted.
+
+        The red button used to ask the operator to promise Secure Boot was
+        off. It can be read instead, and it must be: Microsoft documents that
+        nointegritychecks "cannot be set when secure boot is enabled", so a
+        wrong promise buys a half-applied boot configuration and a confusing
+        error rather than an honest refusal."""
+        out = self._ps("try { [string](Confirm-SecureBootUEFI) } "
+                       "catch { 'UNKNOWN' }").lower()
+        return True if out == "true" else (False if out == "false" else None)
+
+    def bitlocker_on(self):
+        """Any volume with protection ON, or None if it cannot be determined.
+
+        This is the failure here that costs DATA rather than security posture:
+        Microsoft's own bcdedit page says to suspend BitLocker before changing
+        boot options, because the change can force a recovery-key prompt at
+        next boot. Someone without their key is locked out of the machine."""
+        out = self._ps(
+            "try { $v = Get-BitLockerVolume -ErrorAction Stop | "
+            "Where-Object { $_.ProtectionStatus -ne 'Off' }; "
+            "if ($v) { ($v.MountPoint) -join ',' } else { 'NONE' } } "
+            "catch { 'UNKNOWN' }")
+        if not out or out == "UNKNOWN":
+            return None
+        return "" if out == "NONE" else out
+
     def build_ui(self, rebuild=False):
         """Build (or rebuild) everything that depends on which card this is.
 
@@ -5308,7 +6127,7 @@ deliberately does not put behind a button."""
             self._ctl_widgets = []
             for tag in ("hdr_row", "tabs", "menubar", "win_device", "win_save",
                         "win_profiles", "win_keys", "win_about",
-                        "win_licence"):
+                        "win_licence", "win_testsign", "win_ts_done"):
                 if dpg.does_item_exist(tag):
                     dpg.delete_item(tag)
         before = set(dpg.get_all_items())
@@ -5357,9 +6176,36 @@ deliberately does not put behind a button."""
                          else "   NOT admin (lock/fan/PL need admin)",
                          color=GOOD if st.get("admin") else WARN)
             dpg.add_text("", tag="stale", color=BAD)
+            # THE CARD SELECTOR, in the header rather than three levels into a
+            # menu. Every control in this window is pointed at exactly one GPU
+            # and means different numbers on a different one, so which card is
+            # selected is a permanent question, not an occasional one - and a
+            # menu is where you put things people look for, not things they
+            # need to see. Large, because it is the label for the whole window.
+            dpg.add_spacer(width=self.s(24))
+            # Same font as the combo it labels. At the body size it read as a
+            # caption on a control three times its height, which made the pair
+            # look like an afterthought rather than the header's main control.
+            dpg.add_text("card", tag="hdr_card_lbl", color=DIM)
+            self.bind("hdr_card_lbl", "sel")
+            dpg.add_combo(self.card_labels(), tag="hdr_card",
+                          default_value=self.card_label(self.gpu.slot()),
+                          width=self.s(420), callback=self.on_pick_card)
+            self.bind("hdr_card", "sel")
+            with dpg.tooltip("hdr_card"):
+                dpg.add_text(
+                    "Which GPU this window drives. Switching rebuilds every\n"
+                    "control from the new card's own measurements.\n\n"
+                    "Refused while this window is holding the card with a\n"
+                    "clock or V/F point lock. Staged edits ask once, then\n"
+                    "go through on a second pick.\n\n"
+                    "Device > Open a second window on... watches both at once.")
         with dpg.tab_bar(tag="tabs", parent="root"):
-            self.build_monitor()
+            # Control first: it is what the app is opened to do. Monitor
+            # second. Timings last and labelled, because it is the only tab
+            # that needs a separate tool installed to do anything at all.
             self.build_control()          # the V/F editor lives inside this tab
+            self.build_monitor()
             self.build_timings()
 
     def run(self):

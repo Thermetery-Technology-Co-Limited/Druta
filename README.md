@@ -46,9 +46,12 @@ Druta.exe --gpu 0000:02:00.0   # open on that card
 ```
 
 With no `--gpu`, Druta opens on the **lowest PCI slot** — a property of the
-machine, not of whichever order a driver happened to enumerate in. In the window
-the picker is **Device → Card**, and the chosen card is in the title bar
-whenever more than one is present.
+machine, not of whichever order a driver happened to enumerate in. In the
+window the picker is the **large dropdown in the header**, and the chosen card
+is in the title bar whenever more than one is present. It is not in a menu on
+purpose: every control in the window is pointed at exactly one GPU and means
+different numbers on a different one, so which card is selected is something
+you need to *see*, not something you go looking for.
 
 **The switch happens in place**, and works by *rebuilding* the header and the
 three tabs against the new card rather than by patching the widgets that hold
@@ -60,7 +63,7 @@ windows, the About box's grid figure. A patch list would have to be kept in step
 with every widget added later; re-running the builders re-derives all of them
 through the same code that got them right at startup, and cannot fall behind.
 
-`Device → Card → Open a second window on…` still starts a separate process, for
+`Device → Open a second window on…` still starts a separate process, for
 watching both cards at once — and it is the only way to hold a lock on one card
 while tuning the other.
 
@@ -278,6 +281,53 @@ this; it is recorded measurement.
 ---
 
 # Control
+
+The first tab, because it is what the app is opened to do. Monitor is second,
+Timings third and labelled — it is the only tab that needs a separate program
+installed to do anything at all.
+
+## Max it
+
+One button beside `Reset all to stock`, doing the four things people do by hand
+at the start of a session:
+
+| order | knob | to |
+|---|---|---|
+| 1 | fan | 100% |
+| 2 | power limit | this card's maximum |
+| 3 | voltage boost | 100% |
+| 4 | V/F curve | de-flatten, apply, then hold the cap point |
+
+**Headroom first, clocks last.** Cooling before the power budget rises, budget
+before the extra voltage spends it, curve last because it is the only step
+asking for more clock. Reversed, each step spends headroom the next one is
+about to provide.
+
+**Everything is validated before anything is written**, so a refusal costs
+nothing. It refuses outright if V/F edits are already staged — it will not
+write a plan it did not make, and a *hard* de-flatten left staged for a look is
+the case that makes that a safety rule rather than tidiness — and it refuses if
+the de-flatten would *lower* the peak clock, which is definitionally not what a
+button called Max it is for. Both leave the card untouched.
+
+**The hold is what makes the rest stick.** A de-flattened curve is a *shape*;
+without a hold the arbiter still chooses where to sit on it, and it picks the
+lowest voltage of any peak-frequency flat run — the very behaviour de-flatten
+exists to work around. The final step is the same V/F point lock `Ctrl+H`
+applies, on the highest point at or below the cap.
+
+**One undo point covers the four writes** — but *not* the hold. A lock is
+driver state, not a profile value, so `Undo last write` leaves the card pinned;
+`Ctrl+H`, Release, or `Reset all to stock` drop it. `vf_apply` is called with `autosave=False`
+so it does not take a second one: `Profiles → Undo last write` loads the
+*newest* snapshot, so a second point taken after the three knobs had moved
+would undo only the curve and leave fan, power and voltage maxed.
+
+Two things it does not do: the fans stay at **100% manual** until `Auto` or
+`Reset all to stock` — they do not ramp back down — and de-flatten works
+*below* the voltage cap in the V/F editor's cap box, so that box bounds what
+"max" means. The log names the cap it used.
+
 
 Core and memory clock offsets, power limit, voltage boost, fan duty (with an
 Auto button that restores the curve), and the GPU clock lock. All writes sit
@@ -619,21 +669,36 @@ worthless, a P2 capture is not. The comparison view puts each field's cycle
 ratio beside the clock ratio; two ratios agreeing is what turns the decode from
 plausible into proven.
 
-## Force vs. induce
+## Hold, don't induce
 
 Nothing here **forces** a memory p-state, because nothing can on these cards:
 `nvmlDeviceSetMemoryLockedClocks` returns `NVML_ERROR_NOT_SUPPORTED` and
-`nvidia-smi -lmc` fails identically. `Induce P-state` runs a CUDA
-device-to-device memcpy, waits for the clock to settle, and captures **while the
-load is still running** — a capture taken after the load stops is a capture of
-the card coming back down.
+`nvidia-smi -lmc` fails identically.
 
-That reaches P2, which is enough, per the band rule above. If the card is
-*already* at P0 the load is skipped: opening a CUDA context on a P0 card pulls
-it **down** to P2.
+So the tab has two buttons, and only one of them is how you get a reading.
 
-A **V/F point lock holds P0 indefinitely with no load at all**, which is more
-convenient than inducing when you have one.
+**`Read memory timings (will hold P0)`** — blue, the primary action. It takes
+the **V/F point lock** on the highest point at or below the cap, waits for the
+memory clock to arrive in the top band, captures, and **leaves the hold on**.
+The lock is a voltage request that the clocks follow, so the wait is real; a
+capture taken inside that gap would file idle timings under a P0 heading.
+
+Leaving it held is the point: the band is still up afterwards, which is what
+makes the second button cheap.
+
+**`Re-read timings`** — a sanity check, not a way to get a reading. On its own,
+on an idle card, it returns idle timings, which is the exact error this tab
+exists to prevent. Once the blue button has the band held it costs about
+**0.2 s** and confirms the reading is stable. It is also how you capture the
+*second* state that proves the decode: read held at P0, release with `Ctrl+H`,
+let the card idle, re-read.
+
+The **CUDA memcpy load is the fallback**, used when the hold cannot be taken —
+controls locked, no readable V/F curve. It captures *while the load runs*, since
+a capture after it stops is a capture of the card coming back down, and it
+reaches the band only for as long as it lasts. If the card is *already* at P0
+the load is skipped entirely: opening a CUDA context on a P0 card pulls it
+**down** to P2.
 
 ## Writing
 
@@ -692,6 +757,24 @@ projects are GPL-3.0-or-later, so redistribution would be permitted. The reason
 is what installing its driver costs you.
 
 ### What the Timings tab actually costs
+
+If nvtune is not found, the tab offers an **Enable test signing…** button
+rather than a wall of text. It shows the exact commands, copiable, says which
+one actually does the work, and only then offers a red button that runs them.
+That button is **dead unless the machine can take them** — Secure Boot is
+checked with `Confirm-SecureBootUEFI` rather than asserted by the user, and
+elevation is checked too, both again at the click. BitLocker is reported if it
+is on, because a boot-config change can force a recovery-key prompt at next
+boot.
+
+The outcome gets its own prompt. On failure it shows which command failed and
+what it said, and offers no reboot. On success it asks the question that
+matters — **nothing has taken effect yet** — and offers `Reboot now`, which
+schedules the restart ten seconds out so `shutdown /a` can still abort it.
+
+Once nvtune loads, the button **retires to `Device → Enable test signing…`**.
+It stays reachable — test signing can be turned back off, or need re-applying
+after a Windows update — but it is out of the way of a tab that now works.
 
 `nvtunedrv.sys` is **signed with a self-signed test certificate**
 (`CN=nvtune test signing`, issuer identical to subject) — not a WHQL or
