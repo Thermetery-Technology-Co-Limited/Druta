@@ -1,5 +1,23 @@
+# Druta - a monitor and tuner for NVIDIA GPUs.
+# Copyright (C) 2026 Thermetery Technology Co Limited
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """
-Druta (Dear PyGui edition) - GPU monitor & tuner for the Titan-RTX-on-Strix card.
+Druta (Dear PyGui edition) - GPU monitor & tuner for NVIDIA cards.
 
 WHY THIS EXISTS: the original Tk UI dragged in slow motion and stalled the whole
 desktop. Root cause, measured: Tk creates a native HWND per widget (~50 on the
@@ -3651,9 +3669,19 @@ deliberately does not put behind a button."""
                 dpg.add_menu_item(label="Copy device report",
                                   callback=self.copy_device_report)
                 dpg.add_separator()
-                # nvtune is NOT shipped with Druta - separate tool, its own
-                # self-signed kernel driver - so the Timings tab
-                # needs to be pointed at it once. This is that once.
+                # nvtune is NOT shipped with Druta, so the Timings tab needs to
+                # be pointed at it once. This is that once.
+                #
+                # Not a licensing constraint: nvtune is GPL-3.0-or-later, the
+                # same licence as Druta, at github.com/sebastianmarrufo/nvtune.
+                # It is what loading its driver COSTS. nvtunedrv.sys is
+                # self-signed with a test certificate, so using it means Secure
+                # Boot off, Memory Integrity off, testsigning on, and that
+                # certificate imported into LocalMachine\Root - after which it
+                # can sign anything the machine trusts. That is a machine-wide
+                # security decision about nvtune, and it should be taken from
+                # nvtune's author with nvtune's instructions in hand, not
+                # arrive inside a monitoring tool.
                 dpg.add_menu_item(label="Locate nvtune...",
                                   callback=self.open_locate_nvtune)
                 dpg.add_menu_item(label="Forget nvtune location",
@@ -3903,10 +3931,47 @@ deliberately does not put behind a button."""
                          "so W/A/S/D typed into the cap, index or MHz box do not "
                          "also retune the curve.", color=DIM, wrap=self.s(580))
 
+        # GPLv3 section 5(d): "If the work has interactive user interfaces,
+        # each must display Appropriate Legal Notices." Section 0 defines those
+        # as "a convenient and prominently visible feature that (1) displays an
+        # appropriate copyright notice, and (2) tells the user that there is no
+        # warranty for the work ..., that licensees may convey the work under
+        # this License, and how to view a copy of this License."
+        #
+        # This box is that feature - the GPL's own appendix names an "about
+        # box" as the GUI equivalent of the terminal startup notice. The
+        # s5(d) carve-out ("if the Program has interactive interfaces that do
+        # not display Appropriate Legal Notices, your work need not make them
+        # do so") does NOT apply: it exempts a modifier from retrofitting
+        # notices onto an upstream work that lacked them, and there is no
+        # upstream here - Druta is original work.
         with dpg.window(label="About Druta", tag="win_about", show=False,
-                        width=self.s(620), height=self.s(300),
+                        width=self.s(620), height=self.s(430),
                         pos=[self.s(180), self.s(160)]):
             dpg.add_text("Thermetery Druta", color=ACCENT)
+            dpg.add_text("Copyright (C) 2026 Thermetery Technology Co Limited")
+            dpg.add_text(
+                "This program comes with ABSOLUTELY NO WARRANTY. It is free "
+                "software, and you are welcome to redistribute it under the "
+                "terms of the GNU General Public License, either version 3 of "
+                "the License, or (at your option) any later version. See the "
+                "COPYING file distributed with this program, or "
+                "<https://www.gnu.org/licenses/gpl-3.0.html>.",
+                wrap=self.s(580))
+            dpg.add_spacer(height=self.s(6))
+            dpg.add_text(
+                "Druta bundles third-party software under its own terms - see "
+                "THIRD-PARTY-NOTICES.md. nvtune is a separate program and is "
+                "not bundled.", color=DIM, wrap=self.s(580))
+            dpg.add_spacer(height=self.s(6))
+            dpg.add_text(
+                "DRUTA IS AN INDEPENDENT, UNOFFICIAL TOOL. IT IS NOT "
+                "AFFILIATED WITH, SPONSORED BY, OR ENDORSED BY NVIDIA "
+                "CORPORATION, ASUSTEK COMPUTER INC., OR MICRO-STAR "
+                "INTERNATIONAL CO., LTD.", color=WARN, wrap=self.s(580))
+            dpg.add_spacer(height=self.s(6))
+            dpg.add_separator()
+            dpg.add_spacer(height=self.s(6))
             dpg.add_text("Monitor and tuner for TU102 (Titan RTX) and GP102 "
                          "(Titan Xp). Per-card quantities - V/F point count, "
                          "clock grid, domain names - are probed from the "

@@ -5,6 +5,25 @@ interfaces. It surfaces telemetry Afterburner doesn't show, edits the V/F curve
 with planners built around how the boost arbiter actually behaves, and reads and
 writes the framebuffer-partition memory timing registers.
 
+> ### ⚠ Read before running
+>
+> Druta writes GPU voltage, clock and memory-controller registers directly.
+> **Memory-timing writes can hang the machine and corrupt the contents of
+> VRAM.** V/F curve edits can crash the display driver. Read
+> [Safety](#safety) before enabling any write path.
+>
+> This program comes with **ABSOLUTELY NO WARRANTY** — see sections 15 and 16
+> of [COPYING](COPYING). You assume all risk of running it.
+
+**DRUTA IS AN INDEPENDENT, UNOFFICIAL TOOL. IT IS NOT AFFILIATED WITH,
+SPONSORED BY, OR ENDORSED BY NVIDIA CORPORATION, ASUSTEK COMPUTER INC., OR
+MICRO-STAR INTERNATIONAL CO., LTD.**
+
+**NVIDIA, GEFORCE, RTX, QUADRO AND TITAN ARE TRADEMARKS OF NVIDIA CORPORATION.
+ASUS AND STRIX ARE TRADEMARKS OF ASUSTEK COMPUTER INC. AFTERBURNER IS A
+TRADEMARK OF MICRO-STAR INTERNATIONAL CO., LTD. THESE NAMES APPEAR HERE SOLELY
+TO IDENTIFY HARDWARE AND SOFTWARE THAT DRUTA WORKS WITH OR IS COMPARABLE TO.**
+
 Developed against two cards:
 
 | | die | arch | memory | board |
@@ -663,9 +682,45 @@ wrong conclusion.
 
 ## Locating nvtune
 
-**Druta does not ship nvtune.** It is a separate tool carrying its own
-SELF-SIGNED kernel driver, and whether to install that is your call. It is
-located, in this order:
+nvtune is a separate program by Sebastian Marrufo — a C++17 CLI plus a
+kernel-mode driver — and it is free software:
+
+**<https://github.com/sebastianmarrufo/nvtune>** — GPL-3.0-or-later.
+
+**Druta does not ship it**, and the reason is not a licensing one — both
+projects are GPL-3.0-or-later, so redistribution would be permitted. The reason
+is what installing its driver costs you.
+
+### What the Timings tab actually costs
+
+`nvtunedrv.sys` is **signed with a self-signed test certificate**
+(`CN=nvtune test signing`, issuer identical to subject) — not a WHQL or
+attestation signature. It will not load on a stock Windows machine. Making it
+load requires, per nvtune's own `install-on-target.ps1`:
+
+1. **Secure Boot off** — in firmware; test signing cannot be enabled while it
+   is on.
+2. **Core Isolation → Memory Integrity (HVCI) off** — Windows Security.
+3. **`bcdedit /set testsigning on`**, then reboot. You get a "Test Mode"
+   desktop watermark and the machine stops enforcing normal driver signing.
+4. **Its certificate imported into `LocalMachine\Root` *and*
+   `LocalMachine\TrustedPublisher`.**
+
+Step 4 is the one to think hardest about. Putting a third-party self-signed
+certificate in your Trusted Root store means that certificate can sign anything
+your machine will subsequently trust — not just this driver.
+
+That is a deliberate, machine-wide reduction in your security posture, and it
+should be a decision you make about *nvtune*, taken from nvtune's author, with
+nvtune's own instructions in front of you. It should not arrive as a side
+effect of installing a GPU monitor. That is why Druta locates the tool instead
+of carrying it, and why the Timings tab is inert until you have done the above
+yourself.
+
+If none of that is acceptable on your machine — and it is entirely reasonable
+for it not to be — every other tab works without it. Only Timings needs BAR0.
+
+nvtune is located, in this order:
 
 1. **`DRUTA_NVTUNE`**, and it is **exclusive** — a bad override fails rather
    than quietly running some other copy. Every register offset this tab decodes
@@ -753,3 +808,56 @@ nothing here should be assumed to generalise to a third card without
 re-verifying — and the per-card machinery described under
 [Probed, not assumed](#probed-not-assumed) exists because assuming is exactly
 what went wrong the first three times.
+
+---
+
+# License
+
+Druta is free software: you can redistribute it and/or modify it under the
+terms of the **GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version**.
+
+Druta is distributed in the hope that it will be useful, but **WITHOUT ANY
+WARRANTY**; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+A PARTICULAR PURPOSE. See the [GNU General Public License](COPYING) for more
+details.
+
+Copyright (C) 2026 Thermetery Technology Co Limited.
+
+`SPDX-License-Identifier: GPL-3.0-or-later`
+
+## Third-party software
+
+The prebuilt `Druta.exe` bundles Dear PyGui (MIT), CPython (PSF), OpenSSL
+(Apache-2.0), libffi (MIT-style), the PyInstaller bootloader (GPL-2.0-or-later
+with the Bootloader Exception) and the Microsoft C runtime. All are compatible
+with GPL-3.0-or-later, and their licenses are reproduced verbatim in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
+Running from source redistributes none of them.
+
+NVIDIA's NVAPI and NVML are **not** redistributed — `nvapi64.dll` and
+`nvml.dll` are loaded from the installed driver at runtime.
+
+[`nvtune`](https://github.com/sebastianmarrufo/nvtune) is a **separate
+program** by Sebastian Marrufo, invoked as a subprocess. It is also
+GPL-3.0-or-later, so the two licences match exactly — but it is a separate
+work, not a component of Druta, and it is not bundled. See
+[Locating nvtune](#locating-nvtune).
+
+## Source for a binary release
+
+Every tagged release on GitHub carries the Corresponding Source for the
+executable published with it — that is the tag itself, since Python source *is*
+the preferred form for making modifications. `Druta.spec` and
+`requirements.txt` are the scripts controlling the build. CPython and the
+Microsoft C runtime are excluded as System Libraries under GPL-3.0 section 1;
+Dear PyGui is not, so its pinned version in `requirements.txt` identifies the
+source that goes with a given build.
+
+## Trademarks
+
+"Druta" and "Thermetery" are trademarks of Thermetery Technology Co Limited.
+The GPL grants no rights in them: you may redistribute and fork the code, but
+not use these names to brand a derivative.
