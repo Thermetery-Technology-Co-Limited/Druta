@@ -26,3 +26,10 @@ profiles/autosave-*.json
 # remembering not to `git add` them.
 docs/
 findings-for-*.md
+
+# Private kernel driver. Read-only BAR0 access, built locally for hardware
+# investigation only. NOT part of Druta and NOT distributed: it is unsigned,
+# it would need test signing to load, and shipping a driver is a licensing and
+# code-signing decision that has not been made. Source, build script and the
+# built .sys all stay out of the repo until that changes.
+drv/
