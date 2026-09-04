@@ -577,8 +577,18 @@ from an idle-clock ceiling that never had to move.  A physical effect is only
 accepted when at least one settled observation also moves in the same direction
 as the signed request; a reverse-direction or one-sided transient is reported
 but is not treated as a mapping.  The final mapping verdict uses the direct
-GPC/XBAR/SYS/memory/video observations; private getter rows remain in the JSON
-for diagnosis but cannot by themselves turn a transient into a success.
+XBAR/SYS/memory/video observations; GPC is retained as an operating-point
+diagnostic but is not direct evidence because it can drift by a few MHz while
+the request is applied.  Private getter rows remain in the JSON for diagnosis
+but cannot by themselves turn a transient into a success.  The JSON also keeps
+`median_shift_candidates` for large or unsettled changes and
+`reverse_directional_observations` for controls that move opposite to the
+signed request; neither is a positive mapping verdict by itself.
+
+For a large temporary probe, the minimum physical-effect threshold scales with
+the request (up to 25 MHz).  This prevents a few MHz of normal counter jitter
+from being reported as a successful ±200 MHz mapping while preserving the
+full before/after windows for review.
 
 The temporary diagnostic limit is `±200 MHz`. This is available for a driver
 that stores `±25 MHz` correctly but does not move a clock by a measurable

@@ -864,8 +864,12 @@ CLKDOM_PROBE_EFFECT_KHZ = 2_000
 # +200 MHz starting-point scale.  This is still temporary and is restored
 # after each item; it is not a default UI tuning range.
 CLKDOM_PROBE_MAX_DELTA_MHZ = 200
+# GPC is the core/master clock and can drift by a few MHz while a Blackwell
+# control request is being applied. Keep it in the observation windows for
+# operating-point diagnostics, but do not let that drift prove an XBAR/SYS/
+# VIDEO mapping. The latter four are the direct domain observations.
 CLKDOM_PROBE_DIRECT_OBSERVATIONS = (
-    "gpc", "xbar", "sys", "memory", "video")
+    "xbar", "sys", "memory", "video")
 
 
 def clkdom_entry(domain, field, layout=CLKDOM_LAYOUT_TURING):
@@ -2129,6 +2133,16 @@ class GPU:
                         CLKDOM_PROBE_MAX_RANGE_KHZ,
                         min(50_000, abs(change_khz) // 4))
                     item["settled_range_limit_khz"] = settled_range_khz
+                    # A ±200 MHz diagnostic is deliberately large enough to
+                    # expose a real domain response, but the ordinary 2 MHz
+                    # effect threshold would classify normal counter jitter
+                    # as a mapping. Scale the threshold with the request so
+                    # small-signal probes stay sensitive while large probes
+                    # require a materially larger response.
+                    effect_threshold_khz = max(
+                        CLKDOM_PROBE_EFFECT_KHZ,
+                        min(25_000, abs(change_khz) // 10))
+                    item["effect_threshold_khz"] = effect_threshold_khz
                     stable = {
                         key: (before[key]["range"] <= settled_range_khz
                               and item["after"].get(key, {}).get("range", 0)
@@ -2147,7 +2161,22 @@ class GPU:
                         for key in before
                         if stable.get(key)
                         and abs(item["after"][key]["median"]
-                                - before[key]["median"]) >= CLKDOM_PROBE_EFFECT_KHZ
+                                - before[key]["median"]) >= effect_threshold_khz
+                    }
+                    # Preserve a useful lead even when a physical counter's
+                    # after-window is too wide to be accepted as settled.
+                    # These entries are diagnostic candidates only; mapping
+                    # verdicts continue to use changed_observations below.
+                    item["median_shift_candidates"] = {
+                        key: {"before": before[key]["median"],
+                              "after": item["after"][key]["median"],
+                              "delta": (item["after"][key]["median"]
+                                        - before[key]["median"]),
+                              "stable": bool(stable.get(key))}
+                        for key in before
+                        if key in item["after"]
+                        and abs(item["after"][key]["median"]
+                                - before[key]["median"]) >= effect_threshold_khz
                     }
                     item["direct_changed_observations"] = {
                         key: value for key, value in
@@ -2159,6 +2188,11 @@ class GPU:
                         key: value for key, value in
                         item["direct_changed_observations"].items()
                         if value["delta"] * expected_sign > 0
+                    }
+                    item["reverse_directional_observations"] = {
+                        key: value for key, value in
+                        item["direct_changed_observations"].items()
+                        if value["delta"] * expected_sign < 0
                     }
                     item["physical_effect"] = bool(
                         item["directional_observations"])

@@ -315,7 +315,11 @@ fixed GPU-clock/V/F hold or a steady workload; otherwise a P-state transition
 is reported as unstable rather than as a mapping.  It is not run automatically
 by the UI.  Include the GPU model, driver, VBIOS and both JSON reports when
 reporting a driver-specific failure.  Do not use the probe on a non-RTX-50 card
-or with an untrusted driver build.
+or with an untrusted driver build.  GPC is retained as an operating-point
+diagnostic, but only the direct XBAR/SYS/memory/VIDEO observations can make the
+mapping verdict.  Large requests scale the minimum effect threshold (up to
+25 MHz) so ordinary core/counter jitter is not mistaken for a mapping; the JSON
+retains `median_shift_candidates` and reverse-direction observations for review.
 
 ### Why Pascal gets no per-domain advanced frequency control? **Because it's hard coded by the BIOS**
 
