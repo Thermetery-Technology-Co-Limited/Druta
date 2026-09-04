@@ -823,14 +823,17 @@ CLKDOM_PAIR_PASCAL = {}
 assert CLKDOM_HDR + CLKDOM_SLOTS * CLKDOM_STRIDE == CLKDOM_SIZE
 
 # Blackwell's control-domain indices are the RM clock-domain controls, not the
-# private getter's domain numbering.  These are the three controls this patch
-# can expose once the Blackwell layout probe has accepted the block.  Their
-# measured private-getter correspondence is deliberately not guessed here;
-# Blackwell can be verified through the physical clock-measure API instead.
-CLKDOM_BLACKWELL_CONTROLS = {1: "XBAR", 3: "SYSCLK", 5: "VIDEO"}
-# The current 1/3/5 labels are a hypothesis for the Windows block.  When a
-# driver accepts the block but those controls have no physical effect, scan
-# the other non-core/non-memory indices before touching controls 0 or 2.
+# private getter's domain numbering.  The XBAR/SYSCLK names are retained from
+# the documented control layout, while VIDEO was re-identified on RTX 5080
+# +610.88 by a repeatable physical VIDEO response at control 4.
+CLKDOM_BLACKWELL_CONTROLS = {1: "XBAR", 3: "SYSCLK", 4: "VIDEO"}
+# The XBAR control on this Blackwell/610.88 path has an inverted request
+# polarity: raw +200 MHz produced a physical XBAR decrease and raw -200 MHz
+# produced an increase in two loaded A/B scans. Keep the UI's logical sign
+# intuitive and leave the raw diagnostic probe untouched.
+CLKDOM_BLACKWELL_CONTROL_POLARITY = {1: -1, 3: 1, 4: 1}
+# When a driver accepts the documented controls but one has no physical effect,
+# scan the other non-core/non-memory indices before touching controls 0 or 2.
 # Controls 0 and 2 are kept out of the default scan because they may be the
 # GPC and memory paths on a different driver branch.
 CLKDOM_BLACKWELL_SAFE_SCAN_CONTROLS = (1, 3, 4, 5, 6, 7, 8, 9)
@@ -1899,10 +1902,18 @@ class GPU:
             return [d for d in CLKDOM_BLACKWELL_CONTROLS if d in accepted]
         return sorted(self.clkdom_pairing(rows))
 
+    def clkdom_control_polarity(self, control):
+        """Logical-to-wire sign for a Blackwell control request."""
+        if not self.clkdom_is_blackwell():
+            return 1
+        return CLKDOM_BLACKWELL_CONTROL_POLARITY.get(int(control), 1)
+
     def clkdom_control_label(self, control):
         """Human-readable Blackwell control name, with an honest fallback."""
-        return CLKDOM_BLACKWELL_CONTROLS.get(
-            control, CLKDOM_NAMES.get(control, f"domain {control}"))
+        if self.clkdom_is_blackwell():
+            return CLKDOM_BLACKWELL_CONTROLS.get(
+                control, f"control {control}")
+        return CLKDOM_NAMES.get(control, f"domain {control}")
 
     def clkdom_step_mhz(self):
         """Requested per-domain slider granularity for this architecture."""
@@ -2414,9 +2425,14 @@ class GPU:
         out = {}
         for d in doms:
             base = layout.header + d * layout.stride
+            raw_freq_khz = p[(base + layout.freq_khz) // 4]
             out[d] = {
                 "mode": p[(base + layout.mode) // 4],
-                "freq_khz": p[(base + layout.freq_khz) // 4],
+                # Expose the logical UI sign. The diagnostic probe below
+                # deliberately writes raw signed values so it can discover
+                # this polarity rather than hiding it.
+                "freq_khz": (raw_freq_khz
+                             * self.clkdom_control_polarity(d)),
                 "msvdd_uv": (p[(base + layout.msvdd_uv) // 4]
                              if layout.msvdd_uv is not None else None),
             }
@@ -2521,13 +2537,15 @@ class GPU:
             return False, (f"domain {domain} is not one this driver accepts "
                            f"({self.clkdom_domains()})")
         khz = int(round(mhz)) * 1000
+        wire_khz = khz * self.clkdom_control_polarity(domain)
         mask = 1 << domain
         st, buf = self._clkdom_get(mask)
         if st != 0:
             return False, f"clock-domain read failed (status {st})"
         dw = (layout.header + domain * layout.stride + layout.freq_khz) // 4
-        was = ctypes.cast(buf, ctypes.POINTER(i32))[dw]
-        ctypes.cast(buf, ctypes.POINTER(i32))[dw] = khz
+        was_wire = ctypes.cast(buf, ctypes.POINTER(i32))[dw]
+        was = was_wire * self.clkdom_control_polarity(domain)
+        ctypes.cast(buf, ctypes.POINTER(i32))[dw] = wire_khz
 
         st2, ref = self._clkdom_get(mask)
         if st2 != 0:

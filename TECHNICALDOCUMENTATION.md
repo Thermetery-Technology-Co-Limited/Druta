@@ -527,7 +527,10 @@ Those field offsets are a candidate until they have been checked against the
 exact GPU, VBIOS and driver. The version echo and one-hot accepted-domain probe
 are read-only gates. The UI uses the accepted control indices for Blackwell and
 displays the requested offsets; it does not label those values with a Turing
-private-getter domain.
+private-getter domain.  On the validated RTX 5080 / 610.88 path, the tested
+controls are 1 = XBAR, 3 = SYSCLK and 4 = VIDEO.  Control 1 has an inverted
+wire polarity, which the UI compensates for when displaying and writing its
+logical offset.
 
 For hardware validation, run:
 
@@ -543,14 +546,14 @@ the frequency-only comparison probe:
 python nvbackend.py --clkdom-field-probe --confirm > clkdom-fields.json
 ```
 
-It compares `+0x10C` with `+0x114` for controls 1, 3 and 5. It deliberately
+It compares `+0x10C` with `+0x114` for controls 1, 3 and 4. It deliberately
 does not probe the adjacent NVVDD/MSVDD rail fields.
 
 Run the same command with `--delta -5` and compare the signs of the reported
 changes. A real field/control mapping should reverse direction; a P-state or
 idle-clock transition is not evidence.
 
-If both candidate fields accept the write but controls 1, 3 and 5 show no
+If both candidate fields accept the write but controls 1, 3 and 4 show no
 settled physical effect, scan the remaining non-core/non-memory control
 indices:
 
@@ -596,7 +599,7 @@ amount; it is not a normal UI tuning range and should only be used with a
 stable V/F hold and a high, continuous workload.
 
 The first command never writes. The latter two are explicit administrator-only
-diagnostics: they test controls 1, 3 and 5 one at a time with a small temporary
+diagnostics: they test controls 1, 3 and 4 one at a time with a small temporary
 frequency delta, compares median/range windows of physical XBAR/SYS/VIDEO
 observations, verifies the original requested frequency after restoration, and
 restores the complete GET buffer even if sampling fails. Use a fixed GPU-clock

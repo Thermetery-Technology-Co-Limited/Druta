@@ -253,7 +253,9 @@ use the same `0xF58938F5` / `0xD14B69CF` interface, but the Windows control
 block's frequency and MSVDD fields are at different offsets in the public
 Blackwell [implementation notes](https://github.com/SHANAjam/rtx5090-xbar-control/blob/main/docs/TECHNICAL_NOTES.md).  Druta therefore selects a separate candidate
 layout and only exposes the XBAR, SYSCLK and VIDEO controls when the card's
-one-hot domain probe and version echo succeed.
+one-hot domain probe and version echo succeed.  On the validated RTX 5080 /
+610.88 path these controls are indices 1, 3 and 4 respectively; control 1's
+wire polarity is inverted and the UI compensates for it.
 
 Before testing a new RTX 50-series card or driver, collect a read-only report:
 
@@ -281,7 +283,7 @@ Repeat with `--delta -5` and compare the signs of the same observations. A
 real mapping should reverse direction; a P-state transition or idle-clock
 change is not evidence.
 
-If the field probe accepts the writes but controls 1/3/5 all remain inert,
+If the field probe accepts the writes but controls 1/3/4 all remain inert,
 scan the other non-core/non-memory control indices:
 
 ```powershell

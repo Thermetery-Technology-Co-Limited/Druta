@@ -59,7 +59,11 @@ class ClkDomUnitTests(unittest.TestCase):
         gpu = self.gpu_named("NVIDIA GeForce RTX 5080")
         self.assertEqual(gpu.clkdom_control_label(1), "XBAR")
         self.assertEqual(gpu.clkdom_control_label(3), "SYSCLK")
-        self.assertEqual(gpu.clkdom_control_label(5), "VIDEO")
+        self.assertEqual(gpu.clkdom_control_label(4), "VIDEO")
+        self.assertEqual(gpu.clkdom_control_label(5), "control 5")
+        self.assertEqual(gpu.clkdom_control_polarity(1), -1)
+        self.assertEqual(gpu.clkdom_control_polarity(3), 1)
+        self.assertEqual(gpu.clkdom_control_polarity(4), 1)
         self.assertEqual(gpu.clkdom_step_mhz(), 1)
 
     def test_blackwell_read_uses_shifted_frequency_field(self):
@@ -99,7 +103,7 @@ class ClkDomUnitTests(unittest.TestCase):
         self.assertEqual(layout, CLKDOM_LAYOUT_BLACKWELL)
         rows, err = gpu.read_clk_domain_offsets()
         self.assertIsNone(err)
-        self.assertEqual(rows[1]["freq_khz"], 123000)
+        self.assertEqual(rows[1]["freq_khz"], -123000)
 
         ok, _message = gpu.set_clk_domain_offset(1, 128)
         self.assertTrue(ok)
@@ -110,7 +114,7 @@ class ClkDomUnitTests(unittest.TestCase):
         self.assertEqual(
             ctypes.cast(ctypes.create_string_buffer(written),
                         ctypes.POINTER(i32))[field // 4],
-            128000)
+            -128000)
 
 
 if __name__ == "__main__":

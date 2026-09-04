@@ -1068,7 +1068,7 @@ class Druta:
                    "slave of GPC: past roughly 1:1 the governor clamps it or "
                    "pulls the core up with it."),
         DomainKnob("sys", 3, "control domain 3", None),
-        DomainKnob("video", 5, "control domain 5", None),
+        DomainKnob("video", 4, "control domain 4", None),
         DomainKnob("ltc", 9, "control domain 9",
                    "Can move LESS than requested depending on where the clock "
                    "already sits: +45 has been measured landing as +30 in one "
