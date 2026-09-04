@@ -147,7 +147,7 @@ python nvbackend.py --clkdom-control-probe --delta 25 --confirm
 
 | 逻辑功能 | control index | UI 请求极性 |
 |---|---:|---:|
-| XBAR | 1 | 反向补偿 |
+| XBAR | 1 | 正向直写 |
 | SYSCLK | 3 | 正常 |
 | VIDEO | 4 | 正常 |
 
@@ -196,8 +196,9 @@ MSVDD   = entry + 0x11C
 - control 1：
   - raw `+200`：XBAR `1948.2 → 1757.5 MHz`，约 `-190.7 MHz`；
   - raw `-200`：XBAR `1950.1 → 2136.6 MHz`，约 `+186.5 MHz`；
-  - 结论：XBAR 响应稳定但写入/请求极性反向，所以 UI 对 control 1 做 `-1`
-    转换。
+  - 结论：这组原始 probe 结果曾被解释为需要 `-1` 转换；但后续对已打包
+    UI 的端到端实测发现该补偿会把滑块方向再次弄反，因此 UI 层最终采用
+    与用户相同符号的直写。
 
 - control 3：
   - raw `+200`：XBAR `1943.1 → 2144.9 MHz`，约 `+201.8 MHz`；
@@ -237,7 +238,7 @@ MSVDD   = entry + 0x11C
 ### 已修改的代码和文档
 
 - `nvbackend.py`：Blackwell 布局、0xF58938F5 读写保护、物理 probe、读回、
-  稳定性/方向判定、最终 control 映射和 XBAR 极性补偿。
+  稳定性/方向判定、最终 control 映射和 XBAR UI 符号修正。
 - `druta.py`：RTX 50 UI 的 VIDEO control 从 5 改为 4。
 - `test_clkdom.py`：Blackwell 布局、control 名称、control 极性和写入 dword
   的单元测试。
@@ -285,5 +286,5 @@ RTX 5080 在 Windows driver `610.88` 下可以使用这条私有 clock-domain �
 根本问题是 Blackwell 字段偏移与 Turing 不同、control index 不能直接沿用旧
 域名、以及原始验证会被 P-state/GPC 抖动误导。最终已确认频率字段为 `+0x114`，
 并将 UI 映射修正为 control `1/3/4 = XBAR/SYSCLK/VIDEO`，其中 XBAR control 1
-需要反向极性补偿。XBAR 和 VIDEO 已有真实硬件正负方向证据；SYSCLK 的独立物理
-计数器仍是唯一尚未完全确认的部分。
+采用与用户相同符号的直写。后续端到端验证确认此前的 `-1` 补偿会反转 XBAR
+滑块，因此已移除该补偿；SYSCLK 的独立物理计数器仍是唯一尚未完全确认的部分。

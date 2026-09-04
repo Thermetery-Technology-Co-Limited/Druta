@@ -528,9 +528,10 @@ exact GPU, VBIOS and driver. The version echo and one-hot accepted-domain probe
 are read-only gates. The UI uses the accepted control indices for Blackwell and
 displays the requested offsets; it does not label those values with a Turing
 private-getter domain.  On the validated RTX 5080 / 610.88 path, the tested
-controls are 1 = XBAR, 3 = SYSCLK and 4 = VIDEO.  Control 1 has an inverted
-wire polarity, which the UI compensates for when displaying and writing its
-logical offset.
+controls are 1 = XBAR, 3 = SYSCLK and 4 = VIDEO. Their logical UI signs are
+direct on the validated 610.88 path, including XBAR. This was confirmed by
+an end-to-end test of the built UI; the earlier raw-probe direction must not
+be reused as the UI sign without repeating that test.
 
 For hardware validation, run:
 

@@ -254,8 +254,9 @@ block's frequency and MSVDD fields are at different offsets in the public
 Blackwell [implementation notes](https://github.com/SHANAjam/rtx5090-xbar-control/blob/main/docs/TECHNICAL_NOTES.md).  Druta therefore selects a separate candidate
 layout and only exposes the XBAR, SYSCLK and VIDEO controls when the card's
 one-hot domain probe and version echo succeed.  On the validated RTX 5080 /
-610.88 path these controls are indices 1, 3 and 4 respectively; control 1's
-wire polarity is inverted and the UI compensates for it.
+610.88 path these controls are indices 1, 3 and 4 respectively. The UI writes
+the XBAR request with the same sign selected by the user; this was confirmed
+by an end-to-end test after the first build exposed a reversed XBAR slider.
 
 Before testing a new RTX 50-series card or driver, collect a read-only report:
 

@@ -827,11 +827,12 @@ assert CLKDOM_HDR + CLKDOM_SLOTS * CLKDOM_STRIDE == CLKDOM_SIZE
 # the documented control layout, while VIDEO was re-identified on RTX 5080
 # +610.88 by a repeatable physical VIDEO response at control 4.
 CLKDOM_BLACKWELL_CONTROLS = {1: "XBAR", 3: "SYSCLK", 4: "VIDEO"}
-# The XBAR control on this Blackwell/610.88 path has an inverted request
-# polarity: raw +200 MHz produced a physical XBAR decrease and raw -200 MHz
-# produced an increase in two loaded A/B scans. Keep the UI's logical sign
-# intuitive and leave the raw diagnostic probe untouched.
-CLKDOM_BLACKWELL_CONTROL_POLARITY = {1: -1, 3: 1, 4: 1}
+# Keep the logical-to-wire signs explicit for each Blackwell control. The
+# follow-up end-to-end RTX 5080 test showed that XBAR must be written with the
+# same sign selected in the UI. The earlier raw-probe direction was one layer
+# too early to use as the UI polarity and caused +200 to apply as -200 in the
+# built application.
+CLKDOM_BLACKWELL_CONTROL_POLARITY = {1: 1, 3: 1, 4: 1}
 # When a driver accepts the documented controls but one has no physical effect,
 # scan the other non-core/non-memory indices before touching controls 0 or 2.
 # Controls 0 and 2 are kept out of the default scan because they may be the
