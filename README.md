@@ -390,7 +390,7 @@ It stops as soon as a point sits below the one above it.
 
 **Mandatory hard mod required**
 
-This mode is actually the opposite of deflatten. It flattens everything after 800mv (adjustable), overclocks the 800mv point to the standard P0 frequency, and flattens every point above that. That way, the driver will lock 800mv. This looks counterintuitive because it works in conjunction with a hardware voltage mod and a completely inoperable refin_adj (or whatever that the BIOS uses to control the voltage internally) to neutralize imperfect power limit bypasses.
+This mode is actually the opposite of deflatten. It flattens everything after 800mv (adjustable), overclocks the 800mv point to the standard P0 frequency, and flattens every point above that. That way, the driver will lock 800mv. This looks counterintuitive, but it works in conjunction with a hardware voltage mod and a completely inoperable refin_adj (or whatever that the BIOS uses to control the voltage internally) to mitigate imperfect power limit bypasses.
 
 Imperfect power limit bypasses are for GPUs with no XOC BIOS and don't completely work with shunt mods, such as Titan Xp, 2x8-pin 3080, 4080 Super, 3060, etc. These GPUs still power throttle after shunt mods, even at low percentage of TDP. The power estimation comes from the core and cannot be easily bypassed. By fooling the GPU core that it's at 800mv, you lower the internal power limit reading. However, because you took out refin_adj or similar, the core is actually at whatever higher voltage that you set it at with your external hard mod, which is why I made you check a box to make sure that you have both setup in place.
 
