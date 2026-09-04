@@ -157,22 +157,7 @@ change (40 samples per locked case, 20 free-boosting):
 | locked at 1920 | 1920.0 | 1917.03–1921.37 | within 3 MHz |
 | locked at 1350 | 1350.0 | 1364.91–1364.94 | **+14.9, dead steady** |
 
-Settled and loaded they agree to a few MHz — and where they don't, **B reads
-higher**: at the 1350 lock the card really is running one bin above what A
-reports. Domain 2's own programmed word reads 1365 there too.
-
-Two things make Δ wide and neither is a steady state:
-
-- **A clock change in flight**, for ~1–2 s, either sign, up to 1.7 GHz (+600
-  measured while locking *down* from 1950; −1700 while locking *up* from idle).
-- **An idle card.** With no work the GPC clock gates and B measures the average
-  of a mostly-off clock: at a 1350 lock with the card idle, B wandered 470–573
-  MHz for tens of seconds.
-
-So a wide Δ on an idle card, or in the second after a clock change, means
-nothing. **A steady wide Δ on a busy card is the one that counts** — there the
-tiles are optimistic. The panel colours one bin amber and three bins red.
-
+If values in B are substantially and consistently lower than those in A, especially at P0, then barring a thermal throttling, some of the settings probably aren't properly registered. 
 
 ### Deducement of domains:
 
