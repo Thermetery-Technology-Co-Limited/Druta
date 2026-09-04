@@ -38,6 +38,7 @@ original bytes back restores it exactly. The V/F point lock below is the worked
 example, and vf_lock_self_test() keeps the middle rung runnable on any machine.
 """
 import ctypes
+import os
 import re
 import sys
 import threading
@@ -752,7 +753,27 @@ CLKDOM_PAIR_TURING = {1: 1, 3: 2, 5: 21, 9: 5}    # A and B both +45, verified
 # anyone re-deriving it. But the SHIPPED map is empty: no knob is built for a
 # control that cannot move a clock.
 CLKDOM_PAIR_PASCAL_TARGET_ONLY = {1: 16, 3: 17}
-CLKDOM_PAIR_PASCAL = {}
+
+# EXPERIMENT GATE - off unless DRUTA_PASCAL_KNOBS is set in the environment.
+#
+# Set it and the GP102 knobs are built from the target-only map above, so the
+# sliders exist and can be driven. This is for ONE purpose: measuring whether
+# they produce any performance change, against the position that they cannot.
+# Everything already known says they cannot - array B does not move, and the
+# Monitor's delta column will go red in proportion to the slider, which is the
+# divergence being made visible rather than a bug.
+#
+# It is an env var and not an edit to the constant on purpose. A constant gets
+# committed by accident; a variable that must be set on the command line cannot
+# ship enabled, and it leaves the default behaviour - no knob for a control that
+# cannot move a clock - exactly as it was.
+#
+#   set DRUTA_PASCAL_KNOBS=1   (cmd)        $env:DRUTA_PASCAL_KNOBS=1   (ps)
+#
+# If a measurable, repeatable uplift ever does show up here, the conclusion in
+# the README is wrong and the map should become unconditional.
+CLKDOM_PAIR_PASCAL = (dict(CLKDOM_PAIR_PASCAL_TARGET_ONLY)
+                      if os.environ.get("DRUTA_PASCAL_KNOBS") else {})
 
 assert CLKDOM_HDR + CLKDOM_SLOTS * CLKDOM_STRIDE == CLKDOM_SIZE
 
