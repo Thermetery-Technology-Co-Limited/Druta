@@ -266,6 +266,13 @@ analogy with TU102, where the domain in the same relationship is XBAR — hence
 LIKELY, not confirmed. **Domain 17** holds 0.845–0.850 of `GPC2CLK`, even more
 tightly, and has earned no name at all.
 
+A later 16-stop sweep over a 1468-unit range tightened both: domain 16 is
+`0.966808 × GPC` (R2 0.99993), domain 17 `0.8466 × GPC` (R2 0.9997). The reason
+that mattered is that the original 0.962–0.970 band was wide enough to contain
+**two different VBIOS fields** — the 97% slave ratio byte and the 3695/3822
+`freq_max` pair — and only the tighter number tells them apart. See *Why Pascal
+gets no per-domain knob*.
+
 **TU102's XBAR law**, measured there and nowhere else: with the clock locked at
 1800 MHz and vcore swept 912.5 → 1068.75 mV, XBAR never moved off 1725 MHz — it
 tracks *frequency*, not the rail. Exact on every observed point and within one
@@ -285,6 +292,334 @@ this; it is recorded measurement.
 The first tab, because it is what the app is opened to do. Monitor is second,
 Timings third and labelled — it is the only tab that needs a separate program
 installed to do anything at all.
+
+## XBAR clock offset
+
+`Control → Clock offsets → XBAR clock offset`. A third offset mechanism, and it
+is not a variation on the other two.
+
+**Nothing public can reach this domain.** `NV_GPU_PUBLIC_CLOCK_ID` has four
+members — `GRAPHICS 0, MEMORY 4, PROCESSOR 7, VIDEO 8` — and no crossbar entry
+at all. Measured here rather than assumed: `NvAPI_GPU_GetAllClockFrequencies`
+reports `bIsPresent` for slots 0 and 4 only, on all three clock types, and
+`NvAPI_GPU_GetPstates20` reports `numClocks = 2` for the same two domains. The
+private per-point delta table (`0x23F1B133`) is indexed by V/F point rather
+than by domain and carries GPU points only. All three are dead ends by
+construction, not by accident.
+
+The path that works is a private per-domain control block, `0xF58938F5` to read
+and `0xD14B69CF` to write, both at version `0x000261A4`. It wraps the RM
+`CLK_DOMAINS` controls. The layout was measured by sweeping the domain mask one
+bit at a time and watching where the populated dword moved:
+
+```
+header dword 2 = DOMAIN BITMASK (bit d selects domain d; any bit the card
+                 rejects fails the WHOLE call with -1, so it is probed one
+                 bit at a time rather than hardcoded)
+entry(d)       = 0x124 + d * 0x304
+    +0x000  mode/type      reads 8, 9 or 2 per domain
+    +0x10C  frequency delta, signed kHz
+    +0x114  MSVDD delta, signed microvolts   — never written by this app
+```
+
+**This block does not use the clock getter's domain numbering.** Assuming it did
+produced a name table that was wrong for every entry but GPC and XBAR, and the
+mistake hid itself: an offset written to what was labelled "SYS" landed on
+memory, and the check that was supposed to catch it did not watch the memory
+clock. The mapping below was established by writing `+45 MHz` to each control
+index with the clock pinned and recording which clock actually moved.
+
+| control | moves | notes |
+|---|---|---|
+| 0 | GPC **and every ratio slave with it** | XBAR, SYS, LTC and VIDEO all shift |
+| 1 | XBAR | |
+| 2 | MEM | already driven through NVML; no second knob |
+| 3 | SYS | |
+| 5 | VIDEO | |
+| 9 | LTC | coarser step — `+45` requested moved it `+30` |
+| 4, 6, 7, 8 | nothing | accept a write, store it, move no clock — left unnamed |
+
+Two tells that the numbering had to differ, both available before the
+measurement: the private getter puts VIDEO at domain 21 while this block
+refuses every mask bit above 9, and a third-party tool exposes exactly five
+controllable domains — core, memory, XBAR, SYS, video — which cannot be
+arranged as 0/1/2/4/5.
+
+### Why Pascal gets no per-domain knob
+
+Not caution — mechanism. On Pascal dGPUs the GPC, XBAR and SYS domains are
+**NAFLLs** (noise-aware frequency-locked loops), not PLLs: the operating point
+is an NDIV drawn from a voltage-indexed hardware LUT under ADC feedback, so
+there is no coefficient register to write. The clock tree is owned by the
+**PMU**; the host submits requests and firmware decides. nouveau makes this
+checkable — its GP102 chip descriptor has **no `.clk` entry at all**, because
+reclocking these parts needs signed PMU firmware.
+
+**The card's own VBIOS states the rest outright.** Pascal keeps no Maxwell-style
+`(flag << 14) | MHz` clock-states array — that layout really is absent, which is
+why the editors exposing XBAR are *Maxwell* tools — but it does carry the
+boardobj pair, hanging off BIT token **`'C'`**, not `'P'`:
+
+```
+'C'+0x08  0x08145  CLOCKS TABLE            hdr 7,  9 entries x 9 bytes
+'C'+0x0C  0x0819D  CLOCK PROGRAMMING       hdr 8, 30 entries x 13 (+4 slave, +1 vf)
+'C'+0x10  0x07F5C  NAFLL DEVICES           hdr 6,  9 entries x 15
+```
+
+The five subtables tile `0x07F5C..0x0832B` end-to-end with no gap, which is what
+fixes the field order as `(version, header_size, entry_size, entry_count)`.
+The NAFLL table then *derives* the domain numbering instead of guessing it: its
+`byte2` is `NV_PMU_CLK_NAFLL_ID` (0 SYS, 1 LTC, 2 XBAR, 3..8 GPC0..GPC5) and its
+`byte1` indexes the clocks table. All six GPC NAFLLs point at clocks index 0,
+SYS at 3, XBAR at 1 — and **no LTC NAFLL is fitted**, which is why control 9 is
+refused on this part. Reading the clocks table with that map:
+
+| idx | domain | usage | param1 |
+|-----|--------|-------|--------|
+| 0 | GPC | MASTER | OC delta range **−400 .. +2400** MHz |
+| 1 | **XBAR** | **SLAVE** | master domain = **0 (GPC)** |
+| 2 | MEM | MASTER | OC delta range **−1000 .. +1000** MHz |
+| 3 | SYS | SLAVE | master domain = 0 (GPC) |
+
+A slave entry spends `param1` on the master index. The ratio lives one table
+over, in clock program 12 (GPC's), as slave records `dom 1 = 97%` and
+`dom 3 = 90%`.
+
+Two independent cross-checks say this is read correctly rather than
+pattern-matched. `NvAPI_GPU_GetPstates20` on the live card returns GPC
+**−200 .. +1200** and MEM **−1000 .. +1000** — the VBIOS numbers exactly, with
+GPC halved, which also *proves* the 2× unit convention instead of assuming it
+(VBIOS `3822` → driver `1911 MHz`, while MEM `5705`/`5505` pass through
+unscaled). And the measured clocks sit at the identical fraction of their
+declared maxima: `3796/3822 = 0.99320`, `3670/3695 = 0.99323`. XBAR was never
+ignoring our writes at random — it was pinned to 97% of GPC throughout.
+
+**What this does *not* explain.** Dumping the TU102 ROM as a control kills the
+tempting conclusion. Turing declares XBAR exactly the same way:
+
+```
+TU102  [1] XBAR  02 15 15 00 00 00 00 24 00 ff ff  SLAVE  master domain 0 (GPC)
+GP102  [1] XBAR  02 19 19 00 00 00 00 22 00        SLAVE  master domain 0 (GPC)
+```
+
+Both are ratio slaves of GPC, and the knob works on one and not the other — so
+"it is a slave" is not the discriminator, and neither is the NAFLL: both parts
+have an XBAR NAFLL. What differs is **how the slave's frequency is produced**.
+
+**GP102 derives it. TU102 programs it.** GP102's clock programming table
+reserves four slave slots per program and populates two of them inside GPC's
+program — `dom 1 (XBAR) = 97%`, `dom 3 (SYS) = 90%`. Searching TU102's clock
+cluster for the same 3-byte record shape finds **none**; the same search over
+GP102 finds all three as a positive control. So on Pascal XBAR's target is
+*computed* from GPC every time the master's operating point is programmed, and
+there is no independent XBAR target for a delta to modify — which is exactly
+what the two arrays show: A echoes the request, B never moves.
+
+The measured laws say the same thing, and this is measurement, not inference.
+On GP102 the relationship was **swept** rather than sampled. NVML locked clocks
+return NOT_SUPPORTED on this part (a Volta+ feature), so the lever is the V/F
+point lock, which selects existing points on the card's own stock curve —
+nothing is overvolted, it only chooses where on the curve to sit. Stepping it
+700 → 1050 mV walks GPC across 2328..3796, a 1468-unit lever arm, with the card
+at **0% utilisation** the whole way; no dummy load is needed. Sixteen points,
+every populated private domain recorded, and GPC identified *afterwards* as the
+domain tracking NVML's core clock rather than by assumption:
+
+```
+private domain 15 = GPC    value/core = 2.0000, spread 0.0007
+                           (the 2x unit convention, measured not inferred)
+private domain 16 = XBAR   k = 0.966808 through the origin
+                           affine k = 0.966370, c = +1.51, R2 = 0.99993
+```
+
+TU102, for contrast, is affine — and that is what makes it tunable:
+
+```
+TU102   XBAR = max(540, snap15(0.95 x GPC + 15))
+        at GPC 1800 -> 1725; a pure ratio gives 1710, which is already on the
+        15 MHz grid, so the +15 is a real term and not rounding
+```
+
+GP102's constant is +1.5 across a 3740-unit span — 0.04%, i.e. zero. A ratio
+cannot produce an additive constant, so TU102's XBAR has its own programmed
+target that *tracks* GPC rather than being derived from it, and a per-domain
+delta lands on that target 1:1. Pascal's has nowhere to land.
+
+**Which VBIOS field is actually load-bearing.** The sweep separates two readings
+that a single sample could not:
+
+| hypothesis | predicts | vs measured 0.966808 |
+|---|---|---|
+| slave ratio byte `0x61` = 97% | 0.970000 | off by 0.003192 |
+| `freq_max` pair 3695/3822 | 0.966771 | **off by 0.000037** |
+
+The `freq_max` pair wins by 86x. **The 97% slave-ratio byte is not the number
+the hardware uses.** A VBIOS edit aimed at XBAR should therefore target
+
+```
+0x08449   XBAR program 25 freq_max = 0x0E6F = 3695   <- the operative field
+0x082F7   XBAR slave ratio byte    = 0x61   = 97     <- not this one
+```
+
+with one caveat the sweep narrows but cannot remove: 3695 looks *derived* from
+97%. This card's clock grid is 12.657 MHz — 25.314 in 2x units — and 3695 is
+exactly 146 grid steps, while 0.97 x 3822 = 3707.34 is not on the grid at all.
+So NVIDIA plausibly computed the percentage and snapped down, which makes the
+two fields related by construction. But 3695 is what is *stored*, it is what the
+runtime demonstrably uses, and nothing needs to re-derive it at init.
+
+Two domains corroborate the table decode without having been looked for: private
+domain 20 sits constant at 540, which is the clocks table's `FIXED 540 MHz`
+entry, and domain 18 constant at 1296, which is clock programs 16-19's
+`freq_max`.
+
+**Unresolved, and it is the SYS half of the story.** Private domain 17 — the one
+that looks like SYSCLK — fits a clean `0.8466 x GPC` in array A (R2 0.9997),
+matching *neither* the declared 90% *nor* 3417/3822 = 0.894. Its measured array
+plateaus badly (R2 0.80, affine slope collapsing to 0.24), consistent with
+hitting a ceiling partway up the sweep. That is the same 0.845-0.850 recorded
+further up as unnamed. **The XBAR result does not extend to SYS** until this is
+explained.
+
+**The ROM names the split itself.** The clocks table carries a `clocks_hal`
+field — **2** on GP102, **3** on TU102 — telling the driver which clock HAL to
+run, alongside the v0x10 / v0x35 table generation. The private per-domain
+control block is the 3.5-era interface; the driver version-checks it by struct
+size, so a hal-2 part accepts the write and stores it, and then programs XBAR
+from the ratio regardless.
+
+One thing not established: TU102's clock programming table was never located —
+its `'C'+0x0C` pointer (`0xF12C`) runs past the legacy image's `0xEC00` end and
+lands in compressed GOP payload. So "no ratio record on Turing" is proven for
+the clock-table cluster, not for the whole 1 MB image.
+
+The other two knobs are settled by **which NAFLLs are fitted**. TU102's NAFLL
+device table has ten entries — GPC0-5 plus XBAR (id 2), SYS (id 0), VIDEO
+(id 10) and LTC (id 11), at clocks indices 0/1/3/5/9, exactly the domains Druta
+drives. GP102 has eight: GPC0-5, SYS, XBAR. **No VIDEO NAFLL and no LTC NAFLL
+exist on the part**, which is why controls 5 and 9 are refused there and why
+domains 5/6 are `FIXED 600`/`FIXED 540` instead.
+
+So on Pascal the only lever that exists is GPC — raise it and XBAR follows at
+97%. The four negative avenues stand (private control block records the offset
+and the hardware ignores it; 108k BAR0 dwords surveyed across two clock states,
+four moved, none a frequency; the propagation-ratio interface returns nothing;
+no Maxwell-style clock-states array), and the reason all four are negative is
+that on this part XBAR is not a thing you set, it is a thing that is computed.
+
+Reading BAR0 on these parts, the `0xBADF` sentinels are worth decoding rather
+than lumping together — the code is bits 31:8:
+
+```
+0xBADF5040  FECS_PRI_CLIENT_ERR   ring station alive, client refuses:
+                                  priv-level-masked or power-gated
+0xBADF1100  FECS_PRI_DECODE       address maps to no register
+0xBADF13xx  FLOORSWEEP            unit not present on this die
+0xBADF10xx  PRI_TIMEOUT
+```
+
+So `0x137000` on a GP102 is *locked*, not empty; the dwords that do answer
+there are noise-aware clock **counters**, which is measurement rather than
+control.
+
+**The control indices are architecture-stable; the private domain each one
+moves is not.** Control 1 is the crossbar on both cards measured, but it lands
+on private domain **1** on TU102 and **16** on GP102, and control 3 lands on
+**2** and **17** respectively — while control 9 isn't accepted on Pascal at
+all. The pairing is therefore gated on the same signature the name tables use
+(GPC at domain 0 is the TU102 shape, at 15 the GP102 one), and an unrecognised
+card gets an **empty** map rather than the Turing one: a knob reading `--` is
+honest, a knob quoting an unrelated domain's clock is the exact failure this
+app exists to avoid. A build that hardcoded the Turing pairing put the amber
+TU102 name `SYSCLK?` on a Pascal knob and read its value from a domain that is
+unpopulated there.
+
+Detect that signature through `GPU.read()`, never a bare
+`read_clock_domains()` — without `core_mhz` the naming runs blind, cannot apply
+the unpopulated check, names a dead domain 0 "GPC", and reports every card as
+Turing.
+
+The voltage fields are a **rail array**, not one value — probing every dword
+from `+0x100` to `+0x140` found exactly three consecutive refused slots on every
+domain, which is what a rail array whose upper members this silicon lacks looks
+like. Aligned against the frequency field, rail 0 is at `+0x110`:
+
+- **Rail 0 is NVVDD** and it works. `+50 mV` requested moves vcore exactly
+  `+50 mV`, measured with the core clock pinned at 1500 MHz. Shipped as
+  *NVVDD offset (mV)*.
+- **Rail 1 is MSVDD and is not reachable here.** Refused on every control domain
+  that does anything, and accepted only on domain 6 — which stores frequency
+  offsets it never applies either, so its acceptance means "nothing validates
+  this", not "this rail exists". Read and displayed, never written.
+
+**Measure a rail with the FREQUENCY lock, never the V/F point lock.** A held
+V/F point pins the voltage, so a rail offset applies and nothing moves — which
+reads as "the write does nothing". Worse, because the point lock selects "the
+highest point at or below a voltage", shifting the rail changes *which* point is
+held, and the resulting reading turned a true 1:1 response into an apparent
+0.25:1. Both mistakes were made here before the frequency lock settled it.
+
+All four per-domain knobs are verified end to end **against array B, the
+measured counter — not array A**: with the frequency pinned, `+45 MHz`
+requested moved both the programmed target *and* the measured clock by
+`+45 MHz` on XBAR, SYS, VIDEO and LTC alike. LTC is the one that can land
+short — `+45` has been seen arriving as `+30` at a different starting clock.
+
+That distinction is the whole game. **A is an echo of the request** and moves
+whether or not the hardware obeys; only B says what the card is doing. On
+GP102 the difference is total: control 1 moves A from 3442 to 3493 while B sits
+at 3290.3, and control 3 moves A from 2986 to 3037 while B sits at 2885.4. The
+driver records the offset and the hardware ignores it, so the entire request
+turns into programmed-vs-measured divergence — which is exactly why the delta
+column goes red in proportion to the slider on that card.
+
+**Druta therefore ships no per-domain clock knob on Pascal.** A knob appears
+only where moving it was measured to move the card's *measured* clock. The
+control→domain correspondence on GP102 is real (control 1 does drive domain
+16's target, control 3 domain 17's) and is kept in `nvbackend` as
+`CLKDOM_PAIR_PASCAL_TARGET_ONLY` so nobody re-derives it — but it is not a
+shipped control. Note also that `nvmlDeviceSetGpuLockedClocks` is unsupported
+on GP102, so stabilising that card for measurement needs the V/F point lock.
+
+The geometry self-checks: `0x124 + 32 * 0x304 = 24996`, exactly the size the
+driver declares through its version word. A wrong header or stride would not
+divide that size evenly. XBAR is domain **1**, corroborated four independent
+ways — this card's private clock getter, the mask value that selects it,
+NVIDIA's own nvgpu source (`CTRL_CLK_DOMAIN_XBARCLK = 0x00000002`, i.e.
+`BIT(1)`), and the published RM layout.
+
+**Direction was established by measurement, not by trusting a label.** The read
+call and the write call share a struct and a version word, so a transposed
+get/set label would have written into a signed kHz field and a microvolt rail.
+Instead the applied XBAR offset was measured before and after a read: `+90 MHz`
+both times, 24/24 samples each way, clock pinned. Only then was anything
+written.
+
+**The number you set and the number the card runs are different numbers**, and
+both are real. This block stores the *request*; the driver floors it to whole
+clock bins. A `+100` request runs as `+90`; a `-50` request runs as `-60`. The
+slider floors on Apply and writes the floored value back to itself, so what is
+on screen is what the card took — the same rule as the core offset. The
+*applied* figure is never read from here; it comes from the private clock
+getter (domain 1), which is what the Monitor tile shows.
+
+**XBAR is a ratio slave of GPC.** NVIDIA's clock model governs it by a ratio
+against the core, and past roughly 1:1 the governor either clamps the offset or
+drags GPC up to keep the ratio legal. On TU102 the untouched relationship is
+
+```
+XBAR = max(540, snap15(0.95 * GPC + 15))
+```
+
+confirmed to the bin at 1455 / 1950 / 2010 / 2040 / 2115 MHz, and independently
+on a second TU102 (2250 core → 2160 XBAR). `+90` is the offset that produces
+1:1 across roughly 1950–2130 MHz on this card, which is why it is a common
+landing point rather than a coincidence.
+
+Writes are read-modify-write: the buffer sent is the one the getter produced
+with exactly one dword changed, and the write is refused outright if a
+re-read shows any other dword differing. 768 of the 772 bytes in an entry are
+fields we have not identified, and the app does not synthesise them.
 
 ## Shunt-mod corrected power
 
