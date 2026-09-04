@@ -454,7 +454,7 @@ that a single sample could not:
 | `freq_max` pair 3695/3822 | 0.966771 | **off by 0.000037** |
 
 The `freq_max` pair wins by 86x. **The 97% slave-ratio byte is not the number
-the hardware uses.** A VBIOS edit aimed at XBAR should therefore target
+the hardware uses.** The value XBAR is actually derived from lives at
 
 ```
 0x08449   XBAR program 25 freq_max = 0x0E6F = 3695   <- the operative field
@@ -467,6 +467,22 @@ exactly 146 grid steps, while 0.97 x 3822 = 3707.34 is not on the grid at all.
 So NVIDIA plausibly computed the percentage and snapped down, which makes the
 two fields related by construction. But 3695 is what is *stored*, it is what the
 runtime demonstrably uses, and nothing needs to re-derive it at init.
+
+**The route to that field is closed, and both ends were tested.** A vendor
+engineering nvflash refuses a modified image — and refuses a card's own
+*unmodified* dump as well, which says the tool wants its distribution container
+rather than merely unedited content. More decisively, an independent GP102
+(a GTX 1080 Ti) was written with a modified image by **hardware programmer**,
+bypassing every flashing tool, and came back **Code 43 with no display output at
+all** — with CSM and Secure Boot disabled to rule out host firmware policy. The
+silicon validates its VBIOS at boot. A programmer changes who does the writing,
+not whether the card will run the result. (Recoverable by writing the stock
+image back the same way.)
+
+So the field above is where the number lives, and it is not reachable. **On
+GP102 the only lever on XBAR is GPC** — raise it and XBAR follows at 97%. The
+identification is still worth recording, because it explains what the domain
+does and why the knob reads target-only, but it is not a route to anything.
 
 Two domains corroborate the table decode without having been looked for: private
 domain 20 sits constant at 540, which is the clocks table's `FIXED 540 MHz`
