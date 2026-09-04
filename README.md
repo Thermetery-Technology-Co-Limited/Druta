@@ -297,6 +297,17 @@ buffer after every individual write:
 python nvbackend.py --clkdom-control-probe --include-core-memory --delta 25 --confirm > clkdom-controls-all.json
 ```
 
+For a driver that stores a small request but shows no physical response, the
+explicit diagnostic also accepts a larger temporary delta up to `±200 MHz`:
+
+```powershell
+python nvbackend.py --clkdom-field-probe --delta 200 --confirm > clkdom-fields-plus200.json
+python nvbackend.py --clkdom-field-probe --delta -200 --confirm > clkdom-fields-minus200.json
+```
+
+Use this only with a stable test point and workload. The larger limit applies
+to the temporary probe, not to the normal UI slider.
+
 The mapping probe changes one small frequency request at a time, records a
 short median/range window of the physical clock observations, and restores the
 complete buffer in a `finally` block.  For a conclusive result, first use a

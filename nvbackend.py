@@ -860,6 +860,10 @@ CLKDOM_PROBE_SAMPLES = 7
 CLKDOM_PROBE_INTERVAL_S = 0.05
 CLKDOM_PROBE_MAX_RANGE_KHZ = 2_000
 CLKDOM_PROBE_EFFECT_KHZ = 2_000
+# The diagnostic is intentionally allowed to use the public project's
+# +200 MHz starting-point scale.  This is still temporary and is restored
+# after each item; it is not a default UI tuning range.
+CLKDOM_PROBE_MAX_DELTA_MHZ = 200
 
 
 def clkdom_entry(domain, field, layout=CLKDOM_LAYOUT_TURING):
@@ -2018,8 +2022,12 @@ class GPU:
         if not self.clkdom_is_blackwell():
             result["error"] = "this probe is restricted to RTX 50-series cards"
             return result
-        if not isinstance(delta_mhz, int) or not 1 <= abs(delta_mhz) <= 25:
-            result["error"] = "delta_mhz must be an integer in [-25..-1] or [1..25]"
+        if (not isinstance(delta_mhz, int)
+                or not 1 <= abs(delta_mhz) <= CLKDOM_PROBE_MAX_DELTA_MHZ):
+            result["error"] = (
+                "delta_mhz must be an integer in "
+                f"[-{CLKDOM_PROBE_MAX_DELTA_MHZ}..-1] or "
+                f"[1..{CLKDOM_PROBE_MAX_DELTA_MHZ}]")
             return result
         if not is_admin():
             result["error"] = "administrator privileges are required"

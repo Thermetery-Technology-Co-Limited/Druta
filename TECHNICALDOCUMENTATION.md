@@ -578,6 +578,11 @@ accepted when at least one settled observation also moves in the same direction
 as the signed request; a reverse-direction or one-sided transient is reported
 but is not treated as a mapping.
 
+The temporary diagnostic limit is `±200 MHz`. This is available for a driver
+that stores `±25 MHz` correctly but does not move a clock by a measurable
+amount; it is not a normal UI tuning range and should only be used with a
+stable V/F hold and a high, continuous workload.
+
 The first command never writes. The latter two are explicit administrator-only
 diagnostics: they test controls 1, 3 and 5 one at a time with a small temporary
 frequency delta, compares median/range windows of physical XBAR/SYS/VIDEO
