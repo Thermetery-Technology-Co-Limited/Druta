@@ -227,7 +227,7 @@ members — `GRAPHICS 0, MEMORY 4, PROCESSOR 7, VIDEO 8` — and no crossbar ent
 at all. 
 
 `NvAPI_GPU_GetAllClockFrequencies`
-reports `bIsPresent` for slots 0 and 4 only, on all three clock types, and
+reports `bIsPresent` for slots 0 and 4 only, and
 `NvAPI_GPU_GetPstates20` reports `numClocks = 2` for the same two domains. The
 private per-point delta table (`0x23F1B133`) is indexed by V/F point rather
 than by domain and carries GPU points only. All three are dead ends by
@@ -245,7 +245,8 @@ header dword 2 = DOMAIN BITMASK (bit d selects domain d; any bit the card
 entry(d)       = 0x124 + d * 0x304
     +0x000  mode/type      reads 8, 9 or 2 per domain
     +0x10C  frequency delta, signed kHz
-    +0x114  MSVDD delta, signed microvolts   — never written by this app
+    +0x110  NVVDD delta, signed microvolts   — the rail slider writes this
+    +0x114  MSVDD delta, also signed microvolts — never written by this app
 ```
 
 This block does not naively use the clock getter's domain numbering, because that numbering was off and would throw silent errors if you just ship the rest of the code using that. The mapping below was established by writing `+45 MHz` with my Titan RTX to each control index. We did that while using the Ctrl+H "HOLD" function that pinned the clock, we then recorded WHICH CLOCK ACTUALLY MOVED. XBAR was also doubly corroborated against GPUZ's reading. 
@@ -370,8 +371,6 @@ they land in the same per-point V/F delta table the curve editor uses.
 
 This was the original reason why Druta was built: to automate a lot of tedious dot moving on the V/F curve that I have to do every time I approach a new GPU. Below I am recycling substantial amount of material from the `MANUAL.md`
 
-When two or more points on the VF curve land on the same frequency, only the one with the lowest voltage will ever be used. For example, if 1081, 1087, and 1093mv all correspond to 2000mhz, the card will always run at 1081mv, 2000mhz. Deflatten makes sure that every point on the the V/F curve between 1000mv to 1091mv (adjustable) are mathematically strictly increasing. That way, you can run 1091mv immediately without a hard voltage mod.
-
 ## The controls
 
 Everythings are staged first. Nothing reaches the GPU until you click the green apply button, and
@@ -462,10 +461,9 @@ a later ramp.
 |  `+325` |          1068.75 | +287.50 |           1093.75 | +312.50 | 100% clips here |
 |  `+400` |          1068.75 | +287.50 |           1093.75 | +312.50 | |
 
-Yes, I applied +400mv, and as expected, absolutely nothing bad happened. All values in mV. Clock pinned at 1500 MHz; the driver returned `ok` for every
-request, including `+400` (which would have been 1181.25 mV).
+Yes, I applied +400mv, and as expected, absolutely nothing bad happened. All values in mV. Clock pinned at 1500 MHz; the driver returned `ok` for every request, including `+400` (which would have been 1181.25 mV).
 
-It is NOT hooked to any I2C or hardware. Rather, it requests the driver to apply the changes, but the driver is not the only mechanism against failure. Since Maxwell, drivers reject any NVVDD above 1281mv. Furthermorem, 1093.75mv is the maximum value defined in the BIOS (this value can be changed if you flash any XOC BIOS, which is proof that it is also set at a BIOS level) and enforced by PMU/Falcon. The voltage is at least doubly locked down at ring 0 and ring -1. This is a truly decade old question, and NVIDIA's voltage lock post-Pascal has been ironclad. We will not attempt to ship a method that tries to bypass it because we cannot construe of a method. 
+It is NOT hooked to any I2C or hardware. Rather, it requests the driver to apply the changes, but the driver is not the only mechanism against failure. Furthermore, 1093.75mv is the maximum value defined in the BIOS (this value can be changed if you flash any XOC BIOS, which is proof that it is also set at a BIOS level) and enforced by PMU/Falcon. The voltage is locked down at ring -1 if not doubly locked down also at ring 0 by `nvlddmkm.sys`. This is a truly decade old question, and NVIDIA's voltage lock post-Pascal has been ironclad. We will not attempt to ship a method that tries to bypass it because we cannot construe of a method. 
 
 ## Profiles and undo points
 
@@ -614,9 +612,7 @@ touched), **failed**.
 Research software, developed against the two cards named at the top. Struct
 layouts, NVAPI ids and the empirical laws above were verified against those;
 nothing here should be assumed to generalise to a third card without
-re-verifying — and the per-card machinery described under
-[Probed, not assumed](#probed-not-assumed) exists because assuming is exactly
-what went wrong the first three times.
+re-verifying. 
 
 ---
 
