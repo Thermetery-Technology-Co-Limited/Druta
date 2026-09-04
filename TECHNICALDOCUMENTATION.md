@@ -576,7 +576,9 @@ driver accepts but silently discards, and distinguishes a real loaded test
 from an idle-clock ceiling that never had to move.  A physical effect is only
 accepted when at least one settled observation also moves in the same direction
 as the signed request; a reverse-direction or one-sided transient is reported
-but is not treated as a mapping.
+but is not treated as a mapping.  The final mapping verdict uses the direct
+GPC/XBAR/SYS/memory/video observations; private getter rows remain in the JSON
+for diagnosis but cannot by themselves turn a transient into a success.
 
 The temporary diagnostic limit is `±200 MHz`. This is available for a driver
 that stores `±25 MHz` correctly but does not move a clock by a measurable

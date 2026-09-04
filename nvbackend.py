@@ -864,6 +864,8 @@ CLKDOM_PROBE_EFFECT_KHZ = 2_000
 # +200 MHz starting-point scale.  This is still temporary and is restored
 # after each item; it is not a default UI tuning range.
 CLKDOM_PROBE_MAX_DELTA_MHZ = 200
+CLKDOM_PROBE_DIRECT_OBSERVATIONS = (
+    "gpc", "xbar", "sys", "memory", "video")
 
 
 def clkdom_entry(domain, field, layout=CLKDOM_LAYOUT_TURING):
@@ -2117,10 +2119,20 @@ class GPU:
                                 f"expected {item['requested_freq_khz']!r})")
                     time.sleep(CLKDOM_PROBE_INTERVAL_S)
                     item["after"] = self._clkdom_probe_samples()
+                    # The XBAR counter has a wider measurement spread under
+                    # load than the private getter.  A large, repeatable
+                    # request should not be discarded merely because its
+                    # window is wider than the 2 MHz small-signal threshold.
+                    # Cap the relaxed window so a genuine P-state jump still
+                    # cannot be silently accepted as a clock mapping.
+                    settled_range_khz = max(
+                        CLKDOM_PROBE_MAX_RANGE_KHZ,
+                        min(50_000, abs(change_khz) // 4))
+                    item["settled_range_limit_khz"] = settled_range_khz
                     stable = {
-                        key: (before[key]["range"] <= CLKDOM_PROBE_MAX_RANGE_KHZ
+                        key: (before[key]["range"] <= settled_range_khz
                               and item["after"].get(key, {}).get("range", 0)
-                              <= CLKDOM_PROBE_MAX_RANGE_KHZ)
+                              <= settled_range_khz)
                         for key in before
                         if key in item["after"]
                     }
@@ -2137,10 +2149,15 @@ class GPU:
                         and abs(item["after"][key]["median"]
                                 - before[key]["median"]) >= CLKDOM_PROBE_EFFECT_KHZ
                     }
+                    item["direct_changed_observations"] = {
+                        key: value for key, value in
+                        item["changed_observations"].items()
+                        if key in CLKDOM_PROBE_DIRECT_OBSERVATIONS
+                    }
                     expected_sign = 1 if change_khz > 0 else -1
                     item["directional_observations"] = {
                         key: value for key, value in
-                        item["changed_observations"].items()
+                        item["direct_changed_observations"].items()
                         if value["delta"] * expected_sign > 0
                     }
                     item["physical_effect"] = bool(
