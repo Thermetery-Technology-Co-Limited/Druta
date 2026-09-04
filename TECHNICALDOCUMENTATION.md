@@ -419,10 +419,10 @@ So NVIDIA plausibly computed the percentage and snapped down, which makes the
 two fields related by construction. But 3695 is what is *stored*, it is what the
 runtime demonstrably uses, and nothing needs to re-derive it at init.
 
-**The route to that field is closed, and both ends were tested.** A vendor
-engineering nvflash refuses a modified image — and refuses a card's own
-*unmodified* dump as well, which says the tool wants its distribution container
-rather than merely unedited content. More decisively, an independent GP102
+**The route to that field is closed, and both ends were tested.** Every nvflash
+we can find refuses a modified image — and refuses a card's own *unmodified*
+dump as well, which says the tool wants its distribution container rather than
+merely unedited content. More decisively, an independent GP102
 (a GTX 1080 Ti) was written with a modified image by **hardware programmer**,
 bypassing every flashing tool, and came back **Code 43 with no display output at
 all** — with CSM and Secure Boot disabled to rule out host firmware policy. The
