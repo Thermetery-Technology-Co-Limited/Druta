@@ -2080,6 +2080,22 @@ class GPU:
                     if st3 != 0:
                         continue
                     changed = True
+                    item["requested_freq_khz"] = old_khz + change_khz
+                    st4, readback = self._clkdom_get(mask)
+                    item["readback_status"] = int(st4)
+                    if st4 == 0:
+                        item["readback_freq_khz"] = self._clkdom_word(
+                            readback, field_offset, signed=True)
+                        item["readback_mode"] = self._clkdom_word(
+                            readback,
+                            layout.header + control * layout.stride + layout.mode)
+                        item["readback_matches_request"] = (
+                            item["readback_freq_khz"] == item["requested_freq_khz"])
+                        if not item["readback_matches_request"]:
+                            item["readback_error"] = (
+                                "SET_CONTROL returned success but GET did not retain "
+                                f"the requested frequency ({item['readback_freq_khz']!r}; "
+                                f"expected {item['requested_freq_khz']!r})")
                     time.sleep(CLKDOM_PROBE_INTERVAL_S)
                     item["after"] = self._clkdom_probe_samples()
                     stable = {

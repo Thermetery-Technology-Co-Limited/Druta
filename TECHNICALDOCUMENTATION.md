@@ -569,8 +569,9 @@ python nvbackend.py --clkdom-control-probe --include-core-memory --delta 25 --co
 The scan is still one-field-at-a-time, checks the complete returned block
 before each write, and restores that block in a `finally` clause after every
 control.  The JSON now includes the settled `before` window as well as the
-`after` window, so a non-zero `SET_CONTROL` result cannot be mistaken for a
-physical clock change.
+`after` window, plus an immediate GET readback of the requested frequency and
+mode.  This separates a request that the setter stores from one that the
+driver accepts but silently discards.
 
 The first command never writes. The latter two are explicit administrator-only
 diagnostics: they test controls 1, 3 and 5 one at a time with a small temporary
