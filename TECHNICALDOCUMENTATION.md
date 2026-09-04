@@ -550,6 +550,28 @@ Run the same command with `--delta -5` and compare the signs of the reported
 changes. A real field/control mapping should reverse direction; a P-state or
 idle-clock transition is not evidence.
 
+If both candidate fields accept the write but controls 1, 3 and 5 show no
+settled physical effect, scan the remaining non-core/non-memory control
+indices:
+
+```powershell
+python nvbackend.py --clkdom-control-probe --delta 25 --confirm > clkdom-controls.json
+```
+
+This intentionally omits control indices 0 and 2 because they may be GPC and
+memory on a different driver branch.  To include those two potentially
+high-impact paths on a test-only machine, pass the explicit opt-in:
+
+```powershell
+python nvbackend.py --clkdom-control-probe --include-core-memory --delta 25 --confirm > clkdom-controls-all.json
+```
+
+The scan is still one-field-at-a-time, checks the complete returned block
+before each write, and restores that block in a `finally` clause after every
+control.  The JSON now includes the settled `before` window as well as the
+`after` window, so a non-zero `SET_CONTROL` result cannot be mistaken for a
+physical clock change.
+
 The first command never writes. The latter two are explicit administrator-only
 diagnostics: they test controls 1, 3 and 5 one at a time with a small temporary
 frequency delta, compares median/range windows of physical XBAR/SYS/VIDEO

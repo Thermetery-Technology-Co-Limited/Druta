@@ -828,6 +828,13 @@ assert CLKDOM_HDR + CLKDOM_SLOTS * CLKDOM_STRIDE == CLKDOM_SIZE
 # measured private-getter correspondence is deliberately not guessed here;
 # Blackwell can be verified through the physical clock-measure API instead.
 CLKDOM_BLACKWELL_CONTROLS = {1: "XBAR", 3: "SYSCLK", 5: "VIDEO"}
+# The current 1/3/5 labels are a hypothesis for the Windows block.  When a
+# driver accepts the block but those controls have no physical effect, scan
+# the other non-core/non-memory indices before touching controls 0 or 2.
+# Controls 0 and 2 are kept out of the default scan because they may be the
+# GPC and memory paths on a different driver branch.
+CLKDOM_BLACKWELL_SAFE_SCAN_CONTROLS = (1, 3, 4, 5, 6, 7, 8, 9)
+CLKDOM_BLACKWELL_RISKY_SCAN_CONTROLS = (0, 2)
 # Frequency-field candidates only.  The field probe deliberately excludes the
 # neighbouring voltage/rail dwords: discovering a frequency layout must never
 # require experimenting with NVVDD or MSVDD.
@@ -1960,7 +1967,7 @@ class GPU:
         return out
 
     def clkdom_mapping_probe(self, delta_mhz=5, confirm=False,
-                             freq_fields=None):
+                             freq_fields=None, controls=None):
         """Temporarily test Blackwell XBAR/SYS/VIDEO control indices.
 
         This is an explicit, administrator-only diagnostic.  It changes one
@@ -1986,6 +1993,14 @@ class GPU:
                           for field in fields):
             result["error"] = "unsupported frequency-field candidate"
             return result
+        if controls is not None:
+            controls = tuple(controls)
+            if (not controls
+                    or any(not isinstance(control, int)
+                           or not 0 <= control < CLKDOM_SLOTS
+                           for control in controls)):
+                result["error"] = "controls must contain valid clock-domain indices"
+                return result
         if not confirm:
             result["error"] = "pass confirm=True to enable the temporary write probe"
             return result
@@ -2012,13 +2027,18 @@ class GPU:
         if len(fields) > 1:
             result["fields"] = {}
         accepted = set(self.clkdom_domains())
+        controls = (tuple(CLKDOM_BLACKWELL_CONTROLS)
+                    if controls is None else controls)
+        result["controls_requested"] = list(controls)
         change_khz = int(delta_mhz) * 1000
         for field in fields:
             field_result = result["controls"]
             if len(fields) > 1:
                 field_result = {}
                 result["fields"][f"+0x{field:03X}"] = field_result
-            for control, label in CLKDOM_BLACKWELL_CONTROLS.items():
+            for control in controls:
+                label = CLKDOM_BLACKWELL_CONTROLS.get(
+                    control, f"control {control}")
                 item = {"label": label, "accepted": control in accepted,
                         "freq_field": f"+0x{field:03X}"}
                 field_result[str(control)] = item
@@ -2038,6 +2058,7 @@ class GPU:
                     item["error"] = "frequency field is outside the returned buffer"
                     continue
                 before = self._clkdom_probe_samples()
+                item["before"] = before
                 changed = False
                 try:
                     ctypes.cast(buf, ctypes.POINTER(i32))[dw] = old_khz + change_khz
@@ -3738,6 +3759,18 @@ if __name__ == "__main__":
         report = g.clkdom_mapping_probe(
             delta_mhz=delta_mhz, confirm=("--confirm" in sys.argv),
             freq_fields=CLKDOM_BLACKWELL_FREQ_CANDIDATES)
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        sys.exit(0 if not report.get("error") else 2)
+    if "--clkdom-control-probe" in sys.argv:
+        controls = list(CLKDOM_BLACKWELL_SAFE_SCAN_CONTROLS)
+        if "--include-core-memory" in sys.argv:
+            controls.extend(CLKDOM_BLACKWELL_RISKY_SCAN_CONTROLS)
+        report = g.clkdom_mapping_probe(
+            delta_mhz=delta_mhz, confirm=("--confirm" in sys.argv),
+            controls=controls)
+        report["probe"] = ("all-accepted-controls"
+                           if "--include-core-memory" in sys.argv
+                           else "safe-controls-excluding-0-and-2")
         print(json.dumps(report, ensure_ascii=False, indent=2))
         sys.exit(0 if not report.get("error") else 2)
     print(_fmt_snapshot(g))

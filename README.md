@@ -281,6 +281,22 @@ Repeat with `--delta -5` and compare the signs of the same observations. A
 real mapping should reverse direction; a P-state transition or idle-clock
 change is not evidence.
 
+If the field probe accepts the writes but controls 1/3/5 all remain inert,
+scan the other non-core/non-memory control indices:
+
+```powershell
+python nvbackend.py --clkdom-control-probe --delta 25 --confirm > clkdom-controls.json
+```
+
+The scan deliberately excludes controls 0 and 2 because another driver branch
+may use them for GPC and memory.  Only if that is acceptable for the test card,
+repeat with `--include-core-memory`; the probe still restores the complete GET
+buffer after every individual write:
+
+```powershell
+python nvbackend.py --clkdom-control-probe --include-core-memory --delta 25 --confirm > clkdom-controls-all.json
+```
+
 The mapping probe changes one small frequency request at a time, records a
 short median/range window of the physical clock observations, and restores the
 complete buffer in a `finally` block.  For a conclusive result, first use a
