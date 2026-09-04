@@ -2129,11 +2129,24 @@ class GPU:
                         and abs(item["after"][key]["median"]
                                 - before[key]["median"]) >= CLKDOM_PROBE_EFFECT_KHZ
                     }
-                    item["physical_effect"] = bool(item["changed_observations"])
+                    expected_sign = 1 if change_khz > 0 else -1
+                    item["directional_observations"] = {
+                        key: value for key, value in
+                        item["changed_observations"].items()
+                        if value["delta"] * expected_sign > 0
+                    }
+                    item["physical_effect"] = bool(
+                        item["directional_observations"])
                     if not item["physical_effect"]:
-                        item["error"] = ("write was accepted but no settled physical "
-                                         "clock observation moved by >=2 MHz; lock "
-                                         "the GPU clock or repeat under a steady load")
+                        if item["changed_observations"]:
+                            item["error"] = (
+                                "settled observations moved, but none followed the "
+                                "requested frequency direction; repeat the A/B test")
+                        else:
+                            item["error"] = (
+                                "write was accepted but no settled physical clock "
+                                "observation moved by >=2 MHz; lock the GPU clock "
+                                "or repeat under a steady load")
                 except Exception as exc:
                     item["error"] = f"observation failed after write: {exc}"
                 finally:

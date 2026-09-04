@@ -573,7 +573,10 @@ control.  The JSON now includes the settled `before` window as well as the
 mode.  Each window also records P-state, utilization and public core/memory
 clocks.  This separates a request that the setter stores from one that the
 driver accepts but silently discards, and distinguishes a real loaded test
-from an idle-clock ceiling that never had to move.
+from an idle-clock ceiling that never had to move.  A physical effect is only
+accepted when at least one settled observation also moves in the same direction
+as the signed request; a reverse-direction or one-sided transient is reported
+but is not treated as a mapping.
 
 The first command never writes. The latter two are explicit administrator-only
 diagnostics: they test controls 1, 3 and 5 one at a time with a small temporary
