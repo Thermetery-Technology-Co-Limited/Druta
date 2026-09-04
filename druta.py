@@ -80,6 +80,7 @@ Safety model, carried over from the Tk version:
 import ctypes
 import math
 import os
+from collections import namedtuple
 import subprocess
 import sys
 import threading
@@ -108,6 +109,11 @@ WARN = (255, 203, 71)
 BAD = (255, 92, 92)
 IDLE_COL = (58, 63, 75)
 VIOLET = (160, 108, 255)
+
+# One per-domain offset knob. `ctrl` indexes the CONTROL BLOCK, `priv` the
+# private clock getter - two different numberings for the same clock, and the
+# pair is measured, not assumed (see App.DOMAIN_KNOBS).
+DomainKnob = namedtuple("DomainKnob", "key ctrl fallback note")
 
 
 def dpi_scale():
@@ -613,13 +619,23 @@ class Druta:
         silently truncated to its low byte would be a lie in hex."""
         return f"0x{v:02X}" if v <= 0xFF else f"0x{v:08X}"
 
-    def dom_band(self, delta_mhz):
+    def dom_band(self, delta_mhz, scale=1):
+        """Severity of a programmed-vs-measured gap, in CLOCK BINS.
+
+        `scale` is how many times the base clock this domain publishes at. It
+        matters because a 2x domain moves in 2x bins: GP102 publishes its whole
+        core-rail family doubled (GPC2CLK, XBAR2CLK), so its natural bin is
+        25.3 MHz, not the 12.657 the card reports. Judging those rows against
+        the undoubled bin put every one of them a full severity band too hot -
+        a 0.7-bin gap drawn amber and a 2-bin gap drawn red - which reads as a
+        card in trouble when it is a card behaving normally in units the panel
+        was measuring wrong."""
         if delta_mhz is None:
             return "ok"
         d = abs(delta_mhz)
         # bands are ONE and THREE clock bins, so they follow the card's grid
         # rather than a Turing-sized 15/45 MHz
-        warn = self.step_khz() / 1000.0
+        warn = (self.step_khz() / 1000.0) * max(1, scale)
         return ("bad" if d >= 3 * warn else "warn" if d >= warn else "ok")
 
     def refresh_domains(self, d):
@@ -629,6 +645,16 @@ class Druta:
             dpg.configure_item("dom_err", show=bool(err))
             if err:
                 dpg.set_value("dom_err", err)
+        # Which rows publish at the GPC row's scale. Found by MAGNITUDE against
+        # that row, not by a list of domain numbers - a domain-number list is
+        # the one thing guaranteed not to survive an architecture change, and
+        # this panel has been bitten by exactly that. Anything within half to
+        # one-and-a-half times the GPC clock is on the core rail and shares its
+        # multiplier; memory sits far outside that window and keeps its own.
+        gpc_row = next((x for x in (rows or [])
+                        if x.get("name") in ("GPC", "GPC2CLK")), None)
+        gpc_scale = (gpc_row or {}).get("scale") or 1
+        gpc_mhz = (gpc_row or {}).get("prog_mhz") or 0
         present = set()
         for r in (rows or []):
             dom = r["domain"]
@@ -643,6 +669,15 @@ class Druta:
                 prog = f"gen {r['prog_khz']}" if r["prog_khz"] else "--"
                 meas = f"raw {r['meas_khz']}"
                 delta = "--"
+            elif r.get("grade") == PRIV_UNPOPULATED:
+                # The name column already drops to '--' for these; the numbers
+                # have to as well. A slot reading zero on a card that is
+                # demonstrably running is EMPTY, and "0.0 MHz" states the
+                # opposite - that a clock is running at zero. That is the exact
+                # confusion the unpopulated grade exists to prevent, and the
+                # same rule the PCIe-gen branch above follows: this panel does
+                # not print a figure it will not vouch for.
+                prog = meas = delta = "--"
             else:
                 prog = f"{r['prog_mhz']:.1f} MHz"
                 meas = f"{r['meas_mhz']:.1f} MHz"
@@ -668,7 +703,11 @@ class Druta:
                 dpg.configure_item(f"dom_{dom}_name",
                                    color=self.GRADE_COL.get(grade, DIM))
             # re-theme only on a band change, same reason as the bars
-            band = self.dom_band(r["delta_mhz"])
+            scale = 1
+            if gpc_scale > 1 and gpc_mhz and r.get("prog_mhz"):
+                if 0.5 * gpc_mhz <= r["prog_mhz"] <= 1.5 * gpc_mhz:
+                    scale = gpc_scale
+            band = self.dom_band(r["delta_mhz"], scale)
             if self._dom_band.get(dom) != band:
                 self._dom_band[dom] = band
                 dpg.configure_item(f"dom_{dom}_delta",
@@ -980,10 +1019,79 @@ class Druta:
     # ====================================================================== #
     #  CONTROL                                                               #
     # ====================================================================== #
-    # label / slider / Apply / extra, in UNSCALED px. Every knob group builds
-    # its table from this one tuple, so Apply is a straight column down the tab
-    # instead of landing wherever each row's label happened to end.
-    KNOB_COLS = (230, 340, 90, 80)
+    # label / slider / live readout / Apply / extra, in UNSCALED px. Every knob
+    # group builds its table from this one tuple, so Apply is a straight column
+    # down the tab instead of landing wherever each row's label happened to end.
+    KNOB_COLS = (230, 340, 95, 90, 80)
+
+    # Per-domain clock offsets, in the order they are shown. Only rows whose
+    # domain the driver actually accepts are built (see build_control), so a
+    # card with a shorter domain list shows a shorter list of knobs.
+    #
+    # The indices are the CONTROL BLOCK's own, established by writing to each
+    # and recording which clock moved - they are NOT the private clock getter's
+    # numbering, and assuming they were is what briefly put a "SYS" label on
+    # the index that actually drives memory.
+    #
+    # Deliberately absent: control 0 (GPC) and control 2 (MEM). Both work, and
+    # both already have a knob above driven through NVML. Two sliders writing
+    # one clock by different mechanisms is a way to make a card disagree with
+    # its own UI. GPC is additionally the ratio MASTER - moving it drags XBAR,
+    # SYS, LTC and VIDEO with it, which is not what someone reaching for a
+    # single-domain offset expects.
+    # (key, CONTROL index, fallback label, note)
+    #
+    # NEITHER A NAME NOR A PRIVATE DOMAIN IS STORED HERE, and both omissions
+    # are the same lesson twice. The control index is the only stable thing:
+    # which PRIVATE domain it moves differs by architecture (TU102 answers on
+    # 1/2/21/5, GP102 on 16/17), and the NAME of that domain differs too. Both
+    # are resolved at render time from the card in front of us - the pairing
+    # from GPU.clkdom_pairing(), the name and its confidence grade from the
+    # same rows the Monitor's domain table draws.
+    #
+    # An earlier build hardcoded the Turing pairing here. On a GP102 that put
+    # the amber TU102 name "SYSCLK?" on a knob and read its live value from a
+    # domain that is unpopulated on Pascal - a wrong name beside a dead number,
+    # which is exactly the failure the domain table is gated to prevent. The
+    # fallback label is used only when the pairing is unknown, and it is
+    # deliberately a bare description rather than a borrowed name.
+    # A named tuple, not a bare one, and for a reason worth keeping: this table
+    # is read from two places, and while it was a plain tuple, dropping the
+    # label field updated one unpack site and silently broke the other. Nothing
+    # caught it - a bad unpack is a RUNTIME error, so it compiles clean and
+    # then throws once a tick inside the refresh, which reads as "the display
+    # stopped working" rather than as a traceback. Attribute access cannot fail
+    # that way.
+    DOMAIN_KNOBS = (
+        DomainKnob("xbar", 1, "crossbar",
+                   "Floors to this card's grid, like the core offset. A ratio "
+                   "slave of GPC: past roughly 1:1 the governor clamps it or "
+                   "pulls the core up with it."),
+        DomainKnob("sys", 3, "control domain 3", None),
+        DomainKnob("video", 5, "control domain 5", None),
+        DomainKnob("ltc", 9, "control domain 9",
+                   "Can move LESS than requested depending on where the clock "
+                   "already sits: +45 has been measured landing as +30 in one "
+                   "state and +45 in another. Watch the live value."),
+    )
+
+    def domain_knob_label(self, kn, rows=None):
+        """(label, colour, private domain) for a per-domain offset knob.
+
+        The name and its confidence come from the SAME rows the Monitor's
+        domain table draws, so a knob cannot make a claim the table contradicts
+        - including on a card whose domain numbering the app has never seen,
+        where the honest answer is a bare index and a dim colour."""
+        priv = self.gpu.clkdom_pairing(rows).get(kn.ctrl)
+        if priv is None:
+            return (f"{kn.fallback} offset (MHz)", DIM, None)
+        row = next((r for r in (rows or []) if r.get("domain") == priv), None)
+        name = (row or {}).get("name") or ""
+        grade = (row or {}).get("grade", PRIV_UNNAMED)
+        shown = (name + "?") if grade == PRIV_LIKELY else (
+            name or f"domain {priv}")
+        return (f"{shown} clock offset (MHz)",
+                self.GRADE_COL.get(grade, DIM), priv)
 
     def knob_cols(self):
         for w in self.KNOB_COLS:
@@ -1100,6 +1208,59 @@ class Druta:
                     self.slider_row("mem", f"Memory offset ({munit})",
                                     mlo, mhi, 0, self.apply_mem)
 
+                    # XBAR reaches a domain NVIDIA does not expose publicly at
+                    # all: NV_GPU_PUBLIC_CLOCK_ID has no crossbar member, and
+                    # both NVML and Pstates20 enumerate only GRAPHICS and
+                    # MEMORY on this card. The row appears only where the
+                    # private control block answers, so a card without it shows
+                    # no dead knob.
+                    if self.gpu.clkdom_ok():
+                        cur, _ = self.gpu.read_clk_domain_offsets()
+                        cur = cur or {}
+                        # via read(), not read_clock_domains(): the bare call
+                        # names blind and would report every card as Turing
+                        drows = (self.gpu.read() or {}).get("clk_domains")
+                        pair = self.gpu.clkdom_pairing(drows)
+                        built = 0
+                        for kn in self.DOMAIN_KNOBS:
+                            if kn.ctrl not in self.gpu.clkdom_domains():
+                                continue
+                            # A knob is built ONLY where a clock was observed
+                            # to move. The driver accepting a write means very
+                            # little here - control 4/6/7/8 accept and store
+                            # offsets on TU102 and move nothing, and control 5
+                            # does the same on GP102. A pairing exists only
+                            # because something was watched moving, so it is
+                            # the honest gate.
+                            if kn.ctrl not in pair:
+                                continue
+                            built += 1
+                            init = int(cur.get(kn.ctrl, {})
+                                       .get("freq_khz", 0) / 1000)
+                            lbl, col, _p = self.domain_knob_label(kn, drows)
+                            self.slider_row(
+                                kn.key, lbl, -300, 300, init,
+                                lambda v, _d=kn.ctrl, _k=kn.key:
+                                    self.apply_domain_offset(_d, _k, v),
+                                note=kn.note, color=col)
+                        if not built:
+                            # Say why the knobs are missing. A silently short
+                            # list looks like the feature was never built;
+                            # this card simply has not been mapped, which is a
+                            # different and fixable thing.
+                            with dpg.table_row():
+                                dpg.add_text(
+                                    "Per-domain clock offsets: none is shown "
+                                    "for this card. A knob appears only where "
+                                    "moving it was measured to move the "
+                                    "card's MEASURED clock - on GP102 the "
+                                    "driver records the request and the "
+                                    "hardware ignores it, which shows up as "
+                                    "the Monitor's delta going red in "
+                                    "proportion to the offset.",
+                                    color=DIM,
+                                    wrap=self.s(sum(self.KNOB_COLS[:2])))
+
             # Voltage boost is grouped with the limits, not the offsets: it moves
             # no clock at all, it raises a ceiling the arbiter is allowed to
             # reach - the same shape of knob as the power limit.
@@ -1119,6 +1280,29 @@ class Druta:
                                     self.apply_volt,
                                     note="raises the reliability-voltage ceiling")
 
+                    # A SECOND mechanism on the same rail as the boost above,
+                    # and the note says so: they are different calls, neither
+                    # reads or clears the other, and their combination has not
+                    # been measured. Measured 1:1 on its own with the core
+                    # clock pinned by FREQUENCY - pinning by voltage instead
+                    # gives a smaller, wrong answer (see set_rail_offset_mv).
+                    if self.gpu.clkdom_ok():
+                        rv = self.gpu.read_rail_offset_mv(0)
+                        self.slider_row(
+                            "rail", "NVVDD offset (mV)", -100, 100,
+                            int(rv or 0), self.apply_rail,
+                            note="Adds to NVVDD on the card's 6.25 mV grid. "
+                                 "Measured 1:1 on TU102 with the clock pinned; "
+                                 "the response can be far smaller elsewhere - "
+                                 "on GP102 at idle, 100 mV requested moved "
+                                 "vcore 31.25 mV. Watch the live value rather "
+                                 "than trusting the number you set. SEPARATE "
+                                 "from the boost above - both act on this rail "
+                                 "and their interaction is unmeasured. A V/F "
+                                 "HOLD MASKS IT: a held point pins the "
+                                 "voltage, so the offset applies and nothing "
+                                 "moves.")
+
                     fan_floor = st.get("fan_min", 30)
                     self.slider_row("fan", "Fan duty (%)", fan_floor, 100,
                                     fan_floor, self.apply_fan,
@@ -1134,12 +1318,15 @@ class Druta:
                                width=-1, height=self.s(150))
             self.bind("log", "mono")
 
-    def slider_row(self, key, label, lo, hi, init, cb, note=None, extra=None):
+    def slider_row(self, key, label, lo, hi, init, cb, note=None, extra=None,
+                   color=None):
         """One knob = one row of the enclosing knob table (see knob_cols), so
         every Apply lands in the same column even though the labels, the notes
         and the presence of an extra button all differ per row."""
         with dpg.table_row():
-            dpg.add_text(label, color=TEXT)
+            # colour is normally TEXT; the per-domain offsets pass the Monitor's
+            # grade colour so a hedged name looks hedged on both tabs
+            dpg.add_text(label, color=color or TEXT)
             with dpg.group():
                 # clamped: in DPG min_value/max_value only bound the DRAG.
                 # Ctrl+click turns a slider into a text field that accepts
@@ -1153,6 +1340,12 @@ class Druta:
                 if note:
                     dpg.add_text(note, color=DIM,
                                  wrap=self.s(self.KNOB_COLS[1] - 10))
+            # what the card is MEASURED to be doing for this knob, kept beside
+            # the value being asked for (refresh_control fills it). Its cell
+            # sits before Apply because rows differ in whether they have an
+            # extra button - a trailing cell would drift columns per row.
+            dpg.add_text("--", tag=f"live_{key}", color=DIM)
+            self.bind(f"live_{key}", "mono")
             # width=-1 fills the cell, which is what makes the buttons one width
             dpg.add_button(label="Apply", tag=f"go_{key}", width=-1,
                            callback=lambda: cb(dpg.get_value(f"sl_{key}")))
@@ -1214,6 +1407,31 @@ class Druta:
     def apply_mem(self, v):
         if self.guard():
             self.report(self.gpu.set_clock_offset(2, int(v)))
+
+    def apply_rail(self, v):
+        # An undo point, like the core offset and unlike the other single
+        # knobs: this is the only slider on the tab that raises VOLTAGE
+        # directly, and the value it replaces is not recorded anywhere else -
+        # the boost % beside it reads a different mechanism entirely.
+        if self.guard():
+            self.autosave_before("core-rail-offset")
+            self.report(self.gpu.set_rail_offset_mv(int(v), 0))
+
+    def apply_domain_offset(self, dom, key, v):
+        if not self.guard():
+            return
+        # FLOOR, both signs, because that is what the driver measurably does to
+        # this field: a +100 request runs as +90 and a -50 request runs as -60.
+        # Snapping here means the number on the slider is the number the card
+        # will run, instead of a request that silently becomes something else.
+        # No undo point: unlike the core offset this does NOT land in the V/F
+        # delta table - it is a separate per-domain control block, so it cannot
+        # overwrite a hand-tuned curve.
+        step = self.step_mhz()
+        mhz = int(math.floor(int(v) / step)) * step
+        if mhz != int(v):
+            dpg.set_value(f"sl_{key}", mhz)
+        self.report(self.gpu.set_clk_domain_offset(dom, mhz))
 
     def apply_pl(self, v):
         if self.guard():
@@ -1648,6 +1866,59 @@ class Druta:
                       f"Vcore {vctxt} mV   "
                       f"volt-boost {d.get('vboost_pct','--')}%"
                       f"   P{d.get('pstate','?')}")
+
+        # the knob table's live column: the measured figure beside the knob
+        # that requests it, from the SAME snapshot as ctl_clocks so a stale
+        # read freezes the whole tab together instead of telling two stories
+        core, m = d.get("core"), d.get("mem")
+        pw, fans = d.get("power_w"), d.get("fans")
+        # Every per-domain knob takes its live value from the SAME private
+        # getter that feeds the Monitor's domain table, so a knob and the table
+        # can never quote two different numbers for one domain. It also means
+        # SYS and LTC show the truth for free: set an offset, watch the value
+        # not move, and the note beside it is confirmed rather than trusted.
+        doms = {r["domain"]: r.get("prog_mhz")
+                for r in (d.get("clk_domains") or [])}
+        live = [("core", f"{core} MHz" if core else None)]
+        # hand it the rows we already have: they came through GPU.read(), so
+        # the naming is not blind (see clkdom_pairing)
+        pair = self.gpu.clkdom_pairing(d.get("clk_domains"))
+        for kn in self.DOMAIN_KNOBS:
+            _p = pair.get(kn.ctrl)
+            _v = doms.get(_p) if _p is not None else None
+            live.append((kn.key, f"{_v:.0f} MHz" if _v else None))
+        live += [
+                # the unit follows mem_fmt's own choice rather than being
+                # hardcoded: it returns TRUE MHz only when the GDDR divisor is
+                # known, and the raw NVAPI figure otherwise - which is not MHz
+                # and must not wear that label on a card we could not identify
+                ("mem", (self.mem_fmt(m)[0]
+                         + (" MHz" if self.gpu.static.get("mem_div") else ""))
+                 if m else None),
+                # RAW draw even with a shunt mod configured: the limit this
+                # knob sets is enforced against the number the card BELIEVES,
+                # so the believed draw is the only figure it can honestly sit
+                # beside. The Monitor tile shows the corrected one.
+                ("pl", f"{pw:.0f} W" if pw else None),
+                ("volt", f"{vc:.0f} mV" if vc else None),
+                # the same rail as the row above, deliberately: both knobs act
+                # on it, and showing one number twice is more honest than
+                # implying they have separate readings
+                ("rail", f"{vc:.2f} mV" if vc else None),
+                # fan0 speaks for the knob - set_fan writes ONE duty to every
+                # fan. A 0 duty is withheld because _read_fan also writes 0
+                # for a refused per-fan query, so a zero here cannot be told
+                # apart from a fan that was never read.
+                ("fan", f"{fans[0][0]}%" if fans and fans[0][0] else None)]
+        for key, txt in live:
+            tag = f"live_{key}"
+            # a per-domain row is only built where the driver actually accepts
+            # that domain (see build_control and DOMAIN_KNOBS), so any of these
+            # tags may honestly be absent on a card with a shorter domain list
+            if not dpg.does_item_exist(tag):
+                continue
+            dpg.set_value(tag, txt if txt is not None else "--")
+            dpg.configure_item(tag, color=TEXT if txt is not None else DIM)
 
     # ====================================================================== #
     #  V/F CURVE                                                             #
