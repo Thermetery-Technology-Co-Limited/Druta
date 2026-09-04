@@ -1933,6 +1933,17 @@ class GPU:
         """Collect physical and private clock observations for the probe."""
         d = self.read()
         obs = dict(self.clkdom_measurements())
+        # An offset can change a ceiling without changing an idle clock.  Keep
+        # the operating point beside the frequency counters so a report can
+        # prove whether the before/after windows were actually comparable.
+        if d.get("pstate") is not None:
+            obs["pstate"] = int(d["pstate"])
+        for key in ("util_gpu", "util_fb", "util_vid", "util_bus"):
+            if d.get(key) is not None:
+                obs[key] = int(d[key])
+        for key in ("core", "mem"):
+            if d.get(key) is not None:
+                obs[key] = int(d[key]) * 1000
         video = d.get("video")
         obs["video"] = int(video * 1000) if video is not None else None
         for row in d.get("clk_domains") or []:
