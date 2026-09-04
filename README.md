@@ -1,6 +1,6 @@
 # Druta
 
-A monitor and tuner for NVIDIA cards, driven through NVAPI/NVML private
+A monitor and tuner for Pascal/Turing NVIDIA cards, driven through NVAPI/NVML private
 interfaces. It edits the V/F curve
 with planners built around how the boost arbiter actually behaves, and reads and
 writes the framebuffer-partition memory timing registers.
