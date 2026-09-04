@@ -38,9 +38,13 @@ original bytes back restores it exactly. The V/F point lock below is the worked
 example, and vf_lock_self_test() keeps the middle rung runnable on any machine.
 """
 import ctypes
+import json
 import re
+import statistics
 import sys
 import threading
+import time
+from dataclasses import dataclass
 
 u8, u32, i32 = ctypes.c_uint8, ctypes.c_uint32, ctypes.c_int32
 u64, i64 = ctypes.c_uint64, ctypes.c_int64
@@ -174,6 +178,11 @@ class NvAPI:
         # +90 MHz before and after a Get call, 24/24 samples each way.
         self.ClkDomCtlGet = self._i(0xF58938F5, PTR, PTR)
         self.ClkDomCtlSet = self._i(0xD14B69CF, PTR, PTR)
+        # Read-only physical clock counter used by the Blackwell probe.  It
+        # lets the probe distinguish a real clock movement from array-A's
+        # programmed-target echo, which is not sufficient evidence for a
+        # working mapping.
+        self.ClkMeasureFreq = self._i(0x527FC458, PTR, PTR)
 
         if self.Initialize is None:
             self.err_detail = "NvAPI_Initialize not resolvable"
@@ -676,17 +685,74 @@ assert ctypes.sizeof(_BoostTable) == 9248
 # exactly. A wrong header or stride would not divide the declared size evenly.
 # Measured by sweeping the domain mask one bit at a time and watching where the
 # populated dword moved: domain d landed at 0x124 + d*0x304 for d = 0..9.
-CLKDOM_VERSION = 0x000261A4        # ver 2, 24996 bytes
-CLKDOM_SIZE = 0x61A4
-CLKDOM_HDR = 0x124
-CLKDOM_STRIDE = 0x304
-CLKDOM_MASK_DW = 2                 # header dword 2 is a DOMAIN BITMASK, not a
+@dataclass(frozen=True)
+class ClkDomLayout:
+    """The small part of the private CLK_DOMAINS layout that we use.
+
+    This is intentionally data rather than a ctypes.Structure.  The driver
+    owns the remaining bytes and the setter must hand those bytes back exactly
+    as GET returned them.  Blackwell kept the version/header/stride but moved
+    the fields used by the frequency and MSVDD controls on the validated
+    Windows implementation, so those offsets cannot remain global constants.
+    """
+
+    name: str
+    version: int
+    size: int
+    header: int
+    stride: int
+    mask_dword: int
+    mode: int
+    freq_khz: int
+    nvvdd_uv: int | None
+    msvdd_uv: int | None
+
+
+CLKDOM_LAYOUT_TURING = ClkDomLayout(
+    name="turing",
+    version=0x000261A4,
+    size=0x61A4,
+    header=0x124,
+    stride=0x304,
+    mask_dword=2,
+    mode=0x000,
+    freq_khz=0x10C,
+    nvvdd_uv=0x110,
+    msvdd_uv=0x114,
+)
+
+# Candidate Blackwell layout from the public Windows reverse-engineering notes
+# cited in README.md.  The version/header/stride agree with Druta's Windows
+# block, while the frequency/MSVDD fields are shifted by one/two dwords.  The
+# runtime probe below still checks the version echo and the accepted domain
+# mask before this layout can be used.  It deliberately does not enable the
+# Blackwell path for a non-RTX-50 card.
+CLKDOM_LAYOUT_BLACKWELL = ClkDomLayout(
+    name="blackwell",
+    version=0x000261A4,
+    size=0x61A4,
+    header=0x124,
+    stride=0x304,
+    mask_dword=2,
+    mode=0x000,
+    freq_khz=0x114,
+    nvvdd_uv=0x118,
+    msvdd_uv=0x11C,
+)
+
+# Kept as compatibility aliases for probes and callers outside this module.
+# New driver-facing code should use GPU.clkdom_layout() instead.
+CLKDOM_VERSION = CLKDOM_LAYOUT_TURING.version  # ver 2, 24996 bytes
+CLKDOM_SIZE = CLKDOM_LAYOUT_TURING.size
+CLKDOM_HDR = CLKDOM_LAYOUT_TURING.header
+CLKDOM_STRIDE = CLKDOM_LAYOUT_TURING.stride
+CLKDOM_MASK_DW = CLKDOM_LAYOUT_TURING.mask_dword  # header dword 2 is a DOMAIN BITMASK, not a
 #                                    count: bit d selects domain d. Corroborated
 #                                    by nvgpu's CTRL_CLK_DOMAIN_XBARCLK = 0x2,
 #                                    which is BIT(1) for domain index 1.
 CLKDOM_SLOTS = 32
-CLKDOM_MODE = 0x000                # 8 / 9 / 2 - master / slave / fixed shaped
-CLKDOM_FREQ_KHZ = 0x10C            # signed kHz
+CLKDOM_MODE = CLKDOM_LAYOUT_TURING.mode  # 8 / 9 / 2 - master / slave / fixed shaped
+CLKDOM_FREQ_KHZ = CLKDOM_LAYOUT_TURING.freq_khz  # signed kHz
 # The voltage fields are an ARRAY of rails, not one value. Probing every dword
 # from +0x100 to +0x140 found exactly three consecutive REFUSED slots -
 # 0x114, 0x118, 0x11C - on every domain, which is the signature of a rail array
@@ -697,13 +763,13 @@ CLKDOM_FREQ_KHZ = 0x10C            # signed kHz
 # Rail 0 is NVVDD - the rail vcore reports, and the proper schematic name for
 # it. Confirmed by effect, not by naming: +50 mV here moves vcore exactly
 # +50 mV with the core clock pinned.
-CLKDOM_NVVDD_UV = 0x110            # signed microvolts - WRITABLE, 1:1 on TU102
+CLKDOM_NVVDD_UV = CLKDOM_LAYOUT_TURING.nvvdd_uv  # signed microvolts - WRITABLE, 1:1 on TU102
 CLKDOM_RAIL0_UV = CLKDOM_NVVDD_UV  # older name, kept so callers do not break
 # Rail 1 is MSVDD. Refused on every domain that DOES anything, and accepted
 # only on domain 6 - which stores frequency offsets it never applies either, so
 # its acceptance means "nothing validates this", not "this rail is here". Not
 # reachable on TU102 through this interface. Read, never written.
-CLKDOM_MSVDD_UV = 0x114
+CLKDOM_MSVDD_UV = CLKDOM_LAYOUT_TURING.msvdd_uv
 CLKDOM_XBAR = 1
 
 # MEASURED, not inherited. This block does NOT use the private clock getter's
@@ -756,10 +822,42 @@ CLKDOM_PAIR_PASCAL = {}
 
 assert CLKDOM_HDR + CLKDOM_SLOTS * CLKDOM_STRIDE == CLKDOM_SIZE
 
+# Blackwell's control-domain indices are the RM clock-domain controls, not the
+# private getter's domain numbering.  These are the three controls this patch
+# can expose once the Blackwell layout probe has accepted the block.  Their
+# measured private-getter correspondence is deliberately not guessed here;
+# Blackwell can be verified through the physical clock-measure API instead.
+CLKDOM_BLACKWELL_CONTROLS = {1: "XBAR", 3: "SYSCLK", 5: "VIDEO"}
+# Frequency-field candidates only.  The field probe deliberately excludes the
+# neighbouring voltage/rail dwords: discovering a frequency layout must never
+# require experimenting with NVVDD or MSVDD.
+CLKDOM_BLACKWELL_FREQ_CANDIDATES = (0x10C, 0x114)
 
-def clkdom_entry(domain, field):
+# NvAPI_GPU_ClockCtrl_ClkMeasureFreq, used only for read-only validation.
+CLKMEASURE_VERSION = 0x0001000C
+CLKMEASURE_SIZE = 0x000C
+CLKMEASURE_MASK = 0x004
+CLKMEASURE_FREQ = 0x008
+CLKMEASURE_MASKS = {
+    "gpc": 0x00000001,
+    "xbar": 0x00000002,
+    "sys": 0x00000004,
+    "memory": 0x00000010,
+}
+
+# The Blackwell physical counters can move while the driver changes P-state.
+# A single before/after sample therefore cannot prove that a control write did
+# anything.  The probe uses medians and only treats a domain as evidence when
+# both windows are reasonably settled.
+CLKDOM_PROBE_SAMPLES = 7
+CLKDOM_PROBE_INTERVAL_S = 0.05
+CLKDOM_PROBE_MAX_RANGE_KHZ = 2_000
+CLKDOM_PROBE_EFFECT_KHZ = 2_000
+
+
+def clkdom_entry(domain, field, layout=CLKDOM_LAYOUT_TURING):
     """Byte offset of `field` within `domain`'s entry."""
-    return CLKDOM_HDR + domain * CLKDOM_STRIDE + field
+    return layout.header + domain * layout.stride + field
 
 
 def below_cap(volt_mv, cap_mv):
@@ -1125,6 +1223,11 @@ class GPU:
         self.pairing_error = self._pair()
         self._pcie_baseline = None
         self.static = self._read_static()
+        # Per-card layout selection is intentionally cached only after the
+        # getter has echoed the expected version.  A failed probe is cached as
+        # False so a bad driver cannot make the UI repeatedly retry an
+        # unverified write path on every refresh tick.
+        self._clkdom_layout_cache = None
 
     def _pair(self):
         """Refuse to be half one card and half another.
@@ -1280,6 +1383,13 @@ class GPU:
             # this card instead of inherited from TU102.
             d["clk_domains"], d["clk_domains_err"] = self.read_clock_domains(
                 pc, core_mhz=d.get("core"), mem_nvml=d.get("mem"))
+        # Blackwell's private getter domain numbering is not assumed to match
+        # the CLK_DOMAINS control indices.  Keep the requested offsets beside
+        # the snapshot so the UI can show the value it will write without
+        # quoting an unrelated private-clock row.
+        if self.clkdom_is_blackwell():
+            d["clkdom_offsets"], d["clkdom_offsets_err"] = \
+                self.read_clk_domain_offsets()
         self._read_temps(d)
         self._read_power(d)
         self._read_fan(d)
@@ -1706,6 +1816,394 @@ class GPU:
     # lands in a per-domain control block, and neither reads or clears the other.
     _CLKDOM_BUF = 65536            # far larger than the 24996 declared
 
+    def clkdom_is_blackwell(self):
+        """Whether this is an RTX 50-series card.
+
+        Device ids are not used as the primary discriminator because NVIDIA
+        has already shipped multiple board variants for the same GB20x GPU.
+        NVML's model string is the stable user-visible identity and also
+        covers desktop and laptop RTX 50-series names.
+        """
+        name = str(getattr(self, "static", {}).get("name", ""))
+        return bool(re.search(r"\bRTX\s*50\d{2}\b", name, re.IGNORECASE))
+
+    def clkdom_layout(self):
+        """Return the validated layout for this card, or ``None``.
+
+        Druta's original offsets were measured on TU102.  Blackwell uses the
+        same private NvAPI ids and version word but the frequency/MSVDD fields
+        are at different offsets in the Windows control block.  Select the
+        candidate by architecture, then require a successful one-domain GET
+        and an exact version echo before any read or write can use it.
+        """
+        cached = getattr(self, "_clkdom_layout_cache", None)
+        if cached is not None:
+            return None if cached is False else cached
+        if not self.clkdom_ok():
+            self._clkdom_layout_cache = False
+            return None
+
+        layout = (CLKDOM_LAYOUT_BLACKWELL if self.clkdom_is_blackwell()
+                  else CLKDOM_LAYOUT_TURING)
+        if layout.header + CLKDOM_SLOTS * layout.stride != layout.size:
+            self._clkdom_layout_cache = False
+            return None
+
+        # Use an accepted one-hot mask rather than assuming domain 0 exists on
+        # every architecture.  This is a read-only validation call.
+        domains = self.clkdom_domains()
+        if not domains:
+            self._clkdom_layout_cache = False
+            return None
+        st, buf = self._clkdom_get(1 << domains[0])
+        if st != 0:
+            self._clkdom_layout_cache = False
+            return None
+        echoed = ctypes.cast(buf, ctypes.POINTER(u32))[0]
+        if echoed != layout.version:
+            self._clkdom_layout_cache = False
+            return None
+        self._clkdom_layout_cache = layout
+        return layout
+
+    def clkdom_controls_for_ui(self, rows=None):
+        """Controls safe to show in the UI for this card.
+
+        Turing keeps the original measured control→private-domain pairing.
+        Blackwell's private getter numbering is not assumed to match the
+        control block, so its controls are gated by the accepted mask and the
+        validated control-block layout instead.  Their live values are shown
+        as requested offsets, not mislabelled private-clock readings.
+        """
+        if self.clkdom_layout() is None:
+            return []
+        if self.clkdom_is_blackwell():
+            accepted = set(self.clkdom_domains())
+            return [d for d in CLKDOM_BLACKWELL_CONTROLS if d in accepted]
+        return sorted(self.clkdom_pairing(rows))
+
+    def clkdom_control_label(self, control):
+        """Human-readable Blackwell control name, with an honest fallback."""
+        return CLKDOM_BLACKWELL_CONTROLS.get(
+            control, CLKDOM_NAMES.get(control, f"domain {control}"))
+
+    def clkdom_step_mhz(self):
+        """Requested per-domain slider granularity for this architecture."""
+        # Blackwell's private control block accepts signed kHz requests.  The
+        # driver may quantise the applied clock internally, so the UI keeps
+        # one-MHz request precision instead of incorrectly borrowing the
+        # graphics V/F table's step.
+        return 1 if self.clkdom_is_blackwell() else None
+
+    def _clk_measure_freq(self, mask):
+        """Read one physical clock counter, or ``None`` if unavailable."""
+        a = self.nvapi
+        if not (a.ok and a.ClkMeasureFreq):
+            return None
+        buf = (ctypes.c_ubyte * CLKMEASURE_SIZE)()
+        ctypes.memset(buf, 0, CLKMEASURE_SIZE)
+        p = ctypes.cast(buf, ctypes.POINTER(u32))
+        p[0] = CLKMEASURE_VERSION
+        p[CLKMEASURE_MASK // 4] = int(mask)
+        st = a.ClkMeasureFreq(a.gpu, ctypes.byref(buf))
+        if st != 0:
+            return None
+        value = int(p[CLKMEASURE_FREQ // 4])
+        # Unsupported masks on older architectures can return a plausible
+        # looking but nonsensical counter.  Blackwell clock counters are in
+        # the kHz range below 10 GHz; reject garbage before it becomes mapping
+        # evidence.
+        return value if 1_000 <= value <= 10_000_000 else None
+
+    def clkdom_measurements(self):
+        """Read-only Blackwell physical clock measurements in kHz."""
+        if not self.clkdom_is_blackwell():
+            return {}
+        return {name: self._clk_measure_freq(mask)
+                for name, mask in CLKMEASURE_MASKS.items()}
+
+    def _clkdom_probe_observation(self):
+        """Collect physical and private clock observations for the probe."""
+        d = self.read()
+        obs = dict(self.clkdom_measurements())
+        video = d.get("video")
+        obs["video"] = int(video * 1000) if video is not None else None
+        for row in d.get("clk_domains") or []:
+            dom = row.get("domain")
+            if dom is not None:
+                obs[f"private_{dom}_meas_khz"] = row.get("meas_khz")
+        return obs
+
+    def _clkdom_probe_samples(self):
+        """Summarise a short read-only observation window.
+
+        The range is reported along with the median so a mapping result cannot
+        hide a P-state transition behind one conveniently timed sample.
+        """
+        samples = []
+        for i in range(CLKDOM_PROBE_SAMPLES):
+            samples.append(self._clkdom_probe_observation())
+            if i + 1 < CLKDOM_PROBE_SAMPLES:
+                time.sleep(CLKDOM_PROBE_INTERVAL_S)
+        out = {}
+        keys = sorted({key for sample in samples for key in sample})
+        for key in keys:
+            values = [sample[key] for sample in samples
+                      if sample.get(key) is not None]
+            if values:
+                out[key] = {
+                    "median": int(statistics.median(values)),
+                    "min": int(min(values)),
+                    "max": int(max(values)),
+                    "range": int(max(values) - min(values)),
+                }
+        return out
+
+    def clkdom_mapping_probe(self, delta_mhz=5, confirm=False,
+                             freq_fields=None):
+        """Temporarily test Blackwell XBAR/SYS/VIDEO control indices.
+
+        This is an explicit, administrator-only diagnostic.  It changes one
+        frequency-request dword at a time, samples physical counters, and
+        restores the complete GET buffer in a ``finally`` block.  When
+        ``freq_fields`` contains both candidates, it is a field-layout probe;
+        it never experiments with the neighbouring voltage fields.  It is
+        never called by the UI automatically.  The output is intended to be
+        pasted into a PR or issue so the control mapping can be reviewed from
+        actual hardware instead of guessed from domain numbering.
+        """
+        fields = tuple(freq_fields or ())
+        result = {
+            "gpu": self.static.get("name", "GPU"),
+            "driver": self.static.get("driver", "?"),
+            "vbios": self.static.get("vbios", "?"),
+            "layout": None,
+            "delta_mhz": (int(delta_mhz)
+                           if isinstance(delta_mhz, int) else delta_mhz),
+            "controls": {},
+        }
+        if fields and any(field not in CLKDOM_BLACKWELL_FREQ_CANDIDATES
+                          for field in fields):
+            result["error"] = "unsupported frequency-field candidate"
+            return result
+        if not confirm:
+            result["error"] = "pass confirm=True to enable the temporary write probe"
+            return result
+        if not self.clkdom_is_blackwell():
+            result["error"] = "this probe is restricted to RTX 50-series cards"
+            return result
+        if not isinstance(delta_mhz, int) or not 1 <= abs(delta_mhz) <= 25:
+            result["error"] = "delta_mhz must be an integer in [-25..-1] or [1..25]"
+            return result
+        if not is_admin():
+            result["error"] = "administrator privileges are required"
+            return result
+        layout = self.clkdom_layout()
+        if layout is None or not self.nvapi.ClkDomCtlSet:
+            result["error"] = "Blackwell clock-domain layout/setter is unavailable"
+            return result
+        result["layout"] = {
+            "header": layout.header,
+            "stride": layout.stride,
+            "freq_khz": layout.freq_khz,
+            "msvdd_uv": layout.msvdd_uv,
+        }
+        fields = fields or (layout.freq_khz,)
+        if len(fields) > 1:
+            result["fields"] = {}
+        accepted = set(self.clkdom_domains())
+        change_khz = int(delta_mhz) * 1000
+        for field in fields:
+            field_result = result["controls"]
+            if len(fields) > 1:
+                field_result = {}
+                result["fields"][f"+0x{field:03X}"] = field_result
+            for control, label in CLKDOM_BLACKWELL_CONTROLS.items():
+                item = {"label": label, "accepted": control in accepted,
+                        "freq_field": f"+0x{field:03X}"}
+                field_result[str(control)] = item
+                if control not in accepted:
+                    continue
+                mask = 1 << control
+                st, buf = self._clkdom_get(mask)
+                if st != 0:
+                    item["get_status"] = int(st)
+                    continue
+                original = bytes(buf)
+                field_offset = (layout.header + control * layout.stride + field)
+                dw = field_offset // 4
+                old_khz = self._clkdom_word(buf, field_offset, signed=True)
+                item["old_freq_khz"] = old_khz
+                if old_khz is None:
+                    item["error"] = "frequency field is outside the returned buffer"
+                    continue
+                before = self._clkdom_probe_samples()
+                changed = False
+                try:
+                    ctypes.cast(buf, ctypes.POINTER(i32))[dw] = old_khz + change_khz
+                    st2, ref = self._clkdom_get(mask)
+                    if st2 != 0:
+                        item["verify_status"] = int(st2)
+                        continue
+                    pb = ctypes.cast(buf, ctypes.POINTER(u32))
+                    pr = ctypes.cast(ref, ctypes.POINTER(u32))
+                    diffs = [i for i in range(layout.size // 4)
+                             if pb[i] != pr[i]]
+                    if diffs != [dw]:
+                        item["error"] = ("refusing probe write: unexpected changed "
+                                          f"dwords {diffs[:8]}")
+                        continue
+                    st3 = self.nvapi.ClkDomCtlSet(self.nvapi.gpu,
+                                                   ctypes.byref(buf))
+                    item["set_status"] = int(st3)
+                    if st3 != 0:
+                        continue
+                    changed = True
+                    time.sleep(CLKDOM_PROBE_INTERVAL_S)
+                    item["after"] = self._clkdom_probe_samples()
+                    stable = {
+                        key: (before[key]["range"] <= CLKDOM_PROBE_MAX_RANGE_KHZ
+                              and item["after"].get(key, {}).get("range", 0)
+                              <= CLKDOM_PROBE_MAX_RANGE_KHZ)
+                        for key in before
+                        if key in item["after"]
+                    }
+                    item["stable_observations"] = {
+                        key: value for key, value in stable.items() if value
+                    }
+                    item["changed_observations"] = {
+                        key: {"before": before[key]["median"],
+                              "after": item["after"][key]["median"],
+                              "delta": (item["after"][key]["median"]
+                                        - before[key]["median"])}
+                        for key in before
+                        if stable.get(key)
+                        and abs(item["after"][key]["median"]
+                                - before[key]["median"]) >= CLKDOM_PROBE_EFFECT_KHZ
+                    }
+                    item["physical_effect"] = bool(item["changed_observations"])
+                    if not item["physical_effect"]:
+                        item["error"] = ("write was accepted but no settled physical "
+                                         "clock observation moved by >=2 MHz; lock "
+                                         "the GPU clock or repeat under a steady load")
+                except Exception as exc:
+                    item["error"] = f"observation failed after write: {exc}"
+                finally:
+                    # Restore the complete original GET buffer, not a newly
+                    # synthesised struct.  This preserves fields Druta does not
+                    # understand and runs even if sampling raises.
+                    if changed:
+                        restore = (ctypes.c_ubyte * self._CLKDOM_BUF)()
+                        ctypes.memmove(restore, original, len(original))
+                        rst = self.nvapi.ClkDomCtlSet(self.nvapi.gpu,
+                                                      ctypes.byref(restore))
+                        item["restore_status"] = int(rst)
+                        if rst == 0:
+                            time.sleep(CLKDOM_PROBE_INTERVAL_S)
+                            item["restored"] = self._clkdom_probe_samples()
+                            rows, restore_err = self.read_clk_domain_offsets()
+                            restored_freq = ((rows or {}).get(control) or
+                                             {}).get("freq_khz")
+                            item["restored_freq_khz"] = restored_freq
+                            if restore_err or restored_freq != old_khz:
+                                item["error"] = (
+                                    "restore status was successful but the original "
+                                    f"frequency request was not read back ({restored_freq!r}; "
+                                    f"expected {old_khz!r})")
+        return result
+
+    @staticmethod
+    def _clkdom_word(buf, offset, signed=False):
+        if offset < 0 or offset + 4 > len(buf) or offset % 4:
+            return None
+        typ = i32 if signed else u32
+        return int(ctypes.cast(buf, ctypes.POINTER(typ))[offset // 4])
+
+    def clkdom_debug_report(self):
+        """Return a JSON-safe read-only report for a new GPU/driver.
+
+        The report intentionally includes both candidate field locations.  A
+        maintainer can run ``python nvbackend.py --clkdom-debug --json`` on a
+        Blackwell card and compare the live values before authorising a write
+        mapping.  This method never calls ClkDomCtlSet.
+        """
+        report = {
+            "gpu": dict(getattr(self, "static", {})),
+            "nvapi": {
+                "ok": bool(self.nvapi.ok),
+                "clkdom_get": bool(self.nvapi.ClkDomCtlGet),
+                "clkdom_set": bool(self.nvapi.ClkDomCtlSet),
+                "clk_measure": bool(self.nvapi.ClkMeasureFreq),
+            },
+            "blackwell_name_match": self.clkdom_is_blackwell(),
+            "accepted_domains": [],
+            "layout": None,
+            "getter_status": None,
+            "version_echo": None,
+            "entries": {},
+            "physical_measurements_khz": {},
+            "private_clock_domains": None,
+            "private_clock_domains_error": None,
+        }
+        if not self.clkdom_ok():
+            report["error"] = "0xF58938F5 is not available"
+            return report
+
+        domains = self.clkdom_domains()
+        report["accepted_domains"] = list(domains)
+        layout = self.clkdom_layout()
+        if layout is None:
+            report["error"] = "version/layout probe failed"
+            return report
+        report["layout"] = {
+            "name": layout.name,
+            "version": f"0x{layout.version:08X}",
+            "size": f"0x{layout.size:X}",
+            "header": f"0x{layout.header:X}",
+            "stride": f"0x{layout.stride:X}",
+            "mode": f"0x{layout.mode:X}",
+            "freq_khz": f"0x{layout.freq_khz:X}",
+            "nvvdd_uv": (f"0x{layout.nvvdd_uv:X}"
+                         if layout.nvvdd_uv is not None else None),
+            "msvdd_uv": (f"0x{layout.msvdd_uv:X}"
+                         if layout.msvdd_uv is not None else None),
+        }
+
+        mask = 0
+        for d in domains:
+            mask |= 1 << d
+        st, buf = self._clkdom_get(mask)
+        report["getter_status"] = int(st)
+        if st != 0:
+            report["error"] = f"GET failed with status {st}"
+            return report
+        report["version_echo"] = f"0x{self._clkdom_word(buf, 0):08X}"
+
+        # Include the mode and a window around both known frequency/MSVDD
+        # candidates.  The buffer's unknown bytes are never reconstructed.
+        fields = (0x000, 0x100, 0x104, 0x108, 0x10C, 0x110, 0x114,
+                  0x118, 0x11C, 0x120, 0x124)
+        for d in domains:
+            base = layout.header + d * layout.stride
+            words = {}
+            for off in fields:
+                value = self._clkdom_word(buf, base + off)
+                if value is not None:
+                    words[f"+0x{off:03X}"] = {
+                        "u32": value,
+                        "i32": self._clkdom_word(buf, base + off, True),
+                    }
+            report["entries"][str(d)] = words
+
+        report["physical_measurements_khz"] = self.clkdom_measurements()
+        try:
+            rows, err = self.read_clock_domains()
+            report["private_clock_domains"] = rows
+            report["private_clock_domains_error"] = err
+        except Exception as exc:
+            report["private_clock_domains_error"] = str(exc)
+        return report
+
     def clkdom_ok(self):
         a = self.nvapi
         return bool(a.ok and a.ClkDomCtlGet)
@@ -1778,6 +2276,9 @@ class GPU:
         """({domain: {mode, freq_khz, msvdd_uv}}, err)."""
         if not self.clkdom_ok():
             return None, "per-domain clock control unavailable (0xF58938F5)"
+        layout = self.clkdom_layout()
+        if layout is None:
+            return None, "clock-domain layout is not validated for this GPU/driver"
         doms = self.clkdom_domains()
         if not doms:
             return None, "no clock domain accepted by this driver"
@@ -1788,14 +2289,16 @@ class GPU:
         if st != 0:
             return None, f"clock-domain read failed (status {st})"
         p = ctypes.cast(buf, ctypes.POINTER(i32))
-        if ctypes.cast(buf, ctypes.POINTER(u32))[0] != CLKDOM_VERSION:
+        if ctypes.cast(buf, ctypes.POINTER(u32))[0] != layout.version:
             return None, "clock-domain block did not echo its version"
         out = {}
         for d in doms:
+            base = layout.header + d * layout.stride
             out[d] = {
-                "mode": p[clkdom_entry(d, CLKDOM_MODE) // 4],
-                "freq_khz": p[clkdom_entry(d, CLKDOM_FREQ_KHZ) // 4],
-                "msvdd_uv": p[clkdom_entry(d, CLKDOM_MSVDD_UV) // 4],
+                "mode": p[(base + layout.mode) // 4],
+                "freq_khz": p[(base + layout.freq_khz) // 4],
+                "msvdd_uv": (p[(base + layout.msvdd_uv) // 4]
+                             if layout.msvdd_uv is not None else None),
             }
         return out, None
 
@@ -1813,10 +2316,13 @@ class GPU:
 
     def read_rail_offset_mv(self, domain=0):
         """The rail-0 voltage offset in mV, or None."""
+        layout = self.clkdom_layout()
+        if layout is None or layout.nvvdd_uv is None:
+            return None
         st, buf = self._clkdom_get(1 << domain)
         if st != 0:
             return None
-        dw = clkdom_entry(domain, CLKDOM_RAIL0_UV) // 4
+        dw = (layout.header + domain * layout.stride + layout.nvvdd_uv) // 4
         return ctypes.cast(buf, ctypes.POINTER(i32))[dw] / 1000.0
 
     def set_rail_offset_mv(self, mv, domain=0):
@@ -1840,11 +2346,14 @@ class GPU:
         a = self.nvapi
         if not (self.clkdom_ok() and a.ClkDomCtlSet):
             return False, "per-domain clock control unavailable"
+        layout = self.clkdom_layout()
+        if layout is None or layout.nvvdd_uv is None:
+            return False, "NVVDD layout is not validated for this GPU/driver"
         uv = int(round(mv * 1000))
         st, buf = self._clkdom_get(1 << domain)
         if st != 0:
             return False, f"read failed (status {st})"
-        dw = clkdom_entry(domain, CLKDOM_RAIL0_UV) // 4
+        dw = (layout.header + domain * layout.stride + layout.nvvdd_uv) // 4
         was = ctypes.cast(buf, ctypes.POINTER(i32))[dw]
         if was == uv:
             # The diff guard below demands exactly one changed dword, so a
@@ -1858,7 +2367,7 @@ class GPU:
             return False, f"verification read failed (status {st2})"
         pb = ctypes.cast(buf, ctypes.POINTER(u32))
         pr = ctypes.cast(ref, ctypes.POINTER(u32))
-        diffs = [i for i in range(CLKDOM_SIZE // 4) if pb[i] != pr[i]]
+        diffs = [i for i in range(layout.size // 4) if pb[i] != pr[i]]
         if diffs != [dw]:
             return False, (f"refusing to write: {len(diffs)} dwords differ, "
                            f"expected only {dw}")
@@ -1885,6 +2394,9 @@ class GPU:
         a = self.nvapi
         if not (self.clkdom_ok() and a.ClkDomCtlSet):
             return False, "per-domain clock control unavailable"
+        layout = self.clkdom_layout()
+        if layout is None:
+            return False, "clock-domain layout is not validated for this GPU/driver"
         if domain not in self.clkdom_domains():
             return False, (f"domain {domain} is not one this driver accepts "
                            f"({self.clkdom_domains()})")
@@ -1893,7 +2405,7 @@ class GPU:
         st, buf = self._clkdom_get(mask)
         if st != 0:
             return False, f"clock-domain read failed (status {st})"
-        dw = clkdom_entry(domain, CLKDOM_FREQ_KHZ) // 4
+        dw = (layout.header + domain * layout.stride + layout.freq_khz) // 4
         was = ctypes.cast(buf, ctypes.POINTER(i32))[dw]
         ctypes.cast(buf, ctypes.POINTER(i32))[dw] = khz
 
@@ -1902,7 +2414,7 @@ class GPU:
             return False, f"verification read failed (status {st2})"
         pb = ctypes.cast(buf, ctypes.POINTER(u32))
         pr = ctypes.cast(ref, ctypes.POINTER(u32))
-        diffs = [i for i in range(CLKDOM_SIZE // 4) if pb[i] != pr[i]]
+        diffs = [i for i in range(layout.size // 4) if pb[i] != pr[i]]
         if diffs != [dw]:
             return False, (f"refusing to write: {len(diffs)} dwords differ "
                            f"{diffs[:8]}, expected only {dw}. The block layout "
@@ -1911,7 +2423,7 @@ class GPU:
         sst = a.ClkDomCtlSet(a.gpu, ctypes.byref(buf))
         if sst != 0:
             return False, f"clock-domain write failed (status {sst})"
-        name = CLKDOM_NAMES.get(domain, f"domain {domain}")
+        name = self.clkdom_control_label(domain)
         return True, (f"{name} offset {was/1000:+.0f} -> {khz/1000:+.0f} MHz "
                       f"(requested; the driver floors to whole clock bins)")
 
@@ -3199,6 +3711,35 @@ if __name__ == "__main__":
         print("No GPU backend available.")
         print(g.status_line())
         sys.exit(1)
+    delta_mhz = 5
+    if "--delta" in sys.argv:
+        pos = sys.argv.index("--delta")
+        if pos + 1 >= len(sys.argv):
+            print("--delta requires an integer MHz value")
+            sys.exit(2)
+        try:
+            delta_mhz = int(sys.argv[pos + 1])
+        except ValueError:
+            print("--delta requires an integer MHz value")
+            sys.exit(2)
+    if "--clkdom-debug" in sys.argv:
+        report = g.clkdom_debug_report()
+        if "--json" in sys.argv:
+            print(json.dumps(report, ensure_ascii=False, indent=2))
+        else:
+            print(json.dumps(report, ensure_ascii=False, indent=2))
+        sys.exit(0 if report.get("layout") else 2)
+    if "--clkdom-map-probe" in sys.argv:
+        report = g.clkdom_mapping_probe(
+            delta_mhz=delta_mhz, confirm=("--confirm" in sys.argv))
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        sys.exit(0 if not report.get("error") else 2)
+    if "--clkdom-field-probe" in sys.argv:
+        report = g.clkdom_mapping_probe(
+            delta_mhz=delta_mhz, confirm=("--confirm" in sys.argv),
+            freq_fields=CLKDOM_BLACKWELL_FREQ_CANDIDATES)
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        sys.exit(0 if not report.get("error") else 2)
     print(_fmt_snapshot(g))
 
 
@@ -3209,5 +3750,6 @@ for _m in ("read", "read_clock_domains", "read_vf_curve", "apply_vf_deltas",
            "lock_gpu_clocks", "reset_gpu_clocks", "set_fan", "reset_fan",
            "read_vf_lock", "read_clk_lock", "set_vf_lock", "clear_vf_lock",
            "vf_lock_self_test",
-           "set_voltage_boost", "read_voltage_boost", "reset_all"):
+           "set_voltage_boost", "read_voltage_boost", "reset_all",
+           "clkdom_debug_report", "clkdom_mapping_probe"):
     setattr(GPU, _m, _synchronized(getattr(GPU, _m)))

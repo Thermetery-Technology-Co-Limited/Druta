@@ -506,6 +506,60 @@ Detect that signature through `GPU.read()`, never a bare
 the unpopulated check, names a dead domain 0 "GPC", and reports every card as
 Turing.
 
+### Blackwell / RTX 50-series adaptation
+
+The Turing measurements above must not be applied to Blackwell by changing only
+`CLKDOM_PAIR_TURING`. There are two independent namespaces: the control index
+accepted by `CLK_DOMAINS`, and the private clock-getter domain index used for
+telemetry. The latter is not assumed to be the same on a new architecture.
+
+The backend now contains a guarded Blackwell candidate layout based on the
+public [Windows notes](https://github.com/SHANAjam/rtx5090-xbar-control/blob/main/docs/TECHNICAL_NOTES.md)
+for the same NvAPI ids:
+
+```text
+entry(d) = 0x124 + d * 0x304
+frequency delta = entry + 0x114
+MSVDD delta     = entry + 0x11C
+```
+
+Those field offsets are a candidate until they have been checked against the
+exact GPU, VBIOS and driver. The version echo and one-hot accepted-domain probe
+are read-only gates. The UI uses the accepted control indices for Blackwell and
+displays the requested offsets; it does not label those values with a Turing
+private-getter domain.
+
+For hardware validation, run:
+
+```powershell
+python nvbackend.py --clkdom-debug --json > clkdom-debug.json
+python nvbackend.py --clkdom-map-probe --confirm > clkdom-map.json
+```
+
+When the candidate `+0x114` is accepted but produces no settled movement, use
+the frequency-only comparison probe:
+
+```powershell
+python nvbackend.py --clkdom-field-probe --confirm > clkdom-fields.json
+```
+
+It compares `+0x10C` with `+0x114` for controls 1, 3 and 5. It deliberately
+does not probe the adjacent NVVDD/MSVDD rail fields.
+
+Run the same command with `--delta -5` and compare the signs of the reported
+changes. A real field/control mapping should reverse direction; a P-state or
+idle-clock transition is not evidence.
+
+The first command never writes. The latter two are explicit administrator-only
+diagnostics: they test controls 1, 3 and 5 one at a time with a small temporary
+frequency delta, compares median/range windows of physical XBAR/SYS/VIDEO
+observations, verifies the original requested frequency after restoration, and
+restores the complete GET buffer even if sampling fails. Use a fixed GPU-clock
+or V/F hold, or a steady workload, while running it; an unstable P-state is
+reported as inconclusive. It is deliberately not called by the UI. A new
+driver or VBIOS should not be added to a validated profile until both the field
+location and the measured control effect are confirmed.
+
 The voltage fields are a **rail array**, not one value — probing every dword
 from `+0x100` to `+0x140` found exactly three consecutive refused slots on every
 domain, which is what a rail array whose upper members this silicon lacks looks

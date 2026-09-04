@@ -246,6 +246,50 @@ This block does not naively use the clock getter's domain numbering, because tha
 | 9 | LTC | coarser step — `+45` requested moved it `+30` |
 | 4, 6, 7, 8 | nothing | accept a write, store it, move no clock — left unnamed |
 
+### RTX 50-series / Blackwell diagnostic path
+
+The Turing mapping above is not reused for Blackwell.  RTX 50-series cards
+use the same `0xF58938F5` / `0xD14B69CF` interface, but the Windows control
+block's frequency and MSVDD fields are at different offsets in the public
+Blackwell [implementation notes](https://github.com/SHANAjam/rtx5090-xbar-control/blob/main/docs/TECHNICAL_NOTES.md).  Druta therefore selects a separate candidate
+layout and only exposes the XBAR, SYSCLK and VIDEO controls when the card's
+one-hot domain probe and version echo succeed.
+
+Before testing a new RTX 50-series card or driver, collect a read-only report:
+
+```powershell
+python nvbackend.py --clkdom-debug --json > clkdom-debug.json
+```
+
+For an administrator-only, temporary mapping check, use the explicit probe:
+
+```powershell
+python nvbackend.py --clkdom-map-probe --confirm > clkdom-map.json
+```
+
+If the mapping probe reports accepted writes but no settled clock movement,
+compare the two frequency-field candidates with the field-only probe:
+
+```powershell
+python nvbackend.py --clkdom-field-probe --confirm > clkdom-fields.json
+```
+
+This tests only `+0x10C` and `+0x114`; it never writes the neighbouring NVVDD
+or MSVDD fields.
+
+Repeat with `--delta -5` and compare the signs of the same observations. A
+real mapping should reverse direction; a P-state transition or idle-clock
+change is not evidence.
+
+The mapping probe changes one small frequency request at a time, records a
+short median/range window of the physical clock observations, and restores the
+complete buffer in a `finally` block.  For a conclusive result, first use a
+fixed GPU-clock/V/F hold or a steady workload; otherwise a P-state transition
+is reported as unstable rather than as a mapping.  It is not run automatically
+by the UI.  Include the GPU model, driver, VBIOS and both JSON reports when
+reporting a driver-specific failure.  Do not use the probe on a non-RTX-50 card
+or with an untrusted driver build.
+
 ### Why Pascal gets no per-domain advanced frequency control? **Because it's hard coded by the BIOS**
 
 There are docuementations floating around the internet saying that values
