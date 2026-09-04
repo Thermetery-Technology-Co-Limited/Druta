@@ -29,7 +29,7 @@ Had enough with boring sliders to the maximum? Click "max it". It does the V/F d
 
 ## 4. What about XBAR? 
 
-On 10 and 20 series, I have found no manipulable software knobs to tune XBAR. I have tried some software that claim that they can, but they do not apply anything. To help you cope and seethe, you can read the XBAR frequence inside the monitor tab of Druta but not change it, because NVIDIA simply doesn't expose any way to change it. The good news:
+On 10, I have found no manipulable software knobs to tune XBAR. To help you cope and seethe, you can read the the 1000 series XBAR frequence inside the monitor tab of Druta but not change it, because NVIDIA simply doesn't expose any way to change it. The good news:
 
 ### For 10 and 20 series, XBAR strictly scales with CORE FREQUENCY, NOT NVVDD VOTLAGE. 
 
