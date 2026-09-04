@@ -163,6 +163,17 @@ class NvAPI:
         self.RamType = self._i(0x57F7CAAC, PTR, ctypes.POINTER(u32))
         self.VoltCtrlGet = self._i(0x9DF23CA1, PTR, PTR)
         self.VoltCtrlSet = self._i(0xB9306D9B, PTR, PTR)
+        # Per-domain clock offsets - the ONLY path to XBAR. Neither NVML's
+        # clock offsets nor NVAPI's Pstates20 can reach it: both enumerate
+        # exactly two domains on this card, GRAPHICS and MEMORY, and
+        # NV_GPU_PUBLIC_CLOCK_ID has no crossbar member at all. Measured here:
+        # GetAllClockFrequencies reports bIsPresent for slots 0 and 4 only.
+        # These two wrap the RM CLK_DOMAINS controls (NV2080_CTRL_CMD_CLK_
+        # CLK_DOMAINS_{GET,SET}_CONTROL). Direction was established by
+        # MEASUREMENT, not by trusting a label: the applied XBAR offset was
+        # +90 MHz before and after a Get call, 24/24 samples each way.
+        self.ClkDomCtlGet = self._i(0xF58938F5, PTR, PTR)
+        self.ClkDomCtlSet = self._i(0xD14B69CF, PTR, PTR)
 
         if self.Initialize is None:
             self.err_detail = "NvAPI_Initialize not resolvable"
@@ -332,6 +343,30 @@ class _ClkFreqs(ctypes.Structure):
 #     measures the average of a mostly-off clock, so at a 1350 lock B wandered
 #     470-573 MHz for tens of seconds (delta ~ -840). A wide delta on an idle
 #     card is expected and says nothing about the tune.
+#
+# WHAT B ACTUALLY IS, measured rather than assumed: a periodically-refreshed
+# hardware frequency measurement. Hammered at 705 calls/s for 6 s, B held ONE
+# value across ~700 consecutive reads and then stepped - median gap between
+# changes 1020 ms, i.e. a ~1 Hz refresh, not a per-call computation. It landed
+# on the 15 MHz programming grid 0 times out of 4229 while A landed on it every
+# time. Observed quantum 8 kHz, jitter ~0.25 MHz at 1.95 GHz (0.013%). The
+# RM-level mechanism is very likely NV2080_CTRL_CMD_CLK_MEASURE_FREQ
+# (0x20809006), which is documented as querying a domain's PHYSICAL frequency -
+# that last part is inference, the rest is measured.
+#
+# B IS THE ONLY MEASURED CLOCK IN THIS APP. nvmlDeviceGetClockInfo(CURRENT)
+# returns exactly A - 1950 against A's 1950 and B's 1949.339 - so NVML, the
+# tiles and every readout built on them report the driver's TARGET. Anything
+# verifying that a write reached the hardware must read B; array A moves
+# whether or not the silicon obeys, which is exactly how GP102's inert clock
+# offsets passed a verification pass.
+#
+# SRCID IS THE PARENT DOMAIN INDEX, not an opaque tag. Every ratio slave
+# carries the domain number of the row it is slaved to: on TU102 XBAR, SYSCLK,
+# LTCCLK and VIDEO all read 0, and GPC is domain 0; on GP102 domains 16 and 17
+# read 15, and GPC2CLK is domain 15. 32 is outside the 0-31 domain space and
+# marks a domain with no parent - GPC, MEM and the fixed clocks all carry it.
+# That column is the clock topology.
 #
 # PRIV_SLOT is in array-A dword numbers (slot = 2 * domain), i.e. the
 # PROGRAMMED figure - that is what the tiles have always shown.
@@ -626,6 +661,105 @@ class _BoostTable(ctypes.Structure):
 
 assert ctypes.sizeof(_VfpCurve) == 7208
 assert ctypes.sizeof(_BoostTable) == 9248
+
+
+# ---- per-domain clock-offset control block ------------------------------- #
+# Deliberately NOT a ctypes.Structure. We know four fields out of a 772-byte
+# entry; declaring the other 768 bytes as named members would be inventing a
+# layout we have not measured. A byte buffer plus offsets says exactly as much
+# as we actually know, and the read-modify-write below never has to reconstruct
+# the parts we do not understand.
+#
+# The geometry is not a guess - it SELF-CHECKS. The driver declares the struct
+# as 24996 bytes through the version word, and
+#       CLKDOM_HDR + 32 * CLKDOM_STRIDE  ==  0x124 + 32*0x304  ==  24996
+# exactly. A wrong header or stride would not divide the declared size evenly.
+# Measured by sweeping the domain mask one bit at a time and watching where the
+# populated dword moved: domain d landed at 0x124 + d*0x304 for d = 0..9.
+CLKDOM_VERSION = 0x000261A4        # ver 2, 24996 bytes
+CLKDOM_SIZE = 0x61A4
+CLKDOM_HDR = 0x124
+CLKDOM_STRIDE = 0x304
+CLKDOM_MASK_DW = 2                 # header dword 2 is a DOMAIN BITMASK, not a
+#                                    count: bit d selects domain d. Corroborated
+#                                    by nvgpu's CTRL_CLK_DOMAIN_XBARCLK = 0x2,
+#                                    which is BIT(1) for domain index 1.
+CLKDOM_SLOTS = 32
+CLKDOM_MODE = 0x000                # 8 / 9 / 2 - master / slave / fixed shaped
+CLKDOM_FREQ_KHZ = 0x10C            # signed kHz
+# The voltage fields are an ARRAY of rails, not one value. Probing every dword
+# from +0x100 to +0x140 found exactly three consecutive REFUSED slots -
+# 0x114, 0x118, 0x11C - on every domain, which is the signature of a rail array
+# whose upper members this silicon does not have. Aligned against the frequency
+# field, the array starts at +0x110 = RAIL 0, and rail 0 is the one that works
+# here. Third-party notes point at rail 1 because that is MSVDD on Blackwell;
+# TU102 refuses it.
+# Rail 0 is NVVDD - the rail vcore reports, and the proper schematic name for
+# it. Confirmed by effect, not by naming: +50 mV here moves vcore exactly
+# +50 mV with the core clock pinned.
+CLKDOM_NVVDD_UV = 0x110            # signed microvolts - WRITABLE, 1:1 on TU102
+CLKDOM_RAIL0_UV = CLKDOM_NVVDD_UV  # older name, kept so callers do not break
+# Rail 1 is MSVDD. Refused on every domain that DOES anything, and accepted
+# only on domain 6 - which stores frequency offsets it never applies either, so
+# its acceptance means "nothing validates this", not "this rail is here". Not
+# reachable on TU102 through this interface. Read, never written.
+CLKDOM_MSVDD_UV = 0x114
+CLKDOM_XBAR = 1
+
+# MEASURED, not inherited. This block does NOT use the private clock getter's
+# domain numbering, and assuming it did produced a table that was wrong for
+# every entry except GPC and XBAR. The tell is structural: the getter puts
+# VIDEO at 21 while this block refuses every bit above 9, so the two cannot be
+# the same numbering.
+#
+# Each row below was established by writing +45 MHz to the control index with
+# the clock pinned and recording which private-getter domain moved:
+#   0 -> GPC, and every ratio slave with it (XBAR, SYS, LTC, VIDEO all shift)
+#   1 -> XBAR      2 -> MEM      3 -> SYS      5 -> VIDEO      9 -> LTC
+# 4, 6, 7 and 8 accept a write, store it, and move nothing - they stay
+# unnamed rather than being given a plausible label.
+CLKDOM_NAMES = {0: "GPC", 1: "XBAR", 2: "MEM", 3: "SYS", 5: "VIDEO", 9: "LTC"}
+CLKDOM_SYS = 3
+CLKDOM_VIDEO = 5
+CLKDOM_LTC = 9
+
+# Which PRIVATE clock domain each CONTROL index actually moves - and it is NOT
+# the same on every architecture, which is exactly the trap the domain-name
+# tables above are gated against. The CONTROL indices are stable (control 1 is
+# XBAR on both cards measured); the PRIVATE domain they land on is not.
+#
+#   TU102: control 1/3/5/9 -> private 1 (XBAR), 2 (SYS), 21 (VIDEO), 5 (LTC)
+#   GP102: control 1 -> private 16 (the 2x domain named XBAR2CLK), 3 -> 17
+#
+# Measured, by moving one knob and watching every domain. GP102's VIDEO and LTC
+# pairings are NOT known - absent here rather than guessed, so a readout for
+# them reads "--" instead of quoting an unrelated clock.
+#
+# VERIFY WITH ARRAY B, NEVER ARRAY A. A is the target the driver RECORDED - an
+# echo of the request, which moves whether or not the hardware does. B is the
+# free-running measured counter. Every pair below was confirmed by moving the
+# offset and watching BOTH: a working control moves A and B together.
+CLKDOM_PAIR_TURING = {1: 1, 3: 2, 5: 21, 9: 5}    # A and B both +45, verified
+#
+# GP102 ACCEPTS THE WRITES AND THE HARDWARE IGNORES THEM. Measured with the
+# V/F point pinned: control 1 moved A 3442->3493 (+51) while B sat at 3290.3;
+# control 3 moved A 2986->3037 (+51) while B sat at 2885.4. The whole offset
+# turns into programmed-vs-measured divergence, which is why the Monitor's
+# delta column goes red in proportion to the slider.
+#
+# The correspondence itself is real - control 1 does drive domain 16's target,
+# control 3 domain 17's - so it is recorded here rather than deleted, to save
+# anyone re-deriving it. But the SHIPPED map is empty: no knob is built for a
+# control that cannot move a clock.
+CLKDOM_PAIR_PASCAL_TARGET_ONLY = {1: 16, 3: 17}
+CLKDOM_PAIR_PASCAL = {}
+
+assert CLKDOM_HDR + CLKDOM_SLOTS * CLKDOM_STRIDE == CLKDOM_SIZE
+
+
+def clkdom_entry(domain, field):
+    """Byte offset of `field` within `domain`'s entry."""
+    return CLKDOM_HDR + domain * CLKDOM_STRIDE + field
 
 
 def below_cap(volt_mv, cap_mv):
@@ -1563,6 +1697,223 @@ class GPU:
         if st == 0:
             return True, f"{dom} offset set to {mhz:+d} {unit}"
         return False, f"{dom} offset failed: {nv.errstr(st)}"
+
+    # ---- per-domain clock offsets (XBAR and friends) ---------------------- #
+    # A SECOND, entirely separate offset mechanism from set_clock_offset above.
+    # That one goes through NVML and reaches GRAPHICS and MEMORY only; this one
+    # reaches the domains NVIDIA does not expose publicly at all. They are not
+    # two views of one thing: the core offset lands in the V/F delta table, this
+    # lands in a per-domain control block, and neither reads or clears the other.
+    _CLKDOM_BUF = 65536            # far larger than the 24996 declared
+
+    def clkdom_ok(self):
+        a = self.nvapi
+        return bool(a.ok and a.ClkDomCtlGet)
+
+    def _clkdom_get(self, mask):
+        """(status, buffer). The buffer is the driver's own bytes, untouched."""
+        a = self.nvapi
+        buf = (ctypes.c_ubyte * self._CLKDOM_BUF)()
+        ctypes.memset(buf, 0, self._CLKDOM_BUF)
+        p = ctypes.cast(buf, ctypes.POINTER(u32))
+        p[0] = CLKDOM_VERSION
+        p[CLKDOM_MASK_DW] = mask
+        return a.ClkDomCtlGet(a.gpu, ctypes.byref(buf)), buf
+
+    def clkdom_domains(self):
+        """Domains this card accepts, probed once and cached.
+
+        Not a constant: the mask rejects the WHOLE call with -1 if any bit is
+        invalid, so a hardcoded mask that is right on TU102 would break every
+        card with a different domain count. Probe one bit at a time instead."""
+        if getattr(self, "_clkdom_valid", None) is None:
+            found = []
+            if self.clkdom_ok():
+                for d in range(CLKDOM_SLOTS):
+                    st, _ = self._clkdom_get(1 << d)
+                    if st == 0:
+                        found.append(d)
+            self._clkdom_valid = found
+        return self._clkdom_valid
+
+    def clkdom_pairing(self, rows=None):
+        """{control index: private domain} for THIS card, or {} if unknown.
+
+        Gated on the same signature the name tables use - GPC at domain 0 is
+        the TU102 shape, at 15 the GP102 one - because a control->private pair
+        measured on one card is precisely the thing that does not transfer. An
+        unknown architecture returns EMPTY rather than the Turing table: a
+        readout of '--' is honest, and a readout quoting an unrelated domain's
+        clock beside a knob is the failure this whole app is built to avoid.
+
+        `rows` may be supplied by a caller that already has a snapshot; pass
+        the rows from GPU.read(), NOT a bare read_clock_domains(). Without
+        core_mhz the naming runs BLIND: it cannot apply the unpopulated check,
+        so it names a dead domain 0 'GPC' and reports every card as Turing.
+        That is how an earlier build mislabelled a GP102."""
+        if getattr(self, "_clkdom_pair", None):
+            return self._clkdom_pair
+        if rows is None:
+            rows = (self.read() or {}).get("clk_domains")
+        # Signature by WHICH DOMAINS ARE POPULATED, not by which one the namer
+        # decided is GPC. That naming correlates a domain against the core
+        # clock, and at deep idle several domains correlate equally well - a
+        # GP102 sitting at 278 MHz had domain 5 (571 MHz) identified as the 2x
+        # core just as readily as domain 15. Populated-or-not does not move
+        # with the operating point.
+        live = {r["domain"] for r in (rows or []) if r.get("prog_mhz")}
+        if 0 in live:               # TU102 runs its GPU clock at domain 0
+            pair = dict(CLKDOM_PAIR_TURING)
+        elif 15 in live:            # GP102 puts it at 15, doubled
+            pair = dict(CLKDOM_PAIR_PASCAL)
+        else:
+            # Nothing recognised. Return empty WITHOUT caching: a card read
+            # mid-transition would otherwise be stuck knob-less for the life of
+            # the process, and an empty answer is only ever a "not yet".
+            return {}
+        self._clkdom_pair = pair
+        return pair
+
+    def read_clk_domain_offsets(self):
+        """({domain: {mode, freq_khz, msvdd_uv}}, err)."""
+        if not self.clkdom_ok():
+            return None, "per-domain clock control unavailable (0xF58938F5)"
+        doms = self.clkdom_domains()
+        if not doms:
+            return None, "no clock domain accepted by this driver"
+        mask = 0
+        for d in doms:
+            mask |= 1 << d
+        st, buf = self._clkdom_get(mask)
+        if st != 0:
+            return None, f"clock-domain read failed (status {st})"
+        p = ctypes.cast(buf, ctypes.POINTER(i32))
+        if ctypes.cast(buf, ctypes.POINTER(u32))[0] != CLKDOM_VERSION:
+            return None, "clock-domain block did not echo its version"
+        out = {}
+        for d in doms:
+            out[d] = {
+                "mode": p[clkdom_entry(d, CLKDOM_MODE) // 4],
+                "freq_khz": p[clkdom_entry(d, CLKDOM_FREQ_KHZ) // 4],
+                "msvdd_uv": p[clkdom_entry(d, CLKDOM_MSVDD_UV) // 4],
+            }
+        return out, None
+
+    def read_xbar_offset_mhz(self):
+        """The REQUESTED XBAR offset in MHz, or None.
+
+        Requested, not applied. The driver floors a request to whole clock
+        bins, so a +100 request runs as +90 - both numbers are real and they
+        are not the same number. The applied figure comes from the private
+        clock getter (domain 1), never from here."""
+        rows, err = self.read_clk_domain_offsets()
+        if err or CLKDOM_XBAR not in (rows or {}):
+            return None
+        return rows[CLKDOM_XBAR]["freq_khz"] / 1000.0
+
+    def read_rail_offset_mv(self, domain=0):
+        """The rail-0 voltage offset in mV, or None."""
+        st, buf = self._clkdom_get(1 << domain)
+        if st != 0:
+            return None
+        dw = clkdom_entry(domain, CLKDOM_RAIL0_UV) // 4
+        return ctypes.cast(buf, ctypes.POINTER(i32))[dw] / 1000.0
+
+    def set_rail_offset_mv(self, mv, domain=0):
+        """Offset the core rail by `mv` millivolts.
+
+        MEASURED 1:1 on TU102 with the core clock pinned by the NVML frequency
+        lock: 6.25 / 12.5 / 25 / 50 / 100 mV requested moved vcore by exactly
+        6.25 / 12.5 / 25 / 50 / 100 mV, quantised to the card's 6.25 mV grid.
+        The clock held at 1500.0 MHz throughout, so the movement had nowhere
+        else to come from.
+
+        Measuring this with the V/F POINT lock instead gives a much smaller and
+        wrong answer - that lock holds 'the highest point at or below a
+        voltage', so shifting the rail changes which point is held and the
+        reading conflates the offset with a change of operating point. If this
+        ever needs re-measuring, pin the FREQUENCY, not the voltage.
+
+        This is a SECOND mechanism on the rail that set_voltage_boost already
+        raises a ceiling on. They are not the same knob and nothing here reads
+        or clears the other."""
+        a = self.nvapi
+        if not (self.clkdom_ok() and a.ClkDomCtlSet):
+            return False, "per-domain clock control unavailable"
+        uv = int(round(mv * 1000))
+        st, buf = self._clkdom_get(1 << domain)
+        if st != 0:
+            return False, f"read failed (status {st})"
+        dw = clkdom_entry(domain, CLKDOM_RAIL0_UV) // 4
+        was = ctypes.cast(buf, ctypes.POINTER(i32))[dw]
+        if was == uv:
+            # The diff guard below demands exactly one changed dword, so a
+            # no-op write would be REFUSED rather than silently doing nothing.
+            # Say so plainly instead of reporting a failure for a request that
+            # is already satisfied.
+            return True, f"core rail offset already {uv/1000:+.2f} mV"
+        ctypes.cast(buf, ctypes.POINTER(i32))[dw] = uv
+        st2, ref = self._clkdom_get(1 << domain)
+        if st2 != 0:
+            return False, f"verification read failed (status {st2})"
+        pb = ctypes.cast(buf, ctypes.POINTER(u32))
+        pr = ctypes.cast(ref, ctypes.POINTER(u32))
+        diffs = [i for i in range(CLKDOM_SIZE // 4) if pb[i] != pr[i]]
+        if diffs != [dw]:
+            return False, (f"refusing to write: {len(diffs)} dwords differ, "
+                           f"expected only {dw}")
+        sst = a.ClkDomCtlSet(a.gpu, ctypes.byref(buf))
+        if sst != 0:
+            return False, f"core rail offset failed (status {sst})"
+        return True, (f"core rail offset {was/1000:+.2f} -> {uv/1000:+.2f} mV "
+                      f"(the card quantises to its 6.25 mV grid)")
+
+    def set_clk_domain_offset(self, domain, mhz):
+        """Read-modify-write exactly one dword of the control block.
+
+        The buffer written is the one the getter just produced, with the single
+        frequency-delta dword changed and every other byte - the mode field,
+        the MSVDD rail, and all 31 other domain entries - passed back exactly
+        as the driver wrote it. Same doctrine as set_vf_lock: never a fresh
+        struct, because 768 of the 772 bytes in an entry are fields we have not
+        identified and cannot responsibly synthesise.
+
+        The diff guard below is not decoration. It re-reads the block and
+        refuses to write if anything other than the intended dword differs, so
+        a layout change in a future driver turns into a refusal rather than a
+        write into whatever now occupies that offset."""
+        a = self.nvapi
+        if not (self.clkdom_ok() and a.ClkDomCtlSet):
+            return False, "per-domain clock control unavailable"
+        if domain not in self.clkdom_domains():
+            return False, (f"domain {domain} is not one this driver accepts "
+                           f"({self.clkdom_domains()})")
+        khz = int(round(mhz)) * 1000
+        mask = 1 << domain
+        st, buf = self._clkdom_get(mask)
+        if st != 0:
+            return False, f"clock-domain read failed (status {st})"
+        dw = clkdom_entry(domain, CLKDOM_FREQ_KHZ) // 4
+        was = ctypes.cast(buf, ctypes.POINTER(i32))[dw]
+        ctypes.cast(buf, ctypes.POINTER(i32))[dw] = khz
+
+        st2, ref = self._clkdom_get(mask)
+        if st2 != 0:
+            return False, f"verification read failed (status {st2})"
+        pb = ctypes.cast(buf, ctypes.POINTER(u32))
+        pr = ctypes.cast(ref, ctypes.POINTER(u32))
+        diffs = [i for i in range(CLKDOM_SIZE // 4) if pb[i] != pr[i]]
+        if diffs != [dw]:
+            return False, (f"refusing to write: {len(diffs)} dwords differ "
+                           f"{diffs[:8]}, expected only {dw}. The block layout "
+                           f"is not what this build measured.")
+
+        sst = a.ClkDomCtlSet(a.gpu, ctypes.byref(buf))
+        if sst != 0:
+            return False, f"clock-domain write failed (status {sst})"
+        name = CLKDOM_NAMES.get(domain, f"domain {domain}")
+        return True, (f"{name} offset {was/1000:+.0f} -> {khz/1000:+.0f} MHz "
+                      f"(requested; the driver floors to whole clock bins)")
 
     def set_power_limit_mw(self, mw):
         nv = self.nvml
@@ -2742,6 +3093,27 @@ class GPU:
         naming the knob it moved - GPU.LOCK_STEP is the clock-lock release."""
         steps = [ResetStep("core offset", self.set_clock_offset(0, 0)),
                  ResetStep("mem offset", self.set_clock_offset(2, 0))]
+        # The per-domain offsets are a THIRD mechanism: neither set_clock_offset
+        # above nor the curve reset below touches them, so a reset that skipped
+        # this would report a stock card while XBAR was still carrying an
+        # offset - and this button's own text promises it zeroes the offsets.
+        # Only emitted where the control block answers and the domain is
+        # actually carrying something, so the ordinary reset does not grow a
+        # step that always says "nothing to do".
+        if self.clkdom_ok():
+            rows, err = self.read_clk_domain_offsets()
+            for d in sorted((rows or {})):
+                if rows[d]["freq_khz"]:
+                    steps.append(ResetStep(
+                        f"{CLKDOM_NAMES.get(d, f'domain {d}')} offset",
+                        self.set_clk_domain_offset(d, 0)))
+            # The rail offset is a THIRD thing again - not a clock offset and
+            # not the voltage boost - so it needs its own step or a reset would
+            # leave the card carrying volts nothing on screen accounts for.
+            rail = self.read_rail_offset_mv(0)
+            if rail:
+                steps.append(ResetStep("core rail offset",
+                                       self.set_rail_offset_mv(0, 0)))
         if self.static.get("pl_def_mw"):
             steps.append(ResetStep(
                 "power limit", self.set_power_limit_mw(self.static["pl_def_mw"])))
