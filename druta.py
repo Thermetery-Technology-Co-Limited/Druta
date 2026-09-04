@@ -1415,7 +1415,24 @@ class Druta:
         # the boost % beside it reads a different mechanism entirely.
         if self.guard():
             self.autosave_before("core-rail-offset")
-            self.report(self.gpu.set_rail_offset_mv(int(v), 0))
+            ok, msg = self.gpu.set_rail_offset_mv(int(v), 0)
+            # A held V/F point PINS the voltage, so the write lands in the
+            # control block and the rail does not move at all. Reporting a bare
+            # success for that reads as "applied" and is how a working knob got
+            # mistaken for a dead one: +100 mV under a hold moved nothing, and
+            # the same knob measured exactly 1:1 the moment the FREQUENCY was
+            # pinned instead. Name the mask rather than leaving it to the note.
+            if ok:
+                try:
+                    held = self.gpu.read_vf_lock()
+                except Exception:                            # noqa: BLE001
+                    held = None
+                if held and held.get("volt_mv"):
+                    msg = (f"{msg} - but a V/F hold at {held['volt_mv']:.2f} mV "
+                           f"is pinning this rail, so vcore will NOT move. "
+                           f"Release the hold, or pin the FREQUENCY instead, to "
+                           f"make this measurable.")
+            self.report((ok, msg))
 
     def apply_domain_offset(self, dom, key, v):
         if not self.guard():
@@ -1846,6 +1863,18 @@ class Druta:
         vb = self.gpu.read_voltage_boost()
         dpg.set_value("sl_volt", 0 if vb is None else max(0, min(100, vb)))
         dpg.set_value("sl_fan", st.get("fan_min", 30))
+        # The per-domain offsets and the core rail ARE cleared on the card by
+        # GPU.reset_all() above - but their sliders were never zeroed here, so
+        # the hardware went to stock while the UI kept showing the old numbers.
+        # That is worse than cosmetic: the next Apply on a stale slider silently
+        # re-applies an offset the user believes they just cleared. Guarded on
+        # existence because these rows are built only where the control block
+        # answers AND a pairing was measured, so most cards have neither.
+        for kn in self.DOMAIN_KNOBS:
+            if dpg.does_item_exist(f"sl_{kn.key}"):
+                dpg.set_value(f"sl_{kn.key}", 0)
+        if dpg.does_item_exist("sl_rail"):
+            dpg.set_value("sl_rail", 0)
         self.log(f"reset incomplete: {failed} step(s) failed" if failed
                  else "reset to stock complete", failed == 0)
         self.vf_read(force=True)
