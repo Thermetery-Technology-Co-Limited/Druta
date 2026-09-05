@@ -2258,6 +2258,24 @@ class GPU:
         return False, "; ".join(errs)
 
     # ---- over-voltage % (AB "Core Voltage" slider) ------------------------ #
+    def read_vcore_mv(self):
+        """Just the NVVDD rail, as ONE NVAPI call.
+
+        read() returns this too, but reaches NVML and a dozen other entry
+        points to do it. This exists for the I2C offset verifier, which needs
+        the GPU's own view of the rail sampled tens of times in a row and
+        tightly interleaved with a PMBus read: the whole point of that
+        measurement is that both numbers describe the same instant, and a
+        full telemetry sweep between them defeats it.
+        """
+        a = self.nvapi
+        if not (a.ok and a.VoltRailsStatus):
+            return None
+        vs = _VoltStatus(version=a.ver(_VoltStatus, 1))
+        if a.VoltRailsStatus(a.gpu, ctypes.byref(vs)) == 0 and vs.value_uV:
+            return vs.value_uV / 1000.0
+        return None
+
     def read_voltage_boost(self):
         a = self.nvapi
         if not (a.ok and a.VoltCtrlGet):
