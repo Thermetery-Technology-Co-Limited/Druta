@@ -167,6 +167,9 @@ class NvAPI:
         self.RamType = self._i(0x57F7CAAC, PTR, ctypes.POINTER(u32))
         self.VoltCtrlGet = self._i(0x9DF23CA1, PTR, PTR)
         self.VoltCtrlSet = self._i(0xB9306D9B, PTR, PTR)
+        # Per-rail voltage LIMITS, read-only. There is no matching setter: see
+        # GPU.read_volt_rail_limits for what was searched and what was found.
+        self.VoltRailsCtlGet = self._i(0xA3070DB0, PTR, PTR)
         # Per-domain clock offsets - the ONLY path to XBAR. Neither NVML's
         # clock offsets nor NVAPI's Pstates20 can reach it: both enumerate
         # exactly two domains on this card, GRAPHICS and MEMORY, and
@@ -3043,6 +3046,96 @@ class GPU:
         if a.VoltRailsStatus(a.gpu, ctypes.byref(vs)) == 0 and vs.value_uV:
             return vs.value_uV / 1000.0
         return None
+
+    # ---- per-rail voltage limits ----------------------------------------- #
+    # The rail limit block. Read-only, and the read-only part is a finding
+    # rather than a design choice - see the end of this comment.
+    #
+    # LAYOUT, established here by probing, not from any third-party header:
+    #   id 0xA3070DB0, version word 0x00020AC8 (v2, 2760 bytes)
+    #   dw1 is an INPUT rail mask - 0x1 fills record 0, 0x2 record 1, 0x3 both.
+    #   Records start at byte 0x48, stride 0x54, five known dwords each:
+    #     +0x00 type   +0x04 reliability  +0x08 alt_reliability
+    #     +0x0C overvoltage  +0x10 vmin
+    #
+    # The four limits are SIGNED MICROVOLT DELTAS from a fixed 1040 mV base,
+    # not absolute ceilings. That was confirmed by reconstruction: with an
+    # external tool holding NVVDD 900/1150 and MSVDD 750/950, this block read
+    # NVVDD reliability +110 / vmin +100 and MSVDD reliability -90 / vmin -50,
+    # and 1040+110, 800+100, 1040-90, 800-50 give back all four numbers
+    # exactly. NVVDD alt_reliability read +90 => 1060, which is precisely the
+    # ceiling measured on this card before the id was known.
+    #
+    # THE FACTORY STATE IS NOT ALL ZERO. On this GB203 the card powers up with
+    # NVVDD at 0 and MSVDD reliability at -50000, i.e. NVVDD capped at the full
+    # 1040 mV and MSVDD 50 mV lower at 990. Verified stable and identical
+    # across two independent PnP device restarts, so a caller must NOT treat a
+    # non-zero delta as evidence that something else has been writing.
+    #
+    # THE BLOCK IS VOLATILE DRIVER STATE. It is not in the adapter's registry
+    # key and nothing re-applies it at boot, but it also does NOT clear on the
+    # display-stack reset (Win+Ctrl+Shift+B). A PnP restart of the adapter
+    # returns it to the factory values above.
+    #
+    # THERE IS NO SETTER, and this was searched exhaustively rather than
+    # assumed. The rails RM commands GET_CONTROL/SET_CONTROL (0x2080B203 and
+    # 0x2080B204) do not occur anywhere in nvapi64.dll as immediates. The
+    # modern unified command 0x2080F214 has exactly three owning exports -
+    # 0x9C4BB8D0 (info), 0x2C73AFDC (status) and 0xA3070DB0 (this one) - and
+    # every one of them reads. 0x5D0634EE, which sits between them in the id
+    # table and accepts the same 2760-byte struct, also returns data when
+    # called, so it is a fourth getter and not the setter its position
+    # suggests. Writes through it are accepted and applied nowhere: a full
+    # sweep of the header dwords and of every unused dword in a record, as
+    # candidate "valid" masks, moved nothing. NVIDIA's own published
+    # ctrl2080volt.h carries no commands or structs at all, so there is no
+    # first-party route either. Anything that does write these limits is
+    # therefore building an RM control call by hand against the kernel driver.
+    def read_volt_rail_limits(self):
+        """Per-rail voltage limits as millivolt deltas, or ``None``.
+
+        Returns ``{rail_index: {"type", "reliability", "alt_reliability",
+        "overvoltage", "vmin"}}`` with the four limits in millivolts, signed,
+        relative to the 1040 mV base described above. Rail 0 is NVVDD and
+        rail 1 is MSVDD.
+        """
+        a = self.nvapi
+        if not (a.ok and a.VoltRailsCtlGet):
+            return None
+        buf = (ctypes.c_ubyte * 8192)()
+        ctypes.memset(buf, 0, 8192)
+        pu = ctypes.cast(buf, ctypes.POINTER(u32))
+        pu[0], pu[1] = 0x00020AC8, 0x3        # version, then the rail mask
+        if a.VoltRailsCtlGet(a.gpu, ctypes.byref(buf)) != 0:
+            return None
+        pi = ctypes.cast(buf, ctypes.POINTER(i32))
+        out = {}
+        for rail in (0, 1):
+            base = (0x48 + rail * 0x54) // 4
+            out[rail] = {
+                "type": pi[base],
+                "reliability": pi[base + 1] / 1000.0,
+                "alt_reliability": pi[base + 2] / 1000.0,
+                "overvoltage": pi[base + 3] / 1000.0,
+                "vmin": pi[base + 4] / 1000.0,
+            }
+        return out
+
+    # The base every delta above is measured from. Not read from the card -
+    # nothing exposes it - but pinned by the reconstruction in the comment on
+    # read_volt_rail_limits, where four independent settings all resolved
+    # against 1040 mV for the ceilings and 800 mV for the floors.
+    VOLT_LIMIT_BASE_MV = {"reliability": 1040.0, "alt_reliability": 1040.0,
+                          "overvoltage": 1040.0, "vmin": 800.0}
+
+    def volt_rail_limits_mv(self):
+        """The same limits resolved to absolute millivolts, or ``None``."""
+        raw = self.read_volt_rail_limits()
+        if raw is None:
+            return None
+        return {rail: {k: self.VOLT_LIMIT_BASE_MV[k] + v
+                       for k, v in fields.items() if k != "type"}
+                for rail, fields in raw.items()}
 
     def read_voltage_boost(self):
         a = self.nvapi
