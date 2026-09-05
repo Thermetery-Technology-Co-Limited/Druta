@@ -12,7 +12,9 @@ writes the framebuffer-partition memory timing registers.
 > VRAM.** V/F curve edits can crash the display driver. Read
 > [Safety](#safety-first-what-can-go-wrong) before enabling any write path.
 >
-> Druta ships dangerous low-level I2C writing capabilities COMPLETELY IMPERVIOUS TO ANY DRIVER/BIOS SAFEGUARDS. This can be useful for overclocking, but that also means that there is ABSOLUTELY NOTHING BETWEEN YOU AND A PAPERWEIGHT GPU.  
+> Druta ships dangerous low-level I2C writing capabilities COMPLETELY IMPERVIOUS TO ANY DRIVER/BIOS SAFEGUARDS. This can be useful for overclocking, but that also means that there is ABSOLUTELY NOTHING BETWEEN YOU AND A PAPERWEIGHT GPU.
+>
+> Windows, NVIDIA Falcon, VBIOS, drivers, etc. cannot stop a I2C write. We tried to ship guardrails, but you need to understand the risk before enabling I2C voltage control, which is by default *disabled*. 
 >
 > This program comes with **ABSOLUTELY NO WARRANTY** — see sections 15 and 16
 > of [COPYING](COPYING). You assume all risk of running it.
