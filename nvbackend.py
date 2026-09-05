@@ -509,9 +509,11 @@ def classify_domain_names(rows, core_mhz=None, mem_nvml=None,
     # on. Measured on RTX 5080 / 580.97, two of those names are simply wrong:
     #   domain 5  is TU102's LTCCLK, and here reads 0.0 with flags 0x00 - an
     #             empty slot, not a slow clock
-    #   domain 21 is TU102's VIDEO, and here does NOT track the control that
-    #             demonstrably moves the video clock (control 4 moves NVML's
-    #             video clock 1:1 while domain 21 stays put)
+    # Domain 21 keeps its name: it was checked against the MEASURED column
+    # first and wrongly cleared, because the video engine idles at ~250-310 MHz
+    # there. The PROGRAMMED column is the one to read, and it tracks exactly -
+    # 2317 / 2407 / 2647 for offsets of +0 / +100 / +335, equal to NVML's own
+    # video clock at every step.
     # Domain 20 is active and scales at roughly 0.80 of GPC, which is where an
     # L2 clock usually sits, but nothing here has earned it a name.
     #
@@ -535,6 +537,11 @@ def classify_domain_names(rows, core_mhz=None, mem_nvml=None,
         # ctl 3 moves this domain 1:1. The BEHAVIOUR is confirmed; the word
         # SYSCLK is inherited by elimination, so it stays hedged.
         2: ("SYSCLK", PRIV_LIKELY),
+        # Programmed column tracks the VIDEO control 1:1 and equals NVML's
+        # video clock exactly. Its MEASURED column reads a few hundred MHz
+        # whenever nothing is encoding or decoding, which is an idle engine
+        # and not a wrong row.
+        21: ("VIDEO", PRIV_CONFIRMED),
         31: ("PCIe link gen", PRIV_LIKELY),
     }
 
