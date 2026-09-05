@@ -1,0 +1,117 @@
+# RTX 2080 Ti Strix board - NVVDD core rail via MP2888A
+#
+# THIS BOARD NEEDS A HARDWARE MODIFICATION. As shipped, the MP2888A is not on
+# any bus the GPU can reach; the two links that would connect its SMBus to the
+# GPU are unpopulated, and were fitted by hand with 0 ohm resistors on the
+# authoring card. The profile is inert without them - the identity read simply
+# fails - so it is safe to have installed on an unmodified card.
+#
+# Every number below was either read out of the datasheet with the page cited or
+# measured on the authoring board. Nothing here is inferred from another part.
+
+[profile]
+format    = 1
+name      = "RTX 2080 Ti Strix - NVVDD (MP2888A)"
+regulator = "MPS MP2888A"
+rail      = "NVVDD"
+author    = "Thermetery"
+
+[provenance]
+datasheet = "MP2888A Rev. 1.1, 12/25/2018 (public MPS datasheet)"
+registers = "command table pp.34-37; VOUT_OFFSET/VOUT_MAX bit fields p.43; VID offset range p.17"
+address   = "measured: 0xBE reads 0xA0. Independently agrees with datasheet Table 6 p.30 (20h for ADDR = 0 V), which matches the address strap as fitted on the authoring card"
+behaviour = "measured under gpuload bandwidth load at NVVDD 1050 mV, 2026-09-04"
+hardware  = "the two SMBus links to the core VRM fitted by hand on the authoring card; regulator identity then confirmed on the bus"
+
+[match]
+pci_device = ["0x1E02"]        # this die is a TITAN RTX on a 2080 Ti board, so
+pci_subsys = ["0x12A310DE"]    # the subsys is the honest discriminator
+
+[bus]
+port  = 1                      # NVAPI port 1
+addr7 = 0x20
+
+# ---- identity -------------------------------------------------------------- #
+# Checked by identity, never by address alone. The bus map on this card moved
+# once already: fitting the links made a second device answer on port 1 as well
+# as port 2, so "something ACKed 0x20" is not evidence of what is there.
+[[identity]]
+reg    = 0xBE
+bytes  = 1
+equals = 0xA0
+note   = "MFR_PMBUS_ADDR. bit7=1, 3 MSB=010, 4 LSB=0000 -> 0x20. The part states its own address, so this identifies it and confirms the strap in one read."
+
+# NOTE: 0x99 MFR_ID, 0x9A MFR_MODEL, 0x9B MFR_REVISION and 0x20 VOUT_MODE are
+# NOT implemented on this part - they return a bus error, not a value. Do not
+# add them as identity checks; they will fail on a working board.
+
+# ---- telemetry (read-only) ------------------------------------------------- #
+[[telemetry]]
+key      = "vout_mv"
+reg      = 0x8B
+bytes    = 2
+encoding = "uint"
+scale    = 1.0
+note     = "READ_VOUT is DIRECT millivolts on this part, not LINEAR11 - it read 681 at the same instant NVAPI reported 681.25 mV. IOUT and TEMP below use different encodings, so do not assume one format across commands."
+
+[[telemetry]]
+key      = "iout_a"
+reg      = 0x8C
+bytes    = 2
+encoding = "linear11"
+
+[[telemetry]]
+key      = "vrm_temp_c"
+reg      = 0x8D
+bytes    = 2
+encoding = "uint"
+scale    = 0.1
+
+[[telemetry]]
+key      = "vout_max_mv"
+reg      = 0x24
+bytes    = 2
+bits     = "8:0"
+encoding = "uint"
+scale    = 6.25
+note     = "VOUT_MAX. Reads 1300 mV here. The regulator clamps anything above it, and OVP1 sits at VOUT_MAX + 400 mV. This is the hardware ceiling; rail_ceiling_mv below is Druta's, and is deliberately lower."
+
+# ---- the only writable register -------------------------------------------- #
+[[write]]
+key      = "offset_mv"
+reg      = 0x23
+bytes    = 2        # transaction width on the wire (command table p.34)
+bits     = "7:0"    # field width inside it (p.43: 15:8 are RESERVED)
+encoding = "int"    # two's complement, bit 7 is the sign
+lsb_mv   = 6.25
+raw_min  = -111     # p.17: the VID step offset range is -0.69375 V to +0.7 V,
+raw_max  = 112      # which is NOT the full 8-bit range. Past +112 the value
+                    # wraps through the sign bit and the rail moves the WRONG
+                    # WAY - +800 mV requested would deliver -800 mV.
+note     = "VOUT_OFFSET. bytes=2 and bits=7:0 are different numbers and both matter: writing this as a 16-bit value makes every NEGATIVE offset fail read-back, because the reserved half is dropped."
+
+# ---- limits ---------------------------------------------------------------- #
+[limits]
+envelope_min_mv    = -200.0   # downward is the safe direction, left wide
+envelope_max_mv    =  100.0
+rail_ceiling_mv    = 1200.0   # under the part's own 1300 mV VOUT_MAX, on purpose
+sanity_max_rail_mv = 2000.0
+plausible_rail_mv  = [400.0, 1300.0]
+
+# ---- verification ---------------------------------------------------------- #
+[verify]
+rungs_mv           = [6.25, 12.50, 25.00, 50.00, 75.00]
+min_loaded_vout_mv = 800.0
+# MEASURED ON THIS BOARD, and the reason the UI shows the rail rather than the
+# slider value: the response is NOT 1:1 near zero. Sweeping raw 0->16 under load
+# at VID 1050 mV, the first ~31 mV up and ~12 mV down delivered nothing at all,
+# then it tracked about 6.25 mV per step. A down-sweep retraced the up-sweep, so
+# this is a real deadband and not lag. Mechanism unexplained - do not quote a
+# gain figure for this part, and do not carry this number to another board.
+expect_deadband_mv = 31.0
+
+# ---- never, on this part --------------------------------------------------- #
+# Adds to Druta's built-in NVRAM denylist; cannot subtract from it.
+[[never_write]]
+reg = 0x04
+why = "MFR_USER_PWD. One-shot password: locks out PMBus writes until a power cycle, and can be committed to EEPROM. There is no undo."
