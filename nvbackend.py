@@ -441,7 +441,8 @@ PRIV_DOMAIN_ID = {
 # the driver reports independently, on the card in front of us.
 
 
-def classify_domain_names(rows, core_mhz=None, mem_nvml=None):
+def classify_domain_names(rows, core_mhz=None, mem_nvml=None,
+                          blackwell=False):
     """Name clock domains by CORRELATION against the driver's own figures.
 
     `rows` is mutated in place and returned.
@@ -503,6 +504,40 @@ def classify_domain_names(rows, core_mhz=None, mem_nvml=None):
     pascal_like = (gpc_dom == 15)
     PASCAL_NAMES = {16: ("XBAR2CLK", PRIV_LIKELY)}
 
+    # BLACKWELL PUTS GPC AT DOMAIN 0 TOO, so `turing_like` is true there and
+    # the TU102 table would be applied wholesale to a card it was never earned
+    # on. Measured on RTX 5080 / 580.97, two of those names are simply wrong:
+    #   domain 5  is TU102's LTCCLK, and here reads 0.0 with flags 0x00 - an
+    #             empty slot, not a slow clock
+    #   domain 21 is TU102's VIDEO, and here does NOT track the control that
+    #             demonstrably moves the video clock (control 4 moves NVML's
+    #             video clock 1:1 while domain 21 stays put)
+    # Domain 20 is active and scales at roughly 0.80 of GPC, which is where an
+    # L2 clock usually sits, but nothing here has earned it a name.
+    #
+    # So Blackwell gets its own table and everything absent from it stays a
+    # bare index. GPC and MEM are not listed because the branches above name
+    # them by correlation against the driver's own figures, which is stronger
+    # than any table.
+    BLACKWELL_NAMES = {
+        # Earned on Blackwell, not inherited: ctl 0 moves domain 0, and the
+        # physical counter for index 0 matched NVML's graphics clock to 1 MHz
+        # under load. Listed because the correlation branches above cannot fire
+        # at idle - the GPC counter reads a gated ~32 MHz there while NVML
+        # still reports its nominal, so nothing correlates and the row would
+        # otherwise go nameless on an idle card that plainly has a GPC.
+        0: ("GPC", PRIV_CONFIRMED),
+        # ctl 2 moves domain 4, and counter index 4 matched NVML's memory
+        # clock to 0.2% under load.
+        4: ("MEM", PRIV_CONFIRMED),
+        # ctl 1 moves this domain 1:1 (+149.6 for +150) and nothing else.
+        1: ("XBAR", PRIV_CONFIRMED),
+        # ctl 3 moves this domain 1:1. The BEHAVIOUR is confirmed; the word
+        # SYSCLK is inherited by elimination, so it stays hedged.
+        2: ("SYSCLK", PRIV_LIKELY),
+        31: ("PCIe link gen", PRIV_LIKELY),
+    }
+
     for r in rows:
         dom = r["domain"]
         if (r.get("kind") == PRIV_FREQ and core_mhz
@@ -517,6 +552,9 @@ def classify_domain_names(rows, core_mhz=None, mem_nvml=None):
             r["name"], r["grade"] = "MEM", PRIV_CONFIRMED
         elif pascal_like and dom in PASCAL_NAMES:
             r["name"], r["grade"] = PASCAL_NAMES[dom]
+        elif blackwell:
+            r["name"], r["grade"] = BLACKWELL_NAMES.get(
+                dom, ("", PRIV_UNNAMED))
         elif dom in PRIV_DOMAIN_ID and (turing_like or blind
                                         or r.get("kind") == PRIV_PCIE_GEN):
             name, grade, _kind = PRIV_DOMAIN_ID[dom]
@@ -1503,7 +1541,8 @@ class GPU:
                 if prog and meas:
                     row["delta_mhz"] = (meas - prog) / 1000.0
             rows.append(row)
-        classify_domain_names(rows, core_mhz, mem_nvml)
+        classify_domain_names(rows, core_mhz, mem_nvml,
+                              blackwell=self.clkdom_is_blackwell())
         return rows, None
 
     def _read_clocks(self, d, pc=None):
