@@ -1231,6 +1231,41 @@ class Druta:
             dpg.add_table_column(width_fixed=True,
                                  init_width_or_weight=self.s(w))
 
+    def apply_vlim(self, ceiling_mv=None, floor_mv=None):
+        """Write one NVVDD limit and report what the card actually took.
+
+        Both knobs go through here so that a ceiling change never silently
+        rewrites the floor, or the reverse: the backend keeps every limit it
+        was not given.
+        """
+        ok, msg = self.gpu.set_volt_rail_limits(
+            0, ceiling_mv=ceiling_mv, floor_mv=floor_mv)
+        self.log(msg, ok)
+        self.refresh_volt_limits()
+
+    def apply_vlim_reset(self):
+        ok, msg = self.gpu.reset_volt_rail_limits()
+        self.log(msg, ok)
+        self.refresh_volt_limits()
+
+    def refresh_volt_limits(self):
+        """Put the knobs and the readout back onto what the card reports.
+
+        Called after every write rather than trusting the requested number:
+        this block stores a request verbatim, so the only honest thing to show
+        is what a fresh read gives back.
+        """
+        lim = self.gpu.volt_rail_limits_mv()
+        if not lim:
+            return
+        if dpg.does_item_exist("volt_limits_txt"):
+            dpg.set_value("volt_limits_txt", self.volt_limits_text(lim))
+        for key, field in (("vlim_hi", "reliability"), ("vlim_lo", "vmin")):
+            v = int(round(lim[0][field]))
+            for pre in ("sl_", "in_"):
+                if dpg.does_item_exist(pre + key):
+                    dpg.set_value(pre + key, v)
+
     @staticmethod
     def volt_limits_text(lim):
         """One line describing the per-rail voltage limits.
@@ -1259,12 +1294,9 @@ class Druta:
         identified on this board, because a ticked box on a card without the
         links fitted changes nothing and must not claim otherwise.
 
-        The same rule is why "volt_limits" is not returned here yet. The rail
-        limit block is readable but no setter for it exists - see
-        nvbackend.GPU.read_volt_rail_limits - so ticking anything could not
-        change a write, and claiming risk for it would be theatre. Its weight
-        is already in RISK_WEIGHT so that the day a write path lands, scoring
-        it is one probe here and nothing else.
+        The same rule applies to "volt_limits": it counts only where the block
+        is actually writable, so on a card whose limits cannot be read the box
+        cannot arm and cannot colour the tab.
         """
         live = set()
         if dpg.does_item_exist("xoc_mode") and dpg.get_value("xoc_mode"):
@@ -1272,6 +1304,9 @@ class Druta:
         if (self.rail is not None and dpg.does_item_exist("i2c_mode")
                 and dpg.get_value("i2c_mode") and self.rail.present()):
             live.add("i2c")
+        if (dpg.does_item_exist("vlim_mode") and dpg.get_value("vlim_mode")
+                and self.gpu.read_volt_rail_limits() is not None):
+            live.add("volt_limits")
         return live
 
     def risk_score(self):
@@ -1305,6 +1340,17 @@ class Druta:
         # to leave it armed after unticking - the flag lives on the class and
         # would otherwise outlast the state that justified it.
         GPU.msvdd_write_enabled = "xoc" in live
+        # Same shape as the rail-1 gate: the backend flag follows the box, so
+        # it cannot outlive the state that justified it. Nothing but Druta
+        # bounds this value, so it must never be on by default.
+        GPU.volt_limits_write_enabled = "volt_limits" in live
+        for k in ("vlim_hi", "vlim_lo"):
+            for pre in ("sl_", "in_", "go_"):
+                if dpg.does_item_exist(pre + k):
+                    dpg.configure_item(pre + k,
+                                       enabled="volt_limits" in live)
+        if dpg.does_item_exist("go_vlim_hi_x"):
+            dpg.configure_item("go_vlim_hi_x", enabled="volt_limits" in live)
 
         # AHEAD of the RISK_STOCK return below, not after the banner work: this
         # is the call that puts the knobs BACK when XOC is unticked, and behind
@@ -1360,6 +1406,13 @@ class Druta:
                 dpg.add_checkbox(label="I2C rail", tag="i2c_mode",
                                  default_value=False,
                                  show=railctl is not None,
+                                 callback=lambda s, a, u: self.sync_risk_ui())
+                # Shown only where the block reads, because on a card that
+                # cannot read it the write has nothing to verify against.
+                dpg.add_checkbox(label="Rail limits", tag="vlim_mode",
+                                 default_value=False,
+                                 show=self.gpu.read_volt_rail_limits()
+                                 is not None,
                                  callback=lambda s, a, u: self.sync_risk_ui())
                 dpg.add_spacer(width=self.s(16))
                 # sits with the gate, not inside a knob group: it undoes every
@@ -1605,6 +1658,26 @@ class Druta:
                             dpg.add_text(self.volt_limits_text(lim),
                                          tag="volt_limits_txt", color=DIM,
                                          wrap=self.s(sum(self.KNOB_COLS)))
+                        # EXPERIMENTAL, and gated on the Rail limits box. The
+                        # ceiling does not APPLY a voltage - it permits one, and
+                        # the arbiter then takes the highest V/F point at or
+                        # below it. Raising it above the top of the curve
+                        # therefore does nothing at all, which is why the
+                        # backend's bound sits at the curve top rather than at
+                        # whatever the block will swallow: it accepts 1500 mV
+                        # and reads it straight back, so Druta's bound is the
+                        # only one there is.
+                        lo_mv = int(GPU.VOLT_LIMIT_MIN_MV)
+                        hi_mv = int(GPU.VOLT_LIMIT_MAX_MV)
+                        self.slider_row(
+                            "vlim_hi", "NVVDD ceiling (mV)", lo_mv, hi_mv,
+                            int(round(lim[0]["reliability"])),
+                            lambda v: self.apply_vlim(ceiling_mv=v),
+                            extra=("Stock", self.apply_vlim_reset))
+                        self.slider_row(
+                            "vlim_lo", "NVVDD floor (mV)", lo_mv, hi_mv,
+                            int(round(lim[0]["vmin"])),
+                            lambda v: self.apply_vlim(floor_mv=v))
 
                     # A SECOND mechanism on the same rail as the boost above,
                     # and the note says so: they are different calls, neither

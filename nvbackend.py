@@ -41,6 +41,7 @@ import ctypes
 import json
 import re
 import statistics
+import struct
 import sys
 import threading
 import time
@@ -3127,6 +3128,176 @@ class GPU:
     # against 1040 mV for the ceilings and 800 mV for the floors.
     VOLT_LIMIT_BASE_MV = {"reliability": 1040.0, "alt_reliability": 1040.0,
                           "overvoltage": 1040.0, "vmin": 800.0}
+
+    # ---- writing the limits ---------------------------------------------- #
+    # NvAPI has no export that writes this block, but RM does implement the
+    # write - the two facts are not the same thing, and conflating them cost a
+    # long detour. Command 0x2080F214 with POPULATED records is the setter,
+    # established by sweeping the VOLT command space and watching which one
+    # moved the rails. It is not reachable through NvAPI's own code: NvAPI
+    # sends the request under 0x2080B213 (a read) and marshals only the rail
+    # mask, so both the command and the rail data have to be supplied here.
+    # Everything else in the request is NvAPI's own and correctly versioned;
+    # only two fields and the record array are ours.
+    #
+    # RM's params (1036 bytes = a 3-dword header + 32 records of 8 dwords,
+    # which is exactly 0x40C) were recovered by differential reads - asking for
+    # rail 0 alone, then rail 1 alone, and seeing which dwords moved:
+    #     dw17  valid-rail mask (out)   dw18  requested mask (in)
+    #     dw20  first record, stride 8: +0 type(5)  +1 reliability_uV
+    #                                   +2..+5 the other limits  +7 flag(1)
+    # These offsets are into the ESCAPE payload, not into the NvAPI struct;
+    # the two layouts are unrelated and must not be mixed up.
+    #
+    # NOTHING VALIDATES THE VALUE. A 1500 mV ceiling is accepted and reads
+    # straight back, so the bound below is Druta's and the only one there is.
+    # It is set at the top of this card's V/F curve rather than at some round
+    # number: above that the cap cannot select a higher point and does nothing,
+    # and below it every step is real.
+    VOLT_LIMIT_MAX_MV = 1250.0
+    VOLT_LIMIT_MIN_MV = 700.0
+    # Off unless something deliberately turns it on, exactly like the rail-1
+    # gate. A slider must not be able to set this by itself.
+    volt_limits_write_enabled = False
+
+    _ESC_B213, _ESC_F214 = 0x2080B213, 0x2080F214
+    _ESC_REC0, _ESC_STRIDE = 20, 8
+
+    class _Escape(ctypes.Structure):
+        _fields_ = [("hAdapter", u32), ("hDevice", u32), ("Type", u32),
+                    ("Flags", u32), ("pPrivateDriverData", ctypes.c_void_p),
+                    ("PrivateDriverDataSize", u32), ("hContext", u32)]
+
+    def _write_rail_records(self, records):
+        """Issue one rails-control WRITE. Returns (ok, RM status).
+
+        The hook is one-shot: it restores the original bytes before calling
+        through, so the real function is what runs and there is no trampoline
+        to build - which also means no instruction-length decoding and no
+        disassembler in the shipped bundle. Not thread safe, and does not need
+        to be: it is installed around a single call and removed by then.
+        """
+        a = self.nvapi
+        gdi = ctypes.WinDLL("gdi32.dll")
+        addr = ctypes.cast(gdi.D3DKMTEscape, ctypes.c_void_p).value
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.VirtualProtect.argtypes = [ctypes.c_void_p, ctypes.c_size_t, u32,
+                                       ctypes.POINTER(u32)]
+        orig = bytes((ctypes.c_ubyte * 14).from_address(addr))
+        proto = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p)
+        state = {"status": None, "done": False}
+
+        def restore():
+            ctypes.memmove(addr, orig, 14)
+
+        def cb(pesc):
+            hit = None
+            try:
+                if pesc and not state["done"]:
+                    e = GPU._Escape.from_address(pesc)
+                    if (e.pPrivateDriverData
+                            and e.PrivateDriverDataSize >= 64):
+                        pu = ctypes.cast(e.pPrivateDriverData,
+                                         ctypes.POINTER(u32))
+                        pi = ctypes.cast(e.pPrivateDriverData,
+                                         ctypes.POINTER(i32))
+                        if pu[14] == GPU._ESC_B213:
+                            pu[14] = GPU._ESC_F214
+                            pu[18] = 0x3
+                            for r, vals in records.items():
+                                b = GPU._ESC_REC0 + r * GPU._ESC_STRIDE
+                                pi[b] = 5
+                                for k, v in enumerate(vals):
+                                    pi[b + 1 + k] = int(v)
+                                pi[b + 7] = 1
+                            hit = pu
+                            state["done"] = True
+            except Exception:
+                pass
+            restore()                     # real bytes back before calling
+            rc = proto(addr)(pesc)
+            if hit is not None:
+                state["status"] = hit[16]
+            return rc
+
+        keep = proto(cb)
+        old = u32()
+        k32.VirtualProtect(ctypes.c_void_p(addr), 14, 0x40, ctypes.byref(old))
+        patch = (b"\xFF\x25\x00\x00\x00\x00"
+                 + struct.pack("<Q", ctypes.cast(keep, ctypes.c_void_p).value))
+        ctypes.memmove(addr, patch, 14)
+        try:
+            buf = (ctypes.c_ubyte * 8192)()
+            ctypes.memset(buf, 0, 8192)
+            p = ctypes.cast(buf, ctypes.POINTER(u32))
+            p[0], p[1] = 0x00020AC8, 0x3
+            a.VoltRailsCtlGet(a.gpu, ctypes.byref(buf))
+        finally:
+            restore()
+            k32.VirtualProtect(ctypes.c_void_p(addr), 14, old,
+                               ctypes.byref(old))
+        return state["done"], state["status"]
+
+    def set_volt_rail_limits(self, rail, ceiling_mv=None, floor_mv=None):
+        """Set one rail's voltage ceiling and/or floor, in ABSOLUTE millivolts.
+
+        Returns (ok, message). Unspecified limits keep their current value, and
+        every write is read back and compared before it is called a success -
+        this block stores the request verbatim, so a read-back proves only that
+        the request was stored, never that the card will honour it.
+        """
+        if not self.volt_limits_write_enabled:
+            return False, ("rail limit writes are disabled: nothing bounds "
+                           "this value but Druta, so it is off by default")
+        cur = self.read_volt_rail_limits()
+        if cur is None:
+            return False, "cannot read the current limits"
+        recs = {r: [int(round(cur[r]["reliability"] * 1000)),
+                    int(round(cur[r]["alt_reliability"] * 1000)),
+                    int(round(cur[r]["overvoltage"] * 1000)),
+                    int(round(cur[r]["vmin"] * 1000))] for r in (0, 1)}
+        for idx, mv, key in ((0, ceiling_mv, "reliability"),
+                             (3, floor_mv, "vmin")):
+            if mv is None:
+                continue
+            if not (self.VOLT_LIMIT_MIN_MV <= mv <= self.VOLT_LIMIT_MAX_MV):
+                return False, (f"{mv:.0f} mV is outside Druta's "
+                               f"{self.VOLT_LIMIT_MIN_MV:.0f}-"
+                               f"{self.VOLT_LIMIT_MAX_MV:.0f} mV bound")
+            recs[rail][idx] = int(round(
+                (mv - self.VOLT_LIMIT_BASE_MV[key]) * 1000))
+        ok, status = self._write_rail_records(recs)
+        if not ok:
+            return False, "the rails request was not seen - nothing was written"
+        if status:
+            return False, f"driver refused the write (NV_STATUS 0x{status:X})"
+        back = self.read_volt_rail_limits()
+        if back is None:
+            return False, "write issued but the read-back failed"
+        got = [int(round(back[rail][k] * 1000)) for k in
+               ("reliability", "alt_reliability", "overvoltage", "vmin")]
+        if got != recs[rail]:
+            return False, (f"read-back disagrees: wanted {recs[rail]}, "
+                           f"got {got}")
+        return True, (f"{_RAIL_NAME[rail]} limits now "
+                      f"{back[rail]['vmin'] + self.VOLT_LIMIT_BASE_MV['vmin']:.0f}"
+                      f"-"
+                      f"{back[rail]['reliability'] + self.VOLT_LIMIT_BASE_MV['reliability']:.0f}"
+                      f" mV")
+
+    def reset_volt_rail_limits(self):
+        """Put both rails back to this card's power-on limits.
+
+        NOT all zero: this card ships MSVDD 50 mV below NVVDD, so zeroing both
+        would RAISE the MSVDD ceiling rather than restore it.
+        """
+        if not self.volt_limits_write_enabled:
+            return False, "rail limit writes are disabled"
+        ok, status = self._write_rail_records(
+            {0: [0, 0, 0, 0], 1: [-50000, 0, 0, 0]})
+        if not ok or status:
+            return False, f"reset refused (NV_STATUS 0x{status or 0:X})"
+        return True, "rail limits back to the power-on values"
 
     def volt_rail_limits_mv(self):
         """The same limits resolved to absolute millivolts, or ``None``."""
