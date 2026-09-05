@@ -1255,36 +1255,39 @@ class Druta:
         this block stores a request verbatim, so the only honest thing to show
         is what a fresh read gives back.
         """
-        lim = self.gpu.volt_rail_limits_mv()
-        if not lim:
+        raw = self.gpu.read_volt_rail_limits()
+        if not raw:
             return
         if dpg.does_item_exist("volt_limits_txt"):
-            dpg.set_value("volt_limits_txt", self.volt_limits_text(lim))
-        for key, field in (("vlim_hi", "reliability"), ("vlim_lo", "vmin")):
-            v = int(round(lim[0][field]))
+            dpg.set_value("volt_limits_txt", self.volt_limits_text(raw))
+        # The ceiling knob shows the ENFORCED ceiling, so a value the other
+        # field is quietly overriding can never sit on the slider looking
+        # applied.
+        for key, val in (("vlim_hi", GPU.rail_ceiling_mv(raw[0])),
+                         ("vlim_lo", GPU.rail_floor_mv(raw[0]))):
             for pre in ("sl_", "in_"):
                 if dpg.does_item_exist(pre + key):
-                    dpg.set_value(pre + key, v)
+                    dpg.set_value(pre + key, int(round(val)))
 
-    @staticmethod
-    def volt_limits_text(lim):
+    def volt_limits_text(self, raw):
         """One line describing the per-rail voltage limits.
 
-        Ceiling and floor only. alt_reliability is shown when it differs from
-        the main ceiling, because on this card that gap is exactly the range
-        the boost slider interpolates across, and hiding it would make the
-        boost look like it was exceeding the cap.
+        Shows the ENFORCED ceiling, which is the lower of the two ceiling
+        fields, not whichever one was typed. An earlier version printed the
+        requested number and so read 1153 while the card was pinned at 1060 by
+        the other field - the display agreed with the request instead of with
+        the hardware, which is the one thing it must never do.
+
+        `raw` is the delta form from read_volt_rail_limits.
         """
         bits = []
         for rail, name in ((0, "NVVDD"), (1, "MSVDD")):
-            f = lim.get(rail)
+            f = raw.get(rail)
             if not f:
                 continue
-            s = f"{name} {f['reliability']:.0f}"
-            if abs(f["alt_reliability"] - f["reliability"]) >= 0.5:
-                s += f"/{f['alt_reliability']:.0f}"
-            bits.append(s + f"-{f['vmin']:.0f} mV")
-        return "rail limits (read-only):  " + "    ".join(bits)
+            bits.append(f"{name} {GPU.rail_floor_mv(f):.0f}-"
+                        f"{GPU.rail_ceiling_mv(f):.0f} mV")
+        return "rail limits (enforced):  " + "    ".join(bits)
 
     def risk_features(self):
         """Which guardrail-removing features are actually live right now.
@@ -1649,7 +1652,7 @@ class Druta:
                     # NvAPI. Worth showing anyway - the factory value is NOT
                     # zero on every rail, and an external tool that has moved
                     # these is otherwise invisible from inside Druta.
-                    lim = self.gpu.volt_rail_limits_mv()
+                    lim = self.gpu.read_volt_rail_limits()
                     if lim:
                         # In a row of its own: every child of this table has to
                         # be a table_row, and a bare add_text here fails inside
@@ -1671,12 +1674,12 @@ class Druta:
                         hi_mv = int(GPU.VOLT_LIMIT_MAX_MV)
                         self.slider_row(
                             "vlim_hi", "NVVDD ceiling (mV)", lo_mv, hi_mv,
-                            int(round(lim[0]["reliability"])),
+                            int(round(GPU.rail_ceiling_mv(lim[0]))),
                             lambda v: self.apply_vlim(ceiling_mv=v),
                             extra=("Stock", self.apply_vlim_reset))
                         self.slider_row(
                             "vlim_lo", "NVVDD floor (mV)", lo_mv, hi_mv,
-                            int(round(lim[0]["vmin"])),
+                            int(round(GPU.rail_floor_mv(lim[0]))),
                             lambda v: self.apply_vlim(floor_mv=v))
 
                     # A SECOND mechanism on the same rail as the boost above,

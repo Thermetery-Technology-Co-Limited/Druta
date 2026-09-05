@@ -3126,7 +3126,16 @@ class GPU:
     # nothing exposes it - but pinned by the reconstruction in the comment on
     # read_volt_rail_limits, where four independent settings all resolved
     # against 1040 mV for the ceilings and 800 mV for the floors.
-    VOLT_LIMIT_BASE_MV = {"reliability": 1040.0, "alt_reliability": 1040.0,
+    # alt_reliability is based at 1060, NOT 1040 like the other ceilings, and
+    # getting that wrong is not cosmetic: THE CARD ENFORCES THE LOWER OF THE
+    # TWO CEILINGS. Writing reliability alone moves nothing, because
+    # alt_reliability stays at its 1060 base and keeps clamping - measured
+    # exactly that way, a 1153 mV ceiling with alt untouched held vcore at
+    # 1060 with PerfCap reporting VRel. Setting alt as well took the same card
+    # to 1145 mV instantly. The 1060 base is pinned by that measurement: +93
+    # held 1145, which a 1040 base could not produce because it would cap at
+    # 1133, below the point the card was actually holding.
+    VOLT_LIMIT_BASE_MV = {"reliability": 1040.0, "alt_reliability": 1060.0,
                           "overvoltage": 1040.0, "vmin": 800.0}
 
     # ---- writing the limits ---------------------------------------------- #
@@ -3256,7 +3265,11 @@ class GPU:
                     int(round(cur[r]["alt_reliability"] * 1000)),
                     int(round(cur[r]["overvoltage"] * 1000)),
                     int(round(cur[r]["vmin"] * 1000))] for r in (0, 1)}
+        # A ceiling writes BOTH ceiling fields, each against its own base. The
+        # card enforces the lower of them, so writing one and leaving the other
+        # at its base is a write that reads back perfectly and changes nothing.
         for idx, mv, key in ((0, ceiling_mv, "reliability"),
+                             (1, ceiling_mv, "alt_reliability"),
                              (3, floor_mv, "vmin")):
             if mv is None:
                 continue
@@ -3280,19 +3293,36 @@ class GPU:
             return False, (f"read-back disagrees: wanted {recs[rail]}, "
                            f"got {got}")
         return True, (f"{_RAIL_NAME[rail]} limits now "
-                      f"{back[rail]['vmin'] + self.VOLT_LIMIT_BASE_MV['vmin']:.0f}"
-                      f"-"
-                      f"{back[rail]['reliability'] + self.VOLT_LIMIT_BASE_MV['reliability']:.0f}"
-                      f" mV")
+                      f"{self.rail_floor_mv(back[rail]):.0f}-"
+                      f"{self.rail_ceiling_mv(back[rail]):.0f} mV")
+
+    @classmethod
+    def rail_ceiling_mv(cls, fields):
+        """The ceiling the card will actually enforce: the LOWER of the two.
+
+        `fields` is one rail's dict of millivolt DELTAS, as
+        read_volt_rail_limits returns it.
+        """
+        return min(fields["reliability"] + cls.VOLT_LIMIT_BASE_MV["reliability"],
+                   fields["alt_reliability"]
+                   + cls.VOLT_LIMIT_BASE_MV["alt_reliability"])
+
+    @classmethod
+    def rail_floor_mv(cls, fields):
+        return fields["vmin"] + cls.VOLT_LIMIT_BASE_MV["vmin"]
 
     def reset_volt_rail_limits(self):
         """Put both rails back to this card's power-on limits.
 
         NOT all zero: this card ships MSVDD 50 mV below NVVDD, so zeroing both
         would RAISE the MSVDD ceiling rather than restore it.
+
+        Deliberately NOT gated on volt_limits_write_enabled. That gate exists to
+        stop a slider raising a ceiling by itself; this call only ever lowers
+        one back to the power-on value. Refusing it because "writes are
+        disabled" would strand a card on limits the user is trying to clear -
+        which is the exact stickiness that made this feature necessary.
         """
-        if not self.volt_limits_write_enabled:
-            return False, "rail limit writes are disabled"
         ok, status = self._write_rail_records(
             {0: [0, 0, 0, 0], 1: [-50000, 0, 0, 0]})
         if not ok or status:
@@ -4164,6 +4194,20 @@ class GPU:
             if rail:
                 steps.append(ResetStep("core rail offset",
                                        self.set_rail_offset_mv(0, 0)))
+        # The rail LIMITS are a fourth mechanism, and they outlive the app: they
+        # are driver state that a reboot does not clear and that the display
+        # reset does not touch. Leaving them out would make Druta exactly as
+        # sticky as the tool whose leftovers we had to clear with a PnP restart,
+        # which is the complaint that started this work. Only emitted when they
+        # are actually off the power-on values, so a stock card does not carry a
+        # pointless step.
+        cur = self.read_volt_rail_limits()
+        if cur and (cur[0] != {"type": cur[0]["type"], "reliability": 0.0,
+                               "alt_reliability": 0.0, "overvoltage": 0.0,
+                               "vmin": 0.0}
+                    or cur[1]["vmin"] or cur[1]["reliability"] != -50.0):
+            steps.append(ResetStep("rail limits",
+                                   self.reset_volt_rail_limits()))
         if self.static.get("pl_def_mw"):
             steps.append(ResetStep(
                 "power limit", self.set_power_limit_mw(self.static["pl_def_mw"])))
