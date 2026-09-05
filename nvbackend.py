@@ -3126,17 +3126,40 @@ class GPU:
     # nothing exposes it - but pinned by the reconstruction in the comment on
     # read_volt_rail_limits, where four independent settings all resolved
     # against 1040 mV for the ceilings and 800 mV for the floors.
-    # alt_reliability is based at 1060, NOT 1040 like the other ceilings, and
-    # getting that wrong is not cosmetic: THE CARD ENFORCES THE LOWER OF THE
-    # TWO CEILINGS. Writing reliability alone moves nothing, because
-    # alt_reliability stays at its 1060 base and keeps clamping - measured
-    # exactly that way, a 1153 mV ceiling with alt untouched held vcore at
-    # 1060 with PerfCap reporting VRel. Setting alt as well took the same card
-    # to 1145 mV instantly. The 1060 base is pinned by that measurement: +93
-    # held 1145, which a 1040 base could not produce because it would cap at
-    # 1133, below the point the card was actually holding.
+    # alt_reliability is based at 1060, NOT 1040 like the other ceilings. The
+    # 1060 base is pinned by measurement: a +93 delta held 1145 mV, which a
+    # 1040 base cannot produce because it would cap at 1133, below the point
+    # the card was observed holding.
     VOLT_LIMIT_BASE_MV = {"reliability": 1040.0, "alt_reliability": 1060.0,
                           "overvoltage": 1040.0, "vmin": 800.0}
+
+    # THE TWO CEILINGS ARE NOT THE SAME KNOB, and treating them as one is a
+    # real regression rather than a harmless simplification. Measured under
+    # load, boost 0% vs 100%, on this card:
+    #
+    #     reliability / alt      boost 0     boost 100
+    #     1040 / 1060 (stock)    1040 mV     1060 mV
+    #     1150 / 1060            1060 mV     1060 mV
+    #     1040 / 1150            1040 mV     1060 mV
+    #     1150 / 1150            1145 mV     1145 mV
+    #
+    # All eight points fit one rule:
+    #
+    #     cap = min(reliability + boost% * headroom, alt_reliability)
+    #
+    # so reliability is the base the voltage-boost slider climbs FROM, and
+    # alt_reliability is a hard clamp over the result. Row 2 is why writing
+    # reliability alone does nothing, and row 4 is why writing BOTH to the
+    # requested ceiling - which is what an external tool leaves behind - makes
+    # the boost slider inert: 0% and 100% both land on the same volt.
+    #
+    # The headroom is the VBIOS over-voltage allowance and is exactly the gap
+    # between the two bases, so it is derived rather than hardcoded.
+    @classmethod
+    def volt_boost_headroom_mv(cls):
+        """What 100% voltage boost is worth, in millivolts."""
+        return (cls.VOLT_LIMIT_BASE_MV["alt_reliability"]
+                - cls.VOLT_LIMIT_BASE_MV["reliability"])
 
     # ---- writing the limits ---------------------------------------------- #
     # NvAPI has no export that writes this block, but RM does implement the
@@ -3247,37 +3270,47 @@ class GPU:
                                ctypes.byref(old))
         return state["done"], state["status"]
 
-    def set_volt_rail_limits(self, rail, ceiling_mv=None, floor_mv=None):
-        """Set one rail's voltage ceiling and/or floor, in ABSOLUTE millivolts.
+    # The four limits, in the order they sit in an RM record.
+    VOLT_LIMIT_FIELDS = ("reliability", "alt_reliability", "overvoltage",
+                         "vmin")
 
-        Returns (ok, message). Unspecified limits keep their current value, and
-        every write is read back and compared before it is called a success -
-        this block stores the request verbatim, so a read-back proves only that
-        the request was stored, never that the card will honour it.
+    def set_volt_rail_limits(self, rail, **limits):
+        """Set one rail's limits, each in ABSOLUTE millivolts against its base.
+
+        Keywords are the names in VOLT_LIMIT_FIELDS. Every limit is a SEPARATE
+        field and is written only if named here - nothing is derived from
+        anything else. That is deliberate: `reliability` and `alt_reliability`
+        interact (see the measured table above), and a single synthetic
+        "ceiling" knob would have to pick one mapping of that interaction and
+        hide the rest. Showing both and letting the caller decide keeps the
+        hardware legible; a wrapper that wants one number can compose these two
+        calls itself and say so.
+
+        Returns (ok, message). Every write is read back and compared before it
+        is called a success - but note what that does and does not prove: this
+        block stores a request verbatim, so a matching read-back means the
+        request was stored, never that the card will honour it. Only
+        rail_ceiling_mv, or a rail measurement under load, answers the second.
         """
         if not self.volt_limits_write_enabled:
             return False, ("rail limit writes are disabled: nothing bounds "
                            "this value but Druta, so it is off by default")
+        unknown = set(limits) - set(self.VOLT_LIMIT_FIELDS)
+        if unknown:
+            return False, f"not a rail limit: {', '.join(sorted(unknown))}"
         cur = self.read_volt_rail_limits()
         if cur is None:
             return False, "cannot read the current limits"
-        recs = {r: [int(round(cur[r]["reliability"] * 1000)),
-                    int(round(cur[r]["alt_reliability"] * 1000)),
-                    int(round(cur[r]["overvoltage"] * 1000)),
-                    int(round(cur[r]["vmin"] * 1000))] for r in (0, 1)}
-        # A ceiling writes BOTH ceiling fields, each against its own base. The
-        # card enforces the lower of them, so writing one and leaving the other
-        # at its base is a write that reads back perfectly and changes nothing.
-        for idx, mv, key in ((0, ceiling_mv, "reliability"),
-                             (1, ceiling_mv, "alt_reliability"),
-                             (3, floor_mv, "vmin")):
+        recs = {r: [int(round(cur[r][k] * 1000))
+                    for k in self.VOLT_LIMIT_FIELDS] for r in (0, 1)}
+        for key, mv in limits.items():
             if mv is None:
                 continue
             if not (self.VOLT_LIMIT_MIN_MV <= mv <= self.VOLT_LIMIT_MAX_MV):
-                return False, (f"{mv:.0f} mV is outside Druta's "
+                return False, (f"{key} {mv:.0f} mV is outside Druta's "
                                f"{self.VOLT_LIMIT_MIN_MV:.0f}-"
                                f"{self.VOLT_LIMIT_MAX_MV:.0f} mV bound")
-            recs[rail][idx] = int(round(
+            recs[rail][self.VOLT_LIMIT_FIELDS.index(key)] = int(round(
                 (mv - self.VOLT_LIMIT_BASE_MV[key]) * 1000))
         ok, status = self._write_rail_records(recs)
         if not ok:
@@ -3287,29 +3320,52 @@ class GPU:
         back = self.read_volt_rail_limits()
         if back is None:
             return False, "write issued but the read-back failed"
-        got = [int(round(back[rail][k] * 1000)) for k in
-               ("reliability", "alt_reliability", "overvoltage", "vmin")]
+        got = [int(round(back[rail][k] * 1000))
+               for k in self.VOLT_LIMIT_FIELDS]
         if got != recs[rail]:
             return False, (f"read-back disagrees: wanted {recs[rail]}, "
                            f"got {got}")
-        return True, (f"{_RAIL_NAME[rail]} limits now "
+        # Report the fields that were written AND what they add up to, because
+        # the second is not obvious from the first: raising reliability alone
+        # can leave the reachable maximum exactly where it was.
+        wrote = ", ".join(f"{k} {self.abs_limit_mv(back[rail], k):.0f}"
+                          for k in sorted(limits))
+        return True, (f"{_RAIL_NAME[rail]}: {wrote} mV  ->  reaches "
                       f"{self.rail_floor_mv(back[rail]):.0f}-"
                       f"{self.rail_ceiling_mv(back[rail]):.0f} mV")
 
     @classmethod
+    def abs_limit_mv(cls, fields, key):
+        """One limit as an absolute voltage. Each has its OWN base."""
+        return fields[key] + cls.VOLT_LIMIT_BASE_MV[key]
+
+    @classmethod
     def rail_ceiling_mv(cls, fields):
-        """The ceiling the card will actually enforce: the LOWER of the two.
+        """The highest voltage this rail can reach, i.e. at 100% boost.
+
+        DERIVED, not a field. Measured under load across four configurations:
+
+            cap = min(reliability + boost% * headroom, alt_reliability)
+
+        so the reachable maximum is reliability plus the whole boost headroom,
+        clamped by alt_reliability. Reporting either field on its own is what
+        made a 1153 mV write look applied while the card sat at 1060.
+
+        MEASURED ON RAIL 0 ONLY. Both bases and the boost interaction were
+        established against NVVDD; MSVDD's alt_reliability base has never been
+        pinned and its boost behaviour was never observed, so this is an
+        extrapolation there and callers should not quote it as a measurement.
 
         `fields` is one rail's dict of millivolt DELTAS, as
         read_volt_rail_limits returns it.
         """
-        return min(fields["reliability"] + cls.VOLT_LIMIT_BASE_MV["reliability"],
-                   fields["alt_reliability"]
-                   + cls.VOLT_LIMIT_BASE_MV["alt_reliability"])
+        return min(cls.abs_limit_mv(fields, "reliability")
+                   + cls.volt_boost_headroom_mv(),
+                   cls.abs_limit_mv(fields, "alt_reliability"))
 
     @classmethod
     def rail_floor_mv(cls, fields):
-        return fields["vmin"] + cls.VOLT_LIMIT_BASE_MV["vmin"]
+        return cls.abs_limit_mv(fields, "vmin")
 
     def reset_volt_rail_limits(self):
         """Put both rails back to this card's power-on limits.

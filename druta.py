@@ -1231,15 +1231,15 @@ class Druta:
             dpg.add_table_column(width_fixed=True,
                                  init_width_or_weight=self.s(w))
 
-    def apply_vlim(self, ceiling_mv=None, floor_mv=None):
+    def apply_vlim(self, **limits):
         """Write one NVVDD limit and report what the card actually took.
 
-        Both knobs go through here so that a ceiling change never silently
-        rewrites the floor, or the reverse: the backend keeps every limit it
-        was not given.
+        One knob per FIELD, passed straight through: Druta does not synthesise
+        a ceiling out of the two that interact, because that would mean picking
+        a mapping and hiding it. The log line says what was written and what it
+        adds up to, which is where the interaction becomes visible.
         """
-        ok, msg = self.gpu.set_volt_rail_limits(
-            0, ceiling_mv=ceiling_mv, floor_mv=floor_mv)
+        ok, msg = self.gpu.set_volt_rail_limits(0, **limits)
         self.log(msg, ok)
         self.refresh_volt_limits()
 
@@ -1260,23 +1260,24 @@ class Druta:
             return
         if dpg.does_item_exist("volt_limits_txt"):
             dpg.set_value("volt_limits_txt", self.volt_limits_text(raw))
-        # The ceiling knob shows the ENFORCED ceiling, so a value the other
-        # field is quietly overriding can never sit on the slider looking
-        # applied.
-        for key, val in (("vlim_hi", GPU.rail_ceiling_mv(raw[0])),
-                         ("vlim_lo", GPU.rail_floor_mv(raw[0]))):
+        # One knob per field, each showing its own value. The number they add
+        # up to is in the readout line above, not folded into a slider.
+        for key, field in (("vlim_rel", "reliability"),
+                           ("vlim_alt", "alt_reliability"),
+                           ("vlim_lo", "vmin")):
+            val = int(round(GPU.abs_limit_mv(raw[0], field)))
             for pre in ("sl_", "in_"):
                 if dpg.does_item_exist(pre + key):
-                    dpg.set_value(pre + key, int(round(val)))
+                    dpg.set_value(pre + key, val)
 
     def volt_limits_text(self, raw):
-        """One line describing the per-rail voltage limits.
+        """The per-rail limits: every field, and what they add up to.
 
-        Shows the ENFORCED ceiling, which is the lower of the two ceiling
-        fields, not whichever one was typed. An earlier version printed the
-        requested number and so read 1153 while the card was pinned at 1060 by
-        the other field - the display agreed with the request instead of with
-        the hardware, which is the one thing it must never do.
+        Both are shown on purpose. The fields are what is stored; the reach is
+        what the card will actually do, and the two can disagree completely -
+        reliability 1150 with alt_reliability at its 1060 base stores exactly
+        what was asked and reaches nothing. Printing only the fields hides
+        that, and printing only the reach hides which knob to move.
 
         `raw` is the delta form from read_volt_rail_limits.
         """
@@ -1285,9 +1286,18 @@ class Druta:
             f = raw.get(rail)
             if not f:
                 continue
-            bits.append(f"{name} {GPU.rail_floor_mv(f):.0f}-"
-                        f"{GPU.rail_ceiling_mv(f):.0f} mV")
-        return "rail limits (enforced):  " + "    ".join(bits)
+            s = (f"{name}  rel {GPU.abs_limit_mv(f, 'reliability'):.0f} / "
+                 f"alt {GPU.abs_limit_mv(f, 'alt_reliability'):.0f} / "
+                 f"vmin {GPU.rail_floor_mv(f):.0f}")
+            # The reach is quoted only for the rail it was MEASURED on. The
+            # same arithmetic applied to MSVDD would print a confident number
+            # for a rail whose bases were never pinned and whose boost
+            # behaviour was never observed, which is the overclaim this line
+            # exists to avoid.
+            if rail == 0:
+                s += f"  -> reaches {GPU.rail_ceiling_mv(f):.0f} mV"
+            bits.append(s)
+        return "rail limits:   " + "      ".join(bits)
 
     def risk_features(self):
         """Which guardrail-removing features are actually live right now.
@@ -1347,13 +1357,13 @@ class Druta:
         # it cannot outlive the state that justified it. Nothing but Druta
         # bounds this value, so it must never be on by default.
         GPU.volt_limits_write_enabled = "volt_limits" in live
-        for k in ("vlim_hi", "vlim_lo"):
+        for k in ("vlim_rel", "vlim_alt", "vlim_lo"):
             for pre in ("sl_", "in_", "go_"):
                 if dpg.does_item_exist(pre + k):
                     dpg.configure_item(pre + k,
                                        enabled="volt_limits" in live)
-        if dpg.does_item_exist("go_vlim_hi_x"):
-            dpg.configure_item("go_vlim_hi_x", enabled="volt_limits" in live)
+        if dpg.does_item_exist("go_vlim_rel_x"):
+            dpg.configure_item("go_vlim_rel_x", enabled="volt_limits" in live)
 
         # AHEAD of the RISK_STOCK return below, not after the banner work: this
         # is the call that puts the knobs BACK when XOC is unticked, and behind
@@ -1670,17 +1680,35 @@ class Druta:
                         # whatever the block will swallow: it accepts 1500 mV
                         # and reads it straight back, so Druta's bound is the
                         # only one there is.
+                        # ONE KNOB PER FIELD, named for the field. No synthetic
+                        # "ceiling": the two reliability limits interact, and
+                        # collapsing them means choosing a mapping and hiding
+                        # it. Measured under load on this card:
+                        #     cap = min(rel + boost% * 20mV, alt)
+                        # so rel is where the boost slider starts and alt is a
+                        # hard clamp over the result. Raising rel alone reaches
+                        # nothing; raising both to the same volt works but
+                        # leaves the boost slider with nothing to do. The
+                        # readout above states what the pair actually reaches,
+                        # so either outcome is visible rather than inferred.
                         lo_mv = int(GPU.VOLT_LIMIT_MIN_MV)
                         hi_mv = int(GPU.VOLT_LIMIT_MAX_MV)
                         self.slider_row(
-                            "vlim_hi", "NVVDD ceiling (mV)", lo_mv, hi_mv,
-                            int(round(GPU.rail_ceiling_mv(lim[0]))),
-                            lambda v: self.apply_vlim(ceiling_mv=v),
+                            "vlim_rel", "NVVDD reliability (mV)", lo_mv, hi_mv,
+                            int(round(GPU.abs_limit_mv(lim[0],
+                                                       "reliability"))),
+                            lambda v: self.apply_vlim(reliability=v),
                             extra=("Stock", self.apply_vlim_reset))
                         self.slider_row(
-                            "vlim_lo", "NVVDD floor (mV)", lo_mv, hi_mv,
+                            "vlim_alt", "NVVDD alt-reliability (mV)",
+                            lo_mv, hi_mv,
+                            int(round(GPU.abs_limit_mv(lim[0],
+                                                       "alt_reliability"))),
+                            lambda v: self.apply_vlim(alt_reliability=v))
+                        self.slider_row(
+                            "vlim_lo", "NVVDD vmin (mV)", lo_mv, hi_mv,
                             int(round(GPU.rail_floor_mv(lim[0]))),
-                            lambda v: self.apply_vlim(floor_mv=v))
+                            lambda v: self.apply_vlim(vmin=v))
 
                     # A SECOND mechanism on the same rail as the boost above,
                     # and the note says so: they are different calls, neither
