@@ -26,6 +26,39 @@ tmp_ret = collect_all('dearpygui')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 
+# KNOWN AND DELIBERATELY NOT "FIXED": Analysis collects the Visual C++ runtime
+# from three different origins, so the shipped bundle carries three CRT
+# versions at once.
+#
+#   MSVCP140.dll                14.51  <- C:\Windows\System32
+#   VCRUNTIME140_1.dll          14.51  <- C:\Windows\System32
+#   VCRUNTIME140.dll            14.42  <- the Python installation
+#   dearpygui/vcruntime140_1.dll 14.28 <- bundled inside the dearpygui wheel
+#
+# Microsoft's guidance is to deploy the runtime as a matched set, and pairing a
+# 14.51 MSVCP140 with a 14.42 VCRUNTIME140 is the unsupported direction (newer
+# consumer, older provider). It therefore looks like an obvious suspect the
+# first time a bundled build faults inside MSVCP140, and it was investigated as
+# exactly that.
+#
+# IT IS NOT ONE, on the evidence:
+#   - The crash that prompted the investigation was root-caused elsewhere
+#     entirely, to a Dear PyGui call made before create_context(). That
+#     reproduces 3/3 from a bare python.exe against the SYSTEM MSVCP140, with
+#     no bundle, no _internal/ and no PyInstaller involved, at a byte-identical
+#     fault offset. Packaging was not on the path.
+#   - The version gap has no import-surface consequence here: MSVCP140 14.51
+#     imports 17 symbols from VCRUNTIME140, all 17 are exported by the bundled
+#     14.42, and 14.51 exports nothing that 14.42 lacks. A genuinely missing
+#     entry point would fail the load outright rather than access-violate.
+#
+# So this stays as it is. Pinning the origins means overriding PyInstaller's
+# CRT collection, which is easy to get subtly wrong, and it would be a change
+# to a build that is measured working in exchange for no demonstrated defect.
+# The note exists so the next person to see MSVCP140 in a crash dump does not
+# spend the afternoon re-deriving that it was a red herring. If the CRT ever
+# does become implicated, the evidence to gather first is whether the fault
+# reproduces OUTSIDE the bundle - if it does, this is not the cause.
 a = Analysis(
     ['druta.py'],
     pathex=[],
