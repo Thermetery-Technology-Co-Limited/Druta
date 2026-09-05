@@ -808,6 +808,39 @@ CLKDOM_RAIL0_UV = CLKDOM_NVVDD_UV  # older name, kept so callers do not break
 # its acceptance means "nothing validates this", not "this rail is here". Not
 # reachable on TU102 through this interface. Read, never written.
 CLKDOM_MSVDD_UV = CLKDOM_LAYOUT_TURING.msvdd_uv
+
+_RAIL_NAME = {0: "core rail (NVVDD)", 1: "MSVDD"}
+
+# WHAT IS AND IS NOT ESTABLISHED ABOUT RAIL 1, measured on RTX 5080 / 580.97.
+#
+# ESTABLISHED, and it is a change from Turing: the write is ACCEPTED. Turing
+# refused it on every domain that does anything. Blackwell accepts it on all
+# nine, which sounds like progress and is not - it accepts on domains 5 and 7
+# too, and those move nothing whatsoever. Acceptance on a provably inert domain
+# means "nothing validates this", not "the rail is here". Exactly the reading
+# already recorded for TU102 domain 6.
+#
+# NOT ESTABLISHED, and this is why the write is off by default:
+#   - the card exposes NO MSVDD readback. VoltRailsStatus returns one rail
+#     (NVVDD) and every other version word returns -9, so a write cannot be
+#     read back and the module's usual read-back guard is unavailable here.
+#   - no measurable effect was found. Against NVVDD as a positive control at
+#     the same magnitude - which moved vcore +10 mV for +25 and +35 mV for
+#     +50, frequency-locked - rail 1 moved neither vcore nor board power at
+#     +-25 or +-50 mV. Board power is a blunt instrument at this operating
+#     point (NVVDD's own signature was +1.2 W against +-0.3 W of noise), so
+#     that is a failure to detect and NOT a demonstration of no effect.
+#   - the OFFSET ITSELF is unverified HERE. 0x118 was confirmed as NVVDD by
+#     watching vcore follow it; 0x11C has had no equivalent check, because the
+#     check needs a readback this card does not provide. That is a gap in OUR
+#     evidence, not a doubt about where the offset came from - it is
+#     contributed work from a source this project trusts. Unverified and
+#     unreliable are different words and only the first one applies.
+#
+# Left switchable rather than deleted because cross-checking it against another
+# tool's behaviour on the same card is legitimate black-box measurement, and
+# that is how the identity gets settled. Nothing here is derived from any other
+# tool's code or data.
 CLKDOM_XBAR = 1
 
 # MEASURED, not inherited. This block does NOT use the private clock getter's
@@ -1890,6 +1923,11 @@ class GPU:
     # lands in a per-domain control block, and neither reads or clears the other.
     _CLKDOM_BUF = 65536            # far larger than the 24996 declared
 
+    # Rail 1 writes: off unless a caller sets this. See _RAIL_NAME above for
+    # the evidence. Deliberately a class attribute and not a UI checkbox
+    # default, so it cannot be flipped by a stray click.
+    msvdd_write_enabled = False
+
     def clkdom_is_blackwell(self):
         """Whether this is an RTX 50-series card.
 
@@ -2518,7 +2556,7 @@ class GPU:
         dw = (layout.header + domain * layout.stride + layout.nvvdd_uv) // 4
         return ctypes.cast(buf, ctypes.POINTER(i32))[dw] / 1000.0
 
-    def set_rail_offset_mv(self, mv, domain=0):
+    def set_rail_offset_mv(self, mv, domain=0, rail=0):
         """Offset the core rail by `mv` millivolts.
 
         MEASURED 1:1 on TU102 with the core clock pinned by the NVML frequency
@@ -2542,18 +2580,29 @@ class GPU:
         layout = self.clkdom_layout()
         if layout is None or layout.nvvdd_uv is None:
             return False, "NVVDD layout is not validated for this GPU/driver"
+        field = layout.nvvdd_uv if rail == 0 else layout.msvdd_uv
+        if field is None:
+            return False, f"rail {rail} has no field in the {layout.name} layout"
+        if rail != 0 and not self.msvdd_write_enabled:
+            # Off by default, and not something a slider can turn on by itself.
+            # See the class attribute for what is and is not established about
+            # this field.
+            return False, ("rail 1 writes are disabled: nothing on this card "
+                           "can read the rail back, so the write cannot be "
+                           "verified. Set GPU.msvdd_write_enabled to allow it.")
         uv = int(round(mv * 1000))
         st, buf = self._clkdom_get(1 << domain)
         if st != 0:
             return False, f"read failed (status {st})"
-        dw = (layout.header + domain * layout.stride + layout.nvvdd_uv) // 4
+        dw = (layout.header + domain * layout.stride + field) // 4
         was = ctypes.cast(buf, ctypes.POINTER(i32))[dw]
         if was == uv:
             # The diff guard below demands exactly one changed dword, so a
             # no-op write would be REFUSED rather than silently doing nothing.
             # Say so plainly instead of reporting a failure for a request that
             # is already satisfied.
-            return True, f"core rail offset already {uv/1000:+.2f} mV"
+            return True, (f"{_RAIL_NAME[rail]} offset already "
+                          f"{uv/1000:+.2f} mV")
         ctypes.cast(buf, ctypes.POINTER(i32))[dw] = uv
         st2, ref = self._clkdom_get(1 << domain)
         if st2 != 0:
@@ -2566,9 +2615,14 @@ class GPU:
                            f"expected only {dw}")
         sst = a.ClkDomCtlSet(a.gpu, ctypes.byref(buf))
         if sst != 0:
-            return False, f"core rail offset failed (status {sst})"
-        return True, (f"core rail offset {was/1000:+.2f} -> {uv/1000:+.2f} mV "
-                      f"(the card quantises to its 6.25 mV grid)")
+            return False, (f"{_RAIL_NAME[rail]} write failed "
+                           f"(status {sst})")
+        note = ("" if rail == 0 else
+                " - UNVERIFIABLE: nothing on this card reads this rail "
+                "back, so this is a request that was accepted, not a "
+                "change that was observed")
+        return True, (f"{_RAIL_NAME[rail]} offset {was/1000:+.2f} -> "
+                      f"{uv/1000:+.2f} mV{note}")
 
     def set_clk_domain_offset(self, domain, mhz):
         """Read-modify-write exactly one dword of the control block.

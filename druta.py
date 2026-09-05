@@ -1238,6 +1238,11 @@ class Druta:
             else:
                 self.rail.disable_xoc()
 
+        # The backend's rail-1 gate follows the XOC box, so it is impossible
+        # to leave it armed after unticking - the flag lives on the class and
+        # would otherwise outlast the state that justified it.
+        GPU.msvdd_write_enabled = state in (RISK_XOC, RISK_BOTH)
+
         # AHEAD of the RISK_NONE return below, not after the banner work: this
         # is the call that puts the knobs BACK when XOC is unticked, and behind
         # the return it would run on every state except the one that needs it.
@@ -1548,6 +1553,20 @@ class Druta:
                             # 2000 mV typo catcher the XOC banner names as the
                             # last bound left in Druta.
                             xoc_lo=-500, xoc_hi=500)
+
+                    # RAIL 1. Built only where the layout names a field for
+                    # it, and gated on XOC because it is the one knob here that
+                    # CANNOT be verified: this card exposes no readback for
+                    # this rail, so a write is a request that was accepted and
+                    # never a change that was observed. The label says
+                    # UNVERIFIED rather than a note, because per-knob subtext
+                    # is no longer drawn and this is not a caveat to bury.
+                    _lay = self.gpu.clkdom_layout()
+                    if _lay is not None and _lay.msvdd_uv is not None:
+                        self.slider_row(
+                            "msvdd", "MSVDD offset (mV)  UNVERIFIED",
+                            -50, 50, 0, self.apply_msvdd, color=BAD,
+                            xoc_lo=-150, xoc_hi=150)
 
                     # THE OTHER ROAD TO THE SAME RAIL, and the only knob in
                     # Druta with no firmware underneath it. Built only where a
@@ -1970,6 +1989,26 @@ class Druta:
             return
         self.autosave_before("i2c-rail-offset")
         self.report(self.rail.set_offset_mv(float(v), acknowledged=True))
+
+    def apply_msvdd(self, v):
+        """Rail 1. Gated on XOC, and honest about what it cannot prove.
+
+        Kept separate from apply_rail rather than folded in with a rail
+        argument: they are not the same knob. The core rail is measured 1:1
+        against a reading this app can take, and this one is a write into a
+        field whose identity comes from outside this project and whose effect
+        nothing here can see. Sharing a handler would imply a parity that the
+        evidence does not support.
+        """
+        if not self.guard():
+            return
+        if not (dpg.does_item_exist("xoc_mode") and dpg.get_value("xoc_mode")):
+            self.log("MSVDD: tick XOC first. This rail has no readback on this "
+                     "card, so the write cannot be verified - that is the "
+                     "class of thing XOC exists to gate.", False)
+            return
+        self.autosave_before("msvdd-offset")
+        self.report(self.gpu.set_rail_offset_mv(int(v), 0, rail=1))
 
     def apply_rail(self, v):
         # An undo point, like the core offset and unlike the other single
