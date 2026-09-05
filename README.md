@@ -12,6 +12,8 @@ writes the framebuffer-partition memory timing registers.
 > VRAM.** V/F curve edits can crash the display driver. Read
 > [Safety](#safety-first-what-can-go-wrong) before enabling any write path.
 >
+> Druta ships dangerous low-level I2C writing capabilities COMPLETELY IMPERVIOUS TO ANY DRIVER/BIOS SAFEGUARDS. This can be useful for overclocking, but that also means that there is ABSOLUTELY NOTHING BETWEEN YOU AND A PAPERWEIGHT GPU.  
+>
 > This program comes with **ABSOLUTELY NO WARRANTY** — see sections 15 and 16
 > of [COPYING](COPYING). You assume all risk of running it.
 
@@ -45,7 +47,7 @@ a few seconds and writes no register.
 - **Reversible, needs admin, cleared by a reboot:** clock offsets, power limit,
 voltage boost, fan, both lock mechanisms, and every V/F curve edit. A V/F edit
 can crash the display driver and hang the machine; a reboot clears the settings
-either way. Nothing Druta applies *to the card* survives a reboot.
+either way. Nothing Druta applies *to the card* besides the I2C survives a reboot.
 
 - **Can hang the machine and corrupt data held in VRAM, also cleared by a reboot:** memory timing writes.
 They are volatile — the driver reprograms these registers per clock band, so an
@@ -53,6 +55,10 @@ edit is not expected to survive a band transition, let alone a reboot. Use
 `Restore stock` when you want a deterministic revert rather than relying on
 that. Four guards sit in front of every write; the fourth is a per-card stock
 backup keyed by the card's UUID.
+
+- **Can hang the machine and CANNOT be cleared by a reboot**: I2C voltage misapplications. However, this can be cleared by a full and clean power cycle, as in completely discharging the GPU of power. We recommend plugging the PSU and powering on the machine to bleed the capacitors. This clears all I2C writes. 
+
+- **Can PERMANENTLY DAMAGE YOUR HARDWARE**: out of bound I2C writes, especially in the XOC mode. Druta rejects any voltage above 2V even in the XOC mode because any voltage above it is certainly a typo, but 1.8V is only conditionally workable under LN2 depending on the generations, and never with a stock air cooler. *You can break your GPU core/VRAM/both, permanently and irreversibly.*
 --- 
 # Build
 
