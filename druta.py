@@ -1231,14 +1231,32 @@ class Druta:
             dpg.add_table_column(width_fixed=True,
                                  init_width_or_weight=self.s(w))
 
+    # The two fields Link ties together. vmin is not one of them: it is a
+    # floor and shares nothing with either ceiling.
+    VLIM_LINKED = ("reliability", "alt_reliability")
+
     def apply_vlim(self, **limits):
         """Write one NVVDD limit and report what the card actually took.
 
-        One knob per FIELD, passed straight through: Druta does not synthesise
-        a ceiling out of the two that interact, because that would mean picking
-        a mapping and hiding it. The log line says what was written and what it
-        adds up to, which is where the interaction becomes visible.
+        One knob per FIELD, passed straight through. Druta does not synthesise
+        a ceiling out of the two that interact - that would mean picking a
+        mapping and hiding it - but Link is the opt-in version of the same
+        convenience: tick it and moving either reliability field writes both to
+        that voltage, which is the common case, while the two knobs stay on
+        screen saying what they hold. Untick it and they are independent again.
+
+        Linking makes the voltage-boost slider inert, because both ends of the
+        range it interpolates across land on the same volt. That is a real
+        consequence of asking for one number, so the log line reports what was
+        written and what it reaches, and the readout keeps showing both fields.
         """
+        if (dpg.does_item_exist("vlim_link") and dpg.get_value("vlim_link")):
+            named = [k for k in self.VLIM_LINKED if k in limits]
+            # Only when exactly one of the pair was moved: a call that already
+            # names both is explicit and must not be second-guessed.
+            if len(named) == 1:
+                limits = dict(limits, **{k: limits[named[0]]
+                                         for k in self.VLIM_LINKED})
         ok, msg = self.gpu.set_volt_rail_limits(0, **limits)
         self.log(msg, ok)
         self.refresh_volt_limits()
@@ -1362,8 +1380,9 @@ class Druta:
                 if dpg.does_item_exist(pre + k):
                     dpg.configure_item(pre + k,
                                        enabled="volt_limits" in live)
-        if dpg.does_item_exist("go_vlim_rel_x"):
-            dpg.configure_item("go_vlim_rel_x", enabled="volt_limits" in live)
+        for tag in ("go_vlim_rel_x", "vlim_link"):
+            if dpg.does_item_exist(tag):
+                dpg.configure_item(tag, enabled="volt_limits" in live)
 
         # AHEAD of the RISK_STOCK return below, not after the banner work: this
         # is the call that puts the knobs BACK when XOC is unticked, and behind
@@ -1693,6 +1712,12 @@ class Druta:
                         # so either outcome is visible rather than inferred.
                         lo_mv = int(GPU.VOLT_LIMIT_MIN_MV)
                         hi_mv = int(GPU.VOLT_LIMIT_MAX_MV)
+                        with dpg.table_row():
+                            dpg.add_checkbox(
+                                label="Link reliability + alt-reliability "
+                                      "(moves both, and the boost slider "
+                                      "stops doing anything)",
+                                tag="vlim_link", default_value=False)
                         self.slider_row(
                             "vlim_rel", "NVVDD reliability (mV)", lo_mv, hi_mv,
                             int(round(GPU.abs_limit_mv(lim[0],
