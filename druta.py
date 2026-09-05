@@ -1598,9 +1598,13 @@ class Druta:
                     # these is otherwise invisible from inside Druta.
                     lim = self.gpu.volt_rail_limits_mv()
                     if lim:
-                        dpg.add_text(self.volt_limits_text(lim),
-                                     tag="volt_limits_txt", color=DIM,
-                                     wrap=self.s(sum(self.KNOB_COLS)))
+                        # In a row of its own: every child of this table has to
+                        # be a table_row, and a bare add_text here fails inside
+                        # DearPyGui rather than at the call.
+                        with dpg.table_row():
+                            dpg.add_text(self.volt_limits_text(lim),
+                                         tag="volt_limits_txt", color=DIM,
+                                         wrap=self.s(sum(self.KNOB_COLS)))
 
                     # A SECOND mechanism on the same rail as the boost above,
                     # and the note says so: they are different calls, neither
