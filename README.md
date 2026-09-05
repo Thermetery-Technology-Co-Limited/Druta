@@ -254,6 +254,84 @@ This block does not naively use the clock getter's domain numbering, because tha
 | 9 | LTC | coarser step — `+45` requested moved it `+30` |
 | 4, 6, 7, 8 | nothing | accept a write, store it, move no clock — left unnamed |
 
+### RTX 50-series / Blackwell diagnostic path
+
+The Turing mapping above is not reused for Blackwell.  RTX 50-series cards
+use the same `0xF58938F5` / `0xD14B69CF` interface, but the Windows control
+block's frequency and MSVDD fields are at different offsets in the public
+Blackwell [implementation notes](https://github.com/SHANAjam/rtx5090-xbar-control/blob/main/docs/TECHNICAL_NOTES.md).  Druta therefore selects a separate candidate
+layout and only exposes the XBAR, SYSCLK and VIDEO controls when the card's
+one-hot domain probe and version echo succeed.  On the validated RTX 5080 /
+610.88 path these controls are indices 1, 3 and 4 respectively. The UI writes
+the XBAR request with the same sign selected by the user; this was confirmed
+by an end-to-end test after the first build exposed a reversed XBAR slider.
+
+Before testing a new RTX 50-series card or driver, collect a read-only report:
+
+```powershell
+python nvbackend.py --clkdom-debug --json > clkdom-debug.json
+```
+
+For an administrator-only, temporary mapping check, use the explicit probe:
+
+```powershell
+python nvbackend.py --clkdom-map-probe --confirm > clkdom-map.json
+```
+
+If the mapping probe reports accepted writes but no settled clock movement,
+compare the two frequency-field candidates with the field-only probe:
+
+```powershell
+python nvbackend.py --clkdom-field-probe --confirm > clkdom-fields.json
+```
+
+This tests only `+0x10C` and `+0x114`; it never writes the neighbouring NVVDD
+or MSVDD fields.
+
+Repeat with `--delta -5` and compare the signs of the same observations. A
+real mapping should reverse direction; a P-state transition or idle-clock
+change is not evidence.
+
+If the field probe accepts the writes but controls 1/3/4 all remain inert,
+scan the other non-core/non-memory control indices:
+
+```powershell
+python nvbackend.py --clkdom-control-probe --delta 25 --confirm > clkdom-controls.json
+```
+
+The scan deliberately excludes controls 0 and 2 because another driver branch
+may use them for GPC and memory.  Only if that is acceptable for the test card,
+repeat with `--include-core-memory`; the probe still restores the complete GET
+buffer after every individual write:
+
+```powershell
+python nvbackend.py --clkdom-control-probe --include-core-memory --delta 25 --confirm > clkdom-controls-all.json
+```
+
+For a driver that stores a small request but shows no physical response, the
+explicit diagnostic also accepts a larger temporary delta up to `±200 MHz`:
+
+```powershell
+python nvbackend.py --clkdom-field-probe --delta 200 --confirm > clkdom-fields-plus200.json
+python nvbackend.py --clkdom-field-probe --delta -200 --confirm > clkdom-fields-minus200.json
+```
+
+Use this only with a stable test point and workload. The larger limit applies
+to the temporary probe, not to the normal UI slider.
+
+The mapping probe changes one small frequency request at a time, records a
+short median/range window of the physical clock observations, and restores the
+complete buffer in a `finally` block.  For a conclusive result, first use a
+fixed GPU-clock/V/F hold or a steady workload; otherwise a P-state transition
+is reported as unstable rather than as a mapping.  It is not run automatically
+by the UI.  Include the GPU model, driver, VBIOS and both JSON reports when
+reporting a driver-specific failure.  Do not use the probe on a non-RTX-50 card
+or with an untrusted driver build.  GPC is retained as an operating-point
+diagnostic, but only the direct XBAR/SYS/memory/VIDEO observations can make the
+mapping verdict.  Large requests scale the minimum effect threshold (up to
+25 MHz) so ordinary core/counter jitter is not mistaken for a mapping; the JSON
+retains `median_shift_candidates` and reverse-direction observations for review.
+
 ### Why Pascal gets no per-domain advanced frequency control? **Because it's hard coded by the BIOS**
 
 There are docuementations floating around the internet saying that values

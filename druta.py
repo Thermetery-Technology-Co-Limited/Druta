@@ -1152,7 +1152,7 @@ class Druta:
         # with it.
         DomainKnob("xbar", 1, "crossbar", None),
         DomainKnob("sys", 3, "control domain 3", None),
-        DomainKnob("video", 5, "control domain 5", None),
+        DomainKnob("video", 4, "control domain 4", None),
         # Can move LESS than requested depending on where the clock already
         # sits: +45 has been measured landing as +30 in one state and +45 in
         # another. Watch the live value.
@@ -1166,6 +1166,14 @@ class Druta:
         domain table draws, so a knob cannot make a claim the table contradicts
         - including on a card whose domain numbering the app has never seen,
         where the honest answer is a bare index and a dim colour."""
+        if self.gpu.clkdom_is_blackwell():
+            # Blackwell's control block is independently identified by the
+            # version/layout probe.  Do not force its control index through
+            # the TU102 private-getter pairing: that would display a valid
+            # offset beside the wrong live clock.  The return value is the
+            # control index only so callers can retain their existing shape.
+            name = self.gpu.clkdom_control_label(kn.ctrl)
+            return (f"{name} requested offset (MHz)", GOOD, kn.ctrl)
         priv = self.gpu.clkdom_pairing(rows).get(kn.ctrl)
         if priv is None:
             return (f"{kn.fallback} offset (MHz)", DIM, None)
@@ -1416,24 +1424,30 @@ class Druta:
                         # via read(), not read_clock_domains(): the bare call
                         # names blind and would report every card as Turing
                         drows = (self.gpu.read() or {}).get("clk_domains")
-                        pair = self.gpu.clkdom_pairing(drows)
+                        controls = set(self.gpu.clkdom_controls_for_ui(drows))
                         built = 0
                         for kn in self.DOMAIN_KNOBS:
                             if kn.ctrl not in self.gpu.clkdom_domains():
                                 continue
-                            # A knob is built ONLY where a clock was observed
-                            # to move. The driver accepting a write means very
-                            # little here - control 4/6/7/8 accept and store
-                            # offsets on TU102 and move nothing, and control 5
-                            # does the same on GP102. A pairing exists only
-                            # because something was watched moving, so it is
-                            # the honest gate.
-                            if kn.ctrl not in pair:
+                            # On Turing, a knob is built only where a clock
+                            # was observed to move: accepting and storing a
+                            # write is not enough. Blackwell is different:
+                            # its control indices and private getter indices
+                            # are separate, so its accepted controls are
+                            # gated by the architecture-specific layout and
+                            # validated one-hot control mask above.
+                            if kn.ctrl not in controls:
                                 continue
                             built += 1
                             init = int(cur.get(kn.ctrl, {})
                                        .get("freq_khz", 0) / 1000)
                             lbl, col, _p = self.domain_knob_label(kn, drows)
+                            # On Blackwell these are control-domain REQUESTS and
+                            # the driver may quantise what it actually applies,
+                            # so the live column is the thing to read after a
+                            # change rather than the number that was asked for.
+                            # Kept as a comment because per-slider subtext is no
+                            # longer rendered - see slider_row.
                             # XOC: the core envelope above, because nothing
                             # else bounds this knob. -300..300 is a UI
                             # convention, not a driver fact -
@@ -1788,7 +1802,9 @@ class Druta:
         # add_slider_int has no resolution, so the value is snapped on Apply and
         # written back to the slider - the number on screen is the number in the
         # card.
-        step = self.step_mhz()
+        step = (self.gpu.clkdom_step_mhz()
+                if self.gpu.clkdom_is_blackwell()
+                else self.step_mhz()) or self.step_mhz()
         mhz = int(math.floor(int(v) / step)) * step
         # ...but never past the driver's own floor. That bound is not a multiple
         # of 15 (-200 snaps DOWN to -210), so at the very bottom of the slider
@@ -1979,7 +1995,9 @@ class Druta:
         # No undo point: unlike the core offset this does NOT land in the V/F
         # delta table - it is a separate per-domain control block, so it cannot
         # overwrite a hand-tuned curve.
-        step = self.step_mhz()
+        step = (self.gpu.clkdom_step_mhz()
+                if self.gpu.clkdom_is_blackwell()
+                else self.step_mhz()) or self.step_mhz()
         mhz = int(math.floor(int(v) / step)) * step
         if mhz != int(v):
             dpg.set_value(f"sl_{key}", mhz)
@@ -2458,16 +2476,28 @@ class Druta:
         # can never quote two different numbers for one domain. It also means
         # SYS and LTC show the truth for free: set an offset, watch the value
         # not move, and the note beside it is confirmed rather than trusted.
-        doms = {r["domain"]: r.get("prog_mhz")
-                for r in (d.get("clk_domains") or [])}
         live = [("core", f"{core} MHz" if core else None)]
-        # hand it the rows we already have: they came through GPU.read(), so
-        # the naming is not blind (see clkdom_pairing)
-        pair = self.gpu.clkdom_pairing(d.get("clk_domains"))
-        for kn in self.DOMAIN_KNOBS:
-            _p = pair.get(kn.ctrl)
-            _v = doms.get(_p) if _p is not None else None
-            live.append((kn.key, f"{_v:.0f} MHz" if _v else None))
+        if self.gpu.clkdom_is_blackwell():
+            # On Blackwell this is deliberately the requested control-block
+            # offset.  The private getter's domain ids are not treated as the
+            # same namespace.  The debug probe exposes physical XBAR/SYS
+            # counters for validation instead.
+            offsets = d.get("clkdom_offsets") or {}
+            for kn in self.DOMAIN_KNOBS:
+                row = offsets.get(kn.ctrl) or {}
+                value = row.get("freq_khz")
+                _v = value / 1000.0 if value is not None else None
+                live.append((kn.key, f"{_v:+.0f} MHz" if _v is not None else None))
+        else:
+            doms = {r["domain"]: r.get("prog_mhz")
+                    for r in (d.get("clk_domains") or [])}
+            # hand it the rows we already have: they came through GPU.read(),
+            # so the naming is not blind (see clkdom_pairing)
+            pair = self.gpu.clkdom_pairing(d.get("clk_domains"))
+            for kn in self.DOMAIN_KNOBS:
+                _p = pair.get(kn.ctrl)
+                _v = doms.get(_p) if _p is not None else None
+                live.append((kn.key, f"{_v:.0f} MHz" if _v else None))
         live += [
                 # the unit follows mem_fmt's own choice rather than being
                 # hardcoded: it returns TRUE MHz only when the GDDR divisor is

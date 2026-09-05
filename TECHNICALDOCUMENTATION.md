@@ -506,6 +506,109 @@ Detect that signature through `GPU.read()`, never a bare
 the unpopulated check, names a dead domain 0 "GPC", and reports every card as
 Turing.
 
+### Blackwell / RTX 50-series adaptation
+
+The Turing measurements above must not be applied to Blackwell by changing only
+`CLKDOM_PAIR_TURING`. There are two independent namespaces: the control index
+accepted by `CLK_DOMAINS`, and the private clock-getter domain index used for
+telemetry. The latter is not assumed to be the same on a new architecture.
+
+The backend now contains a guarded Blackwell candidate layout based on the
+public [Windows notes](https://github.com/SHANAjam/rtx5090-xbar-control/blob/main/docs/TECHNICAL_NOTES.md)
+for the same NvAPI ids:
+
+```text
+entry(d) = 0x124 + d * 0x304
+frequency delta = entry + 0x114
+MSVDD delta     = entry + 0x11C
+```
+
+Those field offsets are a candidate until they have been checked against the
+exact GPU, VBIOS and driver. The version echo and one-hot accepted-domain probe
+are read-only gates. The UI uses the accepted control indices for Blackwell and
+displays the requested offsets; it does not label those values with a Turing
+private-getter domain.  On the validated RTX 5080 / 610.88 path, the tested
+controls are 1 = XBAR, 3 = SYSCLK and 4 = VIDEO. Their logical UI signs are
+direct on the validated 610.88 path, including XBAR. This was confirmed by
+an end-to-end test of the built UI; the earlier raw-probe direction must not
+be reused as the UI sign without repeating that test.
+
+For hardware validation, run:
+
+```powershell
+python nvbackend.py --clkdom-debug --json > clkdom-debug.json
+python nvbackend.py --clkdom-map-probe --confirm > clkdom-map.json
+```
+
+When the candidate `+0x114` is accepted but produces no settled movement, use
+the frequency-only comparison probe:
+
+```powershell
+python nvbackend.py --clkdom-field-probe --confirm > clkdom-fields.json
+```
+
+It compares `+0x10C` with `+0x114` for controls 1, 3 and 4. It deliberately
+does not probe the adjacent NVVDD/MSVDD rail fields.
+
+Run the same command with `--delta -5` and compare the signs of the reported
+changes. A real field/control mapping should reverse direction; a P-state or
+idle-clock transition is not evidence.
+
+If both candidate fields accept the write but controls 1, 3 and 4 show no
+settled physical effect, scan the remaining non-core/non-memory control
+indices:
+
+```powershell
+python nvbackend.py --clkdom-control-probe --delta 25 --confirm > clkdom-controls.json
+```
+
+This intentionally omits control indices 0 and 2 because they may be GPC and
+memory on a different driver branch.  To include those two potentially
+high-impact paths on a test-only machine, pass the explicit opt-in:
+
+```powershell
+python nvbackend.py --clkdom-control-probe --include-core-memory --delta 25 --confirm > clkdom-controls-all.json
+```
+
+The scan is still one-field-at-a-time, checks the complete returned block
+before each write, and restores that block in a `finally` clause after every
+control.  The JSON now includes the settled `before` window as well as the
+`after` window, plus an immediate GET readback of the requested frequency and
+mode.  Each window also records P-state, utilization and public core/memory
+clocks.  This separates a request that the setter stores from one that the
+driver accepts but silently discards, and distinguishes a real loaded test
+from an idle-clock ceiling that never had to move.  A physical effect is only
+accepted when at least one settled observation also moves in the same direction
+as the signed request; a reverse-direction or one-sided transient is reported
+but is not treated as a mapping.  The final mapping verdict uses the direct
+XBAR/SYS/memory/video observations; GPC is retained as an operating-point
+diagnostic but is not direct evidence because it can drift by a few MHz while
+the request is applied.  Private getter rows remain in the JSON for diagnosis
+but cannot by themselves turn a transient into a success.  The JSON also keeps
+`median_shift_candidates` for large or unsettled changes and
+`reverse_directional_observations` for controls that move opposite to the
+signed request; neither is a positive mapping verdict by itself.
+
+For a large temporary probe, the minimum physical-effect threshold scales with
+the request (up to 25 MHz).  This prevents a few MHz of normal counter jitter
+from being reported as a successful ±200 MHz mapping while preserving the
+full before/after windows for review.
+
+The temporary diagnostic limit is `±200 MHz`. This is available for a driver
+that stores `±25 MHz` correctly but does not move a clock by a measurable
+amount; it is not a normal UI tuning range and should only be used with a
+stable V/F hold and a high, continuous workload.
+
+The first command never writes. The latter two are explicit administrator-only
+diagnostics: they test controls 1, 3 and 4 one at a time with a small temporary
+frequency delta, compares median/range windows of physical XBAR/SYS/VIDEO
+observations, verifies the original requested frequency after restoration, and
+restores the complete GET buffer even if sampling fails. Use a fixed GPU-clock
+or V/F hold, or a steady workload, while running it; an unstable P-state is
+reported as inconclusive. It is deliberately not called by the UI. A new
+driver or VBIOS should not be added to a validated profile until both the field
+location and the measured control effect are confirmed.
+
 The voltage fields are a **rail array**, not one value — probing every dword
 from `+0x100` to `+0x140` found exactly three consecutive refused slots on every
 domain, which is what a rail array whose upper members this silicon lacks looks
