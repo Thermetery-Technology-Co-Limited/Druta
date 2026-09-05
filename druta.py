@@ -107,6 +107,46 @@ ACCENT = (74, 163, 255)
 GOOD = (70, 209, 122)
 WARN = (255, 203, 71)
 BAD = (255, 92, 92)
+
+# Risk tints for the Control tab. The tab changes colour with what the knobs can
+# actually DO, not with which boxes are ticked - the point is that a glance tells
+# you which guardrails are underneath you. Three states, escalating:
+#   XOC        the software envelope is gone; firmware still clamps the rail
+#   I2C        writes go to the regulator; NO firmware clamp is on the path
+#   XOC + I2C  both, i.e. nothing between a slider and the hardware
+RISK_NONE, RISK_XOC, RISK_I2C, RISK_BOTH = 0, 1, 2, 3
+RISK_TINT = {
+    RISK_XOC:  ((58, 34, 10), (196, 108, 24), (255, 176, 64)),
+    RISK_I2C:  ((60, 16, 16), (208, 56, 56), (255, 120, 120)),
+    RISK_BOTH: ((72, 6, 26), (220, 20, 60), (255, 96, 140)),
+}
+RISK_TEXT = {
+    RISK_XOC: (
+        "XOC MODE - the software voltage envelope is removed. Requests still "
+        "go through the driver, so the GPU's own reliability ceiling is still "
+        "underneath you. A typo catcher at 2000 mV is the only bound left in "
+        "Druta."),
+    RISK_I2C: (
+        "I2C RAIL CONTROL - writes go straight to the voltage regulator over "
+        "PMBus. This does NOT pass through the driver or the GPU firmware, so "
+        "NO DRIVER OR BIOS GUARDRAIL CAN CATCH YOU. The GPU cannot see this "
+        "voltage and will not compensate for it. It does not clear on reboot."),
+    RISK_BOTH: (
+        "XOC + I2C - NOTHING IS BETWEEN THIS SLIDER AND YOUR HARDWARE. The "
+        "software envelope is removed AND the write bypasses every driver and "
+        "firmware limit. The only remaining bounds are a 2000 mV typo catcher "
+        "and the regulator's own overcurrent trip. A wrong number here kills "
+        "the card, and it will not clear on reboot."),
+}
+
+# Optional: direct regulator control only matters on a board whose I2C links are
+# fitted AND for which a profile identifies, and Druta must run normally
+# everywhere else. See i2c/PROFILES.md - the guards are in railctl, the board
+# data is in i2c/*.toml, and a profile never chooses whether it is checked.
+try:
+    import railctl
+except ImportError:                                          # pragma: no cover
+    railctl = None
 IDLE_COL = (58, 63, 75)
 VIOLET = (160, 108, 255)
 
@@ -114,6 +154,14 @@ VIOLET = (160, 108, 255)
 # private clock getter - two different numberings for the same clock, and the
 # pair is measured, not assumed (see App.DOMAIN_KNOBS).
 DomainKnob = namedtuple("DomainKnob", "key ctrl fallback note")
+
+# What one knob is allowed to ask for, normally and under XOC. Named rather
+# than a bare 5-tuple for the same reason DomainKnob is (see App.DOMAIN_KNOBS):
+# it is unpacked in two places, and a bare tuple lets a field be added or
+# dropped in one of them and only fail at runtime. xoc_lo/xoc_hi are None for
+# knobs that have no wider legal range - a percentage does not gain one by
+# ticking a box.
+KnobRange = namedtuple("KnobRange", "label lo hi xoc_lo xoc_hi")
 
 
 def dpi_scale():
@@ -184,6 +232,7 @@ class Druta:
         # honours it: a worker thread writing to "log" during the window where
         # the tab holding it does not exist would be writing to a dead tag.
         self._rebuilding = False
+        self._dpg_ready = False
         self._drag_idx = None
         # THE record of what this app is holding the card with, and how:
         #   None, or {"kind": LOCK_NVML|LOCK_VF, ...per-mechanism fields}
@@ -208,7 +257,27 @@ class Druta:
         self._fonts = {}
         self._once = {}            # log-dedup state, keyed per source
         self._ctl_widgets = []     # write widgets greyed out while locked
+        self._slider_ranges = {}   # knob key -> KnobRange, filled by slider_row
+        self._xoc_bounds = False   # are the XOC bounds the ones on the knobs?
+        # The slider and its text box write each other. DPG does not fire a
+        # callback for set_value, so the loop cannot close today - this makes
+        # that a property of THIS code rather than of a DPG implementation
+        # detail nothing here controls.
+        self._knob_sync = False
         self._bar_themes = {}
+        self._risk_themes = {}     # Control-tab tint, one per risk state
+        # The I2C rail knob stays inert until the staircase has been WATCHED to
+        # move the rail on this card, in this session. Not persisted on
+        # purpose: the thing it certifies is a solder joint on a hand-modified
+        # board, and a cached pass from last week is exactly the claim that
+        # would survive a link coming off.
+        self._i2c_verified = False
+        self._i2c_busy = False
+        # The regulator this card actually has, or None. Discovered by an
+        # identity read on the bus rather than by card name, so it is a
+        # property of the board in the slot and must be re-found on a swap.
+        self.rail = None
+        self.find_rail()
         self._bar_band = {}
         self._dom_band = {}        # per-domain A-vs-B divergence colour band
         self._dom_name = {}        # per-domain (label, grade) actually drawn
@@ -295,6 +364,15 @@ class Druta:
         tag = "" if ok is None else ("[ok] " if ok else "[!!] ")
         self.log_lines.append(tag + msg)
         del self.log_lines[:-200]
+        # Before dpg.create_context() there is no DPG context, and
+        # does_item_exist below is a call into native code that SEGFAULTS
+        # without one - no Python exception, just a dead process. __init__ runs
+        # entirely before the context exists and already logs from it (the i2c
+        # profile scan does), so this guard is what makes log() safe to call
+        # from anywhere. The line is still recorded above and repaint_log()
+        # replays it once the widget exists.
+        if not self._dpg_ready:
+            return
         # The list above is the real log and is always appended to; only the
         # DRAWING is skipped mid-rebuild, and repaint_log() replays it once the
         # new items exist. Worker threads call this, so without the flag a
@@ -1019,10 +1097,16 @@ class Druta:
     # ====================================================================== #
     #  CONTROL                                                               #
     # ====================================================================== #
-    # label / slider / live readout / Apply / extra, in UNSCALED px. Every knob
-    # group builds its table from this one tuple, so Apply is a straight column
-    # down the tab instead of landing wherever each row's label happened to end.
-    KNOB_COLS = (230, 340, 95, 90, 80)
+    # label / slider / typed value / live readout / Apply / extra, in UNSCALED
+    # px. Every knob group builds its table from this one tuple, so Apply is a
+    # straight column down the tab instead of landing wherever each row's label
+    # happened to end.
+    #
+    # The typed-value box sits beside the slider rather than after the live
+    # readout because the two are one control: the number being ASKED for. The
+    # live column keeps its place between them and Apply for the reason given
+    # in slider_row - rows differ in whether they carry an extra button.
+    KNOB_COLS = (230, 340, 100, 95, 90, 80)
 
     # Per-domain clock offsets, in the order they are shown. Only rows whose
     # domain the driver actually accepts are built (see build_control), so a
@@ -1063,16 +1147,16 @@ class Druta:
     # stopped working" rather than as a traceback. Attribute access cannot fail
     # that way.
     DOMAIN_KNOBS = (
-        DomainKnob("xbar", 1, "crossbar",
-                   "Floors to this card's grid, like the core offset. A ratio "
-                   "slave of GPC: past roughly 1:1 the governor clamps it or "
-                   "pulls the core up with it."),
+        # Floors to this card's grid, like the core offset. A ratio slave of
+        # GPC: past roughly 1:1 the governor clamps it or pulls the core up
+        # with it.
+        DomainKnob("xbar", 1, "crossbar", None),
         DomainKnob("sys", 3, "control domain 3", None),
         DomainKnob("video", 4, "control domain 4", None),
-        DomainKnob("ltc", 9, "control domain 9",
-                   "Can move LESS than requested depending on where the clock "
-                   "already sits: +45 has been measured landing as +30 in one "
-                   "state and +45 in another. Watch the live value."),
+        # Can move LESS than requested depending on where the clock already
+        # sits: +45 has been measured landing as +30 in one state and +45 in
+        # another. Watch the live value.
+        DomainKnob("ltc", 9, "control domain 9", None),
     )
 
     def domain_knob_label(self, kn, rows=None):
@@ -1106,9 +1190,75 @@ class Druta:
             dpg.add_table_column(width_fixed=True,
                                  init_width_or_weight=self.s(w))
 
+    def risk_state(self):
+        """Which guardrails are actually underneath the knobs right now.
+
+        Keyed on what a write would DO, not on which boxes are ticked: the I2C
+        state only counts when the module is present AND a regulator was
+        identified on this board, because a ticked box on a card without the
+        links fitted changes nothing and must not claim otherwise.
+        """
+        xoc = bool(dpg.does_item_exist("xoc_mode")
+                   and dpg.get_value("xoc_mode"))
+        i2c = bool(self.rail is not None
+                   and dpg.does_item_exist("i2c_mode")
+                   and dpg.get_value("i2c_mode")
+                   and self.rail.present())
+        return (RISK_BOTH if (xoc and i2c) else
+                RISK_I2C if i2c else RISK_XOC if xoc else RISK_NONE)
+
+    def sync_risk_ui(self):
+        """Tint the Control tab and raise the banner for the current state."""
+        state = self.risk_state()
+
+        # Ticking I2C on a board with no regulator reachable is a no-op, and
+        # saying so is better than tinting the tab red over nothing.
+        if (dpg.does_item_exist("i2c_mode") and dpg.get_value("i2c_mode")
+                and state in (RISK_NONE, RISK_XOC)):
+            dpg.set_value("i2c_mode", False)
+            self.log("no voltage regulator identified on this card's I2C bus "
+                     "- rail control needs a matching profile in i2c/ and, on "
+                     "most boards, the links fitted", False)
+
+        # XOC is per-Rail state, not a module global: two cards in one rig must
+        # not share an unlocked envelope.
+        if self.rail is not None:
+            if state in (RISK_XOC, RISK_BOTH):
+                self.rail.enable_xoc(railctl.XOC_CONFIRM)
+            else:
+                self.rail.disable_xoc()
+
+        # AHEAD of the RISK_NONE return below, not after the banner work: this
+        # is the call that puts the knobs BACK when XOC is unticked, and behind
+        # the return it would run on every state except the one that needs it.
+        self.sync_slider_ranges(state in (RISK_XOC, RISK_BOTH))
+
+        if state == RISK_NONE:
+            dpg.configure_item("risk_banner", show=False)
+            dpg.bind_item_theme("tab_control", 0)
+            return
+
+        bg, border, text = RISK_TINT[state]
+        th = self._risk_themes.get(state)
+        if th is None:
+            with dpg.theme() as th:
+                with dpg.theme_component(dpg.mvAll):
+                    dpg.add_theme_color(dpg.mvThemeCol_ChildBg, bg)
+                    dpg.add_theme_color(dpg.mvThemeCol_FrameBg, bg)
+                    dpg.add_theme_color(dpg.mvThemeCol_Border, border)
+                    dpg.add_theme_color(dpg.mvThemeCol_TitleBgActive, bg)
+            self._risk_themes[state] = th
+        dpg.bind_item_theme("tab_control", th)
+        dpg.configure_item("risk_banner", show=True, color=text,
+                           default_value=RISK_TEXT[state])
+
     def build_control(self):
         st = self.gpu.static
-        with dpg.tab(label="  Control  "):
+        with dpg.tab(label="  Control  ", tag="tab_control"):
+            # Banner first, above every knob, so the state is read before a
+            # slider is touched rather than after.
+            dpg.add_text("", tag="risk_banner", show=False,
+                         wrap=self.s(sum(self.KNOB_COLS)))
             with dpg.group(horizontal=True):
                 # Default ON: the only people running this are vetted internal
                 # users, and the extra click bought nothing. Untick to make the
@@ -1116,7 +1266,17 @@ class Druta:
                 dpg.add_checkbox(label="Unlock controls", tag="unlock",
                                  default_value=True,
                                  callback=lambda s, a, u: self.sync_lock_ui())
-                dpg.add_spacer(width=self.s(40))
+                dpg.add_spacer(width=self.s(24))
+                # Both default OFF and neither persists: a session that ends
+                # with the rail bypassed should not silently begin that way.
+                dpg.add_checkbox(label="XOC", tag="xoc_mode",
+                                 default_value=False,
+                                 callback=lambda s, a, u: self.sync_risk_ui())
+                dpg.add_checkbox(label="I2C rail", tag="i2c_mode",
+                                 default_value=False,
+                                 show=railctl is not None,
+                                 callback=lambda s, a, u: self.sync_risk_ui())
+                dpg.add_spacer(width=self.s(16))
                 # sits with the gate, not inside a knob group: it undoes every
                 # group at once (and the curve), so it belongs to the tab
                 dpg.add_button(label="Reset all to stock", callback=self.reset_all,
@@ -1202,19 +1362,55 @@ class Druta:
                     if st.get("core_off_range"):
                         core_lo = st["core_off_range"][0]
                         core_hi = st["core_off_range"][1]
+                    # ---- XOC bounds for the two NVML offsets ---------------
+                    # These two are the ONLY knobs on the tab with a hard
+                    # software ceiling underneath them, and it is not Druta's:
+                    # set_clock_offset checks every request against this exact
+                    # envelope - the driver's own range from
+                    # nvmlDeviceGetClockOffsets, or its documented
+                    # (-1000, 1000) / (-2000, 6000) fallback - and REFUSES
+                    # outside it. So the XOC bound is that envelope and not one
+                    # unit further: a slider reaching past it could only ever
+                    # produce a refused Apply, which is the "knob keeps showing
+                    # a value the card never took" failure clamped=True exists
+                    # to prevent (see slider_row).
+                    #
+                    # On a card whose driver answers, the normal bounds ALREADY
+                    # are the envelope and XOC widens nothing here. That is the
+                    # honest result, and it is why the envelope is stated as a
+                    # range rather than as a multiplier of the normal one. The
+                    # widening is real only where the driver stays silent and
+                    # the normal bounds above are the conservative guesses
+                    # -200..300 and -500..1500.
+                    core_xlo, core_xhi = -1000, 1000
+                    if st.get("core_off_range"):
+                        core_xlo = st["core_off_range"][0]
+                        core_xhi = st["core_off_range"][1]
+                    # Apply snaps DOWN to this card's
+                    # {self.step_khz()/1000:.4g} MHz grid, then shows what
+                    # was written
                     self.slider_row("core", "Core clock offset (MHz)",
                                     core_lo, core_hi, 0, self.apply_core,
-                                    note=f"Apply snaps DOWN to this card's "
-                                         f"{self.step_khz()/1000:.4g} MHz "
-                                         f"grid, then shows what was written")
+                                    xoc_lo=core_xlo, xoc_hi=core_xhi)
 
                     mscale, munit = self.gpu.mem_offset_scale()
                     mlo, mhi = -500, 1500
                     if st.get("mem_off_range"):
                         mlo = int(st["mem_off_range"][0] / mscale)
                         mhi = int(st["mem_off_range"][1] / mscale)
+                    # Same envelope, through the same scale conversion the
+                    # normal bounds use - the backend compares NVML units, so
+                    # the bound has to be divided down into the units this
+                    # slider is labelled in or it would mean 8x what it says on
+                    # a GDDR6 card.
+                    mem_xlo, mem_xhi = -2000, 6000
+                    if st.get("mem_off_range"):
+                        mem_xlo = st["mem_off_range"][0]
+                        mem_xhi = st["mem_off_range"][1]
                     self.slider_row("mem", f"Memory offset ({munit})",
-                                    mlo, mhi, 0, self.apply_mem)
+                                    mlo, mhi, 0, self.apply_mem,
+                                    xoc_lo=int(mem_xlo / mscale),
+                                    xoc_hi=int(mem_xhi / mscale))
 
                     # XBAR reaches a domain NVIDIA does not expose publicly at
                     # all: NV_GPU_PUBLIC_CLOCK_ID has no crossbar member, and
@@ -1229,7 +1425,6 @@ class Druta:
                         # names blind and would report every card as Turing
                         drows = (self.gpu.read() or {}).get("clk_domains")
                         controls = set(self.gpu.clkdom_controls_for_ui(drows))
-                        blackwell = self.gpu.clkdom_is_blackwell()
                         built = 0
                         for kn in self.DOMAIN_KNOBS:
                             if kn.ctrl not in self.gpu.clkdom_domains():
@@ -1247,17 +1442,29 @@ class Druta:
                             init = int(cur.get(kn.ctrl, {})
                                        .get("freq_khz", 0) / 1000)
                             lbl, col, _p = self.domain_knob_label(kn, drows)
-                            note = kn.note
-                            if blackwell:
-                                note = ("Blackwell control-domain request; the "
-                                        "driver may quantise the applied clock. "
-                                        "Verify XBAR/SYS/VIDEO telemetry after "
-                                        "each change.")
+                            # On Blackwell these are control-domain REQUESTS and
+                            # the driver may quantise what it actually applies,
+                            # so the live column is the thing to read after a
+                            # change rather than the number that was asked for.
+                            # Kept as a comment because per-slider subtext is no
+                            # longer rendered - see slider_row.
+                            # XOC: the core envelope above, because nothing
+                            # else bounds this knob. -300..300 is a UI
+                            # convention, not a driver fact -
+                            # set_clk_domain_offset writes a raw signed-kHz
+                            # field with no range check of any kind, so the
+                            # only real limits are the driver's floor-to-bins
+                            # and the silicon. Reusing the widest CLOCK offset
+                            # this driver admits anywhere on this card is a
+                            # measured number rather than an invented one, and
+                            # it keeps one envelope for every clock knob on the
+                            # tab instead of a second unrelated pair.
                             self.slider_row(
                                 kn.key, lbl, -300, 300, init,
                                 lambda v, _d=kn.ctrl, _k=kn.key:
                                     self.apply_domain_offset(_d, _k, v),
-                                note=note, color=col)
+                                note=kn.note, color=col,
+                                xoc_lo=core_xlo, xoc_hi=core_xhi)
                         if not built:
                             # Say why the knobs are missing. A silently short
                             # list looks like the feature was never built;
@@ -1290,10 +1497,10 @@ class Druta:
                                     pl_def, self.apply_pl)
 
                     vb = self.gpu.read_voltage_boost()
+                    # raises the reliability-voltage ceiling
                     self.slider_row("volt", "Core voltage boost (%)", 0, 100,
                                     0 if vb is None else max(0, min(100, int(vb))),
-                                    self.apply_volt,
-                                    note="raises the reliability-voltage ceiling")
+                                    self.apply_volt)
 
                     # A SECOND mechanism on the same rail as the boost above,
                     # and the note says so: they are different calls, neither
@@ -1303,20 +1510,69 @@ class Druta:
                     # gives a smaller, wrong answer (see set_rail_offset_mv).
                     if self.gpu.clkdom_ok():
                         rv = self.gpu.read_rail_offset_mv(0)
+                        # Adds to NVVDD on the card's 6.25 mV grid. Measured
+                        # 1:1 on TU102 with the clock pinned; the response can
+                        # be far smaller elsewhere - on GP102 at idle, 100 mV
+                        # requested moved vcore 31.25 mV. Watch the live value
+                        # rather than trusting the number you set. SEPARATE
+                        # from the boost above - both act on this rail and
+                        # their interaction is unmeasured. A V/F HOLD MASKS IT:
+                        # a held point pins the voltage, so the offset applies
+                        # and nothing moves.
                         self.slider_row(
                             "rail", "NVVDD offset (mV)", -100, 100,
                             int(rv or 0), self.apply_rail,
-                            note="Adds to NVVDD on the card's 6.25 mV grid. "
-                                 "Measured 1:1 on TU102 with the clock pinned; "
-                                 "the response can be far smaller elsewhere - "
-                                 "on GP102 at idle, 100 mV requested moved "
-                                 "vcore 31.25 mV. Watch the live value rather "
-                                 "than trusting the number you set. SEPARATE "
-                                 "from the boost above - both act on this rail "
-                                 "and their interaction is unmeasured. A V/F "
-                                 "HOLD MASKS IT: a held point pins the "
-                                 "voltage, so the offset applies and nothing "
-                                 "moves.")
+                            # THE SLIDER IS NOT THE AUTHORITY HERE.
+                            # set_rail_offset_mv is: it writes a signed
+                            # microvolt field behind a read-back diff guard,
+                            # and what the rail will actually take is decided
+                            # there and by the firmware underneath it, not by
+                            # this bound. The widening exists because +-100
+                            # cannot even EXPRESS the measured case: on GP102
+                            # 100 mV requested moved vcore 31.25 mV, a 3.2:1
+                            # under-response, so +100 mV of real vcore needs a
+                            # request the normal slider has no room for. 500 is
+                            # 80 whole 6.25 mV bins and stays a quarter of the
+                            # 2000 mV typo catcher the XOC banner names as the
+                            # last bound left in Druta.
+                            xoc_lo=-500, xoc_hi=500)
+
+                    # THE OTHER ROAD TO THE SAME RAIL, and the only knob in
+                    # Druta with no firmware underneath it. Built only where a
+                    # regulator actually answered, so an unmodified card shows
+                    # no dead row - the same rule the per-domain knobs use.
+                    if self.rail is not None and self.rail.present():
+                        rp = self.rail.p
+                        tel = self.rail.telemetry()
+                        # PMBus straight to the regulator. The knob above ASKS
+                        # the GPU for volts and the firmware may refuse; this
+                        # one moves the regulator and nothing can refuse it.
+                        # The GPU never learns the rail changed, so it will not
+                        # compensate, will not throttle for it, and its own
+                        # voltage readout stays wrong by however much you dial
+                        # in. IT DOES NOT CLEAR ON REBOOT - only 'Reset all to
+                        # stock' or pulling 12 V. Press Verify first: it climbs
+                        # 6.25 -> 75 mV under load until the rail is SEEN to
+                        # move, and Apply stays refused until it has. Measured
+                        # on this card: the first ~31 mV up and ~12 mV down do
+                        # nothing at all, then it tracks about 1:1 - so read
+                        # the measured column, never the number you set.
+                        # Label from the profile, not hardcoded: the rail this
+                        # drives is whatever the identified board says it is.
+                        self.slider_row(
+                            "i2crail", f"{rp.rail} at the VRM (mV)",
+                            int(rp.env_min), int(rp.env_max),
+                            int(tel.get("offset_mv") or 0),
+                            self.apply_i2c_rail,
+                            extra=("Verify", self.verify_i2c_rail),
+                            color=BAD,
+                            # The register's own representable range, not a
+                            # policy: past it the field wraps through its sign
+                            # bit. railctl refuses there in every mode, so the
+                            # slider stops in the same place rather than
+                            # offering travel that can only be rejected.
+                            xoc_lo=int(rp.hw_min_mv),
+                            xoc_hi=int(rp.hw_max_mv))
 
                     fan_floor = st.get("fan_min", 30)
                     self.slider_row("fan", "Fan duty (%)", fan_floor, 100,
@@ -1334,10 +1590,17 @@ class Druta:
             self.bind("log", "mono")
 
     def slider_row(self, key, label, lo, hi, init, cb, note=None, extra=None,
-                   color=None):
+                   color=None, xoc_lo=None, xoc_hi=None):
         """One knob = one row of the enclosing knob table (see knob_cols), so
         every Apply lands in the same column even though the labels, the notes
-        and the presence of an extra button all differ per row."""
+        and the presence of an extra button all differ per row.
+
+        xoc_lo/xoc_hi are the bounds this knob is allowed to reach with XOC
+        ticked, and they are OPT-IN: a knob that passes none keeps its normal
+        range in every state. That is deliberate for the ones where the normal
+        bound is the unit itself - the voltage boost is a percentage of the
+        VBIOS headroom and 101% is not a bigger overclock, it is nonsense."""
+        self._slider_ranges[key] = KnobRange(label, lo, hi, xoc_lo, xoc_hi)
         with dpg.table_row():
             # colour is normally TEXT; the per-domain offsets pass the Monitor's
             # grade colour so a hedged name looks hedged on both tabs
@@ -1349,12 +1612,43 @@ class Druta:
                 # boost or a +5000 MHz offset, the backend refuses the write, and
                 # the only sign is one log line while the knob keeps displaying a
                 # value the card never took.
+                # closes over `key`, which is a parameter of THIS call, so the
+                # cell is per-row - the same reason Apply below can do it
+                # format=" ": DPG centres the slider's own "%d" on the bar by
+                # default, which is now a redundant second copy of the number
+                # sitting in the input box one cell over - that box is the
+                # only place the value needs to read, so the bar goes back to
+                # being just a bar. A single space rather than "" because some
+                # DPG builds treat "" as "use the default" and would silently
+                # bring the numeral back; verified with a throwaway harness
+                # against this pinned 2.3.1 that both blank the numeral
+                # identically, and that neither disturbs the bar itself,
+                # min/max_value, clamped, or set_value/get_value, so " " was
+                # kept as the one that also works on builds where "" does not.
                 dpg.add_slider_int(tag=f"sl_{key}", label="", default_value=init,
                                    min_value=lo, max_value=hi, clamped=True,
-                                   width=-1)
-                if note:
-                    dpg.add_text(note, color=DIM,
-                                 wrap=self.s(self.KNOB_COLS[1] - 10))
+                                   width=-1, format=" ",
+                                   callback=lambda: self.knob_dragged(key))
+                # Per-slider subtext deliberately suppressed - the tab was one
+                # paragraph of grey text under every knob. `note` stays a
+                # parameter so no call site breaks; the wording itself now
+                # lives as plain comments at each call site and in
+                # DOMAIN_KNOBS, not as a rendered widget.
+                # if note:
+                #     dpg.add_text(note, color=DIM,
+                #                  wrap=self.s(self.KNOB_COLS[1] - 10))
+            # A drag cannot land on an exact number, so the same value is also
+            # typeable. It is a MIRROR, not a second source of truth: it writes
+            # into the slider and Apply still reads the slider, so there is no
+            # state in which the button sends a number that is not the one on
+            # the bar. min/max_clamped for the same reason the slider is
+            # clamped - a typed 5000 must not survive as a displayed 5000.
+            # step=0 drops DPG's +/- buttons, which would eat most of a cell
+            # this narrow.
+            dpg.add_input_int(tag=f"in_{key}", label="", default_value=init,
+                              min_value=lo, max_value=hi, min_clamped=True,
+                              max_clamped=True, step=0, width=-1,
+                              callback=lambda: self.knob_typed(key))
             # what the card is MEASURED to be doing for this knob, kept beside
             # the value being asked for (refresh_control fills it). Its cell
             # sits before Apply because rows differ in whether they have an
@@ -1364,11 +1658,118 @@ class Druta:
             # width=-1 fills the cell, which is what makes the buttons one width
             dpg.add_button(label="Apply", tag=f"go_{key}", width=-1,
                            callback=lambda: cb(dpg.get_value(f"sl_{key}")))
-            self._ctl_widgets += [f"sl_{key}", f"go_{key}"]
+            self._ctl_widgets += [f"sl_{key}", f"in_{key}", f"go_{key}"]
             if extra:
                 dpg.add_button(label=extra[0], tag=f"go_{key}_x",
                                width=-1, callback=lambda: extra[1]())
                 self._ctl_widgets.append(f"go_{key}_x")
+
+    # ---- slider <-> text box, and what either is allowed to reach ---------- #
+    def knob_bounds(self, key):
+        """The bounds one knob is under RIGHT NOW.
+
+        Off the flag sync_slider_ranges last acted on, NOT off risk_state():
+        this runs on every keystroke in a text box, and risk_state() probes the
+        I2C bus for a regulator whenever the I2C box is ticked. It also
+        guarantees the typed value is bounded by exactly what the slider beside
+        it was configured with, rather than by a second opinion computed a
+        different way."""
+        r = self._slider_ranges.get(key)
+        if r is None:
+            return None
+        if r.xoc_lo is not None and self._xoc_bounds:
+            return min(r.lo, r.xoc_lo), max(r.hi, r.xoc_hi)
+        return r.lo, r.hi
+
+    def knob_dragged(self, key):
+        if self._knob_sync or not dpg.does_item_exist(f"in_{key}"):
+            return
+        self._knob_sync = True
+        try:
+            dpg.set_value(f"in_{key}", int(dpg.get_value(f"sl_{key}")))
+        finally:
+            self._knob_sync = False
+
+    def knob_typed(self, key):
+        """Typed value -> slider. Clamped here as well as by the widget: DPG
+        applies min_clamped when the field is committed, and Apply must not be
+        able to catch a half-typed 5000 in between."""
+        if self._knob_sync or not dpg.does_item_exist(f"sl_{key}"):
+            return
+        b = self.knob_bounds(key)
+        if b is None:
+            return
+        v = max(b[0], min(b[1], int(dpg.get_value(f"in_{key}"))))
+        self._knob_sync = True
+        try:
+            dpg.set_value(f"sl_{key}", v)
+        finally:
+            self._knob_sync = False
+
+    def sync_knob_boxes(self):
+        """Put every text box back in step with its slider.
+
+        Needed because the slider is moved PROGRAMMATICALLY from a dozen places
+        that cannot fire its callback - reset_all, 'Max it', a profile restore,
+        and the Apply-time snap to the clock grid - so the box has to be
+        re-read rather than written at each of them. Called from the 4 Hz panel
+        tick and directly from the jumps big enough that a 250 ms stale box
+        would be read as the app ignoring the click.
+
+        Skipped for a box the user is inside: overwriting a half-typed number
+        with the value being typed towards makes the field impossible to use."""
+        self._knob_sync = True
+        try:
+            for key in self._slider_ranges:
+                box, sl = f"in_{key}", f"sl_{key}"
+                if not (dpg.does_item_exist(box) and dpg.does_item_exist(sl)):
+                    continue
+                if dpg.is_item_focused(box) or dpg.is_item_active(box):
+                    continue
+                v = int(dpg.get_value(sl))
+                if int(dpg.get_value(box)) != v:
+                    dpg.set_value(box, v)
+        finally:
+            self._knob_sync = False
+
+    def sync_slider_ranges(self, xoc=None):
+        """Move every knob's bounds to match the risk state, both ways.
+
+        Ticking XOC used to remove the software voltage envelope in the backend
+        while every slider still stopped at its normal maximum, so the range it
+        unlocked was not reachable from the UI at all.
+
+        Coming BACK is the half that needs care. A knob left sitting at an
+        XOC-only value would silently jump when the bounds narrow, and a
+        silently moved knob is worse than an out-of-range one: the next Apply
+        writes the new number and the log is the only place that ever said so.
+        So the clamp is logged by name, with both values."""
+        if xoc is None:
+            xoc = self.risk_state() in (RISK_XOC, RISK_BOTH)
+        self._xoc_bounds = bool(xoc)
+        for key, r in self._slider_ranges.items():
+            if not dpg.does_item_exist(f"sl_{key}"):
+                continue
+            lo, hi = r.lo, r.hi
+            if xoc and r.xoc_lo is not None:
+                # XOC may only ever WIDEN. Taken as min/max against the normal
+                # pair rather than trusted from the XOC pair alone, because
+                # some of those come from the driver: a card reporting a narrow
+                # core range would otherwise have its per-domain knobs SHRUNK
+                # by ticking a box whose banner promises the opposite.
+                lo, hi = min(lo, r.xoc_lo), max(hi, r.xoc_hi)
+            # Value first, bounds second. Narrowing the other way round leaves
+            # a frame in which the widget holds a value outside its own range.
+            was = int(dpg.get_value(f"sl_{key}"))
+            now = max(lo, min(hi, was))
+            if now != was:
+                dpg.set_value(f"sl_{key}", now)
+                self.log(f"{r.label}: {was} is outside [{lo}..{hi}] without "
+                         f"XOC - the knob was moved to {now}", False)
+            for tag in (f"sl_{key}", f"in_{key}"):
+                if dpg.does_item_exist(tag):
+                    dpg.configure_item(tag, min_value=lo, max_value=hi)
+        self.sync_knob_boxes()
 
     def sync_lock_ui(self):
         """Grey out every write widget while the gate is clear. Tk kept the same
@@ -1424,6 +1825,139 @@ class Druta:
     def apply_mem(self, v):
         if self.guard():
             self.report(self.gpu.set_clock_offset(2, int(v)))
+
+    def i2c_rail_text(self, vc):
+        """Measured rail, and its disagreement with the GPU's own reading."""
+        if self.rail is None or not dpg.does_item_exist("live_i2crail"):
+            return None
+        # The verifier owns the bus while it runs. Interleaving a refresh read
+        # into its staircase would cost the measurement, and the measurement is
+        # the only thing standing between this knob and an unproven write path.
+        if self._i2c_busy:
+            return "verifying"
+        try:
+            v = self.rail.read_vout()
+        except Exception:                                       # noqa: BLE001
+            return None
+        if v is None:
+            return None
+        if not vc:
+            return f"{v:.0f} mV"
+        return f"{v:.0f} mV  ({v - vc:+.0f} vs GPU)"
+
+    # ---- the I2C rail: verify before you are allowed to drive it ----------- #
+    def find_rail(self):
+        """Identify this card's regulator from the shipped/user profiles.
+
+        Called on startup and on every card swap. Failure is normal and silent
+        in the UI - most boards do not route the regulator to the GPU bus, and
+        the honest result there is simply no row on the Control tab.
+        """
+        self.rail = None
+        if railctl is None:
+            return
+        try:
+            self.rail = railctl.find(self.gpu.nvapi, log=self.log)
+        except Exception as e:                                  # noqa: BLE001
+            self.log(f"i2c profile scan failed: {type(e).__name__}: {e}", False)
+
+    def i2c_gate(self):
+        """(ok, why) for touching the regulator at all."""
+        if railctl is None:
+            return False, "the railctl module is not present in this build"
+        if self.rail is None:
+            return False, ("no i2c profile identifies a regulator on this "
+                           "card - see i2c/PROFILES.md to write one")
+        if not (dpg.does_item_exist("i2c_mode") and dpg.get_value("i2c_mode")):
+            return False, ("tick 'I2C rail' first. That box is what turns the "
+                           "tab red, and the red is the only warning this path "
+                           "gets - it must not be possible to write here "
+                           "without having seen it")
+        if not self.rail.present():
+            return False, (f"the {self.rail.p.regulator} that identified at "
+                           f"0x{self.rail.addr7:02X} is no longer answering - "
+                           f"something moved on the bus, or a link came off")
+        return True, ""
+
+    def verify_i2c_rail(self):
+        """Prove the write path reaches the rail before trusting the knob.
+
+        Runs the staircase UNDER LOAD, on a worker thread, because the answer
+        is worthless at idle: the regulator sheds phases and changes loadline
+        there, so an idle result describes a configuration nobody runs. This
+        is the same reason the timings capture induces a load rather than
+        reading whatever the card happens to be doing.
+        """
+        if self._i2c_busy:
+            self.log("rail verification already running", False)
+            return
+        if not self.guard():
+            return
+        ok, why = self.i2c_gate()
+        if not ok:
+            self.log("verify: " + why, False)
+            return
+        avail, msg = gpuload.available()
+        if not avail:
+            self.log("verify: " + msg, False)
+            return
+        self._i2c_busy = True
+        self._i2c_verified = False
+        self.log("verifying the rail write path under load - the card will be "
+                 "busy for a few seconds and the offset is restored after", None)
+        threading.Thread(target=self._i2c_verify_worker, daemon=True,
+                         name="i2c-verify").start()
+
+    def _i2c_verify_worker(self):
+        # Bound to the Rail captured at start, so a card swap mid-run cannot
+        # redirect the restore write at a different board's bus.
+        gpu, rail, res = self.gpu, self.rail, {}
+        try:
+            def staircase():
+                return rail.verify(acknowledged=True,
+                                   ref=gpu.read_vcore_mv,
+                                   log=lambda m: self.log("  " + m, None))
+            out = gpuload.induce(gpu, max_seconds=180.0, on_settled=staircase)
+            res["err"] = out.get("error") or ""
+            res["v"] = out.get("result")
+        except Exception as e:                                  # noqa: BLE001
+            res["err"] = f"{type(e).__name__}: {e}"
+        finally:
+            self._i2c_busy = False
+        v = res.get("v")
+        if v is None:
+            self.log("verify: the load never settled, so nothing was measured"
+                     + (f" ({res['err']})" if res.get("err") else ""), False)
+            return
+        ok, msg, _ladder = v
+        self._i2c_verified = bool(ok)
+        self.log("verify: " + msg, ok)
+
+    def apply_i2c_rail(self, v):
+        # Ordered so the cheap refusals happen before any bus traffic, and so
+        # the dry run is ALWAYS executed rather than assumed - a refusal has to
+        # be observed. That rule is not decoration here: the last unintended
+        # write on this path happened because a ceiling was reasoned about
+        # instead of being asked for.
+        if not self.guard():
+            return
+        ok, why = self.i2c_gate()
+        if not ok:
+            self.log("rail: " + why, False)
+            return
+        if not self._i2c_verified:
+            self.log("rail: press Verify first. Until the staircase has been "
+                     "watched moving this card's rail, a write here is a write "
+                     "into a path nobody has confirmed reaches anything - and "
+                     "this is the one knob whose mistakes are not undone by a "
+                     "reboot.", False)
+            return
+        okp, plan = self.rail.plan(float(v))
+        self.log("dry run: " + plan, okp)
+        if not okp:
+            return
+        self.autosave_before("i2c-rail-offset")
+        self.report(self.rail.set_offset_mv(float(v), acknowledged=True))
 
     def apply_rail(self, v):
         # An undo point, like the core offset and unlike the other single
@@ -1611,6 +2145,7 @@ class Druta:
             # knob never shows a value the write did not achieve
             if ok and slider and dpg.does_item_exist(slider):
                 dpg.set_value(slider, value)
+                self.sync_knob_boxes()
             return ok
 
         step("fan 100%", lambda: self.gpu.set_fan(100), "sl_fan", 100)
@@ -1894,6 +2429,22 @@ class Druta:
                 dpg.set_value(f"sl_{kn.key}", 0)
         if dpg.does_item_exist("sl_rail"):
             dpg.set_value("sl_rail", 0)
+        # The regulator offset is NOT in gpu.reset_all(): that walks the
+        # driver, and this one does not live in the driver. It is also the only
+        # thing on this tab a reboot will not undo, so it gets its own line
+        # rather than being folded into the general success count - somebody
+        # reading the log needs to see that this specific undo happened.
+        if self.rail is not None and dpg.does_item_exist("sl_i2crail"):
+            ok, m = self.rail.reset()
+            self.log("VRM rail offset: " + m, ok)
+            failed += (0 if ok else 1)
+            if ok:
+                dpg.set_value("sl_i2crail", 0)
+        # None of the set_value calls above fires a slider callback, so the
+        # typed-value boxes would keep showing the pre-reset numbers until the
+        # next panel tick - on the one button whose whole point is that the
+        # card is now at stock.
+        self.sync_knob_boxes()
         self.log(f"reset incomplete: {failed} step(s) failed" if failed
                  else "reset to stock complete", failed == 0)
         self.vf_read(force=True)
@@ -1965,6 +2516,12 @@ class Druta:
                 # on it, and showing one number twice is more honest than
                 # implying they have separate readings
                 ("rail", f"{vc:.2f} mV" if vc else None),
+                # The one live figure on this tab that does NOT come from the
+                # GPU. It is the regulator's own READ_VOUT plus how far that
+                # has drifted from what the GPU believes, because the drift IS
+                # the feature: everything else in Druta, and every other
+                # monitoring tool, will keep reporting the stale number.
+                ("i2crail", self.i2c_rail_text(vc)),
                 # fan0 speaks for the knob - set_fan writes ONE duty to every
                 # fan. A 0 duty is withheld because _read_fan also writes 0
                 # for a refused per-fan query, so a zero here cannot be told
@@ -1979,6 +2536,10 @@ class Druta:
                 continue
             dpg.set_value(tag, txt if txt is not None else "--")
             dpg.configure_item(tag, color=TEXT if txt is not None else DIM)
+
+        # The catch-all for every programmatic slider move: this panel is the
+        # one thing guaranteed to run after any of them (see sync_knob_boxes).
+        self.sync_knob_boxes()
 
     # ====================================================================== #
     #  V/F CURVE                                                             #
@@ -4205,6 +4766,7 @@ deliberately does not put behind a button."""
         if state and state.get("fan_manual") and fans \
                 and dpg.does_item_exist("sl_fan"):
             dpg.set_value("sl_fan", int(fans[0][0]))
+        self.sync_knob_boxes()
 
     # ====================================================================== #
     #  MENU BAR + TOOL WINDOWS                                               #
@@ -5496,6 +6058,12 @@ deliberately does not put behind a button."""
                 return False
             self.gpu = fresh
             self.gpu_list = enumerate_gpus()
+            # Before build_ui: the rail row is only built where a profile
+            # identifies, so the new card's regulator has to be known by the
+            # time the Control tab is constructed. A stale Rail here would
+            # point every write at the PREVIOUS card's bus.
+            self.find_rail()
+            self._i2c_verified = False
             self.build_ui(rebuild=True)
         finally:
             self._rebuilding = False
@@ -6625,6 +7193,12 @@ deliberately does not put behind a button."""
             # would leave the unlock gate holding dead tags from the old tree
             # and every guard() call walking them.
             self._ctl_widgets = []
+            # Same for the knob registry, and here it is not only dead tags:
+            # the XOC bounds in it are read from the OLD card's driver ranges,
+            # and a card switch is exactly when they stop being true. The flag
+            # goes with it because the rebuilt XOC checkbox comes up unticked.
+            self._slider_ranges = {}
+            self._xoc_bounds = False
             for tag in ("hdr_row", "tabs", "menubar", "win_device", "win_save",
                         "win_profiles", "win_keys", "win_about",
                         "win_licence", "win_testsign", "win_ts_done",
@@ -6716,6 +7290,7 @@ deliberately does not put behind a button."""
             _tell("No GPU backend: " + self.gpu.status_line())
             return
         dpg.create_context()
+        self._dpg_ready = True
         # Taller than the old 860: the Monitor tab gained the all-domains
         # table, and relayout() only divides up whatever the viewport gives it
         # - at the old height the new panel could show barely half its rows
