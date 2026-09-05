@@ -1595,7 +1595,6 @@ class Druta:
                         # names blind and would report every card as Turing
                         drows = (self.gpu.read() or {}).get("clk_domains")
                         controls = set(self.gpu.clkdom_controls_for_ui(drows))
-                        blackwell = self.gpu.clkdom_is_blackwell()
                         built = 0
                         for kn in self.DOMAIN_KNOBS:
                             if kn.ctrl not in self.gpu.clkdom_domains():
@@ -1624,13 +1623,15 @@ class Druta:
                             # measured number rather than an invented one, and
                             # it keeps one envelope for every clock knob on the
                             # tab instead of a second unrelated pair.
-                            # Blackwell quantises too, but less than the
-                            # incoming PR assumed: measured on RTX 5080 /
+                            # On Blackwell these are control-domain REQUESTS and
+                            # the driver may quantise what it applies, so the
+                            # live column is what to read after a change rather
+                            # than the number that was asked for. It quantises
+                            # less than it might appear: measured on RTX 5080 /
                             # 580.97 the XBAR response is 0.93-1.00 of the
                             # request from +25 to +300 MHz, which is bin
-                            # flooring, not a ratio. The live column is still
-                            # the thing to read - hence no separate note here,
-                            # since per-knob subtext is no longer drawn.
+                            # flooring rather than a ratio. Kept as a comment
+                            # because per-slider subtext is no longer drawn.
                             self.slider_row(
                                 kn.key, lbl, -300, 300, init,
                                 lambda v, _d=kn.ctrl, _k=kn.key:
