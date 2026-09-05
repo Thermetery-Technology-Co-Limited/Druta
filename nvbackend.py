@@ -41,6 +41,7 @@ import ctypes
 import json
 import re
 import statistics
+import struct
 import sys
 import threading
 import time
@@ -167,6 +168,9 @@ class NvAPI:
         self.RamType = self._i(0x57F7CAAC, PTR, ctypes.POINTER(u32))
         self.VoltCtrlGet = self._i(0x9DF23CA1, PTR, PTR)
         self.VoltCtrlSet = self._i(0xB9306D9B, PTR, PTR)
+        # Per-rail voltage LIMITS, read-only. There is no matching setter: see
+        # GPU.read_volt_rail_limits for what was searched and what was found.
+        self.VoltRailsCtlGet = self._i(0xA3070DB0, PTR, PTR)
         # Per-domain clock offsets - the ONLY path to XBAR. Neither NVML's
         # clock offsets nor NVAPI's Pstates20 can reach it: both enumerate
         # exactly two domains on this card, GRAPHICS and MEMORY, and
@@ -441,7 +445,8 @@ PRIV_DOMAIN_ID = {
 # the driver reports independently, on the card in front of us.
 
 
-def classify_domain_names(rows, core_mhz=None, mem_nvml=None):
+def classify_domain_names(rows, core_mhz=None, mem_nvml=None,
+                          blackwell=False):
     """Name clock domains by CORRELATION against the driver's own figures.
 
     `rows` is mutated in place and returned.
@@ -503,6 +508,47 @@ def classify_domain_names(rows, core_mhz=None, mem_nvml=None):
     pascal_like = (gpc_dom == 15)
     PASCAL_NAMES = {16: ("XBAR2CLK", PRIV_LIKELY)}
 
+    # BLACKWELL PUTS GPC AT DOMAIN 0 TOO, so `turing_like` is true there and
+    # the TU102 table would be applied wholesale to a card it was never earned
+    # on. Measured on RTX 5080 / 580.97, two of those names are simply wrong:
+    #   domain 5  is TU102's LTCCLK, and here reads 0.0 with flags 0x00 - an
+    #             empty slot, not a slow clock
+    # Domain 21 keeps its name: it was checked against the MEASURED column
+    # first and wrongly cleared, because the video engine idles at ~250-310 MHz
+    # there. The PROGRAMMED column is the one to read, and it tracks exactly -
+    # 2317 / 2407 / 2647 for offsets of +0 / +100 / +335, equal to NVML's own
+    # video clock at every step.
+    # Domain 20 is active and scales at roughly 0.80 of GPC, which is where an
+    # L2 clock usually sits, but nothing here has earned it a name.
+    #
+    # So Blackwell gets its own table and everything absent from it stays a
+    # bare index. GPC and MEM are not listed because the branches above name
+    # them by correlation against the driver's own figures, which is stronger
+    # than any table.
+    BLACKWELL_NAMES = {
+        # Earned on Blackwell, not inherited: ctl 0 moves domain 0, and the
+        # physical counter for index 0 matched NVML's graphics clock to 1 MHz
+        # under load. Listed because the correlation branches above cannot fire
+        # at idle - the GPC counter reads a gated ~32 MHz there while NVML
+        # still reports its nominal, so nothing correlates and the row would
+        # otherwise go nameless on an idle card that plainly has a GPC.
+        0: ("GPC", PRIV_CONFIRMED),
+        # ctl 2 moves domain 4, and counter index 4 matched NVML's memory
+        # clock to 0.2% under load.
+        4: ("MEM", PRIV_CONFIRMED),
+        # ctl 1 moves this domain 1:1 (+149.6 for +150) and nothing else.
+        1: ("XBAR", PRIV_CONFIRMED),
+        # ctl 3 moves this domain 1:1. The BEHAVIOUR is confirmed; the word
+        # SYSCLK is inherited by elimination, so it stays hedged.
+        2: ("SYSCLK", PRIV_LIKELY),
+        # Programmed column tracks the VIDEO control 1:1 and equals NVML's
+        # video clock exactly. Its MEASURED column reads a few hundred MHz
+        # whenever nothing is encoding or decoding, which is an idle engine
+        # and not a wrong row.
+        21: ("VIDEO", PRIV_CONFIRMED),
+        31: ("PCIe link gen", PRIV_LIKELY),
+    }
+
     for r in rows:
         dom = r["domain"]
         if (r.get("kind") == PRIV_FREQ and core_mhz
@@ -517,6 +563,9 @@ def classify_domain_names(rows, core_mhz=None, mem_nvml=None):
             r["name"], r["grade"] = "MEM", PRIV_CONFIRMED
         elif pascal_like and dom in PASCAL_NAMES:
             r["name"], r["grade"] = PASCAL_NAMES[dom]
+        elif blackwell:
+            r["name"], r["grade"] = BLACKWELL_NAMES.get(
+                dom, ("", PRIV_UNNAMED))
         elif dom in PRIV_DOMAIN_ID and (turing_like or blind
                                         or r.get("kind") == PRIV_PCIE_GEN):
             name, grade, _kind = PRIV_DOMAIN_ID[dom]
@@ -770,6 +819,39 @@ CLKDOM_RAIL0_UV = CLKDOM_NVVDD_UV  # older name, kept so callers do not break
 # its acceptance means "nothing validates this", not "this rail is here". Not
 # reachable on TU102 through this interface. Read, never written.
 CLKDOM_MSVDD_UV = CLKDOM_LAYOUT_TURING.msvdd_uv
+
+_RAIL_NAME = {0: "core rail (NVVDD)", 1: "MSVDD"}
+
+# WHAT IS AND IS NOT ESTABLISHED ABOUT RAIL 1, measured on RTX 5080 / 580.97.
+#
+# ESTABLISHED, and it is a change from Turing: the write is ACCEPTED. Turing
+# refused it on every domain that does anything. Blackwell accepts it on all
+# nine, which sounds like progress and is not - it accepts on domains 5 and 7
+# too, and those move nothing whatsoever. Acceptance on a provably inert domain
+# means "nothing validates this", not "the rail is here". Exactly the reading
+# already recorded for TU102 domain 6.
+#
+# NOT ESTABLISHED, and this is why the write is off by default:
+#   - the card exposes NO MSVDD readback. VoltRailsStatus returns one rail
+#     (NVVDD) and every other version word returns -9, so a write cannot be
+#     read back and the module's usual read-back guard is unavailable here.
+#   - no measurable effect was found. Against NVVDD as a positive control at
+#     the same magnitude - which moved vcore +10 mV for +25 and +35 mV for
+#     +50, frequency-locked - rail 1 moved neither vcore nor board power at
+#     +-25 or +-50 mV. Board power is a blunt instrument at this operating
+#     point (NVVDD's own signature was +1.2 W against +-0.3 W of noise), so
+#     that is a failure to detect and NOT a demonstration of no effect.
+#   - the OFFSET ITSELF is unverified HERE. 0x118 was confirmed as NVVDD by
+#     watching vcore follow it; 0x11C has had no equivalent check, because the
+#     check needs a readback this card does not provide. That is a gap in OUR
+#     evidence, not a doubt about where the offset came from - it is
+#     contributed work from a source this project trusts. Unverified and
+#     unreliable are different words and only the first one applies.
+#
+# Left switchable rather than deleted because cross-checking it against another
+# tool's behaviour on the same card is legitimate black-box measurement, and
+# that is how the identity gets settled. Nothing here is derived from any other
+# tool's code or data.
 CLKDOM_XBAR = 1
 
 # MEASURED, not inherited. This block does NOT use the private clock getter's
@@ -849,11 +931,25 @@ CLKMEASURE_VERSION = 0x0001000C
 CLKMEASURE_SIZE = 0x000C
 CLKMEASURE_MASK = 0x004
 CLKMEASURE_FREQ = 0x008
+# THESE ARE DOMAIN INDICES, NOT A BITMASK, and the distinction is the whole
+# reason this table used to be wrong by one place. Written as bits it looks
+# like 1/2/4/16 selects GPC/XBAR/SYS/MEM; measured, the value is an index into
+# the same private domain numbering read_clock_domains() reports, where domain
+# 4 is MEM. 0x10 is not "memory", it is domain 16, and the driver rejects it
+# with -104.
+#
+# Anchored two independent ways on RTX 5080 / driver 580.97, both under load:
+#   index 0 reads 2915.5 MHz against NVML graphics 2917  (1 MHz apart)
+#   index 4 reads 14778 MHz against NVML memory 14801    (0.2% apart)
+#
+# Getting this wrong does not fail loudly - it silently reports a neighbouring
+# domain's clock under the name of the one you asked for, which is exactly how
+# a 1:1 XBAR response gets reported as a 0.7 ratio.
 CLKMEASURE_MASKS = {
-    "gpc": 0x00000001,
-    "xbar": 0x00000002,
-    "sys": 0x00000004,
-    "memory": 0x00000010,
+    "gpc": 0x00000000,
+    "xbar": 0x00000001,
+    "sys": 0x00000002,
+    "memory": 0x00000004,
 }
 
 # The Blackwell physical counters can move while the driver changes P-state.
@@ -1489,7 +1585,8 @@ class GPU:
                 if prog and meas:
                     row["delta_mhz"] = (meas - prog) / 1000.0
             rows.append(row)
-        classify_domain_names(rows, core_mhz, mem_nvml)
+        classify_domain_names(rows, core_mhz, mem_nvml,
+                              blackwell=self.clkdom_is_blackwell())
         return rows, None
 
     def _read_clocks(self, d, pc=None):
@@ -1837,6 +1934,11 @@ class GPU:
     # lands in a per-domain control block, and neither reads or clears the other.
     _CLKDOM_BUF = 65536            # far larger than the 24996 declared
 
+    # Rail 1 writes: off unless a caller sets this. See _RAIL_NAME above for
+    # the evidence. Deliberately a class attribute and not a UI checkbox
+    # default, so it cannot be flipped by a stray click.
+    msvdd_write_enabled = False
+
     def clkdom_is_blackwell(self):
         """Whether this is an RTX 50-series card.
 
@@ -1938,11 +2040,14 @@ class GPU:
         if st != 0:
             return None
         value = int(p[CLKMEASURE_FREQ // 4])
-        # Unsupported masks on older architectures can return a plausible
-        # looking but nonsensical counter.  Blackwell clock counters are in
-        # the kHz range below 10 GHz; reject garbage before it becomes mapping
-        # evidence.
-        return value if 1_000 <= value <= 10_000_000 else None
+        # Reject garbage before it becomes mapping evidence - but the ceiling
+        # has to clear the MEMORY counter, and on GDDR7 that is not a graphics
+        # clock. Measured 14,778 MHz on RTX 5080 against NVML's 14,801, so the
+        # old 10 GHz cap threw the memory domain away as nonsense on every
+        # sample and made it permanently unobservable. 40 GHz keeps the filter
+        # useful against a wild read while leaving headroom above the fastest
+        # memory this is likely to meet.
+        return value if 1_000 <= value <= 40_000_000 else None
 
     def clkdom_measurements(self):
         """Read-only Blackwell physical clock measurements in kHz."""
@@ -2462,7 +2567,7 @@ class GPU:
         dw = (layout.header + domain * layout.stride + layout.nvvdd_uv) // 4
         return ctypes.cast(buf, ctypes.POINTER(i32))[dw] / 1000.0
 
-    def set_rail_offset_mv(self, mv, domain=0):
+    def set_rail_offset_mv(self, mv, domain=0, rail=0):
         """Offset the core rail by `mv` millivolts.
 
         MEASURED 1:1 on TU102 with the core clock pinned by the NVML frequency
@@ -2486,18 +2591,29 @@ class GPU:
         layout = self.clkdom_layout()
         if layout is None or layout.nvvdd_uv is None:
             return False, "NVVDD layout is not validated for this GPU/driver"
+        field = layout.nvvdd_uv if rail == 0 else layout.msvdd_uv
+        if field is None:
+            return False, f"rail {rail} has no field in the {layout.name} layout"
+        if rail != 0 and not self.msvdd_write_enabled:
+            # Off by default, and not something a slider can turn on by itself.
+            # See the class attribute for what is and is not established about
+            # this field.
+            return False, ("rail 1 writes are disabled: nothing on this card "
+                           "can read the rail back, so the write cannot be "
+                           "verified. Set GPU.msvdd_write_enabled to allow it.")
         uv = int(round(mv * 1000))
         st, buf = self._clkdom_get(1 << domain)
         if st != 0:
             return False, f"read failed (status {st})"
-        dw = (layout.header + domain * layout.stride + layout.nvvdd_uv) // 4
+        dw = (layout.header + domain * layout.stride + field) // 4
         was = ctypes.cast(buf, ctypes.POINTER(i32))[dw]
         if was == uv:
             # The diff guard below demands exactly one changed dword, so a
             # no-op write would be REFUSED rather than silently doing nothing.
             # Say so plainly instead of reporting a failure for a request that
             # is already satisfied.
-            return True, f"core rail offset already {uv/1000:+.2f} mV"
+            return True, (f"{_RAIL_NAME[rail]} offset already "
+                          f"{uv/1000:+.2f} mV")
         ctypes.cast(buf, ctypes.POINTER(i32))[dw] = uv
         st2, ref = self._clkdom_get(1 << domain)
         if st2 != 0:
@@ -2510,9 +2626,14 @@ class GPU:
                            f"expected only {dw}")
         sst = a.ClkDomCtlSet(a.gpu, ctypes.byref(buf))
         if sst != 0:
-            return False, f"core rail offset failed (status {sst})"
-        return True, (f"core rail offset {was/1000:+.2f} -> {uv/1000:+.2f} mV "
-                      f"(the card quantises to its 6.25 mV grid)")
+            return False, (f"{_RAIL_NAME[rail]} write failed "
+                           f"(status {sst})")
+        note = ("" if rail == 0 else
+                " - UNVERIFIABLE: nothing on this card reads this rail "
+                "back, so this is a request that was accepted, not a "
+                "change that was observed")
+        return True, (f"{_RAIL_NAME[rail]} offset {was/1000:+.2f} -> "
+                      f"{uv/1000:+.2f} mV{note}")
 
     def set_clk_domain_offset(self, domain, mhz):
         """Read-modify-write exactly one dword of the control block.
@@ -2926,6 +3047,352 @@ class GPU:
         if a.VoltRailsStatus(a.gpu, ctypes.byref(vs)) == 0 and vs.value_uV:
             return vs.value_uV / 1000.0
         return None
+
+    # ---- per-rail voltage limits ----------------------------------------- #
+    # The rail limit block. Read-only, and the read-only part is a finding
+    # rather than a design choice - see the end of this comment.
+    #
+    # LAYOUT, established here by probing, not from any third-party header:
+    #   id 0xA3070DB0, version word 0x00020AC8 (v2, 2760 bytes)
+    #   dw1 is an INPUT rail mask - 0x1 fills record 0, 0x2 record 1, 0x3 both.
+    #   Records start at byte 0x48, stride 0x54, five known dwords each:
+    #     +0x00 type   +0x04 reliability  +0x08 alt_reliability
+    #     +0x0C overvoltage  +0x10 vmin
+    #
+    # The four limits are SIGNED MICROVOLT DELTAS from a fixed 1040 mV base,
+    # not absolute ceilings. That was confirmed by reconstruction: with an
+    # external tool holding NVVDD 900/1150 and MSVDD 750/950, this block read
+    # NVVDD reliability +110 / vmin +100 and MSVDD reliability -90 / vmin -50,
+    # and 1040+110, 800+100, 1040-90, 800-50 give back all four numbers
+    # exactly. NVVDD alt_reliability read +90 => 1060, which is precisely the
+    # ceiling measured on this card before the id was known.
+    #
+    # THE FACTORY STATE IS NOT ALL ZERO. On this GB203 the card powers up with
+    # NVVDD at 0 and MSVDD reliability at -50000, i.e. NVVDD capped at the full
+    # 1040 mV and MSVDD 50 mV lower at 990. Verified stable and identical
+    # across two independent PnP device restarts, so a caller must NOT treat a
+    # non-zero delta as evidence that something else has been writing.
+    #
+    # THE BLOCK IS VOLATILE DRIVER STATE. It is not in the adapter's registry
+    # key and nothing re-applies it at boot, but it also does NOT clear on the
+    # display-stack reset (Win+Ctrl+Shift+B). A PnP restart of the adapter
+    # returns it to the factory values above.
+    #
+    # THERE IS NO SETTER, and this was searched exhaustively rather than
+    # assumed. The rails RM commands GET_CONTROL/SET_CONTROL (0x2080B203 and
+    # 0x2080B204) do not occur anywhere in nvapi64.dll as immediates. The
+    # modern unified command 0x2080F214 has exactly three owning exports -
+    # 0x9C4BB8D0 (info), 0x2C73AFDC (status) and 0xA3070DB0 (this one) - and
+    # every one of them reads. 0x5D0634EE, which sits between them in the id
+    # table and accepts the same 2760-byte struct, also returns data when
+    # called, so it is a fourth getter and not the setter its position
+    # suggests. Writes through it are accepted and applied nowhere: a full
+    # sweep of the header dwords and of every unused dword in a record, as
+    # candidate "valid" masks, moved nothing. NVIDIA's own published
+    # ctrl2080volt.h carries no commands or structs at all, so there is no
+    # first-party route either. Anything that does write these limits is
+    # therefore building an RM control call by hand against the kernel driver.
+    def read_volt_rail_limits(self):
+        """Per-rail voltage limits as millivolt deltas, or ``None``.
+
+        Returns ``{rail_index: {"type", "reliability", "alt_reliability",
+        "overvoltage", "vmin"}}`` with the four limits in millivolts, signed,
+        relative to the 1040 mV base described above. Rail 0 is NVVDD and
+        rail 1 is MSVDD.
+        """
+        a = self.nvapi
+        if not (a.ok and a.VoltRailsCtlGet):
+            return None
+        buf = (ctypes.c_ubyte * 8192)()
+        ctypes.memset(buf, 0, 8192)
+        pu = ctypes.cast(buf, ctypes.POINTER(u32))
+        pu[0], pu[1] = 0x00020AC8, 0x3        # version, then the rail mask
+        if a.VoltRailsCtlGet(a.gpu, ctypes.byref(buf)) != 0:
+            return None
+        pi = ctypes.cast(buf, ctypes.POINTER(i32))
+        out = {}
+        for rail in (0, 1):
+            base = (0x48 + rail * 0x54) // 4
+            out[rail] = {
+                "type": pi[base],
+                "reliability": pi[base + 1] / 1000.0,
+                "alt_reliability": pi[base + 2] / 1000.0,
+                "overvoltage": pi[base + 3] / 1000.0,
+                "vmin": pi[base + 4] / 1000.0,
+            }
+        return out
+
+    # The base every delta above is measured from. Not read from the card -
+    # nothing exposes it - but pinned by the reconstruction in the comment on
+    # read_volt_rail_limits, where four independent settings all resolved
+    # against 1040 mV for the ceilings and 800 mV for the floors.
+    # alt_reliability is based at 1060, NOT 1040 like the other ceilings. The
+    # 1060 base is pinned by measurement: a +93 delta held 1145 mV, which a
+    # 1040 base cannot produce because it would cap at 1133, below the point
+    # the card was observed holding.
+    VOLT_LIMIT_BASE_MV = {"reliability": 1040.0, "alt_reliability": 1060.0,
+                          "overvoltage": 1040.0, "vmin": 800.0}
+
+    # THE TWO CEILINGS ARE NOT THE SAME KNOB, and treating them as one is a
+    # real regression rather than a harmless simplification. Measured under
+    # load, boost 0% vs 100%, on this card:
+    #
+    #     reliability / alt      boost 0     boost 100
+    #     1040 / 1060 (stock)    1040 mV     1060 mV
+    #     1150 / 1060            1060 mV     1060 mV
+    #     1040 / 1150            1040 mV     1060 mV
+    #     1150 / 1150            1145 mV     1145 mV
+    #
+    # All eight points fit one rule:
+    #
+    #     cap = min(reliability + boost% * headroom, alt_reliability)
+    #
+    # so reliability is the base the voltage-boost slider climbs FROM, and
+    # alt_reliability is a hard clamp over the result. Row 2 is why writing
+    # reliability alone does nothing, and row 4 is why writing BOTH to the
+    # requested ceiling - which is what an external tool leaves behind - makes
+    # the boost slider inert: 0% and 100% both land on the same volt.
+    #
+    # The headroom is the VBIOS over-voltage allowance and is exactly the gap
+    # between the two bases, so it is derived rather than hardcoded.
+    @classmethod
+    def volt_boost_headroom_mv(cls):
+        """What 100% voltage boost is worth, in millivolts."""
+        return (cls.VOLT_LIMIT_BASE_MV["alt_reliability"]
+                - cls.VOLT_LIMIT_BASE_MV["reliability"])
+
+    # ---- writing the limits ---------------------------------------------- #
+    # NvAPI has no export that writes this block, but RM does implement the
+    # write - the two facts are not the same thing, and conflating them cost a
+    # long detour. Command 0x2080F214 with POPULATED records is the setter,
+    # established by sweeping the VOLT command space and watching which one
+    # moved the rails. It is not reachable through NvAPI's own code: NvAPI
+    # sends the request under 0x2080B213 (a read) and marshals only the rail
+    # mask, so both the command and the rail data have to be supplied here.
+    # Everything else in the request is NvAPI's own and correctly versioned;
+    # only two fields and the record array are ours.
+    #
+    # RM's params (1036 bytes = a 3-dword header + 32 records of 8 dwords,
+    # which is exactly 0x40C) were recovered by differential reads - asking for
+    # rail 0 alone, then rail 1 alone, and seeing which dwords moved:
+    #     dw17  valid-rail mask (out)   dw18  requested mask (in)
+    #     dw20  first record, stride 8: +0 type(5)  +1 reliability_uV
+    #                                   +2..+5 the other limits  +7 flag(1)
+    # These offsets are into the ESCAPE payload, not into the NvAPI struct;
+    # the two layouts are unrelated and must not be mixed up.
+    #
+    # NOTHING VALIDATES THE VALUE. A 1500 mV ceiling is accepted and reads
+    # straight back, so the bound below is Druta's and the only one there is.
+    # It is set at the top of this card's V/F curve rather than at some round
+    # number: above that the cap cannot select a higher point and does nothing,
+    # and below it every step is real.
+    VOLT_LIMIT_MAX_MV = 1250.0
+    VOLT_LIMIT_MIN_MV = 700.0
+    # Off unless something deliberately turns it on, exactly like the rail-1
+    # gate. A slider must not be able to set this by itself.
+    volt_limits_write_enabled = False
+
+    _ESC_B213, _ESC_F214 = 0x2080B213, 0x2080F214
+    _ESC_REC0, _ESC_STRIDE = 20, 8
+
+    class _Escape(ctypes.Structure):
+        _fields_ = [("hAdapter", u32), ("hDevice", u32), ("Type", u32),
+                    ("Flags", u32), ("pPrivateDriverData", ctypes.c_void_p),
+                    ("PrivateDriverDataSize", u32), ("hContext", u32)]
+
+    def _write_rail_records(self, records):
+        """Issue one rails-control WRITE. Returns (ok, RM status).
+
+        The hook is one-shot: it restores the original bytes before calling
+        through, so the real function is what runs and there is no trampoline
+        to build - which also means no instruction-length decoding and no
+        disassembler in the shipped bundle. Not thread safe, and does not need
+        to be: it is installed around a single call and removed by then.
+        """
+        a = self.nvapi
+        gdi = ctypes.WinDLL("gdi32.dll")
+        addr = ctypes.cast(gdi.D3DKMTEscape, ctypes.c_void_p).value
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.VirtualProtect.argtypes = [ctypes.c_void_p, ctypes.c_size_t, u32,
+                                       ctypes.POINTER(u32)]
+        orig = bytes((ctypes.c_ubyte * 14).from_address(addr))
+        proto = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p)
+        state = {"status": None, "done": False}
+
+        def restore():
+            ctypes.memmove(addr, orig, 14)
+
+        def cb(pesc):
+            hit = None
+            try:
+                if pesc and not state["done"]:
+                    e = GPU._Escape.from_address(pesc)
+                    if (e.pPrivateDriverData
+                            and e.PrivateDriverDataSize >= 64):
+                        pu = ctypes.cast(e.pPrivateDriverData,
+                                         ctypes.POINTER(u32))
+                        pi = ctypes.cast(e.pPrivateDriverData,
+                                         ctypes.POINTER(i32))
+                        if pu[14] == GPU._ESC_B213:
+                            pu[14] = GPU._ESC_F214
+                            pu[18] = 0x3
+                            for r, vals in records.items():
+                                b = GPU._ESC_REC0 + r * GPU._ESC_STRIDE
+                                pi[b] = 5
+                                for k, v in enumerate(vals):
+                                    pi[b + 1 + k] = int(v)
+                                pi[b + 7] = 1
+                            hit = pu
+                            state["done"] = True
+            except Exception:
+                pass
+            restore()                     # real bytes back before calling
+            rc = proto(addr)(pesc)
+            if hit is not None:
+                state["status"] = hit[16]
+            return rc
+
+        keep = proto(cb)
+        old = u32()
+        k32.VirtualProtect(ctypes.c_void_p(addr), 14, 0x40, ctypes.byref(old))
+        patch = (b"\xFF\x25\x00\x00\x00\x00"
+                 + struct.pack("<Q", ctypes.cast(keep, ctypes.c_void_p).value))
+        ctypes.memmove(addr, patch, 14)
+        try:
+            buf = (ctypes.c_ubyte * 8192)()
+            ctypes.memset(buf, 0, 8192)
+            p = ctypes.cast(buf, ctypes.POINTER(u32))
+            p[0], p[1] = 0x00020AC8, 0x3
+            a.VoltRailsCtlGet(a.gpu, ctypes.byref(buf))
+        finally:
+            restore()
+            k32.VirtualProtect(ctypes.c_void_p(addr), 14, old,
+                               ctypes.byref(old))
+        return state["done"], state["status"]
+
+    # The four limits, in the order they sit in an RM record.
+    VOLT_LIMIT_FIELDS = ("reliability", "alt_reliability", "overvoltage",
+                         "vmin")
+
+    def set_volt_rail_limits(self, rail, **limits):
+        """Set one rail's limits, each in ABSOLUTE millivolts against its base.
+
+        Keywords are the names in VOLT_LIMIT_FIELDS. Every limit is a SEPARATE
+        field and is written only if named here - nothing is derived from
+        anything else. That is deliberate: `reliability` and `alt_reliability`
+        interact (see the measured table above), and a single synthetic
+        "ceiling" knob would have to pick one mapping of that interaction and
+        hide the rest. Showing both and letting the caller decide keeps the
+        hardware legible; a wrapper that wants one number can compose these two
+        calls itself and say so.
+
+        Returns (ok, message). Every write is read back and compared before it
+        is called a success - but note what that does and does not prove: this
+        block stores a request verbatim, so a matching read-back means the
+        request was stored, never that the card will honour it. Only
+        rail_ceiling_mv, or a rail measurement under load, answers the second.
+        """
+        if not self.volt_limits_write_enabled:
+            return False, ("rail limit writes are disabled: nothing bounds "
+                           "this value but Druta, so it is off by default")
+        unknown = set(limits) - set(self.VOLT_LIMIT_FIELDS)
+        if unknown:
+            return False, f"not a rail limit: {', '.join(sorted(unknown))}"
+        cur = self.read_volt_rail_limits()
+        if cur is None:
+            return False, "cannot read the current limits"
+        recs = {r: [int(round(cur[r][k] * 1000))
+                    for k in self.VOLT_LIMIT_FIELDS] for r in (0, 1)}
+        for key, mv in limits.items():
+            if mv is None:
+                continue
+            if not (self.VOLT_LIMIT_MIN_MV <= mv <= self.VOLT_LIMIT_MAX_MV):
+                return False, (f"{key} {mv:.0f} mV is outside Druta's "
+                               f"{self.VOLT_LIMIT_MIN_MV:.0f}-"
+                               f"{self.VOLT_LIMIT_MAX_MV:.0f} mV bound")
+            recs[rail][self.VOLT_LIMIT_FIELDS.index(key)] = int(round(
+                (mv - self.VOLT_LIMIT_BASE_MV[key]) * 1000))
+        ok, status = self._write_rail_records(recs)
+        if not ok:
+            return False, "the rails request was not seen - nothing was written"
+        if status:
+            return False, f"driver refused the write (NV_STATUS 0x{status:X})"
+        back = self.read_volt_rail_limits()
+        if back is None:
+            return False, "write issued but the read-back failed"
+        got = [int(round(back[rail][k] * 1000))
+               for k in self.VOLT_LIMIT_FIELDS]
+        if got != recs[rail]:
+            return False, (f"read-back disagrees: wanted {recs[rail]}, "
+                           f"got {got}")
+        # Report the fields that were written AND what they add up to, because
+        # the second is not obvious from the first: raising reliability alone
+        # can leave the reachable maximum exactly where it was.
+        wrote = ", ".join(f"{k} {self.abs_limit_mv(back[rail], k):.0f}"
+                          for k in sorted(limits))
+        return True, (f"{_RAIL_NAME[rail]}: {wrote} mV  ->  reaches "
+                      f"{self.rail_floor_mv(back[rail]):.0f}-"
+                      f"{self.rail_ceiling_mv(back[rail]):.0f} mV")
+
+    @classmethod
+    def abs_limit_mv(cls, fields, key):
+        """One limit as an absolute voltage. Each has its OWN base."""
+        return fields[key] + cls.VOLT_LIMIT_BASE_MV[key]
+
+    @classmethod
+    def rail_ceiling_mv(cls, fields):
+        """The highest voltage this rail can reach, i.e. at 100% boost.
+
+        DERIVED, not a field. Measured under load across four configurations:
+
+            cap = min(reliability + boost% * headroom, alt_reliability)
+
+        so the reachable maximum is reliability plus the whole boost headroom,
+        clamped by alt_reliability. Reporting either field on its own is what
+        made a 1153 mV write look applied while the card sat at 1060.
+
+        MEASURED ON RAIL 0 ONLY. Both bases and the boost interaction were
+        established against NVVDD; MSVDD's alt_reliability base has never been
+        pinned and its boost behaviour was never observed, so this is an
+        extrapolation there and callers should not quote it as a measurement.
+
+        `fields` is one rail's dict of millivolt DELTAS, as
+        read_volt_rail_limits returns it.
+        """
+        return min(cls.abs_limit_mv(fields, "reliability")
+                   + cls.volt_boost_headroom_mv(),
+                   cls.abs_limit_mv(fields, "alt_reliability"))
+
+    @classmethod
+    def rail_floor_mv(cls, fields):
+        return cls.abs_limit_mv(fields, "vmin")
+
+    def reset_volt_rail_limits(self):
+        """Put both rails back to this card's power-on limits.
+
+        NOT all zero: this card ships MSVDD 50 mV below NVVDD, so zeroing both
+        would RAISE the MSVDD ceiling rather than restore it.
+
+        Deliberately NOT gated on volt_limits_write_enabled. That gate exists to
+        stop a slider raising a ceiling by itself; this call only ever lowers
+        one back to the power-on value. Refusing it because "writes are
+        disabled" would strand a card on limits the user is trying to clear -
+        which is the exact stickiness that made this feature necessary.
+        """
+        ok, status = self._write_rail_records(
+            {0: [0, 0, 0, 0], 1: [-50000, 0, 0, 0]})
+        if not ok or status:
+            return False, f"reset refused (NV_STATUS 0x{status or 0:X})"
+        return True, "rail limits back to the power-on values"
+
+    def volt_rail_limits_mv(self):
+        """The same limits resolved to absolute millivolts, or ``None``."""
+        raw = self.read_volt_rail_limits()
+        if raw is None:
+            return None
+        return {rail: {k: self.VOLT_LIMIT_BASE_MV[k] + v
+                       for k, v in fields.items() if k != "type"}
+                for rail, fields in raw.items()}
 
     def read_voltage_boost(self):
         a = self.nvapi
@@ -3783,6 +4250,20 @@ class GPU:
             if rail:
                 steps.append(ResetStep("core rail offset",
                                        self.set_rail_offset_mv(0, 0)))
+        # The rail LIMITS are a fourth mechanism, and they outlive the app: they
+        # are driver state that a reboot does not clear and that the display
+        # reset does not touch. Leaving them out would make Druta exactly as
+        # sticky as the tool whose leftovers we had to clear with a PnP restart,
+        # which is the complaint that started this work. Only emitted when they
+        # are actually off the power-on values, so a stock card does not carry a
+        # pointless step.
+        cur = self.read_volt_rail_limits()
+        if cur and (cur[0] != {"type": cur[0]["type"], "reliability": 0.0,
+                               "alt_reliability": 0.0, "overvoltage": 0.0,
+                               "vmin": 0.0}
+                    or cur[1]["vmin"] or cur[1]["reliability"] != -50.0):
+            steps.append(ResetStep("rail limits",
+                                   self.reset_volt_rail_limits()))
         if self.static.get("pl_def_mw"):
             steps.append(ResetStep(
                 "power limit", self.set_power_limit_mw(self.static["pl_def_mw"])))

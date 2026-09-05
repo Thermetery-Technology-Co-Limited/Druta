@@ -110,34 +110,65 @@ BAD = (255, 92, 92)
 
 # Risk tints for the Control tab. The tab changes colour with what the knobs can
 # actually DO, not with which boxes are ticked - the point is that a glance tells
-# you which guardrails are underneath you. Three states, escalating:
-#   XOC        the software envelope is gone; firmware still clamps the rail
-#   I2C        writes go to the regulator; NO firmware clamp is on the path
-#   XOC + I2C  both, i.e. nothing between a slider and the hardware
-RISK_NONE, RISK_XOC, RISK_I2C, RISK_BOTH = 0, 1, 2, 3
+# you which guardrails are underneath you.
+#
+# Risk is a SCORE, not a mode. Each feature that removes a guardrail is worth
+# points, and the banner colour is whichever band the TOTAL lands in. Two amber
+# features together are genuinely worse than either alone, and a fixed set of
+# named modes cannot say that; a sum can, and it keeps working when the next
+# feature is added.
+RISK_STOCK, RISK_AMBER, RISK_RED, RISK_CRIMSON = 0, 1, 2, 3
+
+# What each feature costs. Adding a feature is one line here plus one probe in
+# risk_features() - the bands below never change.
+#   1  an envelope enforced in SOFTWARE is removed; firmware still clamps
+#   2  the write reaches hardware with NO firmware clamp anywhere on the path
+RISK_WEIGHT = {
+    "xoc": 1,
+    "volt_limits": 1,
+    "i2c": 2,
+}
 RISK_TINT = {
-    RISK_XOC:  ((58, 34, 10), (196, 108, 24), (255, 176, 64)),
-    RISK_I2C:  ((60, 16, 16), (208, 56, 56), (255, 120, 120)),
-    RISK_BOTH: ((72, 6, 26), (220, 20, 60), (255, 96, 140)),
+    RISK_AMBER:   ((58, 34, 10), (196, 108, 24), (255, 176, 64)),
+    RISK_RED:     ((60, 16, 16), (208, 56, 56), (255, 120, 120)),
+    RISK_CRIMSON: ((72, 6, 26), (220, 20, 60), (255, 96, 140)),
 }
-RISK_TEXT = {
-    RISK_XOC: (
-        "XOC MODE - the software voltage envelope is removed. Requests still "
-        "go through the driver, so the GPU's own reliability ceiling is still "
-        "underneath you. A typo catcher at 2000 mV is the only bound left in "
-        "Druta."),
-    RISK_I2C: (
-        "I2C RAIL CONTROL - writes go straight to the voltage regulator over "
-        "PMBus. This does NOT pass through the driver or the GPU firmware, so "
-        "NO DRIVER OR BIOS GUARDRAIL CAN CATCH YOU. The GPU cannot see this "
-        "voltage and will not compensate for it. It does not clear on reboot."),
-    RISK_BOTH: (
-        "XOC + I2C - NOTHING IS BETWEEN THIS SLIDER AND YOUR HARDWARE. The "
-        "software envelope is removed AND the write bypasses every driver and "
-        "firmware limit. The only remaining bounds are a 2000 mV typo catcher "
-        "and the regulator's own overcurrent trip. A wrong number here kills "
-        "the card, and it will not clear on reboot."),
+RISK_BAND_NAME = {RISK_AMBER: "AMBER", RISK_RED: "RED",
+                  RISK_CRIMSON: "CRIMSON"}
+# Says what the SCORE means. What each individual feature does is in
+# RISK_FEATURE_TEXT, and the banner shows both.
+RISK_BAND_TEXT = {
+    RISK_AMBER: (
+        "A software envelope has been removed. Requests still go through the "
+        "driver, so the GPU's own reliability ceiling is still underneath "
+        "you."),
+    RISK_RED: (
+        "A write on this path reaches hardware with no firmware clamp on it, "
+        "or two software envelopes are off at once."),
+    RISK_CRIMSON: (
+        "NOTHING MEANINGFUL IS BETWEEN THESE SLIDERS AND YOUR HARDWARE. A "
+        "wrong number here kills the card."),
 }
+RISK_FEATURE_TEXT = {
+    "xoc": (
+        "XOC: the software voltage envelope is removed; a typo catcher at "
+        "2000 mV is the only bound left in Druta."),
+    "volt_limits": (
+        "RAIL LIMITS: the driver-held per-rail voltage ceilings are being "
+        "written directly. EXPERIMENTAL."),
+    "i2c": (
+        "I2C: writes go straight to the regulator over PMBus, bypassing the "
+        "driver and the GPU firmware entirely. The GPU cannot see this "
+        "voltage and will not compensate for it, and it does not clear on "
+        "reboot."),
+}
+
+
+def risk_band(score):
+    """Which colour band a total score falls in."""
+    if score <= 0:
+        return RISK_STOCK
+    return min(score, RISK_CRIMSON)
 
 # Optional: direct regulator control only matters on a board whose I2C links are
 # fitted AND for which a profile identifies, and Druta must run normally
@@ -1152,7 +1183,17 @@ class Druta:
         # with it.
         DomainKnob("xbar", 1, "crossbar", None),
         DomainKnob("sys", 3, "control domain 3", None),
-        DomainKnob("video", 4, "control domain 4", None),
+        # VIDEO sits at a DIFFERENT control index per architecture, so it needs
+        # two entries rather than one. Both are listed and
+        # clkdom_controls_for_ui() decides which is offered: Turing only shows
+        # controls it has a measured pairing for (4 is not one of them - it
+        # accepts writes on TU102 and moves nothing), and Blackwell only shows
+        # CLKDOM_BLACKWELL_CONTROLS. So exactly one of these appears on any
+        # given card, never both.
+        DomainKnob("video", 5, "control domain 5", None),
+        # Measured on RTX 5080 / 580.97: control 4 moves the NVML video clock
+        # +195 MHz for a +200 request while leaving GPC and XBAR untouched.
+        DomainKnob("video_bw", 4, "control domain 4", None),
         # Can move LESS than requested depending on where the clock already
         # sits: +45 has been measured landing as +30 in one state and +45 in
         # another. Watch the live value.
@@ -1190,31 +1231,129 @@ class Druta:
             dpg.add_table_column(width_fixed=True,
                                  init_width_or_weight=self.s(w))
 
-    def risk_state(self):
-        """Which guardrails are actually underneath the knobs right now.
+    # The two fields Link ties together. vmin is not one of them: it is a
+    # floor and shares nothing with either ceiling.
+    VLIM_LINKED = ("reliability", "alt_reliability")
+
+    def apply_vlim(self, **limits):
+        """Write one NVVDD limit and report what the card actually took.
+
+        One knob per FIELD, passed straight through. Druta does not synthesise
+        a ceiling out of the two that interact - that would mean picking a
+        mapping and hiding it - but Link is the opt-in version of the same
+        convenience: tick it and moving either reliability field writes both to
+        that voltage, which is the common case, while the two knobs stay on
+        screen saying what they hold. Untick it and they are independent again.
+
+        Linking makes the voltage-boost slider inert, because both ends of the
+        range it interpolates across land on the same volt. That is a real
+        consequence of asking for one number, so the log line reports what was
+        written and what it reaches, and the readout keeps showing both fields.
+        """
+        if (dpg.does_item_exist("vlim_link") and dpg.get_value("vlim_link")):
+            named = [k for k in self.VLIM_LINKED if k in limits]
+            # Only when exactly one of the pair was moved: a call that already
+            # names both is explicit and must not be second-guessed.
+            if len(named) == 1:
+                limits = dict(limits, **{k: limits[named[0]]
+                                         for k in self.VLIM_LINKED})
+        ok, msg = self.gpu.set_volt_rail_limits(0, **limits)
+        self.log(msg, ok)
+        self.refresh_volt_limits()
+
+    def apply_vlim_reset(self):
+        ok, msg = self.gpu.reset_volt_rail_limits()
+        self.log(msg, ok)
+        self.refresh_volt_limits()
+
+    def refresh_volt_limits(self):
+        """Put the knobs and the readout back onto what the card reports.
+
+        Called after every write rather than trusting the requested number:
+        this block stores a request verbatim, so the only honest thing to show
+        is what a fresh read gives back.
+        """
+        raw = self.gpu.read_volt_rail_limits()
+        if not raw:
+            return
+        if dpg.does_item_exist("volt_limits_txt"):
+            dpg.set_value("volt_limits_txt", self.volt_limits_text(raw))
+        # One knob per field, each showing its own value. The number they add
+        # up to is in the readout line above, not folded into a slider.
+        for key, field in (("vlim_rel", "reliability"),
+                           ("vlim_alt", "alt_reliability"),
+                           ("vlim_lo", "vmin")):
+            val = int(round(GPU.abs_limit_mv(raw[0], field)))
+            for pre in ("sl_", "in_"):
+                if dpg.does_item_exist(pre + key):
+                    dpg.set_value(pre + key, val)
+
+    def volt_limits_text(self, raw):
+        """The per-rail limits: every field, and what they add up to.
+
+        Both are shown on purpose. The fields are what is stored; the reach is
+        what the card will actually do, and the two can disagree completely -
+        reliability 1150 with alt_reliability at its 1060 base stores exactly
+        what was asked and reaches nothing. Printing only the fields hides
+        that, and printing only the reach hides which knob to move.
+
+        `raw` is the delta form from read_volt_rail_limits.
+        """
+        bits = []
+        for rail, name in ((0, "NVVDD"), (1, "MSVDD")):
+            f = raw.get(rail)
+            if not f:
+                continue
+            s = (f"{name}  rel {GPU.abs_limit_mv(f, 'reliability'):.0f} / "
+                 f"alt {GPU.abs_limit_mv(f, 'alt_reliability'):.0f} / "
+                 f"vmin {GPU.rail_floor_mv(f):.0f}")
+            # The reach is quoted only for the rail it was MEASURED on. The
+            # same arithmetic applied to MSVDD would print a confident number
+            # for a rail whose bases were never pinned and whose boost
+            # behaviour was never observed, which is the overclaim this line
+            # exists to avoid.
+            if rail == 0:
+                s += f"  -> reaches {GPU.rail_ceiling_mv(f):.0f} mV"
+            bits.append(s)
+        return "rail limits:   " + "      ".join(bits)
+
+    def risk_features(self):
+        """Which guardrail-removing features are actually live right now.
 
         Keyed on what a write would DO, not on which boxes are ticked: the I2C
         state only counts when the module is present AND a regulator was
         identified on this board, because a ticked box on a card without the
         links fitted changes nothing and must not claim otherwise.
+
+        The same rule applies to "volt_limits": it counts only where the block
+        is actually writable, so on a card whose limits cannot be read the box
+        cannot arm and cannot colour the tab.
         """
-        xoc = bool(dpg.does_item_exist("xoc_mode")
-                   and dpg.get_value("xoc_mode"))
-        i2c = bool(self.rail is not None
-                   and dpg.does_item_exist("i2c_mode")
-                   and dpg.get_value("i2c_mode")
-                   and self.rail.present())
-        return (RISK_BOTH if (xoc and i2c) else
-                RISK_I2C if i2c else RISK_XOC if xoc else RISK_NONE)
+        live = set()
+        if dpg.does_item_exist("xoc_mode") and dpg.get_value("xoc_mode"):
+            live.add("xoc")
+        if (self.rail is not None and dpg.does_item_exist("i2c_mode")
+                and dpg.get_value("i2c_mode") and self.rail.present()):
+            live.add("i2c")
+        if (dpg.does_item_exist("vlim_mode") and dpg.get_value("vlim_mode")
+                and self.gpu.read_volt_rail_limits() is not None):
+            live.add("volt_limits")
+        return live
+
+    def risk_score(self):
+        """Total risk points for everything currently live."""
+        return sum(RISK_WEIGHT[f] for f in self.risk_features())
 
     def sync_risk_ui(self):
-        """Tint the Control tab and raise the banner for the current state."""
-        state = self.risk_state()
+        """Tint the Control tab and raise the banner for the current score."""
+        live = self.risk_features()
+        score = sum(RISK_WEIGHT[f] for f in live)
+        band = risk_band(score)
 
         # Ticking I2C on a board with no regulator reachable is a no-op, and
         # saying so is better than tinting the tab red over nothing.
         if (dpg.does_item_exist("i2c_mode") and dpg.get_value("i2c_mode")
-                and state in (RISK_NONE, RISK_XOC)):
+                and "i2c" not in live):
             dpg.set_value("i2c_mode", False)
             self.log("no voltage regulator identified on this card's I2C bus "
                      "- rail control needs a matching profile in i2c/ and, on "
@@ -1223,23 +1362,40 @@ class Druta:
         # XOC is per-Rail state, not a module global: two cards in one rig must
         # not share an unlocked envelope.
         if self.rail is not None:
-            if state in (RISK_XOC, RISK_BOTH):
+            if "xoc" in live:
                 self.rail.enable_xoc(railctl.XOC_CONFIRM)
             else:
                 self.rail.disable_xoc()
 
-        # AHEAD of the RISK_NONE return below, not after the banner work: this
+        # The backend's rail-1 gate follows the XOC box, so it is impossible
+        # to leave it armed after unticking - the flag lives on the class and
+        # would otherwise outlast the state that justified it.
+        GPU.msvdd_write_enabled = "xoc" in live
+        # Same shape as the rail-1 gate: the backend flag follows the box, so
+        # it cannot outlive the state that justified it. Nothing but Druta
+        # bounds this value, so it must never be on by default.
+        GPU.volt_limits_write_enabled = "volt_limits" in live
+        for k in ("vlim_rel", "vlim_alt", "vlim_lo"):
+            for pre in ("sl_", "in_", "go_"):
+                if dpg.does_item_exist(pre + k):
+                    dpg.configure_item(pre + k,
+                                       enabled="volt_limits" in live)
+        for tag in ("go_vlim_rel_x", "vlim_link"):
+            if dpg.does_item_exist(tag):
+                dpg.configure_item(tag, enabled="volt_limits" in live)
+
+        # AHEAD of the RISK_STOCK return below, not after the banner work: this
         # is the call that puts the knobs BACK when XOC is unticked, and behind
         # the return it would run on every state except the one that needs it.
-        self.sync_slider_ranges(state in (RISK_XOC, RISK_BOTH))
+        self.sync_slider_ranges("xoc" in live)
 
-        if state == RISK_NONE:
+        if band == RISK_STOCK:
             dpg.configure_item("risk_banner", show=False)
             dpg.bind_item_theme("tab_control", 0)
             return
 
-        bg, border, text = RISK_TINT[state]
-        th = self._risk_themes.get(state)
+        bg, border, text = RISK_TINT[band]
+        th = self._risk_themes.get(band)
         if th is None:
             with dpg.theme() as th:
                 with dpg.theme_component(dpg.mvAll):
@@ -1247,10 +1403,17 @@ class Druta:
                     dpg.add_theme_color(dpg.mvThemeCol_FrameBg, bg)
                     dpg.add_theme_color(dpg.mvThemeCol_Border, border)
                     dpg.add_theme_color(dpg.mvThemeCol_TitleBgActive, bg)
-            self._risk_themes[state] = th
+            self._risk_themes[band] = th
         dpg.bind_item_theme("tab_control", th)
+        # Headline the band and the score, then say what each live feature is
+        # doing, heaviest first. A user who has ticked two things needs to read
+        # both reasons, not just the one that happened to name the colour.
+        parts = [f"{RISK_BAND_NAME[band]} (risk {score}) - "
+                 f"{RISK_BAND_TEXT[band]}"]
+        parts += [RISK_FEATURE_TEXT[f] for f in
+                  sorted(live, key=lambda f: -RISK_WEIGHT[f])]
         dpg.configure_item("risk_banner", show=True, color=text,
-                           default_value=RISK_TEXT[state])
+                           default_value="  ".join(parts))
 
     def build_control(self):
         st = self.gpu.static
@@ -1275,6 +1438,13 @@ class Druta:
                 dpg.add_checkbox(label="I2C rail", tag="i2c_mode",
                                  default_value=False,
                                  show=railctl is not None,
+                                 callback=lambda s, a, u: self.sync_risk_ui())
+                # Shown only where the block reads, because on a card that
+                # cannot read it the write has nothing to verify against.
+                dpg.add_checkbox(label="Rail limits", tag="vlim_mode",
+                                 default_value=False,
+                                 show=self.gpu.read_volt_rail_limits()
+                                 is not None,
                                  callback=lambda s, a, u: self.sync_risk_ui())
                 dpg.add_spacer(width=self.s(16))
                 # sits with the gate, not inside a knob group: it undoes every
@@ -1442,12 +1612,6 @@ class Druta:
                             init = int(cur.get(kn.ctrl, {})
                                        .get("freq_khz", 0) / 1000)
                             lbl, col, _p = self.domain_knob_label(kn, drows)
-                            # On Blackwell these are control-domain REQUESTS and
-                            # the driver may quantise what it actually applies,
-                            # so the live column is the thing to read after a
-                            # change rather than the number that was asked for.
-                            # Kept as a comment because per-slider subtext is no
-                            # longer rendered - see slider_row.
                             # XOC: the core envelope above, because nothing
                             # else bounds this knob. -300..300 is a UI
                             # convention, not a driver fact -
@@ -1459,6 +1623,15 @@ class Druta:
                             # measured number rather than an invented one, and
                             # it keeps one envelope for every clock knob on the
                             # tab instead of a second unrelated pair.
+                            # On Blackwell these are control-domain REQUESTS and
+                            # the driver may quantise what it applies, so the
+                            # live column is what to read after a change rather
+                            # than the number that was asked for. It quantises
+                            # less than it might appear: measured on RTX 5080 /
+                            # 580.97 the XBAR response is 0.93-1.00 of the
+                            # request from +25 to +300 MHz, which is bin
+                            # flooring rather than a ratio. Kept as a comment
+                            # because per-slider subtext is no longer drawn.
                             self.slider_row(
                                 kn.key, lbl, -300, 300, init,
                                 lambda v, _d=kn.ctrl, _k=kn.key:
@@ -1502,6 +1675,67 @@ class Druta:
                                     0 if vb is None else max(0, min(100, int(vb))),
                                     self.apply_volt)
 
+                    # The ceiling the boost slider above is actually working
+                    # against. READ-ONLY, and that is a finding rather than a
+                    # choice: nvbackend.GPU.read_volt_rail_limits records the
+                    # search that found no setter for this block anywhere in
+                    # NvAPI. Worth showing anyway - the factory value is NOT
+                    # zero on every rail, and an external tool that has moved
+                    # these is otherwise invisible from inside Druta.
+                    lim = self.gpu.read_volt_rail_limits()
+                    if lim:
+                        # In a row of its own: every child of this table has to
+                        # be a table_row, and a bare add_text here fails inside
+                        # DearPyGui rather than at the call.
+                        with dpg.table_row():
+                            dpg.add_text(self.volt_limits_text(lim),
+                                         tag="volt_limits_txt", color=DIM,
+                                         wrap=self.s(sum(self.KNOB_COLS)))
+                        # EXPERIMENTAL, and gated on the Rail limits box. The
+                        # ceiling does not APPLY a voltage - it permits one, and
+                        # the arbiter then takes the highest V/F point at or
+                        # below it. Raising it above the top of the curve
+                        # therefore does nothing at all, which is why the
+                        # backend's bound sits at the curve top rather than at
+                        # whatever the block will swallow: it accepts 1500 mV
+                        # and reads it straight back, so Druta's bound is the
+                        # only one there is.
+                        # ONE KNOB PER FIELD, named for the field. No synthetic
+                        # "ceiling": the two reliability limits interact, and
+                        # collapsing them means choosing a mapping and hiding
+                        # it. Measured under load on this card:
+                        #     cap = min(rel + boost% * 20mV, alt)
+                        # so rel is where the boost slider starts and alt is a
+                        # hard clamp over the result. Raising rel alone reaches
+                        # nothing; raising both to the same volt works but
+                        # leaves the boost slider with nothing to do. The
+                        # readout above states what the pair actually reaches,
+                        # so either outcome is visible rather than inferred.
+                        lo_mv = int(GPU.VOLT_LIMIT_MIN_MV)
+                        hi_mv = int(GPU.VOLT_LIMIT_MAX_MV)
+                        with dpg.table_row():
+                            dpg.add_checkbox(
+                                label="Link reliability + alt-reliability "
+                                      "(moves both, and the boost slider "
+                                      "stops doing anything)",
+                                tag="vlim_link", default_value=False)
+                        self.slider_row(
+                            "vlim_rel", "NVVDD reliability (mV)", lo_mv, hi_mv,
+                            int(round(GPU.abs_limit_mv(lim[0],
+                                                       "reliability"))),
+                            lambda v: self.apply_vlim(reliability=v),
+                            extra=("Stock", self.apply_vlim_reset))
+                        self.slider_row(
+                            "vlim_alt", "NVVDD alt-reliability (mV)",
+                            lo_mv, hi_mv,
+                            int(round(GPU.abs_limit_mv(lim[0],
+                                                       "alt_reliability"))),
+                            lambda v: self.apply_vlim(alt_reliability=v))
+                        self.slider_row(
+                            "vlim_lo", "NVVDD vmin (mV)", lo_mv, hi_mv,
+                            int(round(GPU.rail_floor_mv(lim[0]))),
+                            lambda v: self.apply_vlim(vmin=v))
+
                     # A SECOND mechanism on the same rail as the boost above,
                     # and the note says so: they are different calls, neither
                     # reads or clears the other, and their combination has not
@@ -1536,6 +1770,20 @@ class Druta:
                             # 2000 mV typo catcher the XOC banner names as the
                             # last bound left in Druta.
                             xoc_lo=-500, xoc_hi=500)
+
+                    # RAIL 1. Built only where the layout names a field for
+                    # it, and gated on XOC because it is the one knob here that
+                    # CANNOT be verified: this card exposes no readback for
+                    # this rail, so a write is a request that was accepted and
+                    # never a change that was observed. The label says
+                    # UNVERIFIED rather than a note, because per-knob subtext
+                    # is no longer drawn and this is not a caveat to bury.
+                    _lay = self.gpu.clkdom_layout()
+                    if _lay is not None and _lay.msvdd_uv is not None:
+                        self.slider_row(
+                            "msvdd", "MSVDD offset (mV)  UNVERIFIED",
+                            -50, 50, 0, self.apply_msvdd, color=BAD,
+                            xoc_lo=-150, xoc_hi=150)
 
                     # THE OTHER ROAD TO THE SAME RAIL, and the only knob in
                     # Druta with no firmware underneath it. Built only where a
@@ -1668,9 +1916,9 @@ class Druta:
     def knob_bounds(self, key):
         """The bounds one knob is under RIGHT NOW.
 
-        Off the flag sync_slider_ranges last acted on, NOT off risk_state():
-        this runs on every keystroke in a text box, and risk_state() probes the
-        I2C bus for a regulator whenever the I2C box is ticked. It also
+        Off the flag sync_slider_ranges last acted on, NOT off risk_features():
+        this runs on every keystroke in a text box, and risk_features() probes
+        the I2C bus for a regulator whenever the I2C box is ticked. It also
         guarantees the typed value is bounded by exactly what the slider beside
         it was configured with, rather than by a second opinion computed a
         different way."""
@@ -1745,7 +1993,7 @@ class Druta:
         writes the new number and the log is the only place that ever said so.
         So the clamp is logged by name, with both values."""
         if xoc is None:
-            xoc = self.risk_state() in (RISK_XOC, RISK_BOTH)
+            xoc = "xoc" in self.risk_features()
         self._xoc_bounds = bool(xoc)
         for key, r in self._slider_ranges.items():
             if not dpg.does_item_exist(f"sl_{key}"):
@@ -1958,6 +2206,26 @@ class Druta:
             return
         self.autosave_before("i2c-rail-offset")
         self.report(self.rail.set_offset_mv(float(v), acknowledged=True))
+
+    def apply_msvdd(self, v):
+        """Rail 1. Gated on XOC, and honest about what it cannot prove.
+
+        Kept separate from apply_rail rather than folded in with a rail
+        argument: they are not the same knob. The core rail is measured 1:1
+        against a reading this app can take, and this one is a write into a
+        field whose identity comes from outside this project and whose effect
+        nothing here can see. Sharing a handler would imply a parity that the
+        evidence does not support.
+        """
+        if not self.guard():
+            return
+        if not (dpg.does_item_exist("xoc_mode") and dpg.get_value("xoc_mode")):
+            self.log("MSVDD: tick XOC first. This rail has no readback on this "
+                     "card, so the write cannot be verified - that is the "
+                     "class of thing XOC exists to gate.", False)
+            return
+        self.autosave_before("msvdd-offset")
+        self.report(self.gpu.set_rail_offset_mv(int(v), 0, rail=1))
 
     def apply_rail(self, v):
         # An undo point, like the core offset and unlike the other single
