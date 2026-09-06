@@ -26,6 +26,7 @@ card's numbers, and the only way to be sure of that is to read them back.
 Needs two NVIDIA GPUs and, for the V/F table probe, administrator rights.
 Run: python test_swap.py
 """
+import math
 import sys
 
 import dearpygui.dearpygui as dpg
@@ -79,6 +80,62 @@ def frames(n=3):
             dpg.render_dearpygui_frame()
 
 
+def check_curve(app, label):
+    """Check real data and drawn series, independently of the layout cache.
+
+    The two named boards have measured complete GPU tables. Comparing the
+    working-copy length to n_vf_rows() alone let the broken Pascal cache pass
+    because both sides said one point. Other boards still need a real curve.
+    """
+    points = app.vf_points or []
+    known_counts = {"NVIDIA TITAN RTX": 128, "NVIDIA TITAN XP": 80}
+    name = app.gpu.static.get("name", "").upper()
+    expected = known_counts.get(name)
+    if expected is not None:
+        check(f"{label}: complete {name} curve", len(points), expected)
+    else:
+        check(f"{label}: multiple curve points", len(points) >= 2, True)
+    if not points:
+        check(f"{label}: readable curve", False, True)
+        return False
+
+    xs = [p["volt_mv"] for p in points]
+    ys = [p["freq_mhz"] for p in points]
+    indices = [p["idx"] for p in points]
+    check(f"{label}: positive physical clocks",
+          all(math.isfinite(y) and y >= 1 for y in ys), True)
+    check(f"{label}: positive physical voltages",
+          all(math.isfinite(x) and x > 0 for x in xs), True)
+    check(f"{label}: voltage extent",
+          max(xs) - min(xs) >= (100 if expected else 1), True)
+    check(f"{label}: distinct ordered voltage anchors",
+          all(a < b for a, b in zip(xs, xs[1:])), True)
+    check(f"{label}: unique point indices", len(set(indices)), len(indices))
+    if expected is not None:
+        check(f"{label}: all GPU indices present",
+              indices == list(range(expected)), True)
+    check(f"{label}: editor contains exactly these points",
+          set(app.vf_work) == set(indices) == set(app.vf_orig), True)
+
+    if not all(i in app.vf_work and i in app.vf_by_idx
+               and i in app.vf_orig for i in indices):
+        return False
+    edited = [app.wf(i) / 1000.0 for i in indices]
+    for tag, expected_y in (("vf_cur", ys), ("vf_edit", edited)):
+        series = dpg.get_value(tag)
+        shape_ok = (isinstance(series, (list, tuple)) and len(series) >= 2
+                    and len(series[0]) == len(xs)
+                    and len(series[1]) == len(expected_y))
+        check(f"{label}: {tag} point count", shape_ok, True)
+        matches = shape_ok and all(
+            math.isclose(actual, want, rel_tol=0, abs_tol=0.001)
+            for actual_axis, expected_axis in
+            ((series[0], xs), (series[1], expected_y))
+            for actual, want in zip(actual_axis, expected_axis))
+        check(f"{label}: {tag} matches curve", matches, True)
+    return len(points) >= 2
+
+
 def main():
     cards = nvbackend.enumerate_gpus()
     if len(cards) < 2:
@@ -106,16 +163,22 @@ def main():
                 "step": app.step_mhz()}
     ui_a = snapshot_ui()
     app.vf_read()
-    n_rows_a = app.n_vf_rows()
+    n_rows_a = len(app.vf_points or [])
+    check_curve(app, "initial A")
     print(f"on A: {app.gpu.static['name']}  gfx {expect_a['gfx_min']}-"
           f"{expect_a['gfx_max']}  step {expect_a['step']}  "
           f"{n_rows_a} V/F rows")
     print(f"  widgets: {ui_a}\n")
 
     # ---- swap A -> B ------------------------------------------------------ #
-    print(f"swap -> {b}")
-    assert app.swap_gpu(b), "swap_gpu returned False"
+    print(f"clean menu selection -> {b}")
+    app.on_pick_card(app_data=app.card_label(b))
     frames()
+    check("clean curve switches on the first menu selection", app.gpu.slot(), b)
+    check("clean curve leaves no confirmation armed", app._switch_armed, None)
+    check("card selector follows selected GPU", dpg.get_value("hdr_card"),
+          app.card_label(b))
+    check_curve(app, "first switch B")
     expect_b = {"gfx_min": app.gpu.static.get("gfx_min"),
                 "gfx_max": app.gpu.static.get("gfx_max"),
                 "step": app.step_mhz()}
@@ -147,10 +210,10 @@ def main():
     # that it was re-read at the new card's size - 80 rows on GP102 where the
     # outgoing TU102 had 128, which is the check that would catch a working
     # copy carried across intact.
-    check("no staged edit pending", app.vf_work, app.vf_orig)
+    check("no staged edit pending", app.vf_work == app.vf_orig, True)
     check("working copy re-sized to this card",
-          len(app.vf_work), app.n_vf_rows())
-    differs("V/F row count", n_rows_a, app.n_vf_rows())
+          len(app.vf_work), len(app.vf_points or []))
+    differs("V/F row count", n_rows_a, len(app.vf_points or []))
     check("undo history", app._undo, [])
     check("redo history", app._redo, [])
     check("plan note", app._plan_note, None)
@@ -162,8 +225,9 @@ def main():
 
     # ---- swap back B -> A, and confirm it restores exactly ---------------- #
     print(f"swap back -> {a}")
-    assert app.swap_gpu(a), "swap back returned False"
+    app.on_pick_card(app_data=app.card_label(a))
     frames()
+    check_curve(app, "return A")
     ui_a2 = snapshot_ui()
     print(f"  widgets: {ui_a2}\n")
     print("returning to card A restores card A's widgets:")
@@ -174,12 +238,30 @@ def main():
 
     # a staged edit must block the first click and go through on the second
     print("staged edits arm the switch rather than vanishing:")
-    app.vf_work = {5: 3}
-    app.switch_gpu(user_data=b)
-    check("first click refused", app.gpu.slot(), a)
-    check("armed", app._switch_armed, b)
-    app.switch_gpu(user_data=b)
-    check("second click switched", app.gpu.slot(), b)
+    if app.vf_points:
+        index = app.vf_points[len(app.vf_points) // 2]["idx"]
+        app.vf_work[index] += app.vf_delta_step_khz()
+        app.vf_redraw()
+        staged_delta = app.vf_work[index]
+        check("exactly one real point staged",
+              sum(d != app.vf_orig[i] for i, d in app.vf_work.items()), 1)
+        check_curve(app, "staged A")
+        app.on_pick_card(app_data=app.card_label(b))
+        check("first click refused", app.gpu.slot(), a)
+        check("armed", app._switch_armed, b)
+        check("staged point survives first click", app.vf_work.get(index),
+              staged_delta)
+        check("selector still shows outgoing GPU", dpg.get_value("hdr_card"),
+              app.card_label(a))
+        app.on_pick_card(app_data=app.card_label(b))
+        frames()
+        check("second click switched", app.gpu.slot(), b)
+        check("confirmed switch discarded staged edit",
+              app.vf_work == app.vf_orig, True)
+        check_curve(app, "confirmed switch B")
+    else:
+        check("real point available for staged-switch test", False, True)
+        app.swap_gpu(b)
     print()
 
     # a held lock must refuse outright, however many times it is clicked
@@ -195,10 +277,12 @@ def main():
     print("repeated swaps must not grow the item tree:")
     app.swap_gpu(a)
     frames()
+    check_curve(app, "before repeated swaps A")
     before = len(dpg.get_all_items())
     for i in range(6):
         app.swap_gpu(b if i % 2 == 0 else a)
         frames(1)
+        check_curve(app, f"repeated swap {i + 1}")
     after = len(dpg.get_all_items())
     print(f"  items {before} -> {after} after 6 swaps "
           f"({(after - before) / 6:+.1f} per swap)")
@@ -225,6 +309,7 @@ def main():
     print("a capture that started on the old card is dropped, not filed:")
     app.swap_gpu(a)
     frames()
+    check_curve(app, "before stale capture A")
     gen_at_start = app._gpu_gen
     app._tim = None
     app._tim_busy = True
@@ -246,6 +331,7 @@ def main():
 
     app.swap_gpu(b)          # card changes while the "worker" is running
     frames()
+    check_curve(app, "after stale capture B")
     outcome = file_result(gen_at_start, _Stale())
     check("stale capture dropped", outcome, "dropped")
     check("timings tab not poisoned",

@@ -20,6 +20,45 @@ Feature availability depends on the installed NVIDIA driver. Physical GPU
 functions remain unverified on Vista; a VMware virtual adapter cannot validate NVIDIA
 telemetry, clock/voltage controls, V/F curves or timing-register access.
 
+## NVIDIA driver compatibility port
+
+This branch includes the current driver compatibility fixes: trusted NVML
+locations, optional older NVML exports, PCI-addressed GPU pairing and CUDA
+loads, clock/fan fallbacks, V/F curve validation and GPU switching, whole-bin
+ramp staging, profile restoration, and the **Additional Memory Clock Offset**
+label. The Vista-specific runtime, file dialogs and explicit nvtune
+`--dry-run` / `--commit` safeguards remain in place.
+
+NVIDIA states that [Vista support was deprecated in Release 367.xx](https://nvidia.custhelp.com/app/answers/detail/a_id/4373/kw/applications).
+Its [365.19 WHQL driver](https://www.nvidia.com/en-us/drivers/details/102379/)
+was released on May 13, 2016 and explicitly lists Vista x64; 472.12 is a
+Windows 7/8/8.1 release. A Windows 10 test of 472.12 does not establish
+Vista driver support. The TITAN RTX and TITAN Xp results in
+[DRIVER-COMPATIBILITY.md](DRIVER-COMPATIBILITY.md) concern those measured
+cards and drivers on the modern test host, not this Vista package.
+
+The official signed 365.19 package was downloaded and extracted for a
+[static DLL export audit](experiments/vista-driver-36519-exports.json).
+NVML, NVAPI and CUDA are x64 PE files with minimum subsystem 6.0.
+NVML has 130 exports and exposes PCI-info V2, but not V3, indexed fan APIs,
+clock-offset APIs or GPU frequency-lock APIs. Druta uses the compatible
+PCI record and guards missing functions; unavailable readings stay unknown.
+The CUDA functions used by the load worker and NVAPI's query entry point
+exist in these files. Export presence does not prove a function works on a
+particular GPU. No NVIDIA driver binary is included in the Druta package.
+
+Per-rail voltage writes retain their measured card/VBIOS/driver profiles.
+The 365.19 driver has no validated rail-write profile, so unconfirmed TITAN
+rail writes remain disabled even when the write toggle is selected. Physical
+NVIDIA monitoring, V/F operations, clock/fan fallbacks and timing access on
+Vista still require testing with a supported card and its installed driver.
+
+The port passes 158 application tests and 54 compatibility/package tests
+under the patched Python 3.8.10 runtime on the modern build host. Its source
+startup probe and full Control/Monitor/Timings fixture pass with all GPU
+backends, workers and subprocesses disabled (985 items, nine rendered frames).
+The fresh guest checks and earlier runtime validation are recorded separately below.
+
 ## Required Windows components
 
 - Windows Vista **Service Pack 2, x64**.
@@ -140,6 +179,12 @@ To include the optional nvtune CLI and driver tools, add
 and source provenance, and includes its license and complete source ZIP.
 Packaging never executes the CLI, installer or driver.
 
+Each portable build includes `source/` beside `Druta.exe`, containing the
+exact public working-tree source, tests, profiles and Vista runtime patches.
+`source/SOURCE-MANIFEST.json` records each file's SHA-256 and the EXE hash.
+The build rejects source changes during compilation. Private probe dumps,
+profiles/autosaves, `.git`, build inputs and NVIDIA DLLs are excluded.
+
 ## Verification
 
 Run a startup probe from an extracted folder on the target OS:
@@ -173,7 +218,32 @@ platform update and only changes GUI rendering. It does not emulate an
 NVIDIA adapter or validate GPU tuning. Leave the variable unset for the
 normal hardware renderer.
 
-### Target VM results
+### Driver-compatibility port: fresh guest results (September 6, 2026)
+
+The updated package was retested on Vista Ultimate SP2 x64 **6.0.6002**,
+now assigned **8 GB RAM**, with VMware SVGA driver **8.16.07.0005**.
+The 158 application tests and 54 compatibility/package tests passed under
+patched Python 3.8.10. Frozen `--smoke-test` exited 0 with a fresh passed
+report and three rendered frames. `--list-gpus` and normal startup both
+exited 1 with a clear unavailable-NVIDIA result on the VMware adapter.
+The full-interface fixture constructed Control, Monitor and Timings and
+completed nine frame-loop iterations and all three tab selections, with 983
+items at guest DPI scale 1.0 and no forbidden worker/subprocess attempts.
+This is a construction/frame-loop smoke result, not a visual full-UI pass.
+
+The guest was signed out during this run. The noninteractive VMware process
+session can render with WARP, but it cannot establish interactive hardware
+rendering or completed user interactions. Its hardware file-dialog framebuffer
+was blank and was rejected by the fixture. The explicit WARP file-dialog
+framebuffer passed after 89 frames; visual inspection confirmed
+`subfolder-café`, `file-café.txt` and `visible-ascii.txt`. A separate
+instrumented full-UI capture produced blank 1×1 images and was rejected as
+visual evidence. Current interactive hardware rendering and full-UI visuals
+remain unverified in this signed-out session. The
+[sanitized validation record](experiments/vista-port-validation-20260906.json)
+keeps these results separate.
+
+### Earlier Vista runtime validation
 
 Verified on Windows Vista Ultimate SP2 x64 **6.0.6002**, with VMware Tools
 **11.0.6** and the VMware SVGA driver **8.16.07.0005**. The guest received no

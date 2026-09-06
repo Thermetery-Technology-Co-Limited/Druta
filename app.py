@@ -1406,7 +1406,8 @@ profile will clobber curve edits made here. Drive clocks from ONE tool at a time
 
     def _rf_state(self, d):
         fans = d.get("fans", [])
-        fantxt = "  ".join(f"fan{i}: {duty}% {rpm or 0}rpm"
+        fantxt = "  ".join(f"fan{i}: {duty if duty is not None else '--'}% "
+                           f"{rpm if rpm is not None else '--'}rpm"
                            for i, (duty, rpm) in enumerate(fans)) or "--"
         vfl = d.get("vf_locked_domains", [])
         core_off = d.get("core_off", 0)

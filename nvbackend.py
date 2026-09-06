@@ -39,6 +39,7 @@ example, and vf_lock_self_test() keeps the middle rung runnable on any machine.
 """
 import ctypes
 import json
+import ntpath
 import os
 import re
 import statistics
@@ -146,6 +147,14 @@ class NvAPI:
         # readers
         self.ThermalSettings = self._i(0xE3640A56, PTR, u32, PTR)
         self.ThermalSensors = self._i(0x65FE3AAD, PTR, PTR)
+        # Legacy fan path used by Pascal/R470 when NVML has no fan setters.
+        self.CoolerSettings = self._i(0xDA141340, PTR, u32, PTR)
+        self.CoolerLevelsSet = self._i(0x891FA0AE, PTR, u32, PTR, u32)
+        self.CoolerRestore = self._i(0x8F6ED0FB, PTR, PTR, u32)
+        self.TachReading = self._i(0x5F608315, PTR, ctypes.POINTER(u32))
+        self.FanCoolersControl = self._i(0x814B209F, PTR, PTR)
+        self.FanCoolersStatus = self._i(0x35AED5E8, PTR, PTR)
+        self.FanCoolersSetControl = self._i(0xA58971A5, PTR, PTR)
         self.VoltRailsStatus = self._i(0x465F9BCF, PTR, PTR)
         self.PowerTopo = self._i(0x0EDCF624E, PTR, PTR)
         self.PowerPolInfo = self._i(0x34206D86, PTR, PTR)
@@ -153,6 +162,8 @@ class NvAPI:
         self.PerfDecrease = self._i(0x7F7F4600, PTR, ctypes.POINTER(u32))
         self.DynPstates = self._i(0x60DED2ED, PTR, PTR)
         self.CurrentPstate = self._i(0x927DA4F6, PTR, ctypes.POINTER(u32))
+        self.Pstates20Get = self._i(0x6FF81213, PTR, PTR)
+        self.Pstates20Set = self._i(0x0F4DAE6B, PTR, PTR)
         self.AllClocks = self._i(0xDCB616C3, PTR, PTR)
         self.AllClocksPriv = self._i(0x1BD69F49, PTR, PTR)
         # Per-domain V/F point lock. BoostLock is its GETTER; VfLockSet is the
@@ -311,6 +322,46 @@ class _PwrPolStatusEntry(ctypes.Structure):
 class _PwrPolStatus(ctypes.Structure):
     _fields_ = [("version", u32), ("count", u32),
                 ("entries", _PwrPolStatusEntry * 4)]
+
+
+class _CoolerSetting(ctypes.Structure):
+    _fields_ = [(name, u32) for name in (
+        "type", "controller", "default_min", "default_max", "current_min",
+        "current_max", "current_level", "default_policy", "current_policy",
+        "target", "control_type", "active")]
+
+
+class _CoolerSettings(ctypes.Structure):
+    _fields_ = [("version", u32), ("count", u32),
+                ("entries", _CoolerSetting * 20)]
+
+
+class _CoolerLevel(ctypes.Structure):
+    _fields_ = [("level", u32), ("policy", u32)]
+
+
+class _CoolerLevels(ctypes.Structure):
+    _fields_ = [("version", u32), ("entries", _CoolerLevel * 20)]
+
+
+class _FanCoolerControlEntry(ctypes.Structure):
+    _fields_ = [("id", u32), ("level", u32), ("mode", u32),
+                ("reserved", u32 * 8)]
+
+
+class _FanCoolersControl(ctypes.Structure):
+    _fields_ = [("version", u32), ("unknown", u32), ("count", u32),
+                ("reserved", u32 * 8), ("entries", _FanCoolerControlEntry * 32)]
+
+
+class _FanCoolerStatusEntry(ctypes.Structure):
+    _fields_ = [("id", u32), ("rpm", u32), ("min", u32), ("max", u32),
+                ("level", u32), ("reserved", u32 * 8)]
+
+
+class _FanCoolersStatus(ctypes.Structure):
+    _fields_ = [("version", u32), ("count", u32), ("reserved", u32 * 8),
+                ("entries", _FanCoolerStatusEntry * 32)]
 
 
 class _UtilDomain(ctypes.Structure):
@@ -617,8 +668,8 @@ class _ClockLock(ctypes.Structure):
 # for a different reason: it is how a concurrent tuner overwriting the lock
 # gets noticed.
 #
-# THE NVML FREQUENCY LOCK LIVES IN THIS SAME TABLE, and the mode is the only
-# thing telling them apart. nvmlDeviceSetGpuLockedClocks(lo, hi) writes TWO
+# On R580 the NVML frequency lock lives in this same table, and the mode is
+# what tells them apart. nvmlDeviceSetGpuLockedClocks(lo, hi) writes TWO
 # mode-2 entries whose "volt_uV" field is a FREQUENCY IN kHz, not a voltage:
 # domain 0 takes hi, domain 1 takes lo (measured with an asymmetric lock -
 # 1350..1800 produced domain 0 = 1800000 and domain 1 = 1350000). They coexist
@@ -627,6 +678,8 @@ class _ClockLock(ctypes.Structure):
 # reading a mode-2 entry as a voltage yields a confident 1350.00 mV, and
 # clearing one from this side would silently release the other mechanism's
 # lock - the exact confusion the two-mechanism split exists to prevent.
+# R472 keeps the frequency lock in separate RM performance-limit records;
+# read_clk_lock handles that measured legacy layout without changing this one.
 VF_LOCK_VERSION = 2                 # version = sizeof | (2<<16) = 0x0002030C
 VF_LOCK_MODE_OFF = 0                # entry present, not locked
 VF_LOCK_MODE_FREQ = 2               # NVML locked clocks; field is kHz
@@ -919,7 +972,18 @@ assert CLKDOM_HDR + CLKDOM_SLOTS * CLKDOM_STRIDE == CLKDOM_SIZE
 # private getter's domain numbering.  The XBAR/SYSCLK names are retained from
 # the documented control layout, while VIDEO was re-identified on RTX 5080
 # +610.88 by a repeatable physical VIDEO response at control 4.
-CLKDOM_BLACKWELL_CONTROLS = {1: "XBAR", 3: "SYSCLK", 4: "VIDEO"}
+# Control 2 is MEM, and it is here because it was MEASURED, not because
+# the name lines up. On RTX 5080 / 580.97 a +100 request moved the memory
+# clock 15001 -> 15101 and +300 moved it to 15301, exactly 1:1, restoring
+# to 15001 on zero. That matters more than usual for this one: it is the
+# only route to a memory offset that is not checked against the VBIOS
+# delta range. It is NOT, however, a way past that range: measured with NVML
+# at zero, this delta moves the memory clock 1:1 up to exactly +3000 MHz
+# effective and then stops - +3500 and +4500 store their full value and leave
+# the clock at 18001, the same 18001 the declared maximum reaches. The clamp
+# lives downstream of every path we have. Unvalidated is not the same as
+# unbounded, and this block is the former.
+CLKDOM_BLACKWELL_CONTROLS = {1: "XBAR", 2: "MEM", 3: "SYSCLK", 4: "VIDEO"}
 # Keep the logical-to-wire signs explicit for each Blackwell control. The
 # follow-up end-to-end RTX 5080 test showed that XBAR must be written with the
 # same sign selected in the UI. The earlier raw-probe direction was one layer
@@ -1119,6 +1183,46 @@ class _ClockOffset(ctypes.Structure):
                 ("off", i32), ("mn", i32), ("mx", i32)]
 
 
+# Public NVAPI Pstates20 layout (NVIDIA/nvapi nvapi.h). The legacy setter
+# uses a sparse P0 request: one clock domain, one signed-kHz delta, and no
+# voltage entries. This provides the ordinary offsets on drivers predating
+# NVML's offset APIs without touching the separate clock-domain controls.
+class _Pstate20Delta(ctypes.Structure):
+    _fields_ = [("value", i32), ("minimum", i32), ("maximum", i32)]
+
+
+class _Pstate20Clock(ctypes.Structure):
+    _fields_ = [("domain", u32), ("kind", u32), ("flags", u32),
+                ("delta", _Pstate20Delta), ("data", u32 * 5)]
+
+
+class _Pstate20Voltage(ctypes.Structure):
+    _fields_ = [("domain", u32), ("flags", u32), ("voltage_uv", u32),
+                ("delta", _Pstate20Delta)]
+
+
+class _Pstate20Entry(ctypes.Structure):
+    _fields_ = [("pstate", u32), ("flags", u32),
+                ("clocks", _Pstate20Clock * 8),
+                ("voltages", _Pstate20Voltage * 4)]
+
+
+class _Pstates20V1(ctypes.Structure):
+    _fields_ = [("version", u32), ("flags", u32), ("num_pstates", u32),
+                ("num_clocks", u32), ("num_voltages", u32),
+                ("pstates", _Pstate20Entry * 16)]
+
+
+class _Pstates20V2(ctypes.Structure):
+    _fields_ = _Pstates20V1._fields_ + [
+        ("num_ov_voltages", u32), ("ov_voltages", _Pstate20Voltage * 4)]
+
+
+assert ctypes.sizeof(_Pstate20Clock) == 44
+assert ctypes.sizeof(_Pstates20V1) == 7316
+assert ctypes.sizeof(_Pstates20V2) == 7416
+
+
 class _FanSpeedInfo(ctypes.Structure):
     _fields_ = [("version", u32), ("fan", u32), ("speed", u32)]
 
@@ -1163,24 +1267,85 @@ class _NvmlPciInfo(ctypes.Structure):
                 ("pciSubSystemId", u32), ("busId", ctypes.c_char * 32)]
 
 
-def _load_nvml():
-    """Load NVIDIA's installed DLL from DCH or legacy Standard drivers.
+def _windows_system_directory():
+    """Resolve the running process's system directory without assuming C:."""
+    kernel32 = ctypes.WinDLL("kernel32.dll", winmode=0x800,
+                            use_last_error=True)
+    get_dir = kernel32.GetSystemDirectoryW
+    get_dir.argtypes = [ctypes.c_wchar_p, u32]
+    get_dir.restype = u32
+    buf = ctypes.create_unicode_buffer(32768)
+    length = get_dir(buf, len(buf))
+    if not length:
+        raise ctypes.WinError(ctypes.get_last_error())
+    if length >= len(buf):
+        raise OSError("GetSystemDirectoryW returned an oversized path")
+    return buf.value
 
-    Windows 7 uses Standard drivers, which install NVML under NVSMI rather
-    than System32. Use absolute installed locations, never the working folder.
+
+def _windows_program_files_directory():
+    """Use the OS folder for this process architecture, including custom drives.
+
+    CSIDL_PROGRAM_FILES resolves to native Program Files in our 64-bit build,
+    and Program Files (x86) for a 32-bit process on 64-bit Windows. Do not try
+    to load a native 64-bit driver DLL into a 32-bit Python process.
     """
-    windows = os.environ.get("SystemRoot", r"C:\Windows")
-    programs = os.environ.get("ProgramW6432",
-                              os.environ.get("ProgramFiles", r"C:\Program Files"))
-    paths = [os.path.join(windows, "System32", "nvml.dll"),
-             os.path.join(programs, "NVIDIA Corporation", "NVSMI", "nvml.dll")]
-    failures = []
+    shell32 = ctypes.WinDLL("shell32.dll", winmode=0x800)
+    get_dir = shell32.SHGetFolderPathW
+    get_dir.argtypes = [PTR, ctypes.c_int, PTR, u32, ctypes.c_wchar_p]
+    get_dir.restype = ctypes.c_long
+    buf = ctypes.create_unicode_buffer(260)  # SHGetFolderPathW takes MAX_PATH.
+    status = get_dir(None, 0x26, None, 0, buf)  # CSIDL_PROGRAM_FILES, CURRENT
+    if status != 0:
+        raise OSError(f"SHGetFolderPathW status 0x{status & 0xFFFFFFFF:08X}")
+    return buf.value
+
+
+def _nvml_driver_paths():
+    """Only driver installation directories, never PATH or the working folder.
+
+    NVIDIA's R470 reference documents both layouts: DCH in System32, Standard
+    in Program Files/NVIDIA Corporation/NVSMI. The latter matters for 472.12.
+    https://docs.nvidia.com/deploy/archive/R470/nvml-api/nvml-api-reference.html
+    """
+    paths, errors = [], []
+    for label, resolve, suffix in (
+        ("Windows system directory", _windows_system_directory, "nvml.dll"),
+        ("Program Files directory", _windows_program_files_directory,
+         r"NVIDIA Corporation\NVSMI\nvml.dll"),
+    ):
+        try:
+            folder = ntpath.normpath(resolve())
+            drive, tail = ntpath.splitdrive(folder)
+            if not drive or not tail.startswith("\\"):
+                raise OSError(f"Windows returned a non-absolute path: {folder!r}")
+            paths.append(ntpath.join(folder, suffix))
+        except Exception as exc:
+            errors.append(f"{label}: {exc}")
+    return paths, errors
+
+
+def _load_nvml_library():
+    paths, errors = _nvml_driver_paths()
     for path in paths:
         try:
-            return ctypes.CDLL(path)
-        except OSError as exc:
-            failures.append(f"{path}: {exc}")
-    raise OSError("; ".join(failures))
+            # PyInstaller otherwise substitutes a bundled basename when an
+            # absolute path is missing. NVML must come from the driver install.
+            if not os.path.isfile(path):
+                raise FileNotFoundError("file not found")
+            # LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32:
+            # dependencies may live beside the driver DLL or in the system dir.
+            dll = ctypes.CDLL(path, winmode=0x100 | 0x800)
+            return dll, path
+        except Exception as exc:
+            detail = str(exc)
+            # Frozen builds wrap the original Windows loader error. Preserve it
+            # so missing dependencies and wrong architecture remain diagnosable.
+            if exc.__cause__ is not None:
+                detail += f" (cause: {exc.__cause__})"
+            errors.append(f"{path}: {detail}")
+    bits = ctypes.sizeof(PTR) * 8
+    raise OSError(f"{bits}-bit process; " + "; ".join(errors))
 
 
 class Nvml:
@@ -1190,35 +1355,57 @@ class Nvml:
         self.gpus = []
         self.selected = None
         self.err_detail = ""
+        self.dll_path = ""
         try:
-            self.dll = _load_nvml()
+            self.dll, self.dll_path = _load_nvml_library()
         except Exception as e:
             self.err_detail = f"nvml.dll not loadable: {e}"
             return
-        self.dll.nvmlErrorString.restype = ctypes.c_char_p
-        st = self.dll.nvmlInit_v2()
+        if self.has("nvmlErrorString"):
+            self.dll.nvmlErrorString.restype = ctypes.c_char_p
+        init_name = self._export("nvmlInit_v2", "nvmlInit")
+        if init_name is None:
+            self.err_detail = "NVML has no initialization export"
+            return
+        st = getattr(self.dll, init_name)()
         if st != 0:
-            self.err_detail = f"nvmlInit_v2 status {st}"
+            self.err_detail = f"{init_name} status {st}"
+            return
+        # The index spaces changed together in R319. Never mix a v1 count
+        # with a v2 index lookup (or vice versa) on a partially exported DLL.
+        if all(self.has(name) for name in ("nvmlDeviceGetCount_v2",
+                                          "nvmlDeviceGetHandleByIndex_v2")):
+            count_name, handle_name = ("nvmlDeviceGetCount_v2",
+                                       "nvmlDeviceGetHandleByIndex_v2")
+        elif all(self.has(name) for name in ("nvmlDeviceGetCount",
+                                            "nvmlDeviceGetHandleByIndex")):
+            count_name, handle_name = ("nvmlDeviceGetCount",
+                                       "nvmlDeviceGetHandleByIndex")
+        else:
+            self.err_detail = "NVML has no matching device-count/index exports"
             return
         cnt = u32(0)
-        st = self.dll.nvmlDeviceGetCount_v2(ctypes.byref(cnt))
+        st = getattr(self.dll, count_name)(ctypes.byref(cnt))
         if st != 0:
-            self.err_detail = f"nvmlDeviceGetCount_v2 status {st}"
+            self.err_detail = f"{count_name} status {st}"
             return
         for i in range(cnt.value):
             dev = PTR()
-            if self.dll.nvmlDeviceGetHandleByIndex_v2(i,
-                                                      ctypes.byref(dev)) != 0:
+            if getattr(self.dll, handle_name)(i, ctypes.byref(dev)) != 0:
                 continue
-            pci = _NvmlPciInfo()
+            pci = self._read_pci(dev)
+            # An unidentified handle cannot safely be paired with NVAPI or
+            # selected by the default ordinal. Skip it rather than guessing.
+            if pci is None:
+                continue
             entry = {"dev": dev, "nvml_index": i, "slot": "",
                      "devid": None, "subsys": None, "name": "", "uuid": ""}
-            if self.dll.nvmlDeviceGetPciInfo_v3(dev, ctypes.byref(pci)) == 0:
-                entry["slot"] = format_slot(pci.domain, pci.bus, pci.device)
-                entry["devid"] = pci.pciDeviceId >> 16
-                entry["subsys"] = pci.pciSubSystemId
+            entry["slot"] = format_slot(pci.domain, pci.bus, pci.device)
+            entry["devid"] = pci.pciDeviceId >> 16
+            entry["subsys"] = pci.pciSubSystemId
             buf = ctypes.create_string_buffer(96)
-            if self.dll.nvmlDeviceGetName(dev, buf, 96) == 0:
+            if (self.has("nvmlDeviceGetName")
+                    and self.dll.nvmlDeviceGetName(dev, buf, 96) == 0):
                 entry["name"] = buf.value.decode(errors="replace")
             # The only identity that survives two IDENTICAL cards in one host,
             # where name and VBIOS are equal by construction. Profiles lean on
@@ -1229,6 +1416,32 @@ class Nvml:
                     entry["uuid"] = ubuf.value.decode(errors="replace")
             self.gpus.append(entry)
         self._select(slot)
+
+    def _export(self, *names):
+        return next((name for name in names if self.has(name)), None)
+
+    def _read_pci(self, dev):
+        """Use the newest exported PCI reader, retaining the same identity.
+
+        V2 predates the longer V3 bus-ID tail. Both use the same leading
+        16-byte bus ID and five uint32 identity fields. The V3-sized buffer
+        is also large enough for V2's reserved tail; only shared fields are
+        consumed. An unversioned pre-R285 record lacks subsystem identity and
+        is deliberately not used for pairing or private write profiles.
+        NVIDIA version history: https://docs.nvidia.com/deploy/archive/R470/nvml-api/change-log.html
+        """
+        for name in ("nvmlDeviceGetPciInfo_v3", "nvmlDeviceGetPciInfo_v2"):
+            if not self.has(name):
+                continue
+            pci = _NvmlPciInfo()
+            status = getattr(self.dll, name)(dev, ctypes.byref(pci))
+            if status == 13:  # NVML_ERROR_FUNCTION_NOT_FOUND: exported stub.
+                continue
+            if (status != 0 or pci.bus > 0xFF or pci.device > 31
+                    or (pci.pciDeviceId & 0xFFFF) != 0x10DE):
+                return None
+            return pci
+        return None
 
     def _select(self, slot):
         """Same rule as NvAPI._select: lowest slot by default, exact match or
@@ -1376,6 +1589,15 @@ class GPU:
         # False so a bad driver cannot make the UI repeatedly retry an
         # unverified write path on every refresh tick.
         self._clkdom_layout_cache = None
+        self._volt_rail_masks_cache = {}
+        self.msvdd_write_enabled = False
+        self.volt_limits_write_enabled = False
+        self.voltage_xoc_enabled = False
+        rail_profile = self._volt_rail_profile()
+        if rail_profile is not None:
+            self.VOLT_LIMIT_MIN_MV = rail_profile["min_mv"]
+            self.VOLT_LIMIT_MAX_MV = rail_profile["max_mv"]
+            self.VOLT_LIMIT_POWERON = rail_profile["poweron"]
 
     def _pair(self):
         """Refuse to be half one card and half another.
@@ -1434,34 +1656,38 @@ class GPU:
             s["uuid"] = self.nvml.selected.get("uuid", "")
         nv = self.nvml
         if nv.ok:
-            buf = ctypes.create_string_buffer(96)
-            try:
-                nv.dll.nvmlDeviceGetName(nv.dev, buf, 96)
-                s["name"] = buf.value.decode(errors="replace")
-            except Exception:
-                pass
-            try:
-                nv.dll.nvmlSystemGetDriverVersion(buf, 96)
-                s["driver"] = buf.value.decode(errors="replace")
-            except Exception:
-                pass
-            try:
-                nv.dll.nvmlDeviceGetVbiosVersion(nv.dev, buf, 96)
-                s["vbios"] = buf.value.decode(errors="replace")
-            except Exception:
-                pass
-            # power-limit constraints (mW)
-            try:
-                mn, mx = u32(0), u32(0)
-                if nv.dll.nvmlDeviceGetPowerManagementLimitConstraints(
-                        nv.dev, ctypes.byref(mn), ctypes.byref(mx)) == 0:
-                    s["pl_min_mw"], s["pl_max_mw"] = mn.value, mx.value
-                d = u32(0)
-                if nv.dll.nvmlDeviceGetPowerManagementDefaultLimit(
-                        nv.dev, ctypes.byref(d)) == 0:
-                    s["pl_def_mw"] = d.value
-            except Exception:
-                pass
+            # Old NVML may omit an export or return NOT_SUPPORTED without
+            # writing output. Each field needs its own buffer and success check.
+            for key, function, args in (
+                    ("name", "nvmlDeviceGetName", (nv.dev,)),
+                    ("driver", "nvmlSystemGetDriverVersion", ()),
+                    ("vbios", "nvmlDeviceGetVbiosVersion", (nv.dev,))):
+                if not nv.has(function):
+                    continue
+                buf = ctypes.create_string_buffer(96)
+                try:
+                    if getattr(nv.dll, function)(*args, buf, 96) == 0 and buf.value:
+                        s[key] = buf.value.decode(errors="replace")
+                except Exception:
+                    pass
+            # Power-limit calls are independent: default may exist even when
+            # the driver does not offer editable constraints.
+            if nv.has("nvmlDeviceGetPowerManagementLimitConstraints"):
+                try:
+                    mn, mx = u32(0), u32(0)
+                    if nv.dll.nvmlDeviceGetPowerManagementLimitConstraints(
+                            nv.dev, ctypes.byref(mn), ctypes.byref(mx)) == 0:
+                        s["pl_min_mw"], s["pl_max_mw"] = mn.value, mx.value
+                except Exception:
+                    pass
+            if nv.has("nvmlDeviceGetPowerManagementDefaultLimit"):
+                try:
+                    d = u32(0)
+                    if nv.dll.nvmlDeviceGetPowerManagementDefaultLimit(
+                            nv.dev, ctypes.byref(d)) == 0:
+                        s["pl_def_mw"] = d.value
+                except Exception:
+                    pass
             # supported clock range (for locked-clock UI bounds)
             try:
                 cnt = u32(64)
@@ -1498,19 +1724,75 @@ class GPU:
                 s["mem_type_id"] = v.value
                 name, div = MEM_TYPES.get(v.value, (f"RAM type {v.value}", None))
                 s["mem_type"], s["mem_div"] = name, div
-        # clock-offset editable ranges (NVML)
+        # Clock-offset editable ranges (NVML, or NVAPI on older drivers).
         s["core_off_range"] = self._offset_range(0)
         s["mem_off_range"] = self._offset_range(2)
+        if "fan_min" not in s or "fan_max" not in s:
+            native = self._native_fan_data()
+            if native:
+                s["fan_min"] = max(f["min"] for f in native[0]["fans"])
+                s["fan_max"] = min(f["max"] for f in native[0]["fans"])
         return s
 
     def _offset_range(self, ctype):
         nv = self.nvml
-        if not nv.ok or not nv.has("nvmlDeviceGetClockOffsets"):
+        if ctype not in (0, 2):
             return None
-        co = _ClockOffset(version=nv.ver(_ClockOffset, 1), type=ctype, pstate=0)
-        if nv.dll.nvmlDeviceGetClockOffsets(nv.dev, ctypes.byref(co)) == 0:
-            return (co.mn, co.mx, co.off)
+        if nv.ok and nv.has("nvmlDeviceGetClockOffsets"):
+            co = _ClockOffset(version=nv.ver(_ClockOffset, 1), type=ctype, pstate=0)
+            if nv.dll.nvmlDeviceGetClockOffsets(nv.dev, ctypes.byref(co)) == 0:
+                return (co.mn, co.mx, co.off)
+        info, _err = self._read_pstates20()
+        clock = self._pstate20_clock(info, ctype)
+        if clock is not None and clock.flags & 1:
+            delta = clock.delta
+            if delta.minimum <= delta.maximum:
+                # Round bounds inward. Match NVML's integer-MHz telemetry
+                # contract; full raw V/F deltas are captured separately.
+                # NVML doubles memory offsets, while NVAPI uses the reported
+                # memory clock's kHz. Measured on both driver interfaces:
+                # e.g. Xp NVAPI +/-1000 MHz is NVML +/-2000 API MHz.
+                scale = 2 if ctype == 2 else 1
+                low = -(-(delta.minimum * scale) // 1000)
+                high = delta.maximum * scale // 1000
+                if low <= high:
+                    return (low, high, int(delta.value * scale / 1000))
         return None
+
+    def _read_pstates20(self):
+        """Read and validate the public P-state table; never change clocks."""
+        a = self.nvapi
+        getter = getattr(a, "Pstates20Get", None)
+        if not a.ok or getter is None:
+            return None, "NVAPI Pstates20 is unavailable"
+        for typ, version in ((_Pstates20V2, 3), (_Pstates20V2, 2),
+                             (_Pstates20V1, 1)):
+            expected = a.ver(typ, version)
+            info = typ(version=expected)
+            status = getter(a.gpu, ctypes.byref(info))
+            if status == -9:  # NVAPI_INCOMPATIBLE_STRUCT_VERSION
+                continue
+            if status != 0:
+                return None, f"NVAPI Pstates20 read failed: status {status}"
+            if (info.version != expected or not 1 <= info.num_pstates <= 16
+                    or not 1 <= info.num_clocks <= 8
+                    or info.num_voltages > 4
+                    or getattr(info, "num_ov_voltages", 0) > 4):
+                return None, "NVAPI Pstates20 returned an invalid table"
+            return info, None
+        return None, "NVAPI Pstates20 structure version is unsupported"
+
+    @staticmethod
+    def _pstate20_clock(info, ctype):
+        if info is None or ctype not in (0, 2):
+            return None
+        states = [p for p in info.pstates[:info.num_pstates] if p.pstate == 0]
+        if len(states) != 1:
+            return None
+        domain = 0 if ctype == 0 else 4
+        clocks = [c for c in states[0].clocks[:info.num_clocks]
+                  if c.domain == domain]
+        return clocks[0] if len(clocks) == 1 else None
 
     # ---- live telemetry --------------------------------------------------- #
     def read(self):
@@ -1643,14 +1925,12 @@ class GPU:
                 v = pc.w[slot] // 1000
                 if v and (key == "xbar" or key not in d):
                     d[key] = v
-        # applied offsets (NVML) - note: invisible knob vs the VF-point table
-        nv = self.nvml
-        if nv.ok and nv.has("nvmlDeviceGetClockOffsets"):
-            for ctype, key in ((0, "core_off"), (2, "mem_off")):
-                co = _ClockOffset(version=nv.ver(_ClockOffset, 1),
-                                  type=ctype, pstate=0)
-                if nv.dll.nvmlDeviceGetClockOffsets(nv.dev, ctypes.byref(co)) == 0:
-                    d[key] = co.off
+        # Applied offsets in the same units on both APIs. Pstates20 is the
+        # fallback on R472, before NVML exposed any offset getter/setter.
+        for ctype, key in ((0, "core_off"), (2, "mem_off")):
+            offset = self._offset_range(ctype)
+            if offset is not None:
+                d[key] = offset[2]
 
     def _read_temps(self, d):
         a = self.nvapi
@@ -1689,9 +1969,12 @@ class GPU:
         nv = self.nvml
         if nv.ok:
             v = u32(0)
-            if nv.dll.nvmlDeviceGetPowerUsage(nv.dev, ctypes.byref(v)) == 0:
+            if nv.has("nvmlDeviceGetPowerUsage") and \
+                    nv.dll.nvmlDeviceGetPowerUsage(nv.dev, ctypes.byref(v)) == 0:
                 d["power_w"] = v.value / 1000.0
-            if nv.dll.nvmlDeviceGetEnforcedPowerLimit(nv.dev, ctypes.byref(v)) == 0:
+            if nv.has("nvmlDeviceGetEnforcedPowerLimit") and \
+                    nv.dll.nvmlDeviceGetEnforcedPowerLimit(
+                        nv.dev, ctypes.byref(v)) == 0:
                 d["pl_now_mw"] = v.value
         a = self.nvapi
         if a.ok and a.PowerTopo:
@@ -1713,25 +1996,180 @@ class GPU:
 
     def _read_fan(self, d):
         nv = self.nvml
-        if not nv.ok:
-            return
+        native = self._native_fan_data()
         nf = u32(0)
-        if nv.dll.nvmlDeviceGetNumFans(nv.dev, ctypes.byref(nf)) == 0:
+        counted = (nv.ok and nv.has("nvmlDeviceGetNumFans") and
+                   nv.dll.nvmlDeviceGetNumFans(nv.dev, ctypes.byref(nf)) == 0)
+        if not counted and native:
+            nf.value = len(native[0]["fans"])
+            counted = True
+        if counted:
             d["num_fans"] = nf.value
         fans = []
-        for f in range(max(nf.value, 1)):
-            duty = u32(0)
+        # R470 has GetFanSpeed[_v2], but no GetNumFans. Read its first fan
+        # without claiming the adapter has exactly one. A confirmed zero means
+        # a fanless adapter, not an invitation to read an invented fan zero.
+        for f in range(nf.value if counted else 1):
+            duty = None
             rpm = None
-            if nv.has("nvmlDeviceGetFanSpeed_v2"):
+            speed = u32(0)
+            if nv.ok and nv.has("nvmlDeviceGetFanSpeed_v2"):
                 if nv.dll.nvmlDeviceGetFanSpeed_v2(
-                        nv.dev, f, ctypes.byref(duty)) != 0:
-                    duty = u32(0)
-            if nv.has("nvmlDeviceGetFanSpeedRPM"):
+                        nv.dev, f, ctypes.byref(speed)) == 0:
+                    duty = speed.value
+            if duty is None and f == 0 and nv.ok and nv.has("nvmlDeviceGetFanSpeed"):
+                if nv.dll.nvmlDeviceGetFanSpeed(
+                        nv.dev, ctypes.byref(speed)) == 0:
+                    duty = speed.value
+            if nv.ok and nv.has("nvmlDeviceGetFanSpeedRPM"):
                 fi = _FanSpeedInfo(version=nv.ver(_FanSpeedInfo, 1), fan=f)
                 if nv.dll.nvmlDeviceGetFanSpeedRPM(nv.dev, ctypes.byref(fi)) == 0:
                     rpm = fi.speed
-            fans.append((duty.value, rpm))
+            if counted or duty is not None or rpm is not None:
+                fans.append((duty, rpm))
         d["fans"] = fans
+        if native:
+            state, _ = native
+            d["num_fans"] = len(state["fans"])
+            merged = []
+            for index, fan in enumerate(state["fans"]):
+                duty, rpm = fans[index] if index < len(fans) else (None, None)
+                merged.append((fan["level"] if duty is None else duty,
+                               fan.get("rpm") if rpm is None else rpm))
+            d["fans"] = merged
+
+    def _native_fan_data(self):
+        """Read legacy fan controls; no setters or policy changes occur here.
+
+        Pascal exposes classic CoolerSettings; Turing exposes ClientFanCoolers.
+        Layouts correspond to nvapi-sys and NvAPIWrapper's published bindings.
+        Classic policy 1 is manual; other known policies are automatic. The
+        client interface uses mode 0/1 and IDs that need not start at zero.
+        """
+        a = self.nvapi
+        if not a.ok:
+            return None
+        getter = getattr(a, "CoolerSettings", None)
+        if getter:
+            buf = _CoolerSettings(version=a.ver(_CoolerSettings, 1))
+            if getter(a.gpu, 7, ctypes.byref(buf)) == 0 and 0 < buf.count <= 20:
+                fans = []
+                for index in range(buf.count):
+                    row = buf.entries[index]
+                    if not (0 <= row.current_min <= row.current_max <= 100
+                            and row.current_level <= 100
+                            and row.current_policy in (1, 2, 4, 8, 16)
+                            and row.default_policy in (2, 4, 8, 16)):
+                        return None
+                    fans.append({"id": index, "level": row.current_level,
+                                 "policy": row.current_policy,
+                                 "default_policy": row.default_policy,
+                                 "manual": row.current_policy == 1,
+                                 "min": row.current_min, "max": row.current_max})
+                tach = getattr(a, "TachReading", None)
+                if len(fans) == 1 and tach:
+                    rpm = u32(0)
+                    if tach(a.gpu, ctypes.byref(rpm)) == 0:
+                        fans[0]["rpm"] = rpm.value
+                return {"source": "nvapi_cooler", "fans": fans}, buf
+        control_get = getattr(a, "FanCoolersControl", None)
+        status_get = getattr(a, "FanCoolersStatus", None)
+        if not (control_get and status_get):
+            return None
+        ctl = _FanCoolersControl(version=a.ver(_FanCoolersControl, 1))
+        status = _FanCoolersStatus(version=a.ver(_FanCoolersStatus, 1))
+        if control_get(a.gpu, ctypes.byref(ctl)) != 0 or \
+                status_get(a.gpu, ctypes.byref(status)) != 0 or \
+                not (0 < ctl.count <= 32 and ctl.count == status.count):
+            return None
+        by_id = {status.entries[i].id: status.entries[i] for i in range(status.count)}
+        if len(by_id) != status.count or len({ctl.entries[i].id for i in range(ctl.count)}) != ctl.count:
+            return None
+        fans = []
+        for index in range(ctl.count):
+            row = ctl.entries[index]
+            live = by_id.get(row.id)
+            if live is None or row.mode not in (0, 1) or row.level > 100 or \
+                    not (0 <= live.min <= live.max <= 100):
+                return None
+            fans.append({"id": row.id, "level": row.level, "policy": row.mode,
+                         "default_policy": 0, "manual": row.mode == 1,
+                         "min": live.min, "max": live.max, "rpm": live.rpm})
+        return {"source": "nvapi_client", "fans": fans}, ctl
+
+    def read_fan_control_state(self):
+        """Serializable requested levels/policies, separate from spinning RPM.
+
+        A fan ramps after a request. Snapshot its requested level, rather than
+        the intermediate speed, so Undo restores what was requested exactly.
+        """
+        nv = self.nvml
+        if nv.ok and all(nv.has(name) for name in (
+                "nvmlDeviceGetNumFans", "nvmlDeviceGetFanControlPolicy_v2",
+                "nvmlDeviceGetTargetFanSpeed")):
+            count = u32(0)
+            if nv.dll.nvmlDeviceGetNumFans(nv.dev, ctypes.byref(count)) == 0 and \
+                    0 < count.value <= 32:
+                fans = []
+                for index in range(count.value):
+                    policy, level = u32(0), u32(0)
+                    if nv.dll.nvmlDeviceGetFanControlPolicy_v2(
+                            nv.dev, index, ctypes.byref(policy)) != 0 or \
+                            nv.dll.nvmlDeviceGetTargetFanSpeed(
+                                nv.dev, index, ctypes.byref(level)) != 0 or \
+                            policy.value not in (0, 1) or level.value > 100:
+                        break
+                    fans.append({"id": index, "level": level.value,
+                                 "policy": policy.value, "default_policy": 0,
+                                 "manual": policy.value == 1,
+                                 "min": self.static.get("fan_min", 30),
+                                 "max": self.static.get("fan_max", 100)})
+                if len(fans) == count.value:
+                    return {"source": "nvml", "fans": fans}
+        native = self._native_fan_data()
+        return native[0] if native else None
+
+    def read_fan_manual(self):
+        """True/False when every fan shares that policy; None for unknown/mixed."""
+        state = self.read_fan_control_state()
+        if state:
+            modes = {fan["manual"] for fan in state["fans"]}
+            return modes.pop() if len(modes) == 1 else None
+        nv = self.nvml
+        if nv.ok and nv.has("nvmlDeviceGetFanControlPolicy_v2"):
+            policy = u32(0)
+            if nv.dll.nvmlDeviceGetFanControlPolicy_v2(
+                    nv.dev, 0, ctypes.byref(policy)) == 0 and policy.value in (0, 1):
+                return policy.value == 1
+        return None
+
+    def fan_capabilities(self):
+        """Capabilities shared by UI, profiles, and the writer entry points."""
+        nv = self.nvml
+        count = u32(0)
+        has_count = (nv.ok and nv.has("nvmlDeviceGetNumFans") and
+                     nv.dll.nvmlDeviceGetNumFans(nv.dev, ctypes.byref(count)) == 0
+                     and 0 < count.value <= 32)
+        manual = bool(has_count and nv.has("nvmlDeviceSetFanSpeed_v2"))
+        auto = bool(has_count and nv.has("nvmlDeviceSetDefaultFanSpeed_v2"))
+        result = {"manual": manual, "auto": auto, "source": "nvml",
+                  "min": self.static.get("fan_min", 30),
+                  "max": self.static.get("fan_max", 100)}
+        native = self._native_fan_data()
+        if native:
+            state, _ = native
+            a = self.nvapi
+            if state["source"] == "nvapi_cooler":
+                fallback_manual = bool(getattr(a, "CoolerLevelsSet", None))
+                fallback_auto = bool(getattr(a, "CoolerRestore", None))
+            else:
+                fallback_manual = fallback_auto = bool(getattr(a, "FanCoolersSetControl", None))
+            result.update(manual=manual or fallback_manual, auto=auto or fallback_auto,
+                          min=max(f["min"] for f in state["fans"]),
+                          max=min(f["max"] for f in state["fans"]))
+            if not (manual and auto):
+                result["source"] = state["source"]
+        return result
 
     def _read_util(self, d):
         a = self.nvapi
@@ -1745,11 +2183,16 @@ class GPU:
 
     def _read_throttle(self, d):
         nv = self.nvml
-        if nv.ok and nv.has("nvmlDeviceGetCurrentClocksEventReasons"):
-            v = u64(0)
-            if nv.dll.nvmlDeviceGetCurrentClocksEventReasons(
-                    nv.dev, ctypes.byref(v)) == 0:
-                d["event_mask"] = v.value
+        if nv.ok:
+            # EventReasons renamed the older ThrottleReasons API. Both expose
+            # the same 64-bit mask; use the legacy name on R470/472.12.
+            for name in ("nvmlDeviceGetCurrentClocksEventReasons",
+                         "nvmlDeviceGetCurrentClocksThrottleReasons"):
+                if nv.has(name):
+                    v = u64(0)
+                    if getattr(nv.dll, name)(nv.dev, ctypes.byref(v)) == 0:
+                        d["event_mask"] = v.value
+                        break
         a = self.nvapi
         if a.ok and a.PerfDecrease:
             pd = u32(0)
@@ -1805,6 +2248,18 @@ class GPU:
                         nvl.dev, ctype, 0, ctypes.byref(mn),
                         ctypes.byref(mx)) == 0:
                     d[key] = mx.value
+        if "core_p0max" not in d or "mem_p0max" not in d:
+            info, _err = self._read_pstates20()
+            for ctype, key in ((0, "core_p0max"), (2, "mem_p0max")):
+                clock = self._pstate20_clock(info, ctype)
+                if key in d or clock is None or clock.kind not in (0, 1):
+                    continue
+                # Pstates20 supplies the same P0 frequency range in kHz;
+                # SINGLE has one value, RANGE has min then max. It reports
+                # the applied frequency range, so do not add the delta again.
+                maximum = clock.data[1] if clock.kind == 1 else clock.data[0]
+                if maximum:
+                    d[key] = maximum // 1000
         nv = self.nvml
         if nv.ok and nv.has("nvmlDeviceGetTotalEnergyConsumption"):
             v = u64(0)
@@ -1824,7 +2279,7 @@ class GPU:
                 if a.BoostLock(a.gpu, ctypes.byref(bl)) != 0:
                     continue
                 ents = [bl.locks[k] for k in range(min(bl.count, 32))]
-                # split by MODE. Both mechanisms live in this table and their
+                # split by MODE. On R580 both mechanisms live in this table; their
                 # shared field means different things (uV vs kHz), so one
                 # merged "locked domains" list would print a 1350 MHz clock
                 # lock as a 1350.00 mV point lock.
@@ -1841,6 +2296,10 @@ class GPU:
                     d["clk_lock_mhz"] = (freq.get(CLK_LOCK_DOMAIN_MIN, hi) // 1000,
                                          hi // 1000)
                 break
+        if "clk_lock_mhz" not in d:
+            legacy_lock = self._read_legacy_clk_lock()
+            if legacy_lock is not None:
+                d["clk_lock_mhz"] = legacy_lock
 
     # ---- writers (guarded, reversible) ----------------------------------- #
     def mem_offset_scale(self):
@@ -1916,8 +2375,12 @@ class GPU:
         2=MEM (mhz in TRUE memory MHz for a known GDDR type, else raw/effective).
         The method converts to the driver's internal units. Reset via 0."""
         nv = self.nvml
-        if not nv.ok or not nv.has("nvmlDeviceSetClockOffsets"):
-            return False, "nvmlDeviceSetClockOffsets not available"
+        if ctype not in (0, 2):
+            return False, "clock offset type must be 0 (core) or 2 (memory)"
+        modern = nv.ok and nv.has("nvmlDeviceSetClockOffsets")
+        if not modern and not (self.nvapi.ok
+                               and getattr(self.nvapi, "Pstates20Set", None)):
+            return False, "clock offset setter is unavailable"
         dom = "core" if ctype == 0 else "mem"
         mhz = int(mhz)
         if ctype == 0:
@@ -1950,12 +2413,44 @@ class GPU:
         if not (lo <= units <= hi):
             elo, ehi = int(lo / scale), int(hi / scale)
             return False, f"{dom} offset {mhz:+d} {unit} out of range [{elo}..{ehi}]"
+        if not modern:
+            return self._set_pstate20_offset(ctype, units, mhz, unit)
         co = _ClockOffset(version=nv.ver(_ClockOffset, 1), type=ctype,
                           pstate=0, off=units)
         st = nv.dll.nvmlDeviceSetClockOffsets(nv.dev, ctypes.byref(co))
         if st == 0:
             return True, f"{dom} offset set to {mhz:+d} {unit}"
         return False, f"{dom} offset failed: {nv.errstr(st)}"
+
+    def _set_pstate20_offset(self, ctype, units, mhz, unit):
+        """Set one ordinary P0 clock offset, with no voltage/other-domain rows."""
+        a = self.nvapi
+        dom = "core" if ctype == 0 else "mem"
+        info, err = self._read_pstates20()
+        clock = self._pstate20_clock(info, ctype)
+        if clock is None:
+            return False, err or f"no unique P0 {dom} clock entry"
+        if not clock.flags & 1:
+            return False, f"P0 {dom} clock offset is not editable"
+        wire_scale = 2 if ctype == 2 else 1
+        delta_khz = units * 1000 // wire_scale
+        if not clock.delta.minimum <= delta_khz <= clock.delta.maximum:
+            return False, f"{dom} offset exceeds the current P0 range"
+        request = type(info)(version=info.version, num_pstates=1, num_clocks=1)
+        request.pstates[0].pstate = 0
+        request.pstates[0].clocks[0].domain = clock.domain
+        request.pstates[0].clocks[0].delta.value = delta_khz
+        status = a.Pstates20Set(a.gpu, ctypes.byref(request))
+        if status != 0:
+            return False, f"{dom} offset failed: NVAPI status {status}"
+        readback, err = self._read_pstates20()
+        applied = self._pstate20_clock(readback, ctype)
+        if applied is None:
+            return False, f"{dom} offset was sent, but readback failed: {err or 'missing P0 entry'}"
+        if applied.delta.value != delta_khz:
+            return False, (f"{dom} offset requested {mhz:+d} {unit}, but the driver "
+                           f"reported {applied.delta.value * wire_scale / 1000:g} API MHz")
+        return True, f"{dom} offset set to {mhz:+d} {unit} (NVAPI Pstates20)"
 
     # ---- per-domain clock offsets (XBAR and friends) ---------------------- #
     # A SECOND, entirely separate offset mechanism from set_clock_offset above.
@@ -1965,10 +2460,113 @@ class GPU:
     # lands in a per-domain control block, and neither reads or clears the other.
     _CLKDOM_BUF = 65536            # far larger than the 24996 declared
 
-    # Rail 1 writes: off unless a caller sets this. See _RAIL_NAME above for
-    # the evidence. Deliberately a class attribute and not a UI checkbox
-    # default, so it cannot be flipped by a stray click.
+    # Compatibility default; __init__ owns a separate gate on every GPU.
+    # See _RAIL_NAME above for the evidence about this offset mechanism.
     msvdd_write_enabled = False
+
+    # NVML's own architecture enum. Kepler 2, Maxwell 3, Pascal 4, Volta 5,
+    # Turing 6, Ampere 7, Ada 8, Hopper 9, Blackwell 10.
+    ARCH_PASCAL = 4
+    ARCH_TURING = 6
+    ARCH_NAMES = {2: "Kepler", 3: "Maxwell", 4: "Pascal", 5: "Volta",
+                  6: "Turing", 7: "Ampere", 8: "Ada", 9: "Hopper",
+                  10: "Blackwell"}
+
+    def arch(self):
+        """This card's architecture as NVML's enum, or ``None``."""
+        nv = self.nvml
+        if not (nv.ok and nv.has("nvmlDeviceGetArchitecture")):
+            return None
+        a = u32(0)
+        if nv.dll.nvmlDeviceGetArchitecture(nv.dev, ctypes.byref(a)) != 0:
+            return None
+        return a.value
+
+    def arch_name(self):
+        return self.ARCH_NAMES.get(self.arch() or -1)
+
+    # WHAT WAS ACTUALLY MEASURED, per (architecture, control domain). Absent
+    # means nobody has looked, and absent must not be read as either answer.
+    #
+    #   Pascal / MEM   GP102, Titan Xp. APPLIES, and it is the only path found
+    #                  anywhere that goes PAST the declared ceiling: with the
+    #                  ordinary memory slider already maxed at its declared
+    #                  +250 real (GPU-Z 1426 -> 1676), the per-domain delta
+    #                  carried the clock beyond 1676 to 1700+. That is the
+    #                  behaviour this knob was built hoping to find, and it
+    #                  exists on the OLD card and not the new one.
+    #   Pascal / XBAR  GP102. Stored and ignored - the original measurement,
+    #                  and the one that was wrongly generalised to every domain.
+    #   Turing / MEM   TU102, Titan RTX. APPLIES, but NOT 1:1 and not on any
+    #                  ratio yet identified: a +100 request moved the clock to
+    #                  1772.7 and +750 landed at 1937, which two points do not
+    #                  fit one straight line. Recorded as measured rather than
+    #                  modelled. Whether it can pass the declared ceiling is
+    #                  UNTESTABLE on that card - its memory gives out around
+    #                  2150-2200, below the 2500 the ceiling allows, so the
+    #                  silicon runs out before the limit does.
+    #   Blackwell/MEM  GB203. APPLIES 1:1 and is CLAMPED at exactly the
+    #                  declared maximum: +3000 reaches it, +3500 and +4500
+    #                  store in full and move nothing further.
+    #
+    # So the generations disagree, and the disagreement is the finding: the
+    # declared range is enforced downstream on Blackwell and is not on Pascal.
+    CLKDOM_DELTA_APPLIES = {
+        (ARCH_PASCAL, 2): True,
+        (ARCH_PASCAL, 1): False,
+        (ARCH_TURING, 2): True,
+        (10, 2): True,
+    }
+
+    # Where the delta is known to reach past the range the card declares.
+    CLKDOM_DELTA_CLEARS_CEILING = {
+        (ARCH_PASCAL, 2): True,
+        (10, 2): False,
+    }
+
+    def clkdom_delta_inert(self, domain=None):
+        """Is a per-domain frequency delta STORED AND IGNORED on this card?
+
+        True where the route is known not to work, False where it is known to
+        work, None where we do not know - and the three are different answers,
+        so callers must not collapse None into either.
+
+        The per-domain frequency delta is consumed by PMU microcode, not by
+        anything on the host, and only from clk 3.5 onward. That was settled
+        the expensive way in this project: on GP102 the delta is stored exactly
+        as it is on TU102 - so a read-back proves nothing at all here - and the
+        card never acts on it. Storage is not the discriminator; the generation
+        is. Anything older than Turing gets the warning, because a knob that
+        silently does nothing is worse than one that says it cannot.
+
+        SCOPE, and it is narrower than the sentence above wants to be. What
+        was measured on GP102 was the XBAR domain. MEM was never tried there,
+        and there is a live reason to doubt the generalisation: the declared
+        OC range is read-only - it lives in an INFO payload (NvAPI 0x57B5A5DF
+        version 0x000486AC, entry 0xAC + domain*0x430, s16 min at +0x40 and max
+        at +0x42) and no entry point accepts that geometry for writing - so the
+        unchecked CONTROL delta was believed to be a route PAST that range.
+        It is not. Measured on Blackwell with NVML at zero, the delta tracks
+        the memory clock 1:1 to exactly +3000 MHz effective and then stops;
+        +3500 and +4500 store in full and move nothing. So no path this project
+        has found exceeds the declared range on this generation.
+
+        That leaves the Pascal question genuinely open rather than answered.
+        This returns per-CARD, not per-domain, so on an older card the MEM knob
+        is reporting what was measured elsewhere - on XBAR, on GP102. Treat a
+        Pascal MEM result as unknown until somebody moves that clock and
+        watches it happen.
+        """
+        a = self.arch()
+        if a is None:
+            return None
+        if domain is not None and (a, domain) in self.CLKDOM_DELTA_APPLIES:
+            return not self.CLKDOM_DELTA_APPLIES[(a, domain)]
+        return a < self.ARCH_TURING
+
+    def clkdom_delta_clears_ceiling(self, domain):
+        """Does this delta reach past the card's DECLARED range? Tri-state."""
+        return self.CLKDOM_DELTA_CLEARS_CEILING.get((self.arch(), domain))
 
     def clkdom_is_blackwell(self):
         """Whether this is an RTX 50-series card.
@@ -2634,13 +3232,21 @@ class GPU:
                            "positive control did move at the same magnitude. "
                            "The rail itself IS readable now via "
                            "read_volt_rail_state, so the check is available. "
-                           "Set GPU.msvdd_write_enabled to allow it.")
-        uv = int(round(mv * 1000))
+                           "Set this GPU's msvdd_write_enabled to allow it.")
         st, buf = self._clkdom_get(1 << domain)
         if st != 0:
             return False, f"read failed (status {st})"
         dw = (layout.header + domain * layout.stride + field) // 4
         was = ctypes.cast(buf, ctypes.POINTER(i32))[dw]
+        if rail == 0:
+            lower = -500.0 if self.voltage_xoc_enabled else -100.0
+            upper = (self.RAIL_OFFSET_XOC_MAX_MV if self.voltage_xoc_enabled
+                     else self.RAIL_OFFSET_MAX_MV)
+            lower, upper = min(lower, was / 1000), max(upper, was / 1000)
+            if not (lower <= mv <= upper):
+                return False, (f"NVVDD offset {mv:g} mV is outside Druta's "
+                               f"{lower:g}..{upper:g} mV bound")
+        uv = int(round(mv * 1000))
         if was == uv:
             # The diff guard below demands exactly one changed dword, so a
             # no-op write would be REFUSED rather than silently doing nothing.
@@ -2723,8 +3329,8 @@ class GPU:
 
     def set_power_limit_mw(self, mw):
         nv = self.nvml
-        if not nv.ok:
-            return False, "NVML unavailable"
+        if not nv.ok or not nv.has("nvmlDeviceSetPowerManagementLimit"):
+            return False, "SetPowerManagementLimit not available"
         mw = int(mw)
         # driver constraints if known, else a conservative sanity envelope
         mn = self.static.get("pl_min_mw", 50000)
@@ -2795,12 +3401,21 @@ class GPU:
         return False, f"lock failed: {nv.errstr(st)} (needs admin)"
 
     def reset_gpu_clocks(self):
+        return self._reset_gpu_clocks()
+
+    def _reset_gpu_clocks(self, allow_pascal_noop=False):
         nv = self.nvml
         if not nv.ok or not nv.has("nvmlDeviceResetGpuLockedClocks"):
             return False, "ResetGpuLockedClocks not available"
         st = nv.dll.nvmlDeviceResetGpuLockedClocks(nv.dev)
         if st == 0:
             return True, "GPU clock lock released"
+        # NVML documents this pair for Volta or newer. A stock reset on a
+        # positively identified Pascal card has no such lock to release.
+        # Direct Release keeps reporting the driver's failure, and every
+        # other error (including permission/device loss) remains a failure.
+        if st == 3 and allow_pascal_noop and self.arch() == self.ARCH_PASCAL:
+            return True, "NVML frequency lock is not applicable to Pascal; nothing to reset"
         return False, f"reset failed: {nv.errstr(st)}"
 
     # ---- per-domain V/F point lock ---------------------------------------- #
@@ -2869,25 +3484,194 @@ class GPU:
         return None
 
     def read_clk_lock(self):
-        """The NVML frequency lock, read back out of the SAME table as
-        (min_mhz, max_mhz), or None when it is not set.
+        """The driver's current NVML frequency lock as (min_mhz, max_mhz).
 
-        Worth having because NVML itself cannot answer this on this card -
-        nvmlDeviceGetGpuLockedClocks is absent from the DLL, which is why a
-        lock left behind by an earlier run used to be invisible to the next
-        one. The mode-2 entries make it readable after all."""
+        R580 exposes mode-2 BoostLock records. R472 keeps this independent
+        control in RM's performance-limit records instead. Neither path uses
+        a remembered setter argument: another process's lock is visible too.
+        None means no readable frequency lock, as with read_vf_lock.
+        """
         cl = self._vf_lock_read_raw()
         if cl is None:
-            return None
+            return self._read_legacy_clk_lock()
         by_dom = {e.domain: e.volt_uV for e in self._vf_lock_entries(cl)
                   if e.lockMode == VF_LOCK_MODE_FREQ}
         if not by_dom:
-            return None
+            return self._read_legacy_clk_lock()
         hi = by_dom.get(CLK_LOCK_DOMAIN_MAX)
         lo = by_dom.get(CLK_LOCK_DOMAIN_MIN, hi)
         if hi is None:
-            return None
+            return self._read_legacy_clk_lock()
         return (lo // 1000, hi // 1000)
+
+    def _read_legacy_clk_lock(self):
+        # This private ABI is measured on the TITAN RTX with 472.12. Pascal's
+        # NVML frequency-lock setter is unsupported on both tested drivers.
+        if (self.static.get("driver") != "472.12"
+                or not self.nvapi.ok
+                or self.nvapi.selected.get("devid") != 0x1E02):
+            return None
+        records = self._legacy_clk_limit_records()
+        if records is None or len(records) != 2:
+            return None
+        values = []
+        for record, ident in zip(records, (0x4C, 0x4B)):
+            # R472 GET returns 82 dwords per record. Mode 2 is an explicit
+            # clock in kHz (unit 1); the final three words are the effective
+            # value and may differ from this client's requested constraint.
+            if (len(record) != 82 or record[0] != ident or record[1] != 2
+                    or record[4] != 1 or not (0 < record[3] <= 10_000_000)):
+                return None
+            values.append(record[3] // 1000)
+        return tuple(values) if values[0] <= values[1] else None
+
+    def _legacy_clk_limit_records(self):
+        """Read RM GET 0x20802077; never submit its paired SET command.
+
+        The transport belongs to this NvAPI GPU/client and is captured once
+        from its read-only voltage getter. Later polls call D3DKMTEscape
+        directly, with fresh count/pointer/record buffers. A rejected cached
+        transport is discarded. No DLL offsets or copied driver code ship.
+        """
+        transport = getattr(self, "_legacy_clk_transport", None)
+        if transport is None:
+            transport = self._capture_legacy_clk_transport()
+            if transport is None:
+                return None
+            self._legacy_clk_transport = transport
+        header, fields = transport
+        records = ((u32 * 82) * 2)()
+        records[0][0], records[1][0] = 0x4C, 0x4B
+        address = ctypes.addressof(records)
+        packet = (u32 * 21)(*header, 2, 0, address & 0xFFFFFFFF,
+                            address >> 32)
+        packet[2], packet[14], packet[15], packet[16] = 84, 0x20802077, 16, 0
+        status = self._legacy_clk_escape(packet, fields)
+        if status != 0 or packet[16] != 0 or packet[17] != 2:
+            self._legacy_clk_transport = None
+            return None
+        return [list(record) for record in records]
+
+    @staticmethod
+    def _legacy_clk_gdi():
+        # Optional on older Windows (notably EnumAdapters2 on Windows 7).
+        # Check the complete readback path before installing a capture hook;
+        # missing readback must not interrupt ordinary GPU monitoring.
+        try:
+            gdi = ctypes.WinDLL("gdi32.dll")
+            functions = [getattr(gdi, name) for name in (
+                "D3DKMTEnumAdapters2", "D3DKMTQueryAdapterInfo",
+                "D3DKMTCloseAdapter", "D3DKMTEscape")]
+        except (AttributeError, OSError):
+            return None
+        for function in functions:
+            function.argtypes, function.restype = [ctypes.c_void_p], ctypes.c_long
+        return gdi
+
+    def _legacy_clk_escape(self, packet, fields):
+        # NvAPI closes its borrowed adapter handle after the captured call.
+        # Obtain our own handle by PCI address and close every enumerated
+        # adapter in finally. Rechecking identity also handles device removal.
+        class Adapter(ctypes.Structure):
+            _fields_ = [("handle", u32), ("luid", u32 * 2),
+                        ("sources", u32), ("preferred", i32)]
+
+        class Adapters(ctypes.Structure):
+            _fields_ = [("count", u32), ("items", ctypes.POINTER(Adapter))]
+
+        class Query(ctypes.Structure):
+            _fields_ = [("handle", u32), ("kind", u32),
+                        ("data", ctypes.c_void_p), ("size", u32)]
+
+        slot = self.nvapi.selected.get("slot", "")
+        match = re.fullmatch(r"0+:([0-9a-fA-F]{2}):([0-9a-fA-F]{2})\.([0-7])", slot)
+        if not match:
+            return None
+        location = tuple(int(value, 16) for value in match.groups())
+        gdi = self._legacy_clk_gdi()
+        if gdi is None:
+            return None
+        items = (Adapter * 16)()
+        adapters = Adapters(16, items)
+        if gdi.D3DKMTEnumAdapters2(ctypes.byref(adapters)) != 0:
+            return None
+        try:
+            matches = []
+            for item in items[:min(adapters.count, 16)]:
+                address = (u32 * 3)()
+                query = Query(item.handle, 6, ctypes.addressof(address), 12)
+                if (gdi.D3DKMTQueryAdapterInfo(ctypes.byref(query)) == 0
+                        and tuple(address) == location):
+                    matches.append(item.handle)
+            if len(matches) != 1:
+                return None
+            current = dict(fields, hAdapter=matches[0])
+            escape = self._Escape(**current,
+                                  pPrivateDriverData=ctypes.addressof(packet),
+                                  PrivateDriverDataSize=ctypes.sizeof(packet))
+            return gdi.D3DKMTEscape(ctypes.byref(escape))
+        finally:
+            for item in items[:min(adapters.count, 16)]:
+                gdi.D3DKMTCloseAdapter(ctypes.byref(u32(item.handle)))
+
+    def _capture_legacy_clk_transport(self):
+        a = self.nvapi
+        if not (a.ok and a.VoltRailsCtlGet):
+            return None
+        with GPU._RAIL_HOOK_LOCK:
+            gdi = self._legacy_clk_gdi()
+            if gdi is None:
+                return None
+            kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel.VirtualProtect.argtypes = [ctypes.c_void_p, ctypes.c_size_t,
+                                             u32, ctypes.POINTER(u32)]
+            kernel.GetCurrentThreadId.restype = u32
+            kernel.GetCurrentProcess.restype = ctypes.c_void_p
+            kernel.FlushInstructionCache.argtypes = [ctypes.c_void_p,
+                                                      ctypes.c_void_p,
+                                                      ctypes.c_size_t]
+            owner = kernel.GetCurrentThreadId()
+            process = kernel.GetCurrentProcess()
+            address = ctypes.cast(gdi.D3DKMTEscape, ctypes.c_void_p).value
+            original = ctypes.string_at(address, 14)
+            proto = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p)
+            found = []
+
+            def restore():
+                ctypes.memmove(address, original, 14)
+                kernel.FlushInstructionCache(process, address, 14)
+
+            def capture(ptr):
+                restore()
+                if ptr and kernel.GetCurrentThreadId() == owner:
+                    escape = self._Escape.from_address(ptr)
+                    if escape.pPrivateDriverData and escape.PrivateDriverDataSize == 716:
+                        words = ctypes.cast(escape.pPrivateDriverData,
+                                            ctypes.POINTER(u32))
+                        if (words[2] == 716 and words[14] == 0x20803213
+                                and words[15] == 648 and words[17] == 1):
+                            found.append((list(words[:17]), {
+                                key: getattr(escape, key) for key in
+                                ("hAdapter", "hDevice", "Type", "Flags", "hContext")}))
+                return proto(address)(ptr)
+
+            callback = proto(capture)
+            old = u32()
+            if not kernel.VirtualProtect(address, 14, 0x40, ctypes.byref(old)):
+                return None
+            try:
+                patch = (b"\xff\x25\0\0\0\0" + struct.pack(
+                    "<Q", ctypes.cast(callback, ctypes.c_void_p).value))
+                ctypes.memmove(address, patch, 14)
+                kernel.FlushInstructionCache(process, address, 14)
+                block = (u32 * (0xAC8 // 4))(0x10AC8, 1)
+                status = a.VoltRailsCtlGet(a.gpu, ctypes.byref(block))
+            finally:
+                restore()
+                previous = u32()
+                kernel.VirtualProtect(address, 14, old.value,
+                                      ctypes.byref(previous))
+            return found[0] if status == 0 and len(found) == 1 else None
 
     def set_vf_lock(self, volt_uv, domain=None):
         """Lock the curve to the highest V/F point AT OR BELOW volt_uv.
@@ -3027,20 +3811,148 @@ class GPU:
                       f"state unchanged, {n} entries, locked "
                       f"{held if held else 'none'}")
 
+    def restore_fan_control_state(self, state):
+        """Restore each fan's requested duty and policy using current bindings.
+
+        Classic SetCoolerLevels always engages manual mode on the tested Xp,
+        even if its policy field carries the original automatic policy. Auto
+        must use RestoreCoolerSettings. ClientFanCoolers instead shares its
+        complete getter/setter buffer, so retain all IDs and reserved fields.
+        """
+        current = self.read_fan_control_state()
+        if not current or not isinstance(state, dict):
+            return False, "fan control state unavailable"
+        wanted = state.get("fans")
+        # A partially exposed modern API must not hide a complete native
+        # fallback. Map the same card's fan order across the two interfaces;
+        # NVML indices are zero-based, while client cooler IDs need not be.
+        if current["source"] == "nvml" and isinstance(wanted, list) and any(
+                isinstance(row, dict) and not self.nvml.has(
+                    "nvmlDeviceSetFanSpeed_v2" if row.get("manual") else
+                    "nvmlDeviceSetDefaultFanSpeed_v2") for row in wanted):
+            native = self._native_fan_data()
+            if native:
+                current = native[0]
+        rows = current["fans"]
+        if not isinstance(wanted, list) or len(wanted) != len(rows) or not rows:
+            return False, "fan count changed; refusing to restore another layout"
+        if state.get("source") not in ("nvml", "nvapi_cooler", "nvapi_client"):
+            return False, "fan snapshot has an unknown control source"
+        same_source = state.get("source") == current["source"]
+        plan = []
+        for old, now in zip(wanted, rows):
+            if not isinstance(old, dict) or not isinstance(old.get("manual"), bool):
+                return False, "fan snapshot has an unknown policy"
+            if same_source and old.get("id") != now["id"]:
+                return False, "fan IDs changed; refusing to restore another layout"
+            manual, level = old["manual"], old.get("level")
+            if isinstance(level, bool) or not isinstance(level, (int, float)) or \
+                    not float(level).is_integer() or not (0 <= level <= 100):
+                return False, "fan snapshot has an invalid requested level"
+            if manual and not (now["min"] <= level <= now["max"]):
+                return False, f"fan {now['id']} request outside [{now['min']}..{now['max']}]%"
+            policy = (old.get("policy") if same_source else
+                      (1 if manual else now["default_policy"]))
+            if not manual and policy != now["default_policy"]:
+                return False, "non-default automatic fan policy cannot be restored safely"
+            plan.append((now["id"], int(level), bool(manual), policy))
+        a, nv = self.nvapi, self.nvml
+        errors = []
+        if current["source"] == "nvml":
+            for fan_id, level, manual, policy in plan:
+                name = "nvmlDeviceSetFanSpeed_v2" if manual else "nvmlDeviceSetDefaultFanSpeed_v2"
+                if not nv.has(name):
+                    return False, f"{name} not available"
+            for fan_id, level, manual, policy in plan:
+                st = (nv.dll.nvmlDeviceSetFanSpeed_v2(nv.dev, fan_id, level) if manual else
+                      nv.dll.nvmlDeviceSetDefaultFanSpeed_v2(nv.dev, fan_id))
+                if st != 0:
+                    errors.append(f"fan{fan_id}:{nv.errstr(st)}")
+        elif current["source"] == "nvapi_cooler":
+            if any(not getattr(a, "CoolerLevelsSet" if manual else "CoolerRestore", None)
+                   for _, _, manual, _ in plan):
+                return False, "NVAPI cooler controls unavailable"
+            for fan_id, level, manual, policy in plan:
+                if manual:
+                    buf = _CoolerLevels(version=a.ver(_CoolerLevels, 1))
+                    buf.entries[0].level, buf.entries[0].policy = level, 1
+                    st = a.CoolerLevelsSet(a.gpu, fan_id, ctypes.byref(buf), 1)
+                else:
+                    indexes = (u32 * 1)(fan_id)
+                    st = a.CoolerRestore(a.gpu, indexes, 1)
+                if st != 0:
+                    errors.append(f"fan{fan_id}:NVAPI status {st}")
+        else:
+            if not getattr(a, "FanCoolersSetControl", None):
+                return False, "NVAPI client fan controls unavailable"
+            native = self._native_fan_data()
+            if not native or native[0]["source"] != "nvapi_client" or \
+                    [r["id"] for r in native[0]["fans"]] != [r["id"] for r in rows]:
+                return False, "fan controls changed during preparation"
+            buf = native[1]
+            for index, (fan_id, level, manual, policy) in enumerate(plan):
+                buf.entries[index].level = level
+                buf.entries[index].mode = 1 if manual else 0
+            st = a.FanCoolersSetControl(a.gpu, ctypes.byref(buf))
+            if st != 0:
+                errors.append(f"NVAPI client fan status {st}")
+        if errors:
+            return False, "; ".join(errors)
+        # Automatic requested levels can update asynchronously with temperature.
+        # Manual requests and every policy must agree once the driver settles.
+        for attempt in range(5):
+            if current["source"] == "nvml":
+                after = self.read_fan_control_state()
+            else:
+                native = self._native_fan_data()
+                after = native[0] if native else None
+            if after and after["source"] == current["source"] and \
+                    len(after["fans"]) == len(plan) and all(
+                    row["id"] == fan_id and row["manual"] == manual and
+                    (row["level"] == level if manual else row["policy"] == policy)
+                    for row, (fan_id, level, manual, policy) in zip(after["fans"], plan)):
+                return True, "fan control state restored"
+            if attempt < 4:
+                time.sleep(0.05)
+        return False, "fan write accepted but requested policy/level did not read back"
+
+    def _set_nvapi_fans(self, pct=None):
+        native = self._native_fan_data()
+        if not native:
+            return False, "NVAPI fan controls not available"
+        state, _ = native
+        for fan in state["fans"]:
+            fan["manual"] = pct is not None
+            fan["policy"] = 1 if pct is not None else fan["default_policy"]
+            if pct is not None:
+                fan["level"] = int(pct)
+            elif state["source"] == "nvapi_client":
+                fan["level"] = 0
+        ok, msg = self.restore_fan_control_state(state)
+        return (True, "fans returned to automatic" if pct is None else
+                f"fans set to manual {int(pct)}%") if ok else (ok, msg)
+
     def set_fan(self, pct):
         nv = self.nvml
-        if not nv.ok or not nv.has("nvmlDeviceSetFanSpeed_v2"):
-            return False, "SetFanSpeed_v2 not available"
+        if not nv.ok or not nv.has("nvmlDeviceSetFanSpeed_v2") or \
+                not nv.has("nvmlDeviceGetNumFans"):
+            return self._set_nvapi_fans(pct)
         pct = int(pct)
         floor = self.static.get("fan_min", 30)
         if pct < floor:
             return False, (f"fan {pct}% below hardware minimum {floor}% "
                            f"- use Auto for the zero-RPM idle curve")
         pct = max(0, min(100, pct))
-        nf = u32(1)
-        nv.dll.nvmlDeviceGetNumFans(nv.dev, ctypes.byref(nf))
+        nf = u32(0)
+        if not nv.has("nvmlDeviceGetNumFans") or \
+                nv.dll.nvmlDeviceGetNumFans(nv.dev, ctypes.byref(nf)) != 0:
+            if self._native_fan_data():
+                return self._set_nvapi_fans(pct)
+            return False, "fan count unavailable; cannot select fans to control"
+        if not nf.value:
+            return False, "no controllable fans reported"
         errs = []
-        for f in range(max(nf.value, 1)):
+        for f in range(nf.value):
             st = nv.dll.nvmlDeviceSetFanSpeed_v2(nv.dev, u32(f), u32(pct))
             if st != 0:
                 errs.append(f"fan{f}:{nv.errstr(st)}")
@@ -3050,12 +3962,19 @@ class GPU:
 
     def reset_fan(self):
         nv = self.nvml
-        if not nv.ok or not nv.has("nvmlDeviceSetDefaultFanSpeed_v2"):
-            return False, "SetDefaultFanSpeed_v2 not available"
-        nf = u32(1)
-        nv.dll.nvmlDeviceGetNumFans(nv.dev, ctypes.byref(nf))
+        if not nv.ok or not nv.has("nvmlDeviceSetDefaultFanSpeed_v2") or \
+                not nv.has("nvmlDeviceGetNumFans"):
+            return self._set_nvapi_fans()
+        nf = u32(0)
+        if not nv.has("nvmlDeviceGetNumFans") or \
+                nv.dll.nvmlDeviceGetNumFans(nv.dev, ctypes.byref(nf)) != 0:
+            if self._native_fan_data():
+                return self._set_nvapi_fans()
+            return False, "fan count unavailable; cannot select fans to control"
+        if not nf.value:
+            return False, "no controllable fans reported"
         errs = []
-        for f in range(max(nf.value, 1)):
+        for f in range(nf.value):
             st = nv.dll.nvmlDeviceSetDefaultFanSpeed_v2(nv.dev, u32(f))
             if st != 0:
                 errs.append(f"fan{f}:{nv.errstr(st)}")
@@ -3132,31 +4051,154 @@ class GPU:
     #
     # "No export" is not "no write path", and conflating the two is what kept
     # this read-only for longer than it needed to be.
+    # The TITAN profiles are deliberately board/VBIOS/driver-specific. All
+    # four fields were independently changed and restored on these adapters;
+    # an accepted getter or an all-zero record alone proves no write support.
+    # Their native RM getter reports type 2, but the type-5 F214 writes below
+    # do apply. Both boards also held 1112.5 mV after raising the ceilings past
+    # 1093.75 mV, in two A/B repetitions with a distinct V/F point at 1112.5.
+    # See VOLTAGE-RAILS-TITAN.md and docs/rail-probes for the measurements and
+    # restoration checks. Pascal vmin applies at idle but can be bypassed by
+    # P2/V/F-point operation; it is not an unconditional live-voltage floor.
+    # Reliability bases here are at ZERO boost. The absolute status header's
+    # dw2 is the current boost contribution, not a fixed headroom value, and
+    # the absolute reliability field includes that contribution.
+    _TITAN_VOLT_RAIL_PROFILES = {
+        (0x1E02, 312676574, "90.02.1e.00.02", "472.12"): {
+            "bases": {"reliability": 1068.75, "alt_reliability": 1093.75,
+                      "overvoltage": 1125.0, "vmin": 650.0},
+            "headroom_mv": 25.0,
+            "control_version": 0x00010AC8,
+        },
+        (0x1B02, 299831518, "86.02.3d.00.01", "472.12"): {
+            # R470 measures a different zero-boost base/headroom from R580.
+            "bases": {"reliability": 1068.75, "alt_reliability": 1093.75,
+                      "overvoltage": 1200.0, "vmin": 650.0},
+            "headroom_mv": 25.0,
+            "control_version": 0x00010AC8,
+            "settle_vmin": True,
+        },
+        (0x1E02, 312676574, "90.02.1e.00.02", "580.97"): {
+            "bases": {"reliability": 1068.75, "alt_reliability": 1093.75,
+                      "overvoltage": 1125.0, "vmin": 650.0},
+            "headroom_mv": 25.0,
+        },
+        (0x1B02, 299831518, "86.02.3d.00.01", "580.97"): {
+            "bases": {"reliability": 1062.5, "alt_reliability": 1093.75,
+                      "overvoltage": 1200.0, "vmin": 650.0},
+            "headroom_mv": 31.25,
+        },
+    }
+
+    def _volt_rail_profile(self):
+        """Known conversion/defaults for this exact adapter, or ``None``."""
+        static = getattr(self, "static", {})
+        selected = getattr(getattr(self, "nvapi", None), "selected", None) or {}
+        key = (selected.get("devid"), selected.get("subsys"),
+               str(static.get("vbios", "")).lower(), static.get("driver"))
+        titan = self._TITAN_VOLT_RAIL_PROFILES.get(key)
+        if titan is not None:
+            return {"bases": {0: titan["bases"]},
+                    "headroom_mv": {0: titan["headroom_mv"]},
+                    "poweron": {0: (0, 0, 0, 0)},
+                    "fields": {0: self.VOLT_LIMIT_FIELDS},
+                    "control_version": titan.get("control_version", 0x00020AC8),
+                    "settle_vmin": titan.get("settle_vmin", False),
+                    "min_mv": 650.0,
+                    "max_mv": self.VOLT_LIMIT_MAX_MV}
+        if self.clkdom_is_blackwell():
+            return {"bases": {r: dict(GPU.VOLT_LIMIT_BASE_MV) for r in (0, 1)},
+                    "headroom_mv": {0: 20.0, 1: 20.0},
+                    "poweron": {0: (0, 0, 0, 0), 1: (-50000, 0, 0, 0)},
+                    "fields": {r: self.VOLT_LIMIT_FIELDS for r in (0, 1)},
+                    "min_mv": 700.0, "max_mv": self.VOLT_LIMIT_MAX_MV}
+        return None
+
+    def _read_volt_rail_blocks(self, function, version):
+        """Read present rails with singleton masks, cached per GPU/getter.
+
+        Both TITANs reject mask 3 while accepting mask 1. Their supported
+        control record is entirely zero at stock, including its discriminator,
+        so record contents must never be used to infer an absent rail.
+        """
+        a = self.nvapi
+        fn = getattr(a, function, None)
+        if not (a.ok and fn):
+            return {}
+        cache = getattr(self, "_volt_rail_masks_cache", None)
+        if cache is None:
+            cache = self._volt_rail_masks_cache = {}
+        candidates = cache.get(function, (0, 1))
+        versions = getattr(self, "_volt_rail_read_versions", None)
+        if versions is None:
+            versions = self._volt_rail_read_versions = {}
+        # R470 exposes the same NVAPI record fields at V1. Retry only after
+        # INCOMPATIBLE_STRUCT_VERSION, not after an absent-rail error.
+        requested_versions = (versions[function],) if function in versions else (
+            (version, 0x00010AC8) if function == "VoltRailsCtlGet"
+            and version == 0x00020AC8 else (version,))
+        out = {}
+        for rail in candidates:
+            for candidate_version in requested_versions:
+                buf = (ctypes.c_ubyte * 8192)()
+                pu = ctypes.cast(buf, ctypes.POINTER(u32))
+                pu[0], pu[1] = candidate_version, 1 << rail
+                status = fn(a.gpu, ctypes.byref(buf))
+                if status == 0 and pu[0] == candidate_version:
+                    out[rail] = buf
+                    versions[function] = candidate_version
+                    break
+                if status != -9:
+                    break
+        if function not in cache:
+            cache[function] = tuple(out)
+        return out
+
+    def volt_rail_limits_supported(self):
+        """Whether this card has a measured limit-write/defaults profile.
+
+        Readability stays independent: a new GPU can report its live rails
+        without inheriting another board's writes or reset values.
+        """
+        profile = self._volt_rail_profile()
+        if profile is None:
+            return False
+        cur = self.read_volt_rail_limits()
+        return cur is not None and set(cur) == set(profile["poweron"])
+
+    def volt_rail_limit_fields(self, rail):
+        """Limit fields with measured effects on this rail, or no fields."""
+        profile = self._volt_rail_profile()
+        return tuple((profile or {}).get("fields", {}).get(rail, ()))
+
     def read_volt_rail_limits(self):
         """Per-rail voltage limits as millivolt deltas, or ``None``.
 
         Returns ``{rail_index: {"type", "reliability", "alt_reliability",
-        "overvoltage", "vmin"}}`` with the four limits in millivolts, signed,
-        each relative to its OWN base in VOLT_LIMIT_BASE_MV - which is not one
-        shared number: the ceilings sit at 1040 and 1060 and overvoltage at
-        1200. Rail 0 is NVVDD and rail 1 is MSVDD.
+        "overvoltage", "vmin"}}`` with the four limits in millivolts, signed.
+        Each record also carries ``_base_mv`` and ``_headroom_mv`` from this
+        card's validated profile. The class conversion helpers consume those
+        values; an unknown card's bases remain unknown rather than inheriting
+        GB203's. Rail 0 is NVVDD; rail 1, where present, is MSVDD.
 
         For absolute values, and for the live rail voltage, use
         read_volt_rail_state instead. These deltas are what gets written; those
         absolutes are what the card reports back independently.
         """
-        a = self.nvapi
-        if not (a.ok and a.VoltRailsCtlGet):
-            return None
-        buf = (ctypes.c_ubyte * 8192)()
-        ctypes.memset(buf, 0, 8192)
-        pu = ctypes.cast(buf, ctypes.POINTER(u32))
-        pu[0], pu[1] = 0x00020AC8, 0x3        # version, then the rail mask
-        if a.VoltRailsCtlGet(a.gpu, ctypes.byref(buf)) != 0:
-            return None
-        pi = ctypes.cast(buf, ctypes.POINTER(i32))
+        blocks = self._read_volt_rail_blocks("VoltRailsCtlGet", 0x00020AC8)
+        profile = self._volt_rail_profile()
+        # R470 V1 also returns success for absent masks, with empty records.
+        # Its independent absolute getter rejects those masks. Cross-check
+        # there rather than applying the newer driver's zero-record rule.
+        legacy_present = None
+        if any(ctypes.cast(b, ctypes.POINTER(u32))[0] == 0x00010AC8
+               for b in blocks.values()):
+            legacy_present = set(self.read_volt_rail_state() or {})
         out = {}
-        for rail in (0, 1):
+        for rail, buf in blocks.items():
+            if legacy_present is not None and rail not in legacy_present:
+                continue
+            pi = ctypes.cast(buf, ctypes.POINTER(i32))
             base = (0x48 + rail * 0x54) // 4
             out[rail] = {
                 "type": pi[base],
@@ -3164,8 +4206,10 @@ class GPU:
                 "alt_reliability": pi[base + 2] / 1000.0,
                 "overvoltage": pi[base + 3] / 1000.0,
                 "vmin": pi[base + 4] / 1000.0,
+                "_base_mv": dict((profile or {}).get("bases", {}).get(rail, {})),
+                "_headroom_mv": (profile or {}).get("headroom_mv", {}).get(rail),
             }
-        return out
+        return out or None
 
     # ---- the live rail block --------------------------------------------- #
     # A DIFFERENT id and a different block from the limits above, and the
@@ -3218,17 +4262,10 @@ class GPU:
         "overvoltage", "effective", "vmin"}}`` in millivolts, ABSOLUTE. Unlike
         read_volt_rail_limits these are not deltas and need no base applied.
         """
-        a = self.nvapi
-        if not (a.ok and a.VoltRailsAbs):
-            return None
-        buf = (ctypes.c_ubyte * 8192)()
-        ctypes.memset(buf, 0, 8192)
-        pu = ctypes.cast(buf, ctypes.POINTER(u32))
-        pu[0], pu[1] = self.LIVE_RAIL_VER, 0x3     # version, then the rail mask
-        if a.VoltRailsAbs(a.gpu, ctypes.byref(buf)) != 0:
-            return None
+        blocks = self._read_volt_rail_blocks("VoltRailsAbs", self.LIVE_RAIL_VER)
         out = {}
-        for rail in (0, 1):
+        for rail, buf in blocks.items():
+            pu = ctypes.cast(buf, ctypes.POINTER(u32))
             base = (self.LIVE_RAIL_BASE + rail * self.LIVE_RAIL_STRIDE) // 4
             rec = {}
             for n, key in enumerate(self.LIVE_RAIL_FIELDS):
@@ -3295,8 +4332,11 @@ class GPU:
     # The headroom is the VBIOS over-voltage allowance and is exactly the gap
     # between the two bases, so it is derived rather than hardcoded.
     @classmethod
-    def volt_boost_headroom_mv(cls):
+    def volt_boost_headroom_mv(cls, fields=None):
         """What 100% voltage boost is worth, in millivolts."""
+        if fields is not None and "_headroom_mv" in fields:
+            value = fields["_headroom_mv"]
+            return float("nan") if value is None else value
         return (cls.VOLT_LIMIT_BASE_MV["alt_reliability"]
                 - cls.VOLT_LIMIT_BASE_MV["reliability"])
 
@@ -3322,10 +4362,13 @@ class GPU:
     #
     # NOTHING VALIDATES THE VALUE. A 1500 mV ceiling is accepted and reads
     # straight back, so the bound below is Druta's and the only one there is.
-    # It is set at the top of this card's V/F curve rather than at some round
-    # number: above that the cap cannot select a higher point and does nothing,
-    # and below it every step is real.
-    VOLT_LIMIT_MAX_MV = 1250.0
+    # User-selected request bounds, not measured hardware maxima. XOC raises
+    # the software ceiling; only live readback establishes what a card uses.
+    VOLT_LIMIT_MAX_MV = 1200.0
+    VOLT_LIMIT_XOC_MAX_MV = 1500.0
+    RAIL_OFFSET_MAX_MV = 200.0
+    RAIL_OFFSET_XOC_MAX_MV = 500.0
+    voltage_xoc_enabled = False
     VOLT_LIMIT_MIN_MV = 700.0
     # Off unless something deliberately turns it on, exactly like the rail-1
     # gate. A slider must not be able to set this by itself.
@@ -3334,26 +4377,83 @@ class GPU:
     _ESC_B213, _ESC_F214 = 0x2080B213, 0x2080F214
     _ESC_REC0, _ESC_STRIDE = 20, 8
 
+    # The R470 layout was captured from a voltage-boost identity write.
+    # Tuple: packet/params sizes, commands, mask/boost words, record start,
+    # record stride/type, optional valid word. Every offset is in dwords.
+    _RAIL_WRITE_LAYOUTS = {
+        0x00020AC8: (1104, 1036, 0x2080B213, 0x2080F214, 18, 19, 20, 8, 5, 7),
+        0x00010AC8: (716, 648, 0x20803213, 0x20803214, 17, 18, 19, 5, 1, None),
+    }
+    _RAIL_HOOK_LOCK = threading.RLock()
+
     class _Escape(ctypes.Structure):
         _fields_ = [("hAdapter", u32), ("hDevice", u32), ("Type", u32),
                     ("Flags", u32), ("pPrivateDriverData", ctypes.c_void_p),
                     ("PrivateDriverDataSize", u32), ("hContext", u32)]
 
     def _write_rail_records(self, records):
+        # The code patch is process-wide even when GPU objects have different
+        # per-card locks. Only one installer may own it at a time.
+        with GPU._RAIL_HOOK_LOCK:
+            profile = self._volt_rail_profile() or {}
+            settle = False
+            boost = None
+            if profile.get("settle_vmin"):
+                previous = self.read_volt_rail_limits() or {}
+                settle = any(len(values) == 4 and rail in previous
+                             and round(previous[rail]["vmin"] * 1000) != values[3]
+                             for rail, values in records.items())
+                if settle:
+                    boost = self.read_voltage_boost()
+            result = self._write_rail_records_locked(records)
+            if settle and result == (True, 0):
+                # GP102/R470 recomputes an idle floor using the preceding
+                # stored value. A verified identity re-send makes its live
+                # voltage catch up, including when restoring the stock floor.
+                # No extra delta is added and every requested field is equal.
+                _back, error = self._verify_rail_records(records, boost)
+                if error:
+                    return False, result[1]
+                result = self._write_rail_records_locked(records)
+            return result
+
+    def _write_rail_records_locked(self, records):
         """Issue one rails-control WRITE. Returns (ok, RM status).
 
         The hook is one-shot: it restores the original bytes before calling
         through, so the real function is what runs and there is no trampoline
         to build - which also means no instruction-length decoding and no
-        disassembler in the shipped bundle. Not thread safe, and does not need
-        to be: it is installed around a single call and removed by then.
+        disassembler in the shipped bundle. The caller serializes installers;
+        a callback on another native thread restores and forwards the getter
+        without substituting a write to that thread's potentially different GPU.
         """
+        if not self.volt_rail_limits_supported():
+            return False, None
+        profile = self._volt_rail_profile()
+        control_version = profile.get("control_version", 0x00020AC8)
+        transport = self._RAIL_WRITE_LAYOUTS.get(control_version)
+        if transport is None:
+            return False, None
+        (packet_size, params_size, get_command, set_command, mask_word,
+         boost_word, record0, record_stride, record_type, valid_word) = transport
+        if not records or set(records) != set(profile["poweron"]):
+            return False, None
+        if any(len(vals) != len(self.VOLT_LIMIT_FIELDS)
+               for vals in records.values()):
+            return False, None
+        boost = self.read_voltage_boost()
+        if boost is None:
+            return False, None
+        rail_mask = sum(1 << rail for rail in records)
         a = self.nvapi
         gdi = ctypes.WinDLL("gdi32.dll")
         addr = ctypes.cast(gdi.D3DKMTEscape, ctypes.c_void_p).value
         k32 = ctypes.WinDLL("kernel32", use_last_error=True)
         k32.VirtualProtect.argtypes = [ctypes.c_void_p, ctypes.c_size_t, u32,
                                        ctypes.POINTER(u32)]
+        k32.GetCurrentThreadId.argtypes = []
+        k32.GetCurrentThreadId.restype = u32
+        owner_thread = k32.GetCurrentThreadId()
         orig = bytes((ctypes.c_ubyte * 14).from_address(addr))
         proto = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p)
         state = {"status": None, "done": False}
@@ -3364,23 +4464,30 @@ class GPU:
         def cb(pesc):
             hit = None
             try:
-                if pesc and not state["done"]:
+                if (pesc and not state["done"]
+                        and k32.GetCurrentThreadId() == owner_thread):
                     e = GPU._Escape.from_address(pesc)
                     if (e.pPrivateDriverData
-                            and e.PrivateDriverDataSize >= 64):
+                            and e.PrivateDriverDataSize == packet_size):
                         pu = ctypes.cast(e.pPrivateDriverData,
                                          ctypes.POINTER(u32))
                         pi = ctypes.cast(e.pPrivateDriverData,
                                          ctypes.POINTER(i32))
-                        if pu[14] == GPU._ESC_B213:
-                            pu[14] = GPU._ESC_F214
-                            pu[18] = 0x3
+                        if (pu[14] == get_command and pu[15] == params_size
+                                and pu[mask_word] == rail_mask):
+                            pu[14] = set_command
+                            pu[mask_word] = rail_mask
+                            # This header field is the voltage boost percent.
+                            # Zeroing it during a rail write silently clears
+                            # the user's independent Core Voltage setting.
+                            pu[boost_word] = int(boost)
                             for r, vals in records.items():
-                                b = GPU._ESC_REC0 + r * GPU._ESC_STRIDE
-                                pi[b] = 5
+                                b = record0 + r * record_stride
+                                pi[b] = record_type
                                 for k, v in enumerate(vals):
                                     pi[b + 1 + k] = int(v)
-                                pi[b + 7] = 1
+                                if valid_word is not None:
+                                    pi[b + valid_word] = 1
                             hit = pu
                             state["done"] = True
             except Exception:
@@ -3393,7 +4500,9 @@ class GPU:
 
         keep = proto(cb)
         old = u32()
-        k32.VirtualProtect(ctypes.c_void_p(addr), 14, 0x40, ctypes.byref(old))
+        if not k32.VirtualProtect(ctypes.c_void_p(addr), 14, 0x40,
+                                  ctypes.byref(old)):
+            return False, None
         patch = (b"\xFF\x25\x00\x00\x00\x00"
                  + struct.pack("<Q", ctypes.cast(keep, ctypes.c_void_p).value))
         ctypes.memmove(addr, patch, 14)
@@ -3401,7 +4510,7 @@ class GPU:
             buf = (ctypes.c_ubyte * 8192)()
             ctypes.memset(buf, 0, 8192)
             p = ctypes.cast(buf, ctypes.POINTER(u32))
-            p[0], p[1] = 0x00020AC8, 0x3
+            p[0], p[1] = control_version, rail_mask
             a.VoltRailsCtlGet(a.gpu, ctypes.byref(buf))
         finally:
             restore()
@@ -3412,6 +4521,21 @@ class GPU:
     # The four limits, in the order they sit in an RM record.
     VOLT_LIMIT_FIELDS = ("reliability", "alt_reliability", "overvoltage",
                          "vmin")
+
+    def _verify_rail_records(self, records, boost):
+        """Check every preserved rail/field and the independent boost setting."""
+        back = self.read_volt_rail_limits()
+        if back is None or set(back) != set(records):
+            return None, "write issued but the rail read-back is incomplete"
+        for rail, wanted in records.items():
+            got = [int(round(back[rail][k] * 1000))
+                   for k in self.VOLT_LIMIT_FIELDS]
+            if got != wanted:
+                return None, (f"rail {rail} read-back disagrees: wanted "
+                              f"{wanted}, got {got}")
+        if self.read_voltage_boost() != boost:
+            return None, "rail write changed the voltage boost setting"
+        return back, None
 
     def set_volt_rail_limits(self, rail, **limits):
         """Set one rail's limits, each in ABSOLUTE millivolts against its base.
@@ -3434,53 +4558,67 @@ class GPU:
         if not self.volt_limits_write_enabled:
             return False, ("rail limit writes are disabled: nothing bounds "
                            "this value but Druta, so it is off by default")
+        if not self.volt_rail_limits_supported():
+            return False, "rail limit writes are not validated for this GPU/driver"
         unknown = set(limits) - set(self.VOLT_LIMIT_FIELDS)
         if unknown:
             return False, f"not a rail limit: {', '.join(sorted(unknown))}"
         cur = self.read_volt_rail_limits()
         if cur is None:
             return False, "cannot read the current limits"
+        if rail not in cur:
+            return False, f"rail {rail} is not present on this GPU"
+        if set(limits) - set(self.volt_rail_limit_fields(rail)):
+            return False, f"one or more fields are not validated for rail {rail}"
+        boost = self.read_voltage_boost()
+        if boost is None:
+            return False, "cannot preserve the current voltage boost"
         recs = {r: [int(round(cur[r][k] * 1000))
-                    for k in self.VOLT_LIMIT_FIELDS] for r in (0, 1)}
+                    for k in self.VOLT_LIMIT_FIELDS] for r in cur}
         for key, mv in limits.items():
             if mv is None:
                 continue
-            if not (self.VOLT_LIMIT_MIN_MV <= mv <= self.VOLT_LIMIT_MAX_MV):
+            maximum = (self.VOLT_LIMIT_XOC_MAX_MV if self.voltage_xoc_enabled
+                       else self.VOLT_LIMIT_MAX_MV)
+            # Leaving XOC keeps existing values and permits lowering them,
+            # but cannot raise an already above-normal value any further.
+            maximum = max(maximum, self.abs_limit_mv(cur[rail], key))
+            if not (self.VOLT_LIMIT_MIN_MV <= mv <= maximum):
                 return False, (f"{key} {mv:.0f} mV is outside Druta's "
                                f"{self.VOLT_LIMIT_MIN_MV:.0f}-"
-                               f"{self.VOLT_LIMIT_MAX_MV:.0f} mV bound")
+                               f"{maximum:.0f} mV bound")
             recs[rail][self.VOLT_LIMIT_FIELDS.index(key)] = int(round(
-                (mv - self.VOLT_LIMIT_BASE_MV[key]) * 1000))
+                (mv - cur[rail]["_base_mv"][key]) * 1000))
         ok, status = self._write_rail_records(recs)
         if not ok:
             return False, "the rails request was not seen - nothing was written"
         if status:
             return False, f"driver refused the write (NV_STATUS 0x{status:X})"
-        back = self.read_volt_rail_limits()
-        if back is None:
-            return False, "write issued but the read-back failed"
-        got = [int(round(back[rail][k] * 1000))
-               for k in self.VOLT_LIMIT_FIELDS]
-        if got != recs[rail]:
-            return False, (f"read-back disagrees: wanted {recs[rail]}, "
-                           f"got {got}")
+        back, error = self._verify_rail_records(recs, boost)
+        if error:
+            return False, error
         # Report the fields that were written AND what they add up to, because
         # the second is not obvious from the first: raising reliability alone
         # can leave the reachable maximum exactly where it was.
         wrote = ", ".join(f"{k} {self.abs_limit_mv(back[rail], k):.0f}"
                           for k in sorted(limits))
-        return True, (f"{_RAIL_NAME[rail]}: {wrote} mV  ->  reaches "
-                      f"{self.rail_floor_mv(back[rail]):.0f}-"
-                      f"{self.rail_ceiling_mv(back[rail]):.0f} mV")
+        note = ""
+        if "vmin" in limits and self.nvapi.selected.get("devid") == 0x1B02:
+            note = ("; Pascal vmin was verified at idle; a V/F point lock or "
+                    "P2 can hold the live voltage below this floor")
+        return True, (f"{_RAIL_NAME[rail]}: {wrote} mV stored; floor "
+                      f"{self.rail_floor_mv(back[rail]):.0f}, cap at 100% boost "
+                      f"{self.rail_ceiling_mv(back[rail]):.0f} mV{note}")
 
     @classmethod
     def abs_limit_mv(cls, fields, key):
         """One limit as an absolute voltage. Each has its OWN base."""
-        return fields[key] + cls.VOLT_LIMIT_BASE_MV[key]
+        bases = fields.get("_base_mv", cls.VOLT_LIMIT_BASE_MV)
+        return fields[key] + bases.get(key, float("nan"))
 
     @classmethod
     def rail_ceiling_mv(cls, fields):
-        """The highest voltage this rail can reach, i.e. at 100% boost.
+        """The configured ceiling at 100% boost, not a promised live voltage.
 
         DERIVED, not a field. Measured under load across four configurations:
 
@@ -3508,7 +4646,7 @@ class GPU:
         read_volt_rail_limits returns it.
         """
         return min(cls.abs_limit_mv(fields, "reliability")
-                   + cls.volt_boost_headroom_mv(),
+                   + cls.volt_boost_headroom_mv(fields),
                    cls.abs_limit_mv(fields, "alt_reliability"),
                    cls.abs_limit_mv(fields, "overvoltage"))
 
@@ -3516,29 +4654,17 @@ class GPU:
     def rail_floor_mv(cls, fields):
         return cls.abs_limit_mv(fields, "vmin")
 
-    @classmethod
-    def stock_limit_mv(cls, rail, key):
-        """What one limit reads at the power-on values, in absolute mV.
+    def stock_limit_mv(self, rail, key):
+        """Known power-on value, independent of normal/XOC request bounds.
 
-        Exists for the overvoltage knob's DEFAULT upper bound, and the reason
-        is a safety property rather than tidiness. The card enforces
-        min(reliability, alt_reliability, overvoltage), so while overvoltage
-        sits at its factory 1200 mV it is the BACKSTOP that keeps the other
-        two ceilings from reaching the 1250 mV the sliders otherwise allow.
-        Exposing overvoltage with the same upper bound as the ceilings would
-        therefore not merely add a knob - it would quietly raise this card's
-        maximum reachable rail voltage past the value the VBIOS set, as a side
-        effect of a change that read like a display fix.
-
-        So the knob stops here by default, which leaves it able to LOWER the
-        cap - the diagnostic and useful direction - and unable to raise it at
-        all. Going above stock is available, but only with XOC ticked, via the
-        knob's xoc_hi bound: the default headroom past the VBIOS value is
-        exactly zero, and reaching past it is a deliberate act with the rest of
-        the XOC guardrails already removed.
+        Stock remains the measured board default even when the user permits
+        requests up to 1200 mV normally or 1500 mV in XOC mode.
         """
-        return (cls.VOLT_LIMIT_BASE_MV[key]
-                + cls.VOLT_LIMIT_POWERON[rail][cls.VOLT_LIMIT_FIELDS.index(key)]
+        profile = self._volt_rail_profile()
+        if profile is None or rail not in profile["poweron"]:
+            return None
+        return (profile["bases"][rail][key]
+                + profile["poweron"][rail][self.VOLT_LIMIT_FIELDS.index(key)]
                 / 1000.0)
 
     # This card's power-on deltas, in microvolts, in VOLT_LIMIT_FIELDS order.
@@ -3560,23 +4686,34 @@ class GPU:
         would strand a card on limits the user is trying to clear - the exact
         stickiness that made this feature necessary.
         """
+        if not self.volt_rail_limits_supported():
+            return False, "rail reset defaults are not validated for this GPU/driver"
+        profile = self._volt_rail_profile()
         cur = self.read_volt_rail_limits()
         if cur is None:
             return False, "cannot read the current limits"
-        rails = (0, 1) if rail is None else (int(rail),)
+        rails = tuple(cur) if rail is None else (rail,)
+        if any(r not in cur for r in rails):
+            return False, "requested rail is not present on this GPU"
         keys = tuple(fields) if fields else self.VOLT_LIMIT_FIELDS
         bad = set(keys) - set(self.VOLT_LIMIT_FIELDS)
         if bad:
             return False, f"not a rail limit: {', '.join(sorted(bad))}"
+        boost = self.read_voltage_boost()
+        if boost is None:
+            return False, "cannot preserve the current voltage boost"
         recs = {r: [int(round(cur[r][k] * 1000))
-                    for k in self.VOLT_LIMIT_FIELDS] for r in (0, 1)}
+                    for k in self.VOLT_LIMIT_FIELDS] for r in cur}
         for r in rails:
             for k in keys:
                 i = self.VOLT_LIMIT_FIELDS.index(k)
-                recs[r][i] = self.VOLT_LIMIT_POWERON[r][i]
+                recs[r][i] = profile["poweron"][r][i]
         ok, status = self._write_rail_records(recs)
         if not ok or status:
             return False, f"reset refused (NV_STATUS 0x{status or 0:X})"
+        _back, error = self._verify_rail_records(recs, boost)
+        if error:
+            return False, error
         what = ("rail limits" if rail is None and not fields
                 else f"{_RAIL_NAME[rails[0]]} "
                      + (", ".join(keys) if fields else "limits"))
@@ -3587,8 +4724,8 @@ class GPU:
         raw = self.read_volt_rail_limits()
         if raw is None:
             return None
-        return {rail: {k: self.VOLT_LIMIT_BASE_MV[k] + v
-                       for k, v in fields.items() if k != "type"}
+        return {rail: {k: self.abs_limit_mv(fields, k)
+                       for k in self.VOLT_LIMIT_FIELDS}
                 for rail, fields in raw.items()}
 
     def read_voltage_boost(self):
@@ -3628,12 +4765,19 @@ class GPU:
             return None, "VF curve APIs unavailable"
         lay = self.vfp_layout()
         if lay is None:
-            return None, "could not determine this card's VF table layout"
+            return None, getattr(self, "_vfp_layout_error", "") or (
+                "could not determine this card's VF table layout")
         cv = _VfpCurve(version=a.ver(_VfpCurve, 1))
         _set_point_masks(cv, lay.n_entries)
         st = a.VfpCurve(a.gpu, ctypes.byref(cv))
         if st != 0:
+            self._vfp_layout_cache = None
             return None, f"curve read failed (status {st})"
+        err = self._vfp_curve_error(cv, lay.n_entries)
+        if err:
+            self._vfp_layout_cache = None
+            self._vfp_layout_error = err
+            return None, err
         bt = _BoostTable(version=a.ver(_BoostTable, 1))
         _set_point_masks(bt, lay.n_entries)
         st = a.BoostTableGet(a.gpu, ctypes.byref(bt))
@@ -3679,6 +4823,23 @@ class GPU:
         return out
 
     # ---- layout probing --------------------------------------------------- #
+    @staticmethod
+    def _vfp_curve_error(cv, n):
+        """Reject successful API calls containing an incomplete curve.
+
+        On GP102, a driver can accept all 84 mask bits but return only a
+        450 mV / 278 kHz placeholder. Caching that as a one-point GPU layout
+        leaves the editor stuck even if a later driver read recovers.
+        All requested rows must carry actual voltage/frequency data before
+        their boundary or frequency scale can be inferred.
+        """
+        valid = sum(1 for e in cv.entries[:n]
+                    if e.volt_uV > 0 and e.freq_kHz >= 1000)
+        if n < 2 or valid != n:
+            return (f"driver returned an incomplete V/F curve "
+                    f"({valid} valid rows of {n}); press Read curve to retry")
+        return None
+
     def _probe_vfp_entry_count(self):
         """How many entries will this driver return for this GPU?
 
@@ -3725,6 +4886,8 @@ class GPU:
         cached = getattr(self, "_vfp_layout_cache", None)
         if cached is not None and not force:
             return cached
+        self._vfp_layout_cache = None
+        self._vfp_layout_error = ""
         a = self.nvapi
         if not (a.ok and a.VfpCurve):
             return None
@@ -3734,6 +4897,10 @@ class GPU:
         cv = _VfpCurve(version=a.ver(_VfpCurve, 1))
         _set_point_masks(cv, n)
         if a.VfpCurve(a.gpu, ctypes.byref(cv)) != 0:
+            return None
+        err = self._vfp_curve_error(cv, n)
+        if err:
+            self._vfp_layout_error = err
             return None
 
         rows = [(i, cv.entries[i].volt_uV / 1000.0, cv.entries[i].freq_kHz)
@@ -3746,6 +4913,12 @@ class GPU:
             else:
                 broken = True
                 other_idx.append(i)
+
+        if len(gpu_idx) < 2:
+            self._vfp_layout_error = (
+                "driver returned fewer than two GPU V/F points; "
+                "press Read curve to retry")
+            return None
 
         freq_div, gfx_max = 1, self.static.get("gfx_max")
         gset = set(gpu_idx)
@@ -4112,10 +5285,14 @@ class GPU:
 
     @staticmethod
     def compute_ramp(points, lo_mv, cap_mv, max_khz=None, step_khz=None):
-        """Rebuild the band [lo_mv, cap_mv] as a STRICTLY INCREASING ramp on the
-        15 MHz grid - one distinct frequency per voltage point, no ties anywhere
-        in the band. Returns (changes, ceil_before_mhz, ceil_after_mhz, meta),
-        the same shape as compute_deflatten.
+        """Raise points in [lo_mv, cap_mv] by whole bins on the supplied grid.
+
+        Aim for one distinct frequency per voltage point without lowering any
+        existing frequency. Each increment is rounded down relative to that
+        point's current frequency; a ceiling can leave ties where no whole bin
+        fits. `delivered` reports the predicted distinct operating points.
+        Returns (changes, ceil_before_mhz, ceil_after_mhz, meta), the same shape
+        as compute_deflatten.
 
         WHY THIS EXISTS, and it is not de-flatten's reason. De-flatten makes ONE
         point unique (the boundary) and levels everything above it. That fixes
@@ -4140,11 +5317,13 @@ class GPU:
         imperfect power-limit bypass (shunt mods, where the GPU's own
         current-sensing heuristics still throttle).
 
-        NEVER BELOW STOCK. Each rung is max(its own stock frequency, one grid
-        step above the rung beneath it), walked upward through the band. Where
-        stock is steeper than the grid the rung simply IS stock and the plan
-        costs nothing; the grid step only does work across flat runs, which is
-        the thing a ramp exists to break up.
+        NEVER BELOW STOCK. Each rung first targets max(its own frequency, one
+        grid step above the previous planned rung). Apply the optional ceiling,
+        then round the nonnegative increment down to whole bins. Existing
+        frequencies above that ceiling are preserved. Rounded Pascal clock
+        readings need not share one exact grid phase, so this may retain a
+        smaller stock gap rather than propose a fractional-bin adjustment
+        that Apply would discard.
 
         This replaced a uniform descent - every rung one bin below the one above
         it, anchored at khz[floor] + (rungs-1)*grid - which fixed the slope at
@@ -4187,9 +5366,9 @@ class GPU:
         rather than the card: the curve keeps rising past it and the arbiter
         parks at the highest point the rail can actually reach.
 
-        The granularity and the overclock are the SAME edit: every rung demands
-        more clock at its voltage than stock did, so every rung has to be
-        stable in its own right."""
+        The granularity and the overclock are the SAME edit: each lifted rung
+        demands more clock at its voltage than before, so each must be stable
+        in its own right."""
         grid = int(step_khz or VF_STEP_KHZ)
         n = len(points)
         khz = [int(round(p["freq_mhz"] * 1000)) for p in points]
@@ -4219,8 +5398,9 @@ class GPU:
         #
         #     new[i] = max(stock[i], new[i-1] + grid)
         #
-        # walked upward through the band. Strictly increasing by construction,
-        # and by the same construction incapable of demoting a point.
+        # is the initial target, walked upward through the band. The ceiling
+        # and per-point whole-bin quantization below can retain ties, but can
+        # never demote an existing point.
         #
         # The previous shape was a UNIFORM descent from an anchor: every rung
         # exactly one grid step below the one above it, with the top pinned at
@@ -4253,6 +5433,14 @@ class GPU:
             want = khz[i] if prev is None else max(khz[i], prev + grid)
             if max_khz is not None and want > max_khz:
                 want, meta["clamped"] = int(max_khz), True
+            # Each delta must advance by whole bins from THIS point's read
+            # frequency. Pascal's evaluated clocks have rounded 12.5/13 MHz
+            # gaps, while the nominal grid is 12.657 MHz. Subtracting those
+            # directly produced 157 kHz edits that Apply's re-phase erased.
+            # Quantize here, before the preview/prediction, using the same
+            # downward rule. Never lower an existing point to meet a ceiling.
+            bins = max(0, (want - khz[i]) // grid)
+            want = khz[i] + bins * grid
             plan[i] = want
             prev = want
         top = plan[B]
@@ -4302,12 +5490,14 @@ class GPU:
                        if real[pos[i]] != new.get(i, khz[i]))
         meta.update({
             "boundary_idx": points[B]["idx"],
-            # the band itself cannot tie - every rung is one bin apart - so the
-            # only thing that can steal the park point is an UNTOUCHED point
-            # below the floor still holding the top frequency. Monotone curves
-            # never do; a clipped one-rung band could, and that is worth saying
-            # rather than asserting True and being wrong once.
-            "unique": u is None or khz[u] < top,
+            # The cap can be the park point only when it reaches the predicted
+            # whole-curve peak and no lower-voltage point shares that frequency.
+            # A ceiling can retain ties inside the band; untouched points above
+            # the cap can also remain higher than its planned top.
+            "unique": (real[pos[B]] == max(real)
+                       and all(real[pos[i]] < real[pos[B]]
+                               for i in range(n)
+                               if points[i]["volt_mv"] < points[B]["volt_mv"])),
             "lo_idx": points[L]["idx"], "cap_idx": points[B]["idx"],
             "lo_mv": points[L]["volt_mv"], "cap_mv": points[B]["volt_mv"],
             "rungs": rungs, "top_mhz": top / 1000.0,
@@ -4368,10 +5558,14 @@ class GPU:
         pts, err = self.read_vf_curve()
         if err:
             return False, err
-        grid = self.clock_step_khz()
+        physical_grid = self.clock_step_khz()
+        lay = self.vfp_layout()
+        if lay is None:
+            return False, "could not determine this card's VF delta units"
+        grid = physical_grid * lay.freq_div
         new, _phase = GPU.compute_rephase(
             {p["idx"]: p["delta_khz"] for p in pts}, grid)
-        gm = grid / 1000.0
+        gm = physical_grid / 1000.0
         if not new:
             return True, (f"all {len(pts)} deltas already share one "
                           f"{gm:.4g} MHz phase")
@@ -4482,12 +5676,14 @@ class GPU:
         # the overvoltage knobs shipped, and MSVDD overvoltage is precisely
         # what one of them writes.
         #
-        # Derived from the same constant reset_volt_rail_limits writes back,
-        # so the test and the fix cannot drift apart the way a literal did.
-        cur = self.read_volt_rail_limits()
+        # Compare only known card-specific defaults. Readable telemetry on
+        # an unvalidated board must never dispatch a Blackwell-default reset.
+        supported = self.volt_rail_limits_supported()
+        cur = self.read_volt_rail_limits() if supported else None
+        poweron = self._volt_rail_profile()["poweron"] if supported else {}
         off_stock = False
         for rail, fields in (cur or {}).items():
-            want = self.VOLT_LIMIT_POWERON.get(rail)
+            want = poweron.get(rail)
             if not want:
                 continue
             for n, key in enumerate(self.VOLT_LIMIT_FIELDS):
@@ -4504,7 +5700,8 @@ class GPU:
             steps.append(ResetStep(
                 "power limit",
                 (False, "power limit: default unknown, left unchanged")))
-        steps.append(ResetStep(self.LOCK_STEP, self.reset_gpu_clocks()))
+        steps.append(ResetStep(self.LOCK_STEP,
+                               self._reset_gpu_clocks(allow_pascal_noop=True)))
         # The V/F point lock is a DIFFERENT mechanism: reset_gpu_clocks does not
         # touch it, so a reset that stopped at the step above would report a
         # clean card while this one still pinned it. Appended only when one is
@@ -4631,6 +5828,8 @@ for _m in ("read", "read_clock_domains", "read_vf_curve", "apply_vf_deltas",
            "reset_vf_curve",
            "rephase_deltas", "set_clock_offset", "set_power_limit_mw",
            "lock_gpu_clocks", "reset_gpu_clocks", "set_fan", "reset_fan",
+           "read_fan_control_state", "restore_fan_control_state",
+           "read_fan_manual", "fan_capabilities",
            "read_vf_lock", "read_clk_lock", "set_vf_lock", "clear_vf_lock",
            "vf_lock_self_test",
            "set_voltage_boost", "read_voltage_boost", "reset_all",

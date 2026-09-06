@@ -25,6 +25,9 @@ Push-Location $PSScriptRoot
 try {
     $env:DRUTA_WIN7_CRT = $crtPath
     $env:DRUTA_WIN7_PORTABLE_REDIST = $portablePath
+    $sourceSnapshot = Join-Path $PSScriptRoot 'build\vista\source-before-build.json'
+    & $Python tools\package_source.py snapshot --root $PSScriptRoot --snapshot $sourceSnapshot
+    if ($LASTEXITCODE -ne 0) { throw 'Could not snapshot the public build source.' }
     & $Python -m PyInstaller --noconfirm --clean --workpath build\pyinstaller-vista Druta-vista.spec
     if ($LASTEXITCODE -ne 0) { throw "Vista build failed ($LASTEXITCODE)." }
     $bundle = Join-Path $PSScriptRoot 'dist\Druta-Vista-Portable'
@@ -35,6 +38,8 @@ try {
         & $Python tools\package_vista_nvtune.py --source $nvtunePath --bundle $bundle
         if ($LASTEXITCODE -ne 0) { throw 'The optional nvtune package failed validation.' }
     }
+    & $Python tools\package_source.py package --root $PSScriptRoot --snapshot $sourceSnapshot --bundle $bundle
+    if ($LASTEXITCODE -ne 0) { throw 'Source changed during the build or source packaging failed.' }
     $archive = Join-Path $PSScriptRoot 'dist\Druta-dev-vista-x64-portable.zip'
     Compress-Archive -LiteralPath $bundle -DestinationPath $archive -Force
     Write-Host "Vista bundle: $archive"

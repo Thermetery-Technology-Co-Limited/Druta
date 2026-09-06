@@ -1,0 +1,322 @@
+{
+  "format": 1,
+  "date": "2026-09-06",
+  "driver": "472.12",
+  "platform": "Windows",
+  "scope": "Local TITAN RTX and TITAN Xp functional validation; measured behavior, not maximum overclock stability.",
+  "cards": {
+    "TITAN RTX": {
+      "ui_composite": {
+        "checks": {
+          "initial complete curve": true,
+          "Max it power": true,
+          "Max it boost": true,
+          "Max it fans requested": true,
+          "Max it V/F applied": true,
+          "Max it cap held": true,
+          "Max it single undo": true,
+          "Undo all captured controls": true,
+          "Undo preserves separately managed hold": true,
+          "Release hold": true,
+          "Named profile restores controls": true,
+          "Reset first press arms": true,
+          "Reset stock controls": true
+        },
+        "restored_exactly": {
+          "table_exact": true,
+          "lock_exact": true,
+          "profile_exact": true
+        }
+      },
+      "power_and_voltage_boost": {
+        "power_limit_readback_verified": true,
+        "voltage_boost_readback_verified": true
+      },
+      "timings": {
+        "capture_succeeded": true,
+        "memory_stable": true,
+        "writes": [
+          {
+            "name": "FAW",
+            "before": 16,
+            "requested": 17,
+            "after": 16,
+            "outcome": "dropped",
+            "detail": "the write reached the hardware and the register did not change"
+          }
+        ],
+        "restored": true
+      },
+      "per_domain_offsets": [
+        {
+          "control": "XBAR",
+          "request_offset_mhz": 30,
+          "readback_matches": true,
+          "measured_mhz": {
+            "before": 1679.897,
+            "after": 1709.896,
+            "restored": 1679.895
+          },
+          "control_buffer_restored_exactly": true
+        },
+        {
+          "control": "Additional Memory Clock Offset",
+          "request_offset_mhz": 30,
+          "readback_matches": true,
+          "measured_mhz": {
+            "before": 6794.21,
+            "after": 6824.185,
+            "restored": 6794.203
+          },
+          "control_buffer_restored_exactly": true
+        },
+        {
+          "control": "SYS",
+          "request_offset_mhz": 30,
+          "readback_matches": true,
+          "measured_mhz": {
+            "before": 1754.899,
+            "after": 1784.896,
+            "restored": 1754.899
+          },
+          "control_buffer_restored_exactly": true
+        },
+        {
+          "control": "VIDEO",
+          "request_offset_mhz": 30,
+          "readback_matches": true,
+          "measured_mhz": {
+            "before": 1619.892,
+            "after": 1649.897,
+            "restored": 1619.89
+          },
+          "control_buffer_restored_exactly": true
+        },
+        {
+          "control": "LTC",
+          "request_offset_mhz": 30,
+          "readback_matches": true,
+          "measured_mhz": {
+            "before": 1409.999,
+            "after": 1439.999,
+            "restored": 1409.999
+          },
+          "control_buffer_restored_exactly": true
+        }
+      ],
+      "domain_lock_restored_exactly": true,
+      "i2c": {
+        "regulator": "MP2888A",
+        "vf_hold_mv": 900,
+        "workload": "CUDA bandwidth",
+        "ladder": [
+          {
+            "rung_mv": 6.25,
+            "delta_mv": 1.0,
+            "threshold_mv": 3.125,
+            "moved": false
+          },
+          {
+            "rung_mv": 12.5,
+            "delta_mv": 0.0,
+            "threshold_mv": 6.25,
+            "moved": false
+          },
+          {
+            "rung_mv": 25.0,
+            "delta_mv": 1.0,
+            "threshold_mv": 12.5,
+            "moved": false
+          },
+          {
+            "rung_mv": 50.0,
+            "delta_mv": 20.0,
+            "threshold_mv": 25.0,
+            "moved": false
+          },
+          {
+            "rung_mv": 75.0,
+            "delta_mv": 45.0,
+            "threshold_mv": 37.5,
+            "moved": true
+          }
+        ],
+        "measurement": "Change in rail-minus-VID voltage, mV",
+        "original_raw_offset": 0,
+        "restored_raw_offset": 0,
+        "restored": true
+      },
+      "frequency_lock": {
+        "requested_mhz": [
+          1500,
+          1500
+        ],
+        "live_core_mhz": [
+          1500
+        ],
+        "peak_utilization_percent": 100,
+        "fresh_process_range_readback_mhz": [
+          1200,
+          1500
+        ],
+        "point_lock_coexistence_mv": 900.0,
+        "range_with_point_lock_mhz": [
+          1200,
+          1500
+        ],
+        "restored_exactly": {
+          "records": true,
+          "lock": true,
+          "table": true,
+          "pstates": true
+        }
+      },
+      "max_it_ramp": {
+        "points": 19,
+        "voltage_range_mv": [
+          975,
+          1093.75
+        ],
+        "live_core_at_cap_mhz": 2160
+      },
+      "fan_controls": {
+        "exposed": true,
+        "requested_levels_and_auto_policies_verified": true,
+        "channels": 2,
+        "reported_rpm": [
+          0,
+          0
+        ],
+        "cooling": "Owner-confirmed water loop; zero RPM is expected",
+        "availability_depends_on_control_apis_not_rpm": true
+      }
+    },
+    "TITAN Xp": {
+      "ui_composite": {
+        "checks": {
+          "initial complete curve": true,
+          "Max it power": true,
+          "Max it boost": true,
+          "Max it fans requested": true,
+          "Max it V/F applied": true,
+          "Max it cap held": true,
+          "Max it single undo": true,
+          "Undo all captured controls": true,
+          "Undo preserves separately managed hold": true,
+          "Release hold": true,
+          "Named profile restores controls": true,
+          "Reset first press arms": true,
+          "Reset stock controls": true
+        },
+        "restored_exactly": {
+          "table_exact": true,
+          "lock_exact": true,
+          "profile_exact": true
+        }
+      },
+      "power_and_voltage_boost": {
+        "power_limit_readback_verified": true,
+        "voltage_boost_readback_verified": true
+      },
+      "timings": {
+        "capture_succeeded": true,
+        "memory_stable": true,
+        "writes": [
+          {
+            "name": "FAW",
+            "before": 24,
+            "requested": 25,
+            "after": 25,
+            "outcome": "landed",
+            "detail": ""
+          }
+        ],
+        "restored": true
+      },
+      "additional_memory_clock_offset": {
+        "cycles": 2,
+        "request_mhz": 25,
+        "stored_khz": 25000,
+        "measured_mhz": [
+          {
+            "request_mhz": 0,
+            "clock_mhz": 5508.0,
+            "request_readback_matches": true
+          },
+          {
+            "request_mhz": 25,
+            "clock_mhz": 5528.25,
+            "request_readback_matches": true
+          },
+          {
+            "request_mhz": 0,
+            "clock_mhz": 5508.0,
+            "request_readback_matches": true
+          },
+          {
+            "request_mhz": 25,
+            "clock_mhz": 5528.25,
+            "request_readback_matches": true
+          },
+          {
+            "request_mhz": 0,
+            "clock_mhz": 5508.0,
+            "request_readback_matches": true
+          }
+        ],
+        "ordinary_offset_unchanged": true,
+        "only_exposed_paired_control": 2
+      },
+      "negative_vf_edit": {
+        "voltage_mv": 900,
+        "cycles": 2,
+        "live_core_mhz": [
+          1721.0,
+          1708.0,
+          1721.0,
+          1708.0,
+          1721.0
+        ],
+        "evaluated_curve_mhz": [
+          1721.0,
+          1708.5,
+          1721.0,
+          1708.5,
+          1721.0
+        ]
+      },
+      "restored_exactly": {
+        "domains_restored": true,
+        "table_restored": true,
+        "locks_restored": true
+      },
+      "limitations": [
+        "NVML frequency lock unsupported; V/F point lock works.",
+        "No matching I2C regulator found.",
+        "Positive V/F requests can be physically clipped by the driver; no headroom in the stock top band can produce no whole-bin ramp change."
+      ]
+    }
+  },
+  "gpu_switch": {
+    "alternating_curve_points": [
+      128,
+      80
+    ],
+    "clean_curve_first_click": true,
+    "actual_edits_require_confirmation": true,
+    "failed_target_preserves_previous_state": true,
+    "gui_item_leaks_detected": false
+  },
+  "sources": [
+    "composite-47212-0000-01-00-0.json",
+    "composite-47212-0000-02-00-0.json",
+    "parity-remaining-0000-01-00-0.json",
+    "parity-remaining-0000-02-00-0.json",
+    "turing-domains-settled-47212.json",
+    "turing-domains-i2c-47212.json",
+    "pascal-domains-47212.json",
+    "legacy-frequency-production-47212.json",
+    "test_swap.py"
+  ],
+  "source_note": "Concise public extraction of local validation captures. Private paths, device UUIDs, raw recovery buffers and unrelated telemetry are omitted."
+}
