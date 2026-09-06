@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
     Builds Druta as a onedir PyInstaller bundle and packages it into a
-    distributable zip.
+    local distributable zip with matching working-tree source.
 
 .DESCRIPTION
     1. Runs PyInstaller against Druta.spec via `python -m PyInstaller`
@@ -12,8 +12,11 @@
        exe is the one users are expected to hand-add their own regulator
        profiles into, so it must exist unconditionally - see the placement
        comment in Druta.spec.
-    3. Zips the resulting dist/Druta/ directory (post-copy, so the beside-
-       exe i2c/ is included) into dist/Druta-<version>-win64.zip.
+    3. Copies the build's source into dist/Druta/source/ and writes a
+       SHA-256 manifest. The source allowlist is checked before and after
+       PyInstaller so edits during the build cannot silently mismatch it.
+    4. Zips the resulting dist/Druta/ directory (including source and the
+       beside-exe i2c/) into dist/Druta-<version>-win64.zip.
 
     Version comes from a VERSION / __version__-style constant grepped out of
     druta.py at build time. This script does not own druta.py and will not
@@ -42,9 +45,60 @@ $specPath  = Join-Path $root 'Druta.spec'
 $i2cSrc    = Join-Path $root 'i2c'
 $i2cDst    = Join-Path $bundleDir 'i2c'
 $drutaPy   = Join-Path $root 'druta.py'
+$sourceDir = Join-Path $bundleDir 'source'
+
+# Keep this explicit: a working tree also contains private research, session
+# profiles, and generated files that must not become part of a distribution.
+# Copy current bytes, including uncommitted fixes, rather than a git archive
+# of HEAD (which may describe a different executable).
+function Get-SourceSnapshot {
+    $paths = @(
+        'app.py', 'druta.py', 'nvbackend.py', 'gpuload.py', 'profiles.py',
+        'railctl.py', 'shuntmod.py', 'timings.py', 'timingwrite.py',
+        'Druta.spec', 'build.ps1', 'requirements.txt',
+        'wincompat.py', 'Druta-win7.spec', 'build-win7.ps1', 'requirements-win7.txt',
+        'WINDOWS7.md', 'PORTABLE-WINDOWS7.md',
+        'tools/package_source.py', 'tools/smoke_full_ui.py',
+        'tools/extract_win7_crt.py', 'tools/collect_win7_redist.py', 'tools/build_win7_sfx.py',
+        'COPYING', 'THIRD-PARTY-NOTICES.md', 'README.md', 'MANUAL.md',
+        'TECHNICALDOCUMENTATION.md', 'DEBUG-SUMMARY-RTX5080.md',
+        'VOLTAGE-RAILS-TITAN.md', 'VOLTAGE-RAILS-47212.md', 'DRIVER-COMPATIBILITY.md',
+        'experiments/voltage-rails-20260906.json',
+        'experiments/legacy-offsets-47212-0000-01-00.0.json',
+        'experiments/legacy-offsets-47212-0000-02-00.0.json',
+        'experiments/legacy-frequency-production-47212.json',
+        'experiments/compatibility-validation-47212.json',
+        'tools/i2c_discover.py', 'tools/probe_volt_rails.py'
+    )
+    # Only the explicitly public measurement files above are included
+    # from experiments/. Other research/session captures remain excluded.
+    # Include regression tests and the public regulator profiles, including
+    # newly added files. No recursive wildcard can wander into docs/ or drv/.
+    foreach ($pattern in @('test_*.py', 'tests/test_*.py', 'i2c/*.toml', 'i2c/*.md')) {
+        $paths += @(Get-ChildItem -Path (Join-Path $root $pattern) -File -ErrorAction SilentlyContinue |
+            ForEach-Object { $_.FullName.Substring($root.Length + 1).Replace('\', '/') })
+    }
+    foreach ($relative in ($paths | Sort-Object -Unique)) {
+        $path = Join-Path $root $relative
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            throw "Required source file is missing: $relative"
+        }
+        $item = Get-Item -LiteralPath $path
+        if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+            throw "Source file must not be a link: $relative"
+        }
+        [PSCustomObject]@{
+            path = $relative
+            bytes = $item.Length
+            sha256 = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+        }
+    }
+}
+
+$sourceBefore = @(Get-SourceSnapshot)
 
 # --- Step 1: PyInstaller -----------------------------------------------
-Write-Host "==> [1/4] python -m PyInstaller --noconfirm Druta.spec"
+Write-Host "==> [1/5] python -m PyInstaller --noconfirm Druta.spec"
 
 Push-Location $root
 try {
@@ -62,7 +116,7 @@ if (-not (Test-Path $exePath)) {
 }
 
 # --- Step 2: bundle i2c/ beside the exe ---------------------------------
-Write-Host "==> [2/4] copying i2c/ -> dist/Druta/i2c/"
+Write-Host "==> [2/5] copying i2c/ -> dist/Druta/i2c/"
 
 if (-not (Test-Path $i2cSrc)) {
     throw "Source i2c/ directory not found at $i2cSrc"
@@ -86,8 +140,53 @@ foreach ($lic in @('COPYING', 'THIRD-PARTY-NOTICES.md')) {
     }
 }
 
-# --- Step 3: version from druta.py --------------------------------------
-Write-Host "==> [3/4] resolving version from druta.py"
+# --- Step 3: matching working-tree source -------------------------------
+Write-Host "==> [3/5] packaging matching source -> dist/Druta/source/"
+
+$sourceAfter = @(Get-SourceSnapshot)
+$sourceChange = Compare-Object $sourceBefore $sourceAfter -Property path, bytes, sha256
+if ($sourceChange) {
+    throw 'Source changed during the build. Run build.ps1 again after editing finishes; no new archive was made.'
+}
+if (Test-Path -LiteralPath $sourceDir) {
+    throw "Expected a fresh PyInstaller output, but $sourceDir already exists. Refusing to mix source snapshots."
+}
+New-Item -ItemType Directory -Path $sourceDir | Out-Null
+foreach ($entry in $sourceAfter) {
+    $destination = Join-Path $sourceDir $entry.path
+    New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $root $entry.path) -Destination $destination
+    $copiedHash = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($copiedHash -ne $entry.sha256) {
+        throw "Source changed while copying $($entry.path). Run build.ps1 again; no new archive was made."
+    }
+}
+
+$gitCommit = $null
+$workingTreeChanges = $null
+if ((Test-Path -LiteralPath (Join-Path $root '.git')) -and (Get-Command git -ErrorAction SilentlyContinue)) {
+    $revision = git -C $root rev-parse HEAD 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        $gitCommit = "$revision".Trim()
+        $gitStatus = @(git -C $root status --porcelain --untracked-files=normal 2>$null)
+        if ($LASTEXITCODE -eq 0) { $workingTreeChanges = ($gitStatus.Count -gt 0) }
+    }
+}
+$manifest = [ordered]@{
+    format = 1
+    created_utc = [DateTime]::UtcNow.ToString('o')
+    source_kind = 'working-tree snapshot, including uncommitted files'
+    git_commit = $gitCommit
+    git_working_tree_changes = $workingTreeChanges
+    executable = 'Druta.exe'
+    executable_sha256 = (Get-FileHash -LiteralPath $exePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    files = $sourceAfter
+}
+$manifestPath = Join-Path $sourceDir 'SOURCE-MANIFEST.json'
+[IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 5) + "`n", [Text.UTF8Encoding]::new($false))
+
+# --- Step 4: version from druta.py --------------------------------------
+Write-Host "==> [4/5] resolving version from druta.py"
 
 $version = $null
 if (Test-Path $drutaPy) {
@@ -109,8 +208,8 @@ else {
 $zipName = "Druta-$version-win64.zip"
 $zipPath = Join-Path $distDir $zipName
 
-# --- Step 4: zip ----------------------------------------------------------
-Write-Host "==> [4/4] compressing dist/Druta/ -> $zipName"
+# --- Step 5: zip ----------------------------------------------------------
+Write-Host "==> [5/5] compressing dist/Druta/ -> $zipName"
 
 Compress-Archive -Path $bundleDir -DestinationPath $zipPath -CompressionLevel Optimal -Force
 
@@ -119,5 +218,8 @@ $zipSizeMB = [Math]::Round($zipItem.Length / 1MB, 2)
 
 Write-Host ""
 Write-Host "==> Build complete."
+Write-Host "    EXE path : $exePath"
+Write-Host "    Source   : $sourceDir"
+Write-Host "    Manifest : $manifestPath"
 Write-Host "    Zip path : $($zipItem.FullName)"
 Write-Host "    Zip size : $($zipItem.Length) bytes ($zipSizeMB MB)"

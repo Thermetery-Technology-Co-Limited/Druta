@@ -1,7 +1,7 @@
 # Driver compatibility: 472.12 and 580.97
 
 This matrix tracks the local TITAN RTX (TU102, VBIOS 90.02.1E.00.02) and
-TITAN Xp (GP102, VBIOS 86.02.3D.00.01) on Windows. Results are scoped to
+TITAN Xp (GP102, VBIOS 86.02.3D.00.01) on Windows 10. Results are scoped to
 these boards and drivers. Blackwell's existing 580.97 controls are separate;
 this comparison does not establish a 472.12 Blackwell path.
 

@@ -15,6 +15,13 @@ Druta is from Sanskrit *druta* meaning fast. In Hindu performing art, it can als
 ## 1. `De-flatten`: 
 When two or more points on the VF curve land on the same frequency, only the one with the lowest voltage will ever be used. For example, if 1081, 1087, and 1093mv all correspond to 2000mhz, the card will always run at 1081mv, 2000mhz. Deflatten makes sure that every point on the the V/F curve between 1000mv to 1091mv (adjustable) are *mathematically strictly increasing*. That way, you can run 1091mv immediately without a hard voltage mod. 
 
+The TITAN RTX and TITAN Xp default cap is 1093.75 mV. On the confirmed
+boards, **Rail limits** can raise the NVVDD ceiling; the V/F planning cap
+follows it. Both cards were measured at 1112.5 mV with a 1125 mV ceiling and
+a de-flattened curve requesting that point. Raising the ceiling alone may
+leave the card at the beginning of its existing flat. MSVDD controls are not
+available on these TITANs. See [the measured procedure](VOLTAGE-RAILS-TITAN.md).
+
 (Joined overclocking during the time of 4000/5000 series? It might be helpful to know that for 1000-3000 series, almost desktop every GPU can be overvolted to 1091mv by manipulating of the voltage curve. You DO NOT need to bin for voltage.)
 
 ## 2. `Hard deflattern`
