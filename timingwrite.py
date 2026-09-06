@@ -74,9 +74,13 @@ STRUCTURAL_BLOCKED = ("structural - a training/phase fragment, not a delay. "
 _OP_RE = re.compile(
     r"^\s*(?P<reg>\w+)\s+@(?P<off>0x[0-9A-Fa-f]+)\s+"
     r"(?P<old>0x[0-9A-Fa-f]+)\s*->\s*(?P<new>0x[0-9A-Fa-f]+)\s*"
-    r"\[(?P<mode>would write|write)\]")
+    r"\[(?P<mode>would write|write)\]\s*$")
+_UNCHANGED_RE = re.compile(
+    r"^\s*\w+\s+@0x[0-9A-Fa-f]+\s+unchanged\s+"
+    r"\(0x[0-9A-Fa-f]+\)\s*$")
 _CHG_RE = re.compile(r"^\s+(?P<name>\w+)\s+(?P<old>\d+)\s*->\s*(?P<new>\d+)\s*$")
 _REFUSE_RE = re.compile(r"refusing to write with warnings", re.I)
+_DRY_RUN_COMPLETE = "dry run complete: no registers written"
 
 
 class WriteError(RuntimeError):
@@ -153,9 +157,10 @@ def _run(args, override=None, timeout=90, slot=None):
     `slot` is MANDATORY here, and missing it raises rather than defaulting.
     nvtune's `-d` defaults to "all NVIDIA GPUs", so on a two-card host the
     argv this function builds without a slot does not write the card the user
-    was looking at - it writes EVERY card. Verified on the two-card rig:
+    was looking at - it writes EVERY card. An un-targeted preview can plan
+    different changes on each card:
 
-        nvtune set FAW=13        (dry run, no -d)
+        nvtune set --dry-run FAW=13        (dry run, no -d)
         0000:01:00.0  TU102 (Turing)   CONFIG3 0x2200104C -> 0x22001A4C  FAW  8 -> 13
         0000:02:00.0  GP102 (Pascal)   CONFIG3 0x2200194A -> 0x22001B4A  FAW 12 -> 13
 
@@ -195,8 +200,11 @@ def _parse(out):
         if m:
             cur = {"reg": m.group("reg"), "offset": m.group("off"),
                    "old": m.group("old"), "new": m.group("new"),
-                   "changes": []}
+                   "mode": m.group("mode"), "changes": []}
             ops.append(cur)
+            continue
+        if _UNCHANGED_RE.match(line):
+            cur = None
             continue
         m = _CHG_RE.match(line)
         if m and cur is not None:
@@ -211,6 +219,7 @@ def _parse(out):
                 and "applied and verified" not in s
                 and not s.startswith("reminder:")
                 and not _OP_RE.match(line) and not s.startswith("0000:")
+                and s != _DRY_RUN_COMPLETE
                 and "stock values saved" not in s):
             warnings.append(s)
     return ops, warnings
@@ -224,29 +233,52 @@ def read_fields(names, slot, override=None):
     card came last."""
     if not names:
         return {}
-    out, _rc = _run(["get"] + list(names), override, slot=slot)
+    out, rc = _run(["get"] + list(names), override, slot=slot)
+    if rc != 0:
+        raise WriteError(out or f"nvtune get exited {rc}")
     vals = {}
     for tok in out.replace(",", " ").split():
         if "=" in tok:
             k, _, v = tok.partition("=")
             if k in names and v.isdigit():
                 vals[k] = int(v)
+    missing = [name for name in names if name not in vals]
+    if missing:
+        raise WriteError("nvtune get returned no value for " + ", ".join(missing))
     return vals
 
 
 def plan(assignments, slot, override=None):
-    """Dry run. Writes NOTHING - no --commit is ever built here."""
+    """Explicit dry run. Older nvtune builds reject --dry-run before opening
+    a GPU; never fall back to bare `set`, which writes on those builds."""
     if not assignments:
         return Plan({}, [], [], "", ok=True)
-    args = ["set"] + [f"{k}={v}" for k, v in assignments.items()]
+    args = ["set", "--dry-run"] + [f"{k}={v}" for k, v in assignments.items()]
     try:
         out, rc = _run(args, override, slot=slot)
     except (OSError, subprocess.SubprocessError, WriteError) as e:
         return Plan(assignments, [], [], "", ok=False, error=str(e))
     ops, warnings = _parse(out)
-    if rc != 0 and not ops:
-        return Plan(assignments, [], warnings, out, ok=False,
+    if rc != 0:
+        return Plan(assignments, ops, warnings, out, ok=False,
                     error=out or f"nvtune exited {rc}")
+    lines = [line.strip() for line in out.splitlines() if line.strip()]
+    # The completion marker also acknowledges dry-run mode when every register
+    # is unchanged. A partial, unrecognized or writing response is not a plan.
+    registers = [line for line in lines
+                 if "@" in line and not line.startswith("!")]
+    if (not lines or lines[-1] != _DRY_RUN_COMPLETE or not registers
+            or "[write]" in out
+            or any(not (_OP_RE.match(line) or _UNCHANGED_RE.match(line))
+                   for line in registers)
+            or any("->" in line and not line.lstrip().startswith("!")
+                   and not (_OP_RE.match(line) or _CHG_RE.match(line))
+                   for line in out.splitlines())
+            or any(op["mode"] != "would write" or not op["changes"]
+                   for op in ops)):
+        return Plan(assignments, ops, warnings, out, ok=False,
+                    error="nvtune did not return a complete explicit dry run; "
+                          "install a build supporting --dry-run and --commit")
     return Plan(assignments, ops, warnings, out)
 
 
@@ -285,6 +317,8 @@ def apply(assignments, slot, force=False, override=None):
     exactly the mistake that put four phantom hardware rejections into our
     Turing results."""
     names = list(assignments)
+    if not names:
+        return Plan({}, [], [], ""), []
     # Checked here rather than left to _run's raise: every other exit from this
     # function is a (Plan, [Result]) pair, and tw_apply() unpacks it without a
     # try, so raising would surface as a dead button instead of a refusal.
@@ -295,7 +329,12 @@ def apply(assignments, slot, force=False, override=None):
                           "no PCI slot for the selected card - refusing, "
                           "because an un-targeted nvtune write reaches every "
                           "card in the machine") for n in names]
-    before = read_fields(names, slot, override)
+    try:
+        before = read_fields(names, slot, override)
+    except (OSError, subprocess.SubprocessError, WriteError) as e:
+        p = Plan(assignments, [], [], "", ok=False, error=str(e))
+        return p, [Result(n, None, assignments[n], None, FAILED, str(e))
+                   for n in names]
 
     pre = plan(assignments, slot, override)
     if not pre.ok:
@@ -311,7 +350,7 @@ def apply(assignments, slot, force=False, override=None):
     args = (["set"] + [f"{k}={v}" for k, v in assignments.items()]
             + ["--commit"] + (["--force"] if force else []))
     try:
-        out, _rc = _run(args, override, slot=slot)
+        out, rc = _run(args, override, slot=slot)
     except (OSError, subprocess.SubprocessError, WriteError) as e:
         return pre, [Result(n, before.get(n), assignments[n], before.get(n),
                             FAILED, str(e)) for n in names]
@@ -321,7 +360,15 @@ def apply(assignments, slot, force=False, override=None):
                             TOOL_REFUSED, "nvtune refused the commit")
                      for n in names]
 
-    after = read_fields(names, slot, override)
+    if rc != 0:
+        return pre, [Result(n, before.get(n), assignments[n], None, FAILED,
+                            out or f"nvtune commit exited {rc}") for n in names]
+    try:
+        after = read_fields(names, slot, override)
+    except (OSError, subprocess.SubprocessError, WriteError) as e:
+        return pre, [Result(n, before.get(n), assignments[n], None, FAILED,
+                            "commit completed but readback failed: " + str(e))
+                     for n in names]
     results = []
     for n in names:
         want = int(assignments[n])
@@ -460,7 +507,7 @@ def restore(path, slot, override=None):
     if not os.path.exists(path):
         return False, f"no backup at {path}"
     try:
-        out, rc = _run(["restore", "-i", path], override, slot=slot)
+        out, rc = _run(["restore", "-i", path, "--commit"], override, slot=slot)
     except (OSError, subprocess.SubprocessError, WriteError) as e:
         return False, str(e)
     return rc == 0, out

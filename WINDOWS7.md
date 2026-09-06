@@ -24,6 +24,24 @@ can be obtained from the [Microsoft Update Catalog](https://www.catalog.update.m
 Install the servicing-stack and SHA-2 updates required by any later updates
 or guest drivers before installing those packages.
 
+## Native DLL dependencies
+
+| Provider | DLLs |
+| --- | --- |
+| Included in the bundle | `python38.dll`, `libffi-7.dll`, Dear PyGui's `_dearpygui.pyd`, and Python's collected `.pyd` extension modules |
+| Included, matched VC++ 2019 runtime | `msvcp140.dll`, `vcruntime140.dll`, `vcruntime140_1.dll`, all **14.29.30157.0** |
+| Windows graphics stack | `d3d11.dll`, `dxgi.dll`, `d3dcompiler_47.dll`, `dwmapi.dll` |
+| Windows Universal CRT | `ucrtbase.dll` and the `api-ms-win-crt-*` forwarding DLLs, supplied by KB2999226 or a superseding update |
+| Installed NVIDIA driver, for GPU functions | Dynamically loaded `nvapi64.dll` and `nvml.dll`; not redistributed in this bundle |
+
+The remaining imported Windows system libraries are `advapi32.dll`,
+`comctl32.dll`, `gdi32.dll`, `imm32.dll`, `iphlpapi.dll`, `kernel32.dll`,
+`ole32.dll`, `oleaut32.dll`, `shell32.dll`, `shlwapi.dll`, `user32.dll`,
+`version.dll`, and `ws2_32.dll`. These come with Windows 7.
+Python `.pyd` files are native DLLs with Python module entry points.
+`shcore.dll` and newer DPI functions are optional: Windows 7 uses the
+`user32.dll`/`gdi32.dll` fallback instead.
+
 ## Build
 
 Build on a current Windows host with PowerShell 5.1 or newer. Use the official
@@ -114,7 +132,61 @@ telemetry, card selection, V/F curve reading, and optional timing-tool
 availability. Feature support remains dependent on the installed NVIDIA
 driver. Existing control locks and confirmations apply to all write paths.
 
-Validation results for this change will be recorded here after guest testing.
+### Validated configuration and results
+
+Verified on 2026-09-06 UTC. The target was Windows 7 Ultimate SP1 x64,
+build **6.1.7601**, in VMware Player 17 with VMware Tools **12.1.0** and
+the VMware SVGA 3D **9.17.4.1** driver. A native Direct3D probe successfully
+created a hardware device at feature level **11_0**. The rendering tests used
+that driver without a WARP override or a modified Dear PyGui binary.
+
+| Environment | Check | Result |
+| --- | --- | --- |
+| Windows 10 build host, Python 3.8.10 and 3.14.4 | Tests under `tests/` | All 35 tests pass on each interpreter, including 20 nvtune wrapper regressions |
+| Windows 10 build host, Python 3.8.10 | Source and frozen startup smoke tests | Both pass |
+| Windows 7 SP1 x64 | Application imports, loader APIs, UCRT and Direct3D libraries | All load successfully |
+| Windows 7 SP1 x64 | Frozen `Druta.exe --smoke-test` | Exit 0; fresh passed report; one regulator profile and three rendered frames |
+| Windows 7 SP1 x64 | Full-interface source fixture | Exit 0; Control, Monitor and Timings render; 967 items and nine frames; no forbidden worker or subprocess attempts |
+| Windows 7 SP1 x64 without NVIDIA hardware | GPU enumeration and ordinary startup | Report the missing NVIDIA backend and exit cleanly with code 1 |
+
+The target had KB4490628, KB4474419, KB2999226, KB4019990 and KB2670838
+installed. The loader APIs `AddDllDirectory`, `SetDefaultDllDirectories` and
+`RemoveDllDirectory` were verified directly. A basic VGA adapter without a
+working Direct3D driver cannot render the interface.
+
+These VM checks validate startup, profile parsing and interface rendering.
+Physical NVIDIA telemetry, V/F curve access, timing register access and tuning on
+Windows 7 still require testing with an NVIDIA card and its Windows 7 driver.
+The full-interface fixture deliberately provides no sensor readings and does
+not exercise hardware write paths.
+
+## nvtune on Windows 7
+
+nvtune remains a separate installation. Use its Windows 7 x64 build and
+matching `nvtunedrv.sys`, then select **Device -> Locate nvtune...** in Druta.
+The driver must be installed and running under the signing requirements in
+[nvtune's Windows 7 guide](https://github.com/sebastianmarrufo/nvtune/blob/codex/windows-7-support/WINDOWS7.md).
+Druta does not install the driver or change test-signing settings.
+
+Timing previews require an nvtune build supporting **`set --dry-run`** and
+**`--commit`**. Older upstream builds write on a bare `set`; Druta now always
+passes `--dry-run` for previews, checks the successful completion marker,
+and refuses an incompatible or incomplete response without retrying a bare
+`set`. Approved writes pass `--commit`. Failed commands and missing readback
+values are reported as failures rather than hardware rejection.
+
+The tested static mingw-w64 nvtune executable imports only `ADVAPI32.dll`,
+`KERNEL32.dll`, `msvcrt.dll` and `SETUPAPI.dll`; it needs no extra GCC or MSVC
+runtime DLLs. Its kernel driver imports `ntoskrnl.exe` and `HAL.dll`.
+This is separate from Druta's Python, graphics and NVIDIA DLL dependencies.
+
+On the Windows 7 guest, nvtune's help and field-table commands exit 0;
+Druta parses all 33 fields. Its explicit preview fails cleanly on the
+non-NVIDIA virtual adapter without retrying a write command. The test-signed
+driver loaded and passed read-only IOCTL and administrator ACL checks.
+All 17 nvtune CLI regression cases pass on the guest using an in-memory
+backend. This covers the integration contract and Windows 7 execution;
+real NVIDIA timing-register reads, writes and restore remain unverified.
 
 ## Compatibility changes
 
