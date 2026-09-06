@@ -9,6 +9,12 @@ from importlib.metadata import distribution, version
 from PyInstaller.utils.hooks import collect_all
 import pefile
 
+vista = globals().get('VISTA_BUILD', False)
+if vista:
+    sys.path.insert(0, str(Path('tools').resolve()))
+    from vista_runtime import validate_runtime
+    validate_runtime(sys.base_prefix)
+
 if sys.version_info[:3] != (3, 8, 10) or sys.maxsize <= 2**32:
     raise SystemExit('Windows 7 builds require CPython 3.8.10 x64.')
 for package, expected in [('dearpygui', '2.3.1'), ('pyinstaller', '6.16.0'),
@@ -18,6 +24,8 @@ for package, expected in [('dearpygui', '2.3.1'), ('pyinstaller', '6.16.0'),
 
 crt = Path(os.environ['DRUTA_WIN7_CRT']).resolve(strict=True)
 portable_redist = os.environ.get('DRUTA_WIN7_PORTABLE_REDIST')
+if vista and not portable_redist:
+    raise SystemExit('Vista builds always require the app-local portable runtimes.')
 portable_files = []
 portable_licenses = []
 if portable_redist:
@@ -58,6 +66,9 @@ datas += [('COPYING', '.'), ('THIRD-PARTY-NOTICES.md', '.'),
 if portable_redist:
     datas += [('PORTABLE-WINDOWS7.md', '.')] + portable_licenses + [
         (str(portable_redist / 'manifest.json'), 'licenses/Microsoft-Windows-SDK')]
+if vista:
+    datas += [('VISTA.md', '.'), ('tools/vista', 'licenses/Vista-runtime-changes'),
+              (str(Path(sys.base_prefix) / 'druta-vista-runtime.json'), 'licenses/Vista-runtime-changes')]
 if (crt / 'VC2019-LICENSE.rtf').is_file():
     datas.append((str(crt / 'VC2019-LICENSE.rtf'), 'licenses/Microsoft-VC2019'))
 # Ship the actual licenses from these distributions, including Tomli's MIT
@@ -99,4 +110,4 @@ exe = EXE(pyz, a.scripts, exclude_binaries=True, name='Druta', debug=False,
           # the main executable. Keep the portable distribution flat.
           contents_directory='.' if portable_redist else '_internal')
 coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False,
-               name='Druta-Win7-Portable' if portable_redist else 'Druta-Win7')
+               name='Druta-Vista-Portable' if vista else ('Druta-Win7-Portable' if portable_redist else 'Druta-Win7'))

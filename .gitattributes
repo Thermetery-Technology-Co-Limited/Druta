@@ -1,0 +1,3 @@
+# Runtime provenance hashes must survive Windows checkouts unchanged.
+# Diff context intentionally retains upstream whitespace and its leading space.
+tools/vista/*.patch text eol=lf -whitespace

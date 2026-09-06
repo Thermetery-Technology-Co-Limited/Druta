@@ -78,6 +78,10 @@ Keep the entire extracted folder together.
 See [Windows 7 setup, build instructions and validation](WINDOWS7.md) for
 required Windows updates and the CPython 3.8 build recipe.
 
+**Windows Vista SP2 x64:** use `Druta-dev-vista-x64-portable.zip`.
+The [Vista guide](VISTA.md) covers its bundled runtimes, required Windows
+graphics components, source patches and validation limits.
+
 ---
 
 
