@@ -19,7 +19,7 @@
 """
 Druta - GPU backend (NVAPI + NVML), read + guarded write.
 
-Built for the Titan RTX (TU102, DEV_1E02) on the ASUS 2080 Ti Strix PCB, but
+Built for the Titan RTX (TU102, DEV_1E02) on a 2080 Ti PCB, but
 falls back to GPU index 0 for any NVIDIA card. All struct layouts are lifted
 verbatim from the read-only probes verified live on this card (driver 591.44):
 NVAPI ids and NVML field numbers were confirmed against the hardware, not guessed.
@@ -173,6 +173,11 @@ class NvAPI:
         # Per-rail voltage LIMITS, read-only. There is no matching setter: see
         # GPU.read_volt_rail_limits for what was searched and what was found.
         self.VoltRailsCtlGet = self._i(0xA3070DB0, PTR, PTR)
+        # The same rails as ABSOLUTE microvolts, including a LIVE per-rail
+        # voltage. See GPU.read_volt_rail_state: this is the block that makes a
+        # limit write checkable against a number the card produced rather than
+        # against an echo of the delta we sent.
+        self.VoltRailsAbs = self._i(0x5D0634EE, PTR, PTR)
         # Per-domain clock offsets - the ONLY path to XBAR. Neither NVML's
         # clock offsets nor NVAPI's Pstates20 can reach it: both enumerate
         # exactly two domains on this card, GRAPHICS and MEMORY, and
@@ -834,9 +839,13 @@ _RAIL_NAME = {0: "core rail (NVVDD)", 1: "MSVDD"}
 # already recorded for TU102 domain 6.
 #
 # NOT ESTABLISHED, and this is why the write is off by default:
-#   - the card exposes NO MSVDD readback. VoltRailsStatus returns one rail
-#     (NVVDD) and every other version word returns -9, so a write cannot be
-#     read back and the module's usual read-back guard is unavailable here.
+#   - NO LONGER TRUE, kept because the conclusion below still stands: this
+#     said the card exposes no MSVDD readback, because VoltRailsStatus returns
+#     one rail (NVVDD) and every other version word on it returns -9. A
+#     different id does report the rail - see read_volt_rail_state - so a
+#     verifying read IS available now, and anyone reviving this feature should
+#     use it rather than repeat the search. What has NOT changed is the point
+#     below: no effect was ever measured, and that is why the write stays off.
 #   - no measurable effect was found. Against NVVDD as a positive control at
 #     the same magnitude - which moved vcore +10 mV for +25 and +35 mV for
 #     +50, frequency-locked - rail 1 moved neither vcore nor board power at
@@ -2620,9 +2629,12 @@ class GPU:
             # Off by default, and not something a slider can turn on by itself.
             # See the class attribute for what is and is not established about
             # this field.
-            return False, ("rail 1 writes are disabled: nothing on this card "
-                           "can read the rail back, so the write cannot be "
-                           "verified. Set GPU.msvdd_write_enabled to allow it.")
+            return False, ("rail 1 writes are disabled: this offset has "
+                           "never been shown to move anything, and NVVDD as a "
+                           "positive control did move at the same magnitude. "
+                           "The rail itself IS readable now via "
+                           "read_volt_rail_state, so the check is available. "
+                           "Set GPU.msvdd_write_enabled to allow it.")
         uv = int(round(mv * 1000))
         st, buf = self._clkdom_get(1 << domain)
         if st != 0:
@@ -3071,8 +3083,8 @@ class GPU:
         return None
 
     # ---- per-rail voltage limits ----------------------------------------- #
-    # The rail limit block. Read-only, and the read-only part is a finding
-    # rather than a design choice - see the end of this comment.
+    # The rail limit block. Readable here; written by set_volt_rail_limits,
+    # which does NOT go through NvAPI - see the end of this comment for why.
     #
     # LAYOUT, established here by probing, not from any third-party header:
     #   id 0xA3070DB0, version word 0x00020AC8 (v2, 2760 bytes)
@@ -3082,12 +3094,12 @@ class GPU:
     #     +0x0C overvoltage  +0x10 vmin
     #
     # The four limits are SIGNED MICROVOLT DELTAS from a fixed 1040 mV base,
-    # not absolute ceilings. That was confirmed by reconstruction: with an
-    # external tool holding NVVDD 900/1150 and MSVDD 750/950, this block read
-    # NVVDD reliability +110 / vmin +100 and MSVDD reliability -90 / vmin -50,
-    # and 1040+110, 800+100, 1040-90, 800-50 give back all four numbers
-    # exactly. NVVDD alt_reliability read +90 => 1060, which is precisely the
-    # ceiling measured on this card before the id was known.
+    # not absolute ceilings. Confirmed by reconstruction: with the card held at
+    # NVVDD 900/1150 and MSVDD 750/950, this block read NVVDD reliability +110
+    # / vmin +100 and MSVDD reliability -90 / vmin -50, and 1040+110, 800+100,
+    # 1040-90, 800-50 give back all four numbers exactly. NVVDD
+    # alt_reliability read +90 => 1060, precisely the ceiling measured on this
+    # card before the id was known.
     #
     # THE FACTORY STATE IS NOT ALL ZERO. On this GB203 the card powers up with
     # NVVDD at 0 and MSVDD reliability at -50000, i.e. NVVDD capped at the full
@@ -3100,27 +3112,38 @@ class GPU:
     # display-stack reset (Win+Ctrl+Shift+B). A PnP restart of the adapter
     # returns it to the factory values above.
     #
-    # THERE IS NO SETTER, and this was searched exhaustively rather than
-    # assumed. The rails RM commands GET_CONTROL/SET_CONTROL (0x2080B203 and
-    # 0x2080B204) do not occur anywhere in nvapi64.dll as immediates. The
-    # modern unified command 0x2080F214 has exactly three owning exports -
-    # 0x9C4BB8D0 (info), 0x2C73AFDC (status) and 0xA3070DB0 (this one) - and
-    # every one of them reads. 0x5D0634EE, which sits between them in the id
-    # table and accepts the same 2760-byte struct, also returns data when
-    # called, so it is a fourth getter and not the setter its position
-    # suggests. Writes through it are accepted and applied nowhere: a full
+    # NO NVAPI EXPORT WRITES THIS BLOCK, and that was searched exhaustively
+    # rather than assumed - which is why set_volt_rail_limits goes to RM
+    # directly instead. The rails RM commands GET_CONTROL/SET_CONTROL
+    # (0x2080B203 and 0x2080B204) do not occur anywhere in nvapi64.dll as
+    # immediates. The unified command 0x2080F214 has exactly three owning
+    # exports - 0x9C4BB8D0 (info), 0x2C73AFDC (status) and 0xA3070DB0 (this
+    # one) - and every one of them reads. 0x5D0634EE, which sits between them
+    # in the id table and accepts the same 2760-byte struct, also returns data
+    # when called, so it is a fourth getter and not the setter its position
+    # suggests: writes through it are accepted and applied nowhere, with a full
     # sweep of the header dwords and of every unused dword in a record, as
-    # candidate "valid" masks, moved nothing. NVIDIA's own published
-    # ctrl2080volt.h carries no commands or structs at all, so there is no
-    # first-party route either. Anything that does write these limits is
-    # therefore building an RM control call by hand against the kernel driver.
+    # candidate "valid" masks, moving nothing. The vendor's published
+    # ctrl2080volt.h carries no commands or structs at all.
+    #
+    # 0x5D0634EE being "only a getter" turned out to undersell it badly. What
+    # it gets is the absolute, live rail state - see read_volt_rail_state.
+    # Being uninteresting as a setter is not the same as being uninteresting.
+    #
+    # "No export" is not "no write path", and conflating the two is what kept
+    # this read-only for longer than it needed to be.
     def read_volt_rail_limits(self):
         """Per-rail voltage limits as millivolt deltas, or ``None``.
 
         Returns ``{rail_index: {"type", "reliability", "alt_reliability",
         "overvoltage", "vmin"}}`` with the four limits in millivolts, signed,
-        relative to the 1040 mV base described above. Rail 0 is NVVDD and
-        rail 1 is MSVDD.
+        each relative to its OWN base in VOLT_LIMIT_BASE_MV - which is not one
+        shared number: the ceilings sit at 1040 and 1060 and overvoltage at
+        1200. Rail 0 is NVVDD and rail 1 is MSVDD.
+
+        For absolute values, and for the live rail voltage, use
+        read_volt_rail_state instead. These deltas are what gets written; those
+        absolutes are what the card reports back independently.
         """
         a = self.nvapi
         if not (a.ok and a.VoltRailsCtlGet):
@@ -3144,6 +3167,94 @@ class GPU:
             }
         return out
 
+    # ---- the live rail block --------------------------------------------- #
+    # A DIFFERENT id and a different block from the limits above, and the
+    # distinction is the whole point of it. 0xA3070DB0 stores signed deltas, so
+    # reading it back returns what we wrote and proves storage, never effect.
+    # This one reports ABSOLUTE microvolts the card computed for itself, plus a
+    # LIVE per-rail voltage, so a write can finally be checked against a number
+    # we did not supply.
+    #
+    # LAYOUT, recovered by probing:
+    #   id 0x5D0634EE (RM 0x2080B213), version word 0x00010AC8 (v1, 2760 bytes)
+    #   dw1 is the INPUT rail mask, same convention as the limit block
+    #   records at byte 0x48, stride 0x54, all fields UNSIGNED ABSOLUTE uV:
+    #       +0x00 type   1 = NVVDD, 3 = MSVDD
+    #       +0x04 live voltage
+    #       +0x08 reliability      +0x0C alt_reliability
+    #       +0x10 overvoltage      +0x14 effective     +0x18 vmin
+    # A v2 also exists at 0x00021620 (5664 bytes, records 0xA0/0x14C stride
+    # 0xAC). v1 carries everything we use, so v1 is what we ask for.
+    #
+    # WHY THE LIVE FIELD IS A MEASUREMENT AND NOT A CONSTANT THAT LOOKS RIGHT:
+    # rail 0 tracked read_vcore_mv exactly across clock locks, 800000 ->
+    # 910000 uV, which is the positive control. Then each rail was clamped
+    # ALONE: clamping MSVDD moved only rail 1 (to 850.0, then 900.0) while
+    # rail 0 held at 910.0, and clamping NVVDD moved only rail 0 while rail 1
+    # held at 915.0. Two independent sensors, and at stock they disagree -
+    # 910.0 against 915.0 - so rail 1 is not rail 0 wearing another offset.
+    #
+    # What this does NOT establish is whether the number is ADC-sensed or the
+    # commanded setpoint. Both behave identically under a clamp, and no
+    # experiment here separates them, so callers should say "live" and not
+    # "measured at the rail".
+    #
+    # A NOTE ON THE OLD NEGATIVE. 0x2C73AFDC was written off as static
+    # description data because nothing in it moved under load. It was being
+    # called at v1 (0x00010ACC), which populates nothing but the version and a
+    # count; a v2 exists (0x0002184C, 6220 bytes) that does fill records. That
+    # conclusion was an artifact of the struct version, not a property of the
+    # card - which is why version discovery now runs before any such claim.
+    LIVE_RAIL_VER = 0x00010AC8
+    LIVE_RAIL_BASE = 0x48
+    LIVE_RAIL_STRIDE = 0x54
+    LIVE_RAIL_FIELDS = ("type", "live", "reliability", "alt_reliability",
+                        "overvoltage", "effective", "vmin")
+
+    def read_volt_rail_state(self):
+        """Per-rail live voltage and absolute limits, or ``None``.
+
+        Returns ``{rail: {"type", "live", "reliability", "alt_reliability",
+        "overvoltage", "effective", "vmin"}}`` in millivolts, ABSOLUTE. Unlike
+        read_volt_rail_limits these are not deltas and need no base applied.
+        """
+        a = self.nvapi
+        if not (a.ok and a.VoltRailsAbs):
+            return None
+        buf = (ctypes.c_ubyte * 8192)()
+        ctypes.memset(buf, 0, 8192)
+        pu = ctypes.cast(buf, ctypes.POINTER(u32))
+        pu[0], pu[1] = self.LIVE_RAIL_VER, 0x3     # version, then the rail mask
+        if a.VoltRailsAbs(a.gpu, ctypes.byref(buf)) != 0:
+            return None
+        out = {}
+        for rail in (0, 1):
+            base = (self.LIVE_RAIL_BASE + rail * self.LIVE_RAIL_STRIDE) // 4
+            rec = {}
+            for n, key in enumerate(self.LIVE_RAIL_FIELDS):
+                v = pu[base + n]
+                rec[key] = v if key == "type" else v / 1000.0
+            # THE INDEX IDENTIFIES THE RAIL, not the type field. type is
+            # decoded and returned so a caller can check it - on this card it
+            # reads 1 for NVVDD and 3 for MSVDD - but it is deliberately not
+            # used to key the result. The limit block and the write path both
+            # address rails positionally, and a reader that keyed off type
+            # while the writer keyed off index could disagree about which rail
+            # is which, which is the one disagreement that must never happen
+            # here. Positional everywhere, and the discriminator exposed.
+            #
+            # An all-zero record means the mask selected a rail this card does
+            # not have. Reporting 0.0 mV as a live voltage would be worse than
+            # reporting nothing.
+            if rec["live"] or rec["reliability"]:
+                out[rail] = rec
+        return out or None
+
+    def read_rail_live_mv(self, rail):
+        """One rail's live voltage in millivolts, or ``None``."""
+        state = self.read_volt_rail_state()
+        return (state or {}).get(rail, {}).get("live")
+
     # The base every delta above is measured from. Not read from the card -
     # nothing exposes it - but pinned by the reconstruction in the comment on
     # read_volt_rail_limits, where four independent settings all resolved
@@ -3152,8 +3263,14 @@ class GPU:
     # 1060 base is pinned by measurement: a +93 delta held 1145 mV, which a
     # 1040 base cannot produce because it would cap at 1133, below the point
     # the card was observed holding.
+    # overvoltage is based at 1200, and that was WRONG here as 1040 until the
+    # absolute block above made it checkable. Requesting 1000 produced an
+    # absolute limit of 1160 mV, 900 -> 1060, 850 -> 1010 - each exactly
+    # +160 mV above what a 1040 base predicts, on both rails, which is the gap
+    # between 1040 and 1200. The error was invisible for as long as the only
+    # readback was the delta we had just written.
     VOLT_LIMIT_BASE_MV = {"reliability": 1040.0, "alt_reliability": 1060.0,
-                          "overvoltage": 1040.0, "vmin": 800.0}
+                          "overvoltage": 1200.0, "vmin": 800.0}
 
     # THE TWO CEILINGS ARE NOT THE SAME KNOB, and treating them as one is a
     # real regression rather than a harmless simplification. Measured under
@@ -3172,8 +3289,8 @@ class GPU:
     # so reliability is the base the voltage-boost slider climbs FROM, and
     # alt_reliability is a hard clamp over the result. Row 2 is why writing
     # reliability alone does nothing, and row 4 is why writing BOTH to the
-    # requested ceiling - which is what an external tool leaves behind - makes
-    # the boost slider inert: 0% and 100% both land on the same volt.
+    # requested ceiling makes the boost slider inert: 0% and 100% then land on
+    # the same volt.
     #
     # The headroom is the VBIOS over-voltage allowance and is exactly the gap
     # between the two bases, so it is derived rather than hardcoded.
@@ -3373,39 +3490,97 @@ class GPU:
         clamped by alt_reliability. Reporting either field on its own is what
         made a 1153 mV write look applied while the card sat at 1060.
 
-        MEASURED ON RAIL 0 ONLY. Both bases and the boost interaction were
-        established against NVVDD; MSVDD's alt_reliability base has never been
-        pinned and its boost behaviour was never observed, so this is an
-        extrapolation there and callers should not quote it as a measurement.
+        OVERVOLTAGE IS A THIRD CLAMP, added once the absolute block made the
+        effective limit readable. The card's own "effective" field equals
+        min(reliability, alt_reliability, overvoltage): holding overvoltage at
+        1060 left the effective limit at 1040, and dropping it to 1010 pulled
+        the effective limit down to 1010 with both ceilings untouched. It sits
+        at 1200 mV from the factory on both rails, so it is inert until
+        somebody moves it - which is exactly why leaving it out of this
+        calculation went unnoticed.
+
+        MSVDD's bases are no longer an extrapolation. The absolute block
+        reports both rails directly, and its numbers reconcile: MSVDD's stock
+        990 mV reliability is the shared 1040 base plus the -50 mV delta the
+        card ships with, and its alt_reliability reads 1060 like NVVDD's.
 
         `fields` is one rail's dict of millivolt DELTAS, as
         read_volt_rail_limits returns it.
         """
         return min(cls.abs_limit_mv(fields, "reliability")
                    + cls.volt_boost_headroom_mv(),
-                   cls.abs_limit_mv(fields, "alt_reliability"))
+                   cls.abs_limit_mv(fields, "alt_reliability"),
+                   cls.abs_limit_mv(fields, "overvoltage"))
 
     @classmethod
     def rail_floor_mv(cls, fields):
         return cls.abs_limit_mv(fields, "vmin")
 
-    def reset_volt_rail_limits(self):
-        """Put both rails back to this card's power-on limits.
+    @classmethod
+    def stock_limit_mv(cls, rail, key):
+        """What one limit reads at the power-on values, in absolute mV.
 
-        NOT all zero: this card ships MSVDD 50 mV below NVVDD, so zeroing both
-        would RAISE the MSVDD ceiling rather than restore it.
+        Exists for the overvoltage knob's DEFAULT upper bound, and the reason
+        is a safety property rather than tidiness. The card enforces
+        min(reliability, alt_reliability, overvoltage), so while overvoltage
+        sits at its factory 1200 mV it is the BACKSTOP that keeps the other
+        two ceilings from reaching the 1250 mV the sliders otherwise allow.
+        Exposing overvoltage with the same upper bound as the ceilings would
+        therefore not merely add a knob - it would quietly raise this card's
+        maximum reachable rail voltage past the value the VBIOS set, as a side
+        effect of a change that read like a display fix.
+
+        So the knob stops here by default, which leaves it able to LOWER the
+        cap - the diagnostic and useful direction - and unable to raise it at
+        all. Going above stock is available, but only with XOC ticked, via the
+        knob's xoc_hi bound: the default headroom past the VBIOS value is
+        exactly zero, and reaching past it is a deliberate act with the rest of
+        the XOC guardrails already removed.
+        """
+        return (cls.VOLT_LIMIT_BASE_MV[key]
+                + cls.VOLT_LIMIT_POWERON[rail][cls.VOLT_LIMIT_FIELDS.index(key)]
+                / 1000.0)
+
+    # This card's power-on deltas, in microvolts, in VOLT_LIMIT_FIELDS order.
+    # NOT all zero: MSVDD ships 50 mV below NVVDD, so zeroing both would RAISE
+    # the MSVDD ceiling rather than restore it.
+    VOLT_LIMIT_POWERON = {0: (0, 0, 0, 0), 1: (-50000, 0, 0, 0)}
+
+    def reset_volt_rail_limits(self, rail=None, fields=None):
+        """Put limits back to this card's power-on values.
+
+        `rail` None means both; `fields` None means all four. Both are narrowed
+        rather than assumed, because a per-knob Stock button that resets the
+        whole block silently discards settings on the OTHER rail - which is
+        exactly what it did before this took arguments.
 
         Deliberately NOT gated on volt_limits_write_enabled. That gate exists to
-        stop a slider raising a ceiling by itself; this call only ever lowers
-        one back to the power-on value. Refusing it because "writes are
-        disabled" would strand a card on limits the user is trying to clear -
-        which is the exact stickiness that made this feature necessary.
+        stop a slider raising a ceiling by itself; this call only ever returns
+        one to the power-on value. Refusing it because "writes are disabled"
+        would strand a card on limits the user is trying to clear - the exact
+        stickiness that made this feature necessary.
         """
-        ok, status = self._write_rail_records(
-            {0: [0, 0, 0, 0], 1: [-50000, 0, 0, 0]})
+        cur = self.read_volt_rail_limits()
+        if cur is None:
+            return False, "cannot read the current limits"
+        rails = (0, 1) if rail is None else (int(rail),)
+        keys = tuple(fields) if fields else self.VOLT_LIMIT_FIELDS
+        bad = set(keys) - set(self.VOLT_LIMIT_FIELDS)
+        if bad:
+            return False, f"not a rail limit: {', '.join(sorted(bad))}"
+        recs = {r: [int(round(cur[r][k] * 1000))
+                    for k in self.VOLT_LIMIT_FIELDS] for r in (0, 1)}
+        for r in rails:
+            for k in keys:
+                i = self.VOLT_LIMIT_FIELDS.index(k)
+                recs[r][i] = self.VOLT_LIMIT_POWERON[r][i]
+        ok, status = self._write_rail_records(recs)
         if not ok or status:
             return False, f"reset refused (NV_STATUS 0x{status or 0:X})"
-        return True, "rail limits back to the power-on values"
+        what = ("rail limits" if rail is None and not fields
+                else f"{_RAIL_NAME[rails[0]]} "
+                     + (", ".join(keys) if fields else "limits"))
+        return True, f"{what} back to the power-on values"
 
     def volt_rail_limits_mv(self):
         """The same limits resolved to absolute millivolts, or ``None``."""
@@ -3965,47 +4140,52 @@ class GPU:
         imperfect power-limit bypass (shunt mods, where the GPU's own
         current-sensing heuristics still throttle).
 
-        ANCHOR AT THE TOP AND DESCEND. The cap point takes the highest allowed
-        frequency and every point below it is exactly one 15 MHz bin lower, down
-        to the floor. The alternative - ascend from the floor - CLIPS: from
-        800 mV the unclipped top is 2250 MHz against this card's 2130 max, so the
-        top eight points get clipped onto 2130 and a nine-point flat run reappears
-        exactly where it hurts most. Descending cannot clip, by construction.
+        NEVER BELOW STOCK. Each rung is max(its own stock frequency, one grid
+        step above the rung beneath it), walked upward through the band. Where
+        stock is steeper than the grid the rung simply IS stock and the plan
+        costs nothing; the grid step only does work across flat runs, which is
+        the thing a ramp exists to break up.
 
-        The ceiling itself is min(max_khz, the unclipped ascending top), which is
-        what keeps a low cap honest: anchoring unconditionally at the hardware
-        max would demand 2130 MHz at whatever voltage the cap happens to name.
+        This replaced a uniform descent - every rung one bin below the one above
+        it, anchored at khz[floor] + (rungs-1)*grid - which fixed the slope at
+        one step per point no matter what stock did. Anywhere stock climbed
+        faster, the ramp fell behind and never caught up: a 33-rung band from
+        1004 mV on the 7.5 MHz grid topped out at 2932 MHz where stock already
+        held 3157. A 225 MHz demotion, from a feature whose whole purpose is to
+        ask for more clock.
 
-        WHAT IT COSTS. For the regular band the price is zero: descending 15
-        rungs from 2130 lands on exactly 1905 at 1000.00 mV, which is what stock
-        already has there. For a 48-point band from 800 mV the clip costs 120 MHz
-        at the floor (1425 against stock's 1545) - that is the honest price of
-        monotonicity over a wide span, so meta carries it and every caller
-        reports it rather than hiding it.
+        WHAT IT COSTS. Nothing, at any rung, by construction - no point is ever
+        planned below the frequency it already holds. floor_cost_mhz is retained
+        in meta and is now always zero; callers that reported it keep working.
+        The price moved to the other side of the ledger: every rung that IS
+        lifted asks for more clock at its voltage than stock did, so the
+        granularity fix and the overclock remain one edit and each rung still
+        has to be stable in its own right.
 
         AND WHAT THE DRIVER THEN DOES TO IT. The delta table takes the plan
         verbatim; the evaluated curve does not (VF_MAX_RISE_KHZ,
-        evaluate_curve_law). A clipped floor lands below the untouched point
-        under the band and the driver raises those rungs onto it - measured, the
-        800 mV band's bottom eight rungs all come back as the 1530 MHz of the
-        point below, one flat run where eight operating points were planned. So
-        meta reports `delivered`, the number of DISTINCT operating points the
-        band will really have, next to `rungs`, the number that were asked for;
-        the first is the number this feature is actually judged on. A band can
-        never deliver more than (top - the point below it)/15 + 1 rungs, however
-        many points it spans. `lifted_below` is the other half of the same law:
-        a floor placed more than 45 MHz above the point beneath it drags that
-        point up, so "nothing below the floor is touched" is a promise about the
-        delta table and this is the promise about the rail.
+        evaluate_curve_law), so meta still reports `delivered`, the number of
+        DISTINCT operating points the band will really have, beside `rungs`, the
+        number asked for. The first is what this feature is judged on.
+
+        The clipped-floor pathology that used to dominate this paragraph is
+        gone with the descent that caused it: the bottom rung is now stock[L]
+        exactly, so it cannot land under the untouched point beneath the band
+        and cannot be raised back onto it as one flat. `lifted_below` is kept
+        because the law still applies in general - a floor more than 45 MHz
+        above the point beneath drags it up - but a floor that equals stock
+        cannot open a gap stock did not already have.
 
         Points BELOW lo_mv are left untouched, for the reason compute_deflatten
         gives: the low-voltage floor is many points pinned at the minimum clock,
         and ramping them means demanding high clocks at tiny voltages.
 
-        Points ABOVE the cap are levelled onto the top rung. They are unreachable
-        on this card (the rail stops near 1.093 V), and levelling keeps the cap
-        point the LOWEST-voltage member of the top flat, which is where the
-        arbiter then parks - the same trick de-flatten ends on.
+        Points ABOVE the cap are left untouched. Levelling them onto the top
+        rung used to make the cap the park point, but it did so by DEMOTING
+        them, and a planner that never places a rung below stock cannot make an
+        exception for the points above the band. The cap now bounds the band
+        rather than the card: the curve keeps rising past it and the arbiter
+        parks at the highest point the rail can actually reach.
 
         The granularity and the overclock are the SAME edit: every rung demands
         more clock at its voltage than stock did, so every rung has to be
@@ -4034,58 +4214,71 @@ class GPU:
             return [], 0.0, 0.0, meta
         L, B = band[0], band[-1]
         rungs = len(band)
-        # the ascending top is what the band would reach if the floor kept its
-        # current frequency and every point above it gained one bin
-        asc_top = khz[L] + (rungs - 1) * grid
-        top = asc_top
-        if max_khz is not None and top > max_khz:
-            top, meta["clamped"] = int(max_khz), True
 
-        # SHRINK THE BAND TO WHAT THE HEADROOM ACTUALLY ALLOWS.
+        # A RUNG IS NEVER PLACED BELOW ITS OWN STOCK FREQUENCY.
         #
-        # A clipped ramp keeps its rung count and slides the whole descent down,
-        # which puts the bottom rungs UNDER the untouched point below the band -
-        # and the shape law's non-decreasing pass then raises them all back onto
-        # that point as ONE FLAT. That is the exact pathology a ramp exists to
-        # remove, so emitting a plan that causes it is worse than emitting a
-        # smaller plan. Measured on GP102: a 10-rung band from 1000 mV clipped
-        # at gfx_max delivered 8 distinct frequencies, with idx 55/56/57 all
-        # collapsed onto the neighbour's 1822.5.
+        #     new[i] = max(stock[i], new[i-1] + grid)
         #
-        # So drop rungs from the BOTTOM until the floor clears the point below
-        # it. The dropped points keep their stock values, which are already
-        # increasing - leaving them alone beats flattening them. Shrinking from
-        # the bottom rather than the top because the top is the end that is
-        # pinned: the cap point has to stay the highest, or the arbiter parks
-        # somewhere else entirely.
-        dropped = 0
-        while len(band) > 1:
-            below_band = [i for i in range(n)
-                          if points[i]["volt_mv"] < points[band[0]]["volt_mv"] - 0.01]
-            if not below_band:
-                break
-            un = max(below_band, key=lambda i: points[i]["volt_mv"])
-            if top - (len(band) - 1) * grid >= khz[un]:
-                break
-            band = band[1:]
-            dropped += 1
-        if dropped:
-            L, rungs = band[0], len(band)
-            meta["dropped_rungs"] = dropped
-            meta["dropped_reason"] = (
-                "the band's lower rungs had no headroom: their targets landed "
-                "under the untouched point below the band, where the shape law "
-                "would have raised them all onto it as one flat")
+        # walked upward through the band. Strictly increasing by construction,
+        # and by the same construction incapable of demoting a point.
+        #
+        # The previous shape was a UNIFORM descent from an anchor: every rung
+        # exactly one grid step below the one above it, with the top pinned at
+        # khz[floor] + (rungs-1)*grid. That fixed the ramp's slope at one step
+        # per point regardless of what stock did, so anywhere stock climbed
+        # faster than the grid the ramp fell behind it and stayed behind. On
+        # this card's curve, a 33-rung band from 1004 mV on the 7.5 MHz grid
+        # topped out at 2932 MHz where stock already held 3157 - a 225 MHz
+        # DEMOTION issued by a feature whose entire purpose is to ask for more
+        # clock. The flat top was removed and the whole band went backwards.
+        #
+        # Following stock wherever stock is steeper fixes it: in those regions
+        # the rung IS the stock value and the plan costs nothing, and the grid
+        # step only does work where stock is flat - which is precisely the
+        # region a ramp exists to break up.
+        #
+        # THE DRIVER'S MAX RISE IS SATISFIED WITHOUT CHECKING IT. A step is
+        # either grid (trivially under the limit) or stock[i] - new[i-1], and
+        # since new[i-1] >= stock[i-1] that is at most stock[i] - stock[i-1],
+        # a gap the stock curve already carries and the driver already accepts.
+        #
+        # It also retires the whole clipped-floor problem. The bottom rung is
+        # stock[L] exactly, so it can no longer land under the untouched point
+        # beneath the band, which is what used to make the shape law raise the
+        # lower rungs back onto that point as one flat. The band no longer has
+        # to be shrunk from the bottom to avoid it, and the floor costs zero.
+        plan = {}
+        prev = None
+        for i in band:
+            want = khz[i] if prev is None else max(khz[i], prev + grid)
+            if max_khz is not None and want > max_khz:
+                want, meta["clamped"] = int(max_khz), True
+            plan[i] = want
+            prev = want
+        top = plan[B]
 
         new = {}
-        for step, i in enumerate(band):
-            want = top - (rungs - 1 - step) * grid
-            if khz[i] != want:
-                new[i] = want
-        for i in above:                    # flat top; park = the cap point
-            if khz[i] != top:
-                new[i] = top
-        floor_after = top - (rungs - 1) * grid
+        for i in band:
+            if khz[i] != plan[i]:
+                new[i] = plan[i]
+        # POINTS ABOVE THE CAP ARE LEFT ALONE. They used to be levelled onto
+        # the top rung, which made the cap point the lowest-voltage member of
+        # the peak flat and therefore the park point. That levelling was a
+        # DEMOTION - up to 210 MHz off a single point on this card's curve -
+        # and "never plan a rung below stock" does not get an exception for
+        # the points nobody looked at.
+        #
+        # It also bought nothing here. The cap sits above what the rail can
+        # reach - measured, this one saturates near 1150 mV while the cap is
+        # set around 1206 - so every point it demoted was unreachable, and
+        # demoting an unreachable point cannot move the park point.
+        #
+        # The trade is real and worth stating: on a card whose rail CAN climb
+        # past the cap, levelling was what made the voltage cap bound the CARD
+        # rather than just the plan. Without it the cap bounds the band, the
+        # curve keeps rising above it, and the arbiter parks at the highest
+        # point the rail actually reaches. That is the behaviour asked for.
+        floor_after = plan[L]
         # The point immediately UNDER the band keeps whatever it had, so a
         # clipped ramp can land its floor below its own neighbour. On paper that
         # is a step down at the band edge; in hardware it never becomes one,
@@ -4279,11 +4472,29 @@ class GPU:
         # which is the complaint that started this work. Only emitted when they
         # are actually off the power-on values, so a stock card does not carry a
         # pointless step.
+        # COMPARED AGAINST VOLT_LIMIT_POWERON, field by field, on both rails.
+        # This used to be a hand-written literal for rail 0 plus two spot
+        # checks on rail 1 - its vmin and its reliability - which left MSVDD's
+        # alt_reliability and overvoltage unexamined. A clamp on either of
+        # those produced no reset step at all, so "reset to stock complete"
+        # was reported over a rail still carrying it, on driver state that a
+        # reboot does not clear. That gap was unreachable from the UI until
+        # the overvoltage knobs shipped, and MSVDD overvoltage is precisely
+        # what one of them writes.
+        #
+        # Derived from the same constant reset_volt_rail_limits writes back,
+        # so the test and the fix cannot drift apart the way a literal did.
         cur = self.read_volt_rail_limits()
-        if cur and (cur[0] != {"type": cur[0]["type"], "reliability": 0.0,
-                               "alt_reliability": 0.0, "overvoltage": 0.0,
-                               "vmin": 0.0}
-                    or cur[1]["vmin"] or cur[1]["reliability"] != -50.0):
+        off_stock = False
+        for rail, fields in (cur or {}).items():
+            want = self.VOLT_LIMIT_POWERON.get(rail)
+            if not want:
+                continue
+            for n, key in enumerate(self.VOLT_LIMIT_FIELDS):
+                if abs(fields[key] - want[n] / 1000.0) > 1e-6:
+                    off_stock = True
+                    break
+        if off_stock:
             steps.append(ResetStep("rail limits",
                                    self.reset_volt_rail_limits()))
         if self.static.get("pl_def_mw"):

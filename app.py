@@ -17,7 +17,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 """
-Druta - a compact Afterburner alternative for the Titan-RTX-on-Strix card.
+Druta - a compact alternative tuner for the Titan-RTX-on-2080-Ti card.
 
 Foregrounds the telemetry Afterburner hides on Turing (hotspot delta, GPU/board
 power split, the 9-reason clocks-event mask, the insufficient-aux-power canary,
