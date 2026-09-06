@@ -39,6 +39,7 @@ example, and vf_lock_self_test() keeps the middle rung runnable on any machine.
 """
 import ctypes
 import json
+import os
 import re
 import statistics
 import struct
@@ -46,6 +47,7 @@ import sys
 import threading
 import time
 from dataclasses import dataclass
+from typing import Optional
 
 u8, u32, i32 = ctypes.c_uint8, ctypes.c_uint32, ctypes.c_int32
 u64, i64 = ctypes.c_uint64, ctypes.c_int64
@@ -753,8 +755,8 @@ class ClkDomLayout:
     mask_dword: int
     mode: int
     freq_khz: int
-    nvvdd_uv: int | None
-    msvdd_uv: int | None
+    nvvdd_uv: Optional[int]
+    msvdd_uv: Optional[int]
 
 
 CLKDOM_LAYOUT_TURING = ClkDomLayout(
@@ -1152,6 +1154,26 @@ class _NvmlPciInfo(ctypes.Structure):
                 ("pciSubSystemId", u32), ("busId", ctypes.c_char * 32)]
 
 
+def _load_nvml():
+    """Load NVIDIA's installed DLL from DCH or legacy Standard drivers.
+
+    Windows 7 uses Standard drivers, which install NVML under NVSMI rather
+    than System32. Use absolute installed locations, never the working folder.
+    """
+    windows = os.environ.get("SystemRoot", r"C:\Windows")
+    programs = os.environ.get("ProgramW6432",
+                              os.environ.get("ProgramFiles", r"C:\Program Files"))
+    paths = [os.path.join(windows, "System32", "nvml.dll"),
+             os.path.join(programs, "NVIDIA Corporation", "NVSMI", "nvml.dll")]
+    failures = []
+    for path in paths:
+        try:
+            return ctypes.CDLL(path)
+        except OSError as exc:
+            failures.append(f"{path}: {exc}")
+    raise OSError("; ".join(failures))
+
+
 class Nvml:
     def __init__(self, slot=None):
         self.ok = False
@@ -1160,7 +1182,7 @@ class Nvml:
         self.selected = None
         self.err_detail = ""
         try:
-            self.dll = ctypes.CDLL(r"C:\Windows\System32\nvml.dll")
+            self.dll = _load_nvml()
         except Exception as e:
             self.err_detail = f"nvml.dll not loadable: {e}"
             return

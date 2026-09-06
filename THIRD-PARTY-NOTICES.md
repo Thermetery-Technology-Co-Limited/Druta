@@ -22,6 +22,13 @@ rather than a component, is not bundled, and so is not covered by this file.
 
 ## Summary
 
+The table and versioned notices below describe the regular current-Windows
+build. The separate **Windows 7** bundle uses CPython 3.8.10, Dear PyGui
+2.3.1, Tomli 2.0.1, and the PyInstaller 6.16.0 bootloader. Its `licenses/`
+directory contains the complete notices copied from those exact distributions,
+including Python 3.8's incorporated-software licenses and Tomli's MIT license.
+See [WINDOWS7.md](WINDOWS7.md) and the bundle's `BUILD-DEPENDENCIES.txt`.
+
 | Component | Version | License | Redistributed in the EXE |
 |---|---|---|---|
 | Dear PyGui | 2.3.1 | MIT | yes |

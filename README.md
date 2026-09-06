@@ -64,19 +64,26 @@ backup keyed by the card's UUID.
 --- 
 # Build
 
-```
-pip install dearpygui
-python -m PyInstaller --onefile --noconsole --name Druta --collect-all dearpygui druta.py
+For current Windows, use CPython 3.14 x64 and the pinned build recipe:
+
+```powershell
+python -m pip install -r requirements.txt
+.\build.ps1
 ```
 
-Output lands in `dist\Druta.exe`.
+Output lands in `dist\Druta\Druta.exe` and `dist\Druta-dev-win64.zip`.
+Keep the entire extracted folder together.
+
+**Windows 7 SP1 x64:** use the separate `Druta-dev-win7-x64.zip` build.
+See [Windows 7 setup, build instructions and validation](WINDOWS7.md) for
+required Windows updates and the CPython 3.8 build recipe.
 
 ---
 
 
 # Run
 
-- `dist\Druta.exe` — standalone, no Python needed.
+- `dist\Druta\Druta.exe` — standalone, no Python needed.
 - or `python druta.py` from source.
 - **Run as administrator** for every write path: clock lock, fan, power limit,
   V/F curve, memory timings.
