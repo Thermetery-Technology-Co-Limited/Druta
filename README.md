@@ -584,9 +584,18 @@ kernel-mode driver — and it is free software:
 
 **<https://github.com/sebastianmarrufo/nvtune>** — GPL-3.0-or-later.
 
-> `nvtune` is necessary for the timing tab to work. **Druta does not ship nvtune:** Druta is more beginner friendly and ships no ring-0 drivers, but nvtune ships one, and you must enable test signing for your system for `nvtune`'s driver to be supported. 
+`nvtune` is necessary for hardware access from the Timings tab. The ordinary
+current-Windows and Windows 7 build recipes keep it separate. The
+[optional Vista package](VISTA.md) includes `nvtune.exe` beside Druta and the
+matching development driver, public certificate and installer in
+`nvtune-driver/`. Extraction and application startup do not install that
+driver or enable test signing; setup is an explicit administrator action.
 
 ### Requirements for Pascal Timing Tuning:
+
+For the bundled Vista package, follow `nvtune-driver/README.txt` and its
+`install-on-target.cmd` script. The Secure Boot and Memory Integrity controls
+below apply to newer Windows systems; they are not Vista settings.
 
 `nvtunedrv.sys` is **signed with a self-signed test certificate**
 (`CN=nvtune test signing`, issuer identical to subject) — not a WHQL or
@@ -716,11 +725,15 @@ Copyright (C) 2026 Thermetery Technology Co Limited.
 
 ## Third-party software
 
-The prebuilt `Druta.exe` bundles Dear PyGui (MIT), CPython (PSF), OpenSSL
+The regular current-Windows package bundles Dear PyGui (MIT), CPython (PSF), OpenSSL
 (Apache-2.0), libffi (MIT-style), the PyInstaller bootloader (GPL-2.0-or-later
 with the Bootloader Exception) and the Microsoft C runtime. All are compatible
 with GPL-3.0-or-later, and their licenses are reproduced verbatim in
 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
+The Windows 7 and Vista packages use the pinned legacy runtimes described
+there, include Tomli (MIT), and omit their unused OpenSSL modules. Vista's
+modified native sources and build instructions accompany its runtime notices.
 
 Running from source redistributes none of them.
 
@@ -729,8 +742,10 @@ NVIDIA's NVAPI and NVML are **not** redistributed — `nvapi64.dll` and
 
 [`nvtune`](https://github.com/sebastianmarrufo/nvtune) is a **separate
 program** by Sebastian Marrufo, invoked as a subprocess. It is also
-GPL-3.0-or-later, so the two licences match exactly — but it is a separate
-work, not a component of Druta, and it is not bundled. See
+GPL-3.0-or-later. The ordinary current-Windows and Windows 7 recipes do not
+bundle it; the optional Vista package includes the CLI and driver tools.
+That package carries the GPL license, complete corresponding source ZIP and
+source/build manifest under `licenses/nvtune/`. See
 [Locating nvtune](#locating-nvtune).
 
 ## Provenance

@@ -3,22 +3,24 @@
 Extract **Druta-dev-vista-x64-portable.zip**, keep the complete
 `Druta-Vista-Portable` folder together, and run `Druta.exe` inside it.
 Python, Dear PyGui, Tomli, the VC++ runtime, the Universal CRT, and the
-Direct3D shader compiler are included. Running the application does not
-install dependencies or alter Windows settings.
+Direct3D shader compiler are included. Extracting the package and starting
+the application do not automatically install dependencies, trust a driver
+certificate or change Windows boot settings.
 
 This is a separate legacy build. It retains the same Control, Monitor and
 Timings interface as the current application. It does not add NVIDIA driver
 support for any GPU: use a card and driver that actually work on Vista.
-Features dependent on newer NVIDIA drivers remain capability checked and
-unverified on Vista; a VMware virtual adapter cannot validate physical NVIDIA
+Feature availability depends on the installed NVIDIA driver. Physical GPU
+functions remain unverified on Vista; a VMware virtual adapter cannot validate NVIDIA
 telemetry, clock/voltage controls, V/F curves or timing-register access.
 
 ## Required Windows components
 
 - Windows Vista **Service Pack 2, x64**.
-- Direct3D 11 from the Vista Platform Update, **KB971512** (part of KB971644),
-  and a working graphics driver exposing Direct3D feature level **10_0** or
-  greater. The portable payload includes `D3DCompiler_47.dll`; core Windows
+- Direct3D 11 from the Vista Platform Update, **KB971512** (part of KB971644).
+  Hardware rendering needs a graphics driver exposing Direct3D feature level
+  **10_0** or greater; the explicit WARP option is described below.
+  The portable payload includes `D3DCompiler_47.dll`; core Windows
   graphics components such as `d3d11.dll`, `dxgi.dll` and `dwmapi.dll` still
   belong to the Windows image.
 - The DLL-loader update **KB3063858**, or a superseding installed update,
@@ -30,8 +32,10 @@ telemetry, clock/voltage controls, V/F curves or timing-register access.
   driver. A distribution prepared with `-NvtunePackageDirectory` includes
   nvtune beside Druta and the matching driver tools in `nvtune-driver/`.
   Druta discovers the adjacent executable automatically. Driver installation
-  is an explicit separate action; Druta does not install it or change Windows
-  signing settings. See the included nvtune instructions first.
+  is an explicit separate action. Extraction and application startup do not
+  install it or change Windows signing settings. See the included
+  `nvtune-driver/README.txt` first. The package includes nvtune's GPL license,
+  complete corresponding source ZIP and build manifest under `licenses/nvtune/`.
 
 Microsoft documents [DirectX 11 on Vista through KB971512](https://support.microsoft.com/en-US/Windows/Hardware/Display-Graphics/how-to-install-the-latest-version-of-directx)
 and [app-local UCRT deployment](https://learn.microsoft.com/en-us/cpp/windows/universal-crt-deployment).
@@ -95,6 +99,7 @@ C:\Python38\python.exe waf all --target-arch=64bit --no-tests
 
 Build the patched Dear PyGui extension with the same CPython 3.8 headers and
 import library using the [complete CMake recipe](tools/vista/README.md).
+The binary package includes that recipe at `licenses/Vista-runtime-changes/README.md`.
 Keep the baseline Python environment intact, then
 assemble an isolated Vista build environment:
 

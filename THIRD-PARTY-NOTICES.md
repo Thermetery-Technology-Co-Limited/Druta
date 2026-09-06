@@ -3,11 +3,11 @@
 Druta itself is licensed under the GNU General Public License, version 3 or
 later — see [COPYING](COPYING).
 
-This file carries the licenses of third-party software **redistributed inside
-the prebuilt `Druta.exe`**. Running Druta from source redistributes none of it.
+This file describes third-party software **redistributed with Druta's binary
+packages**. Running Druta from source redistributes none of it.
 
-Nothing here is a component of Druta; each is a separate work under its own
-terms, reproduced verbatim below as those terms require. All are compatible
+Each work retains its own copyright and license terms, reproduced below or
+included in the package's `licenses/` directory. All are compatible
 with GPL-3.0-or-later. (Note that OpenSSL 3.x is Apache-2.0, which is
 compatible with GPLv3 but **not** with GPLv2 — one of the reasons this project
 is GPL-3.0-**or-later** rather than GPLv2.)
@@ -17,17 +17,27 @@ and `nvml.dll` from the installed driver at runtime.
 
 [`nvtune`](https://github.com/sebastianmarrufo/nvtune) is a **separate
 program** by Sebastian Marrufo, invoked as a subprocess. It is
-GPL-3.0-or-later — the same licence as Druta — but it is a separate work
-rather than a component, is not bundled, and so is not covered by this file.
+GPL-3.0-or-later — the same licence as Druta. The ordinary current-Windows and
+Windows 7 build recipes do not bundle it. The optional Vista nvtune package
+includes its CLI beside `Druta.exe`, plus its matching development driver,
+public test certificate and explicit installer under `nvtune-driver/`.
+Its GPL license is included at `licenses/nvtune/COPYING`, its complete
+corresponding source at `licenses/nvtune/source.zip`, and its source revision,
+build metadata and per-file hashes at `licenses/nvtune/manifest.json`.
+Packaging or starting Druta does not automatically install the driver,
+trust its certificate or enable test signing.
 
 ## Summary
 
 The table and versioned notices below describe the regular current-Windows
-build. The separate **Windows 7** bundle uses CPython 3.8.10, Dear PyGui
+build. The separate **Windows 7 and Vista** bundles use CPython 3.8.10, Dear PyGui
 2.3.1, Tomli 2.0.1, and the PyInstaller 6.16.0 bootloader. Its `licenses/`
 directory contains the complete notices copied from those exact distributions,
 including Python 3.8's incorporated-software licenses and Tomli's MIT license.
-See [WINDOWS7.md](WINDOWS7.md) and the bundle's `BUILD-DEPENDENCIES.txt`.
+These legacy packages exclude the unused OpenSSL 1.1.1 modules. Vista also
+includes the documented native source modifications and their manifest at
+`licenses/Vista-runtime-changes/`. See [WINDOWS7.md](WINDOWS7.md),
+[VISTA.md](VISTA.md) and the bundle's `BUILD-DEPENDENCIES.txt`.
 
 | Component | Version | License | Redistributed in the EXE |
 |---|---|---|---|
