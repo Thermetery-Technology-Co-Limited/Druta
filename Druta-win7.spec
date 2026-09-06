@@ -2,6 +2,8 @@
 """Build with build-win7.ps1; do not collect a modern host's C/C++ runtime."""
 import os
 import sys
+import hashlib
+import json
 from pathlib import Path
 from importlib.metadata import distribution, version
 from PyInstaller.utils.hooks import collect_all
@@ -15,6 +17,30 @@ for package, expected in [('dearpygui', '2.3.1'), ('pyinstaller', '6.16.0'),
         raise SystemExit('Install requirements-win7.txt before building.')
 
 crt = Path(os.environ['DRUTA_WIN7_CRT']).resolve(strict=True)
+portable_redist = os.environ.get('DRUTA_WIN7_PORTABLE_REDIST')
+portable_files = []
+portable_licenses = []
+if portable_redist:
+    portable_redist = Path(portable_redist).resolve(strict=True)
+    manifest = json.loads((portable_redist / 'manifest.json').read_text(encoding='utf-8'))
+    if manifest.get('format') != 1:
+        raise SystemExit('Unsupported portable runtime manifest format.')
+    for entry in manifest['files'] + manifest['licenses']:
+        source = (portable_redist / entry['name']).resolve(strict=True)
+        if portable_redist not in source.parents:
+            raise SystemExit('Portable runtime path escapes its directory.')
+        if hashlib.sha256(source.read_bytes()).hexdigest() != entry['sha256']:
+            raise SystemExit('Portable runtime hash mismatch: ' + entry['name'])
+    portable_files = [(entry['name'], str(portable_redist / entry['name']), 'BINARY')
+                      for entry in manifest['files']]
+    names = {entry[0].lower() for entry in portable_files}
+    if (len(portable_files) != 43 or len(names) != 43 or
+            not {'ucrtbase.dll', 'd3dcompiler_47.dll'}.issubset(names) or
+            any('/' in name or '\\' in name or not name.endswith('.dll') for name in names)):
+        raise SystemExit('Expected the complete validated x64 UCRT and shader compiler set.')
+    portable_licenses = [(str(portable_redist / entry['name']),
+                          str(Path(entry['name']).parent))
+                         for entry in manifest['licenses']]
 crt_names = ('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')
 for name in crt_names:
     dll = pefile.PE(str(crt / name))
@@ -29,6 +55,9 @@ datas, binaries, hiddenimports = collect_all('dearpygui')
 datas += [('COPYING', '.'), ('THIRD-PARTY-NOTICES.md', '.'),
           ('WINDOWS7.md', '.'), ('i2c', 'i2c'),
           (str(Path(sys.base_prefix) / 'LICENSE.txt'), 'licenses/CPython-3.8.10')]
+if portable_redist:
+    datas += [('PORTABLE-WINDOWS7.md', '.')] + portable_licenses + [
+        (str(portable_redist / 'manifest.json'), 'licenses/Microsoft-Windows-SDK')]
 if (crt / 'VC2019-LICENSE.rtf').is_file():
     datas.append((str(crt / 'VC2019-LICENSE.rtf'), 'licenses/Microsoft-VC2019'))
 # Ship the actual licenses from these distributions, including Tomli's MIT
@@ -53,17 +82,21 @@ def is_system_runtime(name):
                              'ext-ms-win-')) or
             name in ('ucrtbase.dll', 'd3dcompiler_47.dll'))
 
-# Universal CRT and D3DCompiler_47 are Windows prerequisites (WINDOWS7.md).
+# Universal CRT and D3DCompiler_47 are prerequisites for the compact build.
 # Remove every collected copy, including the older CRT in Dear PyGui's wheel,
 # then add a single matched set to _internal. Do not ship host system DLLs.
 a.binaries = [entry for entry in a.binaries if not is_system_runtime(entry[0])]
 a.binaries += [(name, str(crt / name), 'BINARY') for name in crt_names]
+a.binaries += portable_files
 if any(Path(entry[0]).name.lower().startswith(('libssl', 'libcrypto'))
        for entry in a.binaries):
     raise SystemExit('Unexpected OpenSSL dependency in Windows 7 build.')
 pyz = PYZ(a.pure)
 exe = EXE(pyz, a.scripts, exclude_binaries=True, name='Druta', debug=False,
           bootloader_ignore_signals=False, strip=False, upx=False,
-          console=False, disable_windowed_traceback=False)
+          console=False, disable_windowed_traceback=False,
+          # Before Windows 8, app-local UCRT forwarders need the runtime beside
+          # the main executable. Keep the portable distribution flat.
+          contents_directory='.' if portable_redist else '_internal')
 coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False,
-               name='Druta-Win7')
+               name='Druta-Win7-Portable' if portable_redist else 'Druta-Win7')

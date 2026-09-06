@@ -1,5 +1,9 @@
 # Windows 7 SP1 x64
 
+For a package that also carries the UCRT and shader compiler, see
+[the portable Windows 7 build](https://github.com/Thermetery-Technology-Co-Limited/Druta/blob/codex/windows-7-support/PORTABLE-WINDOWS7.md).
+The compact distribution described below keeps those as Windows prerequisites.
+
 Use the separate `Druta-dev-win7-x64.zip` distribution. Extract the entire
 `Druta-Win7` folder and run `Druta.exe`; keep `_internal` beside it.
 Python does not need to be installed to run the bundle. The regular Windows

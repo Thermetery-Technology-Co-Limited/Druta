@@ -1628,3 +1628,13 @@ distributed under Microsoft's redistribution terms for Visual Studio and the
 Windows SDK. They are Operating-System components within the meaning of
 GPL-3.0 section 1 ("System Libraries") and their source is not part of Druta's
 Corresponding Source.
+
+The optional portable Windows 7 distribution also includes the Windows SDK
+`D3DCompiler_47.dll`. The UCRT and shader compiler come from SDK redistributable
+directories, with the SDK licenses, notices and per-file manifest under
+`licenses/Microsoft-Windows-SDK`. No Windows system-directory files are copied.
+
+The self-extracting portable EXE uses the unmodified 7-Zip 26.03 SFXWin source
+by Igor Pavlov, under LGPL-2.1-or-later. Its license, complete corresponding
+source archive and build/relink instructions accompany that EXE's extracted
+payload under `licenses/7-Zip`. The extractor only unpacks files.
