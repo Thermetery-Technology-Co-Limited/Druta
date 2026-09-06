@@ -187,18 +187,24 @@ needed. This does not establish support for Vista images lacking those APIs.
 | App-local native libraries with SDK UCRT 10240 | UCRT, VC++ and patched Python load; `Py_GetVersion` succeeds |
 | Frozen startup | Exit 0; fresh passed report and three rendered frames |
 | Real full-interface fixture | Control, Monitor and Timings constructed; 983 items, nine frames, no worker or subprocess attempts |
-| Python compatibility checks | 52 tests under `tests/` and 12 profile checks passed in the guest |
+| Python compatibility checks | 57 tests under `tests/` and 12 profile checks passed in the guest |
 | Unicode file dialog | Hardware window visibly renders; explicit WARP framebuffer shows Unicode folders/filenames, file sizes and dates |
 | nvtune development driver | Corrected installer starts the driver from a path with spaces; all eight read-only native driver checks pass |
 | nvtune CLI fixture | All 17 cases pass using the in-memory backend |
 
-The early hardware framebuffer capture could be black before the VM renderer
-settled, despite the visible window rendering correctly. The dialog fixture
-allows warm-up time before capturing its framebuffer. Its JSON checks the
-current path and default filename, while the image verifies listed entries;
-it does not claim a completed user file selection.
+On this Vista VMware adapter, hardware framebuffer readback remained black
+after warm-up even though the visible window rendered correctly. A VMware
+desktop capture verified Unicode entries, sizes and dates in that hardware
+window; the explicit WARP framebuffer capture also passed. The dialog fixture
+now rejects blank captures, so its hardware capture check reports this
+limitation rather than a false pass. Neither check claims a completed user
+file selection.
 
-The added SDK 10240 packaging guards also pass on the build host. Final
-Windows 7 regression results for the same complete runtime set are recorded
-separately. These VM checks do not validate physical NVIDIA telemetry,
+The identical portable payload also passed on Windows 7 Ultimate SP1 x64
+(6.1.7601): frozen startup, the full UI (985 items), all 69 Python checks,
+the hardware Unicode framebuffer capture, and all 17 nvtune CLI cases.
+The same nvtune driver and native installer passed all eight read-only checks
+on both guests. Temporary services and certificates were removed, the original
+boot settings restored, and test signing confirmed off after reboot.
+These VM checks do not validate physical NVIDIA telemetry,
 clock/voltage tuning, V/F curve changes or timing-register reads and writes.
