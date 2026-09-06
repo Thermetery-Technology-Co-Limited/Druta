@@ -1,4 +1,4 @@
-# RTX 2080 Ti Strix board - NVVDD core rail via MP2888A
+# RTX 2080 Ti board - NVVDD core rail via MP2888A
 #
 # THIS BOARD NEEDS A HARDWARE MODIFICATION. As shipped, the MP2888A is not on
 # any bus the GPU can reach; the two links that would connect its SMBus to the
@@ -11,7 +11,7 @@
 
 [profile]
 format    = 1
-name      = "RTX 2080 Ti Strix - NVVDD (MP2888A)"
+name      = "RTX 2080 Ti - NVVDD (MP2888A)"
 regulator = "MPS MP2888A"
 rail      = "NVVDD"
 author    = "Thermetery"

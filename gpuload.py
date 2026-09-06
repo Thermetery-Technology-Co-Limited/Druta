@@ -70,6 +70,8 @@ import ctypes
 import threading
 import time
 
+from nvbackend import parse_slot
+
 CUDA_SUCCESS = 0
 MIB = 1 << 20
 
@@ -111,6 +113,9 @@ def _bind(cu):
     P = ctypes.POINTER
     cu.cuInit.argtypes = [ctypes.c_uint]
     cu.cuDeviceGet.argtypes = [P(ctypes.c_int), ctypes.c_int]
+    cu.cuDeviceGetByPCIBusId.argtypes = [P(ctypes.c_int), ctypes.c_char_p]
+    cu.cuDeviceGetPCIBusId.argtypes = [ctypes.c_char_p, ctypes.c_int,
+                                     ctypes.c_int]
     cu.cuDeviceGetName.argtypes = [ctypes.c_char_p, ctypes.c_int,
                                    ctypes.c_int]
     cu.cuCtxCreate_v2.argtypes = [P(ctypes.c_void_p), ctypes.c_uint,
@@ -143,9 +148,11 @@ class BandwidthLoad:
     from the UI thread would be a different context to the runtime.
     """
 
-    def __init__(self, max_seconds=DEFAULT_MAX_SECONDS, device=0):
+    def __init__(self, max_seconds=DEFAULT_MAX_SECONDS, device=0, slot=None):
         self.max_seconds = float(max_seconds)
         self.device = int(device)
+        self.slot = slot
+        self.device_slot = ""
         self.started = threading.Event()   # set once copies are in flight
         self.done = threading.Event()
         self._stop = threading.Event()
@@ -181,6 +188,24 @@ class BandwidthLoad:
         return self.started.is_set() and not self.error
 
     # ---- the loop --------------------------------------------------------- #
+    def _select_device(self, cu, chk):
+        """Resolve the selected card by PCI identity, independent of API order."""
+        dev = ctypes.c_int(0)
+        if self.slot is not None:
+            if parse_slot(self.slot) is None:
+                raise LoadError("no valid PCI slot for the selected GPU")
+            chk(cu.cuDeviceGetByPCIBusId(ctypes.byref(dev),
+                                       self.slot.encode("ascii")),
+                "cuDeviceGetByPCIBusId")
+        else:
+            chk(cu.cuDeviceGet(ctypes.byref(dev), self.device), "cuDeviceGet")
+        actual = ctypes.create_string_buffer(32)
+        chk(cu.cuDeviceGetPCIBusId(actual, len(actual), dev), "cuDeviceGetPCIBusId")
+        self.device_slot = actual.value.decode("ascii")
+        if self.slot is not None and parse_slot(self.device_slot) != parse_slot(self.slot):
+            raise LoadError(f"CUDA selected {self.device_slot}, requested {self.slot}")
+        return dev
+
     def _run(self):
         cu = ctx = None
         a = b = None
@@ -197,8 +222,7 @@ class BandwidthLoad:
                                     f"{_err_name(cu, rc)}")
 
             chk(cu.cuInit(0), "cuInit")
-            dev = ctypes.c_int(0)
-            chk(cu.cuDeviceGet(ctypes.byref(dev), self.device), "cuDeviceGet")
+            dev = self._select_device(cu, chk)
             nm = ctypes.create_string_buffer(256)
             if cu.cuDeviceGetName(nm, 256, dev) == CUDA_SUCCESS:
                 self.device_name = nm.value.decode("ascii", "replace")
@@ -266,6 +290,7 @@ class BandwidthLoad:
         el = max(1e-6, time.perf_counter() - t0)
         moved = copies * buf
         self.stats = {
+            "slot": self.device_slot, "device_name": self.device_name,
             "copies": copies, "bytes": moved, "seconds": el,
             "buf_mib": buf // MIB,
             "free_mib": free_b // MIB, "total_mib": total_b // MIB,
@@ -289,7 +314,14 @@ def induce(gpu, settle_timeout=15.0, max_seconds=DEFAULT_MAX_SECONDS,
     """
     out = {"error": "", "mem": None, "pstate": None, "samples": [],
            "stats": {}, "settled": False, "result": None}
-    load = BandwidthLoad(max_seconds=max_seconds)
+    try:
+        slot = gpu.slot()
+        if parse_slot(slot) is None:
+            raise LoadError("no valid PCI slot for the selected GPU")
+    except Exception as exc:
+        out["error"] = f"cannot target the GPU load: {exc}"
+        return out
+    load = BandwidthLoad(max_seconds=max_seconds, slot=slot)
     try:
         load.start()
         if not load.wait_started(timeout=settle_timeout):

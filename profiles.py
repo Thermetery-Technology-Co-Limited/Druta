@@ -69,10 +69,12 @@ def path_for(name):
 
 
 def _fan_is_manual(gpu):
-    """True/False from nvmlDeviceGetFanControlPolicy_v2 (0 = temperature curve,
-    1 = manual), or None when the driver will not say."""
+    """Read the common NVML/NVAPI policy; None for unknown or mixed modes."""
     import ctypes
     try:
+        reader = getattr(gpu, "read_fan_manual", None)
+        if callable(reader):
+            return reader()
         nv = gpu.nvml
         if not (nv.ok and nv.has("nvmlDeviceGetFanControlPolicy_v2")):
             return None
@@ -137,10 +139,25 @@ def capture(gpu):
         # a captured duty back as a MANUAL duty would pin the fans - a thermal
         # behaviour change, not a restore. So record the policy too.
         "fan_pct": (d.get("fans") or [(None, None)])[0][0],
-        "fan_manual": _fan_is_manual(gpu),
+        "fan_manual": None,
+        "fan_control_state": None,
         "vf_deltas": None,
         INCOMPLETE_KEY: [],
     }
+    # Modern NVML and the legacy NVAPI fallbacks expose requested per-fan
+    # levels. The measured duty above can still be ramping toward that request.
+    try:
+        reader = getattr(gpu, "read_fan_control_state", None)
+        fan_state = reader() if callable(reader) else None
+        if isinstance(fan_state, dict) and fan_state.get("fans"):
+            state["fan_control_state"] = fan_state
+            state["fan_pct"] = fan_state["fans"][0]["level"]
+            modes = {fan["manual"] for fan in fan_state["fans"]}
+            state["fan_manual"] = modes.pop() if len(modes) == 1 else None
+    except Exception:
+        pass
+    if state["fan_control_state"] is None:
+        state["fan_manual"] = _fan_is_manual(gpu)
     try:
         state["volt_boost_pct"] = gpu.read_voltage_boost()
     except Exception:
@@ -292,7 +309,14 @@ def restore(gpu, state, apply_curve=True):
     # back to the driver rather than freezing a captured duty.
     manual, fan = state.get("fan_manual"), state.get("fan_pct")
     fan_min = (getattr(gpu, "static", {}) or {}).get("fan_min")
-    if manual and fan is not None and fan_min is not None and fan < fan_min:
+    fan_state = state.get("fan_control_state")
+    if fan_state is not None:
+        restore_fans = getattr(gpu, "restore_fan_control_state", None)
+        if callable(restore_fans):
+            step("fan", lambda: restore_fans(fan_state))
+        else:
+            results.append((False, "fan: this backend cannot restore per-fan control state"))
+    elif manual and fan is not None and fan_min is not None and fan < fan_min:
         # A captured duty BELOW the hardware minimum is the zero-RPM idle
         # curve, which the driver reports as "manual" at 0%. set_fan refuses it
         # ("0% below hardware minimum 41%") and the fans would then be left

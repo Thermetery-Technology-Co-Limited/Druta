@@ -199,3 +199,60 @@ Display scaling falls back to the Windows 7 device-context API. NVML loads
 from either System32 (DCH drivers) or the Standard driver's
 `%ProgramW6432%\NVIDIA Corporation\NVSMI` directory, as documented by
 [NVIDIA](https://docs.nvidia.com/deploy/nvml-api/nvml-api-reference.html).
+
+## Legacy-driver update
+
+The current shared Druta fixes have been ported to this branch while retaining
+CPython 3.8.10, Tomli, Windows 7 DPI handling, the pinned native runtime and the
+explicit nvtune preview/commit contract.
+
+DLL selection is automatic: Druta resolves the actual Windows system and Program
+Files directories through Windows APIs, then tries only those installed-driver
+locations. The loader update listed above is still required. The package does
+not contain NVIDIA DLLs. Available exports and successful reads select older
+clock, fan and telemetry paths; PCI enumeration can fall back to the older V2
+record without changing the selected physical slot.
+
+The TITAN private voltage-write profiles remain limited to the measured exact
+board, VBIOS and driver combinations (472.12 and 580.97). Porting them to Windows 7
+does not confirm a new driver or operating-system hardware combination. Ordinary
+API controls retain their capability checks. Zero RPM does not hide a functioning
+fan controller, including when an RTX is on a water loop.
+
+The port also includes V/F switch and incomplete-curve defenses, Pascal raw-unit
+corrections, PCI-targeted CUDA load, per-fan profile restoration, the Additional
+Memory Clock Offset label, and the requested 1200/1500 mV normal/XOC software
+voltage bounds with +200/+500 mV NVVDD offset bounds. These are UI request ranges,
+not claims that the card can reach those voltages.
+
+Both Windows 7 build variants now carry their exact public source under
+`source/`, including OS build tools and regression tests. `SOURCE-MANIFEST.json`
+records source and executable SHA-256 hashes. Builds reject edits made during
+compilation instead of silently shipping mismatched source.
+
+Shared-driver hardware results in [DRIVER-COMPATIBILITY.md](DRIVER-COMPATIBILITY.md)
+were measured on Windows 10. Windows 7 VM checks establish runtime and UI
+compatibility only; physical NVIDIA tuning on Windows 7 remains a separate
+hardware validation requirement.
+
+### Current port: guest verification
+
+The propagated legacy-driver update was verified on 2026-09-06 in the actual
+Windows 7 Ultimate SP1 x64 guest (6.1.7601), using CPython 3.8.10 and VMware
+SVGA 3D driver 9.17.4.1. The VM is configured for **8192 MB**; the guest reports
+**8,589,402,112 bytes** of physical memory. Display scaling is 150%.
+
+| Check | Fresh guest result |
+| --- | --- |
+| Shared regression suite | 157 tests pass |
+| Windows compatibility, nvtune contract and build/package tests | 42 tests pass; pefile was installed for the build-tool tests |
+| Compact and portable frozen EXEs | Both exit 0, parse the regulator profile and render three smoke-test frames |
+| Source and both frozen variants without NVIDIA hardware | Enumeration and ordinary startup exit 1 with missing-backend diagnostics; NVML reports both trusted driver locations |
+| Native x64 portable self-extractor | Extraction exits 0; the extracted EXE passes its three-frame smoke test |
+| Full application interface fixture | Control, Monitor and Timings render successfully: 985 items, nine frames, no worker or subprocess attempts |
+
+The rendered Monitor tab was also captured in the guest. The fixture window
+extends beyond this guest's 1024 by 768 desktop at 150% scaling; this observation
+establishes rendering, not a fit-to-small-desktop layout claim. These updated
+results supersede the earlier test counts above. The VM uses a virtual display
+adapter, so this run does not validate physical NVIDIA telemetry or tuning.

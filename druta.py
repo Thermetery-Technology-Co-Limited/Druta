@@ -187,7 +187,8 @@ VIOLET = (160, 108, 255)
 # One per-domain offset knob. `ctrl` indexes the CONTROL BLOCK, `priv` the
 # private clock getter - two different numberings for the same clock, and the
 # pair is measured, not assumed (see App.DOMAIN_KNOBS).
-DomainKnob = namedtuple("DomainKnob", "key ctrl fallback note")
+DomainKnob = namedtuple("DomainKnob", "key ctrl fallback note xoc_only",
+                        defaults=(False,))
 
 # What one knob is allowed to ask for, normally and under XOC. Named rather
 # than a bare 5-tuple for the same reason DomainKnob is (see App.DOMAIN_KNOBS):
@@ -200,19 +201,9 @@ KnobRange = namedtuple("KnobRange", "label lo hi xoc_lo xoc_hi")
 
 class Druta:
     def __init__(self, slot=None):
-        # ONE card per process, chosen here and never re-targeted afterwards.
-        #
-        # Switching cards relaunches (see switch_gpu) instead of re-pointing a
-        # live GPU, because too much of this window is a per-card measurement
-        # baked in at build time to be re-derived safely: the clock sliders take
-        # their range from gfx_min/gfx_max (2160 MHz on the Titan RTX, 1911 on
-        # the Xp), the V/F editor is sized by the probed table (128 entries vs
-        # 84), every nudge is a clock bin (15 MHz vs 12.657), and the domain
-        # table's names were earned by correlation against THIS card. A live
-        # switch would have to find and redo all of it, and the failure mode of
-        # missing one is a control that silently means something else than it
-        # says - which is the exact class of bug this whole change exists to
-        # remove. A process boundary makes that unmissable instead of careful.
+        # Every GPU object remains bound to one PCI slot. swap_gpu constructs
+        # a replacement and rebuilds the controls, curve and per-card caches
+        # only after that replacement has initialized successfully.
         self.gpu = GPU(slot)
         self.gpu_list = enumerate_gpus()
         # Shunt-mod correction. Held as (rails, folded correction) so the 4 Hz
@@ -276,6 +267,10 @@ class Druta:
         self._once = {}            # log-dedup state, keyed per source
         self._ctl_widgets = []     # write widgets greyed out while locked
         self._slider_ranges = {}   # knob key -> KnobRange, filled by slider_row
+        # knob key -> a hi bound the card is ALREADY carrying, which a
+        # narrowing must not drag it below. See ov_carryover().
+        self._carryover_hi = {}
+        self._knob_cb = {}         # knob key -> its apply callback, for Stock
         self._xoc_bounds = False   # are the XOC bounds the ones on the knobs?
         # The slider and its text box write each other. DPG does not fire a
         # callback for set_value, so the loop cannot close today - this makes
@@ -348,6 +343,16 @@ class Druta:
         12.657 shows here as 13, so a nudge is 'about a bin'. The planners use
         the exact kHz value; only the arrow keys and the sliders see this."""
         return max(1, int(round(self.step_khz() / 1000.0)))
+
+    def vf_freq_div(self):
+        """Raw V/F delta units per physical core kHz (2 on Pascal)."""
+        gpu = getattr(self, "gpu", None)
+        lay = gpu.vfp_layout() if gpu is not None else None
+        return lay.freq_div if lay is not None else 1
+
+    def vf_delta_step_khz(self):
+        """One physical clock bin expressed in the delta table's wire units."""
+        return self.step_khz() * self.vf_freq_div()
 
     def n_vf_rows(self):
         """How many V/F delta rows THIS card has, for text that quotes a count.
@@ -1089,7 +1094,8 @@ class Druta:
         dpg.configure_item("pcie", color=GOOD if errt == 0 else BAD)
 
         fans = d.get("fans", [])
-        fantxt = "  ".join(f"fan{i}: {duty}% {rpm or 0}rpm"
+        fantxt = "  ".join(f"fan{i}: {duty if duty is not None else '--'}% "
+                           f"{rpm if rpm is not None else '--'}rpm"
                            for i, (duty, rpm) in enumerate(fans)) or "--"
         mscale, munit = self.gpu.mem_offset_scale()
         moff = d.get("mem_off", 0)
@@ -1124,7 +1130,20 @@ class Druta:
     # readout because the two are one control: the number being ASKED for. The
     # live column keeps its place between them and Apply for the reason given
     # in slider_row - rows differ in whether they carry an extra button.
-    KNOB_COLS = (230, 340, 100, 95, 90, 80)
+    # label, slider, typed value, live, Apply, extra.
+    # Slider and value box were sized for numbers far longer
+    # than the 3-4 digits any knob here carries; the width they
+    # were wasting is what made the tab need scrolling.
+    KNOB_COLS = (210, 200, 66, 92, 78, 74)
+
+    # One Control-tab column, unscaled: the knob table plus the padding either
+    # side of it. The viewport sizes itself from this same number, so a column
+    # and the window it has to fit in can never drift apart.
+    KNOB_COL_PAD = 34
+
+    def knob_col_width(self):
+        """Width of ONE knob column, scaled for this display."""
+        return self.s(sum(self.KNOB_COLS) + self.KNOB_COL_PAD)
 
     # Per-domain clock offsets, in the order they are shown. Only rows whose
     # domain the driver actually accepts are built (see build_control), so a
@@ -1185,6 +1204,23 @@ class Druta:
         # sits: +45 has been measured landing as +30 in one state and +45 in
         # another. Watch the live value.
         DomainKnob("ltc", 9, "control domain 9", None),
+        # The ordinary memory slider follows the declared range on either
+        # API. NVML memory deltas are doubled relative to NVAPI Pstates20:
+        # RTX -2000..+6000 NVML units equals -1000..+3000 NVAPI MHz, or
+        # -250..+750 true MHz. nvbackend normalizes these for the UI.
+        # This additional control-domain request is a separate mechanism.
+        # It stayed within the measured envelope on Turing, while Pascal
+        # could extend the clock beyond the ordinary slider's ceiling.
+        #
+        # This route does not consult that range at all -
+        # set_clk_domain_offset writes a raw signed kHz field with no check of
+        # any kind - which is exactly why it is XOC-only and why its upper
+        # bound below is Druta's own invention rather than a measured fact.
+        # The fallback name matters more here than for the others: this
+        # is the one knob that appears on cards with no measured
+        # pairing, where the fallback IS the label. "control domain 2"
+        # would tell a user nothing about what they are moving.
+        DomainKnob("memdom", 2, "Additional Memory Clock", None, True),
     )
 
     def domain_knob_label(self, kn, rows=None):
@@ -1194,6 +1230,8 @@ class Druta:
         domain table draws, so a knob cannot make a claim the table contradicts
         - including on a card whose domain numbering the app has never seen,
         where the honest answer is a bare index and a dim colour."""
+        memory_label = ("Additional Memory Clock Offset (MHz)"
+                        if kn.ctrl == 2 else None)
         if self.gpu.clkdom_is_blackwell():
             # Blackwell's control block is independently identified by the
             # version/layout probe.  Do not force its control index through
@@ -1201,16 +1239,17 @@ class Druta:
             # offset beside the wrong live clock.  The return value is the
             # control index only so callers can retain their existing shape.
             name = self.gpu.clkdom_control_label(kn.ctrl)
-            return (f"{name} requested offset (MHz)", GOOD, kn.ctrl)
+            return (memory_label or f"{name} requested offset (MHz)",
+                    GOOD, kn.ctrl)
         priv = self.gpu.clkdom_pairing(rows).get(kn.ctrl)
         if priv is None:
-            return (f"{kn.fallback} offset (MHz)", DIM, None)
+            return (memory_label or f"{kn.fallback} offset (MHz)", DIM, None)
         row = next((r for r in (rows or []) if r.get("domain") == priv), None)
         name = (row or {}).get("name") or ""
         grade = (row or {}).get("grade", PRIV_UNNAMED)
         shown = (name + "?") if grade == PRIV_LIKELY else (
             name or f"domain {priv}")
-        return (f"{shown} clock offset (MHz)",
+        return (memory_label or f"{shown} clock offset (MHz)",
                 self.GRADE_COL.get(grade, DIM), priv)
 
     def knob_cols(self):
@@ -1222,8 +1261,8 @@ class Druta:
     # floor and shares nothing with either ceiling.
     VLIM_LINKED = ("reliability", "alt_reliability")
 
-    def apply_vlim(self, **limits):
-        """Write one NVVDD limit and report what the card actually took.
+    def apply_vlim(self, rail=0, **limits):
+        """Write one rail's limits and report what the card actually took.
 
         One knob per FIELD, passed straight through. Druta does not synthesise
         a ceiling out of the two that interact - that would mean picking a
@@ -1244,9 +1283,103 @@ class Druta:
             if len(named) == 1:
                 limits = dict(limits, **{k: limits[named[0]]
                                          for k in self.VLIM_LINKED})
-        ok, msg = self.gpu.set_volt_rail_limits(0, **limits)
+        ok, msg = self.gpu.set_volt_rail_limits(rail, **limits)
         self.log(msg, ok)
+        if ok and rail == 1:
+            # Say it on every MSVDD write, not once in a tooltip - but say the
+            # CURRENT truth. This used to warn that no MSVDD voltage was
+            # exposed anywhere, which was the state of knowledge and is no
+            # longer the state of the card: the rail reports a live voltage
+            # that follows an MSVDD clamp while NVVDD's stays put. So the line
+            # now quotes what the rail actually did rather than telling the
+            # user to go and measure board power.
+            # SAMPLED IMMEDIATELY AFTER THE WRITE, which is a caveat and not a
+            # confirmation: a ceiling PERMITS a voltage, the arbiter then
+            # decides whether to take it, and this read can easily land before
+            # it has. The number is what the rail says now, nothing more.
+            #
+            # The ~20 W board-power result is deliberately described as a past
+            # experiment rather than as evidence about THIS write. It
+            # established that the field reaches hardware at all; it says
+            # nothing about the value just sent, and wording it as
+            # confirmation would be exactly the mistake this file keeps
+            # warning about.
+            live = self.gpu.read_rail_live_mv(1)
+            if live is not None:
+                self.log(f"MSVDD reads {live:.0f} mV immediately after the "
+                         f"write. A ceiling permits a voltage rather than "
+                         f"setting one, so this may not have settled yet - "
+                         f"watch the live cell. That the field reaches "
+                         f"hardware was established separately, as ~20 W of "
+                         f"board power between 900 and 1200 mV.", ok)
+            else:
+                self.log("MSVDD limits written, but the rail did not read "
+                         "back this time, so nothing here confirms an effect. "
+                         "The field is known to reach hardware - ~20 W of "
+                         "board power between 900 and 1200 mV - but that was "
+                         "a separate experiment, not this write.", False)
         self.refresh_volt_limits()
+
+    def sync_vcap_to_ceiling(self, raw):
+        """Raise the V/F voltage cap to follow a raised NVVDD ceiling.
+
+        The two are coupled and nothing said so before: the cap is where
+        De-flatten and Max it STOP planning, so raising the rail ceiling
+        without it means the extra voltage is permitted and never planned
+        against - the card is allowed somewhere no tool on this tab will take
+        it, which reads as the ceiling having done nothing.
+
+        RAISES ONLY. Following the ceiling downward would silently shrink a
+        band the user built on purpose, and a cap above what the rail delivers
+        is harmless: below_cap() resolves it to the highest point at or below,
+        so it lands on a real curve point either way.
+
+        Snapped DOWN to the point grid for the same reason vcap_changed snaps
+        down - the number in the box has to be a cap something can actually be
+        planned against.
+        """
+        if not ((raw or {}).get(0) and dpg.does_item_exist("vcap")):
+            return
+        reach = GPU.rail_ceiling_mv(raw[0])
+        cur = float(dpg.get_value("vcap"))
+        snapped = math.floor(reach / self.VCAP_STEP + 1e-9) * self.VCAP_STEP
+        if snapped <= cur + 1e-6:
+            return
+        dpg.set_value("vcap", snapped)
+        self.vf_redraw()
+        self.log(f"V/F voltage cap raised {cur:.2f} -> {snapped:.2f} mV, "
+                 f"following the NVVDD ceiling at {reach:.0f} mV. De-flatten "
+                 f"and Max it plan up to that line, so it has to move or the "
+                 f"headroom you just allowed goes unused.", True)
+
+    def stock_knob(self, key):
+        """Put ONE knob back to stock and apply it.
+
+        Goes through the row's own apply callback rather than writing the card
+        directly: a second path to the same register is how the button and the
+        slider end up disagreeing about what was written.
+        """
+        if key.startswith("vlim"):
+            # ONE field on ONE rail. These share a block, and resetting the
+            # block put the other rail back to stock along with it - pressing
+            # Stock beside an MSVDD knob silently discarded the NVVDD ceiling.
+            rail = 1 if key.startswith("vlim1") else 0
+            field = {"rel": "reliability", "alt": "alt_reliability",
+                     "ov": "overvoltage", "lo": "vmin"}[key.rsplit("_", 1)[1]]
+            ok, msg = self.gpu.reset_volt_rail_limits(rail=rail,
+                                                      fields=(field,))
+            self.log(msg, ok)
+            return self.refresh_volt_limits()
+        if key == "pl":
+            val = self.gpu.static.get("pl_def_mw", 260000) // 1000
+        else:
+            val = 0
+        for pre in ("sl_", "in_"):
+            if dpg.does_item_exist(pre + key):
+                dpg.set_value(pre + key, val)
+        cb = self._knob_cb.get(key)
+        if cb:
+            cb(val)
 
     def apply_vlim_reset(self):
         ok, msg = self.gpu.reset_volt_rail_limits()
@@ -1261,48 +1394,157 @@ class Druta:
         is what a fresh read gives back.
         """
         raw = self.gpu.read_volt_rail_limits()
-        if not raw:
-            return
-        if dpg.does_item_exist("volt_limits_txt"):
-            dpg.set_value("volt_limits_txt", self.volt_limits_text(raw))
+        supported = self.gpu.volt_rail_limits_supported()
+        # The card's own absolute view, read fresh alongside the deltas. It is
+        # allowed to be None - it is a newer call than the limit block and a
+        # card that lacks it must still show its limits - so every use of it
+        # below falls back rather than assuming.
+        state = self.gpu.read_volt_rail_state()
+        # Before the readout, so the cap and the ceiling can never be shown
+        # disagreeing for a frame.
+        if supported:
+            self.ov_carryover(raw)
+            self.sync_vcap_to_ceiling(raw)
+        for r in (0, 1):
+            cells = self.volt_limits_cells(raw, r, state, supported)
+            if not cells:
+                continue
+            if dpg.does_item_exist(f"vlim_txt{r}"):
+                dpg.set_value(f"vlim_txt{r}", cells[1])
+            if dpg.does_item_exist(f"vlim_reach{r}"):
+                dpg.set_value(f"vlim_reach{r}", cells[2])
+            if dpg.does_item_exist(f"vlim_live{r}"):
+                dpg.set_value(f"vlim_live{r}", cells[3])
+            if dpg.does_item_exist(f"vlim_eff{r}"):
+                dpg.set_value(f"vlim_eff{r}", cells[4])
         # One knob per field, each showing its own value. The number they add
         # up to is in the readout line above, not folded into a slider.
         for key, field in (("vlim_rel", "reliability"),
                            ("vlim_alt", "alt_reliability"),
-                           ("vlim_lo", "vmin")):
-            val = int(round(GPU.abs_limit_mv(raw[0], field)))
+                           ("vlim_ov", "overvoltage"),
+                           ("vlim_lo", "vmin"),
+                           ("vlim1_rel", "reliability"),
+                           ("vlim1_alt", "alt_reliability"),
+                           ("vlim1_ov", "overvoltage"),
+                           ("vlim1_lo", "vmin")):
+            fields = (raw or {}).get(1 if key.startswith("vlim1") else 0)
+            if not (supported and fields):
+                continue
+            val = int(round(GPU.abs_limit_mv(fields, field)))
             for pre in ("sl_", "in_"):
                 if dpg.does_item_exist(pre + key):
                     dpg.set_value(pre + key, val)
 
-    def volt_limits_text(self, raw):
-        """The per-rail limits: every field, and what they add up to.
+    @staticmethod
+    def volt_limits_cells(raw, rail, state=None, supported=True):
+        """One present rail as (label, fields, cap, live, effective).
 
-        Both are shown on purpose. The fields are what is stored; the reach is
-        what the card will actually do, and the two can disagree completely -
-        reliability 1150 with alt_reliability at its 1060 base stores exactly
-        what was asked and reaches nothing. Printing only the fields hides
-        that, and printing only the reach hides which knob to move.
-
-        `raw` is the delta form from read_volt_rail_limits.
+        Only a confirmed profile can translate the delta block. Other cards
+        can still show the driver's absolute limits and live reading without
+        inheriting another card's voltage bases or boost headroom.
         """
-        bits = []
-        for rail, name in ((0, "NVVDD"), (1, "MSVDD")):
-            f = raw.get(rail)
-            if not f:
+        f = (raw or {}).get(rail)
+        s = (state or {}).get(rail) or {}
+        if supported and f:
+            limits = {key: GPU.abs_limit_mv(f, key)
+                      for key in GPU.VOLT_LIMIT_FIELDS}
+            cap = f"cap {GPU.rail_ceiling_mv(f):.0f}"
+            suffix = " limits"
+        elif s:
+            limits = s
+            cap = ""
+            suffix = " (read-only)"
+        else:
+            return None
+        fields = (f"rel {limits['reliability']:.0f} / "
+                  f"alt {limits['alt_reliability']:.0f}\n"
+                  f"ov {limits['overvoltage']:.0f} / "
+                  f"vmin {limits['vmin']:.0f} mV")
+        # Cap includes the confirmed boost headroom; effective is the card's
+        # own limit readback. Keep both quantities separately labelled.
+        live = f"live {s['live']:.0f} mV" if s.get("live") else "live --"
+        eff = f"eff {s['effective']:.0f}" if s.get("effective") else ""
+        return (("NVVDD" if rail == 0 else "MSVDD") + suffix,
+                fields, cap, live, eff)
+
+    def build_volt_limits_rows(self):
+        """Build readouts and confirmed controls for the rails on this card."""
+        lim = self.gpu.read_volt_rail_limits()
+        state = self.gpu.read_volt_rail_state()
+        supported = self.gpu.volt_rail_limits_supported()
+        self._rail_readonly = set()
+        for rail in (0, 1):
+            cells = self.volt_limits_cells(lim, rail, state, supported)
+            if not cells:
                 continue
-            s = (f"{name}  rel {GPU.abs_limit_mv(f, 'reliability'):.0f} / "
-                 f"alt {GPU.abs_limit_mv(f, 'alt_reliability'):.0f} / "
-                 f"vmin {GPU.rail_floor_mv(f):.0f}")
-            # The reach is quoted only for the rail it was MEASURED on. The
-            # same arithmetic applied to MSVDD would print a confident number
-            # for a rail whose bases were never pinned and whose boost
-            # behaviour was never observed, which is the overclaim this line
-            # exists to avoid.
-            if rail == 0:
-                s += f"  -> reaches {GPU.rail_ceiling_mv(f):.0f} mV"
-            bits.append(s)
-        return "rail limits:   " + "      ".join(bits)
+            if not (supported and (lim or {}).get(rail)):
+                self._rail_readonly.add(rail)
+            with dpg.table_row():
+                dpg.add_text(cells[0], color=DIM)
+                dpg.add_text(cells[1], tag=f"vlim_txt{rail}", color=DIM,
+                             wrap=self.s(self.KNOB_COLS[1]))
+                dpg.add_text(cells[2], tag=f"vlim_reach{rail}", color=DIM)
+                dpg.add_text(cells[3], tag=f"vlim_live{rail}", color=GOOD)
+                dpg.add_text(cells[4], tag=f"vlim_eff{rail}", color=DIM)
+        if not (supported and lim):
+            return
+
+        lo_mv = int(self.gpu.VOLT_LIMIT_MIN_MV)
+        hi_mv = int(self.gpu.VOLT_LIMIT_MAX_MV)
+        xoc_hi_mv = int(self.gpu.VOLT_LIMIT_XOC_MAX_MV)
+        with dpg.table_row():
+            dpg.add_text("Ceilings", color=DIM)
+            dpg.add_checkbox(
+                label="Link reliability + alt-reliability", tag="vlim_link",
+                default_value=True,
+                callback=lambda s, a, u: self.log(
+                    "rail ceilings linked: both fields move together, which "
+                    "leaves the voltage boost slider with no range to work in"
+                    if a else
+                    "rail ceilings unlinked: each field moves independently; "
+                    "watch the cap and effective limit", True))
+        if 0 in lim and 1 not in lim:
+            with dpg.table_row():
+                dpg.add_text("NVVDD", color=DIM)
+                dpg.add_text("NVVDD ceiling clamps confirmed. The driver "
+                             "does not expose MSVDD.", color=DIM,
+                             wrap=self.s(self.KNOB_COLS[1]))
+
+        # Each slider retains its own field; Link is the explicit convenience
+        # for moving the reliability pair together. Build no absent rail.
+        for rail in (0, 1):
+            if rail not in lim:
+                continue
+            name = "NVVDD" if rail == 0 else "MSVDD"
+            prefix = "vlim" if rail == 0 else "vlim1"
+            color = None if rail == 0 else WARN
+            if rail == 1:
+                with dpg.table_row():
+                    dpg.add_text("MSVDD", color=WARN)
+                    dpg.add_text("APPLIES, LIVE READING (setpoint or sensed "
+                                 "is unresolved)", color=WARN,
+                                 wrap=self.s(self.KNOB_COLS[1]))
+            for short, field, label in (
+                    ("rel", "reliability", "reliability"),
+                    ("alt", "alt_reliability", "alt-reliability"),
+                    ("ov", "overvoltage", "overvoltage"),
+                    ("lo", "vmin", "vmin")):
+                if field not in self.gpu.volt_rail_limit_fields(rail):
+                    continue
+                key = f"{prefix}_{short}"
+                self.slider_row(
+                    key, f"{name} {label} (mV)", lo_mv, hi_mv,
+                    int(round(GPU.abs_limit_mv(lim[rail], field))),
+                    lambda v, r=rail, f=field: self.apply_vlim(r, **{f: v}),
+                    color=color, extra=("Stock", lambda k=key: self.stock_knob(k)),
+                    xoc_lo=lo_mv, xoc_hi=xoc_hi_mv)
+                if field == "vmin" and self.gpu.arch() == GPU.ARCH_PASCAL:
+                    with dpg.tooltip(f"sl_{key}"):
+                        dpg.add_text(
+                            "Confirmed at idle on TITAN Xp. A locked V/F "
+                            "point or P2 operation can remain below the "
+                            "requested minimum; watch the live rail reading.",
+                            wrap=self.s(340))
 
     def risk_features(self):
         """Which guardrail-removing features are actually live right now.
@@ -1323,7 +1565,7 @@ class Druta:
                 and dpg.get_value("i2c_mode") and self.rail.present()):
             live.add("i2c")
         if (dpg.does_item_exist("vlim_mode") and dpg.get_value("vlim_mode")
-                and self.gpu.read_volt_rail_limits() is not None):
+                and self.gpu.volt_rail_limits_supported()):
             live.add("volt_limits")
         return live
 
@@ -1355,25 +1597,50 @@ class Druta:
                 self.rail.disable_xoc()
 
         # The backend's rail-1 gate follows the XOC box, so it is impossible
-        # to leave it armed after unticking - the flag lives on the class and
-        # would otherwise outlast the state that justified it.
-        GPU.msvdd_write_enabled = "xoc" in live
+        # to leave it armed after unticking. Keep it on this card's instance so
+        # unlocking one GPU cannot arm another one.
+        self.gpu.msvdd_write_enabled = "xoc" in live
+        self.gpu.voltage_xoc_enabled = "xoc" in live
         # Same shape as the rail-1 gate: the backend flag follows the box, so
         # it cannot outlive the state that justified it. Nothing but Druta
         # bounds this value, so it must never be on by default.
-        GPU.volt_limits_write_enabled = "volt_limits" in live
-        for k in ("vlim_rel", "vlim_alt", "vlim_lo"):
+        self.gpu.volt_limits_write_enabled = "volt_limits" in live
+        for k in ("vlim_rel", "vlim_alt", "vlim_ov", "vlim_lo",
+                  "vlim1_rel", "vlim1_alt", "vlim1_ov", "vlim1_lo"):
             for pre in ("sl_", "in_", "go_"):
                 if dpg.does_item_exist(pre + k):
                     dpg.configure_item(pre + k,
                                        enabled="volt_limits" in live)
-        for tag in ("go_vlim_rel_x", "vlim_link"):
+        # The eight per-row Stock buttons are deliberately NOT in that list.
+        # reset_volt_rail_limits is documented as ungated on purpose - putting
+        # a rail back to its power-on value is the one write that is safe
+        # whatever the risk state - so disabling the button that performs it
+        # would remove the recovery action exactly when it is wanted. Only one
+        # of the eight was being greyed anyway, which was the inconsistency
+        # that surfaced this.
+        for tag in ("vlim_link",):
             if dpg.does_item_exist(tag):
                 dpg.configure_item(tag, enabled="volt_limits" in live)
+
+        # XOC-GATED, not merely XOC-widened. Every other per-domain knob stays
+        # usable without XOC because its range is the one the driver admits
+        # anywhere on this card. The memory one is different in kind: the whole
+        # reason it exists is that its write is checked against nothing, so
+        # leaving it live with the box unticked would hand out the escape while
+        # the banner still described the guardrails as being in place.
+        #
+        # Its Stock button stays enabled for the same reason the rail ones do -
+        # putting a clock back is the action you want available exactly when
+        # you have just taken the permission away.
+        for k in (kn.key for kn in self.DOMAIN_KNOBS if kn.xoc_only):
+            for pre in ("sl_", "in_", "go_"):
+                if dpg.does_item_exist(pre + k):
+                    dpg.configure_item(pre + k, enabled="xoc" in live)
 
         # AHEAD of the RISK_STOCK return below, not after the banner work: this
         # is the call that puts the knobs BACK when XOC is unticked, and behind
         # the return it would run on every state except the one that needs it.
+        self.ov_carryover(self.gpu.read_volt_rail_limits())
         self.sync_slider_ranges("xoc" in live)
 
         if band == RISK_STOCK:
@@ -1426,12 +1693,11 @@ class Druta:
                                  default_value=False,
                                  show=railctl is not None,
                                  callback=lambda s, a, u: self.sync_risk_ui())
-                # Shown only where the block reads, because on a card that
-                # cannot read it the write has nothing to verify against.
+                # A readable block alone does not establish working writes or
+                # the bases needed to translate its deltas into millivolts.
                 dpg.add_checkbox(label="Rail limits", tag="vlim_mode",
                                  default_value=False,
-                                 show=self.gpu.read_volt_rail_limits()
-                                 is not None,
+                                 show=self.gpu.volt_rail_limits_supported(),
                                  callback=lambda s, a, u: self.sync_risk_ui())
                 dpg.add_spacer(width=self.s(16))
                 # sits with the gate, not inside a knob group: it undoes every
@@ -1511,308 +1777,451 @@ class Druta:
             dpg.add_text("", tag="hold_info", color=GOOD)
             dpg.add_separator()
 
-            with dpg.collapsing_header(label="Clock offsets", default_open=True):
-                with dpg.table(header_row=False, no_host_extendX=True,
-                               policy=dpg.mvTable_SizingFixedFit):
-                    self.knob_cols()
-                    core_lo, core_hi = -200, 300
-                    if st.get("core_off_range"):
-                        core_lo = st["core_off_range"][0]
-                        core_hi = st["core_off_range"][1]
-                    # ---- XOC bounds for the two NVML offsets ---------------
-                    # These two are the ONLY knobs on the tab with a hard
-                    # software ceiling underneath them, and it is not Druta's:
-                    # set_clock_offset checks every request against this exact
-                    # envelope - the driver's own range from
-                    # nvmlDeviceGetClockOffsets, or its documented
-                    # (-1000, 1000) / (-2000, 6000) fallback - and REFUSES
-                    # outside it. So the XOC bound is that envelope and not one
-                    # unit further: a slider reaching past it could only ever
-                    # produce a refused Apply, which is the "knob keeps showing
-                    # a value the card never took" failure clamped=True exists
-                    # to prevent (see slider_row).
-                    #
-                    # On a card whose driver answers, the normal bounds ALREADY
-                    # are the envelope and XOC widens nothing here. That is the
-                    # honest result, and it is why the envelope is stated as a
-                    # range rather than as a multiplier of the normal one. The
-                    # widening is real only where the driver stays silent and
-                    # the normal bounds above are the conservative guesses
-                    # -200..300 and -500..1500.
-                    core_xlo, core_xhi = -1000, 1000
-                    if st.get("core_off_range"):
-                        core_xlo = st["core_off_range"][0]
-                        core_xhi = st["core_off_range"][1]
-                    # Apply snaps DOWN to this card's
-                    # {self.step_khz()/1000:.4g} MHz grid, then shows what
-                    # was written
-                    self.slider_row("core", "Core clock offset (MHz)",
-                                    core_lo, core_hi, 0, self.apply_core,
-                                    xoc_lo=core_xlo, xoc_hi=core_xhi)
+            # TWO COLUMNS. Everything below stacked vertically and the tab
+            # had to be scrolled to reach knobs that are used together. Rails
+            # sits BESIDE the clock and budget knobs rather than under them,
+            # because tuning a rail is something you do while watching a clock,
+            # not after finishing with it.
+            #
+            # PLAIN GROUPS, not child windows. A child window with
+            # autosize_y does NOT shrink to its contents - in ImGui that means
+            # "fill the remaining parent height" - so both columns claimed the
+            # whole tab and left roughly 800 px of dead space above the V/F
+            # editor. A group sizes to what is inside it, which is the actual
+            # requirement, and it also avoids giving each column its own
+            # scroll region. Widths come from the knob table itself, so a
+            # column can never be narrower than the rows it holds.
+            # A TABLE, not a horizontal group of two groups. DearPyGui's
+            # collapsing_header ignores the width of a group it sits in and
+            # spans the whole window, so the left column's "Clock offsets" and
+            # "Limits" bars were drawn straight across the right column: they
+            # covered the Rails header, which is why it could not be clicked,
+            # and toggling one of them appeared to take the rail knobs with it.
+            # Setting a width on the groups did not help, because the header was
+            # never obeying the group in the first place.
+            #
+            # A table CELL clips what is inside it. That is the property being
+            # bought here - each header now spans its own column and nothing
+            # else - and it is why this is a table rather than a tidier group.
+            with dpg.table(header_row=False, no_host_extendX=True,
+                           policy=dpg.mvTable_SizingFixedFit):
+                for _col in range(2):
+                    dpg.add_table_column(
+                        width_fixed=True,
+                        init_width_or_weight=self.knob_col_width())
+                with dpg.table_row():
+                    # EXPLICIT WIDTH, and it is load-bearing rather than tidy. A
+                    # DearPyGui collapsing_header inside a group with no width
+                    # expands to the whole window, not to its column: the left
+                    # column's "Limits" and "Clock offsets" bars were being drawn
+                    # clean across the right column and landing on top of the
+                    # NVVDD rail rows, so a header on one side highlighted a
+                    # voltage knob on the other. Constraining the group is what
+                    # stops it - the header has no width argument of its own.
+                    with dpg.group(width=self.knob_col_width()):
+                        with dpg.collapsing_header(label="Clock offsets", default_open=True):
+                            with dpg.table(header_row=False, no_host_extendX=True,
+                                           policy=dpg.mvTable_SizingFixedFit):
+                                self.knob_cols()
+                                core_lo, core_hi = -200, 300
+                                if st.get("core_off_range"):
+                                    core_lo = st["core_off_range"][0]
+                                    core_hi = st["core_off_range"][1]
+                                # ---- XOC bounds for the two NVML offsets ---------------
+                                # These two are the ONLY knobs on the tab with a hard
+                                # software ceiling underneath them, and it is not Druta's:
+                                # set_clock_offset checks every request against this exact
+                                # envelope - the driver's own range from
+                                # nvmlDeviceGetClockOffsets, or its documented
+                                # (-1000, 1000) / (-2000, 6000) fallback - and REFUSES
+                                # outside it. So the XOC bound is that envelope and not one
+                                # unit further: a slider reaching past it could only ever
+                                # produce a refused Apply, which is the "knob keeps showing
+                                # a value the card never took" failure clamped=True exists
+                                # to prevent (see slider_row).
+                                #
+                                # On a card whose driver answers, the normal bounds ALREADY
+                                # are the envelope and XOC widens nothing here. That is the
+                                # honest result, and it is why the envelope is stated as a
+                                # range rather than as a multiplier of the normal one. The
+                                # widening is real only where the driver stays silent and
+                                # the normal bounds above are the conservative guesses
+                                # -200..300 and -500..1500.
+                                core_xlo, core_xhi = -1000, 1000
+                                if st.get("core_off_range"):
+                                    core_xlo = st["core_off_range"][0]
+                                    core_xhi = st["core_off_range"][1]
+                                # Apply snaps DOWN to this card's
+                                # {self.step_khz()/1000:.4g} MHz grid, then shows what
+                                # was written
+                                self.slider_row("core", "Core clock offset (MHz)",
+                                                core_lo, core_hi, 0, self.apply_core,
+                                                xoc_lo=core_xlo, xoc_hi=core_xhi,
+                                                extra=("Stock", lambda _k="core": self.stock_knob(_k)))
 
-                    mscale, munit = self.gpu.mem_offset_scale()
-                    mlo, mhi = -500, 1500
-                    if st.get("mem_off_range"):
-                        mlo = int(st["mem_off_range"][0] / mscale)
-                        mhi = int(st["mem_off_range"][1] / mscale)
-                    # Same envelope, through the same scale conversion the
-                    # normal bounds use - the backend compares NVML units, so
-                    # the bound has to be divided down into the units this
-                    # slider is labelled in or it would mean 8x what it says on
-                    # a GDDR6 card.
-                    mem_xlo, mem_xhi = -2000, 6000
-                    if st.get("mem_off_range"):
-                        mem_xlo = st["mem_off_range"][0]
-                        mem_xhi = st["mem_off_range"][1]
-                    self.slider_row("mem", f"Memory offset ({munit})",
-                                    mlo, mhi, 0, self.apply_mem,
-                                    xoc_lo=int(mem_xlo / mscale),
-                                    xoc_hi=int(mem_xhi / mscale))
+                                mscale, munit = self.gpu.mem_offset_scale()
+                                mlo, mhi = -500, 1500
+                                if st.get("mem_off_range"):
+                                    mlo = int(st["mem_off_range"][0] / mscale)
+                                    mhi = int(st["mem_off_range"][1] / mscale)
+                                # Same envelope, through the same scale conversion the
+                                # normal bounds use - the backend compares NVML units, so
+                                # the bound has to be divided down into the units this
+                                # slider is labelled in or it would mean 8x what it says on
+                                # a GDDR6 card.
+                                mem_xlo, mem_xhi = -2000, 6000
+                                if st.get("mem_off_range"):
+                                    mem_xlo = st["mem_off_range"][0]
+                                    mem_xhi = st["mem_off_range"][1]
+                                self.slider_row("mem", f"Memory offset ({munit})",
+                                                mlo, mhi, 0, self.apply_mem,
+                                                xoc_lo=int(mem_xlo / mscale),
+                                                xoc_hi=int(mem_xhi / mscale),
+                                                extra=("Stock",
+                                                       lambda: self.stock_knob("mem")))
 
-                    # XBAR reaches a domain NVIDIA does not expose publicly at
-                    # all: NV_GPU_PUBLIC_CLOCK_ID has no crossbar member, and
-                    # both NVML and Pstates20 enumerate only GRAPHICS and
-                    # MEMORY on this card. The row appears only where the
-                    # private control block answers, so a card without it shows
-                    # no dead knob.
-                    if self.gpu.clkdom_ok():
-                        cur, _ = self.gpu.read_clk_domain_offsets()
-                        cur = cur or {}
-                        # via read(), not read_clock_domains(): the bare call
-                        # names blind and would report every card as Turing
-                        drows = (self.gpu.read() or {}).get("clk_domains")
-                        controls = set(self.gpu.clkdom_controls_for_ui(drows))
-                        built = 0
-                        for kn in self.DOMAIN_KNOBS:
-                            if kn.ctrl not in self.gpu.clkdom_domains():
-                                continue
-                            # On Turing, a knob is built only where a clock
-                            # was observed to move: accepting and storing a
-                            # write is not enough. Blackwell is different:
-                            # its control indices and private getter indices
-                            # are separate, so its accepted controls are
-                            # gated by the architecture-specific layout and
-                            # validated one-hot control mask above.
-                            if kn.ctrl not in controls:
-                                continue
-                            built += 1
-                            init = int(cur.get(kn.ctrl, {})
-                                       .get("freq_khz", 0) / 1000)
-                            lbl, col, _p = self.domain_knob_label(kn, drows)
-                            # XOC: the core envelope above, because nothing
-                            # else bounds this knob. -300..300 is a UI
-                            # convention, not a driver fact -
-                            # set_clk_domain_offset writes a raw signed-kHz
-                            # field with no range check of any kind, so the
-                            # only real limits are the driver's floor-to-bins
-                            # and the silicon. Reusing the widest CLOCK offset
-                            # this driver admits anywhere on this card is a
-                            # measured number rather than an invented one, and
-                            # it keeps one envelope for every clock knob on the
-                            # tab instead of a second unrelated pair.
-                            # On Blackwell these are control-domain REQUESTS and
-                            # the driver may quantise what it applies, so the
-                            # live column is what to read after a change rather
-                            # than the number that was asked for. It quantises
-                            # less than it might appear: measured on RTX 5080 /
-                            # 580.97 the XBAR response is 0.93-1.00 of the
-                            # request from +25 to +300 MHz, which is bin
-                            # flooring rather than a ratio. Kept as a comment
-                            # because per-slider subtext is no longer drawn.
-                            self.slider_row(
-                                kn.key, lbl, -300, 300, init,
-                                lambda v, _d=kn.ctrl, _k=kn.key:
-                                    self.apply_domain_offset(_d, _k, v),
-                                note=kn.note, color=col,
-                                xoc_lo=core_xlo, xoc_hi=core_xhi)
-                        if not built:
-                            # Say why the knobs are missing. A silently short
-                            # list looks like the feature was never built;
-                            # this card simply has not been mapped, which is a
-                            # different and fixable thing.
-                            with dpg.table_row():
-                                dpg.add_text(
-                                    "Per-domain clock offsets: none is shown "
-                                    "for this card. A knob appears only where "
-                                    "moving it was measured to move the "
-                                    "card's MEASURED clock - on GP102 the "
-                                    "driver records the request and the "
-                                    "hardware ignores it, which shows up as "
-                                    "the Monitor's delta going red in "
-                                    "proportion to the offset.",
-                                    color=DIM,
-                                    wrap=self.s(sum(self.KNOB_COLS[:2])))
+                                # XBAR reaches a domain NVIDIA does not expose publicly at
+                                # all: NV_GPU_PUBLIC_CLOCK_ID has no crossbar member, and
+                                # both NVML and Pstates20 enumerate only GRAPHICS and
+                                # MEMORY on this card. The row appears only where the
+                                # private control block answers, so a card without it shows
+                                # no dead knob.
+                                if self.gpu.clkdom_ok():
+                                    cur, _ = self.gpu.read_clk_domain_offsets()
+                                    cur = cur or {}
+                                    # via read(), not read_clock_domains(): the bare call
+                                    # names blind and would report every card as Turing
+                                    _live = self.gpu.read() or {}
+                                    drows = _live.get("clk_domains")
+                                    controls = set(self.gpu.clkdom_controls_for_ui(drows))
+                                    # The declared envelope, in the same
+                                    # effective-MHz units this knob writes: the
+                                    # per-domain delta measured 1:1 against the
+                                    # memory clock (+100 -> +100 MHz eff), so
+                                    # no second scale applies to it.
+                                    mem_lo, mem_hi = -1000, 3000
+                                    if st.get("mem_off_range"):
+                                        mem_lo = int(st["mem_off_range"][0] / mscale)
+                                        mem_hi = int(st["mem_off_range"][1] / mscale)
+                                    # Typo catcher, at a quarter of the memory
+                                    # clock. The first version of this used the
+                                    # WHOLE clock, which catches nothing worth
+                                    # catching: a slipped digit - 5000 for 500 -
+                                    # sails through a bound that permits
+                                    # doubling the memory speed. A quarter is
+                                    # far above any real memory overclock and
+                                    # still refuses an extra zero.
+                                    #
+                                    # Never narrower than what the card itself
+                                    # declares, so ticking XOC can only ever
+                                    # widen this knob, and floored so a card
+                                    # with a tiny declared range still gets the
+                                    # headroom that is the entire point here.
+                                    mem_typo = max(abs(mem_hi),
+                                                   int((_live.get("mem_p0max")
+                                                        or _live.get("mem")
+                                                        or 0) * 0.25),
+                                                   1000)
+                                    built = 0
+                                    unverified = []
+                                    for kn in self.DOMAIN_KNOBS:
+                                        if kn.ctrl not in self.gpu.clkdom_domains():
+                                            continue
+                                        # On Turing, a knob is built only where a clock
+                                        # was observed to move: accepting and storing a
+                                        # write is not enough. Blackwell is different:
+                                        # its control indices and private getter indices
+                                        # are separate, so its accepted controls are
+                                        # gated by the architecture-specific layout and
+                                        # validated one-hot control mask above.
+                                        # An xoc_only knob is let through
+                                        # WITHOUT a measured pairing. That is a
+                                        # deliberate exception to the rule
+                                        # above, and it is narrow: the declared
+                                        # OC range is read-only, so an unchecked
+                                        # CONTROL delta is the only route past
+                                        # it on any generation, and refusing to
+                                        # show the knob on the cards that most
+                                        # need it guarantees nobody ever finds
+                                        # out whether it works there. It is
+                                        # XOC-gated and carries the note below.
+                                        paired = kn.ctrl in controls
+                                        if not paired and not kn.xoc_only:
+                                            continue
+                                        # Only a PAIRED knob counts as mapped.
+                                        # Otherwise showing the unverified one
+                                        # would suppress the "nothing is mapped
+                                        # for this card" message below, which is
+                                        # the honest thing to say about every
+                                        # other domain.
+                                        if paired:
+                                            built += 1
+                                        else:
+                                            unverified.append(kn)
+                                        init = int(cur.get(kn.ctrl, {})
+                                                   .get("freq_khz", 0) / 1000)
+                                        lbl, col, _p = self.domain_knob_label(kn, drows)
+                                        # XOC: the core envelope above, because nothing
+                                        # else bounds this knob. -300..300 is a UI
+                                        # convention, not a driver fact -
+                                        # set_clk_domain_offset writes a raw signed-kHz
+                                        # field with no range check of any kind, so the
+                                        # only real limits are the driver's floor-to-bins
+                                        # and the silicon. Reusing the widest CLOCK offset
+                                        # this driver admits anywhere on this card is a
+                                        # measured number rather than an invented one, and
+                                        # it keeps one envelope for every clock knob on the
+                                        # tab instead of a second unrelated pair.
+                                        # On Blackwell these are control-domain REQUESTS and
+                                        # the driver may quantise what it applies, so the
+                                        # live column is what to read after a change rather
+                                        # than the number that was asked for. It quantises
+                                        # less than it might appear: measured on RTX 5080 /
+                                        # 580.97 the XBAR response is 0.93-1.00 of the
+                                        # request from +25 to +300 MHz, which is bin
+                                        # flooring rather than a ratio. Kept as a comment
+                                        # because per-slider subtext is no longer drawn.
+                                        # MEM is bounded differently from the
+                                        # rest. Not because it escapes a bound -
+                                        # measured, it does not - but because
+                                        # its own write is unvalidated, so the
+                                        # only bound between the slider and the
+                                        # driver is this one.
+                                        #
+                                        # Without XOC it gets the card's OWN
+                                        # declared delta range, so it can do
+                                        # nothing the ordinary memory slider
+                                        # could not already do - the escape is
+                                        # the thing being gated, not the knob.
+                                        #
+                                        # With XOC its ceiling is the memory
+                                        # clock itself. That is a TYPO CATCHER
+                                        # and is labelled as one: an offset
+                                        # larger than the clock it is added to
+                                        # would more than double the memory
+                                        # speed and is a slip, not a plan.
+                                        # Nothing here is a hardware limit -
+                                        # the write is unchecked all the way
+                                        # down - so Druta must not present its
+                                        # own number as though the card had
+                                        # supplied it.
+                                        if kn.xoc_only:
+                                            lo_d, hi_d = mem_lo, mem_hi
+                                            xlo, xhi = -mem_typo, mem_typo
+                                        else:
+                                            lo_d, hi_d = -300, 300
+                                            xlo, xhi = core_xlo, core_xhi
+                                        self.slider_row(
+                                            kn.key, lbl, lo_d, hi_d, init,
+                                            lambda v, _d=kn.ctrl, _k=kn.key:
+                                                self.apply_domain_offset(_d, _k, v),
+                                            note=kn.note, color=col,
+                                            xoc_lo=xlo, xoc_hi=xhi,
+                                            extra=("Stock", lambda _k=kn.key:
+                                                   self.stock_knob(_k)))
+                                    # SAY IT WHERE THE KNOB IS, and say what
+                                    # was MEASURED on this architecture rather
+                                    # than what was inferred. Those came apart
+                                    # badly here twice: once when an XBAR
+                                    # result on GP102 was generalised to every
+                                    # domain, and once when a Blackwell result
+                                    # taken far inside the declared range was
+                                    # generalised past it.
+                                    #
+                                    # The generations genuinely disagree. Pascal
+                                    # carries the memory clock PAST its declared
+                                    # ceiling; Blackwell clamps at exactly the
+                                    # declared maximum. A single sentence cannot
+                                    # be true for both, so the note is built
+                                    # from the measurement table.
+                                    arch = self.gpu.arch_name() or "this card"
+                                    for kn in unverified:
+                                        dom = kn.ctrl
+                                        applies = not self.gpu.clkdom_delta_inert(dom)
+                                        clears = self.gpu.clkdom_delta_clears_ceiling(dom)
+                                        if applies and clears:
+                                            txt, col = (
+                                                f"{arch}: MEASURED to go PAST the "
+                                                f"declared memory ceiling - with the "
+                                                f"ordinary memory slider already at "
+                                                f"its maximum, this carried the clock "
+                                                f"beyond it. This is the only path "
+                                                f"found that does.", GOOD)
+                                        elif applies and clears is False:
+                                            txt, col = (
+                                                f"{arch}: this applies, but it is "
+                                                f"CLAMPED at exactly the declared "
+                                                f"maximum - past that the value "
+                                                f"stores in full and the clock does "
+                                                f"not move. It is a second route to "
+                                                f"the same envelope, not past it.",
+                                                WARN)
+                                        elif applies:
+                                            txt, col = (
+                                                f"{arch}: this applies, but whether "
+                                                f"it passes the declared ceiling is "
+                                                f"UNTESTED here. Watch the Monitor's "
+                                                f"measured memory clock, never the "
+                                                f"value read back.", WARN)
+                                        else:
+                                            txt, col = (
+                                                f"{arch}: on this generation the "
+                                                f"per-domain delta is stored and "
+                                                f"ignored - measured for XBAR on "
+                                                f"GP102. MEM here is unproven; judge "
+                                                f"it only by the measured clock.",
+                                                WARN)
+                                        with dpg.table_row():
+                                            dpg.add_text(
+                                                txt, color=col,
+                                                wrap=self.s(sum(self.KNOB_COLS[:2])))
+                                    if not built:
+                                        # Say why the knobs are missing. A silently short
+                                        # list looks like the feature was never built;
+                                        # this card simply has not been mapped, which is a
+                                        # different and fixable thing.
+                                        with dpg.table_row():
+                                            dpg.add_text(
+                                                ("Per-domain clock offsets: none is "
+                                                 "MAPPED for this card"
+                                                 + (", so the memory knob above is the "
+                                                    "only one offered and it is offered "
+                                                    "unproven" if unverified else "")
+                                                 + ". A knob is normally shown only where "
+                                                 "moving it was measured to move the "
+                                                 "card's MEASURED clock - on GP102 the "
+                                                 "driver records the request and the "
+                                                 "hardware ignores it, which shows up as "
+                                                 "the Monitor's delta going red in "
+                                                 "proportion to the offset."),
+                                                color=DIM,
+                                                wrap=self.s(sum(self.KNOB_COLS[:2])))
 
-            # Voltage boost is grouped with the limits, not the offsets: it moves
-            # no clock at all, it raises a ceiling the arbiter is allowed to
-            # reach - the same shape of knob as the power limit.
-            with dpg.collapsing_header(label="Limits", default_open=True):
-                with dpg.table(header_row=False, no_host_extendX=True,
-                               policy=dpg.mvTable_SizingFixedFit):
-                    self.knob_cols()
-                    pl_lo = st.get("pl_min_mw", 100000) // 1000
-                    pl_hi = st.get("pl_max_mw", 320000) // 1000
-                    pl_def = st.get("pl_def_mw", 260000) // 1000
-                    self.slider_row("pl", "Power limit (W)", pl_lo, pl_hi,
-                                    pl_def, self.apply_pl)
+                        # Voltage boost is grouped with the limits, not the offsets: it moves
+                        # no clock at all, it raises a ceiling the arbiter is allowed to
+                        # reach - the same shape of knob as the power limit.
+                        with dpg.collapsing_header(label="Limits", default_open=True):
+                            with dpg.table(header_row=False, no_host_extendX=True,
+                                           policy=dpg.mvTable_SizingFixedFit):
+                                self.knob_cols()
+                                pl_lo = st.get("pl_min_mw", 100000) // 1000
+                                pl_hi = st.get("pl_max_mw", 320000) // 1000
+                                pl_def = st.get("pl_def_mw", 260000) // 1000
+                                self.slider_row("pl", "Power limit (W)", pl_lo, pl_hi,
+                                                pl_def, self.apply_pl,
+                                                extra=("Stock",
+                                                       lambda: self.stock_knob("pl")))
 
-                    vb = self.gpu.read_voltage_boost()
-                    # raises the reliability-voltage ceiling
-                    self.slider_row("volt", "Core voltage boost (%)", 0, 100,
-                                    0 if vb is None else max(0, min(100, int(vb))),
-                                    self.apply_volt)
+                                vb = self.gpu.read_voltage_boost()
+                                # raises the reliability-voltage ceiling
+                                self.slider_row("volt", "Core voltage boost (%)", 0, 100,
+                                                0 if vb is None else max(0, min(100, int(vb))),
+                                                self.apply_volt,
+                                                extra=("Stock",
+                                                       lambda: self.stock_knob("volt")))
 
-                    # The ceiling the boost slider above is actually working
-                    # against. READ-ONLY, and that is a finding rather than a
-                    # choice: nvbackend.GPU.read_volt_rail_limits records the
-                    # search that found no setter for this block anywhere in
-                    # NvAPI. Worth showing anyway - the factory value is NOT
-                    # zero on every rail, and an external tool that has moved
-                    # these is otherwise invisible from inside Druta.
-                    lim = self.gpu.read_volt_rail_limits()
-                    if lim:
-                        # In a row of its own: every child of this table has to
-                        # be a table_row, and a bare add_text here fails inside
-                        # DearPyGui rather than at the call.
-                        with dpg.table_row():
-                            dpg.add_text(self.volt_limits_text(lim),
-                                         tag="volt_limits_txt", color=DIM,
-                                         wrap=self.s(sum(self.KNOB_COLS)))
-                        # EXPERIMENTAL, and gated on the Rail limits box. The
-                        # ceiling does not APPLY a voltage - it permits one, and
-                        # the arbiter then takes the highest V/F point at or
-                        # below it. Raising it above the top of the curve
-                        # therefore does nothing at all, which is why the
-                        # backend's bound sits at the curve top rather than at
-                        # whatever the block will swallow: it accepts 1500 mV
-                        # and reads it straight back, so Druta's bound is the
-                        # only one there is.
-                        # ONE KNOB PER FIELD, named for the field. No synthetic
-                        # "ceiling": the two reliability limits interact, and
-                        # collapsing them means choosing a mapping and hiding
-                        # it. Measured under load on this card:
-                        #     cap = min(rel + boost% * 20mV, alt)
-                        # so rel is where the boost slider starts and alt is a
-                        # hard clamp over the result. Raising rel alone reaches
-                        # nothing; raising both to the same volt works but
-                        # leaves the boost slider with nothing to do. The
-                        # readout above states what the pair actually reaches,
-                        # so either outcome is visible rather than inferred.
-                        lo_mv = int(GPU.VOLT_LIMIT_MIN_MV)
-                        hi_mv = int(GPU.VOLT_LIMIT_MAX_MV)
-                        with dpg.table_row():
-                            dpg.add_checkbox(
-                                label="Link reliability + alt-reliability "
-                                      "(moves both, and the boost slider "
-                                      "stops doing anything)",
-                                tag="vlim_link", default_value=False)
-                        self.slider_row(
-                            "vlim_rel", "NVVDD reliability (mV)", lo_mv, hi_mv,
-                            int(round(GPU.abs_limit_mv(lim[0],
-                                                       "reliability"))),
-                            lambda v: self.apply_vlim(reliability=v),
-                            extra=("Stock", self.apply_vlim_reset))
-                        self.slider_row(
-                            "vlim_alt", "NVVDD alt-reliability (mV)",
-                            lo_mv, hi_mv,
-                            int(round(GPU.abs_limit_mv(lim[0],
-                                                       "alt_reliability"))),
-                            lambda v: self.apply_vlim(alt_reliability=v))
-                        self.slider_row(
-                            "vlim_lo", "NVVDD vmin (mV)", lo_mv, hi_mv,
-                            int(round(GPU.rail_floor_mv(lim[0]))),
-                            lambda v: self.apply_vlim(vmin=v))
+                                # The ceiling the boost slider above is actually
+                                # working against. Worth showing rather than
+                                # leaving implicit: the power-on value is NOT zero
+                                # on every rail, so it cannot be inferred, and
+                                # anything outside Druta that has moved these would
+                                # otherwise be invisible from in here.
+                                fan_floor = st.get("fan_min", 30)
+                                self.slider_row("fan", "Fan duty (%)", fan_floor, 100,
+                                                fan_floor, self.apply_fan,
+                                                extra=("Auto", self.fan_auto))
 
-                    # A SECOND mechanism on the same rail as the boost above,
-                    # and the note says so: they are different calls, neither
-                    # reads or clears the other, and their combination has not
-                    # been measured. Measured 1:1 on its own with the core
-                    # clock pinned by FREQUENCY - pinning by voltage instead
-                    # gives a smaller, wrong answer (see set_rail_offset_mv).
-                    if self.gpu.clkdom_ok():
-                        rv = self.gpu.read_rail_offset_mv(0)
-                        # Adds to NVVDD on the card's 6.25 mV grid. Measured
-                        # 1:1 on TU102 with the clock pinned; the response can
-                        # be far smaller elsewhere - on GP102 at idle, 100 mV
-                        # requested moved vcore 31.25 mV. Watch the live value
-                        # rather than trusting the number you set. SEPARATE
-                        # from the boost above - both act on this rail and
-                        # their interaction is unmeasured. A V/F HOLD MASKS IT:
-                        # a held point pins the voltage, so the offset applies
-                        # and nothing moves.
-                        self.slider_row(
-                            "rail", "NVVDD offset (mV)", -100, 100,
-                            int(rv or 0), self.apply_rail,
-                            # THE SLIDER IS NOT THE AUTHORITY HERE.
-                            # set_rail_offset_mv is: it writes a signed
-                            # microvolt field behind a read-back diff guard,
-                            # and what the rail will actually take is decided
-                            # there and by the firmware underneath it, not by
-                            # this bound. The widening exists because +-100
-                            # cannot even EXPRESS the measured case: on GP102
-                            # 100 mV requested moved vcore 31.25 mV, a 3.2:1
-                            # under-response, so +100 mV of real vcore needs a
-                            # request the normal slider has no room for. 500 is
-                            # 80 whole 6.25 mV bins and stays a quarter of the
-                            # 2000 mV typo catcher the XOC banner names as the
-                            # last bound left in Druta.
-                            xoc_lo=-500, xoc_hi=500)
+                    with dpg.group(width=self.knob_col_width()):
+                        # RAILS GET THEIR OWN SECTION. The tab had grown past a screen and
+                        # needed scrolling to reach knobs that matter, and these belong
+                        # together on their own terms anyway: everything here acts on a
+                        # VOLTAGE RAIL rather than on a clock or a budget, and two of them
+                        # reach hardware by routes the driver never sees.
+                        with dpg.collapsing_header(label="Rails", default_open=True):
+                            with dpg.table(header_row=False, no_host_extendX=True,
+                                           policy=dpg.mvTable_SizingFixedFit):
+                                self.knob_cols()
+                                self.build_volt_limits_rows()
 
-                    # RAIL 1. Built only where the layout names a field for
-                    # it, and gated on XOC because it is the one knob here that
-                    # CANNOT be verified: this card exposes no readback for
-                    # this rail, so a write is a request that was accepted and
-                    # never a change that was observed. The label says
-                    # UNVERIFIED rather than a note, because per-knob subtext
-                    # is no longer drawn and this is not a caveat to bury.
-                    _lay = self.gpu.clkdom_layout()
-                    if _lay is not None and _lay.msvdd_uv is not None:
-                        self.slider_row(
-                            "msvdd", "MSVDD offset (mV)  UNVERIFIED",
-                            -50, 50, 0, self.apply_msvdd, color=BAD,
-                            xoc_lo=-150, xoc_hi=150)
+                                # A SECOND mechanism on the same rail as the boost above,
+                                # and the note says so: they are different calls, neither
+                                # reads or clears the other, and their combination has not
+                                # been measured. Measured 1:1 on its own with the core
+                                # clock pinned by FREQUENCY - pinning by voltage instead
+                                # gives a smaller, wrong answer (see set_rail_offset_mv).
+                                if self.gpu.clkdom_ok():
+                                    rv = self.gpu.read_rail_offset_mv(0)
+                                    # Adds to NVVDD on the card's 6.25 mV grid. Measured
+                                    # 1:1 on TU102 with the clock pinned; the response can
+                                    # be far smaller elsewhere - on GP102 at idle, 100 mV
+                                    # requested moved vcore 31.25 mV. Watch the live value
+                                    # rather than trusting the number you set. SEPARATE
+                                    # from the boost above - both act on this rail and
+                                    # their interaction is unmeasured. A V/F HOLD MASKS IT:
+                                    # a held point pins the voltage, so the offset applies
+                                    # and nothing moves.
+                                    self.slider_row(
+                                        "rail", "NVVDD offset (mV)", -100,
+                                        int(self.gpu.RAIL_OFFSET_MAX_MV),
+                                        int(rv or 0), self.apply_rail,
+                                        # The backend enforces the same positive
+                                        # request maxima: +200 normal, +500 XOC.
+                                        # These offsets need not translate 1:1
+                                        # into the live voltage on every card.
+                                        xoc_lo=-500,
+                                        xoc_hi=int(self.gpu.RAIL_OFFSET_XOC_MAX_MV),
+                                        extra=("Stock",
+                                               lambda: self.stock_knob("rail")))
 
-                    # THE OTHER ROAD TO THE SAME RAIL, and the only knob in
-                    # Druta with no firmware underneath it. Built only where a
-                    # regulator actually answered, so an unmodified card shows
-                    # no dead row - the same rule the per-domain knobs use.
-                    if self.rail is not None and self.rail.present():
-                        rp = self.rail.p
-                        tel = self.rail.telemetry()
-                        # PMBus straight to the regulator. The knob above ASKS
-                        # the GPU for volts and the firmware may refuse; this
-                        # one moves the regulator and nothing can refuse it.
-                        # The GPU never learns the rail changed, so it will not
-                        # compensate, will not throttle for it, and its own
-                        # voltage readout stays wrong by however much you dial
-                        # in. IT DOES NOT CLEAR ON REBOOT - only 'Reset all to
-                        # stock' or pulling 12 V. Press Verify first: it climbs
-                        # 6.25 -> 75 mV under load until the rail is SEEN to
-                        # move, and Apply stays refused until it has. Measured
-                        # on this card: the first ~31 mV up and ~12 mV down do
-                        # nothing at all, then it tracks about 1:1 - so read
-                        # the measured column, never the number you set.
-                        # Label from the profile, not hardcoded: the rail this
-                        # drives is whatever the identified board says it is.
-                        self.slider_row(
-                            "i2crail", f"{rp.rail} at the VRM (mV)",
-                            int(rp.env_min), int(rp.env_max),
-                            int(tel.get("offset_mv") or 0),
-                            self.apply_i2c_rail,
-                            extra=("Verify", self.verify_i2c_rail),
-                            color=BAD,
-                            # The register's own representable range, not a
-                            # policy: past it the field wraps through its sign
-                            # bit. railctl refuses there in every mode, so the
-                            # slider stops in the same place rather than
-                            # offering travel that can only be rejected.
-                            xoc_lo=int(rp.hw_min_mv),
-                            xoc_hi=int(rp.hw_max_mv))
-
-                    fan_floor = st.get("fan_min", 30)
-                    self.slider_row("fan", "Fan duty (%)", fan_floor, 100,
-                                    fan_floor, self.apply_fan,
-                                    extra=("Auto", self.fan_auto))
+                                # THE MSVDD OFFSET KNOB IS GONE, and this note is what is
+                                # left of it. The clock-domain block has an MSVDD field at
+                                # +0x11C and Blackwell ACCEPTS writes to it - including on
+                                # control domains that move nothing at all, which is what
+                                # "accepted" is worth here. Against NVVDD as a positive
+                                # control it moved neither voltage nor board power, and the
+                                # rail limits later proved MSVDD IS reachable by a
+                                # different route entirely (worth ~20 W between 900 and
+                                # 1200 mV), so the offset field is not an unproven path to
+                                # something real - it is a field that does nothing while
+                                # looking like a voltage control. Use the MSVDD rail limits
+                                # below.
+                                # THE OTHER ROAD TO THE SAME RAIL, and the only knob in
+                                # Druta with no firmware underneath it. Built only where a
+                                # regulator actually answered, so an unmodified card shows
+                                # no dead row - the same rule the per-domain knobs use.
+                                if self.rail is not None and self.rail.present():
+                                    rp = self.rail.p
+                                    tel = self.rail.telemetry()
+                                    # PMBus straight to the regulator. The knob above ASKS
+                                    # the GPU for volts and the firmware may refuse; this
+                                    # one moves the regulator and nothing can refuse it.
+                                    # The GPU never learns the rail changed, so it will not
+                                    # compensate, will not throttle for it, and its own
+                                    # voltage readout stays wrong by however much you dial
+                                    # in. IT DOES NOT CLEAR ON REBOOT - only 'Reset all to
+                                    # stock' or pulling 12 V. Press Verify first: it climbs
+                                    # 6.25 -> 75 mV under load until the rail is SEEN to
+                                    # move, and Apply stays refused until it has. Measured
+                                    # on this card: the first ~31 mV up and ~12 mV down do
+                                    # nothing at all, then it tracks about 1:1 - so read
+                                    # the measured column, never the number you set.
+                                    # Label from the profile, not hardcoded: the rail this
+                                    # drives is whatever the identified board says it is.
+                                    self.slider_row(
+                                        "i2crail", f"{rp.rail} at the VRM (mV)",
+                                        int(rp.env_min), int(rp.env_max),
+                                        int(tel.get("offset_mv") or 0),
+                                        self.apply_i2c_rail,
+                                        extra=[("Verify", self.verify_i2c_rail),
+                                               ("Stock", lambda: self.stock_knob("i2crail"))],
+                                        color=BAD,
+                                        # The register's own representable range, not a
+                                        # policy: past it the field wraps through its sign
+                                        # bit. railctl refuses there in every mode, so the
+                                        # slider stops in the same place rather than
+                                        # offering travel that can only be rejected.
+                                        xoc_lo=int(rp.hw_min_mv),
+                                        xoc_hi=int(rp.hw_max_mv))
 
             with dpg.collapsing_header(label="V/F curve editor",
                                        default_open=True):
@@ -1836,10 +2245,15 @@ class Druta:
         bound is the unit itself - the voltage boost is a percentage of the
         VBIOS headroom and 101% is not a bigger overclock, it is nonsense."""
         self._slider_ranges[key] = KnobRange(label, lo, hi, xoc_lo, xoc_hi)
+        # Remembered so a Stock button can drive the SAME apply path the row's
+        # own button does, rather than a second one that could drift from it.
+        self._knob_cb[key] = cb
         with dpg.table_row():
             # colour is normally TEXT; the per-domain offsets pass the Monitor's
             # grade colour so a hedged name looks hedged on both tabs
-            dpg.add_text(label, color=color or TEXT)
+            dpg.add_text(label, color=color or TEXT,
+                         wrap=self.s(self.KNOB_COLS[0] - 10)
+                         if key == "memdom" else -1)
             with dpg.group():
                 # clamped: in DPG min_value/max_value only bound the DRAG.
                 # Ctrl+click turns a slider into a text field that accepts
@@ -1894,10 +2308,25 @@ class Druta:
             dpg.add_button(label="Apply", tag=f"go_{key}", width=-1,
                            callback=lambda: cb(dpg.get_value(f"sl_{key}")))
             self._ctl_widgets += [f"sl_{key}", f"in_{key}", f"go_{key}"]
-            if extra:
-                dpg.add_button(label=extra[0], tag=f"go_{key}_x",
-                               width=-1, callback=lambda: extra[1]())
-                self._ctl_widgets.append(f"go_{key}_x")
+            # extra is one (label, cb) pair or a list of them: the I2C row
+            # wants Verify AND Stock, and one slot cannot hold both.
+            extras = ([] if not extra else
+                      [extra] if isinstance(extra[0], str) else list(extra))
+            # ZERO-ARG closure, and that is not a style choice. DearPyGui
+            # inspects a callback's signature and passes (sender, app_data,
+            # user_data) up to its arity, so `lambda _c=xcb: _c()` gets the
+            # SENDER bound to _c - the default never applies - and then calls
+            # an integer. The exception is swallowed inside DPG, so the button
+            # simply does nothing. A factory keeps the late-binding right
+            # without giving the lambda a parameter for DPG to fill.
+            def _fire(f):
+                return lambda: f()
+
+            for n, (lbl, xcb) in enumerate(extras):
+                tag = f"go_{key}_x" if n == 0 else f"go_{key}_x{n}"
+                dpg.add_button(label=lbl, tag=tag, width=-1,
+                               callback=_fire(xcb))
+                self._ctl_widgets.append(tag)
 
     # ---- slider <-> text box, and what either is allowed to reach ---------- #
     def knob_bounds(self, key):
@@ -1914,7 +2343,12 @@ class Druta:
             return None
         if r.xoc_lo is not None and self._xoc_bounds:
             return min(r.lo, r.xoc_lo), max(r.hi, r.xoc_hi)
-        return r.lo, r.hi
+        # Without XOC the bound is the normal one, EXCEPT where the card is
+        # already carrying something higher. Narrowing past a live value would
+        # either drag the knob below what the rail actually holds or make the
+        # value unre-appliable, and neither is what "stop it going higher"
+        # means.
+        return r.lo, max(r.hi, self._carryover_hi.get(key, r.hi))
 
     def knob_dragged(self, key):
         if self._knob_sync or not dpg.does_item_exist(f"in_{key}"):
@@ -1981,11 +2415,23 @@ class Druta:
         So the clamp is logged by name, with both values."""
         if xoc is None:
             xoc = "xoc" in self.risk_features()
+        was_xoc = self._xoc_bounds
         self._xoc_bounds = bool(xoc)
+        # UNTICKING XOC DOES NOT TOUCH THE CARD, by decision: a value already
+        # set above the non-XOC threshold may STAY, and what XOC-off buys is
+        # that nothing can be set above it from here on. So the widget bound
+        # narrows to the stock ceiling OR to whatever the rail is already
+        # carrying, whichever is higher - see ov_carryover(). Raising is
+        # blocked, lowering is not, and nothing is silently rewritten behind
+        # the user.
+        #
+        # The earlier version of this forced the field back to stock on the
+        # untick edge. That was safe and it was also not what was asked for.
+        _ = was_xoc
         for key, r in self._slider_ranges.items():
             if not dpg.does_item_exist(f"sl_{key}"):
                 continue
-            lo, hi = r.lo, r.hi
+            lo, hi = r.lo, max(r.hi, self._carryover_hi.get(key, r.hi))
             if xoc and r.xoc_lo is not None:
                 # XOC may only ever WIDEN. Taken as min/max against the normal
                 # pair rather than trusted from the XOC pair alone, because
@@ -2015,9 +2461,18 @@ class Druta:
         curve to stock' is a whole-table write that also discards staged
         edits, so it is gated with the rest."""
         on = self.unlocked()
+        fan_caps = self.gpu.fan_capabilities()
+        fan_manual = fan_caps["manual"]
+        fan_auto = fan_caps["auto"]
+        frequency_lock = self.gpu.arch() != GPU.ARCH_PASCAL
         for tag in self._ctl_widgets:
             if dpg.does_item_exist(tag):
-                dpg.configure_item(tag, enabled=on)
+                available = (fan_manual if tag in ("sl_fan", "in_fan", "go_fan")
+                             else fan_auto if tag == "go_fan_x"
+                             else frequency_lock if tag in (
+                                 "lock_min", "lock_max", "go_lock", "go_lockmax")
+                             else True)
+                dpg.configure_item(tag, enabled=on and available)
         if dpg.does_item_exist("unlock_note"):
             dpg.set_value("unlock_note",
                           "writes ENABLED - untick for read-only. All changes "
@@ -2193,26 +2648,6 @@ class Druta:
             return
         self.autosave_before("i2c-rail-offset")
         self.report(self.rail.set_offset_mv(float(v), acknowledged=True))
-
-    def apply_msvdd(self, v):
-        """Rail 1. Gated on XOC, and honest about what it cannot prove.
-
-        Kept separate from apply_rail rather than folded in with a rail
-        argument: they are not the same knob. The core rail is measured 1:1
-        against a reading this app can take, and this one is a write into a
-        field whose identity comes from outside this project and whose effect
-        nothing here can see. Sharing a handler would imply a parity that the
-        evidence does not support.
-        """
-        if not self.guard():
-            return
-        if not (dpg.does_item_exist("xoc_mode") and dpg.get_value("xoc_mode")):
-            self.log("MSVDD: tick XOC first. This rail has no readback on this "
-                     "card, so the write cannot be verified - that is the "
-                     "class of thing XOC exists to gate.", False)
-            return
-        self.autosave_before("msvdd-offset")
-        self.report(self.gpu.set_rail_offset_mv(int(v), 0, rail=1))
 
     def apply_rail(self, v):
         # An undo point, like the core offset and unlike the other single
@@ -2702,11 +3137,80 @@ class Druta:
         self.sync_knob_boxes()
         self.log(f"reset incomplete: {failed} step(s) failed" if failed
                  else "reset to stock complete", failed == 0)
+        # The rail limits are among the things reset above, and nothing else
+        # puts their knobs and readout back: refresh_volt_limits runs only from
+        # the three rail-write paths, so without this the eight vlim sliders
+        # and the whole Rails readout kept showing pre-reset numbers - claiming
+        # a ceiling the card no longer had.
+        self.refresh_volt_limits()
         self.vf_read(force=True)
+
+    def ov_carryover(self, raw):
+        """Record rail settings already above the normal request bounds.
+
+        Unticking XOC does not rewrite the card - a value set above the
+        non-XOC ceiling is allowed to stay - so the knob's bound has to make
+        room for it, or the very next narrowing would drag the slider below
+        what the rail actually holds and the number on screen would stop being
+        the number on the card.
+
+        Recorded rather than enforced: this only ever RAISES a bound to meet a
+        value that is already live. Lowering stays available all the way down,
+        and nothing here permits raising an existing above-normal value.
+        """
+        for rail in (0, 1):
+            fields = (raw or {}).get(rail)
+            if not fields:
+                continue
+            prefix = "vlim" if rail == 0 else "vlim1"
+            for short, field in (("rel", "reliability"),
+                                 ("alt", "alt_reliability"),
+                                 ("ov", "overvoltage"), ("lo", "vmin")):
+                key = f"{prefix}_{short}"
+                cur = GPU.abs_limit_mv(fields, field)
+                if cur > self.gpu.VOLT_LIMIT_MAX_MV + 0.5:
+                    self._carryover_hi[key] = int(round(cur))
+                else:
+                    self._carryover_hi.pop(key, None)
+        offset = self.gpu.read_rail_offset_mv(0)
+        if offset is not None and offset > self.gpu.RAIL_OFFSET_MAX_MV:
+            self._carryover_hi["rail"] = int(round(offset))
+        else:
+            self._carryover_hi.pop("rail", None)
+
+    def refresh_rail_live(self):
+        """Put the live rail voltages back on the panel, every tick.
+
+        These cells were previously written only by refresh_volt_limits, which
+        runs after a rail-limit WRITE and nowhere else. A cell labelled "live"
+        that only moves when you touch a slider is worse than no cell at all:
+        it reads as a rail sitting perfectly still while the card boosts and
+        drops underneath it.
+
+        Effective limits also move when voltage boost changes. Read-only rows
+        show absolute fields from this same sample; their reliability field
+        includes boost too. None of these updates needs another driver call.
+        """
+        state = self.gpu.read_volt_rail_state()
+        for r in (0, 1):
+            tag = f"vlim_live{r}"
+            if not dpg.does_item_exist(tag):
+                continue
+            row = (state or {}).get(r, {})
+            mv = row.get("live")
+            dpg.set_value(tag, f"live {mv:.0f} mV" if mv else "live --")
+            eff = row.get("effective")
+            if dpg.does_item_exist(f"vlim_eff{r}"):
+                dpg.set_value(f"vlim_eff{r}", f"eff {eff:.0f}" if eff else "")
+            if r in getattr(self, "_rail_readonly", ()):
+                cells = self.volt_limits_cells(None, r, state, False)
+                if cells and dpg.does_item_exist(f"vlim_txt{r}"):
+                    dpg.set_value(f"vlim_txt{r}", cells[1])
 
     def refresh_control(self, d):
         c_t = d.get("core_p0max", "?")
         m_t = self.mem_fmt(d.get("mem_p0max"))[0]
+        self.refresh_rail_live()
         # Vcore is formatted on its own, exactly as Tk did: it needs NVAPI AND a
         # non-zero rail reading, and the app runs fine with NVAPI down. Folding
         # it into the conditional made ONE missing field blank the whole
@@ -2777,11 +3281,10 @@ class Druta:
                 # the feature: everything else in Druta, and every other
                 # monitoring tool, will keep reporting the stale number.
                 ("i2crail", self.i2c_rail_text(vc)),
-                # fan0 speaks for the knob - set_fan writes ONE duty to every
-                # fan. A 0 duty is withheld because _read_fan also writes 0
-                # for a refused per-fan query, so a zero here cannot be told
-                # apart from a fan that was never read.
-                ("fan", f"{fans[0][0]}%" if fans and fans[0][0] else None)]
+                # fan0 speaks for the knob. None is unavailable; zero is a
+                # valid stopped-fan reading.
+                ("fan", f"{fans[0][0]}%" if fans and fans[0][0] is not None
+                 else None)]
         for key, txt in live:
             tag = f"live_{key}"
             # a per-domain row is only built where the driver actually accepts
@@ -2994,6 +3497,95 @@ class Druta:
         dpg.add_text("--", tag="vf_info", color=DIM, wrap=self.s(1100))
         dpg.add_text("", tag="vf_status", color=WARN, wrap=self.s(1100))
 
+        # THE EDITING CONTROLS SIT ABOVE THE PLOT, not below it. They and
+        # the curve are looked at together - select a point, read what it
+        # holds, nudge it, watch the dot move - and with the controls
+        # underneath, the plot pushed them far enough down that the two
+        # halves of one action were never on screen at once.
+        with dpg.child_window(tag="vf_plan", width=-1, height=self.s(130),
+                              border=True, no_scroll_with_mouse=True):
+            dpg.add_text("", tag="vf_plan_head", wrap=self.s(1100))
+            self.bind("vf_plan_head", "big")
+            dpg.add_text("", tag="vf_plan_body", color=TEXT, wrap=self.s(1100))
+            dpg.add_text("", tag="vf_plan_reset", color=DIM, wrap=self.s(1100))
+        # Rebuild before the first banner update: a card switch deleted the
+        # old unparented themes, and their numeric ids are no longer usable.
+        self._plan_themes = {
+            band: self.plan_theme(bg, border)
+            for band, (_fg, bg, border) in self.PLAN_BANDS.items()}
+        self._plan_band = None
+        self.update_plan_banner()
+
+        with dpg.group(horizontal=True):
+            dpg.add_text("selected")
+            # bounded HERE, not only in vf_read: an input_int otherwise
+            # carries DPG's default 0..100 unclamped until the first
+            # successful read, so a curve that never reads leaves the box
+            # accepting indices no VF table has. vf_read narrows this to the
+            # points the card actually returned.
+            dpg.add_input_int(tag="vf_idx", default_value=0,
+                              width=self.s(110),
+                              min_value=0, max_value=VFP_POINTS - 1,
+                              min_clamped=True, max_clamped=True,
+                              callback=lambda: self.vf_select(
+                                  dpg.get_value("vf_idx")))
+            # Labels DERIVED from the card's bin, not hardcoded to Turing's 15.
+            # The write was always correct (set_work_freq snaps to step_khz),
+            # but on GP102 a button labelled "+15" moved +12.657 - and it sat
+            # directly above the keyboard hint, which renders the real figure.
+            # Two controls for the same action disagreeing on screen at once.
+            _b, _b5 = self.step_mhz(), self.step_mhz() * 5
+            for lbl, delta in ((f"-{_b5}", -_b5), (f"-{_b}", -_b),
+                               (f"+{_b}", _b), (f"+{_b5}", _b5)):
+                # user_data carries the step: DPG passes (sender, app_data,
+                # user_data) POSITIONALLY, so a default arg would be
+                # clobbered by user_data=None.
+                dpg.add_button(label=lbl, width=self.s(58),
+                               user_data=delta,
+                               callback=lambda s, a, u: self.vf_nudge(u))
+            # bounded to the supported clock range for the same reason as
+            # lock_min/lock_max: an input_int otherwise carries DPG's
+            # default 0..100 and ignores it on entry, so the box could name
+            # a frequency no VF point can hold. sync_sel_inputs seeds it
+            # with the selected point on every read/select/nudge - DPG
+            # clamps user entry only, never set_value.
+            dpg.add_input_int(tag="vf_set", default_value=0,
+                              step=self.step_mhz(),
+                              width=self.s(120),
+                              min_value=self.gpu.static.get("gfx_min", 300),
+                              max_value=self.gpu.static.get("gfx_max", 2160),
+                              min_clamped=True, max_clamped=True)
+            dpg.add_button(label="Set MHz", width=self.s(90),
+                           callback=self.vf_set_freq)
+            dpg.add_button(label="Revert edits", width=self.s(120),
+                           callback=self.vf_revert)
+            # GREEN, and the only coloured button on this row: it is the one
+            # control here that reaches the hardware. Its name says both halves
+            # of what it does - the re-phase is not a separate step the user has
+            # to remember any more (see vf_apply).
+            dpg.add_button(label="Re-phase and apply V/F curve to GPU",
+                           tag="go_vfapply",
+                           width=self.s(300), callback=self.vf_apply)
+            with dpg.theme() as vfapply_th:
+                with dpg.theme_component(dpg.mvAll):
+                    dpg.add_theme_color(dpg.mvThemeCol_Button, (28, 92, 48))
+                    dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered,
+                                        (40, 124, 65))
+                    dpg.add_theme_color(dpg.mvThemeCol_ButtonActive,
+                                        (52, 152, 82))
+                    dpg.add_theme_color(dpg.mvThemeCol_Text, (232, 248, 236))
+            dpg.bind_item_theme("go_vfapply", vfapply_th)
+        self._ctl_widgets += ["go_rephase", "go_vfapply", "go_vfreset"]
+        dpg.add_text("--", tag="vf_sel_info", color=TEXT)
+        self.bind("vf_sel_info", "mono")
+        dpg.add_text(f"drag a dot to move it  \u2022  drag anywhere else to "
+                     f"pan  \u2022  A/D select  \u2022  W/S move "
+                     f"\u00b1{self.step_mhz()} MHz  \u2022  hold Shift for "
+                     f"\u00b1{self.step_mhz() * self.SHIFT_MULT}  \u2022  "
+                     f"Ctrl+H hold the selected point (again to release)  \u2022  "
+                     f"Ctrl+Z / Ctrl+Y undo and redo staged edits",
+                     color=DIM)
+
         # no anti_aliased= here: dpg.plot has no such parameter, and DPG's
         # argument parser DROPS unknown keywords instead of raising, so it
         # read as an applied setting while doing nothing. Line smoothing is
@@ -3006,7 +3598,13 @@ class Druta:
         # coordinate answers "where is my mouse", which is not the question
         # being asked while editing; vf_corner below answers "what am I
         # editing" in the same corner.
-        with dpg.plot(tag="vf_plot", height=self.s(380), width=-1,
+        # height=-1 fills whatever vertical space is left rather than taking a
+        # fixed 380 px. A fixed height at the BOTTOM of a panel that grows is
+        # always at the mercy of what is above it: as rows were added the plot
+        # ran off the window and the x-axis - the labels that say which
+        # voltage a dot sits at - stopped being drawn at all. Filling the
+        # remainder keeps the axis on screen at any window size.
+        with dpg.plot(tag="vf_plot", height=-1, width=-1,
                       no_mouse_pos=True,
                       pan_button=dpg.mvMouseButton_Left):
             dpg.add_plot_legend()
@@ -3100,89 +3698,9 @@ class Druta:
         # status lines a few pixels above it, and a status line is exactly what
         # this must not be mistaken for. It describes the NEXT click, not the
         # last one.
-        for band, (_fg, bg, border) in self.PLAN_BANDS.items():
-            self._plan_themes[band] = self.plan_theme(bg, border)
         # scrollbar deliberately NOT suppressed here (the tiles do suppress
         # theirs): plan_h measures this box, and if it ever measures short the
         # tail must still be reachable rather than silently cut off.
-        with dpg.child_window(tag="vf_plan", width=-1, height=self.s(130),
-                              border=True, no_scroll_with_mouse=True):
-            dpg.add_text("", tag="vf_plan_head", wrap=self.s(1100))
-            self.bind("vf_plan_head", "big")
-            dpg.add_text("", tag="vf_plan_body", color=TEXT, wrap=self.s(1100))
-            dpg.add_text("", tag="vf_plan_reset", color=DIM, wrap=self.s(1100))
-        self.update_plan_banner()
-
-        with dpg.group(horizontal=True):
-            dpg.add_text("selected")
-            # bounded HERE, not only in vf_read: an input_int otherwise
-            # carries DPG's default 0..100 unclamped until the first
-            # successful read, so a curve that never reads leaves the box
-            # accepting indices no VF table has. vf_read narrows this to the
-            # points the card actually returned.
-            dpg.add_input_int(tag="vf_idx", default_value=0,
-                              width=self.s(110),
-                              min_value=0, max_value=VFP_POINTS - 1,
-                              min_clamped=True, max_clamped=True,
-                              callback=lambda: self.vf_select(
-                                  dpg.get_value("vf_idx")))
-            # Labels DERIVED from the card's bin, not hardcoded to Turing's 15.
-            # The write was always correct (set_work_freq snaps to step_khz),
-            # but on GP102 a button labelled "+15" moved +12.657 - and it sat
-            # directly above the keyboard hint, which renders the real figure.
-            # Two controls for the same action disagreeing on screen at once.
-            _b, _b5 = self.step_mhz(), self.step_mhz() * 5
-            for lbl, delta in ((f"-{_b5}", -_b5), (f"-{_b}", -_b),
-                               (f"+{_b}", _b), (f"+{_b5}", _b5)):
-                # user_data carries the step: DPG passes (sender, app_data,
-                # user_data) POSITIONALLY, so a default arg would be
-                # clobbered by user_data=None.
-                dpg.add_button(label=lbl, width=self.s(58),
-                               user_data=delta,
-                               callback=lambda s, a, u: self.vf_nudge(u))
-            # bounded to the supported clock range for the same reason as
-            # lock_min/lock_max: an input_int otherwise carries DPG's
-            # default 0..100 and ignores it on entry, so the box could name
-            # a frequency no VF point can hold. sync_sel_inputs seeds it
-            # with the selected point on every read/select/nudge - DPG
-            # clamps user entry only, never set_value.
-            dpg.add_input_int(tag="vf_set", default_value=0,
-                              step=self.step_mhz(),
-                              width=self.s(120),
-                              min_value=self.gpu.static.get("gfx_min", 300),
-                              max_value=self.gpu.static.get("gfx_max", 2160),
-                              min_clamped=True, max_clamped=True)
-            dpg.add_button(label="Set MHz", width=self.s(90),
-                           callback=self.vf_set_freq)
-            dpg.add_button(label="Revert edits", width=self.s(120),
-                           callback=self.vf_revert)
-            # GREEN, and the only coloured button on this row: it is the one
-            # control here that reaches the hardware. Its name says both halves
-            # of what it does - the re-phase is not a separate step the user has
-            # to remember any more (see vf_apply).
-            dpg.add_button(label="Re-phase and apply V/F curve to GPU",
-                           tag="go_vfapply",
-                           width=self.s(300), callback=self.vf_apply)
-            with dpg.theme() as vfapply_th:
-                with dpg.theme_component(dpg.mvAll):
-                    dpg.add_theme_color(dpg.mvThemeCol_Button, (28, 92, 48))
-                    dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered,
-                                        (40, 124, 65))
-                    dpg.add_theme_color(dpg.mvThemeCol_ButtonActive,
-                                        (52, 152, 82))
-                    dpg.add_theme_color(dpg.mvThemeCol_Text, (232, 248, 236))
-            dpg.bind_item_theme("go_vfapply", vfapply_th)
-        self._ctl_widgets += ["go_rephase", "go_vfapply", "go_vfreset"]
-        dpg.add_text("--", tag="vf_sel_info", color=TEXT)
-        self.bind("vf_sel_info", "mono")
-        dpg.add_text(f"drag a dot to move it  \u2022  drag anywhere else to "
-                     f"pan  \u2022  A/D select  \u2022  W/S move "
-                     f"\u00b1{self.step_mhz()} MHz  \u2022  hold Shift for "
-                     f"\u00b1{self.step_mhz() * self.SHIFT_MULT}  \u2022  "
-                     f"Ctrl+H hold the selected point (again to release)  \u2022  "
-                     f"Ctrl+Z / Ctrl+Y undo and redo staged edits",
-                     color=DIM)
-
         # plot-wide mouse + keyboard control. The left button is shared: the
         # plot pans with it, and these handlers steal it for a drag only while
         # the press actually landed on a dot (end_drag hands it back).
@@ -3206,8 +3724,9 @@ class Druta:
     def wf(self, idx):
         """Working (edited) frequency in kHz for a point index."""
         p = self.vf_by_idx[idx]
-        return (int(round(p["freq_mhz"] * 1000))
-                + (self.vf_work[idx] - self.vf_orig[idx]))
+        return int(round(p["freq_mhz"] * 1000
+                         + (self.vf_work[idx] - self.vf_orig[idx])
+                         / self.vf_freq_div()))
 
     def vf_read(self, force=False, pts=None):
         """Rebase the editor on the hardware curve. `pts` lets a caller that has
@@ -3230,6 +3749,11 @@ class Druta:
         if pts is None:
             pts, err = self.gpu.read_vf_curve()
             if err:
+                if dpg.does_item_exist("vf_info"):
+                    state = ("Curve refresh failed; showing previous read: "
+                             if self.vf_points else "Curve unavailable: ")
+                    dpg.set_value("vf_info", state + err)
+                    dpg.configure_item("vf_info", color=WARN)
                 self.log(err, False)
                 return
         self.vf_points = pts
@@ -3544,7 +4068,7 @@ class Druta:
                 "vf_sel_info",
                 f"idx {self.vf_sel}   {p['volt_mv']:.2f} mV   "
                 f"{self.wf(self.vf_sel)/1000:.0f} MHz   "
-                f"delta {self.vf_work[self.vf_sel]/1000:+.0f} MHz   |   "
+                f"delta {self.vf_work[self.vf_sel]/self.vf_freq_div()/1000:+.0f} MHz   |   "
                 f"edits pending: {pend}")
 
     def update_vf_corner(self):
@@ -3566,7 +4090,7 @@ class Druta:
         p = self.vf_by_idx[self.vf_sel]
         txt = (f"idx {self.vf_sel}   {p['volt_mv']:.2f} mV   "
                f"{self.wf(self.vf_sel) / 1000:.0f} MHz   "
-               f"delta {self.vf_work[self.vf_sel] / 1000:+.0f}")
+               f"delta {self.vf_work[self.vf_sel] / self.vf_freq_div() / 1000:+.0f}")
         # clamped=True keeps the label inside the plot once it is anchored to
         # the corner, so the offset only has to lift it off the axis lines
         if dpg.get_item_label("vf_corner") != txt:
@@ -3992,10 +4516,9 @@ class Druta:
             dpg.set_value("vf_set", int(round(self.wf(self.vf_sel) / 1000)))
 
     def set_work_freq(self, idx, target_khz):
-        """Only ever move a delta by WHOLE 15 MHz bins: the driver evaluates
-        floor((base+delta)/15)*15 and `base` has an unknowable sub-15 remainder,
-        so an absolute target lands mid-bin and silently floors."""
+        """Move by whole physical clock bins, stored in raw delta units."""
         step = self.step_khz()
+        raw_step = self.vf_delta_step_khz()
         d0 = self.vf_orig[idx]
         lim = GPU.MAX_ABS_DELTA_KHZ
         base_f = int(round(self.vf_by_idx[idx]["freq_mhz"] * 1000))
@@ -4006,10 +4529,23 @@ class Druta:
         # floats, so this is live, not theoretical. Same rule as the Tk editor.
         bins = int(math.floor((target_khz - base_f) / step + 0.5))
         if bins > 0:
-            bins = min(bins, (lim - d0) // step)
+            bins = min(bins, (lim - d0) // raw_step)
         elif bins < 0:
-            bins = max(bins, -((lim + d0) // step))
-        self.vf_work[idx] = int(d0 + bins * step)
+            bins = max(bins, -((lim + d0) // raw_step))
+        self.vf_work[idx] = int(d0 + bins * raw_step)
+
+    def stage_curve_changes(self, changes):
+        """Translate planner increments into the existing raw working table.
+
+        Planners use physical frequencies, but carry delta_khz through from
+        their input points. Their final column is that raw baseline plus a
+        physical increment. Scale only the increment: scaling the whole value
+        would double an existing Pascal offset every time another plan stages.
+        """
+        div = self.vf_freq_div()
+        for idx, _v, _o, _n, nd in changes:
+            current = self.vf_work[idx]
+            self.vf_work[idx] = int(round(current + (nd - current) * div))
 
     def vf_nudge(self, mhz):
         if self.vf_sel is None or not self.vf_points:
@@ -4292,7 +4828,8 @@ class Druta:
         # grid. Those arrive in the working copy through Read curve, so they are
         # points the user never touched, which is why this is logged loudly
         # rather than folded silently into the plan.
-        rp, _ph = GPU.compute_rephase(dict(self.vf_work), self.step_khz())
+        rp, _ph = GPU.compute_rephase(dict(self.vf_work),
+                                      self.vf_delta_step_khz())
         if rp:
             for i, d in rp.items():
                 self.vf_work[i] = int(d)
@@ -4404,8 +4941,7 @@ class Druta:
             return
         top_before, peak_before = self.curve_top(pts, cap)
         self.push_undo("limited de-flatten")
-        for idx, _v, _o, _n, nd in ch:
-            self.vf_work[idx] = int(nd)
+        self.stage_curve_changes(ch)
         self.sync_sel_inputs()
         self.vf_redraw()
         top_after, peak_after = self.curve_top(self.work_pts(), cap)
@@ -4470,13 +5006,14 @@ class Druta:
                          f"this curve; nothing to plan", False)
             else:
                 self.log(f"{meta['rungs']} point(s) from {meta['lo_mv']:.2f} to "
-                         f"{meta['cap_mv']:.2f} mV are already a "
-                         f"{self.step_khz()/1000:.4g} MHz ramp topping out at "
-                         f"{meta['top_mhz']:.0f} MHz - nothing to do", True)
+                         f"{meta['cap_mv']:.2f} mV: no whole-bin ramp changes "
+                         f"fit below the {meta['top_mhz']:.0f} MHz top"
+                         + ("; the clock-list bound leaves no whole-bin headroom"
+                            if meta.get('clamped') else "")
+                         + " - nothing to apply", True)
             return
         self.push_undo("de-flatten")
-        for idx, _v, _o, _n, nd in ch:
-            self.vf_work[idx] = int(nd)
+        self.stage_curve_changes(ch)
         self.sync_sel_inputs()
 
         # Written TIGHT, and that is a constraint rather than a style: the
@@ -4542,9 +5079,9 @@ class Druta:
                 f"overclock are one edit, so each rung has to be stable.")
         self.stage_note(note, hard=False)
         if not meta.get("unique", True):
-            self.log(f"idx {meta['cap_idx']} cannot be made the park point: an "
-                     f"untouched point below the floor already holds "
-                     f"{meta['top_mhz']:.0f} MHz at a lower voltage", False)
+            self.log(f"idx {meta['cap_idx']} does not become the lowest-voltage "
+                     f"peak: the clock-list bound or other curve points still "
+                     f"limit where the card parks", False)
         # BRIEF, and not the note. log() mirrors its last line into vf_status,
         # which sits ABOVE the plot and wraps - so logging the full note pushed
         # the plot, the banner and 'Apply to GPU' a hundred pixels down the page
@@ -4625,8 +5162,7 @@ class Druta:
                          f"do", True)
             return
         self.push_undo("hard de-flatten")
-        for idx, _v, _o, _n, nd in ch:
-            self.vf_work[idx] = int(nd)
+        self.stage_curve_changes(ch)
         self.sync_sel_inputs()
 
         park = (f"the card parks at idx {meta['park_idx']} @ "
@@ -4679,7 +5215,7 @@ class Druta:
             return
         gm = self.step_khz() / 1000.0
         changes, _phase = GPU.compute_rephase(dict(self.vf_work),
-                                              self.step_khz())
+                                              self.vf_delta_step_khz())
         if not changes:
             self.log(f"all {len(self.vf_work)} staged deltas already share one "
                      f"{gm:.4g} MHz phase - nothing to do", True)
@@ -5013,14 +5549,22 @@ deliberately does not put behind a button."""
         vb = self.gpu.read_voltage_boost()
         if vb is not None and dpg.does_item_exist("sl_volt"):
             dpg.set_value("sl_volt", max(0, min(100, int(vb))))
-        # fan duty ONLY when the profile actually pinned the fans. On the
-        # temperature curve the duty is a reading, not a setting, and parking
-        # the slider on it would make the next Apply freeze the fans at
-        # whatever they happened to be doing (same rule as profiles.restore).
-        fans = d.get("fans") or []
-        if state and state.get("fan_manual") and fans \
-                and dpg.does_item_exist("sl_fan"):
-            dpg.set_value("sl_fan", int(fans[0][0]))
+        # Read the requested target after restoration. Measured duty can
+        # still be ramping; putting that transient speed in the input would
+        # make the next Apply replace the target with an unintended value.
+        # One shared slider can represent only a common manual target.
+        if state and dpg.does_item_exist("sl_fan"):
+            try:
+                fan_state = self.gpu.read_fan_control_state()
+                fans = (fan_state or {}).get("fans") or []
+                targets = {fan["level"] for fan in fans}
+                if fans and all(fan["manual"] for fan in fans) and len(targets) == 1:
+                    dpg.set_value("sl_fan", int(targets.pop()))
+                elif any(fan["manual"] for fan in fans):
+                    self.log("fans have different targets or policies; the shared "
+                             "fan slider was left unchanged", None)
+            except Exception as e:
+                self.log(f"fan target could not be read: {e}; slider left unchanged", False)
         self.sync_knob_boxes()
 
     # ====================================================================== #
@@ -5148,7 +5692,11 @@ deliberately does not put behind a button."""
                                callback=self.vf_deflatten)
                 dpg.add_separator()
                 dpg.add_text("GPU CLOCK LOCK", color=ACCENT)
-                dpg.add_text(f"{gmin}-{gmax} MHz lockable", color=DIM)
+                if self.gpu.arch() == GPU.ARCH_PASCAL:
+                    dpg.add_text("NVML frequency locking is unavailable on Pascal.\n"
+                                 "Use Ctrl+H on the V/F curve to hold a point.", color=DIM)
+                else:
+                    dpg.add_text(f"{gmin}-{gmax} MHz lockable", color=DIM)
                 dpg.add_separator()
                 # clamped to the supported range for the same reason as the
                 # sliders: an input_int carries DPG's default 0..100 bounds and
@@ -5579,7 +6127,7 @@ deliberately does not put behind a button."""
                          "(Titan Xp). Per-card quantities - V/F point count, "
                          "clock grid, domain names - are probed from the "
                          "driver rather than assumed. Developed against a "
-                         "Titan RTX die on an ASUS RTX 2080 Ti Strix board, "
+                         "Titan RTX die on a 2080 Ti board, "
                          "and a stock Titan Xp.", wrap=self.s(580))
             dpg.add_spacer(height=self.s(6))
             dpg.add_text("README.md, shipped beside this app, is the single "
@@ -6251,6 +6799,10 @@ deliberately does not put behind a button."""
         self._lockable = None       # probed from the driver's own clock table
         self._drag_idx = None
         # arming flags, so a half-pressed confirm cannot carry over
+        self.gpu.msvdd_write_enabled = False
+        self.gpu.volt_limits_write_enabled = False
+        self.gpu.voltage_xoc_enabled = False
+        self._carryover_hi = {}
         self._discard_armed = False
         self._reset_armed = False
         self._pending_load = None
@@ -6300,17 +6852,20 @@ deliberately does not put behind a button."""
         refusing to switch for that long would be worse than dropping its
         result."""
         old = self.gpu.static.get("name", "?")
-        self._gpu_gen += 1
-        self._rebuilding = True
+        # Opening a missing/reset card may fail or raise. Keep the current
+        # curve, edits, and worker generation intact until it is usable.
         try:
-            self.reset_card_state()
-            # Build the new GPU BEFORE tearing anything down: if the card has
-            # gone (unplugged, driver reset, TDR), the old window is still
-            # standing and the switch can be refused with everything intact.
             fresh = GPU(slot)
             if not fresh.available():
                 self.log(f"cannot switch: {fresh.status_line()}", False)
                 return False
+        except Exception as exc:
+            self.log(f"cannot switch to {slot}: {exc}", False)
+            return False
+        self._gpu_gen += 1
+        self._rebuilding = True
+        try:
+            self.reset_card_state()
             self.gpu = fresh
             self.gpu_list = enumerate_gpus()
             # Before build_ui: the rail row is only built where a profile
@@ -6398,8 +6953,10 @@ deliberately does not put behind a button."""
             return
 
         staged = []
-        if self.vf_work:
-            staged.append(f"{len(self.vf_work)} staged V/F edit(s)")
+        vf_edits = sum(delta != self.vf_orig.get(idx)
+                       for idx, delta in self.vf_work.items())
+        if vf_edits:
+            staged.append(f"{vf_edits} staged V/F edit(s)")
         if self._tw_pending:
             staged.append(f"{len(self._tw_pending)} staged timing write(s)")
         if staged and self._switch_armed != slot:
@@ -7453,6 +8010,7 @@ deliberately does not put behind a button."""
             # and a card switch is exactly when they stop being true. The flag
             # goes with it because the rebuilt XOC checkbox comes up unticked.
             self._slider_ranges = {}
+            self._knob_cb = {}
             self._xoc_bounds = False
             for tag in ("hdr_row", "tabs", "menubar", "win_device", "win_save",
                         "win_profiles", "win_keys", "win_about",
@@ -7553,7 +8111,12 @@ deliberately does not put behind a button."""
         # display so a screen smaller than this 4K one still gets a window that
         # fits on it (dpi_scale() has already declared DPI awareness, so
         # GetSystemMetrics reports physical pixels).
-        vh = self.s(1120)
+        # 1120 -> 1300: the V/F editor gained the plan banner and the editing
+        # controls above the plot, and the plot now takes whatever height is
+        # left. At the old default there was so little left that the x-axis -
+        # the labels naming the voltage each dot sits at - fell off the bottom.
+        # The clamp below still applies, so a smaller display is unaffected.
+        vh = self.s(1300)
         try:
             screen_h = ctypes.windll.user32.GetSystemMetrics(1)  # SM_CYSCREEN
         except Exception:
@@ -7570,7 +8133,15 @@ deliberately does not put behind a button."""
         title = "Thermetery Druta"
         if len(self.gpu_list) > 1:
             title += f"  -  {self.gpu.static.get('name')}  {self.gpu.slot()}"
-        dpg.create_viewport(title=title, width=self.s(1180), height=vh)
+        # Wide enough for the Control tab's two columns: each is the knob
+        # table plus padding, so the width follows KNOB_COLS rather than being
+        # a number that has to be remembered when a column is resized.
+        # Both columns, the 18 px spacer between them, and the window's own
+        # padding. Shares KNOB_COL_PAD with knob_col_width so the viewport and
+        # the columns it has to hold are computed from one number.
+        _two_col = 2 * (sum(self.KNOB_COLS) + self.KNOB_COL_PAD) + 36
+        dpg.create_viewport(title=title, width=self.s(max(1180, _two_col)),
+                            height=vh)
         self.load_fonts()
 
         with dpg.window(tag="root"):

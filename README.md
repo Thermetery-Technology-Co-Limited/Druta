@@ -1,6 +1,6 @@
 # Druta
 
-A monitor and tuner for Pascal/Turing NVIDIA cards, driven through NVAPI/NVML private
+A monitor and tuner for Pascal/Turing/Blackwell NVIDIA cards, driven through NVAPI/NVML private
 interfaces. It edits the V/F curve
 with planners built around how the boost arbiter actually behaves, and reads and
 writes the framebuffer-partition memory timing registers.
@@ -34,6 +34,12 @@ Developed against two cards:
 |---|---|---|---|---|
 | **Titan RTX** | TU102 | Turing | GDDR6 | die transplanted onto an ASUS RTX 2080 Ti Strix PCB |
 | **Titan Xp** | GP102 | Pascal | GDDR5X | stock, unmodified |
+
+**Per-rail voltage update, 2026-09-06:** both TITANs passed repeated tests
+above their default 1093.75 mV NVVDD cap. With the ceiling raised to 1125 mV
+and the V/F curve requesting it, both reported **1112.5 mV**. Druta now exposes
+the confirmed NVVDD limit controls for these board/VBIOS/driver combinations;
+MSVDD remains unavailable on both. See [measurements and reproduction](VOLTAGE-RAILS-TITAN.md).
 
 ---
 
@@ -71,8 +77,18 @@ python -m pip install -r requirements.txt
 .\build.ps1
 ```
 
-Output lands in `dist\Druta\Druta.exe` and `dist\Druta-dev-win64.zip`.
-Keep the entire extracted folder together.
+The local build produces `dist\Druta\Druta.exe` and
+`dist\Druta-dev-win64.zip` (or the app version when defined). Distribute the
+whole `Druta` folder or ZIP: the EXE needs its adjacent `_internal` folder.
+
+`dist\Druta\source\` contains the matching working-tree source, including
+uncommitted fixes, build scripts, requirements, documentation, regulator
+profiles, and regression tests. `source\SOURCE-MANIFEST.json` records SHA-256
+hashes of the EXE and source files, plus the Git revision and whether the
+working tree had changes. The build refuses to package if source files change
+during compilation. Private research, GPU session profiles, and generated
+build files are excluded. To rebuild from the included source, run the same
+commands inside `source`.
 
 **Windows 7 SP1 x64:** use the separate `Druta-dev-win7-x64.zip` build.
 See [Windows 7 setup, build instructions and validation](WINDOWS7.md) for
@@ -83,7 +99,7 @@ required Windows updates and the CPython 3.8 build recipe.
 
 # Run
 
-- `dist\Druta\Druta.exe` — standalone, no Python needed.
+- `dist\Druta\Druta.exe` — bundled application, no Python needed.
 - or `python druta.py` from source.
 - **Run as administrator** for every write path: clock lock, fan, power limit,
   V/F curve, memory timings.
@@ -216,6 +232,14 @@ XBAR = max(540, snap15(0.95 * GPC + 15))
 
 # Control
 
+The ordinary core and memory offsets work on the tested TITAN RTX and TITAN Xp
+with drivers **472.12 and 580.97**. Druta uses NVML on newer drivers and NVAPI
+Pstates20 on 472.12. The memory slider keeps the same true-MHz units: NVML's
+memory offset numbers are twice the corresponding NVAPI MHz values. For
+example, the TITAN RTX's NVAPI range of -1000..+3000 MHz corresponds to
+NVML -2000..+6000, or -250..+750 true MHz on its GDDR6 memory.
+See [driver compatibility and measurements](DRIVER-COMPATIBILITY.md).
+
 ## XBAR clock offset
 
 `Control → Clock offsets → XBAR clock offset`. A third offset mechanism, and it
@@ -228,7 +252,8 @@ at all.
 
 `NvAPI_GPU_GetAllClockFrequencies`
 reports `bIsPresent` for slots 0 and 4 only, and
-`NvAPI_GPU_GetPstates20` reports `numClocks = 2` for the same two domains. The
+`NvAPI_GPU_GetPstates20` exposes writable GRAPHICS and MEMORY rows; version 3
+also reports a read-only VIDEO row on the tested TITANs. The
 private per-point delta table (`0x23F1B133`) is indexed by V/F point rather
 than by domain and carries GPU points only. All three are dead ends by
 construction, not by accident.
@@ -255,7 +280,7 @@ This block does not naively use the clock getter's domain numbering, because tha
 |---|---|---|
 | 0 | GPC **and every ratio dependent with it** | XBAR, SYS, LTC and VIDEO all shift |
 | 1 | XBAR | |
-| 2 | MEM | already driven through NVML; no second knob |
+| 2 | MEM | Additional Memory Clock Offset; separate from the ordinary memory offset |
 | 3 | SYS | |
 | 5 | VIDEO | |
 | 9 | LTC | coarser step — `+45` requested moved it `+30` |
@@ -541,7 +566,14 @@ a later ramp.
 
 Yes, I applied +400mv, and as expected, absolutely nothing bad happened. All values in mV. Clock pinned at 1500 MHz; the driver returned `ok` for every request, including `+400` (which would have been 1181.25 mV).
 
-It is NOT hooked to any I2C or hardware. Rather, it requests the driver to apply the changes, but the driver is not the only mechanism against failure. Furthermore, 1093.75mv is the maximum value defined in the BIOS (this value can be changed if you flash any XOC BIOS, which is proof that it is also set at a BIOS level) and enforced by PMU/Falcon. The voltage is locked down at ring -1 if not doubly locked down also at ring 0 by `nvlddmkm.sys`. This is a truly decade old question, and NVIDIA's voltage lock post-Pascal has been ironclad. We will not attempt to ship a method that tries to bypass it because we cannot construe of a method. 
+This offset requests a change through the driver; it does not write I2C.
+The table above describes the original voltage limits. Its 1093.75 mV cap
+is a default, not an immutable ceiling: on 2026-09-06, the separate per-rail
+limit interface allowed both the TITAN RTX and TITAN Xp to report 1112.5 mV
+with a suitable V/F request. Restoring the original limits restored the lower
+live voltage in two repeated cycles on each card. The former claim here that
+this cap could not be raised was disproved by that measurement. See
+[the per-rail findings](VOLTAGE-RAILS-TITAN.md) for exact conditions and scope.
 
 ## Profiles and undo points
 
@@ -723,6 +755,11 @@ Running from source redistributes none of them.
 NVIDIA's NVAPI and NVML are **not** redistributed — `nvapi64.dll` and
 `nvml.dll` are loaded from the installed driver at runtime.
 
+NVML discovery supports both DCH drivers (the Windows system directory)
+and older Standard drivers (the native Program Files directory under
+`NVIDIA Corporation/NVSMI`). Missing or unloadable libraries report each
+attempted path and the underlying Windows error.
+
 [`nvtune`](https://github.com/sebastianmarrufo/nvtune) is a **separate
 program** by Sebastian Marrufo, invoked as a subprocess. It is also
 GPL-3.0-or-later, so the two licences match exactly — but it is a separate
@@ -778,6 +815,11 @@ only through read-modify-write with a diff guard that refuses if any dword other
 than the intended one changed.
 
 ## Source for a binary release
+
+Local EXE bundles include their exact working-tree source in the adjacent
+`source/` directory, with `SOURCE-MANIFEST.json` linking its hashes to the
+executable. This includes uncommitted edits, so the Git revision alone need
+not describe the build. See [Build](#build) for the recipe and package layout.
 
 Every tagged release on GitHub carries the Corresponding Source for the
 executable published with it — that is the tag itself, since Python source *is*

@@ -7,7 +7,7 @@ convenience file. It is the thing standing between a slider and a dead card, and
 it is read as **untrusted input** no matter where it came from.
 
 This document is the format. The worked example beside it,
-[`rtx2080ti-strix-mp2888a.toml`](rtx2080ti-strix-mp2888a.toml), is the one
+[`rtx2080ti-mp2888a.toml`](rtx2080ti-mp2888a.toml), is the one
 board where every value below was measured rather than assumed.
 
 ---
@@ -52,7 +52,7 @@ one, so a profile is always exactly what a human put there.
 ```toml
 [profile]
 format = 1                      # this spec's version. Required.
-name = "RTX 2080 Ti Strix - NVVDD (MP2888A)"
+name = "RTX 2080 Ti - NVVDD (MP2888A)"
 regulator = "MPS MP2888A"
 rail = "NVVDD"                  # NVVDD | FBVDD | MSVDD | PEXVDD ...
 author = "Thermetery"

@@ -196,19 +196,28 @@ class Profile:
                 "the verifier watches and what the UI shows instead of the "
                 "number on the slider.")
 
+        # A profile with NO [[write]] is legal and is READ-ONLY. That is the
+        # first rung for a contributor: a board whose regulator answers and
+        # whose output voltage decodes is worth shipping as telemetry long
+        # before anyone has characterised its offset register. Such a profile
+        # cannot write by construction rather than by policy - there is no
+        # register for it to write - which makes it the safest thing to accept
+        # from someone whose board nobody here owns.
         wr = d.get("write") or []
         self.write = next((w for w in wr if w.get("key") == "offset_mv"), None)
-        if self.write is None:
-            raise ProfileError("a profile must declare a [[write]] with "
-                               "key = \"offset_mv\"")
-        self.wreg = int(self.write["reg"])
-        self.wbytes = int(self.write.get("bytes", 1))
-        self.wbits = _bitspec(self.write.get("bits"))
-        self.lsb_mv = float(self.write.get("lsb_mv", 6.25))
-        self.raw_min = int(self.write["raw_min"])
-        self.raw_max = int(self.write["raw_max"])
-        if self.raw_min > self.raw_max:
-            raise ProfileError("raw_min > raw_max")
+        self.read_only = self.write is None
+        if self.read_only:
+            self.wreg = self.wbytes = self.wbits = None
+            self.lsb_mv = self.raw_min = self.raw_max = None
+        else:
+            self.wreg = int(self.write["reg"])
+            self.wbytes = int(self.write.get("bytes", 1))
+            self.wbits = _bitspec(self.write.get("bits"))
+            self.lsb_mv = float(self.write.get("lsb_mv", 6.25))
+            self.raw_min = int(self.write["raw_min"])
+            self.raw_max = int(self.write["raw_max"])
+            if self.raw_min > self.raw_max:
+                raise ProfileError("raw_min > raw_max")
 
         # Whitelist. Only registers named by a [[write]] are ever writable, and
         # the profile's own hazards are merged with the built-in denylist.
@@ -244,11 +253,11 @@ class Profile:
 
     @property
     def hw_min_mv(self):
-        return self.raw_min * self.lsb_mv
+        return None if self.read_only else self.raw_min * self.lsb_mv
 
     @property
     def hw_max_mv(self):
-        return self.raw_max * self.lsb_mv
+        return None if self.read_only else self.raw_max * self.lsb_mv
 
     def candidate_for(self, dev_id=None, subsys=None):
         """PCI ids narrow the candidates. They never decide - identity does."""
@@ -289,6 +298,12 @@ def load_profiles(log=None):
             continue
         for fn in sorted(os.listdir(d)):
             if not fn.endswith(".toml") or fn.lower() in seen:
+                continue
+            # Authoring aids are not profiles. TEMPLATE.toml is structurally
+            # valid on purpose - a contributor needs it to load in an editor
+            # and to be checkable - but it describes no board, and a blank
+            # identity read at address 0x00 must never reach a real bus.
+            if fn.upper().startswith("TEMPLATE") or fn.startswith("_"):
                 continue
             seen.add(fn.lower())
             path = os.path.join(d, fn)
@@ -389,6 +404,11 @@ class Rail:
             out[str(t["key"])] = _decode(raw, t.get("encoding", "uint"),
                                          _bitspec(t.get("bits")),
                                          float(t.get("scale", 1.0)))
+        if self.p.read_only:
+            # No offset register to report, and reporting 0 would read as
+            # "no offset applied" rather than "this profile cannot apply one".
+            out["offset_raw"] = out["offset_mv"] = None
+            return out
         raw = self.read(self.p.wreg, self.p.wbytes)
         out["offset_raw"] = raw
         out["offset_mv"] = None if raw is None else self._offset_mv(raw)
@@ -450,6 +470,10 @@ class Rail:
                            f"0x{self.addr7:02X}/port {p.port} - the identity "
                            f"read did not match this profile.")
 
+        if p.read_only:
+            return False, (f"refused: the {p.name} profile is read-only - it "
+                           f"declares no offset register, so there is nothing "
+                           f"on this board Druta knows how to write.")
         cmd = p.wreg
         if cmd not in p.writable:
             return False, f"refused: 0x{cmd:02X} is not a whitelisted register"
@@ -549,6 +573,8 @@ class Rail:
         offset neither the caller nor this module can name, which is the worst
         state available on this path.
         """
+        if self.p.read_only:
+            return "no offset register on this profile - nothing to zero"
         try:
             if not self._raw_write(self.p.wreg, 0, self.p.wbytes):
                 return "ZERO WRITE REJECTED"

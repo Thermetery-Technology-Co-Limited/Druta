@@ -26,6 +26,9 @@ Push-Location $root
 try {
     $env:DRUTA_WIN7_CRT = $crtPath
     [Environment]::SetEnvironmentVariable('DRUTA_WIN7_PORTABLE_REDIST', $portablePath, 'Process')
+    $sourceSnapshot = Join-Path $root ('build\' + $workName + '-source.json')
+    & $Python tools/package_source.py snapshot --root $root --snapshot $sourceSnapshot
+    if ($LASTEXITCODE -ne 0) { throw 'Could not snapshot matching Windows 7 source.' }
     & $Python -m PyInstaller --noconfirm --clean --workpath (Join-Path 'build' $workName) Druta-win7.spec
     if ($LASTEXITCODE -ne 0) { throw "Windows 7 build failed ($LASTEXITCODE)." }
     $bundle = Join-Path (Join-Path $root 'dist') $bundleName
@@ -46,6 +49,8 @@ try {
     }
     & $Python -m pip freeze | Set-Content -LiteralPath (Join-Path $bundle 'BUILD-DEPENDENCIES.txt') -Encoding UTF8
     if ($LASTEXITCODE -ne 0) { throw 'Could not record build dependencies.' }
+    & $Python tools/package_source.py package --root $root --snapshot $sourceSnapshot --bundle $bundle
+    if ($LASTEXITCODE -ne 0) { throw 'Source changed or packaging failed; no new archive was made.' }
     $zip = Join-Path (Join-Path $root 'dist') $archiveName
     Compress-Archive -LiteralPath $bundle -DestinationPath $zip -Force
     Write-Host "Windows 7 bundle: $zip"

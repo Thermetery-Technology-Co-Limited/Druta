@@ -1,0 +1,117 @@
+# TEMPLATE - copy to <card>-<regulator>.toml and fill in.
+#
+# Delete every TODO as you answer it. A TODO left in the file is a profile that
+# is not ready, and the validator will say so.
+#
+# READ i2c/CONTRIBUTING.md FIRST. The short version: nothing in this file may be
+# a guess. Every number is either read out of a datasheet with the page cited,
+# or measured on your own board and stated as measured. "The other MPS part does
+# it this way" is not a source - parts in the same family differ in register
+# width, encoding and offset range, and each of those differences has already
+# produced a bug here.
+#
+# A profile with fields left blank is still useful: telemetry-only, with no
+# [[write]] section at all, is a complete and valid contribution. It gets you a
+# live rail readout and it costs nothing to review. Add writes later, or never.
+
+[profile]
+format    = 1
+name      = ""            # TODO "RTX xxxx <board> - NVVDD (PARTNUM)"
+regulator = ""            # TODO "Vendor PARTNUM", exactly as the datasheet spells it
+rail      = ""            # TODO NVVDD, MSVDD, FBVDD, ...
+author    = ""            # TODO your name or handle - this is who reviewers ask
+
+# ---- provenance - required, and it is not paperwork ------------------------ #
+# Each line answers "how do you know?". A reviewer who cannot retrace a number
+# cannot approve it. See CONTRIBUTING.md for what makes these acceptable.
+[provenance]
+datasheet = ""            # TODO part, revision and date. Say if it is public.
+registers = ""            # TODO which pages the register facts came from
+address   = ""            # TODO how the address was established. "It ACKed" is
+                          #      not enough on its own - say what identified it.
+behaviour = ""            # TODO what you measured, under what load, on what date
+hardware  = ""            # TODO stock board, or the exact modification you made.
+                          #      If links had to be fitted, SAY SO - a profile
+                          #      for a modified board must never look stock.
+
+# ---- match - candidates only, never authority ------------------------------ #
+# Narrows which profiles get tried. It does NOT decide anything: [[identity]]
+# below does. Two boards can share a PCI id and carry different regulators.
+[match]
+pci_device = []           # TODO ["0x2C02"]
+pci_subsys = []           # TODO ["0x89DE1043"] - usually the honest discriminator
+
+# ---- bus ------------------------------------------------------------------- #
+[bus]
+port  = 0                 # TODO NVAPI port the part answers on
+addr7 = 0x00              # TODO 7-bit address
+
+# ---- identity - the gate --------------------------------------------------- #
+# At least one required. Address alone is not evidence: on the reference board,
+# fitting the mod links made a DIFFERENT part answer at the same address.
+# Prefer a register that states something specific about the part.
+[[identity]]
+reg    = 0x00             # TODO
+bytes  = 1                # TODO
+equals = 0x00             # TODO
+note   = ""               # TODO what this register is and why it identifies it
+
+# ---- telemetry - read-only, and the honest readout ------------------------- #
+# encoding: "uint" | "int" | "linear11"
+# DO NOT assume one encoding across commands. On the reference part READ_VOUT is
+# direct millivolts while READ_IOUT is LINEAR11, on the same device.
+[[telemetry]]
+key      = "vout_mv"      # keep this key name if you have an output voltage:
+reg      = 0x00           # TODO   it is what the verifier and the UI read
+bytes    = 2
+encoding = "uint"
+scale    = 1.0
+note     = ""             # TODO how you confirmed the encoding and the scale
+
+# ---- writes - the whitelist ------------------------------------------------ #
+# OPTIONAL. Omit this section entirely for a telemetry-only profile.
+# Anything not listed here cannot be written, by construction.
+#
+# bytes and bits are DIFFERENT NUMBERS and both matter. bytes is the width of
+# the transaction on the wire; bits is the field inside it. Getting this wrong
+# on the reference part made every negative offset silently fail.
+#[[write]]
+#key      = "offset_mv"
+#reg      = 0x00          # TODO
+#bytes    = 2             # TODO transaction width, from the command table
+#bits     = "7:0"         # TODO field width, from the register description
+#encoding = "int"
+#lsb_mv   = 6.25          # TODO
+#raw_min  = -111          # TODO the PART's documented range, which is often
+#raw_max  = 112           #      NOT the full width of the field. Past the top
+                          #      of it the value can wrap through the sign bit
+                          #      and move the rail the WRONG WAY.
+#note     = ""
+
+# ---- limits ---------------------------------------------------------------- #
+[limits]
+envelope_min_mv    = -200.0   # normal-mode bounds. Down is the safe direction.
+envelope_max_mv    =  50.0    # TODO start LOW. You can raise it once measured.
+rail_ceiling_mv    = 0.0      # TODO absolute ceiling. Put it UNDER the part's
+                              #      own VOUT_MAX / OVP, deliberately.
+sanity_max_rail_mv = 2000.0   # typo catcher; survives every mode
+plausible_rail_mv  = [400.0, 1300.0]
+
+# ---- verification ---------------------------------------------------------- #
+# The staircase: request the smallest step, watch the rail, and grow the step
+# only until the board is OBSERVED to move. Never measure at idle - a
+# multiphase controller sheds phases under light load and is a different
+# regulator there.
+[verify]
+rungs_mv           = [6.25, 12.50, 25.00, 50.00, 75.00]
+min_loaded_vout_mv = 800.0    # TODO refuse to measure below this
+#expect_deadband_mv = 0.0     # TODO only if you MEASURED one. Do not copy the
+                              #      reference board's number - it is specific
+                              #      to that part and unexplained.
+
+# ---- never, on this part --------------------------------------------------- #
+# Adds to Druta's built-in denylist (STORE_*/RESTORE_*, MFR_USER_PWD).
+# A profile can only ADD to it. It can never remove an entry.
+#[[never_write]]
+#reg = 0x00
+#why = ""                 # TODO what it does and why it has no undo
