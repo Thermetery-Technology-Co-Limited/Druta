@@ -1643,6 +1643,10 @@ The portable Windows 7 and Vista distributions also include the Windows SDK
 `D3DCompiler_47.dll`. The UCRT and shader compiler come from SDK redistributable
 directories, with the SDK licenses, notices and per-file manifest under
 `licenses/Microsoft-Windows-SDK`. No Windows system-directory files are copied.
+Vista uses the complete SDK UCRT **10.0.10240.16384** set (41 DLLs), while the
+Windows 7 portable recipe retains **10.0.19041.5609** (42 DLLs). Both use the
+same SDK shader compiler. Vista's pinned DLL identities also accompany its
+native-runtime changes under `licenses/Vista-runtime-changes/`.
 
 The self-extracting portable EXE uses the unmodified 7-Zip 26.03 SFXWin source
 by Igor Pavlov, under LGPL-2.1-or-later. Its license, complete corresponding

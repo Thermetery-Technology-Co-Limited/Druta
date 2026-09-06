@@ -52,9 +52,11 @@ The explicit `/EHsc`, `/GR`, `/DWIN32`, and `/D_WINDOWS` preserve CMake's normal
 MSVC defaults when supplying `CMAKE_CXX_FLAGS`. The mutex compatibility define
 preserves initialization compatible with the bundled VC++ 14.29 runtime.
 
-All imported symbols from the resulting extension were checked against the
-portable bundle's actual Microsoft VC++ **14.29.30157.0**, UCRT
-**10.0.19041.5609**, and shader-compiler DLL exports. Its additional Windows
+The initial host import checks used Microsoft VC++ **14.29.30157.0** and UCRT
+**10.0.19041.5609**. Actual Vista testing rejected that newer UCRT; the final
+Vista package uses the complete **41-DLL 10.0.10240.16384** SDK set, pinned in
+`ucrt-10240.json` and collected by `tools/collect_vista_redist.py`.
+VC++ and the shader compiler remain unchanged. Its additional Windows
 imports compared with the original wheel are only `GetEnvironmentVariableW`
 and `GetFileAttributesW`, both available on Vista. Merely setting a PE minimum
 does not establish runtime compatibility: run the target-OS checks too.

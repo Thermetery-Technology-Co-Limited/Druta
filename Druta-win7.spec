@@ -30,6 +30,9 @@ portable_files = []
 portable_licenses = []
 if portable_redist:
     portable_redist = Path(portable_redist).resolve(strict=True)
+    if vista:
+        from collect_vista_redist import validate as validate_vista_redist
+        validate_vista_redist(portable_redist)
     manifest = json.loads((portable_redist / 'manifest.json').read_text(encoding='utf-8'))
     if manifest.get('format') != 1:
         raise SystemExit('Unsupported portable runtime manifest format.')
@@ -42,7 +45,8 @@ if portable_redist:
     portable_files = [(entry['name'], str(portable_redist / entry['name']), 'BINARY')
                       for entry in manifest['files']]
     names = {entry[0].lower() for entry in portable_files}
-    if (len(portable_files) != 43 or len(names) != 43 or
+    expected_dll_count = 42 if vista else 43
+    if (len(portable_files) != expected_dll_count or len(names) != expected_dll_count or
             not {'ucrtbase.dll', 'd3dcompiler_47.dll'}.issubset(names) or
             any('/' in name or '\\' in name or not name.endswith('.dll') for name in names)):
         raise SystemExit('Expected the complete validated x64 UCRT and shader compiler set.')

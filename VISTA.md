@@ -7,6 +7,12 @@ Direct3D shader compiler are included. Extracting the package and starting
 the application do not automatically install dependencies, trust a driver
 certificate or change Windows boot settings.
 
+The Vista package uses the complete **41-DLL UCRT 10.0.10240.16384** set
+from the Windows SDK, together with VC++ **14.29.30157.0** and
+`D3DCompiler_47.dll` **10.0.28000.2705**. The newer UCRT 19041 set used by
+the Windows 7 build fails to load on the Vista test VM. The separate Vista
+collector and package checks enforce the exact tested DLL hashes.
+
 This is a separate legacy build. It retains the same Control, Monitor and
 Timings interface as the current application. It does not add NVIDIA driver
 support for any GPU: use a card and driver that actually work on Vista.
@@ -68,9 +74,22 @@ releases of CPython, Dear PyGui or PyInstaller.
 ## Rebuild
 
 Use a modern Windows build host. First prepare the official CPython 3.8.10
-x64 environment with `requirements-win7.txt` and obtain the matched VC2019
-**14.29.30157.0** and SDK redistributables described in
-[WINDOWS7.md](WINDOWS7.md) and [PORTABLE-WINDOWS7.md](PORTABLE-WINDOWS7.md).
+x64 environment with `requirements-vista.txt` and obtain the matched VC2019
+**14.29.30157.0** files described in [WINDOWS7.md](WINDOWS7.md).
+Collect Vista's exact SDK UCRT set and shader compiler separately:
+
+```powershell
+$kits = 'C:\Program Files (x86)\Windows Kits\10'
+& C:\Python38\python.exe tools/collect_vista_redist.py --ucrt-directory "$kits\Redist\ucrt\DLLs\x64" --d3d-compiler "$kits\Redist\D3D\x64\d3dcompiler_47.dll" --sdk-license-directory "$kits\Licenses\10.0.19041.0" --sdk-license-directory "$kits\Licenses\10.0.28000.0" --output build/vista/portable-redist
+```
+
+Microsoft documents the unversioned SDK `Redist/ucrt/DLLs` directory for
+[app-local deployment](https://devblogs.microsoft.com/cppblog/introducing-the-universal-crt/).
+The collector requires all 41 matching x64 UCRT files, verifies their versions
+and pinned hashes from `tools/vista/ucrt-10240.json`, preserves SDK licenses,
+and writes a per-file provenance manifest. It rejects the Windows 7 set,
+mixed versions and nonidentical existing output. Keep this collection separate
+from `build/win7/portable-redist`.
 Do not copy DLLs from the build host's System32 directory.
 
 Clone these exact upstream versions into `build/vista/`:
@@ -105,7 +124,7 @@ assemble an isolated Vista build environment:
 
 ```powershell
 & C:\Python38\python.exe tools/vista_runtime.py --python-directory C:\Python38 --cpython-source build/vista/cpython --pyinstaller-source build/vista/pyinstaller --dearpygui-source build/vista/dearpygui --dearpygui-extension build/vista/dearpygui/cmake-build-local/DearPyGui/_dearpygui.pyd --output build/vista/runtime
-.\build-vista.ps1 -Python .\build\vista\runtime\python.exe -CrtDirectory build\vc2019 -PortableRuntimeDirectory build\portable-redist
+.\build-vista.ps1 -Python .\build\vista\runtime\python.exe -CrtDirectory build\vc2019 -PortableRuntimeDirectory build\vista\portable-redist
 ```
 
 The assembly helper checks exact upstream revisions and patch contents,
@@ -154,4 +173,32 @@ platform update and only changes GUI rendering. It does not emulate an
 NVIDIA adapter or validate GPU tuning. Leave the variable unset for the
 normal hardware renderer.
 
-Vista validation results will be recorded here after the target VM checks.
+### Target VM results
+
+Verified on Windows Vista Ultimate SP2 x64 **6.0.6002**, with VMware Tools
+**11.0.6** and the VMware SVGA driver **8.16.07.0005**. The guest received no
+Python, VC++ or UCRT installation: these dependencies came from the extracted
+portable payloads. Its Windows image already had Direct3D 11 from KB971512
+and the secure DLL-loader APIs; a separate KB3063858 installation was not
+needed. This does not establish support for Vista images lacking those APIs.
+
+| Check | Result |
+| --- | --- |
+| App-local native libraries with SDK UCRT 10240 | UCRT, VC++ and patched Python load; `Py_GetVersion` succeeds |
+| Frozen startup | Exit 0; fresh passed report and three rendered frames |
+| Real full-interface fixture | Control, Monitor and Timings constructed; 983 items, nine frames, no worker or subprocess attempts |
+| Python compatibility checks | 52 tests under `tests/` and 12 profile checks passed in the guest |
+| Unicode file dialog | Hardware window visibly renders; explicit WARP framebuffer shows Unicode folders/filenames, file sizes and dates |
+| nvtune development driver | Corrected installer starts the driver from a path with spaces; all eight read-only native driver checks pass |
+| nvtune CLI fixture | All 17 cases pass using the in-memory backend |
+
+The early hardware framebuffer capture could be black before the VM renderer
+settled, despite the visible window rendering correctly. The dialog fixture
+allows warm-up time before capturing its framebuffer. Its JSON checks the
+current path and default filename, while the image verifies listed entries;
+it does not claim a completed user file selection.
+
+The added SDK 10240 packaging guards also pass on the build host. Final
+Windows 7 regression results for the same complete runtime set are recorded
+separately. These VM checks do not validate physical NVIDIA telemetry,
+clock/voltage tuning, V/F curve changes or timing-register reads and writes.

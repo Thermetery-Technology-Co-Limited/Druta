@@ -3,7 +3,8 @@
 Builds the portable Vista SP2 x64 distribution from its patched runtime.
 .DESCRIPTION
 Build the three small native source changes described in VISTA.md first.
-The matched VC2019 and SDK app-local runtimes are mandatory for this build.
+The matched VC2019 and exact SDK 10240 app-local UCRT set collected by
+tools/collect_vista_redist.py are mandatory for this build.
 #>
 [CmdletBinding()]
 param(
