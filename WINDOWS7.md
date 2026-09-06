@@ -8,11 +8,13 @@ build uses Python 3.14 and cannot run on Windows 7.
 ## Prerequisites
 
 - Windows 7 **SP1**, **64-bit**. This is not a 32-bit build.
-- Windows loader update **KB2533623**, or an update that supersedes it.
+- Windows loader update **KB2533623**, or an update that supersedes it
+  (for example **KB3063858**).
 - Universal C Runtime **KB2999226**, or a superseding update.
 - Direct3D shader compiler **KB4019990** (`D3DCompiler_47.dll`).
-- A working Direct3D 11 graphics driver. A VM needs its vendor's guest display
-  driver and 3D acceleration. A basic VGA adapter is not a useful GPU test.
+- A working Direct3D 11 graphics driver supporting feature level **10_0** or
+  newer. For hardware rendering in a VM, install its vendor's guest display
+  driver and enable 3D acceleration.
 - For monitoring/tuning: an NVIDIA card with a Windows 7 driver for that card.
   Windows 7 support in Druta does not add Windows 7 drivers for newer GPUs.
 
