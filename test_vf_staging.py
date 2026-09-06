@@ -23,6 +23,7 @@ def editor(freq_div, step_khz, points, gfx_max=2300):
     app.vf_by_idx = {p["idx"]: p for p in app.vf_points}
     app.vf_orig = {p["idx"]: p["delta_khz"] for p in points}
     app.vf_work = dict(app.vf_orig)
+    app._plan_note = None
     app.push_undo = Mock()
     app.sync_sel_inputs = Mock()
     app.vf_redraw = Mock()
@@ -33,6 +34,58 @@ def editor(freq_div, step_khz, points, gfx_max=2300):
 class VfStagingTests(unittest.TestCase):
     CARDS = (("Turing", 1, 15000), ("Pascal", 2, 12657),
              ("Blackwell", 1, 15000))
+
+    def test_ramp_callback_can_raise_a_stock_peak_above_the_clock_list(self):
+        for name, divisor, step in self.CARDS:
+            with self.subTest(card=name):
+                points = [dict(idx=i, volt_mv=987.5 + i * 12.5,
+                               freq_mhz=1911, delta_khz=0) for i in range(8)]
+                app = editor(divisor, step, points, gfx_max=1911)
+                with patch("druta.dpg.get_value", side_effect={
+                        "rfloor": 1000, "vcap": 1062.5}.__getitem__):
+                    app.vf_ramp()
+                    self.assertIsNotNone(app.apply_plan())
+                self.assertEqual(app.wf(6), 1911000 + 5 * step)
+                self.assertEqual(app.vf_work[0], 0)  # Below the floor.
+                self.assertEqual(app.vf_work[7], 0)  # Above the cap.
+                self.assertTrue(all(app.wf(i) >= 1911000 for i in range(8)))
+                rephase, _ = GPU.compute_rephase(
+                    app.vf_work, app.vf_delta_step_khz())
+                self.assertEqual(rephase, {})
+
+    def test_pascal_ramp_callback_raises_rounded_1911_mhz_plateau(self):
+        clocks = [1860, 1873, 1885.5, 1898, 1911, 1911, 1911, 1911]
+        points = [dict(idx=i, volt_mv=1000 + i * 12.5,
+                       freq_mhz=f, delta_khz=0) for i, f in enumerate(clocks)]
+        app = editor(2, 12657, points, gfx_max=1911)
+        with patch("druta.dpg.get_value", side_effect={
+                "rfloor": 1000, "vcap": 1093.75}.__getitem__):
+            app.vf_ramp()
+        self.assertEqual(app.wf(7), 1911000 + 3 * 12657)
+        self.assertTrue(all(app.wf(i) >= f * 1000 for i, f in enumerate(clocks)))
+        self.assertEqual(GPU.compute_rephase(app.vf_work, 2 * 12657)[0], {})
+
+    def test_max_it_applies_the_ramp_above_the_stock_clock_list_peak(self):
+        points = [dict(idx=i, volt_mv=1000 + i * 12.5,
+                       freq_mhz=1911, delta_khz=0) for i in range(8)]
+        app = editor(2, 12657, points, gfx_max=1911)
+        app.guard = Mock(return_value=True)
+        app.gpu.static["pl_max_mw"] = 300000
+        for method in ("set_fan", "set_power_limit_mw", "set_voltage_boost"):
+            setattr(app.gpu, method, Mock(return_value=(True, "fixture")))
+        app.autosave_before = Mock()
+        applied = []
+        app.vf_apply = Mock(side_effect=lambda **kw: applied.append(dict(app.vf_work)))
+        app.hold_cap_point = Mock()
+        with patch("druta.dpg.get_value", side_effect={
+                "rfloor": 1000, "vcap": 1093.75}.__getitem__), \
+                patch("druta.dpg.does_item_exist", return_value=False):
+            app.oc_max()
+        self.assertEqual(applied[0][7], 7 * 12657 * 2)
+        self.assertEqual(app.wf(7), 1911000 + 7 * 12657)
+        app.vf_apply.assert_called_once_with(autosave=False)
+        app.autosave_before.assert_called_once_with("one-click max")
+        app.hold_cap_point.assert_called_once_with(1093.75)
 
     def test_pascal_ramp_preview_survives_apply_rephase(self):
         # Measured R472 TITAN Xp frequencies: nominal 12.657 MHz bins

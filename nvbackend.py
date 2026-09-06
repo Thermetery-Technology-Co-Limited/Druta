@@ -5294,6 +5294,10 @@ class GPU:
         Returns (changes, ceil_before_mhz, ceil_after_mhz, meta), the same shape
         as compute_deflatten.
 
+        max_khz is an optional explicit planning ceiling. The regular ramp
+        and Max it leave it unset: NVML's supported-clock list maximum is not
+        a V/F overclock ceiling and must not constrain this planner.
+
         WHY THIS EXISTS, and it is not de-flatten's reason. De-flatten makes ONE
         point unique (the boundary) and levels everything above it. That fixes
         the steady-state park point and nothing else. A power- or thermally

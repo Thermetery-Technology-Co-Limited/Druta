@@ -4992,10 +4992,12 @@ class Druta:
         lo = float(dpg.get_value("rfloor"))
         cap = float(dpg.get_value("vcap"))
         pts = self.work_pts()
-        gmax = self.gpu.static.get("gfx_max")
+        # gfx_max belongs to NVML's supported-clock list, not to the V/F
+        # delta table. Using it here pins a stock Pascal ramp at 1911 MHz
+        # and leaves Max it with no curve edits. Plan from the current curve
+        # and the voltage band; the normal V/F write checks still apply.
         ch, _cb, _ca, meta = GPU.compute_ramp(
-            pts, lo, cap, max_khz=(gmax * 1000 if gmax else None),
-            step_khz=self.step_khz())
+            pts, lo, cap, step_khz=self.step_khz())
         if not ch:
             # Two ways to get here and only one is good news, same distinction
             # de-flatten draws: an empty band is a bound that matched nothing,
@@ -5006,11 +5008,8 @@ class Druta:
                          f"this curve; nothing to plan", False)
             else:
                 self.log(f"{meta['rungs']} point(s) from {meta['lo_mv']:.2f} to "
-                         f"{meta['cap_mv']:.2f} mV: no whole-bin ramp changes "
-                         f"fit below the {meta['top_mhz']:.0f} MHz top"
-                         + ("; the clock-list bound leaves no whole-bin headroom"
-                            if meta.get('clamped') else "")
-                         + " - nothing to apply", True)
+                         f"{meta['cap_mv']:.2f} mV: no whole-bin changes needed "
+                         f"for this ramp - nothing to apply", True)
             return
         self.push_undo("de-flatten")
         self.stage_curve_changes(ch)
@@ -5052,13 +5051,9 @@ class Druta:
                               f"driver raises the bottom {meta['shadowed']} "
                               f"rung(s) onto it and they arrive as ONE flat")
         else:
-            # No "the floor went UP" case, and there cannot be one: the ceiling
-            # is min(max_khz, floor + rungs-1 bins), so the floor either keeps
-            # its frequency or pays for a clip. Anything that made the top
-            # anchor unconditionally at the hardware max would break that
-            # invariant - and would also start demanding 2130 MHz at whatever
-            # voltage the cap happened to name.
-            floor_txt = (f"No clip, so the floor keeps its "
+            # The ramp starts at the floor's current frequency and raises
+            # later points only where whole-bin spacing needs more clock.
+            floor_txt = (f"The floor keeps its "
                          f"{meta['floor_after_mhz']:.0f} MHz at "
                          f"{meta['lo_mv']:.2f} mV")
         # The one thing that can ask the rail for something OUTSIDE the band. The
@@ -5080,7 +5075,7 @@ class Druta:
         self.stage_note(note, hard=False)
         if not meta.get("unique", True):
             self.log(f"idx {meta['cap_idx']} does not become the lowest-voltage "
-                     f"peak: the clock-list bound or other curve points still "
+                     f"peak: other curve points still "
                      f"limit where the card parks", False)
         # BRIEF, and not the note. log() mirrors its last line into vf_status,
         # which sits ABOVE the plot and wraps - so logging the full note pushed
