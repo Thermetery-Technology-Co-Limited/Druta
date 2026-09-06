@@ -1,8 +1,9 @@
 """Render the real Dear PyGui file picker against an isolated Unicode fixture.
 
-The JSON checks the current path and default filename. The adjacent screenshot
-is the evidence for visible directory entries; this test does not click a file
-or claim that a user selection was made. It never opens a GPU tuning backend.
+The JSON checks the current path, default filename, and a nonblank screenshot.
+The adjacent screenshot still needs visual inspection for directory entries;
+this test does not click a file or claim that a user selection was made. It
+never opens a GPU tuning backend.
 """
 import argparse
 import ctypes
@@ -13,6 +14,22 @@ from pathlib import Path
 import sys
 import tempfile
 import time
+
+
+def framebuffer_content(dpg, screenshot):
+    """Reject blank captures using DPG's own decoder and a small pixel grid."""
+    decoded = dpg.load_image(str(screenshot))
+    if decoded is None:
+        return {"has_visible_content": False, "error": "Cannot decode framebuffer PNG"}
+    width, height, channels, pixels = decoded
+    samples = [pixels[(y * width + x) * channels + channel]
+               for y in range(0, height, max(1, height // 64))
+               for x in range(0, width, max(1, width // 64))
+               for channel in range(3)]
+    darkest, brightest = min(samples), max(samples)
+    return {"width": width, "height": height,
+            "sampled_rgb_min": darkest, "sampled_rgb_max": brightest,
+            "has_visible_content": brightest - darkest > 1 / 255}
 
 
 def main():
@@ -69,12 +86,26 @@ def main():
                 dpg.add_file_extension(".txt")
             dpg.setup_dearpygui()
             dpg.show_viewport()
-            for _ in range(8):
-                dpg.render_dearpygui_frame()
+            capture_started = time.monotonic()
+            for attempt in range(1, 4):
+                # Vista's virtual hardware can present black frames initially.
+                # Require elapsed render time, not just a handful of frames.
+                warmup_deadline = time.monotonic() + 0.75
+                first_frame = dpg.get_frame_count()
+                while (time.monotonic() < warmup_deadline
+                       or dpg.get_frame_count() - first_frame < 8):
+                    if not dpg.is_dearpygui_running():
+                        raise RuntimeError("Viewport closed before framebuffer capture")
+                    dpg.render_dearpygui_frame()
+                dpg.output_frame_buffer(str(screenshot))
+                for _ in range(3):
+                    dpg.render_dearpygui_frame()
+                capture = framebuffer_content(dpg, screenshot)
+                report.update({"capture_attempts": attempt, "framebuffer": capture,
+                               "capture_elapsed_seconds": time.monotonic() - capture_started})
+                if capture["has_visible_content"]:
+                    break
             info = dpg.get_file_dialog_info("fixture")
-            dpg.output_frame_buffer(str(screenshot))
-            for _ in range(3):
-                dpg.render_dearpygui_frame()
             deadline = time.monotonic() + max(0, args.hold_seconds)
             while time.monotonic() < deadline and dpg.is_dearpygui_running():
                 dpg.render_dearpygui_frame()
@@ -87,6 +118,7 @@ def main():
             assert Path(info["current_path"]).resolve() == fixture.resolve(), info
             assert info["file_name"] == filename, info
             assert screenshot.is_file() and screenshot.stat().st_size > 100, "No framebuffer screenshot"
+            assert capture["has_visible_content"], "Framebuffer remained blank after three capture attempts"
             report["status"] = "passed"
     except Exception as error:
         report["error"] = repr(error)
