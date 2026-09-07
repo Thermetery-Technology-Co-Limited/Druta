@@ -62,6 +62,11 @@ The [GTX 690 ROM and controlled state comparison](experiments/kepler-gtx690-cloc
 now also identifies its primary clock domains and infers the BIOS clock roles.
 Domains 16/17 remain an unordered XBAR/SYS pair; extra Kepler names retain `?`.
 The idle core/memory frequency collision no longer mislabels memory as GPC.
+The [GM107 ROM/state comparison](experiments/maxwell-gtx745-clock-domains.md)
+resolves Maxwell domain 16 as XBAR2CLK and 17 as SYS2CLK by their distinct
+held-P0 values. Those ROM-correlated names retain `?`; L2C/MSD have no
+populated private rows on the tested GTX 745. This does not resolve Kepler
+16/17 ordering or enable private clock-offset writes.
 The private
 **offset-control fields** and their physical write effects have not been
 established on GTX 770/745/690. The four-limit getter uses a separate, already

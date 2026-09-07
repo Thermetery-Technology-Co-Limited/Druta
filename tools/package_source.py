@@ -46,6 +46,8 @@ FILES = (
     'experiments/legacy-offsets-47212-0000-01-00.0.json',
     'experiments/legacy-offsets-47212-0000-02-00.0.json',
     'experiments/legacy-private-layout-47212.json',
+    'experiments/maxwell-gtx745-clock-domains.json',
+    'experiments/maxwell-gtx745-clock-domains.md',
     'experiments/maxwell-gtx745-p0-fan-ui-47212.json',
     'experiments/maxwell-gtx745-p0-paths-47212.json',
     'experiments/maxwell-gtx745-timing-sweep-47212.json',

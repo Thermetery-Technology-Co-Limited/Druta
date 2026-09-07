@@ -79,6 +79,8 @@ function Get-SourceSnapshot {
         'experiments/kepler-gtx690-clock-domains.json',
         'experiments/kepler-gtx690-clock-domains.md',
         'experiments/maxwell-gtx745-validation-47212.json',
+        'experiments/maxwell-gtx745-clock-domains.json',
+        'experiments/maxwell-gtx745-clock-domains.md',
         'experiments/maxwell-gtx745-p0-paths-47212.json',
         'experiments/maxwell-gtx745-p0-fan-ui-47212.json',
         'experiments/maxwell-gtx745-timing-sweep-47212.json',

@@ -1,10 +1,12 @@
-"""Read a GK104 VBIOS performance table, without GPU access or ROM writes.
+"""Read a GK104/GM107 VBIOS performance table, without GPU access or ROM writes.
 
 The v0x40 layout/frequency mask follows Nouveau's bios/perf.c; source roles
 follow clk/gk104.c. The short clock labels and P-state display names were
-cross-checked against Kepler BIOS Tweaker and the supplied GTX 690 ROM.
+cross-checked against the supplied GTX 690 and GM107 ROMs and BIOS Tweaker
+clock-state displays. Nouveau source names below describe the GK104 reference
+implementation; they do not establish Maxwell register mappings.
 These are BIOS table indices, NOT private NVAPI GetAllClocks domain IDs.
-This deliberately decodes only the nine-clock GK104 schema verified here.
+This deliberately decodes only the nine-clock schema verified on those ROMs.
 """
 from __future__ import annotations
 
@@ -40,13 +42,17 @@ def decode(data: bytes) -> dict:
     def u16(start, limit=None):
         return struct.unpack("<H", span(start, 2, limit))[0]
 
-    # NVGI dumps prepend a 1 KiB container. Accept a plain PCI ROM too.
+    # The supplied NVGI dumps identify their PCI-image offset at 0x14:
+    # GTX 690 uses 0x400, GM107 uses 0x600. Never search arbitrary payload
+    # bytes for 55 AA: later EFI images and instruction data can match too.
     if data[:2] == b"\x55\xaa":
         base = 0
-    elif data[:4] == b"NVGI" and data[0x400:0x402] == b"\x55\xaa":
-        base = 0x400
+    elif data[:4] == b"NVGI":
+        base = struct.unpack("<I", span(0x14, 4))[0]
+        if base < 0x18 or base % 512 or span(base, 2) != b"\x55\xaa":
+            raise DecodeError("invalid NVGI PCI-image offset/signature")
     else:
-        raise DecodeError("expected plain PCI ROM or NVGI container with ROM at 0x400")
+        raise DecodeError("expected plain PCI ROM or NVGI container")
     image_size = span(base + 2, 1)[0] * 512
     if image_size < 32:
         raise DecodeError("invalid PCI ROM image length")
@@ -88,7 +94,7 @@ def decode(data: bytes) -> dict:
     table = base + pointer
     version, hlen, rlen, clen, clocks, states = span(table, 6, end)
     if version != 0x40 or hlen < 6 or rlen < 1 or clen < 2 or clocks != 9:
-        raise DecodeError("unsupported performance table; expected v0x40 nine-clock GK104 layout")
+        raise DecodeError("unsupported performance table; expected v0x40 nine-clock GK104/GM107 layout")
     if states == 0:
         raise DecodeError("empty performance table")
     record_size = rlen + clocks * clen
@@ -98,6 +104,7 @@ def decode(data: bytes) -> dict:
         offset = table + hlen + i * record_size
         raw_state = data[offset]
         row = {"file_offset": offset, "raw_state": raw_state,
+               "disabled": raw_state == 0xFF,
                "pstate": 15 - raw_state if raw_state <= 15 else None,
                "header_hex": span(offset, rlen, end).hex(), "clocks": []}
         for index, (label, source) in enumerate(CLOCKS):
@@ -114,9 +121,10 @@ def decode(data: bytes) -> dict:
             "pci_vendor": vendor, "pci_device": device, "bit_offset": bit,
             "bit_p_payload_offset": p_payload, "performance_table_offset": table,
             "table_version": version, "table_header_length": hlen,
+            "table_header_hex": span(table, hlen, end).hex(),
             "state_header_length": rlen, "clock_record_length": clen,
             "clock_count": clocks, "states": rows, "sources": SOURCES,
-            "scope": "GK104 BIOS clock-state table only; labels cross-checked with GTX 690. Stored frequencies do not establish live clocks, writable controls, or NVAPI domain IDs."}
+            "scope": "Nine-clock GK104/GM107 BIOS clock-state table only; labels cross-checked with GTX 690 and the supplied edited GM107 ROM. Nouveau source names refer to GK104. Stored frequencies do not establish live clocks, writable controls, NVAPI domain IDs, or factory settings."}
 
 
 def main():
