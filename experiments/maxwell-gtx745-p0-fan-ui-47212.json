@@ -1,0 +1,66 @@
+{
+  "held": {
+    "pstate": 0,
+    "core": 539,
+    "mem": 900,
+    "core_off": 0,
+    "mem_off": 0,
+    "temp_edge": 36
+  },
+  "fan100": {
+    "source": "nvapi_cooler",
+    "fans": [
+      {
+        "id": 0,
+        "level": 100,
+        "policy": 1,
+        "default_policy": 16,
+        "manual": true,
+        "min": 20,
+        "max": 100
+      }
+    ]
+  },
+  "switch_blocked_while_held": true,
+  "undo_fan": {
+    "source": "nvapi_cooler",
+    "fans": [
+      {
+        "id": 0,
+        "level": 20,
+        "policy": 16,
+        "default_policy": 16,
+        "manual": false,
+        "min": 20,
+        "max": 100
+      }
+    ]
+  },
+  "undo_restores_auto_keeps_hold": true,
+  "release_and_repeat": true,
+  "reset_all_released_and_restored_fan": true,
+  "exit_released": true,
+  "switch_rebuild_correct": true,
+  "passed": true,
+  "cleanup_release": [
+    true,
+    "this session owns no legacy P0 hold"
+  ],
+  "cleanup_fan": [
+    true,
+    "fan control state restored"
+  ],
+  "final_profile": "core +0 MHz   mem +0 MHz",
+  "gpu": "NVIDIA GeForce GTX 745",
+  "device_id": "1382",
+  "subsystem_id": "6893103c",
+  "driver": "472.12",
+  "vbios": "82.07.32.00.6a",
+  "scope": "Production backend and UI callbacks; only P0 request and fan duty from the new action; user stock baseline restored",
+  "button": "Lock P0 and max fan",
+  "button_rgb": [
+    230,
+    200,
+    35
+  ]
+}

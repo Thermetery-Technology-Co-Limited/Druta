@@ -1,0 +1,599 @@
+{
+  "identity": {
+    "name": "NVIDIA GeForce GTX 770",
+    "driver": "472.12",
+    "vbios": "80.04.c3.00.01"
+  },
+  "cycles": [
+    {
+      "plan": {
+        "assignments": {
+          "FAW": 33
+        },
+        "ops": [
+          {
+            "reg": "CONFIG3",
+            "offset": "0x10F29C",
+            "old": "0x220040EF",
+            "new": "0x220042EF",
+            "changes": [
+              {
+                "name": "FAW",
+                "old": 32,
+                "new": 33
+              }
+            ]
+          }
+        ],
+        "warnings": [],
+        "raw": "0000:02:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG3 @0x10F29C  0x220040EF -> 0x220042EF  [would write]\n      FAW             32 -> 33",
+        "ok": true,
+        "error": ""
+      },
+      "observations": [
+        {
+          "registers": {
+            "broadcast": {
+              "CONFIG0": 375681607,
+              "CONFIG1": 1025917586,
+              "CONFIG2": 2350057984,
+              "CONFIG3": 570442479,
+              "CONFIG4": 1130627122,
+              "CONFIG5": 2800906450,
+              "TIMING22": 7
+            },
+            "fbpa0": {
+              "CONFIG0": 375681607,
+              "CONFIG1": 1025917586,
+              "CONFIG2": 2350057984,
+              "CONFIG3": 570442479,
+              "CONFIG4": 1130627122,
+              "CONFIG5": 2800906450,
+              "TIMING22": 7
+            },
+            "fbpa1": {
+              "CONFIG0": 375681607,
+              "CONFIG1": 1025917586,
+              "CONFIG2": 2350057984,
+              "CONFIG3": 570442479,
+              "CONFIG4": 1130627122,
+              "CONFIG5": 2800906450,
+              "TIMING22": 7
+            },
+            "fbpa2": {
+              "CONFIG0": 375681607,
+              "CONFIG1": 1025917586,
+              "CONFIG2": 2350057984,
+              "CONFIG3": 570442479,
+              "CONFIG4": 1130627122,
+              "CONFIG5": 2800906450,
+              "TIMING22": 7
+            },
+            "fbpa3": {
+              "CONFIG0": 375681607,
+              "CONFIG1": 1025917586,
+              "CONFIG2": 2350057984,
+              "CONFIG3": 570442479,
+              "CONFIG4": 1130627122,
+              "CONFIG5": 2800906450,
+              "TIMING22": 7
+            }
+          },
+          "mem": 3505,
+          "pstate": 0,
+          "temp": 38,
+          "checks": 31
+        },
+        {
+          "registers": {
+            "broadcast": {
+              "CONFIG0": 375681607,
+              "CONFIG1": 1025917586,
+              "CONFIG2": 2350057984,
+              "CONFIG3": 570442479,
+              "CONFIG4": 1130627122,
+              "CONFIG5": 2800906450,
+              "TIMING22": 7
+            },
+            "fbpa0": {
+              "CONFIG0": 375681607,
+              "CONFIG1": 1025917586,
+              "CONFIG2": 2350057984,
+              "CONFIG3": 570442479,
+              "CONFIG4": 1130627122,
+              "CONFIG5": 2800906450,
+              "TIMING22": 7
+            },
+            "fbpa1": {
+              "CONFIG0": 375681607,
+              "CONFIG1": 1025917586,
+              "CONFIG2": 2350057984,
+              "CONFIG3": 570442479,
+              "CONFIG4": 1130627122,
+              "CONFIG5": 2800906450,
+              "TIMING22": 7
+            },
+            "fbpa2": {
+              "CONFIG0": 375681607,
+              "CONFIG1": 1025917586,
+              "CONFIG2": 2350057984,
+              "CONFIG3": 570442479,
+              "CONFIG4": 1130627122,
+              "CONFIG5": 2800906450,
+              "TIMING22": 7
+            },
+            "fbpa3": {
+              "CONFIG0": 375681607,
+              "CONFIG1": 1025917586,
+              "CONFIG2": 2350057984,
+              "CONFIG3": 570442479,
+              "CONFIG4": 1130627122,
+              "CONFIG5": 2800906450,
+              "TIMING22": 7
+            }
+          },
+          "mem": 3505,
+          "pstate": 0,
+          "temp": 39,
+          "checks": 41
+        },
+        {
+          "registers": {
+            "broadcast": {
+              "CONFIG0": 375681607,
+              "CONFIG1": 1025917586,
+              "CONFIG2": 2350057984,
+              "CONFIG3": 570442479,
+              "CONFIG4": 1130627122,
+              "CONFIG5": 2800906450,
+              "TIMING22": 7
+            },
+            "fbpa0": {
+              "CONFIG0": 375681607,
+              "CONFIG1": 1025917586,
+              "CONFIG2": 2350057984,
+              "CONFIG3": 570442479,
+              "CONFIG4": 1130627122,
+              "CONFIG5": 2800906450,
+              "TIMING22": 7
+            },
+            "fbpa1": {
+              "CONFIG0": 375681607,
+              "CONFIG1": 1025917586,
+              "CONFIG2": 2350057984,
+              "CONFIG3": 570442479,
+              "CONFIG4": 1130627122,
+              "CONFIG5": 2800906450,
+              "TIMING22": 7
+            },
+            "fbpa2": {
+              "CONFIG0": 375681607,
+              "CONFIG1": 1025917586,
+              "CONFIG2": 2350057984,
+              "CONFIG3": 570442479,
+              "CONFIG4": 1130627122,
+              "CONFIG5": 2800906450,
+              "TIMING22": 7
+            },
+            "fbpa3": {
+              "CONFIG0": 375681607,
+              "CONFIG1": 1025917586,
+              "CONFIG2": 2350057984,
+              "CONFIG3": 570442479,
+              "CONFIG4": 1130627122,
+              "CONFIG5": 2800906450,
+              "TIMING22": 7
+            }
+          },
+          "mem": 3505,
+          "pstate": 0,
+          "temp": 39,
+          "checks": 51
+        }
+      ],
+      "result": [
+        {
+          "name": "FAW",
+          "before": 32,
+          "requested": 33,
+          "after": 33,
+          "outcome": "landed",
+          "detail": ""
+        }
+      ],
+      "restore_result": [
+        {
+          "name": "FAW",
+          "before": 33,
+          "requested": 32,
+          "after": 32,
+          "outcome": "landed",
+          "detail": ""
+        }
+      ],
+      "restored": {
+        "registers": {
+          "broadcast": {
+            "CONFIG0": 375681607,
+            "CONFIG1": 1025917586,
+            "CONFIG2": 2350057984,
+            "CONFIG3": 570441967,
+            "CONFIG4": 1130627122,
+            "CONFIG5": 2800906450,
+            "TIMING22": 7
+          },
+          "fbpa0": {
+            "CONFIG0": 375681607,
+            "CONFIG1": 1025917586,
+            "CONFIG2": 2350057984,
+            "CONFIG3": 570441967,
+            "CONFIG4": 1130627122,
+            "CONFIG5": 2800906450,
+            "TIMING22": 7
+          },
+          "fbpa1": {
+            "CONFIG0": 375681607,
+            "CONFIG1": 1025917586,
+            "CONFIG2": 2350057984,
+            "CONFIG3": 570441967,
+            "CONFIG4": 1130627122,
+            "CONFIG5": 2800906450,
+            "TIMING22": 7
+          },
+          "fbpa2": {
+            "CONFIG0": 375681607,
+            "CONFIG1": 1025917586,
+            "CONFIG2": 2350057984,
+            "CONFIG3": 570441967,
+            "CONFIG4": 1130627122,
+            "CONFIG5": 2800906450,
+            "TIMING22": 7
+          },
+          "fbpa3": {
+            "CONFIG0": 375681607,
+            "CONFIG1": 1025917586,
+            "CONFIG2": 2350057984,
+            "CONFIG3": 570441967,
+            "CONFIG4": 1130627122,
+            "CONFIG5": 2800906450,
+            "TIMING22": 7
+          }
+        },
+        "mem": 3505,
+        "pstate": 0,
+        "temp": 39,
+        "checks": 62
+      }
+    },
+    {
+      "plan": {
+        "assignments": {
+          "FAW": 33
+        },
+        "ops": [
+          {
+            "reg": "CONFIG3",
+            "offset": "0x10F29C",
+            "old": "0x220040EF",
+            "new": "0x220042EF",
+            "changes": [
+              {
+                "name": "FAW",
+                "old": 32,
+                "new": 33
+              }
+            ]
+          }
+        ],
+        "warnings": [],
+        "raw": "0000:02:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG3 @0x10F29C  0x220040EF -> 0x220042EF  [would write]\n      FAW             32 -> 33",
+        "ok": true,
+        "error": ""
+      },
+      "observations": [
+        {
+          "registers": {
+            "broadcast": {
+              "CONFIG0": 375681607,
+              "CONFIG1": 1025917586,
+              "CONFIG2": 2350057984,
+              "CONFIG3": 570442479,
+              "CONFIG4": 1130627122,
+              "CONFIG5": 2800906450,
+              "TIMING22": 7
+            },
+            "fbpa0": {
+              "CONFIG0": 375681607,
+              "CONFIG1": 1025917586,
+              "CONFIG2": 2350057984,
+              "CONFIG3": 570442479,
+              "CONFIG4": 1130627122,
+              "CONFIG5": 2800906450,
+              "TIMING22": 7
+            },
+            "fbpa1": {
+              "CONFIG0": 375681607,
+              "CONFIG1": 1025917586,
+              "CONFIG2": 2350057984,
+              "CONFIG3": 570442479,
+              "CONFIG4": 1130627122,
+              "CONFIG5": 2800906450,
+              "TIMING22": 7
+            },
+            "fbpa2": {
+              "CONFIG0": 375681607,
+              "CONFIG1": 1025917586,
+              "CONFIG2": 2350057984,
+              "CONFIG3": 570442479,
+              "CONFIG4": 1130627122,
+              "CONFIG5": 2800906450,
+              "TIMING22": 7
+            },
+            "fbpa3": {
+              "CONFIG0": 375681607,
+              "CONFIG1": 1025917586,
+              "CONFIG2": 2350057984,
+              "CONFIG3": 570442479,
+              "CONFIG4": 1130627122,
+              "CONFIG5": 2800906450,
+              "TIMING22": 7
+            }
+          },
+          "mem": 3505,
+          "pstate": 0,
+          "temp": 40,
+          "checks": 73
+        },
+        {
+          "registers": {
+            "broadcast": {
+              "CONFIG0": 375681607,
+              "CONFIG1": 1025917586,
+              "CONFIG2": 2350057984,
+              "CONFIG3": 570442479,
+              "CONFIG4": 1130627122,
+              "CONFIG5": 2800906450,
+              "TIMING22": 7
+            },
+            "fbpa0": {
+              "CONFIG0": 375681607,
+              "CONFIG1": 1025917586,
+              "CONFIG2": 2350057984,
+              "CONFIG3": 570442479,
+              "CONFIG4": 1130627122,
+              "CONFIG5": 2800906450,
+              "TIMING22": 7
+            },
+            "fbpa1": {
+              "CONFIG0": 375681607,
+              "CONFIG1": 1025917586,
+              "CONFIG2": 2350057984,
+              "CONFIG3": 570442479,
+              "CONFIG4": 1130627122,
+              "CONFIG5": 2800906450,
+              "TIMING22": 7
+            },
+            "fbpa2": {
+              "CONFIG0": 375681607,
+              "CONFIG1": 1025917586,
+              "CONFIG2": 2350057984,
+              "CONFIG3": 570442479,
+              "CONFIG4": 1130627122,
+              "CONFIG5": 2800906450,
+              "TIMING22": 7
+            },
+            "fbpa3": {
+              "CONFIG0": 375681607,
+              "CONFIG1": 1025917586,
+              "CONFIG2": 2350057984,
+              "CONFIG3": 570442479,
+              "CONFIG4": 1130627122,
+              "CONFIG5": 2800906450,
+              "TIMING22": 7
+            }
+          },
+          "mem": 3505,
+          "pstate": 0,
+          "temp": 40,
+          "checks": 83
+        },
+        {
+          "registers": {
+            "broadcast": {
+              "CONFIG0": 375681607,
+              "CONFIG1": 1025917586,
+              "CONFIG2": 2350057984,
+              "CONFIG3": 570442479,
+              "CONFIG4": 1130627122,
+              "CONFIG5": 2800906450,
+              "TIMING22": 7
+            },
+            "fbpa0": {
+              "CONFIG0": 375681607,
+              "CONFIG1": 1025917586,
+              "CONFIG2": 2350057984,
+              "CONFIG3": 570442479,
+              "CONFIG4": 1130627122,
+              "CONFIG5": 2800906450,
+              "TIMING22": 7
+            },
+            "fbpa1": {
+              "CONFIG0": 375681607,
+              "CONFIG1": 1025917586,
+              "CONFIG2": 2350057984,
+              "CONFIG3": 570442479,
+              "CONFIG4": 1130627122,
+              "CONFIG5": 2800906450,
+              "TIMING22": 7
+            },
+            "fbpa2": {
+              "CONFIG0": 375681607,
+              "CONFIG1": 1025917586,
+              "CONFIG2": 2350057984,
+              "CONFIG3": 570442479,
+              "CONFIG4": 1130627122,
+              "CONFIG5": 2800906450,
+              "TIMING22": 7
+            },
+            "fbpa3": {
+              "CONFIG0": 375681607,
+              "CONFIG1": 1025917586,
+              "CONFIG2": 2350057984,
+              "CONFIG3": 570442479,
+              "CONFIG4": 1130627122,
+              "CONFIG5": 2800906450,
+              "TIMING22": 7
+            }
+          },
+          "mem": 3505,
+          "pstate": 0,
+          "temp": 40,
+          "checks": 93
+        }
+      ],
+      "result": [
+        {
+          "name": "FAW",
+          "before": 32,
+          "requested": 33,
+          "after": 33,
+          "outcome": "landed",
+          "detail": ""
+        }
+      ],
+      "restore_result": [
+        {
+          "name": "FAW",
+          "before": 33,
+          "requested": 32,
+          "after": 32,
+          "outcome": "landed",
+          "detail": ""
+        }
+      ],
+      "restored": {
+        "registers": {
+          "broadcast": {
+            "CONFIG0": 375681607,
+            "CONFIG1": 1025917586,
+            "CONFIG2": 2350057984,
+            "CONFIG3": 570441967,
+            "CONFIG4": 1130627122,
+            "CONFIG5": 2800906450,
+            "TIMING22": 7
+          },
+          "fbpa0": {
+            "CONFIG0": 375681607,
+            "CONFIG1": 1025917586,
+            "CONFIG2": 2350057984,
+            "CONFIG3": 570441967,
+            "CONFIG4": 1130627122,
+            "CONFIG5": 2800906450,
+            "TIMING22": 7
+          },
+          "fbpa1": {
+            "CONFIG0": 375681607,
+            "CONFIG1": 1025917586,
+            "CONFIG2": 2350057984,
+            "CONFIG3": 570441967,
+            "CONFIG4": 1130627122,
+            "CONFIG5": 2800906450,
+            "TIMING22": 7
+          },
+          "fbpa2": {
+            "CONFIG0": 375681607,
+            "CONFIG1": 1025917586,
+            "CONFIG2": 2350057984,
+            "CONFIG3": 570441967,
+            "CONFIG4": 1130627122,
+            "CONFIG5": 2800906450,
+            "TIMING22": 7
+          },
+          "fbpa3": {
+            "CONFIG0": 375681607,
+            "CONFIG1": 1025917586,
+            "CONFIG2": 2350057984,
+            "CONFIG3": 570441967,
+            "CONFIG4": 1130627122,
+            "CONFIG5": 2800906450,
+            "TIMING22": 7
+          }
+        },
+        "mem": 3505,
+        "pstate": 0,
+        "temp": 41,
+        "checks": 104
+      }
+    }
+  ],
+  "baseline": {
+    "registers": {
+      "broadcast": {
+        "CONFIG0": 375681607,
+        "CONFIG1": 1025917586,
+        "CONFIG2": 2350057984,
+        "CONFIG3": 570441967,
+        "CONFIG4": 1130627122,
+        "CONFIG5": 2800906450,
+        "TIMING22": 7
+      },
+      "fbpa0": {
+        "CONFIG0": 375681607,
+        "CONFIG1": 1025917586,
+        "CONFIG2": 2350057984,
+        "CONFIG3": 570441967,
+        "CONFIG4": 1130627122,
+        "CONFIG5": 2800906450,
+        "TIMING22": 7
+      },
+      "fbpa1": {
+        "CONFIG0": 375681607,
+        "CONFIG1": 1025917586,
+        "CONFIG2": 2350057984,
+        "CONFIG3": 570441967,
+        "CONFIG4": 1130627122,
+        "CONFIG5": 2800906450,
+        "TIMING22": 7
+      },
+      "fbpa2": {
+        "CONFIG0": 375681607,
+        "CONFIG1": 1025917586,
+        "CONFIG2": 2350057984,
+        "CONFIG3": 570441967,
+        "CONFIG4": 1130627122,
+        "CONFIG5": 2800906450,
+        "TIMING22": 7
+      },
+      "fbpa3": {
+        "CONFIG0": 375681607,
+        "CONFIG1": 1025917586,
+        "CONFIG2": 2350057984,
+        "CONFIG3": 570441967,
+        "CONFIG4": 1130627122,
+        "CONFIG5": 2800906450,
+        "TIMING22": 7
+      }
+    },
+    "mem": 3505,
+    "pstate": 0,
+    "temp": 38,
+    "checks": 20
+  },
+  "original_faw": 32,
+  "passed": true,
+  "load_error": "",
+  "load_stats": {
+    "verified_64MiB_copies": 105,
+    "mismatches": 0,
+    "deadline_reached": false
+  },
+  "post_idle": {
+    "mem": 324,
+    "core_off": 0,
+    "mem_off": 0,
+    "temp_edge": 36,
+    "pstate": 8
+  },
+  "reload_original_registers_exact": true,
+  "reload_mem": 3505
+}

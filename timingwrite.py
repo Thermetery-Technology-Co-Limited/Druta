@@ -42,6 +42,8 @@ so the difference is observed rather than inferred.
 MEASURED, and the reason the architecture note is not decoration:
   TU102 (Titan RTX)  every timing write rejected by the hardware
   GP102 (Titan Xp)   FAW 24->25 applied, verified, held, restored clean
+  GK104 (GTX 770)    FAW 32->33 applied across all four partitions, held,
+                    restored exactly twice on 472.12; VRAM copy checks passed
 Same tool, same driver, same slot. So this module reports what happened; it does
 not promise a write will land.
 """

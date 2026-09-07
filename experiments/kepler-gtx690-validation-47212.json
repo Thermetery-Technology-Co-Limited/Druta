@@ -1,0 +1,4242 @@
+{
+  "date": "2026-09-07",
+  "scope": "Three-GPU enumeration, targeted reversible functionality and short data-checked CUDA workloads; no maximum-clock or long-term stability claim. Bounded NCP4206 voltage verification and profile restoration included. CL/WL/preamble/protocol fields queried only. Windows sign-in replay not retested.",
+  "enumeration": {
+    "count": 3,
+    "distinct_slots": 3,
+    "distinct_uuids": 3,
+    "cards": [
+      {
+        "slot": "0000:01:00.0",
+        "name": "NVIDIA TITAN RTX",
+        "devid": 7682,
+        "subsys": 312676574,
+        "nvml_index": 0,
+        "has_nvapi": true
+      },
+      {
+        "slot": "0000:04:00.0",
+        "name": "NVIDIA GeForce GTX 690",
+        "devid": 4488,
+        "subsys": 2214989891,
+        "nvml_index": 1,
+        "has_nvapi": true
+      },
+      {
+        "slot": "0000:05:00.0",
+        "name": "NVIDIA GeForce GTX 690",
+        "devid": 4488,
+        "subsys": 2214989891,
+        "nvml_index": 2,
+        "has_nvapi": true
+      }
+    ]
+  },
+  "discovery": [
+    {
+      "slot": "0000:01:00.0",
+      "static": {
+        "name": "NVIDIA TITAN RTX",
+        "driver": "472.12",
+        "vbios": "90.02.1e.00.02",
+        "admin": true,
+        "slot": "0000:01:00.0",
+        "pl_min_mw": 100000,
+        "pl_max_mw": 320000,
+        "pl_def_mw": 260000,
+        "mem_clocks": [
+          405,
+          810,
+          5001,
+          6801,
+          7001
+        ],
+        "gfx_min": 360,
+        "gfx_max": 2160,
+        "mem_div": 4,
+        "mem_type": "GDDR6",
+        "mem_type_id": 14,
+        "core_off_range": [
+          -1000,
+          1000,
+          0
+        ],
+        "mem_off_range": [
+          -2000,
+          6000,
+          0
+        ],
+        "fan_min": 41,
+        "fan_max": 100
+      },
+      "status": "NVAPI: ok   |   NVML: ok   |   slot 0000:01:00.0",
+      "pairing_error": "",
+      "arch": 6,
+      "fan": {
+        "source": "nvapi_client",
+        "fans": [
+          {
+            "id": 1,
+            "level": 0,
+            "policy": 0,
+            "default_policy": 0,
+            "manual": false,
+            "min": 41,
+            "max": 100,
+            "rpm": 0
+          },
+          {
+            "id": 2,
+            "level": 0,
+            "policy": 0,
+            "default_policy": 0,
+            "manual": false,
+            "min": 41,
+            "max": 100,
+            "rpm": 0
+          }
+        ]
+      },
+      "fan_caps": {
+        "manual": true,
+        "auto": true,
+        "source": "nvapi_client",
+        "min": 41,
+        "max": 100
+      },
+      "vf_applicable": true,
+      "private_offsets": [
+        {
+          "0": {
+            "mode": 8,
+            "freq_khz": 0,
+            "msvdd_uv": 0
+          },
+          "1": {
+            "mode": 9,
+            "freq_khz": 0,
+            "msvdd_uv": 0
+          },
+          "2": {
+            "mode": 8,
+            "freq_khz": 0,
+            "msvdd_uv": 0
+          },
+          "3": {
+            "mode": 9,
+            "freq_khz": 0,
+            "msvdd_uv": 0
+          },
+          "4": {
+            "mode": 9,
+            "freq_khz": 0,
+            "msvdd_uv": 0
+          },
+          "5": {
+            "mode": 9,
+            "freq_khz": 0,
+            "msvdd_uv": 0
+          },
+          "6": {
+            "mode": 2,
+            "freq_khz": 0,
+            "msvdd_uv": 0
+          },
+          "7": {
+            "mode": 8,
+            "freq_khz": 0,
+            "msvdd_uv": 0
+          },
+          "8": {
+            "mode": 9,
+            "freq_khz": 0,
+            "msvdd_uv": 0
+          },
+          "9": {
+            "mode": 9,
+            "freq_khz": 0,
+            "msvdd_uv": 0
+          }
+        },
+        null
+      ],
+      "voltage_boost": 0,
+      "rail_limits": {
+        "0": {
+          "type": 1,
+          "reliability": 0.0,
+          "alt_reliability": 0.0,
+          "overvoltage": 0.0,
+          "vmin": 0.0,
+          "_base_mv": {
+            "reliability": 1068.75,
+            "alt_reliability": 1093.75,
+            "overvoltage": 1125.0,
+            "vmin": 650.0
+          },
+          "_headroom_mv": 25.0
+        }
+      },
+      "rail_state": {
+        "0": {
+          "type": 1,
+          "live": 681.25,
+          "reliability": 1068.75,
+          "alt_reliability": 1093.75,
+          "overvoltage": 1125.0,
+          "effective": 1068.75,
+          "vmin": 650.0
+        }
+      }
+    },
+    {
+      "slot": "0000:04:00.0",
+      "static": {
+        "name": "NVIDIA GeForce GTX 690",
+        "driver": "472.12",
+        "vbios": "80.04.1e.00.18",
+        "admin": true,
+        "slot": "0000:04:00.0",
+        "mem_clocks": [
+          324,
+          810,
+          3004
+        ],
+        "gfx_min": 562,
+        "gfx_max": 1202,
+        "mem_div": 2,
+        "mem_type": "GDDR5",
+        "mem_type_id": 8,
+        "core_off_range": [
+          -549,
+          549,
+          0
+        ],
+        "mem_off_range": [
+          -4388,
+          6008,
+          0
+        ],
+        "fan_min": 30,
+        "fan_max": 100
+      },
+      "status": "NVAPI: ok   |   NVML: ok   |   slot 0000:04:00.0",
+      "pairing_error": "",
+      "arch": 2,
+      "fan": {
+        "source": "nvapi_cooler",
+        "fans": [
+          {
+            "id": 0,
+            "level": 30,
+            "policy": 8,
+            "default_policy": 8,
+            "manual": false,
+            "min": 30,
+            "max": 100,
+            "rpm": 1140
+          }
+        ]
+      },
+      "fan_caps": {
+        "manual": true,
+        "auto": true,
+        "source": "nvapi_cooler",
+        "min": 30,
+        "max": 100
+      },
+      "vf_applicable": false,
+      "private_offsets": [
+        null,
+        "clock-domain layout is not validated for this GPU/driver"
+      ],
+      "voltage_boost": null,
+      "rail_limits": null,
+      "rail_state": null
+    },
+    {
+      "slot": "0000:05:00.0",
+      "static": {
+        "name": "NVIDIA GeForce GTX 690",
+        "driver": "472.12",
+        "vbios": "80.04.1e.00.18",
+        "admin": true,
+        "slot": "0000:05:00.0",
+        "mem_clocks": [
+          324,
+          810,
+          3004
+        ],
+        "gfx_min": 562,
+        "gfx_max": 1202,
+        "mem_div": 2,
+        "mem_type": "GDDR5",
+        "mem_type_id": 8,
+        "core_off_range": [
+          -549,
+          549,
+          0
+        ],
+        "mem_off_range": [
+          -4388,
+          6008,
+          0
+        ],
+        "fan_min": 30,
+        "fan_max": 100
+      },
+      "status": "NVAPI: ok   |   NVML: ok   |   slot 0000:05:00.0",
+      "pairing_error": "",
+      "arch": 2,
+      "fan": {
+        "source": "nvapi_cooler",
+        "fans": [
+          {
+            "id": 0,
+            "level": 30,
+            "policy": 8,
+            "default_policy": 8,
+            "manual": false,
+            "min": 30,
+            "max": 100,
+            "rpm": 1170
+          }
+        ]
+      },
+      "fan_caps": {
+        "manual": true,
+        "auto": true,
+        "source": "nvapi_cooler",
+        "min": 30,
+        "max": 100
+      },
+      "vf_applicable": false,
+      "private_offsets": [
+        null,
+        "clock-domain layout is not validated for this GPU/driver"
+      ],
+      "voltage_boost": null,
+      "rail_limits": null,
+      "rail_state": null
+    }
+  ],
+  "ordinary_controls": {
+    "cards": [
+      {
+        "slot": "0000:04:00.0",
+        "baseline": {
+          "schema": 2,
+          "saved_at": "2026-09-07 04:32:09",
+          "saved_ts": 1788780729.6451094,
+          "device": {
+            "name": "NVIDIA GeForce GTX 690",
+            "vbios": "80.04.1e.00.18",
+            "driver": "472.12",
+            "slot": "0000:04:00.0"
+          },
+          "core_off_mhz": 0,
+          "mem_off_units": 0,
+          "mem_off_true_mhz": 0.0,
+          "mem_off_scale": 4,
+          "power_limit_mw": null,
+          "volt_boost_pct": null,
+          "fan_pct": 30,
+          "fan_manual": false,
+          "fan_control_state": {
+            "source": "nvapi_cooler",
+            "fans": [
+              {
+                "id": 0,
+                "level": 30,
+                "policy": 8,
+                "default_policy": 8,
+                "manual": false,
+                "min": 30,
+                "max": 100,
+                "rpm": 1140
+              }
+            ]
+          },
+          "vf_deltas": null,
+          "vf_applicable": false,
+          "incomplete": [],
+          "rail_limits_mv": {},
+          "nvvdd_offset_mv": null,
+          "clock_domain_offsets_mhz": {},
+          "i2c": null,
+          "xoc": false
+        },
+        "fan_before": {
+          "source": "nvapi_cooler",
+          "fans": [
+            {
+              "id": 0,
+              "level": 30,
+              "policy": 8,
+              "default_policy": 8,
+              "manual": false,
+              "min": 30,
+              "max": 100,
+              "rpm": 1140
+            }
+          ]
+        },
+        "observations": [
+          {
+            "label": "stock loaded",
+            "gpus": {
+              "0000:01:00.0": {
+                "pstate": 8,
+                "core": 300,
+                "mem": 405,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 27,
+                "util_gpu": 1,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 2.314,
+                "fans": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    0,
+                    0
+                  ]
+                ]
+              },
+              "0000:04:00.0": {
+                "pstate": 0,
+                "core": 1201,
+                "mem": 3004,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 35,
+                "util_gpu": 78,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 33.614,
+                "fans": [
+                  [
+                    30,
+                    1170
+                  ]
+                ]
+              },
+              "0000:05:00.0": {
+                "pstate": 0,
+                "core": 914,
+                "mem": 3004,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 31,
+                "util_gpu": 0,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 34.357,
+                "fans": [
+                  [
+                    30,
+                    1170
+                  ]
+                ]
+              }
+            },
+            "checks": 12
+          },
+          {
+            "label": "cycle 0 domain 0 changed",
+            "gpus": {
+              "0000:01:00.0": {
+                "pstate": 8,
+                "core": 300,
+                "mem": 405,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 27,
+                "util_gpu": 1,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 2.271,
+                "fans": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    0,
+                    0
+                  ]
+                ]
+              },
+              "0000:04:00.0": {
+                "pstate": 0,
+                "core": 1215,
+                "mem": 3004,
+                "core_off": 14,
+                "mem_off": 0,
+                "temp_edge": 36,
+                "util_gpu": 78,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 38.129,
+                "fans": [
+                  [
+                    30,
+                    1140
+                  ]
+                ]
+              },
+              "0000:05:00.0": {
+                "pstate": 0,
+                "core": 914,
+                "mem": 3004,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 32,
+                "util_gpu": 0,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 34.386,
+                "fans": [
+                  [
+                    30,
+                    1140
+                  ]
+                ]
+              }
+            },
+            "checks": 28
+          },
+          {
+            "label": "cycle 0 domain 0 restored",
+            "gpus": {
+              "0000:01:00.0": {
+                "pstate": 8,
+                "core": 300,
+                "mem": 405,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 27,
+                "util_gpu": 1,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 2.274,
+                "fans": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    0,
+                    0
+                  ]
+                ]
+              },
+              "0000:04:00.0": {
+                "pstate": 0,
+                "core": 1201,
+                "mem": 3004,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 36,
+                "util_gpu": 76,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 38.286,
+                "fans": [
+                  [
+                    30,
+                    1170
+                  ]
+                ]
+              },
+              "0000:05:00.0": {
+                "pstate": 0,
+                "core": 914,
+                "mem": 3004,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 32,
+                "util_gpu": 0,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 34.386,
+                "fans": [
+                  [
+                    30,
+                    1170
+                  ]
+                ]
+              }
+            },
+            "checks": 41
+          },
+          {
+            "label": "cycle 0 domain 2 changed",
+            "gpus": {
+              "0000:01:00.0": {
+                "pstate": 8,
+                "core": 300,
+                "mem": 405,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 27,
+                "util_gpu": 1,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 2.272,
+                "fans": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    0,
+                    0
+                  ]
+                ]
+              },
+              "0000:04:00.0": {
+                "pstate": 0,
+                "core": 1201,
+                "mem": 3029,
+                "core_off": 0,
+                "mem_off": 48,
+                "temp_edge": 36,
+                "util_gpu": 74,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 38.343,
+                "fans": [
+                  [
+                    30,
+                    1140
+                  ]
+                ]
+              },
+              "0000:05:00.0": {
+                "pstate": 0,
+                "core": 914,
+                "mem": 3004,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 32,
+                "util_gpu": 0,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 34.343,
+                "fans": [
+                  [
+                    30,
+                    1140
+                  ]
+                ]
+              }
+            },
+            "checks": 53
+          },
+          {
+            "label": "cycle 0 domain 2 restored",
+            "gpus": {
+              "0000:01:00.0": {
+                "pstate": 8,
+                "core": 300,
+                "mem": 405,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 27,
+                "util_gpu": 1,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 2.274,
+                "fans": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    0,
+                    0
+                  ]
+                ]
+              },
+              "0000:04:00.0": {
+                "pstate": 0,
+                "core": 1201,
+                "mem": 3004,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 37,
+                "util_gpu": 77,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 33.614,
+                "fans": [
+                  [
+                    30,
+                    1140
+                  ]
+                ]
+              },
+              "0000:05:00.0": {
+                "pstate": 0,
+                "core": 914,
+                "mem": 3004,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 32,
+                "util_gpu": 0,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 34.386,
+                "fans": [
+                  [
+                    30,
+                    1170
+                  ]
+                ]
+              }
+            },
+            "checks": 65
+          },
+          {
+            "label": "cycle 1 domain 0 changed",
+            "gpus": {
+              "0000:01:00.0": {
+                "pstate": 8,
+                "core": 300,
+                "mem": 405,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 27,
+                "util_gpu": 1,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 2.26,
+                "fans": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    0,
+                    0
+                  ]
+                ]
+              },
+              "0000:04:00.0": {
+                "pstate": 0,
+                "core": 1215,
+                "mem": 3004,
+                "core_off": 14,
+                "mem_off": 0,
+                "temp_edge": 37,
+                "util_gpu": 78,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 38.171,
+                "fans": [
+                  [
+                    30,
+                    1170
+                  ]
+                ]
+              },
+              "0000:05:00.0": {
+                "pstate": 0,
+                "core": 914,
+                "mem": 3004,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 33,
+                "util_gpu": 0,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 34.357,
+                "fans": [
+                  [
+                    30,
+                    1140
+                  ]
+                ]
+              }
+            },
+            "checks": 78
+          },
+          {
+            "label": "cycle 1 domain 0 restored",
+            "gpus": {
+              "0000:01:00.0": {
+                "pstate": 8,
+                "core": 300,
+                "mem": 405,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 27,
+                "util_gpu": 1,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 2.466,
+                "fans": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    0,
+                    0
+                  ]
+                ]
+              },
+              "0000:04:00.0": {
+                "pstate": 0,
+                "core": 1201,
+                "mem": 3004,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 37,
+                "util_gpu": 78,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 38.129,
+                "fans": [
+                  [
+                    30,
+                    1140
+                  ]
+                ]
+              },
+              "0000:05:00.0": {
+                "pstate": 0,
+                "core": 914,
+                "mem": 3004,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 33,
+                "util_gpu": 0,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 34.243,
+                "fans": [
+                  [
+                    30,
+                    1140
+                  ]
+                ]
+              }
+            },
+            "checks": 90
+          },
+          {
+            "label": "cycle 1 domain 2 changed",
+            "gpus": {
+              "0000:01:00.0": {
+                "pstate": 8,
+                "core": 300,
+                "mem": 405,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 27,
+                "util_gpu": 1,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 2.383,
+                "fans": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    0,
+                    0
+                  ]
+                ]
+              },
+              "0000:04:00.0": {
+                "pstate": 0,
+                "core": 1201,
+                "mem": 3029,
+                "core_off": 0,
+                "mem_off": 48,
+                "temp_edge": 37,
+                "util_gpu": 76,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 36.629,
+                "fans": [
+                  [
+                    30,
+                    1170
+                  ]
+                ]
+              },
+              "0000:05:00.0": {
+                "pstate": 0,
+                "core": 914,
+                "mem": 3004,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 33,
+                "util_gpu": 0,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 34.386,
+                "fans": [
+                  [
+                    30,
+                    1140
+                  ]
+                ]
+              }
+            },
+            "checks": 103
+          },
+          {
+            "label": "cycle 1 domain 2 restored",
+            "gpus": {
+              "0000:01:00.0": {
+                "pstate": 5,
+                "core": 720,
+                "mem": 810,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 28,
+                "util_gpu": 22,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 3.238,
+                "fans": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    0,
+                    0
+                  ]
+                ]
+              },
+              "0000:04:00.0": {
+                "pstate": 0,
+                "core": 1201,
+                "mem": 3004,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 37,
+                "util_gpu": 66,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 33.186,
+                "fans": [
+                  [
+                    30,
+                    1140
+                  ]
+                ]
+              },
+              "0000:05:00.0": {
+                "pstate": 0,
+                "core": 914,
+                "mem": 3004,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 33,
+                "util_gpu": 0,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 34.386,
+                "fans": [
+                  [
+                    30,
+                    1170
+                  ]
+                ]
+              }
+            },
+            "checks": 116
+          },
+          {
+            "label": "fan 60",
+            "gpus": {
+              "0000:01:00.0": {
+                "pstate": 8,
+                "core": 300,
+                "mem": 405,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 27,
+                "util_gpu": 1,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 2.271,
+                "fans": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    0,
+                    0
+                  ]
+                ]
+              },
+              "0000:04:00.0": {
+                "pstate": 0,
+                "core": 1201,
+                "mem": 3004,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 38,
+                "util_gpu": 70,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 33.143,
+                "fans": [
+                  [
+                    60,
+                    2010
+                  ]
+                ]
+              },
+              "0000:05:00.0": {
+                "pstate": 0,
+                "core": 914,
+                "mem": 3004,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 33,
+                "util_gpu": 0,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 34.429,
+                "fans": [
+                  [
+                    30,
+                    2010
+                  ]
+                ]
+              }
+            },
+            "checks": 163
+          }
+        ],
+        "cuda_slot": "0000:04:00.0",
+        "timings_loaded": {
+          "ok": true,
+          "error": "",
+          "fmt": "nvtune-backup-1",
+          "taken": "2026-09-07T04:32:10",
+          "slot": "0000:04:00.0",
+          "boot0": "0x0E4080A2",
+          "chipset": "0x0E4",
+          "codename": "GK104",
+          "pci_id": "10de:1188",
+          "aperture": "0x10F000",
+          "registers": {
+            "broadcast": {
+              "CONFIG0": 307913279,
+              "CONFIG1": 1021657749,
+              "CONFIG2": 2350188544,
+              "CONFIG3": 570438124,
+              "CONFIG4": 1130561587,
+              "CONFIG5": 2800906466,
+              "TIMING22": 7
+            },
+            "fbpa0": {
+              "CONFIG0": 307913279,
+              "CONFIG1": 1021657749,
+              "CONFIG2": 2350188544,
+              "CONFIG3": 570438124,
+              "CONFIG4": 1130561587,
+              "CONFIG5": 2800906466,
+              "TIMING22": 7
+            },
+            "fbpa1": {
+              "CONFIG0": 307913279,
+              "CONFIG1": 1021657749,
+              "CONFIG2": 2350188544,
+              "CONFIG3": 570438124,
+              "CONFIG4": 1130561587,
+              "CONFIG5": 2800906466,
+              "TIMING22": 7
+            },
+            "fbpa2": {
+              "CONFIG0": 307913279,
+              "CONFIG1": 1021657749,
+              "CONFIG2": 2350188544,
+              "CONFIG3": 570438124,
+              "CONFIG4": 1130561587,
+              "CONFIG5": 2800906466,
+              "TIMING22": 7
+            },
+            "fbpa3": {
+              "CONFIG0": 307913279,
+              "CONFIG1": 1021657749,
+              "CONFIG2": 2350188544,
+              "CONFIG3": 570438124,
+              "CONFIG4": 1130561587,
+              "CONFIG5": 2800906466,
+              "TIMING22": 7
+            }
+          },
+          "readings": [
+            "Reading(field=Field(name='RC', register='CONFIG0', lo=0, hi=7, max_value=255, description='Row cycle time: ACT to ACT, same bank', raw_description='Row cycle time: ACT to ACT, same bank', structural=False, inferred=False, ns_unreliable='', split_with=()), cycles=63, ns=41.944074567243675, ns_refusal='')",
+            "Reading(field=Field(name='RFC', register='CONFIG0', lo=8, hi=16, max_value=511, description='Refresh cycle time', raw_description='Refresh cycle time', structural=False, inferred=False, ns_unreliable='210 cyc = 113 ns against a 240-350 ns GDDR6 tRFC - so this is a multiplier, or its range splits with TIMING22.RFCSBA/RFCSBR', split_with=()), cycles=98, ns=None, ns_refusal='210 cyc = 113 ns against a 240-350 ns GDDR6 tRFC - so this is a multiplier, or its range splits with TIMING22.RFCSBA/RFCSBR')",
+            "Reading(field=Field(name='RAS', register='CONFIG0', lo=17, hi=23, max_value=127, description='Row active time: ACT to PRE', raw_description='Row active time: ACT to PRE', structural=False, inferred=False, ns_unreliable='', split_with=()), cycles=45, ns=29.96005326231691, ns_refusal='')",
+            "Reading(field=Field(name='RP', register='CONFIG0', lo=24, hi=30, max_value=127, description='Row precharge time: PRE to ACT', raw_description='Row precharge time: PRE to ACT', structural=False, inferred=False, ns_unreliable='', split_with=()), cycles=18, ns=11.984021304926765, ns_refusal='')",
+            "Reading(field=Field(name='CL', register='CONFIG1', lo=0, hi=6, max_value=127, description='CAS read latency', raw_description='CAS read latency', structural=False, inferred=False, ns_unreliable='', split_with=()), cycles=21, ns=13.981358189081226, ns_refusal='')",
+            "Reading(field=Field(name='WL', register='CONFIG1', lo=7, hi=13, max_value=127, description='CAS write latency', raw_description='CAS write latency', structural=False, inferred=False, ns_unreliable='5 cyc = 2.7 ns - GDDR6 write latency is expressed RELATIVE to CL, not as an absolute delay', split_with=()), cycles=5, ns=None, ns_refusal='5 cyc = 2.7 ns - GDDR6 write latency is expressed RELATIVE to CL, not as an absolute delay')",
+            "Reading(field=Field(name='RD_RCD', register='CONFIG1', lo=14, hi=19, max_value=63, description='ACT to READ delay', raw_description='ACT to READ delay', structural=False, inferred=False, ns_unreliable='', split_with=()), cycles=21, ns=13.981358189081226, ns_refusal='')",
+            "Reading(field=Field(name='WR_RCD', register='CONFIG1', lo=20, hi=25, max_value=63, description='ACT to WRITE delay', raw_description='ACT to WRITE delay', structural=False, inferred=False, ns_unreliable='', split_with=()), cycles=14, ns=9.320905459387482, ns_refusal='')",
+            "Reading(field=Field(name='RPRE', register='CONFIG2', lo=0, hi=3, max_value=15, description='Read preamble length', raw_description='Read preamble length', structural=False, inferred=False, ns_unreliable='', split_with=()), cycles=0, ns=0.0, ns_refusal='')",
+            "Reading(field=Field(name='WPRE', register='CONFIG2', lo=4, hi=7, max_value=15, description='Write preamble length', raw_description='Write preamble length', structural=False, inferred=False, ns_unreliable='', split_with=()), cycles=0, ns=0.0, ns_refusal='')",
+            "Reading(field=Field(name='CDLR', register='CONFIG2', lo=8, hi=14, max_value=127, description='CAS to CAS delay, last read (read data turnaround)', raw_description='CAS to CAS delay, last read (read data turnaround)', structural=False, inferred=False, ns_unreliable='', split_with=()), cycles=8, ns=5.326231691078562, ns_refusal='')",
+            "Reading(field=Field(name='WR', register='CONFIG2', lo=16, hi=22, max_value=127, description='Write recovery time: last write data to PRE', raw_description='Write recovery time: last write data to PRE', structural=False, inferred=False, ns_unreliable='', split_with=()), cycles=21, ns=13.981358189081226, ns_refusal='')",
+            "Reading(field=Field(name='W2R_BUS', register='CONFIG2', lo=24, hi=27, max_value=15, description='Write to read bus turnaround', raw_description='Write to read bus turnaround', structural=False, inferred=False, ns_unreliable='', split_with=()), cycles=12, ns=7.989347536617843, ns_refusal='')",
+            "Reading(field=Field(name='R2W_BUS', register='CONFIG2', lo=28, hi=31, max_value=15, description='Read to write bus turnaround', raw_description='Read to write bus turnaround', structural=False, inferred=False, ns_unreliable='', split_with=()), cycles=8, ns=5.326231691078562, ns_refusal='')",
+            "Reading(field=Field(name='PDEX', register='CONFIG3', lo=0, hi=4, max_value=31, description='Power-down exit latency', raw_description='Power-down exit latency', structural=False, inferred=False, ns_unreliable='', split_with=()), cycles=12, ns=7.989347536617843, ns_refusal='')",
+            "Reading(field=Field(name='PDEN2PDEX', register='CONFIG3', lo=5, hi=8, max_value=15, description='Power-down entry to power-down exit', raw_description='Power-down entry to power-down exit', structural=False, inferred=False, ns_unreliable='', split_with=()), cycles=15, ns=9.986684420772304, ns_refusal='')",
+            "Reading(field=Field(name='FAW', register='CONFIG3', lo=9, hi=16, max_value=255, description='Four-activate window  <<< ETHlargementPill t0', raw_description='Four-activate window  <<< ETHlargementPill t0', structural=False, inferred=False, ns_unreliable='', split_with=()), cycles=24, ns=15.978695073235686, ns_refusal='')",
+            "Reading(field=Field(name='AOND', register='CONFIG3', lo=17, hi=23, max_value=127, description='ACT to ACT, other bank / ODT delay', raw_description='ACT to ACT, other bank / ODT delay', structural=False, inferred=False, ns_unreliable='', split_with=()), cycles=0, ns=0.0, ns_refusal='')",
+            "Reading(field=Field(name='CCDL', register='CONFIG3', lo=24, hi=27, max_value=15, description='CAS to CAS delay, long (same bank group)', raw_description='CAS to CAS delay, long (same bank group)', structural=False, inferred=False, ns_unreliable='', split_with=()), cycles=2, ns=1.3315579227696406, ns_refusal='')",
+            "Reading(field=Field(name='CCDS', register='CONFIG3', lo=28, hi=31, max_value=15, description='CAS to CAS delay, short (diff bank group)', raw_description='CAS to CAS delay, short (diff bank group)', structural=False, inferred=False, ns_unreliable='', split_with=()), cycles=2, ns=1.3315579227696406, ns_refusal='')",
+            "Reading(field=Field(name='REFRESH_LO', register='CONFIG4', lo=0, hi=2, max_value=7, description='Refresh interval, low bits', raw_description='Refresh interval, low bits  [structural]', structural=True, inferred=False, ns_unreliable='', split_with=('REFRESH',)), cycles=3, ns=None, ns_refusal='structural - a fragment of a value split across bit ranges, not a delay of its own')",
+            "Reading(field=Field(name='REFRESH', register='CONFIG4', lo=3, hi=14, max_value=4095, description='Refresh interval (tREFI)', raw_description='Refresh interval (tREFI)', structural=False, inferred=False, ns_unreliable='', split_with=('REFRESH_LO',)), cycles=6, ns=None, ns_refusal='only part of the value - REFRESH_LO hold(s) the rest, and the assembly rule is not verified')",
+            "Reading(field=Field(name='RRD', register='CONFIG4', lo=15, hi=20, max_value=63, description='Row to row activate delay  <<< ETHlargementPill t1', raw_description='Row to row activate delay  <<< ETHlargementPill t1', structural=False, inferred=False, ns_unreliable='', split_with=()), cycles=6, ns=3.9946737683089215, ns_refusal='')",
+            "Reading(field=Field(name='DELAY0', register='CONFIG4', lo=21, hi=26, max_value=63, description='Delay0, low bits (see CONFIG5.DELAY0_MSB/_HI)', raw_description='Delay0, low bits (see CONFIG5.DELAY0_MSB/_HI)  [structural]', structural=True, inferred=False, ns_unreliable='', split_with=('DELAY0_HI', 'DELAY0_MSB')), cycles=27, ns=None, ns_refusal='structural - a fragment of a value split across bit ranges, not a delay of its own')",
+            "Reading(field=Field(name='ADR_MIN', register='CONFIG5', lo=0, hi=2, max_value=7, description='Minimum address bus hold', raw_description='Minimum address bus hold  [structural]', structural=True, inferred=False, ns_unreliable='', split_with=()), cycles=2, ns=None, ns_refusal='structural - a fragment of a value split across bit ranges, not a delay of its own')",
+            "Reading(field=Field(name='WRCRC', register='CONFIG5', lo=4, hi=10, max_value=127, description='Write CRC latency adder', raw_description='Write CRC latency adder', structural=False, inferred=False, ns_unreliable='', split_with=()), cycles=14, ns=9.320905459387482, ns_refusal='')",
+            "Reading(field=Field(name='OFFSET0', register='CONFIG5', lo=12, hi=17, max_value=63, description='Training / phase offset 0', raw_description='Training / phase offset 0  [structural]', structural=True, inferred=False, ns_unreliable='', split_with=()), cycles=39, ns=None, ns_refusal='structural - a fragment of a value split across bit ranges, not a delay of its own')",
+            "Reading(field=Field(name='DELAY0_MSB', register='CONFIG5', lo=18, hi=19, max_value=3, description='Delay0, mid bits', raw_description='Delay0, mid bits  [structural]', structural=True, inferred=False, ns_unreliable='', split_with=('DELAY0', 'DELAY0_HI')), cycles=0, ns=None, ns_refusal='structural - a fragment of a value split across bit ranges, not a delay of its own')",
+            "Reading(field=Field(name='OFFSET1', register='CONFIG5', lo=20, hi=23, max_value=15, description='Training / phase offset 1', raw_description='Training / phase offset 1  [structural]', structural=True, inferred=False, ns_unreliable='', split_with=()), cycles=15, ns=None, ns_refusal='structural - a fragment of a value split across bit ranges, not a delay of its own')",
+            "Reading(field=Field(name='OFFSET2', register='CONFIG5', lo=24, hi=27, max_value=15, description='Training / phase offset 2', raw_description='Training / phase offset 2  [structural]', structural=True, inferred=False, ns_unreliable='', split_with=()), cycles=6, ns=None, ns_refusal='structural - a fragment of a value split across bit ranges, not a delay of its own')",
+            "Reading(field=Field(name='DELAY0_HI', register='CONFIG5', lo=28, hi=31, max_value=15, description='Delay0, high bits', raw_description='Delay0, high bits  [structural]', structural=True, inferred=False, ns_unreliable='', split_with=('DELAY0', 'DELAY0_MSB')), cycles=10, ns=None, ns_refusal='structural - a fragment of a value split across bit ranges, not a delay of its own')",
+            "Reading(field=Field(name='RFCSBA', register='TIMING22', lo=0, hi=9, max_value=1023, description='Same-bank refresh, all-bank (tRFCsb)', raw_description='Same-bank refresh, all-bank (tRFCsb)', structural=False, inferred=True, ns_unreliable='', split_with=()), cycles=7, ns=4.660452729693741, ns_refusal='')",
+            "Reading(field=Field(name='RFCSBR', register='TIMING22', lo=10, hi=17, max_value=255, description='Same-bank refresh, per-bank', raw_description='Same-bank refresh, per-bank', structural=False, inferred=True, ns_unreliable='', split_with=()), cycles=0, ns=0.0, ns_refusal='')"
+          ],
+          "scopes": [
+            "fbpa0",
+            "fbpa1",
+            "fbpa2",
+            "fbpa3"
+          ],
+          "divergence": [],
+          "mem_before": 3004,
+          "mem_after": 3004,
+          "mem_div": 2,
+          "mem_type": "GDDR5",
+          "mem_states": [
+            324,
+            810,
+            3004
+          ],
+          "pstate_before": 0,
+          "pstate_after": 0,
+          "mem_offset": 0.0,
+          "warnings": [],
+          "json_path": "<user>\\AppData\\Local\\Temp\\Druta-timings-da7xsnv6\\snapshot-001-043210.json",
+          "wall": 1788780730.8571389,
+          "elapsed": 0.01600700000000188
+        },
+        "writes": [
+          {
+            "domain": 0,
+            "value": 13,
+            "result": [
+              true,
+              "core offset set to +14 MHz (NVAPI Pstates20)"
+            ]
+          },
+          {
+            "domain": 2,
+            "value": 12.5,
+            "result": [
+              true,
+              "mem offset set to +12 MHz true (NVAPI Pstates20)"
+            ]
+          },
+          {
+            "domain": 0,
+            "value": 13,
+            "result": [
+              true,
+              "core offset set to +14 MHz (NVAPI Pstates20)"
+            ]
+          },
+          {
+            "domain": 2,
+            "value": 12.5,
+            "result": [
+              true,
+              "mem offset set to +12 MHz true (NVAPI Pstates20)"
+            ]
+          }
+        ],
+        "fan_set": [
+          false,
+          "fan write accepted but requested policy/level did not read back"
+        ],
+        "fans_during": {
+          "0000:01:00.0": {
+            "source": "nvapi_client",
+            "fans": [
+              {
+                "id": 1,
+                "level": 0,
+                "policy": 0,
+                "default_policy": 0,
+                "manual": false,
+                "min": 41,
+                "max": 100,
+                "rpm": 0
+              },
+              {
+                "id": 2,
+                "level": 0,
+                "policy": 0,
+                "default_policy": 0,
+                "manual": false,
+                "min": 41,
+                "max": 100,
+                "rpm": 0
+              }
+            ]
+          },
+          "0000:04:00.0": {
+            "source": "nvapi_cooler",
+            "fans": [
+              {
+                "id": 0,
+                "level": 60,
+                "policy": 1,
+                "default_policy": 8,
+                "manual": true,
+                "min": 30,
+                "max": 100,
+                "rpm": 1860
+              }
+            ]
+          },
+          "0000:05:00.0": {
+            "source": "nvapi_cooler",
+            "fans": [
+              {
+                "id": 0,
+                "level": 30,
+                "policy": 8,
+                "default_policy": 8,
+                "manual": false,
+                "min": 30,
+                "max": 100,
+                "rpm": 1770
+              }
+            ]
+          }
+        },
+        "passed": true,
+        "restore_core": [
+          true,
+          "core offset set to +0 MHz (NVAPI Pstates20)"
+        ],
+        "restore_mem": [
+          true,
+          "mem offset set to +0 MHz true (NVAPI Pstates20)"
+        ],
+        "restore_fan": [
+          true,
+          "fan control state restored"
+        ],
+        "final": {
+          "0000:01:00.0": {
+            "pstate": 8,
+            "core": 300,
+            "mem": 405,
+            "core_off": 0,
+            "mem_off": 0,
+            "temp_edge": 27,
+            "util_gpu": 1,
+            "pl_target_pct": 100.0,
+            "pwr_board_pct": 2.247,
+            "fans": [
+              [
+                0,
+                0
+              ],
+              [
+                0,
+                0
+              ]
+            ]
+          },
+          "0000:04:00.0": {
+            "pstate": 0,
+            "core": 1201,
+            "mem": 3004,
+            "core_off": 0,
+            "mem_off": 0,
+            "temp_edge": 37,
+            "util_gpu": 0,
+            "pl_target_pct": 100.0,
+            "pwr_board_pct": 33.243,
+            "fans": [
+              [
+                60,
+                2010
+              ]
+            ]
+          },
+          "0000:05:00.0": {
+            "pstate": 0,
+            "core": 914,
+            "mem": 3004,
+            "core_off": 0,
+            "mem_off": 0,
+            "temp_edge": 33,
+            "util_gpu": 0,
+            "pl_target_pct": 100.0,
+            "pwr_board_pct": 34.357,
+            "fans": [
+              [
+                30,
+                2010
+              ]
+            ]
+          }
+        },
+        "fans_final": {
+          "0000:01:00.0": {
+            "source": "nvapi_client",
+            "fans": [
+              {
+                "id": 1,
+                "level": 0,
+                "policy": 0,
+                "default_policy": 0,
+                "manual": false,
+                "min": 41,
+                "max": 100,
+                "rpm": 0
+              },
+              {
+                "id": 2,
+                "level": 0,
+                "policy": 0,
+                "default_policy": 0,
+                "manual": false,
+                "min": 41,
+                "max": 100,
+                "rpm": 0
+              }
+            ]
+          },
+          "0000:04:00.0": {
+            "source": "nvapi_cooler",
+            "fans": [
+              {
+                "id": 0,
+                "level": 60,
+                "policy": 8,
+                "default_policy": 8,
+                "manual": false,
+                "min": 30,
+                "max": 100,
+                "rpm": 2010
+              }
+            ]
+          },
+          "0000:05:00.0": {
+            "source": "nvapi_cooler",
+            "fans": [
+              {
+                "id": 0,
+                "level": 30,
+                "policy": 8,
+                "default_policy": 8,
+                "manual": false,
+                "min": 30,
+                "max": 100,
+                "rpm": 2010
+              }
+            ]
+          }
+        },
+        "load_error": "",
+        "load_stats": {
+          "verified_64MiB_copies": 164,
+          "mismatches": 0,
+          "deadline_reached": false
+        }
+      },
+      {
+        "slot": "0000:05:00.0",
+        "baseline": {
+          "schema": 2,
+          "saved_at": "2026-09-07 04:32:21",
+          "saved_ts": 1788780741.59928,
+          "device": {
+            "name": "NVIDIA GeForce GTX 690",
+            "vbios": "80.04.1e.00.18",
+            "driver": "472.12",
+            "slot": "0000:05:00.0"
+          },
+          "core_off_mhz": 0,
+          "mem_off_units": 0,
+          "mem_off_true_mhz": 0.0,
+          "mem_off_scale": 4,
+          "power_limit_mw": null,
+          "volt_boost_pct": null,
+          "fan_pct": 30,
+          "fan_manual": false,
+          "fan_control_state": {
+            "source": "nvapi_cooler",
+            "fans": [
+              {
+                "id": 0,
+                "level": 30,
+                "policy": 8,
+                "default_policy": 8,
+                "manual": false,
+                "min": 30,
+                "max": 100,
+                "rpm": 2010
+              }
+            ]
+          },
+          "vf_deltas": null,
+          "vf_applicable": false,
+          "incomplete": [],
+          "rail_limits_mv": {},
+          "nvvdd_offset_mv": null,
+          "clock_domain_offsets_mhz": {},
+          "i2c": null,
+          "xoc": false
+        },
+        "fan_before": {
+          "source": "nvapi_cooler",
+          "fans": [
+            {
+              "id": 0,
+              "level": 30,
+              "policy": 8,
+              "default_policy": 8,
+              "manual": false,
+              "min": 30,
+              "max": 100,
+              "rpm": 2010
+            }
+          ]
+        },
+        "observations": [
+          {
+            "label": "stock loaded",
+            "gpus": {
+              "0000:01:00.0": {
+                "pstate": 8,
+                "core": 300,
+                "mem": 405,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 27,
+                "util_gpu": 1,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 2.269,
+                "fans": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    0,
+                    0
+                  ]
+                ]
+              },
+              "0000:04:00.0": {
+                "pstate": 0,
+                "core": 1201,
+                "mem": 3004,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 37,
+                "util_gpu": 0,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 33.257,
+                "fans": [
+                  [
+                    59,
+                    2010
+                  ]
+                ]
+              },
+              "0000:05:00.0": {
+                "pstate": 0,
+                "core": 1201,
+                "mem": 3004,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 35,
+                "util_gpu": 78,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 34.757,
+                "fans": [
+                  [
+                    30,
+                    2010
+                  ]
+                ]
+              }
+            },
+            "checks": 12
+          },
+          {
+            "label": "cycle 0 domain 0 changed",
+            "gpus": {
+              "0000:01:00.0": {
+                "pstate": 8,
+                "core": 300,
+                "mem": 405,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 27,
+                "util_gpu": 1,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 2.276,
+                "fans": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    0,
+                    0
+                  ]
+                ]
+              },
+              "0000:04:00.0": {
+                "pstate": 0,
+                "core": 1201,
+                "mem": 3004,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 37,
+                "util_gpu": 0,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 33.286,
+                "fans": [
+                  [
+                    59,
+                    1980
+                  ]
+                ]
+              },
+              "0000:05:00.0": {
+                "pstate": 0,
+                "core": 1215,
+                "mem": 3004,
+                "core_off": 14,
+                "mem_off": 0,
+                "temp_edge": 35,
+                "util_gpu": 75,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 39.071,
+                "fans": [
+                  [
+                    30,
+                    1980
+                  ]
+                ]
+              }
+            },
+            "checks": 26
+          },
+          {
+            "label": "cycle 0 domain 0 restored",
+            "gpus": {
+              "0000:01:00.0": {
+                "pstate": 8,
+                "core": 300,
+                "mem": 405,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 27,
+                "util_gpu": 1,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 2.275,
+                "fans": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    0,
+                    0
+                  ]
+                ]
+              },
+              "0000:04:00.0": {
+                "pstate": 0,
+                "core": 1201,
+                "mem": 3004,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 37,
+                "util_gpu": 0,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 33.257,
+                "fans": [
+                  [
+                    58,
+                    1980
+                  ]
+                ]
+              },
+              "0000:05:00.0": {
+                "pstate": 0,
+                "core": 1201,
+                "mem": 3004,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 35,
+                "util_gpu": 70,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 39.414,
+                "fans": [
+                  [
+                    30,
+                    1980
+                  ]
+                ]
+              }
+            },
+            "checks": 39
+          },
+          {
+            "label": "cycle 0 domain 2 changed",
+            "gpus": {
+              "0000:01:00.0": {
+                "pstate": 8,
+                "core": 300,
+                "mem": 405,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 27,
+                "util_gpu": 1,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 2.27,
+                "fans": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    0,
+                    0
+                  ]
+                ]
+              },
+              "0000:04:00.0": {
+                "pstate": 0,
+                "core": 1201,
+                "mem": 3004,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 37,
+                "util_gpu": 0,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 33.257,
+                "fans": [
+                  [
+                    57,
+                    1980
+                  ]
+                ]
+              },
+              "0000:05:00.0": {
+                "pstate": 0,
+                "core": 1201,
+                "mem": 3029,
+                "core_off": 0,
+                "mem_off": 48,
+                "temp_edge": 36,
+                "util_gpu": 69,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 35.886,
+                "fans": [
+                  [
+                    30,
+                    1980
+                  ]
+                ]
+              }
+            },
+            "checks": 51
+          },
+          {
+            "label": "cycle 0 domain 2 restored",
+            "gpus": {
+              "0000:01:00.0": {
+                "pstate": 8,
+                "core": 300,
+                "mem": 405,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 27,
+                "util_gpu": 1,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 2.275,
+                "fans": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    0,
+                    0
+                  ]
+                ]
+              },
+              "0000:04:00.0": {
+                "pstate": 0,
+                "core": 1201,
+                "mem": 3004,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 37,
+                "util_gpu": 0,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 33.257,
+                "fans": [
+                  [
+                    57,
+                    1950
+                  ]
+                ]
+              },
+              "0000:05:00.0": {
+                "pstate": 0,
+                "core": 1201,
+                "mem": 3004,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 36,
+                "util_gpu": 69,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 39.443,
+                "fans": [
+                  [
+                    30,
+                    1980
+                  ]
+                ]
+              }
+            },
+            "checks": 64
+          },
+          {
+            "label": "cycle 1 domain 0 changed",
+            "gpus": {
+              "0000:01:00.0": {
+                "pstate": 8,
+                "core": 300,
+                "mem": 405,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 27,
+                "util_gpu": 1,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 2.274,
+                "fans": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    0,
+                    0
+                  ]
+                ]
+              },
+              "0000:04:00.0": {
+                "pstate": 0,
+                "core": 1201,
+                "mem": 3004,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 38,
+                "util_gpu": 0,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 33.257,
+                "fans": [
+                  [
+                    57,
+                    1950
+                  ]
+                ]
+              },
+              "0000:05:00.0": {
+                "pstate": 0,
+                "core": 1215,
+                "mem": 3004,
+                "core_off": 14,
+                "mem_off": 0,
+                "temp_edge": 36,
+                "util_gpu": 77,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 35.129,
+                "fans": [
+                  [
+                    30,
+                    1950
+                  ]
+                ]
+              }
+            },
+            "checks": 76
+          },
+          {
+            "label": "cycle 1 domain 0 restored",
+            "gpus": {
+              "0000:01:00.0": {
+                "pstate": 8,
+                "core": 300,
+                "mem": 405,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 27,
+                "util_gpu": 1,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 2.276,
+                "fans": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    0,
+                    0
+                  ]
+                ]
+              },
+              "0000:04:00.0": {
+                "pstate": 0,
+                "core": 1201,
+                "mem": 3004,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 38,
+                "util_gpu": 0,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 33.286,
+                "fans": [
+                  [
+                    56,
+                    1950
+                  ]
+                ]
+              },
+              "0000:05:00.0": {
+                "pstate": 0,
+                "core": 1201,
+                "mem": 3004,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 36,
+                "util_gpu": 78,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 39.414,
+                "fans": [
+                  [
+                    30,
+                    1920
+                  ]
+                ]
+              }
+            },
+            "checks": 89
+          },
+          {
+            "label": "cycle 1 domain 2 changed",
+            "gpus": {
+              "0000:01:00.0": {
+                "pstate": 8,
+                "core": 300,
+                "mem": 405,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 27,
+                "util_gpu": 1,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 2.283,
+                "fans": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    0,
+                    0
+                  ]
+                ]
+              },
+              "0000:04:00.0": {
+                "pstate": 0,
+                "core": 1201,
+                "mem": 3004,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 38,
+                "util_gpu": 0,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 33.257,
+                "fans": [
+                  [
+                    56,
+                    1920
+                  ]
+                ]
+              },
+              "0000:05:00.0": {
+                "pstate": 0,
+                "core": 1201,
+                "mem": 3029,
+                "core_off": 0,
+                "mem_off": 48,
+                "temp_edge": 36,
+                "util_gpu": 74,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 34.729,
+                "fans": [
+                  [
+                    30,
+                    1920
+                  ]
+                ]
+              }
+            },
+            "checks": 101
+          },
+          {
+            "label": "cycle 1 domain 2 restored",
+            "gpus": {
+              "0000:01:00.0": {
+                "pstate": 8,
+                "core": 300,
+                "mem": 405,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 27,
+                "util_gpu": 1,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 2.268,
+                "fans": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    0,
+                    0
+                  ]
+                ]
+              },
+              "0000:04:00.0": {
+                "pstate": 0,
+                "core": 1201,
+                "mem": 3004,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 38,
+                "util_gpu": 0,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 33.214,
+                "fans": [
+                  [
+                    55,
+                    1920
+                  ]
+                ]
+              },
+              "0000:05:00.0": {
+                "pstate": 0,
+                "core": 1201,
+                "mem": 3004,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 36,
+                "util_gpu": 77,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 39.414,
+                "fans": [
+                  [
+                    30,
+                    1920
+                  ]
+                ]
+              }
+            },
+            "checks": 113
+          },
+          {
+            "label": "fan 60",
+            "gpus": {
+              "0000:01:00.0": {
+                "pstate": 8,
+                "core": 300,
+                "mem": 405,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 27,
+                "util_gpu": 1,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 2.273,
+                "fans": [
+                  [
+                    0,
+                    0
+                  ],
+                  [
+                    0,
+                    0
+                  ]
+                ]
+              },
+              "0000:04:00.0": {
+                "pstate": 0,
+                "core": 1201,
+                "mem": 3004,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 38,
+                "util_gpu": 0,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 33.286,
+                "fans": [
+                  [
+                    54,
+                    2010
+                  ]
+                ]
+              },
+              "0000:05:00.0": {
+                "pstate": 0,
+                "core": 1201,
+                "mem": 3004,
+                "core_off": 0,
+                "mem_off": 0,
+                "temp_edge": 37,
+                "util_gpu": 69,
+                "pl_target_pct": 100.0,
+                "pwr_board_pct": 39.386,
+                "fans": [
+                  [
+                    60,
+                    2010
+                  ]
+                ]
+              }
+            },
+            "checks": 160
+          }
+        ],
+        "cuda_slot": "0000:05:00.0",
+        "timings_loaded": {
+          "ok": true,
+          "error": "",
+          "fmt": "nvtune-backup-1",
+          "taken": "2026-09-07T04:32:22",
+          "slot": "0000:05:00.0",
+          "boot0": "0x0E4080A2",
+          "chipset": "0x0E4",
+          "codename": "GK104",
+          "pci_id": "10de:1188",
+          "aperture": "0x10F000",
+          "registers": {
+            "broadcast": {
+              "CONFIG0": 307913279,
+              "CONFIG1": 1021657749,
+              "CONFIG2": 2350188544,
+              "CONFIG3": 570438124,
+              "CONFIG4": 1130561587,
+              "CONFIG5": 2800906466,
+              "TIMING22": 7
+            },
+            "fbpa0": {
+              "CONFIG0": 307913279,
+              "CONFIG1": 1021657749,
+              "CONFIG2": 2350188544,
+              "CONFIG3": 570438124,
+              "CONFIG4": 1130561587,
+              "CONFIG5": 2800906466,
+              "TIMING22": 7
+            },
+            "fbpa1": {
+              "CONFIG0": 307913279,
+              "CONFIG1": 1021657749,
+              "CONFIG2": 2350188544,
+              "CONFIG3": 570438124,
+              "CONFIG4": 1130561587,
+              "CONFIG5": 2800906466,
+              "TIMING22": 7
+            },
+            "fbpa2": {
+              "CONFIG0": 307913279,
+              "CONFIG1": 1021657749,
+              "CONFIG2": 2350188544,
+              "CONFIG3": 570438124,
+              "CONFIG4": 1130561587,
+              "CONFIG5": 2800906466,
+              "TIMING22": 7
+            },
+            "fbpa3": {
+              "CONFIG0": 307913279,
+              "CONFIG1": 1021657749,
+              "CONFIG2": 2350188544,
+              "CONFIG3": 570438124,
+              "CONFIG4": 1130561587,
+              "CONFIG5": 2800906466,
+              "TIMING22": 7
+            }
+          },
+          "readings": [
+            "Reading(field=Field(name='RC', register='CONFIG0', lo=0, hi=7, max_value=255, description='Row cycle time: ACT to ACT, same bank', raw_description='Row cycle time: ACT to ACT, same bank', structural=False, inferred=False, ns_unreliable='', split_with=()), cycles=63, ns=41.944074567243675, ns_refusal='')",
+            "Reading(field=Field(name='RFC', register='CONFIG0', lo=8, hi=16, max_value=511, description='Refresh cycle time', raw_description='Refresh cycle time', structural=False, inferred=False, ns_unreliable='210 cyc = 113 ns against a 240-350 ns GDDR6 tRFC - so this is a multiplier, or its range splits with TIMING22.RFCSBA/RFCSBR', split_with=()), cycles=98, ns=None, ns_refusal='210 cyc = 113 ns against a 240-350 ns GDDR6 tRFC - so this is a multiplier, or its range splits with TIMING22.RFCSBA/RFCSBR')",
+            "Reading(field=Field(name='RAS', register='CONFIG0', lo=17, hi=23, max_value=127, description='Row active time: ACT to PRE', raw_description='Row active time: ACT to PRE', structural=False, inferred=False, ns_unreliable='', split_with=()), cycles=45, ns=29.96005326231691, ns_refusal='')",
+            "Reading(field=Field(name='RP', register='CONFIG0', lo=24, hi=30, max_value=127, description='Row precharge time: PRE to ACT', raw_description='Row precharge time: PRE to ACT', structural=False, inferred=False, ns_unreliable='', split_with=()), cycles=18, ns=11.984021304926765, ns_refusal='')",
+            "Reading(field=Field(name='CL', register='CONFIG1', lo=0, hi=6, max_value=127, description='CAS read latency', raw_description='CAS read latency', structural=False, inferred=False, ns_unreliable='', split_with=()), cycles=21, ns=13.981358189081226, ns_refusal='')",
+            "Reading(field=Field(name='WL', register='CONFIG1', lo=7, hi=13, max_value=127, description='CAS write latency', raw_description='CAS write latency', structural=False, inferred=False, ns_unreliable='5 cyc = 2.7 ns - GDDR6 write latency is expressed RELATIVE to CL, not as an absolute delay', split_with=()), cycles=5, ns=None, ns_refusal='5 cyc = 2.7 ns - GDDR6 write latency is expressed RELATIVE to CL, not as an absolute delay')",
+            "Reading(field=Field(name='RD_RCD', register='CONFIG1', lo=14, hi=19, max_value=63, description='ACT to READ delay', raw_description='ACT to READ delay', structural=False, inferred=False, ns_unreliable='', split_with=()), cycles=21, ns=13.981358189081226, ns_refusal='')",
+            "Reading(field=Field(name='WR_RCD', register='CONFIG1', lo=20, hi=25, max_value=63, description='ACT to WRITE delay', raw_description='ACT to WRITE delay', structural=False, inferred=False, ns_unreliable='', split_with=()), cycles=14, ns=9.320905459387482, ns_refusal='')",
+            "Reading(field=Field(name='RPRE', register='CONFIG2', lo=0, hi=3, max_value=15, description='Read preamble length', raw_description='Read preamble length', structural=False, inferred=False, ns_unreliable='', split_with=()), cycles=0, ns=0.0, ns_refusal='')",
+            "Reading(field=Field(name='WPRE', register='CONFIG2', lo=4, hi=7, max_value=15, description='Write preamble length', raw_description='Write preamble length', structural=False, inferred=False, ns_unreliable='', split_with=()), cycles=0, ns=0.0, ns_refusal='')",
+            "Reading(field=Field(name='CDLR', register='CONFIG2', lo=8, hi=14, max_value=127, description='CAS to CAS delay, last read (read data turnaround)', raw_description='CAS to CAS delay, last read (read data turnaround)', structural=False, inferred=False, ns_unreliable='', split_with=()), cycles=8, ns=5.326231691078562, ns_refusal='')",
+            "Reading(field=Field(name='WR', register='CONFIG2', lo=16, hi=22, max_value=127, description='Write recovery time: last write data to PRE', raw_description='Write recovery time: last write data to PRE', structural=False, inferred=False, ns_unreliable='', split_with=()), cycles=21, ns=13.981358189081226, ns_refusal='')",
+            "Reading(field=Field(name='W2R_BUS', register='CONFIG2', lo=24, hi=27, max_value=15, description='Write to read bus turnaround', raw_description='Write to read bus turnaround', structural=False, inferred=False, ns_unreliable='', split_with=()), cycles=12, ns=7.989347536617843, ns_refusal='')",
+            "Reading(field=Field(name='R2W_BUS', register='CONFIG2', lo=28, hi=31, max_value=15, description='Read to write bus turnaround', raw_description='Read to write bus turnaround', structural=False, inferred=False, ns_unreliable='', split_with=()), cycles=8, ns=5.326231691078562, ns_refusal='')",
+            "Reading(field=Field(name='PDEX', register='CONFIG3', lo=0, hi=4, max_value=31, description='Power-down exit latency', raw_description='Power-down exit latency', structural=False, inferred=False, ns_unreliable='', split_with=()), cycles=12, ns=7.989347536617843, ns_refusal='')",
+            "Reading(field=Field(name='PDEN2PDEX', register='CONFIG3', lo=5, hi=8, max_value=15, description='Power-down entry to power-down exit', raw_description='Power-down entry to power-down exit', structural=False, inferred=False, ns_unreliable='', split_with=()), cycles=15, ns=9.986684420772304, ns_refusal='')",
+            "Reading(field=Field(name='FAW', register='CONFIG3', lo=9, hi=16, max_value=255, description='Four-activate window  <<< ETHlargementPill t0', raw_description='Four-activate window  <<< ETHlargementPill t0', structural=False, inferred=False, ns_unreliable='', split_with=()), cycles=24, ns=15.978695073235686, ns_refusal='')",
+            "Reading(field=Field(name='AOND', register='CONFIG3', lo=17, hi=23, max_value=127, description='ACT to ACT, other bank / ODT delay', raw_description='ACT to ACT, other bank / ODT delay', structural=False, inferred=False, ns_unreliable='', split_with=()), cycles=0, ns=0.0, ns_refusal='')",
+            "Reading(field=Field(name='CCDL', register='CONFIG3', lo=24, hi=27, max_value=15, description='CAS to CAS delay, long (same bank group)', raw_description='CAS to CAS delay, long (same bank group)', structural=False, inferred=False, ns_unreliable='', split_with=()), cycles=2, ns=1.3315579227696406, ns_refusal='')",
+            "Reading(field=Field(name='CCDS', register='CONFIG3', lo=28, hi=31, max_value=15, description='CAS to CAS delay, short (diff bank group)', raw_description='CAS to CAS delay, short (diff bank group)', structural=False, inferred=False, ns_unreliable='', split_with=()), cycles=2, ns=1.3315579227696406, ns_refusal='')",
+            "Reading(field=Field(name='REFRESH_LO', register='CONFIG4', lo=0, hi=2, max_value=7, description='Refresh interval, low bits', raw_description='Refresh interval, low bits  [structural]', structural=True, inferred=False, ns_unreliable='', split_with=('REFRESH',)), cycles=3, ns=None, ns_refusal='structural - a fragment of a value split across bit ranges, not a delay of its own')",
+            "Reading(field=Field(name='REFRESH', register='CONFIG4', lo=3, hi=14, max_value=4095, description='Refresh interval (tREFI)', raw_description='Refresh interval (tREFI)', structural=False, inferred=False, ns_unreliable='', split_with=('REFRESH_LO',)), cycles=6, ns=None, ns_refusal='only part of the value - REFRESH_LO hold(s) the rest, and the assembly rule is not verified')",
+            "Reading(field=Field(name='RRD', register='CONFIG4', lo=15, hi=20, max_value=63, description='Row to row activate delay  <<< ETHlargementPill t1', raw_description='Row to row activate delay  <<< ETHlargementPill t1', structural=False, inferred=False, ns_unreliable='', split_with=()), cycles=6, ns=3.9946737683089215, ns_refusal='')",
+            "Reading(field=Field(name='DELAY0', register='CONFIG4', lo=21, hi=26, max_value=63, description='Delay0, low bits (see CONFIG5.DELAY0_MSB/_HI)', raw_description='Delay0, low bits (see CONFIG5.DELAY0_MSB/_HI)  [structural]', structural=True, inferred=False, ns_unreliable='', split_with=('DELAY0_HI', 'DELAY0_MSB')), cycles=27, ns=None, ns_refusal='structural - a fragment of a value split across bit ranges, not a delay of its own')",
+            "Reading(field=Field(name='ADR_MIN', register='CONFIG5', lo=0, hi=2, max_value=7, description='Minimum address bus hold', raw_description='Minimum address bus hold  [structural]', structural=True, inferred=False, ns_unreliable='', split_with=()), cycles=2, ns=None, ns_refusal='structural - a fragment of a value split across bit ranges, not a delay of its own')",
+            "Reading(field=Field(name='WRCRC', register='CONFIG5', lo=4, hi=10, max_value=127, description='Write CRC latency adder', raw_description='Write CRC latency adder', structural=False, inferred=False, ns_unreliable='', split_with=()), cycles=14, ns=9.320905459387482, ns_refusal='')",
+            "Reading(field=Field(name='OFFSET0', register='CONFIG5', lo=12, hi=17, max_value=63, description='Training / phase offset 0', raw_description='Training / phase offset 0  [structural]', structural=True, inferred=False, ns_unreliable='', split_with=()), cycles=39, ns=None, ns_refusal='structural - a fragment of a value split across bit ranges, not a delay of its own')",
+            "Reading(field=Field(name='DELAY0_MSB', register='CONFIG5', lo=18, hi=19, max_value=3, description='Delay0, mid bits', raw_description='Delay0, mid bits  [structural]', structural=True, inferred=False, ns_unreliable='', split_with=('DELAY0', 'DELAY0_HI')), cycles=0, ns=None, ns_refusal='structural - a fragment of a value split across bit ranges, not a delay of its own')",
+            "Reading(field=Field(name='OFFSET1', register='CONFIG5', lo=20, hi=23, max_value=15, description='Training / phase offset 1', raw_description='Training / phase offset 1  [structural]', structural=True, inferred=False, ns_unreliable='', split_with=()), cycles=15, ns=None, ns_refusal='structural - a fragment of a value split across bit ranges, not a delay of its own')",
+            "Reading(field=Field(name='OFFSET2', register='CONFIG5', lo=24, hi=27, max_value=15, description='Training / phase offset 2', raw_description='Training / phase offset 2  [structural]', structural=True, inferred=False, ns_unreliable='', split_with=()), cycles=6, ns=None, ns_refusal='structural - a fragment of a value split across bit ranges, not a delay of its own')",
+            "Reading(field=Field(name='DELAY0_HI', register='CONFIG5', lo=28, hi=31, max_value=15, description='Delay0, high bits', raw_description='Delay0, high bits  [structural]', structural=True, inferred=False, ns_unreliable='', split_with=('DELAY0', 'DELAY0_MSB')), cycles=10, ns=None, ns_refusal='structural - a fragment of a value split across bit ranges, not a delay of its own')",
+            "Reading(field=Field(name='RFCSBA', register='TIMING22', lo=0, hi=9, max_value=1023, description='Same-bank refresh, all-bank (tRFCsb)', raw_description='Same-bank refresh, all-bank (tRFCsb)', structural=False, inferred=True, ns_unreliable='', split_with=()), cycles=7, ns=4.660452729693741, ns_refusal='')",
+            "Reading(field=Field(name='RFCSBR', register='TIMING22', lo=10, hi=17, max_value=255, description='Same-bank refresh, per-bank', raw_description='Same-bank refresh, per-bank', structural=False, inferred=True, ns_unreliable='', split_with=()), cycles=0, ns=0.0, ns_refusal='')"
+          ],
+          "scopes": [
+            "fbpa0",
+            "fbpa1",
+            "fbpa2",
+            "fbpa3"
+          ],
+          "divergence": [],
+          "mem_before": 3004,
+          "mem_after": 3004,
+          "mem_div": 2,
+          "mem_type": "GDDR5",
+          "mem_states": [
+            324,
+            810,
+            3004
+          ],
+          "pstate_before": 0,
+          "pstate_after": 0,
+          "mem_offset": 0.0,
+          "warnings": [],
+          "json_path": "<user>\\AppData\\Local\\Temp\\Druta-timings-da7xsnv6\\snapshot-002-043222.json",
+          "wall": 1788780742.721853,
+          "elapsed": 0.017980699999952776
+        },
+        "writes": [
+          {
+            "domain": 0,
+            "value": 13,
+            "result": [
+              true,
+              "core offset set to +14 MHz (NVAPI Pstates20)"
+            ]
+          },
+          {
+            "domain": 2,
+            "value": 12.5,
+            "result": [
+              true,
+              "mem offset set to +12 MHz true (NVAPI Pstates20)"
+            ]
+          },
+          {
+            "domain": 0,
+            "value": 13,
+            "result": [
+              true,
+              "core offset set to +14 MHz (NVAPI Pstates20)"
+            ]
+          },
+          {
+            "domain": 2,
+            "value": 12.5,
+            "result": [
+              true,
+              "mem offset set to +12 MHz true (NVAPI Pstates20)"
+            ]
+          }
+        ],
+        "fan_set": [
+          false,
+          "fan write accepted but requested policy/level did not read back"
+        ],
+        "fans_during": {
+          "0000:01:00.0": {
+            "source": "nvapi_client",
+            "fans": [
+              {
+                "id": 1,
+                "level": 0,
+                "policy": 0,
+                "default_policy": 0,
+                "manual": false,
+                "min": 41,
+                "max": 100,
+                "rpm": 0
+              },
+              {
+                "id": 2,
+                "level": 0,
+                "policy": 0,
+                "default_policy": 0,
+                "manual": false,
+                "min": 41,
+                "max": 100,
+                "rpm": 0
+              }
+            ]
+          },
+          "0000:04:00.0": {
+            "source": "nvapi_cooler",
+            "fans": [
+              {
+                "id": 0,
+                "level": 55,
+                "policy": 8,
+                "default_policy": 8,
+                "manual": false,
+                "min": 30,
+                "max": 100,
+                "rpm": 1980
+              }
+            ]
+          },
+          "0000:05:00.0": {
+            "source": "nvapi_cooler",
+            "fans": [
+              {
+                "id": 0,
+                "level": 60,
+                "policy": 1,
+                "default_policy": 8,
+                "manual": true,
+                "min": 30,
+                "max": 100,
+                "rpm": 1980
+              }
+            ]
+          }
+        },
+        "passed": true,
+        "restore_core": [
+          true,
+          "core offset set to +0 MHz (NVAPI Pstates20)"
+        ],
+        "restore_mem": [
+          true,
+          "mem offset set to +0 MHz true (NVAPI Pstates20)"
+        ],
+        "restore_fan": [
+          true,
+          "fan control state restored"
+        ],
+        "final": {
+          "0000:01:00.0": {
+            "pstate": 8,
+            "core": 300,
+            "mem": 405,
+            "core_off": 0,
+            "mem_off": 0,
+            "temp_edge": 27,
+            "util_gpu": 1,
+            "pl_target_pct": 100.0,
+            "pwr_board_pct": 2.265,
+            "fans": [
+              [
+                0,
+                0
+              ],
+              [
+                0,
+                0
+              ]
+            ]
+          },
+          "0000:04:00.0": {
+            "pstate": 0,
+            "core": 1201,
+            "mem": 3004,
+            "core_off": 0,
+            "mem_off": 0,
+            "temp_edge": 38,
+            "util_gpu": 0,
+            "pl_target_pct": 100.0,
+            "pwr_board_pct": 33.257,
+            "fans": [
+              [
+                54,
+                2010
+              ]
+            ]
+          },
+          "0000:05:00.0": {
+            "pstate": 0,
+            "core": 1201,
+            "mem": 3004,
+            "core_off": 0,
+            "mem_off": 0,
+            "temp_edge": 36,
+            "util_gpu": 0,
+            "pl_target_pct": 100.0,
+            "pwr_board_pct": 34.4,
+            "fans": [
+              [
+                60,
+                2010
+              ]
+            ]
+          }
+        },
+        "fans_final": {
+          "0000:01:00.0": {
+            "source": "nvapi_client",
+            "fans": [
+              {
+                "id": 1,
+                "level": 0,
+                "policy": 0,
+                "default_policy": 0,
+                "manual": false,
+                "min": 41,
+                "max": 100,
+                "rpm": 0
+              },
+              {
+                "id": 2,
+                "level": 0,
+                "policy": 0,
+                "default_policy": 0,
+                "manual": false,
+                "min": 41,
+                "max": 100,
+                "rpm": 0
+              }
+            ]
+          },
+          "0000:04:00.0": {
+            "source": "nvapi_cooler",
+            "fans": [
+              {
+                "id": 0,
+                "level": 54,
+                "policy": 8,
+                "default_policy": 8,
+                "manual": false,
+                "min": 30,
+                "max": 100,
+                "rpm": 2010
+              }
+            ]
+          },
+          "0000:05:00.0": {
+            "source": "nvapi_cooler",
+            "fans": [
+              {
+                "id": 0,
+                "level": 60,
+                "policy": 8,
+                "default_policy": 8,
+                "manual": false,
+                "min": 30,
+                "max": 100,
+                "rpm": 2010
+              }
+            ]
+          }
+        },
+        "load_error": "",
+        "load_stats": {
+          "verified_64MiB_copies": 161,
+          "mismatches": 0,
+          "deadline_reached": false
+        }
+      }
+    ]
+  },
+  "fan_verification_after_fix": [
+    {
+      "slot": "0000:04:00.0",
+      "baseline": {
+        "source": "nvapi_cooler",
+        "fans": [
+          {
+            "id": 0,
+            "level": 36,
+            "policy": 8,
+            "default_policy": 8,
+            "manual": false,
+            "min": 30,
+            "max": 100,
+            "rpm": 1440
+          }
+        ]
+      },
+      "cycles": [
+        {
+          "request": 55,
+          "result": [
+            true,
+            "fans set to manual 55%"
+          ],
+          "returned_after": 0.7061093000000369,
+          "observations": [
+            {
+              "t": 0.7063758000000462,
+              "state": {
+                "source": "nvapi_cooler",
+                "fans": [
+                  {
+                    "id": 0,
+                    "level": 55,
+                    "policy": 1,
+                    "default_policy": 8,
+                    "manual": true,
+                    "min": 30,
+                    "max": 100,
+                    "rpm": 1380
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "request": 60,
+          "result": [
+            true,
+            "fans set to manual 60%"
+          ],
+          "returned_after": 1.0079433999999878,
+          "observations": [
+            {
+              "t": 1.008208400000001,
+              "state": {
+                "source": "nvapi_cooler",
+                "fans": [
+                  {
+                    "id": 0,
+                    "level": 60,
+                    "policy": 1,
+                    "default_policy": 8,
+                    "manual": true,
+                    "min": 30,
+                    "max": 100,
+                    "rpm": 1740
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "restore": [
+        true,
+        "fan control state restored"
+      ],
+      "after": {
+        "source": "nvapi_cooler",
+        "fans": [
+          {
+            "id": 0,
+            "level": 60,
+            "policy": 8,
+            "default_policy": 8,
+            "manual": false,
+            "min": 30,
+            "max": 100,
+            "rpm": 1950
+          }
+        ]
+      }
+    },
+    {
+      "slot": "0000:05:00.0",
+      "baseline": {
+        "source": "nvapi_cooler",
+        "fans": [
+          {
+            "id": 0,
+            "level": 36,
+            "policy": 8,
+            "default_policy": 8,
+            "manual": false,
+            "min": 30,
+            "max": 100,
+            "rpm": 1920
+          }
+        ]
+      },
+      "cycles": [
+        {
+          "request": 55,
+          "result": [
+            true,
+            "fans set to manual 55%"
+          ],
+          "returned_after": 0.7063110999999935,
+          "observations": [
+            {
+              "t": 0.7065835999999877,
+              "state": {
+                "source": "nvapi_cooler",
+                "fans": [
+                  {
+                    "id": 0,
+                    "level": 55,
+                    "policy": 1,
+                    "default_policy": 8,
+                    "manual": true,
+                    "min": 30,
+                    "max": 100,
+                    "rpm": 2010
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "request": 60,
+          "result": [
+            true,
+            "fans set to manual 60%"
+          ],
+          "returned_after": 1.0080822000000467,
+          "observations": [
+            {
+              "t": 1.0083682000000067,
+              "state": {
+                "source": "nvapi_cooler",
+                "fans": [
+                  {
+                    "id": 0,
+                    "level": 60,
+                    "policy": 1,
+                    "default_policy": 8,
+                    "manual": true,
+                    "min": 30,
+                    "max": 100,
+                    "rpm": 2010
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "restore": [
+        true,
+        "fan control state restored"
+      ],
+      "after": {
+        "source": "nvapi_cooler",
+        "fans": [
+          {
+            "id": 0,
+            "level": 60,
+            "policy": 8,
+            "default_policy": 8,
+            "manual": false,
+            "min": 30,
+            "max": 100,
+            "rpm": 2010
+          }
+        ]
+      }
+    }
+  ],
+  "lock_apis": [
+    {
+      "slot": "0000:04:00.0",
+      "gpu_lock": [
+        false,
+        "lock failed: Not Supported (needs admin)"
+      ],
+      "memory_lock": {
+        "rc": 3,
+        "status": "Not Supported"
+      },
+      "queries": {
+        "nvmlDeviceGetApplicationsClock:0": {
+          "rc": 3,
+          "status": "Not Supported",
+          "value": null
+        },
+        "nvmlDeviceGetApplicationsClock:2": {
+          "rc": 3,
+          "status": "Not Supported",
+          "value": null
+        },
+        "nvmlDeviceGetDefaultApplicationsClock:0": {
+          "rc": 3,
+          "status": "Not Supported",
+          "value": null
+        },
+        "nvmlDeviceGetDefaultApplicationsClock:2": {
+          "rc": 3,
+          "status": "Not Supported",
+          "value": null
+        },
+        "nvmlDeviceGetPowerManagementLimit:None": {
+          "rc": 3,
+          "status": "Not Supported",
+          "value": null
+        },
+        "nvmlDeviceGetPowerManagementDefaultLimit:None": {
+          "rc": 3,
+          "status": "Not Supported",
+          "value": null
+        }
+      }
+    },
+    {
+      "slot": "0000:05:00.0",
+      "gpu_lock": [
+        false,
+        "lock failed: Not Supported (needs admin)"
+      ],
+      "memory_lock": {
+        "rc": 3,
+        "status": "Not Supported"
+      },
+      "queries": {
+        "nvmlDeviceGetApplicationsClock:0": {
+          "rc": 3,
+          "status": "Not Supported",
+          "value": null
+        },
+        "nvmlDeviceGetApplicationsClock:2": {
+          "rc": 3,
+          "status": "Not Supported",
+          "value": null
+        },
+        "nvmlDeviceGetDefaultApplicationsClock:0": {
+          "rc": 3,
+          "status": "Not Supported",
+          "value": null
+        },
+        "nvmlDeviceGetDefaultApplicationsClock:2": {
+          "rc": 3,
+          "status": "Not Supported",
+          "value": null
+        },
+        "nvmlDeviceGetPowerManagementLimit:None": {
+          "rc": 3,
+          "status": "Not Supported",
+          "value": null
+        },
+        "nvmlDeviceGetPowerManagementDefaultLimit:None": {
+          "rc": 3,
+          "status": "Not Supported",
+          "value": null
+        }
+      }
+    }
+  ],
+  "legacy_p0": [
+    {
+      "slot": "0000:04:00.0",
+      "before": {
+        "0000:04:00.0": {
+          "pstate": 8,
+          "core": 324,
+          "mem": 324,
+          "core_off": 0,
+          "mem_off": 0,
+          "temp_edge": 33
+        },
+        "0000:05:00.0": {
+          "pstate": 8,
+          "core": 324,
+          "mem": 324,
+          "core_off": 0,
+          "mem_off": 0,
+          "temp_edge": 33
+        }
+      },
+      "cycles": [
+        {
+          "force_status": 0,
+          "forced_idle": {
+            "0000:04:00.0": {
+              "pstate": 0,
+              "core": 705,
+              "mem": 3004,
+              "core_off": 0,
+              "mem_off": 0,
+              "temp_edge": 37
+            },
+            "0000:05:00.0": {
+              "pstate": 8,
+              "core": 324,
+              "mem": 324,
+              "core_off": 0,
+              "mem_off": 0,
+              "temp_edge": 32
+            }
+          },
+          "forced_load": {
+            "0000:04:00.0": {
+              "pstate": 0,
+              "core": 705,
+              "mem": 3004,
+              "core_off": 0,
+              "mem_off": 0,
+              "temp_edge": 38
+            },
+            "0000:05:00.0": {
+              "pstate": 0,
+              "core": 914,
+              "mem": 3004,
+              "core_off": 0,
+              "mem_off": 0,
+              "temp_edge": 36
+            }
+          },
+          "load_stats": {
+            "verified_64MiB_copies": 32,
+            "mismatches": 0,
+            "deadline_reached": false
+          },
+          "load_error": "",
+          "release_status": 0,
+          "released_idle": {
+            "0000:04:00.0": {
+              "pstate": 0,
+              "core": 914,
+              "mem": 3004,
+              "core_off": 0,
+              "mem_off": 0,
+              "temp_edge": 38
+            },
+            "0000:05:00.0": {
+              "pstate": 2,
+              "core": 731,
+              "mem": 3004,
+              "core_off": 0,
+              "mem_off": 0,
+              "temp_edge": 36
+            }
+          }
+        },
+        {
+          "force_status": 0,
+          "forced_idle": {
+            "0000:04:00.0": {
+              "pstate": 0,
+              "core": 705,
+              "mem": 3004,
+              "core_off": 0,
+              "mem_off": 0,
+              "temp_edge": 38
+            },
+            "0000:05:00.0": {
+              "pstate": 5,
+              "core": 731,
+              "mem": 810,
+              "core_off": 0,
+              "mem_off": 0,
+              "temp_edge": 36
+            }
+          },
+          "forced_load": {
+            "0000:04:00.0": {
+              "pstate": 0,
+              "core": 705,
+              "mem": 3004,
+              "core_off": 0,
+              "mem_off": 0,
+              "temp_edge": 39
+            },
+            "0000:05:00.0": {
+              "pstate": 0,
+              "core": 914,
+              "mem": 3004,
+              "core_off": 0,
+              "mem_off": 0,
+              "temp_edge": 37
+            }
+          },
+          "load_stats": {
+            "verified_64MiB_copies": 31,
+            "mismatches": 0,
+            "deadline_reached": false
+          },
+          "load_error": "",
+          "release_status": 0,
+          "released_idle": {
+            "0000:04:00.0": {
+              "pstate": 0,
+              "core": 914,
+              "mem": 3004,
+              "core_off": 0,
+              "mem_off": 0,
+              "temp_edge": 39
+            },
+            "0000:05:00.0": {
+              "pstate": 2,
+              "core": 731,
+              "mem": 3004,
+              "core_off": 0,
+              "mem_off": 0,
+              "temp_edge": 37
+            }
+          }
+        }
+      ]
+    },
+    {
+      "slot": "0000:05:00.0",
+      "before": {
+        "0000:04:00.0": {
+          "pstate": 0,
+          "core": 914,
+          "mem": 3004,
+          "core_off": 0,
+          "mem_off": 0,
+          "temp_edge": 39
+        },
+        "0000:05:00.0": {
+          "pstate": 2,
+          "core": 731,
+          "mem": 3004,
+          "core_off": 0,
+          "mem_off": 0,
+          "temp_edge": 37
+        }
+      },
+      "cycles": [
+        {
+          "force_status": 0,
+          "forced_idle": {
+            "0000:04:00.0": {
+              "pstate": 2,
+              "core": 731,
+              "mem": 3004,
+              "core_off": 0,
+              "mem_off": 0,
+              "temp_edge": 39
+            },
+            "0000:05:00.0": {
+              "pstate": 0,
+              "core": 705,
+              "mem": 3004,
+              "core_off": 0,
+              "mem_off": 0,
+              "temp_edge": 37
+            }
+          },
+          "forced_load": {
+            "0000:04:00.0": {
+              "pstate": 0,
+              "core": 914,
+              "mem": 3004,
+              "core_off": 0,
+              "mem_off": 0,
+              "temp_edge": 39
+            },
+            "0000:05:00.0": {
+              "pstate": 0,
+              "core": 705,
+              "mem": 3004,
+              "core_off": 0,
+              "mem_off": 0,
+              "temp_edge": 38
+            }
+          },
+          "load_stats": {
+            "verified_64MiB_copies": 32,
+            "mismatches": 0,
+            "deadline_reached": false
+          },
+          "load_error": "",
+          "release_status": 0,
+          "released_idle": {
+            "0000:04:00.0": {
+              "pstate": 2,
+              "core": 731,
+              "mem": 3004,
+              "core_off": 0,
+              "mem_off": 0,
+              "temp_edge": 39
+            },
+            "0000:05:00.0": {
+              "pstate": 0,
+              "core": 914,
+              "mem": 3004,
+              "core_off": 0,
+              "mem_off": 0,
+              "temp_edge": 38
+            }
+          }
+        },
+        {
+          "force_status": 0,
+          "forced_idle": {
+            "0000:04:00.0": {
+              "pstate": 2,
+              "core": 731,
+              "mem": 3004,
+              "core_off": 0,
+              "mem_off": 0,
+              "temp_edge": 39
+            },
+            "0000:05:00.0": {
+              "pstate": 0,
+              "core": 705,
+              "mem": 3004,
+              "core_off": 0,
+              "mem_off": 0,
+              "temp_edge": 38
+            }
+          },
+          "forced_load": {
+            "0000:04:00.0": {
+              "pstate": 0,
+              "core": 914,
+              "mem": 3004,
+              "core_off": 0,
+              "mem_off": 0,
+              "temp_edge": 40
+            },
+            "0000:05:00.0": {
+              "pstate": 0,
+              "core": 705,
+              "mem": 3004,
+              "core_off": 0,
+              "mem_off": 0,
+              "temp_edge": 39
+            }
+          },
+          "load_stats": {
+            "verified_64MiB_copies": 32,
+            "mismatches": 0,
+            "deadline_reached": false
+          },
+          "load_error": "",
+          "release_status": 0,
+          "released_idle": {
+            "0000:04:00.0": {
+              "pstate": 2,
+              "core": 731,
+              "mem": 3004,
+              "core_off": 0,
+              "mem_off": 0,
+              "temp_edge": 40
+            },
+            "0000:05:00.0": {
+              "pstate": 0,
+              "core": 914,
+              "mem": 3004,
+              "core_off": 0,
+              "mem_off": 0,
+              "temp_edge": 39
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "concurrent_workloads": {
+    "0000:01:00.0": {
+      "cuda_slot": "0000:01:00.0",
+      "name": "NVIDIA TITAN RTX",
+      "telemetry": {
+        "pstate": 2,
+        "core": 1455,
+        "mem": 6801,
+        "util_gpu": 28,
+        "temp_edge": 28,
+        "core_off": 0,
+        "mem_off": 0
+      },
+      "load_stats": {
+        "verified_64MiB_copies": 86,
+        "mismatches": 0,
+        "deadline_reached": false
+      },
+      "load_error": ""
+    },
+    "0000:04:00.0": {
+      "cuda_slot": "0000:04:00.0",
+      "name": "NVIDIA GeForce GTX 690",
+      "telemetry": {
+        "pstate": 0,
+        "core": 1201,
+        "mem": 3004,
+        "util_gpu": 64,
+        "temp_edge": 36,
+        "core_off": 0,
+        "mem_off": 0
+      },
+      "load_stats": {
+        "verified_64MiB_copies": 29,
+        "mismatches": 0,
+        "deadline_reached": false
+      },
+      "load_error": ""
+    },
+    "0000:05:00.0": {
+      "cuda_slot": "0000:05:00.0",
+      "name": "NVIDIA GeForce GTX 690",
+      "telemetry": {
+        "pstate": 0,
+        "core": 1201,
+        "mem": 3004,
+        "util_gpu": 73,
+        "temp_edge": 34,
+        "core_off": 0,
+        "mem_off": 0
+      },
+      "load_stats": {
+        "verified_64MiB_copies": 26,
+        "mismatches": 0,
+        "deadline_reached": false
+      },
+      "load_error": ""
+    }
+  },
+  "production_main_loop": {
+    "callbacks": [
+      {
+        "slot": "0000:04:00.0",
+        "curve_points": 0,
+        "same_thread": true,
+        "labels": [
+          "NVIDIA TITAN RTX   0000:01:00.0",
+          "NVIDIA GeForce GTX 690   0000:04:00.0",
+          "NVIDIA GeForce GTX 690   0000:05:00.0"
+        ]
+      },
+      {
+        "slot": "0000:05:00.0",
+        "curve_points": 0,
+        "same_thread": true,
+        "labels": [
+          "NVIDIA TITAN RTX   0000:01:00.0",
+          "NVIDIA GeForce GTX 690   0000:04:00.0",
+          "NVIDIA GeForce GTX 690   0000:05:00.0"
+        ]
+      },
+      {
+        "slot": "0000:01:00.0",
+        "curve_points": 128,
+        "same_thread": true,
+        "labels": [
+          "NVIDIA TITAN RTX   0000:01:00.0",
+          "NVIDIA GeForce GTX 690   0000:04:00.0",
+          "NVIDIA GeForce GTX 690   0000:05:00.0"
+        ]
+      },
+      {
+        "slot": "0000:04:00.0",
+        "curve_points": 0,
+        "same_thread": true,
+        "labels": [
+          "NVIDIA TITAN RTX   0000:01:00.0",
+          "NVIDIA GeForce GTX 690   0000:04:00.0",
+          "NVIDIA GeForce GTX 690   0000:05:00.0"
+        ]
+      }
+    ],
+    "telemetry_present": true,
+    "manual_callbacks": true,
+    "passed": true
+  },
+  "ncp_discovery": [
+    {
+      "slot": "0000:04:00.0",
+      "reads": [
+        {
+          "port": 2,
+          "registers": {
+            "0x99": 65,
+            "0x9a": 12952,
+            "0x9b": 1,
+            "0x20": 32,
+            "0x21": 0,
+            "0xd2": 114,
+            "0xd3": 114,
+            "0xd7": 47628
+          },
+          "present": true
+        },
+        {
+          "port": 0,
+          "registers": {
+            "0x99": null,
+            "0x9a": null,
+            "0x9b": null,
+            "0x20": null,
+            "0x21": null,
+            "0xd2": null,
+            "0xd3": null,
+            "0xd7": null
+          },
+          "present": false
+        },
+        {
+          "port": 1,
+          "registers": {
+            "0x99": null,
+            "0x9a": null,
+            "0x9b": null,
+            "0x20": null,
+            "0x21": null,
+            "0xd2": null,
+            "0xd3": null,
+            "0xd7": null
+          },
+          "present": false
+        },
+        {
+          "port": 3,
+          "registers": {
+            "0x99": null,
+            "0x9a": null,
+            "0x9b": null,
+            "0x20": null,
+            "0x21": null,
+            "0xd2": null,
+            "0xd3": null,
+            "0xd7": null
+          },
+          "present": false
+        },
+        {
+          "port": 4,
+          "registers": {
+            "0x99": null,
+            "0x9a": null,
+            "0x9b": null,
+            "0x20": null,
+            "0x21": null,
+            "0xd2": null,
+            "0xd3": null,
+            "0xd7": null
+          },
+          "present": false
+        },
+        {
+          "port": 5,
+          "registers": {
+            "0x99": null,
+            "0x9a": null,
+            "0x9b": null,
+            "0x20": null,
+            "0x21": null,
+            "0xd2": null,
+            "0xd3": null,
+            "0xd7": null
+          },
+          "present": false
+        },
+        {
+          "port": 6,
+          "registers": {
+            "0x99": null,
+            "0x9a": null,
+            "0x9b": null,
+            "0x20": null,
+            "0x21": null,
+            "0xd2": null,
+            "0xd3": null,
+            "0xd7": null
+          },
+          "present": false
+        },
+        {
+          "port": 7,
+          "registers": {
+            "0x99": null,
+            "0x9a": null,
+            "0x9b": null,
+            "0x20": null,
+            "0x21": null,
+            "0xd2": null,
+            "0xd3": null,
+            "0xd7": null
+          },
+          "present": false
+        }
+      ],
+      "detected": {
+        "kind": "ncp4206-absolute-v1",
+        "port": 2,
+        "addr7": 32,
+        "identity": [
+          65,
+          12952,
+          1
+        ],
+        "normal_max": 1281,
+        "xoc_max": 2000,
+        "vid_max": 1600,
+        "min_mv": 600
+      },
+      "telemetry": {
+        "vout_mv": 1023.4375,
+        "target_mv": null,
+        "control": {
+          "kind": "absolute_vid",
+          "enabled": false,
+          "command": 0
+        },
+        "offset_mv": null
+      }
+    },
+    {
+      "slot": "0000:05:00.0",
+      "reads": [
+        {
+          "port": 2,
+          "registers": {
+            "0x99": 65,
+            "0x9a": 12952,
+            "0x9b": 1,
+            "0x20": 32,
+            "0x21": 0,
+            "0xd2": 114,
+            "0xd3": 114,
+            "0xd7": 47628
+          },
+          "present": true
+        },
+        {
+          "port": 0,
+          "registers": {
+            "0x99": null,
+            "0x9a": null,
+            "0x9b": null,
+            "0x20": null,
+            "0x21": null,
+            "0xd2": null,
+            "0xd3": null,
+            "0xd7": null
+          },
+          "present": false
+        },
+        {
+          "port": 1,
+          "registers": {
+            "0x99": null,
+            "0x9a": null,
+            "0x9b": null,
+            "0x20": null,
+            "0x21": null,
+            "0xd2": null,
+            "0xd3": null,
+            "0xd7": null
+          },
+          "present": false
+        },
+        {
+          "port": 3,
+          "registers": {
+            "0x99": null,
+            "0x9a": null,
+            "0x9b": null,
+            "0x20": null,
+            "0x21": null,
+            "0xd2": null,
+            "0xd3": null,
+            "0xd7": null
+          },
+          "present": false
+        },
+        {
+          "port": 4,
+          "registers": {
+            "0x99": null,
+            "0x9a": null,
+            "0x9b": null,
+            "0x20": null,
+            "0x21": null,
+            "0xd2": null,
+            "0xd3": null,
+            "0xd7": null
+          },
+          "present": false
+        },
+        {
+          "port": 5,
+          "registers": {
+            "0x99": null,
+            "0x9a": null,
+            "0x9b": null,
+            "0x20": null,
+            "0x21": null,
+            "0xd2": null,
+            "0xd3": null,
+            "0xd7": null
+          },
+          "present": false
+        },
+        {
+          "port": 6,
+          "registers": {
+            "0x99": null,
+            "0x9a": null,
+            "0x9b": null,
+            "0x20": null,
+            "0x21": null,
+            "0xd2": null,
+            "0xd3": null,
+            "0xd7": null
+          },
+          "present": false
+        },
+        {
+          "port": 7,
+          "registers": {
+            "0x99": null,
+            "0x9a": null,
+            "0x9b": null,
+            "0x20": null,
+            "0x21": null,
+            "0xd2": null,
+            "0xd3": null,
+            "0xd7": null
+          },
+          "present": false
+        }
+      ],
+      "detected": {
+        "kind": "ncp4206-absolute-v1",
+        "port": 2,
+        "addr7": 32,
+        "identity": [
+          65,
+          12952,
+          1
+        ],
+        "normal_max": 1281,
+        "xoc_max": 2000,
+        "vid_max": 1600,
+        "min_mv": 600
+      },
+      "telemetry": {
+        "vout_mv": 1023.4375,
+        "target_mv": null,
+        "control": {
+          "kind": "absolute_vid",
+          "enabled": false,
+          "command": 0
+        },
+        "offset_mv": null
+      }
+    }
+  ],
+  "ncp_voltage_verification": [
+    {
+      "slot": "0000:04:00.0",
+      "baseline_control": {
+        "kind": "absolute_vid",
+        "enabled": false,
+        "command": 0
+      },
+      "raw_baseline": {
+        "0x21": 0,
+        "0xd2": 114,
+        "0xd3": 114,
+        "0xdd": 0
+      },
+      "peer_before": {
+        "0x21": 0,
+        "0xd2": 114,
+        "0xd3": 114,
+        "0xdd": 0
+      },
+      "writes": [
+        {
+          "register": "0x21",
+          "value": 61,
+          "width": 2,
+          "ok": true,
+          "peer_control": {
+            "0x21": 0,
+            "0xd2": 114,
+            "0xd3": 114,
+            "0xdd": 0
+          }
+        },
+        {
+          "register": "0xd2",
+          "value": 122,
+          "width": 1,
+          "ok": true,
+          "peer_control": {
+            "0x21": 0,
+            "0xd2": 114,
+            "0xd3": 114,
+            "0xdd": 0
+          }
+        },
+        {
+          "register": "0xd3",
+          "value": 122,
+          "width": 1,
+          "ok": true,
+          "peer_control": {
+            "0x21": 0,
+            "0xd2": 114,
+            "0xd3": 114,
+            "0xdd": 0
+          }
+        },
+        {
+          "register": "0xd2",
+          "value": 114,
+          "width": 1,
+          "ok": true,
+          "peer_control": {
+            "0x21": 0,
+            "0xd2": 114,
+            "0xd3": 114,
+            "0xdd": 0
+          }
+        },
+        {
+          "register": "0xd3",
+          "value": 114,
+          "width": 1,
+          "ok": true,
+          "peer_control": {
+            "0x21": 0,
+            "0xd2": 114,
+            "0xd3": 114,
+            "0xdd": 0
+          }
+        },
+        {
+          "register": "0x21",
+          "value": 0,
+          "width": 2,
+          "ok": true,
+          "peer_control": {
+            "0x21": 0,
+            "0xd2": 114,
+            "0xd3": 114,
+            "0xdd": 0
+          }
+        }
+      ],
+      "loaded_before": {
+        "target": {
+          "vout_mv": 1203.125,
+          "target_mv": null,
+          "control": {
+            "kind": "absolute_vid",
+            "enabled": false,
+            "command": 0
+          },
+          "offset_mv": null
+        },
+        "peer": {
+          "vout_mv": 1095.703125,
+          "target_mv": null,
+          "control": {
+            "kind": "absolute_vid",
+            "enabled": false,
+            "command": 0
+          },
+          "offset_mv": null
+        }
+      },
+      "verify": [
+        true,
+        "NCP4206 1207.03 -> target 1231.25 mV; VMON [1220.703125, 1224.609375, 1218.75, 1224.609375, 1218.75]",
+        [
+          1220.703125,
+          1224.609375,
+          1218.75,
+          1224.609375,
+          1218.75
+        ]
+      ],
+      "after": {
+        "vout_mv": 1203.125,
+        "target_mv": null,
+        "control": {
+          "kind": "absolute_vid",
+          "enabled": false,
+          "command": 0
+        },
+        "offset_mv": null
+      },
+      "raw_after": {
+        "0x21": 0,
+        "0xd2": 114,
+        "0xd3": 114,
+        "0xdd": 0
+      },
+      "peer_after": {
+        "0x21": 0,
+        "0xd2": 114,
+        "0xd3": 114,
+        "0xdd": 0
+      },
+      "peer_unchanged": true,
+      "passed": true,
+      "final_control": {
+        "kind": "absolute_vid",
+        "enabled": false,
+        "command": 0
+      },
+      "final_raw": {
+        "0x21": 0,
+        "0xd2": 114,
+        "0xd3": 114,
+        "0xdd": 0
+      },
+      "load_stats": {
+        "verified_64MiB_copies": 32,
+        "mismatches": 0,
+        "deadline_reached": false
+      },
+      "load_error": ""
+    },
+    {
+      "slot": "0000:05:00.0",
+      "baseline_control": {
+        "kind": "absolute_vid",
+        "enabled": false,
+        "command": 0
+      },
+      "raw_baseline": {
+        "0x21": 0,
+        "0xd2": 114,
+        "0xd3": 114,
+        "0xdd": 0
+      },
+      "peer_before": {
+        "0x21": 0,
+        "0xd2": 114,
+        "0xd3": 114,
+        "0xdd": 0
+      },
+      "writes": [
+        {
+          "register": "0x21",
+          "value": 61,
+          "width": 2,
+          "ok": true,
+          "peer_control": {
+            "0x21": 0,
+            "0xd2": 114,
+            "0xd3": 114,
+            "0xdd": 0
+          }
+        },
+        {
+          "register": "0xd2",
+          "value": 122,
+          "width": 1,
+          "ok": true,
+          "peer_control": {
+            "0x21": 0,
+            "0xd2": 114,
+            "0xd3": 114,
+            "0xdd": 0
+          }
+        },
+        {
+          "register": "0xd3",
+          "value": 122,
+          "width": 1,
+          "ok": true,
+          "peer_control": {
+            "0x21": 0,
+            "0xd2": 114,
+            "0xd3": 114,
+            "0xdd": 0
+          }
+        },
+        {
+          "register": "0xd2",
+          "value": 114,
+          "width": 1,
+          "ok": true,
+          "peer_control": {
+            "0x21": 0,
+            "0xd2": 114,
+            "0xd3": 114,
+            "0xdd": 0
+          }
+        },
+        {
+          "register": "0xd3",
+          "value": 114,
+          "width": 1,
+          "ok": true,
+          "peer_control": {
+            "0x21": 0,
+            "0xd2": 114,
+            "0xd3": 114,
+            "0xdd": 0
+          }
+        },
+        {
+          "register": "0x21",
+          "value": 0,
+          "width": 2,
+          "ok": true,
+          "peer_control": {
+            "0x21": 0,
+            "0xd2": 114,
+            "0xd3": 114,
+            "0xdd": 0
+          }
+        }
+      ],
+      "loaded_before": {
+        "target": {
+          "vout_mv": 1207.03125,
+          "target_mv": null,
+          "control": {
+            "kind": "absolute_vid",
+            "enabled": false,
+            "command": 0
+          },
+          "offset_mv": null
+        },
+        "peer": {
+          "vout_mv": 1207.03125,
+          "target_mv": null,
+          "control": {
+            "kind": "absolute_vid",
+            "enabled": false,
+            "command": 0
+          },
+          "offset_mv": null
+        }
+      },
+      "verify": [
+        true,
+        "NCP4206 1207.03 -> target 1231.25 mV; VMON [1224.609375, 1226.5625, 1224.609375, 1222.65625, 1224.609375]",
+        [
+          1224.609375,
+          1226.5625,
+          1224.609375,
+          1222.65625,
+          1224.609375
+        ]
+      ],
+      "after": {
+        "vout_mv": 1207.03125,
+        "target_mv": null,
+        "control": {
+          "kind": "absolute_vid",
+          "enabled": false,
+          "command": 0
+        },
+        "offset_mv": null
+      },
+      "raw_after": {
+        "0x21": 0,
+        "0xd2": 114,
+        "0xd3": 114,
+        "0xdd": 0
+      },
+      "peer_after": {
+        "0x21": 0,
+        "0xd2": 114,
+        "0xd3": 114,
+        "0xdd": 0
+      },
+      "peer_unchanged": true,
+      "passed": true,
+      "final_control": {
+        "kind": "absolute_vid",
+        "enabled": false,
+        "command": 0
+      },
+      "final_raw": {
+        "0x21": 0,
+        "0xd2": 114,
+        "0xd3": 114,
+        "0xdd": 0
+      },
+      "load_stats": {
+        "verified_64MiB_copies": 31,
+        "mismatches": 0,
+        "deadline_reached": false
+      },
+      "load_error": ""
+    }
+  ],
+  "ncp_ui": {
+    "cards": [
+      {
+        "slot": "0000:04:00.0",
+        "detected_port": 2,
+        "apply_before_verify_blocked": true,
+        "verify_button_passed_restored": true,
+        "target": {
+          "vout_mv": 1224.609375,
+          "target_mv": 1231.25,
+          "control": {
+            "kind": "absolute_vid",
+            "enabled": true,
+            "command": 61
+          },
+          "offset_mv": null
+        },
+        "restore_auto": [
+          [
+            true,
+            "NCP4206 GPU VID mode restored"
+          ],
+          [
+            true,
+            "mem offset set to +0 MHz true (NVAPI Pstates20)"
+          ],
+          [
+            true,
+            "core offset set to +0 MHz (NVAPI Pstates20)"
+          ],
+          [
+            true,
+            "fan control state restored"
+          ]
+        ],
+        "restore_target": [
+          [
+            true,
+            "NCP4206 target 1231.25 mV verified"
+          ],
+          [
+            true,
+            "mem offset set to +0 MHz true (NVAPI Pstates20)"
+          ],
+          [
+            true,
+            "core offset set to +0 MHz (NVAPI Pstates20)"
+          ],
+          [
+            true,
+            "fan control state restored"
+          ]
+        ],
+        "final_restore": [
+          [
+            true,
+            "NCP4206 GPU VID mode restored"
+          ],
+          [
+            true,
+            "mem offset set to +0 MHz true (NVAPI Pstates20)"
+          ],
+          [
+            true,
+            "core offset set to +0 MHz (NVAPI Pstates20)"
+          ],
+          [
+            true,
+            "fan control state restored"
+          ]
+        ],
+        "passed": true
+      },
+      {
+        "slot": "0000:05:00.0",
+        "detected_port": 2,
+        "apply_before_verify_blocked": true,
+        "verify_button_passed_restored": true,
+        "target": {
+          "vout_mv": 1216.796875,
+          "target_mv": 1231.25,
+          "control": {
+            "kind": "absolute_vid",
+            "enabled": true,
+            "command": 61
+          },
+          "offset_mv": null
+        },
+        "restore_auto": [
+          [
+            true,
+            "NCP4206 GPU VID mode restored"
+          ],
+          [
+            true,
+            "mem offset set to +0 MHz true (NVAPI Pstates20)"
+          ],
+          [
+            true,
+            "core offset set to +0 MHz (NVAPI Pstates20)"
+          ],
+          [
+            true,
+            "fan control state restored"
+          ]
+        ],
+        "restore_target": [
+          [
+            true,
+            "NCP4206 target 1231.25 mV verified"
+          ],
+          [
+            true,
+            "mem offset set to +0 MHz true (NVAPI Pstates20)"
+          ],
+          [
+            true,
+            "core offset set to +0 MHz (NVAPI Pstates20)"
+          ],
+          [
+            true,
+            "fan control state restored"
+          ]
+        ],
+        "final_restore": [
+          [
+            true,
+            "NCP4206 GPU VID mode restored"
+          ],
+          [
+            true,
+            "mem offset set to +0 MHz true (NVAPI Pstates20)"
+          ],
+          [
+            true,
+            "core offset set to +0 MHz (NVAPI Pstates20)"
+          ],
+          [
+            true,
+            "fan control state restored"
+          ]
+        ],
+        "passed": true
+      }
+    ],
+    "switch_clears_verification": true,
+    "passed": true,
+    "cleanup": [
+      {
+        "restored": [
+          true,
+          "NCP4206 GPU VID mode restored"
+        ],
+        "control": {
+          "kind": "absolute_vid",
+          "enabled": false,
+          "command": 0
+        }
+      },
+      {
+        "restored": [
+          true,
+          "NCP4206 GPU VID mode restored"
+        ],
+        "control": {
+          "kind": "absolute_vid",
+          "enabled": false,
+          "command": 0
+        }
+      }
+    ]
+  },
+  "profiles": {
+    "cards": [
+      {
+        "slot": "0000:04:00.0",
+        "same_device": null,
+        "other_devices": {
+          "0000:01:00.0": "profile was saved on NVIDIA GeForce GTX 690 (GPU-<redacted>, slot 0000:04:00.0), this is a DIFFERENT card: NVIDIA TITAN RTX (GPU-<redacted>, slot 0000:01:00.0)",
+          "0000:05:00.0": "profile was saved on NVIDIA GeForce GTX 690 (GPU-<redacted>, slot 0000:04:00.0), this is a DIFFERENT card: NVIDIA GeForce GTX 690 (GPU-<redacted>, slot 0000:05:00.0)"
+        },
+        "strict_other": {
+          "0000:01:00.0": "profile uuid does not match this GPU/driver; save a fresh profile on this card",
+          "0000:05:00.0": "profile uuid does not match this GPU/driver; save a fresh profile on this card"
+        },
+        "restore": [
+          [
+            true,
+            "mem offset set to +0 MHz true (NVAPI Pstates20)"
+          ],
+          [
+            true,
+            "core offset set to +0 MHz (NVAPI Pstates20)"
+          ],
+          [
+            true,
+            "fan control state restored"
+          ]
+        ],
+        "fan_restored": true,
+        "peer_offsets_unchanged": true,
+        "passed": true,
+        "cleanup": [
+          [
+            true,
+            "mem offset set to +0 MHz true (NVAPI Pstates20)"
+          ],
+          [
+            true,
+            "core offset set to +0 MHz (NVAPI Pstates20)"
+          ],
+          [
+            true,
+            "fan control state restored"
+          ]
+        ],
+        "load_stats": {
+          "verified_64MiB_copies": 19,
+          "mismatches": 0,
+          "deadline_reached": false
+        },
+        "load_error": ""
+      },
+      {
+        "slot": "0000:05:00.0",
+        "same_device": null,
+        "other_devices": {
+          "0000:01:00.0": "profile was saved on NVIDIA GeForce GTX 690 (GPU-<redacted>, slot 0000:05:00.0), this is a DIFFERENT card: NVIDIA TITAN RTX (GPU-<redacted>, slot 0000:01:00.0)",
+          "0000:04:00.0": "profile was saved on NVIDIA GeForce GTX 690 (GPU-<redacted>, slot 0000:05:00.0), this is a DIFFERENT card: NVIDIA GeForce GTX 690 (GPU-<redacted>, slot 0000:04:00.0)"
+        },
+        "strict_other": {
+          "0000:01:00.0": "profile uuid does not match this GPU/driver; save a fresh profile on this card",
+          "0000:04:00.0": "profile uuid does not match this GPU/driver; save a fresh profile on this card"
+        },
+        "restore": [
+          [
+            true,
+            "mem offset set to +0 MHz true (NVAPI Pstates20)"
+          ],
+          [
+            true,
+            "core offset set to +0 MHz (NVAPI Pstates20)"
+          ],
+          [
+            true,
+            "fan control state restored"
+          ]
+        ],
+        "fan_restored": true,
+        "peer_offsets_unchanged": true,
+        "passed": true,
+        "cleanup": [
+          [
+            true,
+            "mem offset set to +0 MHz true (NVAPI Pstates20)"
+          ],
+          [
+            true,
+            "core offset set to +0 MHz (NVAPI Pstates20)"
+          ],
+          [
+            true,
+            "fan control state restored"
+          ]
+        ],
+        "load_stats": {
+          "verified_64MiB_copies": 9,
+          "mismatches": 0,
+          "deadline_reached": false
+        },
+        "load_error": ""
+      }
+    ]
+  },
+  "ui": {
+    "switches": [
+      {
+        "slot": "0000:04:00.0",
+        "curve_points": 0,
+        "p0_button": true,
+        "rail": "Kepler - NVVDD (NCP4206, port 2)"
+      },
+      {
+        "slot": "0000:05:00.0",
+        "curve_points": 0,
+        "p0_button": true,
+        "rail": "Kepler - NVVDD (NCP4206, port 2)"
+      },
+      {
+        "slot": "0000:01:00.0",
+        "curve_points": 128,
+        "p0_button": false,
+        "rail": "RTX 2080 Ti - NVVDD (MP2888A)"
+      },
+      {
+        "slot": "0000:04:00.0",
+        "curve_points": 0,
+        "p0_button": true,
+        "rail": "Kepler - NVVDD (NCP4206, port 2)"
+      },
+      {
+        "slot": "0000:05:00.0",
+        "curve_points": 0,
+        "p0_button": true,
+        "rail": "Kepler - NVVDD (NCP4206, port 2)"
+      },
+      {
+        "slot": "0000:01:00.0",
+        "curve_points": 128,
+        "p0_button": false,
+        "rail": "RTX 2080 Ti - NVVDD (MP2888A)"
+      },
+      {
+        "slot": "0000:04:00.0",
+        "curve_points": 0,
+        "p0_button": true,
+        "rail": "Kepler - NVVDD (NCP4206, port 2)"
+      },
+      {
+        "slot": "0000:05:00.0",
+        "curve_points": 0,
+        "p0_button": true,
+        "rail": "Kepler - NVVDD (NCP4206, port 2)"
+      },
+      {
+        "slot": "0000:01:00.0",
+        "curve_points": 128,
+        "p0_button": false,
+        "rail": "RTX 2080 Ti - NVVDD (MP2888A)"
+      }
+    ],
+    "p0": [
+      {
+        "slot": "0000:04:00.0",
+        "held": {
+          "pstate": 0,
+          "core": 705,
+          "mem": 3004,
+          "core_off": 0,
+          "mem_off": 0,
+          "temp_edge": 32
+        },
+        "fan100": {
+          "source": "nvapi_cooler",
+          "fans": [
+            {
+              "id": 0,
+              "level": 100,
+              "policy": 1,
+              "default_policy": 8,
+              "manual": true,
+              "min": 30,
+              "max": 100,
+              "rpm": 1140
+            }
+          ]
+        },
+        "switch_blocked_while_held": true,
+        "undo_auto_retains_hold": true,
+        "release_repeat": true,
+        "reset_releases_and_auto": true,
+        "exit_releases": true
+      },
+      {
+        "slot": "0000:05:00.0",
+        "held": {
+          "pstate": 0,
+          "core": 705,
+          "mem": 3004,
+          "core_off": 0,
+          "mem_off": 0,
+          "temp_edge": 31
+        },
+        "fan100": {
+          "source": "nvapi_cooler",
+          "fans": [
+            {
+              "id": 0,
+              "level": 100,
+              "policy": 1,
+              "default_policy": 8,
+              "manual": true,
+              "min": 30,
+              "max": 100,
+              "rpm": 2910
+            }
+          ]
+        },
+        "switch_blocked_while_held": true,
+        "undo_auto_retains_hold": true,
+        "release_repeat": true,
+        "reset_releases_and_auto": true,
+        "exit_releases": true
+      }
+    ],
+    "labels": [
+      "NVIDIA TITAN RTX   0000:01:00.0",
+      "NVIDIA GeForce GTX 690   0000:04:00.0",
+      "NVIDIA GeForce GTX 690   0000:05:00.0"
+    ],
+    "passed": true,
+    "cleanup": [
+      {
+        "slot": "0000:04:00.0",
+        "release": [
+          true,
+          "this session owns no legacy P0 hold"
+        ],
+        "fan": [
+          true,
+          "fan control state restored"
+        ]
+      },
+      {
+        "slot": "0000:05:00.0",
+        "release": [
+          true,
+          "this session owns no legacy P0 hold"
+        ],
+        "fan": [
+          true,
+          "fan control state restored"
+        ]
+      }
+    ],
+    "original_offsets_restored": true
+  },
+  "notes": [
+    "Discovery preceded the verified GTX 690 P0 capability extension.",
+    "Ordinary-controls fan writes originally reported failure at 200 ms but did land; the subsequent fan verification and UI records test the fixed two-second verification window.",
+    "The physical blower is shared: either core can affect RPM read from both cores, while the driver exposes separate requested policies.",
+    "Loading one GTX 690 core can raise the other core's P-state without changing its offsets.",
+    "The initial PAGE-only I2C survey missed both NCP4206 devices; corrected discovery identifies them independently at port2/address0x20. Private NVAPI clock-domain/voltage layouts remain unvalidated."
+  ],
+  "final_state": [
+    {
+      "slot": "0000:01:00.0",
+      "nvapi_index": 2,
+      "nvml_index": 0,
+      "telemetry": {
+        "pstate": 8,
+        "core": 300,
+        "mem": 405,
+        "core_off": 0,
+        "mem_off": 0,
+        "temp_edge": 27
+      },
+      "fan": {
+        "source": "nvapi_client",
+        "fans": [
+          {
+            "id": 1,
+            "level": 0,
+            "policy": 0,
+            "default_policy": 0,
+            "manual": false,
+            "min": 41,
+            "max": 100,
+            "rpm": 0
+          },
+          {
+            "id": 2,
+            "level": 0,
+            "policy": 0,
+            "default_policy": 0,
+            "manual": false,
+            "min": 41,
+            "max": 100,
+            "rpm": 0
+          }
+        ]
+      },
+      "rail": {
+        "vout_mv": 682.0,
+        "iout_a": 1.8125,
+        "vrm_temp_c": 28.5,
+        "vout_max_mv": 1300.0,
+        "offset_raw": 0,
+        "offset_mv": 0.0
+      }
+    },
+    {
+      "slot": "0000:04:00.0",
+      "nvapi_index": 0,
+      "nvml_index": 1,
+      "telemetry": {
+        "pstate": 8,
+        "core": 324,
+        "mem": 324,
+        "core_off": 0,
+        "mem_off": 0,
+        "temp_edge": 26
+      },
+      "fan": {
+        "source": "nvapi_cooler",
+        "fans": [
+          {
+            "id": 0,
+            "level": 52,
+            "policy": 8,
+            "default_policy": 8,
+            "manual": false,
+            "min": 30,
+            "max": 100,
+            "rpm": 1860
+          }
+        ]
+      },
+      "rail": {
+        "vout_mv": 1023.4375,
+        "target_mv": null,
+        "control": {
+          "kind": "absolute_vid",
+          "enabled": false,
+          "command": 0
+        },
+        "offset_mv": null
+      }
+    },
+    {
+      "slot": "0000:05:00.0",
+      "nvapi_index": 1,
+      "nvml_index": 2,
+      "telemetry": {
+        "pstate": 8,
+        "core": 324,
+        "mem": 324,
+        "core_off": 0,
+        "mem_off": 0,
+        "temp_edge": 25
+      },
+      "fan": {
+        "source": "nvapi_cooler",
+        "fans": [
+          {
+            "id": 0,
+            "level": 54,
+            "policy": 8,
+            "default_policy": 8,
+            "manual": false,
+            "min": 30,
+            "max": 100,
+            "rpm": 1890
+          }
+        ]
+      },
+      "rail": {
+        "vout_mv": 1023.4375,
+        "target_mv": null,
+        "control": {
+          "kind": "absolute_vid",
+          "enabled": false,
+          "command": 0
+        },
+        "offset_mv": null
+      }
+    }
+  ],
+  "tests_passed": 271,
+  "software_changes": [
+    "Serialize UI callbacks with rendering; reject telemetry from outgoing GPU",
+    "Allow up to two seconds for delayed fan target/policy readback",
+    "Enable verified GTX690 P0/fan control with measured core-clock disclosure",
+    "Scan Kepler I2C ports for NCP4206 without PCI/subsystem whitelist; accept documented and observed controller identities",
+    "Verify voltage response using bounded noise-aware staircase and restore original controls",
+    "Correct PAGE-only discovery miss and identity read widths"
+  ]
+}

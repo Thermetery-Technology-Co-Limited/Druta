@@ -162,6 +162,7 @@ class NvAPI:
         self.PerfDecrease = self._i(0x7F7F4600, PTR, ctypes.POINTER(u32))
         self.DynPstates = self._i(0x60DED2ED, PTR, PTR)
         self.CurrentPstate = self._i(0x927DA4F6, PTR, ctypes.POINTER(u32))
+        self.ForcePstate = self._i(0x025BFB10, PTR, u32, u32)
         self.Pstates20Get = self._i(0x6FF81213, PTR, PTR)
         self.Pstates20Set = self._i(0x0F4DAE6B, PTR, PTR)
         self.AllClocks = self._i(0xDCB616C3, PTR, PTR)
@@ -388,12 +389,13 @@ class _ClkFreqs(ctypes.Structure):
 # arrays over the same 32 domains, an exact partition -
 #     A: dwords 0..63,   2 per domain at 2*d,      {freq_kHz, capability flags}
 #     B: dwords 64..287, 7 per domain at 64+7*d,   {freq_kHz, srcid, 0,0,0,0,0}
-# They are NOT two views of one number. A is the PROGRAMMED target: always
+# On TU102 these are distinct observations. A is the PROGRAMMED target: always
 # exactly on the 15 MHz grid, and bit-identical across samples for a fixed
 # domain. B is a MEASURED counter: it jitters 1-3 Hz and never lands on the
-# grid. Anything quoting one of them has to say WHICH.
+# grid. GK104 returns identical A/B values in tested states; it has not
+# established an independent measured counter. Keep that scope explicit.
 #
-# HOW FAR APART THEY ACTUALLY RUN, measured on this card under ~99% GPU load,
+# HOW FAR APART THEY ACTUALLY RUN, measured on TU102 under ~99% GPU load,
 # sampled >=8 s after the clock last changed (40 samples per locked case,
 # 20 free-boosting), GPC:
 #     free-boosting at 1950   A 1950.0   B 1949.90          -0.10 MHz
@@ -504,53 +506,53 @@ PRIV_DOMAIN_ID = {
 
 
 def classify_domain_names(rows, core_mhz=None, mem_nvml=None,
-                          blackwell=False):
-    """Name clock domains by CORRELATION against the driver's own figures.
+                          blackwell=False, architecture=None):
+    """Name telemetry using architecture-specific identities, then correlation.
 
-    `rows` is mutated in place and returned.
-
-    The only two names anybody can be sure of without a per-architecture map
-    are the two the driver will tell us independently: whichever domain carries
-    the GPU clock, and whichever carries the memory clock. Everything else is
-    either a TU102 name that has to prove the card looks like TU102 first, or
-    an index.
-
-    Three rules:
-
-    1. A domain matching the core clock at 1x is GPC; at 2x it is GPC2CLK, and
-       it is named for what it actually holds rather than being silently halved
-       - the core tile already shows the graphics clock.
-    2. A domain reading zero while the card is demonstrably running is marked
-       PRIV_UNPOPULATED and loses its name. An empty slot is not a slow clock.
-    3. The TU102 table is applied only when this card presents the TU102
-       signature - GPC correlating to domain 0. On anything else the extra
-       names are not ours to hand out.
-
-    If the correlation fails outright (no core figure to check against), the
-    table is still applied so a working panel is never blanked by a failed
-    probe, but every CONFIRMED drops to LIKELY: without ground truth the names
-    are inherited assumptions, and should read as such."""
+    Equal frequencies do not identify a domain: Kepler's idle MEM and graphics
+    clocks both read 324 MHz. Known families use their established primary
+    slots; unknown families require a unique independent clock correlation.
+    Extra Kepler names are GK104 ROM/live-state inferences and remain LIKELY.
+    These telemetry IDs never authorize private offset-control writes.
+    """
     def close(a, b, tol=0.005):
         return bool(b) and abs(a - b) <= max(0.5, abs(b) * tol)
 
+    populated = {r["domain"]: r for r in rows
+                 if r.get("kind") == PRIV_FREQ and r.get("prog_mhz")}
+    legacy = architecture in (2, 3, 4)
+    modern = architecture == 6 or blackwell or architecture == 10
     gpc_dom, gpc_scale, mem_dom = None, 1, None
-    for r in rows:
-        if r.get("kind") != PRIV_FREQ:
-            continue
-        p = r.get("prog_mhz") or 0.0
-        if not p:
-            continue
-        if gpc_dom is None and core_mhz:
-            if close(p, core_mhz):
-                gpc_dom, gpc_scale = r["domain"], 1
-            elif close(p, 2.0 * core_mhz):
-                gpc_dom, gpc_scale = r["domain"], 2
-        if mem_dom is None and close(p, mem_nvml):
-            mem_dom = r["domain"]
+    if legacy or modern:
+        slot, gpc_scale = (15, 2) if legacy else (0, 1)
+        gpc_dom = slot if slot in populated else None
+        mem_dom = 4 if 4 in populated else None
+    else:
+        candidates = [(dom, scale) for dom, r in populated.items()
+                      for scale in (1, 2)
+                      if core_mhz and close(r["prog_mhz"], scale * core_mhz)]
+        memory = [dom for dom, r in populated.items()
+                  if close(r["prog_mhz"], mem_nvml)]
+        if len(candidates) == 1:
+            gpc_dom, gpc_scale = candidates[0]
+        if len(memory) == 1:
+            mem_dom = memory[0]
+        if gpc_dom is not None and gpc_dom == mem_dom:
+            gpc_dom = mem_dom = None
 
-    # Domain 0 carrying the GPU clock is the TU102 shape. GP102 puts it at 15.
-    turing_like = (gpc_dom == 0)
-    blind = (gpc_dom is None)
+    turing_like = architecture == 6 or (architecture is None and gpc_dom == 0)
+    blind = architecture is None and not core_mhz
+
+    # GTX 690 ROM + both GK104 cores, R472.12, idle/boost/held P0.
+    # See experiments/kepler-gtx690-clock-domains.md. Equal XBAR/SYS clocks
+    # cannot establish their individual order. These are inferred identities,
+    # not independently measured engine counters, so retain question marks.
+    KEPLER_NAMES = {
+        6: ("DISP", 1),
+        16: ("XBAR/SYS2CLK", 2), 17: ("XBAR/SYS2CLK", 2),
+        18: ("HUB", 1), 20: ("PWR", 1), 21: ("MSD", 1),
+        25: ("L2C2CLK", 2),
+    }
 
     # GP102's own earned name, gated on the GP102 signature exactly as the
     # TU102 table is gated on the TU102 one. Domain 16 was identified by a
@@ -563,7 +565,7 @@ def classify_domain_names(rows, core_mhz=None, mem_nvml=None,
     # slaved to GPC at ~0.966". Calling that XBAR is an analogy with TU102,
     # where the domain in the same relationship (~0.95 of GPC) is XBAR. The
     # behaviour is established; the word is not.
-    pascal_like = (gpc_dom == 15)
+    pascal_like = architecture == 4 or (architecture is None and gpc_dom == 15)
     PASCAL_NAMES = {16: ("XBAR2CLK", PRIV_LIKELY)}
 
     # BLACKWELL PUTS GPC AT DOMAIN 0 TOO, so `turing_like` is true there and
@@ -609,7 +611,8 @@ def classify_domain_names(rows, core_mhz=None, mem_nvml=None,
 
     for r in rows:
         dom = r["domain"]
-        if (r.get("kind") == PRIV_FREQ and core_mhz
+        r["scale"] = 1
+        if (r.get("kind") == PRIV_FREQ
                 and not (r.get("prog_khz") or r.get("meas_khz"))):
             r["name"], r["grade"] = "", PRIV_UNPOPULATED
             continue
@@ -619,8 +622,12 @@ def classify_domain_names(rows, core_mhz=None, mem_nvml=None,
             r["scale"] = gpc_scale
         elif dom == mem_dom:
             r["name"], r["grade"] = "MEM", PRIV_CONFIRMED
+        elif architecture == 2 and dom in KEPLER_NAMES:
+            r["name"], r["scale"] = KEPLER_NAMES[dom]
+            r["grade"] = PRIV_LIKELY
         elif pascal_like and dom in PASCAL_NAMES:
             r["name"], r["grade"] = PASCAL_NAMES[dom]
+            r["scale"] = 2
         elif blackwell:
             r["name"], r["grade"] = BLACKWELL_NAMES.get(
                 dom, ("", PRIV_UNNAMED))
@@ -1156,6 +1163,9 @@ class _FieldValue(ctypes.Structure):
 # byte-for-byte what GPU-Z shows). Only positively identified types are scaled;
 # an unknown id is displayed raw rather than risking a wrong number.
 MEM_TYPES = {
+    # GTX 745 DDR3: RAM type 7; 900 MHz reported = 1.8 Gbps data rate.
+    # A +20-unit Pstates20 request moved the physical clock by +10 MHz.
+    7:  ("DDR3", 1),
     8:  ("GDDR5", 2),
     10: ("GDDR5X", 4),
     14: ("GDDR6", 4),
@@ -1570,9 +1580,11 @@ class GPU:
     # has to know which one the reset actually released.
     LOCK_STEP = "clock lock"
     VF_LOCK_STEP = "v/f point lock"
+    P0_LOCK_STEP = "legacy P0 hold"
 
     def __init__(self, slot=None):
         self._lock = threading.RLock()
+        self._legacy_p0_owned = False
         # The card this object speaks for, fixed at construction. Nothing
         # re-targets a live GPU: switching cards builds a NEW GPU, which is what
         # keeps the probed per-instance caches (_vfp_layout_cache at 128 entries
@@ -1854,16 +1866,16 @@ class GPU:
                         `name` may be trusted, never how good the reading is
             kind        PRIV_FREQ, or PRIV_PCIE_GEN for domain 31, which is a
                         link generation and not a frequency at all
-            prog_khz    array-A dword: the PROGRAMMED target
-            meas_khz    array-B dword: the MEASURED counter
+            prog_khz    array-A frequency; programmed target on TU102
+            meas_khz    array-B frequency; measured counter on TU102
             prog_mhz / meas_mhz / delta_mhz
                         the same in MHz, None when the row is not a frequency
             flags       array-A's odd dword, the per-domain capability field
                         (constant across every sample of a given domain)
             srcid       array-B's second dword
 
-        delta is measured MINUS programmed, so a card running slower than it
-        was told to reads negative - which is the normal case under load.
+        Delta is B minus A. The physical-counter interpretation was measured
+        on TU102; GK104 returned identical A/B words in all tested states.
 
         `pc` lets a caller that already read a payload this tick hand it over
         instead of paying for a second round trip."""
@@ -1899,7 +1911,8 @@ class GPU:
                     row["delta_mhz"] = (meas - prog) / 1000.0
             rows.append(row)
         classify_domain_names(rows, core_mhz, mem_nvml,
-                              blackwell=self.clkdom_is_blackwell())
+                              blackwell=self.clkdom_is_blackwell(),
+                              architecture=self.arch())
         return rows, None
 
     def _read_clocks(self, d, pc=None):
@@ -2315,9 +2328,8 @@ class GPU:
     def clock_step_khz(self):
         """This card's core-clock grid in kHz, derived from the driver.
 
-        The lockable-clock table IS the enumeration of legal core clocks, so
-        the step is just its span divided by its gaps - no per-architecture
-        constant, and it would have caught this the first time. Checked:
+        Use span divided by gaps within the upper, contiguous boost regime.
+        Older GPUs can mix divider regimes within one clock table. Checked:
             TU102   360..2160 over 121 entries -> 1800/120 = 15.000 MHz
             GP102   139..1911 over 141 entries -> 1772/140 = 12.657 MHz
 
@@ -2335,7 +2347,17 @@ class GPU:
         step = None
         try:
             table = self.lockable_clocks_by_mem() or []
-            best = max((cl for _mem, cl in table), key=len, default=[])
+            best = sorted(set(max((cl for _mem, cl in table), key=len, default=[])))
+            # Kepler mixes divider regimes: the GTX 770 list starts with
+            # ~2 MHz gaps and ends with ~13 MHz boost bins. Averaging those
+            # regimes invents a 5.523 MHz grid. Measure the contiguous upper
+            # regime, allowing integer rounding of a fractional clock bin.
+            if len(best) >= 8:
+                top_gap = best[-1] - best[-2]
+                start = len(best) - 2
+                while start > 0 and abs((best[start] - best[start - 1]) - top_gap) <= 1:
+                    start -= 1
+                best = best[start:]
             if len(best) >= 8:
                 span = max(best) - min(best)
                 if span > 0:
@@ -2466,6 +2488,8 @@ class GPU:
 
     # NVML's own architecture enum. Kepler 2, Maxwell 3, Pascal 4, Volta 5,
     # Turing 6, Ampere 7, Ada 8, Hopper 9, Blackwell 10.
+    ARCH_KEPLER = 2
+    ARCH_MAXWELL = 3
     ARCH_PASCAL = 4
     ARCH_TURING = 6
     ARCH_NAMES = {2: "Kepler", 3: "Maxwell", 4: "Pascal", 5: "Volta",
@@ -2474,8 +2498,8 @@ class GPU:
 
     def arch(self):
         """This card's architecture as NVML's enum, or ``None``."""
-        nv = self.nvml
-        if not (nv.ok and nv.has("nvmlDeviceGetArchitecture")):
+        nv = getattr(self, "nvml", None)
+        if not (nv and nv.ok and nv.has("nvmlDeviceGetArchitecture")):
             return None
         a = u32(0)
         if nv.dll.nvmlDeviceGetArchitecture(nv.dev, ctypes.byref(a)) != 0:
@@ -2484,6 +2508,20 @@ class GPU:
 
     def arch_name(self):
         return self.ARCH_NAMES.get(self.arch() or -1)
+
+    def is_gtx745(self):
+        """The GM107 board tested on R472; not a blanket Maxwell capability."""
+        api = getattr(self, "nvapi", None)
+        return (self.arch() == self.ARCH_MAXWELL
+                and (getattr(api, "selected", None) or {}).get("devid") == 0x1382)
+
+    def vf_curve_applicable(self):
+        """Kepler and the GTX 745 use ordinary clock offsets, not this V/F table.
+
+        Other architectures retain their existing runtime layout validation;
+        an unavailable read must not be mistaken for an inapplicable curve.
+        """
+        return self.arch() != self.ARCH_KEPLER and not self.is_gtx745()
 
     # WHAT WAS ACTUALLY MEASURED, per (architecture, control domain). Absent
     # means nobody has looked, and absent must not be read as either answer.
@@ -2525,44 +2563,14 @@ class GPU:
     }
 
     def clkdom_delta_inert(self, domain=None):
-        """Is a per-domain frequency delta STORED AND IGNORED on this card?
+        """True only for a measured inert delta; False for a measured response.
 
-        True where the route is known not to work, False where it is known to
-        work, None where we do not know - and the three are different answers,
-        so callers must not collapse None into either.
-
-        The per-domain frequency delta is consumed by PMU microcode, not by
-        anything on the host, and only from clk 3.5 onward. That was settled
-        the expensive way in this project: on GP102 the delta is stored exactly
-        as it is on TU102 - so a read-back proves nothing at all here - and the
-        card never acts on it. Storage is not the discriminator; the generation
-        is. Anything older than Turing gets the warning, because a knob that
-        silently does nothing is worse than one that says it cannot.
-
-        SCOPE, and it is narrower than the sentence above wants to be. What
-        was measured on GP102 was the XBAR domain. MEM was never tried there,
-        and there is a live reason to doubt the generalisation: the declared
-        OC range is read-only - it lives in an INFO payload (NvAPI 0x57B5A5DF
-        version 0x000486AC, entry 0xAC + domain*0x430, s16 min at +0x40 and max
-        at +0x42) and no entry point accepts that geometry for writing - so the
-        unchecked CONTROL delta was believed to be a route PAST that range.
-        It is not. Measured on Blackwell with NVML at zero, the delta tracks
-        the memory clock 1:1 to exactly +3000 MHz effective and then stops;
-        +3500 and +4500 store in full and move nothing. So no path this project
-        has found exceeds the declared range on this generation.
-
-        That leaves the Pascal question genuinely open rather than answered.
-        This returns per-CARD, not per-domain, so on an older card the MEM knob
-        is reporting what was measured elsewhere - on XBAR, on GP102. Treat a
-        Pascal MEM result as unknown until somebody moves that clock and
-        watches it happen.
+        Unknown domains/architectures return None. Pascal XBAR was stored but
+        ignored, while Pascal MEM responded; neither result establishes the
+        behavior of Kepler or Maxwell's unvalidated private control layouts.
         """
-        a = self.arch()
-        if a is None:
-            return None
-        if domain is not None and (a, domain) in self.CLKDOM_DELTA_APPLIES:
-            return not self.CLKDOM_DELTA_APPLIES[(a, domain)]
-        return a < self.ARCH_TURING
+        applies = self.CLKDOM_DELTA_APPLIES.get((self.arch(), domain))
+        return None if applies is None else not applies
 
     def clkdom_delta_clears_ceiling(self, domain):
         """Does this delta reach past the card's DECLARED range? Tri-state."""
@@ -2588,6 +2596,12 @@ class GPU:
         candidate by architecture, then require a successful one-domain GET
         and an exact version echo before any read or write can use it.
         """
+        # GK104 accepts this getter and echoes zero-filled Turing-shaped
+        # records. Neither the field meanings nor voltage response have been
+        # established on Kepler; successful GET alone cannot authorize SET.
+        # GM107 GTX 745 exhibits the same unvalidated Turing-shaped response.
+        if self.arch() == self.ARCH_KEPLER or self.is_gtx745():
+            return None
         cached = getattr(self, "_clkdom_layout_cache", None)
         if cached is not None:
             return None if cached is False else cached
@@ -3019,7 +3033,32 @@ class GPU:
         report["accepted_domains"] = list(domains)
         layout = self.clkdom_layout()
         if layout is None:
-            report["error"] = "version/layout probe failed"
+            # A suppressed write path must not suppress the evidence needed to
+            # decode it. Keep unknown fields as raw offsets, without applying
+            # Turing's record layout or interpreting accepted masks as support.
+            report["error"] = "offset controls suppressed: field mapping/write response unverified"
+            report["raw_queries"] = []
+            for mask in [0] + [1 << d for d in domains]:
+                status, raw = self._clkdom_get(mask)
+                initial = bytearray(len(raw))
+                struct.pack_into("<I", initial, 0, CLKDOM_VERSION)
+                struct.pack_into("<I", initial, CLKDOM_MASK_DW * 4, mask)
+                returned = bytes(raw)
+                changes = {}
+                for offset in range(0, len(returned), 4):
+                    if returned[offset:offset + 4] != initial[offset:offset + 4]:
+                        changes[f"0x{offset:X}"] = struct.unpack_from("<I", returned, offset)[0]
+                report["raw_queries"].append({
+                    "mask": mask, "status": int(status),
+                    "version_echo": self._clkdom_word(raw, 0),
+                    "changed_dwords": changes,
+                })
+            try:
+                rows, err = self.read_clock_domains()
+                report["private_clock_domains"] = rows
+                report["private_clock_domains_error"] = err
+            except Exception as exc:
+                report["private_clock_domains_error"] = str(exc)
             return report
         report["layout"] = {
             "name": layout.name,
@@ -3115,6 +3154,8 @@ class GPU:
         core_mhz the naming runs BLIND: it cannot apply the unpopulated check,
         so it names a dead domain 0 'GPC' and reports every card as Turing.
         That is how an earlier build mislabelled a GP102."""
+        if self.arch() == 2:
+            return {}
         if getattr(self, "_clkdom_pair", None):
             return self._clkdom_pair
         if rows is None:
@@ -3403,6 +3444,83 @@ class GPU:
     def reset_gpu_clocks(self):
         return self._reset_gpu_clocks()
 
+    # Exact board/firmware/driver combinations with force AND release measured.
+    # These hold the top memory band, but reduce core clocks under load.
+    LEGACY_P0_PROFILES = {
+        (ARCH_MAXWELL, 0x1382, 0x6893103C, "472.12", "82.07.32.00.6a"):
+            {"name": "GTX 745", "driver": "472.12",
+             "held_core_mhz": 540, "boost_core_mhz": 1072},
+        (ARCH_KEPLER, 0x1188, 0x84061043, "472.12", "80.04.1e.00.18"):
+            {"name": "GTX 690", "driver": "472.12",
+             "held_core_mhz": 705, "boost_core_mhz": 1201},
+    }
+
+    def legacy_p0_profile(self):
+        """Measured behavior for this exact GPU/driver, or None if unverified."""
+        api = getattr(self, "nvapi", None)
+        if not (api and api.ok and getattr(api, "ForcePstate", None)
+                and not getattr(self, "pairing_error", None)):
+            return None
+        card = getattr(api, "selected", None) or {}
+        static = getattr(self, "static", {})
+        key = (self.arch(), card.get("devid"), card.get("subsys"),
+               static.get("driver"), str(static.get("vbios") or "").lower())
+        profile = self.LEGACY_P0_PROFILES.get(key)
+        return dict(profile) if profile is not None else None
+
+    def legacy_p0_supported(self):
+        """Only a measured board/firmware/driver combination may force P0."""
+        return self.legacy_p0_profile() is not None
+
+    def legacy_p0_owned(self):
+        """Session ownership, not a claim to read another tuner's force state."""
+        return getattr(self, "_legacy_p0_owned", False)
+
+    def hold_legacy_p0(self):
+        if not self.legacy_p0_supported():
+            return False, "legacy P0 hold is not verified on this GPU/driver"
+        try:
+            status = self.nvapi.ForcePstate(self.nvapi.gpu, u32(0), u32(2))
+        except Exception as exc:
+            return False, f"P0 request failed: {exc}"
+        if status != 0:
+            return False, f"P0 request failed (NVAPI status {status})"
+        # Track a successful request immediately, even if verification fails.
+        # A failed rollback must remain releasable from the UI and on exit.
+        self._legacy_p0_owned = True
+        reason = "P0 and its top memory band were not observed"
+        consecutive = 0
+        try:
+            for _ in range(20):
+                data = self.read()
+                top = data.get("mem_p0max")
+                mem = data.get("mem")
+                good = (data.get("pstate") == 0 and top is not None and top > 0
+                        and mem is not None and mem >= top * 0.97)
+                consecutive = consecutive + 1 if good else 0
+                if consecutive >= 3:
+                    return True, (f"P0 held; core {data.get('core', '?')} MHz, "
+                                  f"memory {mem} MHz (not a maximum-core lock)")
+                time.sleep(0.1)
+        except Exception as exc:
+            reason = f"P0 verification failed: {exc}"
+        ok, message = self.release_legacy_p0()
+        return False, reason + "; " + (message if ok else "RELEASE FAILED: " + message)
+
+    def release_legacy_p0(self):
+        if not self.legacy_p0_owned():
+            return True, "this session owns no legacy P0 hold"
+        try:
+            status = self.nvapi.ForcePstate(self.nvapi.gpu, u32(16), u32(2))
+        except Exception as exc:
+            return False, f"P0 release failed: {exc}"
+        if status != 0:
+            return False, f"P0 release failed (NVAPI status {status})"
+        # Automatic behavior may still be P0 under load. Waiting for P8 would
+        # incorrectly report a failed release while a game is running.
+        self._legacy_p0_owned = False
+        return True, "P0 request released; automatic performance states restored"
+
     def _reset_gpu_clocks(self, allow_pascal_noop=False):
         nv = self.nvml
         if not nv.ok or not nv.has("nvmlDeviceResetGpuLockedClocks"):
@@ -3434,6 +3552,8 @@ class GPU:
         """Both ends of the pair must resolve. The getter alone is a reader;
         without the setter there is no write path, and half a pair must never
         look like a working one."""
+        if not self.vf_curve_applicable():
+            return False
         a = self.nvapi
         return bool(a.ok and a.BoostLock and a.VfLockSet)
 
@@ -3443,6 +3563,8 @@ class GPU:
         buffer the driver produced - rather than one we assembled from a struct
         definition - is what makes this setter safe, and it is how it was
         validated. Nothing below ever constructs a _ClockLock to write."""
+        if not self.vf_curve_applicable():
+            return None
         a = self.nvapi
         if not (a.ok and a.BoostLock):
             return None
@@ -3900,7 +4022,10 @@ class GPU:
             return False, "; ".join(errors)
         # Automatic requested levels can update asynchronously with temperature.
         # Manual requests and every policy must agree once the driver settles.
-        for attempt in range(5):
+        # GTX 690 / R472 updates the requested cooler state on roughly a
+        # one-second cadence. Keep checking the policy and level (not RPM),
+        # allowing two seconds before declaring an accepted write unverified.
+        for attempt in range(21):
             if current["source"] == "nvml":
                 after = self.read_fan_control_state()
             else:
@@ -3912,8 +4037,8 @@ class GPU:
                     (row["level"] == level if manual else row["policy"] == policy)
                     for row, (fan_id, level, manual, policy) in zip(after["fans"], plan)):
                 return True, "fan control state restored"
-            if attempt < 4:
-                time.sleep(0.05)
+            if attempt < 20:
+                time.sleep(0.1)
         return False, "fan write accepted but requested policy/level did not read back"
 
     def _set_nvapi_fans(self, pct=None):
@@ -4760,6 +4885,8 @@ class GPU:
     def read_vf_curve(self):
         """Return (points, err). points = list of dicts sorted by curve index:
         {idx, volt_mv, freq_mhz (evaluated, includes current deltas), delta_khz}."""
+        if not self.vf_curve_applicable():
+            return None, "V/F curves are not applicable on this GPU"
         a = self.nvapi
         if not (a.ok and a.VfpCurve and a.BoostTableGet):
             return None, "VF curve APIs unavailable"
@@ -4883,6 +5010,8 @@ class GPU:
            which cannot be true. Halved, none are.
 
         Returns None if the curve APIs are unavailable or nothing answers."""
+        if not self.vf_curve_applicable():
+            return None
         cached = getattr(self, "_vfp_layout_cache", None)
         if cached is not None and not force:
             return cached
@@ -5587,6 +5716,8 @@ class GPU:
         idx -> absolute delta_khz; only differing rows are touched. Bounds only
         against accidental user mouse slip or other sorts of garbage (|delta| <= 1 GHz), so legitimate de-flatten compounding
         and deliberate editor moves are never blocked."""
+        if not self.vf_curve_applicable():
+            return False, "V/F curves are not applicable on this GPU"
         a = self.nvapi
         if not (a.ok and a.BoostTableGet and a.BoostTableSet):
             return False, "boost-table APIs unavailable"
@@ -5706,6 +5837,8 @@ class GPU:
                 (False, "power limit: default unknown, left unchanged")))
         steps.append(ResetStep(self.LOCK_STEP,
                                self._reset_gpu_clocks(allow_pascal_noop=True)))
+        if self.legacy_p0_owned():
+            steps.append(ResetStep(self.P0_LOCK_STEP, self.release_legacy_p0()))
         # The V/F point lock is a DIFFERENT mechanism: reset_gpu_clocks does not
         # touch it, so a reset that stopped at the step above would report a
         # clean card while this one still pinned it. Appended only when one is
@@ -5716,7 +5849,7 @@ class GPU:
         steps.append(ResetStep("fan", self.reset_fan()))
         if self.nvapi.ok and self.nvapi.VoltCtrlGet and self.nvapi.VoltCtrlSet:
             steps.append(ResetStep("voltage boost", self.set_voltage_boost(0)))
-        if self.nvapi.ok and self.nvapi.BoostTableSet:
+        if self.vf_curve_applicable() and self.nvapi.ok and self.nvapi.BoostTableSet:
             # curve edits live here too
             steps.append(ResetStep("vf curve", self.reset_vf_curve()))
         return steps
@@ -5832,6 +5965,7 @@ for _m in ("read", "read_clock_domains", "read_vf_curve", "apply_vf_deltas",
            "reset_vf_curve",
            "rephase_deltas", "set_clock_offset", "set_power_limit_mw",
            "lock_gpu_clocks", "reset_gpu_clocks", "set_fan", "reset_fan",
+           "hold_legacy_p0", "release_legacy_p0",
            "read_fan_control_state", "restore_fan_control_state",
            "read_fan_manual", "fan_capabilities",
            "read_vf_lock", "read_clk_lock", "set_vf_lock", "clear_vf_lock",

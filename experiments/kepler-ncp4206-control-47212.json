@@ -1,0 +1,159 @@
+{
+  "gpu": "NVIDIA GeForce GTX 770",
+  "driver": "472.12",
+  "vbios": "80.04.c3.00.01",
+  "maximum_authorized_live_test_mv": 1350,
+  "datasheet": "https://www.onsemi.com/download/data-sheet/pdf/ncp4206-d.pdf",
+  "production": {
+    "original": {
+      "kind": "absolute_vid",
+      "enabled": false,
+      "command": 0
+    },
+    "raw_original": {
+      "33": 0,
+      "210": 114,
+      "211": 114,
+      "221": 3
+    },
+    "cycles": [
+      {
+        "target_mv": 1250,
+        "result": [
+          true,
+          "NCP4206 target 1250.00 mV verified"
+        ],
+        "telemetry": {
+          "vout_mv": 1248.046875,
+          "target_mv": 1250.0,
+          "control": {
+            "kind": "absolute_vid",
+            "enabled": true,
+            "command": 58
+          },
+          "offset_mv": null
+        },
+        "restore": [
+          [
+            true,
+            "NCP4206 GPU VID mode restored"
+          ],
+          [
+            true,
+            "mem offset set to +0 MHz true (NVAPI Pstates20)"
+          ],
+          [
+            true,
+            "core offset set to +0 MHz (NVAPI Pstates20)"
+          ],
+          [
+            true,
+            "fan control state restored"
+          ]
+        ],
+        "reapply": [
+          [
+            true,
+            "NCP4206 target 1250.00 mV verified"
+          ],
+          [
+            true,
+            "mem offset set to +0 MHz true (NVAPI Pstates20)"
+          ],
+          [
+            true,
+            "core offset set to +0 MHz (NVAPI Pstates20)"
+          ],
+          [
+            true,
+            "fan control state restored"
+          ]
+        ]
+      },
+      {
+        "target_mv": 1262.5,
+        "result": [
+          true,
+          "NCP4206 target 1262.50 mV verified"
+        ],
+        "telemetry": {
+          "vout_mv": 1263.671875,
+          "target_mv": 1262.5,
+          "control": {
+            "kind": "absolute_vid",
+            "enabled": true,
+            "command": 56
+          },
+          "offset_mv": null
+        },
+        "restore": [
+          [
+            true,
+            "NCP4206 GPU VID mode restored"
+          ],
+          [
+            true,
+            "mem offset set to +0 MHz true (NVAPI Pstates20)"
+          ],
+          [
+            true,
+            "core offset set to +0 MHz (NVAPI Pstates20)"
+          ],
+          [
+            true,
+            "fan control state restored"
+          ]
+        ],
+        "reapply": [
+          [
+            true,
+            "NCP4206 target 1262.50 mV verified"
+          ],
+          [
+            true,
+            "mem offset set to +0 MHz true (NVAPI Pstates20)"
+          ],
+          [
+            true,
+            "core offset set to +0 MHz (NVAPI Pstates20)"
+          ],
+          [
+            true,
+            "fan control state restored"
+          ]
+        ]
+      }
+    ],
+    "verify": [
+      true,
+      "NCP4206 1212.89 -> target 1237.50 mV; VMON [1238.28125, 1236.328125, 1236.328125, 1236.328125, 1234.375]",
+      [
+        1238.28125,
+        1236.328125,
+        1236.328125,
+        1236.328125,
+        1234.375
+      ]
+    ],
+    "final_restore": [
+      true,
+      "NCP4206 GPU VID mode restored"
+    ],
+    "raw_final": {
+      "33": 0,
+      "210": 114,
+      "211": 114,
+      "221": 3
+    },
+    "exact_restore": true,
+    "load_error": ""
+  },
+  "ui": {
+    "normal_max": 1281,
+    "xoc_max": 2000,
+    "verify": true,
+    "apply_1250": true,
+    "auto_exact": true,
+    "swap_clears_verification": true
+  }
+}

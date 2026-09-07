@@ -56,9 +56,9 @@ COMMON_ADDR = list(range(0x10, 0x40)) + [0x40, 0x41, 0x42, 0x43,
 # A part is allowed to not implement any of these - a bus error here is
 # information, not a failure, and several real parts answer almost none of them.
 PROBES = [
-    (0x99, 8, "MFR_ID"),
-    (0x9A, 8, "MFR_MODEL"),
-    (0x9B, 8, "MFR_REVISION"),
+    (0x99, 1, "MFR_ID"),
+    (0x9A, 2, "MFR_MODEL"),
+    (0x9B, 1, "MFR_REVISION"),
     (0xBE, 1, "MFR_PMBUS_ADDR (MPS)"),
     (0x20, 1, "VOUT_MODE"),
     (0x8B, 2, "READ_VOUT"),
@@ -67,6 +67,15 @@ PROBES = [
     (0x98, 1, "PMBUS_REVISION"),
     (0x24, 2, "VOUT_MAX"),
 ]
+
+
+def responds(read, port, addr7):
+    """Presence via read-only fallbacks; PAGE is absent on real NCP4206 parts.
+
+    Any answered command qualifies for the survey, never for voltage writes.
+    """
+    return any(read(port, addr7, cmd, width) is not None
+               for cmd, width in ((0x00, 1), (0x99, 1), (0x8B, 2)))
 
 
 class _V3(ctypes.Structure):
@@ -182,12 +191,9 @@ def main():
     found = []
     for port in ports:
         for a in addrs:
-            # Presence is decided on 0x00 (PAGE), which nearly every part
-            # implements. Probing on 0x99/0x8B instead misses devices that
-            # simply do not implement those commands - which is most of them,
-            # and is how an earlier version of this tool reported a card with
-            # five responders as having none.
-            if rd(port, a, 0x00, 1) is None:
+            # No one command is universal. NCP4206 lacks PAGE, while other
+            # responders lack MFR_ID or READ_VOUT, so try each before omission.
+            if not responds(rd, port, a):
                 continue
             found.append((port, a))
 

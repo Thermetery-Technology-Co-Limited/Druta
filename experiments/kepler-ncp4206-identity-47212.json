@@ -1,0 +1,94 @@
+{
+  "gpu": "NVIDIA GeForce GTX 770",
+  "driver": "472.12",
+  "vbios": "80.04.c3.00.01",
+  "scope": "read-only identity discovery at address 0x20; no I2C writes",
+  "source": "https://www.onsemi.com/download/data-sheet/pdf/ncp4206-d.pdf",
+  "rows": [
+    {
+      "nvapi_port": 0,
+      "addr7": "0x20",
+      "mfr_id": null,
+      "mfr_model": null,
+      "mfr_revision": null
+    },
+    {
+      "nvapi_port": 1,
+      "addr7": "0x20",
+      "mfr_id": null,
+      "mfr_model": null,
+      "mfr_revision": null
+    },
+    {
+      "nvapi_port": 2,
+      "addr7": "0x20",
+      "mfr_id": 65,
+      "mfr_model": 12952,
+      "mfr_revision": 1
+    },
+    {
+      "nvapi_port": 3,
+      "addr7": "0x20",
+      "mfr_id": null,
+      "mfr_model": null,
+      "mfr_revision": null
+    },
+    {
+      "nvapi_port": 4,
+      "addr7": "0x20",
+      "mfr_id": null,
+      "mfr_model": null,
+      "mfr_revision": null
+    },
+    {
+      "nvapi_port": 5,
+      "addr7": "0x20",
+      "mfr_id": null,
+      "mfr_model": null,
+      "mfr_revision": null
+    },
+    {
+      "nvapi_port": 6,
+      "addr7": "0x20",
+      "mfr_id": null,
+      "mfr_model": null,
+      "mfr_revision": null
+    },
+    {
+      "nvapi_port": 7,
+      "addr7": "0x20",
+      "mfr_id": null,
+      "mfr_model": null,
+      "mfr_revision": null
+    }
+  ],
+  "candidate": "NCP4206 family per user experience and matching MFR_ID; model/revision differ from datasheet defaults",
+  "user_reported_gpu_families": [
+    "GTX 770",
+    "GTX 780",
+    "GTX 780 Ti",
+    "TITAN Black",
+    "TITAN"
+  ],
+  "afterburner_settings": {
+    "VDDC_Generic_Detection": 0,
+    "VDDC_NCP4206_Detection": "4:20h"
+  },
+  "port2_repeat_reads": [
+    {
+      "mfr_id": 65,
+      "mfr_model": 12952,
+      "mfr_revision": 1
+    },
+    {
+      "mfr_id": 65,
+      "mfr_model": 12952,
+      "mfr_revision": 1
+    },
+    {
+      "mfr_id": 65,
+      "mfr_model": 12952,
+      "mfr_revision": 1
+    }
+  ]
+}

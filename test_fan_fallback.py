@@ -201,6 +201,33 @@ class FanFallbackTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("did not read back", message)
 
+    def test_delayed_classic_fan_request_verifies_without_rewriting(self):
+        api = ClassicFans()
+        pending = []
+        elapsed = 0.0
+
+        def defer(gpu, index, ptr, count):
+            request = ctypes.cast(ptr, ctypes.POINTER(_CoolerLevels)).contents
+            pending.append((index, request.entries[0].level))
+            return 0
+
+        def advance(seconds):
+            nonlocal elapsed
+            elapsed += seconds
+            if elapsed >= 0.9 and pending:
+                index, level = pending.pop()
+                api.packet.entries[index].current_level = level
+                api.packet.entries[index].current_policy = 1
+
+        api.CoolerLevelsSet = Mock(side_effect=defer)
+        gpu = with_native(api)
+        with patch("nvbackend.time.sleep", side_effect=advance):
+            self.assertTrue(gpu.set_fan(60)[0])
+        self.assertGreaterEqual(elapsed, 0.9)
+        self.assertLessEqual(elapsed, 2)
+        api.CoolerLevelsSet.assert_called_once()
+        self.assertEqual(gpu.read_fan_control_state()["fans"][0]["level"], 60)
+
     def test_native_count_and_rpm_preserve_nvml_measured_duty(self):
         def speed(dev, index, ptr):
             ctypes.cast(ptr, ctypes.POINTER(u32))[0] = (43, 48)[index]

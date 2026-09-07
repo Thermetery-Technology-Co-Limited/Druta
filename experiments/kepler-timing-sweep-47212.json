@@ -1,0 +1,623 @@
+{
+  "identity": {
+    "name": "NVIDIA GeForce GTX 770",
+    "driver": "472.12",
+    "vbios": "80.04.c3.00.01"
+  },
+  "scope": "One-cycle timing changes in workload-maintained P0; not an enforced P0 lock or long-term stability test",
+  "p0_lock": {
+    "lock_before": null,
+    "gpu_lock": [
+      false,
+      "lock failed: Not Supported (needs admin)"
+    ],
+    "memory_lock": {
+      "rc": 3,
+      "status": "Not Supported"
+    },
+    "application_clock_reads": {
+      "nvmlDeviceGetApplicationsClock:0": {
+        "rc": 3,
+        "value": 0,
+        "status": "Not Supported"
+      },
+      "nvmlDeviceGetApplicationsClock:2": {
+        "rc": 3,
+        "value": 0,
+        "status": "Not Supported"
+      },
+      "nvmlDeviceGetDefaultApplicationsClock:0": {
+        "rc": 3,
+        "value": 0,
+        "status": "Not Supported"
+      },
+      "nvmlDeviceGetDefaultApplicationsClock:2": {
+        "rc": 3,
+        "value": 0,
+        "status": "Not Supported"
+      }
+    }
+  },
+  "baseline_registers": {
+    "broadcast": {
+      "CONFIG0": 375681607,
+      "CONFIG1": 1025917586,
+      "CONFIG2": 2350057984,
+      "CONFIG3": 570441967,
+      "CONFIG4": 1130627122,
+      "CONFIG5": 2800906450,
+      "TIMING22": 7
+    },
+    "fbpa0": {
+      "CONFIG0": 375681607,
+      "CONFIG1": 1025917586,
+      "CONFIG2": 2350057984,
+      "CONFIG3": 570441967,
+      "CONFIG4": 1130627122,
+      "CONFIG5": 2800906450,
+      "TIMING22": 7
+    },
+    "fbpa1": {
+      "CONFIG0": 375681607,
+      "CONFIG1": 1025917586,
+      "CONFIG2": 2350057984,
+      "CONFIG3": 570441967,
+      "CONFIG4": 1130627122,
+      "CONFIG5": 2800906450,
+      "TIMING22": 7
+    },
+    "fbpa2": {
+      "CONFIG0": 375681607,
+      "CONFIG1": 1025917586,
+      "CONFIG2": 2350057984,
+      "CONFIG3": 570441967,
+      "CONFIG4": 1130627122,
+      "CONFIG5": 2800906450,
+      "TIMING22": 7
+    },
+    "fbpa3": {
+      "CONFIG0": 375681607,
+      "CONFIG1": 1025917586,
+      "CONFIG2": 2350057984,
+      "CONFIG3": 570441967,
+      "CONFIG4": 1130627122,
+      "CONFIG5": 2800906450,
+      "TIMING22": 7
+    }
+  },
+  "fields": [
+    {
+      "field": "RC",
+      "before": 71,
+      "requested": 72,
+      "commit_raw": "0000:02:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG0 @0x10F290  0x16647247 -> 0x16647248  [write]\n      RC              71 -> 72    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+      "commit_rc": 0,
+      "after": 72,
+      "outcome": "landed",
+      "restore_rc": 0,
+      "restored_exactly": true,
+      "observations": [
+        {
+          "pstate": 0,
+          "mem": 3505,
+          "temperature": 47,
+          "verified_copies": 25
+        },
+        {
+          "pstate": 0,
+          "mem": 3505,
+          "temperature": 47,
+          "verified_copies": 29
+        }
+      ],
+      "all_captured_registers_matched_expected_field_change": true
+    },
+    {
+      "field": "RFC",
+      "before": 114,
+      "requested": 115,
+      "commit_raw": "0000:02:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG0 @0x10F290  0x16647247 -> 0x16647347  [write]\n      RFC            114 -> 115   \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+      "commit_rc": 0,
+      "after": 115,
+      "outcome": "landed",
+      "restore_rc": 0,
+      "restored_exactly": true,
+      "observations": [
+        {
+          "pstate": 0,
+          "mem": 3505,
+          "temperature": 47,
+          "verified_copies": 37
+        },
+        {
+          "pstate": 0,
+          "mem": 3505,
+          "temperature": 47,
+          "verified_copies": 41
+        }
+      ],
+      "all_captured_registers_matched_expected_field_change": true
+    },
+    {
+      "field": "RAS",
+      "before": 50,
+      "requested": 51,
+      "commit_raw": "0000:02:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG0 @0x10F290  0x16647247 -> 0x16667247  [write]\n      RAS             50 -> 51    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+      "commit_rc": 0,
+      "after": 51,
+      "outcome": "landed",
+      "restore_rc": 0,
+      "restored_exactly": true,
+      "observations": [
+        {
+          "pstate": 0,
+          "mem": 3505,
+          "temperature": 47,
+          "verified_copies": 49
+        },
+        {
+          "pstate": 0,
+          "mem": 3505,
+          "temperature": 47,
+          "verified_copies": 54
+        }
+      ],
+      "all_captured_registers_matched_expected_field_change": true
+    },
+    {
+      "field": "RP",
+      "before": 22,
+      "requested": 23,
+      "commit_raw": "0000:02:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG0 @0x10F290  0x16647247 -> 0x17647247  [write]\n      RP              22 -> 23    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+      "commit_rc": 0,
+      "after": 23,
+      "outcome": "landed",
+      "restore_rc": 0,
+      "restored_exactly": true,
+      "observations": [
+        {
+          "pstate": 0,
+          "mem": 3505,
+          "temperature": 47,
+          "verified_copies": 62
+        },
+        {
+          "pstate": 0,
+          "mem": 3505,
+          "temperature": 48,
+          "verified_copies": 66
+        }
+      ],
+      "all_captured_registers_matched_expected_field_change": true
+    },
+    {
+      "field": "CL",
+      "before": 18,
+      "outcome": "write accepted, caused driver timeout/recovery",
+      "reason": "latency/alignment field excluded after CL caused driver recovery",
+      "requested": 19,
+      "commit_raw": "0000:02:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG1 @0x10F294  0x3D264292 -> 0x3D264293  [write]\n      CL              18 -> 19    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+      "cuda_error": "verify pattern failed: rc=719 CUDA_ERROR_LAUNCH_FAILED",
+      "restored_registers_exact": true,
+      "event": {
+        "provider": "Display",
+        "id": 4101,
+        "local_time": "2026-09-06 20:43:10",
+        "message": "Display driver nvlddmkm stopped responding and has successfully recovered."
+      }
+    },
+    {
+      "field": "WL",
+      "before": 5,
+      "outcome": "not-written",
+      "reason": "latency/alignment field excluded after CL caused driver recovery"
+    },
+    {
+      "field": "RD_RCD",
+      "before": 25,
+      "requested": 26,
+      "commit_raw": "0000:02:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG1 @0x10F294  0x3D264292 -> 0x3D268292  [write]\n      RD_RCD          25 -> 26    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+      "commit_rc": 0,
+      "after": 26,
+      "outcome": "landed",
+      "restore_rc": 0,
+      "restored_exactly": true,
+      "observations": [
+        {
+          "pstate": 0,
+          "mem": 3505,
+          "temperature": 48,
+          "verified_copies": 74
+        },
+        {
+          "pstate": 0,
+          "mem": 3505,
+          "temperature": 48,
+          "verified_copies": 78
+        }
+      ],
+      "all_captured_registers_matched_expected_field_change": true
+    },
+    {
+      "field": "WR_RCD",
+      "before": 18,
+      "requested": 19,
+      "commit_raw": "0000:02:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG1 @0x10F294  0x3D264292 -> 0x3D364292  [write]\n      WR_RCD          18 -> 19    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+      "commit_rc": 0,
+      "after": 19,
+      "outcome": "landed",
+      "restore_rc": 0,
+      "restored_exactly": true,
+      "observations": [
+        {
+          "pstate": 0,
+          "mem": 3505,
+          "temperature": 48,
+          "verified_copies": 87
+        },
+        {
+          "pstate": 0,
+          "mem": 3505,
+          "temperature": 48,
+          "verified_copies": 91
+        }
+      ],
+      "all_captured_registers_matched_expected_field_change": true
+    },
+    {
+      "field": "RPRE",
+      "before": 0,
+      "outcome": "not-written",
+      "reason": "latency/alignment field excluded after CL caused driver recovery"
+    },
+    {
+      "field": "WPRE",
+      "before": 0,
+      "outcome": "not-written",
+      "reason": "latency/alignment field excluded after CL caused driver recovery"
+    },
+    {
+      "field": "CDLR",
+      "before": 10,
+      "requested": 11,
+      "commit_raw": "0000:02:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG2 @0x10F298  0x8C130A00 -> 0x8C130B00  [write]\n      CDLR            10 -> 11    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+      "commit_rc": 0,
+      "after": 11,
+      "outcome": "landed",
+      "restore_rc": 0,
+      "restored_exactly": true,
+      "observations": [
+        {
+          "pstate": 0,
+          "mem": 3505,
+          "temperature": 48,
+          "verified_copies": 99
+        },
+        {
+          "pstate": 0,
+          "mem": 3505,
+          "temperature": 48,
+          "verified_copies": 103
+        }
+      ],
+      "all_captured_registers_matched_expected_field_change": true
+    },
+    {
+      "field": "WR",
+      "before": 19,
+      "requested": 20,
+      "commit_raw": "0000:02:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG2 @0x10F298  0x8C130A00 -> 0x8C140A00  [write]\n      WR              19 -> 20    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+      "commit_rc": 0,
+      "after": 20,
+      "outcome": "landed",
+      "restore_rc": 0,
+      "restored_exactly": true,
+      "observations": [
+        {
+          "pstate": 0,
+          "mem": 3505,
+          "temperature": 48,
+          "verified_copies": 112
+        },
+        {
+          "pstate": 0,
+          "mem": 3505,
+          "temperature": 48,
+          "verified_copies": 116
+        }
+      ],
+      "all_captured_registers_matched_expected_field_change": true
+    },
+    {
+      "field": "W2R_BUS",
+      "before": 12,
+      "requested": 13,
+      "outcome": "not-written",
+      "reason": "dry-run warnings or failure",
+      "warnings": [
+        "! W2R_BUS=13 is outside the typical range 0..12."
+      ]
+    },
+    {
+      "field": "R2W_BUS",
+      "before": 8,
+      "requested": 9,
+      "commit_raw": "0000:02:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG2 @0x10F298  0x8C130A00 -> 0x9C130A00  [write]\n      R2W_BUS          8 -> 9     \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+      "commit_rc": 0,
+      "after": 9,
+      "outcome": "landed",
+      "restore_rc": 0,
+      "restored_exactly": true,
+      "observations": [
+        {
+          "pstate": 0,
+          "mem": 3505,
+          "temperature": 48,
+          "verified_copies": 124
+        },
+        {
+          "pstate": 0,
+          "mem": 3505,
+          "temperature": 49,
+          "verified_copies": 129
+        }
+      ],
+      "all_captured_registers_matched_expected_field_change": true
+    },
+    {
+      "field": "PDEX",
+      "before": 15,
+      "requested": 16,
+      "commit_raw": "0000:02:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG3 @0x10F29C  0x220040EF -> 0x220040F0  [write]\n      PDEX            15 -> 16    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+      "commit_rc": 0,
+      "after": 16,
+      "outcome": "landed",
+      "restore_rc": 0,
+      "restored_exactly": true,
+      "observations": [
+        {
+          "pstate": 0,
+          "mem": 3505,
+          "temperature": 49,
+          "verified_copies": 137
+        },
+        {
+          "pstate": 0,
+          "mem": 3505,
+          "temperature": 49,
+          "verified_copies": 141
+        }
+      ],
+      "all_captured_registers_matched_expected_field_change": true
+    },
+    {
+      "field": "PDEN2PDEX",
+      "before": 7,
+      "requested": 8,
+      "commit_raw": "0000:02:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG3 @0x10F29C  0x220040EF -> 0x2200410F  [write]\n      PDEN2PDEX        7 -> 8     \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+      "commit_rc": 0,
+      "after": 8,
+      "outcome": "landed",
+      "restore_rc": 0,
+      "restored_exactly": true,
+      "observations": [
+        {
+          "pstate": 0,
+          "mem": 3505,
+          "temperature": 49,
+          "verified_copies": 149
+        },
+        {
+          "pstate": 0,
+          "mem": 3505,
+          "temperature": 49,
+          "verified_copies": 154
+        }
+      ],
+      "all_captured_registers_matched_expected_field_change": true
+    },
+    {
+      "field": "FAW",
+      "before": 32,
+      "requested": 33,
+      "commit_raw": "0000:02:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG3 @0x10F29C  0x220040EF -> 0x220042EF  [write]\n      FAW             32 -> 33    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+      "commit_rc": 0,
+      "after": 33,
+      "outcome": "landed",
+      "restore_rc": 0,
+      "restored_exactly": true,
+      "observations": [
+        {
+          "pstate": 0,
+          "mem": 3505,
+          "temperature": 49,
+          "verified_copies": 162
+        },
+        {
+          "pstate": 0,
+          "mem": 3505,
+          "temperature": 49,
+          "verified_copies": 166
+        }
+      ],
+      "all_captured_registers_matched_expected_field_change": true
+    },
+    {
+      "field": "AOND",
+      "before": 0,
+      "requested": 1,
+      "outcome": "not-written",
+      "reason": "dry-run warnings or failure",
+      "warnings": [
+        "! AOND=1 is outside the typical range 3..40."
+      ]
+    },
+    {
+      "field": "CCDL",
+      "before": 2,
+      "requested": 3,
+      "commit_raw": "0000:02:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG3 @0x10F29C  0x220040EF -> 0x230040EF  [write]\n      CCDL             2 -> 3     \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+      "commit_rc": 0,
+      "after": 3,
+      "outcome": "landed",
+      "restore_rc": 0,
+      "restored_exactly": true,
+      "observations": [
+        {
+          "pstate": 0,
+          "mem": 3505,
+          "temperature": 49,
+          "verified_copies": 174
+        },
+        {
+          "pstate": 0,
+          "mem": 3505,
+          "temperature": 50,
+          "verified_copies": 179
+        }
+      ],
+      "all_captured_registers_matched_expected_field_change": true
+    },
+    {
+      "field": "CCDS",
+      "before": 2,
+      "requested": 3,
+      "commit_raw": "0000:02:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG3 @0x10F29C  0x220040EF -> 0x320040EF  [write]\n      CCDS             2 -> 3     \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+      "commit_rc": 0,
+      "after": 3,
+      "outcome": "landed",
+      "restore_rc": 0,
+      "restored_exactly": true,
+      "observations": [
+        {
+          "pstate": 0,
+          "mem": 3505,
+          "temperature": 50,
+          "verified_copies": 187
+        },
+        {
+          "pstate": 0,
+          "mem": 3505,
+          "temperature": 50,
+          "verified_copies": 191
+        }
+      ],
+      "all_captured_registers_matched_expected_field_change": true
+    },
+    {
+      "field": "REFRESH_LO",
+      "before": 2,
+      "outcome": "read-only",
+      "reason": "structural, split, or inferred field"
+    },
+    {
+      "field": "REFRESH",
+      "before": 6,
+      "outcome": "read-only",
+      "reason": "structural, split, or inferred field"
+    },
+    {
+      "field": "RRD",
+      "before": 8,
+      "requested": 9,
+      "commit_raw": "0000:02:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG4 @0x10F2A0  0x43640032 -> 0x43648032  [write]\n      RRD              8 -> 9     \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+      "commit_rc": 0,
+      "after": 9,
+      "outcome": "landed",
+      "restore_rc": 0,
+      "restored_exactly": true,
+      "observations": [
+        {
+          "pstate": 0,
+          "mem": 3505,
+          "temperature": 50,
+          "verified_copies": 199
+        },
+        {
+          "pstate": 0,
+          "mem": 3505,
+          "temperature": 50,
+          "verified_copies": 203
+        }
+      ],
+      "all_captured_registers_matched_expected_field_change": true
+    },
+    {
+      "field": "DELAY0",
+      "before": 27,
+      "outcome": "read-only",
+      "reason": "structural, split, or inferred field"
+    },
+    {
+      "field": "ADR_MIN",
+      "before": 2,
+      "outcome": "read-only",
+      "reason": "structural, split, or inferred field"
+    },
+    {
+      "field": "WRCRC",
+      "before": 13,
+      "outcome": "not-written",
+      "reason": "latency/alignment field excluded after CL caused driver recovery"
+    },
+    {
+      "field": "OFFSET0",
+      "before": 39,
+      "outcome": "read-only",
+      "reason": "structural, split, or inferred field"
+    },
+    {
+      "field": "DELAY0_MSB",
+      "before": 0,
+      "outcome": "read-only",
+      "reason": "structural, split, or inferred field"
+    },
+    {
+      "field": "OFFSET1",
+      "before": 15,
+      "outcome": "read-only",
+      "reason": "structural, split, or inferred field"
+    },
+    {
+      "field": "OFFSET2",
+      "before": 6,
+      "outcome": "read-only",
+      "reason": "structural, split, or inferred field"
+    },
+    {
+      "field": "DELAY0_HI",
+      "before": 10,
+      "outcome": "read-only",
+      "reason": "structural, split, or inferred field"
+    },
+    {
+      "field": "RFCSBA",
+      "before": 7,
+      "outcome": "read-only",
+      "reason": "structural, split, or inferred field"
+    },
+    {
+      "field": "RFCSBR",
+      "before": 0,
+      "outcome": "read-only",
+      "reason": "structural, split, or inferred field"
+    }
+  ],
+  "checked_load": {
+    "verified_64MiB_copies": 207,
+    "mismatches": 0,
+    "deadline_reached": false
+  },
+  "final_recovery": {
+    "pstate": 0,
+    "mem": 3505,
+    "registers_exact": true,
+    "checks": 48,
+    "load_error": "",
+    "stats": {
+      "verified_64MiB_copies": 49,
+      "mismatches": 0,
+      "deadline_reached": false
+    }
+  }
+}

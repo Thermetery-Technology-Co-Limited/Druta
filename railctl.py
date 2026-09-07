@@ -260,12 +260,12 @@ class Profile:
         return None if self.read_only else self.raw_max * self.lsb_mv
 
     def candidate_for(self, dev_id=None, subsys=None):
-        """PCI ids narrow the candidates. They never decide - identity does."""
-        if self.pci_device and dev_id is not None:
-            if f"0x{dev_id:04x}" not in self.pci_device:
+        """Require known matching PCI ids, then verify identity on the bus."""
+        if self.pci_device:
+            if dev_id is None or f"0x{dev_id:04x}" not in self.pci_device:
                 return False
-        if self.pci_subsys and subsys is not None:
-            if f"0x{subsys:08x}" not in self.pci_subsys:
+        if self.pci_subsys:
+            if subsys is None or f"0x{subsys:08x}" not in self.pci_subsys:
                 return False
         return True
 
@@ -668,6 +668,7 @@ class Rail:
         Returns (ok, message, ladder). The entry offset is restored in a
         finally, and the restore is verified.
         """
+        self._verification_write_attempted = False
         p = self.p
         if not acknowledged:
             return False, ("refused: verification writes real offsets to the "
@@ -715,8 +716,11 @@ class Rail:
             f"(entry offset {entry_mv:+.2f} mV)")
 
         ladder, hit = [], None
+        failure = None
+        restore_errors = []
         try:
             for rung in p.rungs:
+                self._verification_write_attempted = True
                 ok, msg = self.set_offset_mv(entry_mv + rung,
                                              acknowledged=True)
                 if not ok:
@@ -726,18 +730,21 @@ class Rail:
                     # that is not there.
                     ladder.append({"rung_mv": rung, "refused": msg})
                     say(f"  {rung:+6.2f} mV  REFUSED - {msg}")
-                    return False, (
+                    failure = (
                         f"INCONCLUSIVE - the ladder ran out of headroom at "
                         f"{rung:+.2f} mV before the rail was seen to move, so "
                         f"this is a refusal and not a verdict on the write "
-                        f"path. Refusal was: {msg}"), ladder
+                        f"path. Refusal was: {msg}")
+                    break
 
                 time.sleep(VERIFY_SETTLE_S)
                 now, _pp = self._sample(ref=ref)
                 if now is None:
                     ladder.append({"rung_mv": rung, "read_failed": True})
                     say(f"  {rung:+6.2f} mV  rail read failed")
-                    continue
+                    failure = ("INCONCLUSIVE - rail read failed during "
+                               "verification; no further offsets attempted.")
+                    break
 
                 delta = now - base
                 # Three floors, largest wins. Half the rung stops a rail that
@@ -754,19 +761,43 @@ class Rail:
                 if moved:
                     hit = ladder[-1]
                     break
+        except Exception as exc:                                # noqa: BLE001
+            failure = f"INCONCLUSIVE - verification raised {exc!r}"
         finally:
-            rok, rmsg = self.set_offset_mv(entry_mv, acknowledged=True)
-            if not rok:
-                say(f"RESTORE FAILED: {rmsg}")
-            else:
+            # Do not return from the ladder: even a refusal must wait for the
+            # restoration verdict. A measured response cannot authorize Apply
+            # while the entry setting is unconfirmed.
+            try:
+                rok, rmsg = self.set_offset_mv(entry_mv, acknowledged=True)
+                if not rok:
+                    restore_errors.append(f"restore refused: {rmsg}")
+            except Exception as exc:                            # noqa: BLE001
+                restore_errors.append(f"restore raised {exc!r}")
+            try:
+                # Compare the exact original FIELD, not a value reconstructed
+                # through mV rounding. Reserved bits are ignored by the part;
+                # the guarded setter intentionally never writes them back.
                 back = self.read(p.wreg, p.wbytes)
-                want = int(round(entry_mv / p.lsb_mv)) & (
-                    (1 << ((p.wbits[0] - p.wbits[1] + 1) if p.wbits
-                           else p.wbytes * 8)) - 1)
+                want = _extract(entry_raw, p.wbits)
                 if back is None or _extract(back, p.wbits) != want:
-                    say("RESTORE READ BACK WRONG - treat the rail as unknown")
-                else:
-                    say(f"restored to {entry_mv:+.2f} mV")
+                    seen = "unreadable" if back is None else f"0x{back:04X}"
+                    restore_errors.append(
+                        f"restore readback {seen}, expected field 0x{want:X}")
+            except Exception as exc:                            # noqa: BLE001
+                restore_errors.append(f"restore readback raised {exc!r}")
+            if restore_errors:
+                say("RESTORE FAILED: " + "; ".join(restore_errors))
+            else:
+                say(f"restored to {entry_mv:+.2f} mV")
+
+        if restore_errors:
+            return False, (
+                "RESTORE FAILED - verification is invalid; treat the rail as "
+                "unknown and leave Apply disabled. "
+                + "; ".join(restore_errors)
+                + (f". {failure}" if failure else "")), ladder
+        if failure:
+            return False, f"{failure} Restored to {entry_mv:+.2f} mV.", ladder
 
         if hit is None:
             return False, (
@@ -787,54 +818,63 @@ class Rail:
                 f"no figure from this run should be quoted. Restored to "
                 f"{entry_mv:+.2f} mV."), ladder
 
-        # NOT a single gain figure. delta/rung at the detecting rung reads 0.60
-        # on the authoring board, and quoting that as "the response" would be
-        # wrong twice over: the incremental gain above the deadband is about
-        # 1:1, and the shortfall is a fixed floor rather than a proportional
-        # loss. A ratio invites someone to scale it. Report the floor.
-        dead = max((r["rung_mv"] for r in ladder if not r.get("moved", True)),
-                   default=None)
-        floor = ("" if dead is None else
-                 f" Nothing up to {dead:+.2f} mV cleared the detection "
-                 f"threshold, so the usable floor is between {dead:+.2f} and "
-                 f"{hit['rung_mv']:+.2f} mV - below it this knob does much "
-                 f"less than it says, and above it roughly 1:1.")
+        # A detecting step is not a calibrated gain or a measured deadband.
+        # Boards with the same controller may have different loadline settings.
         return True, (
-            f"WRITE PATH CONFIRMED under load (GPU rail {vcore:.2f} mV). The "
-            f"rail first moved at {hit['rung_mv']:+.2f} mV, by "
+            f"WRITE PATH CONFIRMED under load (GPU rail {vcore:.2f} mV). "
+            f"First detected response at {hit['rung_mv']:+.2f} mV: "
             f"{hit['delta_mv']:+.0f} mV against a {hit['threshold_mv']:.1f} mV "
-            f"threshold.{floor} Restored to {entry_mv:+.2f} mV. Read the "
-            f"measured column from here on, not the number on the slider."
+            f"threshold. Restored to {entry_mv:+.2f} mV. "
+            "This verifies a response, not a 1:1 voltage gain."
         ), ladder
 
 
-def find(nvapi, dev_id=None, subsys=None, log=None):
-    """The one Rail whose identity passes on this card, or None.
+def discover(nvapi, dev_id=None, subsys=None, log=None, *, architecture=None):
+    """Read-only candidate discovery on the selected GPU's actual I2C buses.
 
-    Candidates are narrowed by PCI id and decided by a read on the actual bus.
-    If two profiles both identify, the first wins and the clash is logged -
-    silently picking one of two descriptions of the same regulator is how a
-    board ends up driven by the wrong bounds.
+    NCP4206 and MP2888A use controller fingerprints, without board-ID gates.
+    Other TOML recipes retain their explicit board constraints. Return every
+    candidate: a caller must never silently resolve an ambiguous bus map.
     """
+    from ncp4206 import DISCOVERY_PORTS, NCP4206
+    from mp2888 import discover as discover_mp2888
     hits = []
+    if architecture == 2 and getattr(nvapi, "ok", False):
+        for port in DISCOVERY_PORTS:
+            ncp = NCP4206(nvapi, architecture=architecture, port=port)
+            if ncp.present():
+                hits.append(ncp)
+    selected = getattr(nvapi, "selected", None) or {}
+    conflict = any(supplied is not None and selected.get(key) is not None
+                   and supplied != selected[key]
+                   for key, supplied in (("devid", dev_id), ("subsys", subsys)))
+    if dev_id is None:
+        dev_id = selected.get("devid")
+    if subsys is None:
+        subsys = selected.get("subsys")
     for p in load_profiles(log=log):
-        if not p.candidate_for(dev_id, subsys):
+        if getattr(p, "regulator", "").upper() == "MPS MP2888A":
+            hits.extend(discover_mp2888(nvapi, p, log=log))
+            continue
+        if conflict or not p.candidate_for(dev_id, subsys):
             continue
         for a in p.addrs:
             r = Rail(p, nvapi, addr7=a)
             if r.present():
                 hits.append(r)
-                break
-    if not hits:
-        return None
-    if len(hits) > 1 and log:
-        log(f"{len(hits)} i2c profiles identify on this card "
-            f"({', '.join(h.p.name for h in hits)}) - using the first. Remove "
-            f"the ones that do not describe your board.", False)
-    r = hits[0]
+    if conflict and log:
+        log("board-specific I2C recipes skipped: supplied PCI IDs do not "
+            "match the selected GPU", False)
     if log:
-        weak = (" (identified by fingerprint, not an ID register - a weaker "
-                "claim)" if r.p.weak_id else "")
-        log(f"i2c rail: {r.p.name} - {r.p.regulator} on {r.p.rail} at "
-            f"0x{r.addr7:02X}/port {r.p.port}{weak}", True)
-    return r
+        for r in hits:
+            log(f"i2c candidate: {r.p.name} at 0x{r.addr7:02X}/port {r.p.port}", True)
+        if len(hits) > 1:
+            log(f"{len(hits)} I2C candidates found (ambiguous); select a controller and "
+                "Verify it before applying an adjustment", False)
+    return hits
+
+
+def find(nvapi, dev_id=None, subsys=None, log=None, *, architecture=None):
+    """Compatibility API: return a rail only when discovery is unambiguous."""
+    hits = discover(nvapi, dev_id, subsys, log, architecture=architecture)
+    return hits[0] if len(hits) == 1 else None

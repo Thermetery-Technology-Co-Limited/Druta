@@ -1,262 +1,267 @@
-# Writing an I2C rail profile
+# I2C recipes and controller adapters
 
-Druta can drive a board's voltage regulator directly over the GPU's I2C bus.
-That path has **no firmware underneath it** - the GPU does not see the change,
-cannot refuse it, and will not compensate for it. A profile is therefore not a
-convenience file. It is the thing standing between a slider and a dead card, and
-it is read as **untrusted input** no matter where it came from.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution workflow. This
+reference describes the current interfaces in [railctl.py](../railctl.py),
+[mp2888.py](../mp2888.py), and [ncp4206.py](../ncp4206.py).
 
-This document is the format. The worked example beside it,
-[`rtx2080ti-mp2888a.toml`](rtx2080ti-mp2888a.toml), is the one
-board where every value below was measured rather than assumed.
+An I2C recipe is TOML register data. A controller adapter supplies behavior that
+cannot be represented by the generic signed-offset writer. A saved **tuning
+profile** is a separate JSON snapshot of requested settings and the controller
+connection/recipe fingerprint; it is not a new register recipe.
 
----
+## Discovery and selection
 
-## The three rules that shape everything else
+| Path | Discovery | Write behavior |
+|---|---|---|
+| NCP4206 | Kepler ports 0–7, address `0x20`; documented or observed controller identity plus VOUT_MODE; no PCI/subsystem filter | Absolute VID and ordered command/mode changes in the Python adapter; Auto restores GPU VID control |
+| MP2888A | Ports 0–7, addresses `0x08`–`0x77`, `0x20` first; repeated register/telemetry fingerprint; no PCI/subsystem filter | Adapter binds the TOML offset recipe to the discovered location and rechecks its fingerprint |
+| Other TOML recipes | Optional PCI constraints, one configured port and configured address(es), then all identity checks | One signed `offset_mv` field through the generic guarded writer |
 
-**1. A profile is matched by MEASUREMENT, not by name.** PCI IDs say which
-profiles are *candidates*. An identity read on the actual bus decides which one
-is *used*. A profile with no working identity check can be loaded, but Druta
-marks it unconfirmed and keeps it read-only.
+`railctl.discover()` returns all matching candidates. `railctl.find()` returns a
+rail only when exactly one matches. Druta displays the candidates' locations
+and available scan-time telemetry. Multiple candidates require a selection; a
+saved tuning profile may select exactly one candidate matching its complete
+recorded identity. Neither an address acknowledgement nor an address register
+is a unique model ID or proof of which rail the controller drives.
 
-Boards are the unit, not GPUs. The same GPU ships on many boards with different
-regulators, and the same regulator appears under many GPUs. `RTX 3080` is not an
-answer to "what is at address 0x20".
+The MP scanner is dispatched for recipes whose `profile.regulator`, compared
+case-insensitively, is `MPS MP2888A`. This is recipe routing, not evidence that a
+device is an MP2888A. Do not give another part that name to bypass its discovery
+checks. NCP4206 uses its built-in adapter rather than a TOML offset recipe.
 
-**2. Writes are whitelisted per register, never per device.** A profile lists
-the registers it may write. Everything else is refused, including registers the
-profile never mentions. There is no "write anything" mode and no way to ask for
-one.
+The MP fingerprint checks `0xBE & 0x7f` against the responding address, documented
+field/reserved-bit patterns, supported offset range, and repeated voltage,
+current and temperature readings. User-programmable ID bytes are diagnostics,
+not mandatory default values. It is labelled a candidate; Verify establishes a write response, not a unique
+model identity. See the [compatibility matrix](../DRIVER-COMPATIBILITY.md)
+for the distinction between live board evidence and mocked coverage.
 
-**3. A profile can never assert that it works.** It declares what a working
-board *should* do; Druta runs the staircase on the actual hardware and only then
-enables Apply. A profile that shipped with a wrong register still cannot drive a
-rail, because the rail will not move and the verifier will say so.
+## Verify, Apply and recovery
 
----
+Discovery performs reads only. **Verify performs real bounded writes** under
+load, measures response against baseline variation, and restores the entry
+setting. Fingerprint checks must establish compatibility before that first
+trial. Verify cannot make an incorrectly specified register safe to probe.
 
-## Why TOML
+The generic verifier compares sensed rail voltage with GPU VID when available,
+stops at a detected response or failure, and checks restoration of the exact
+original offset field. Refused restoration, exceptions or incorrect readback
+force failure. A detecting step is not a calibrated gain or exact deadband.
+NCP4206 has its own voltage-target ladder and command/mode restoration.
 
-Comments. A register number with no note on where it came from is the problem
-this format exists to prevent, and JSON cannot hold that note next to the value
-it describes. `tomllib` is in the Python standard library, so this costs no
-dependency, and Druta only ever **reads** these files - nothing in the app writes
-one, so a profile is always exactly what a human put there.
+Apply requires a valid verification bound to the current GPU, controller object,
+port/address and recipe. Card/controller changes, rescans and observed connection
+loss invalidate that result. Stock/reset cannot make a first write to an
+untouched MP candidate. Recovery remains available on the same connection after
+a verification write/restoration attempt; load setup failure alone grants no
+writes. Stock sets the offset to zero, whereas Verify restores its entry offset,
+which may be nonzero. NCP4206 Auto returns voltage control to GPU VID.
 
----
+No `[[write]]` means a read-only recipe. Missing `[[identity]]` is rejected by
+the parser; an identity mismatch is not selected as a candidate. These are
+separate conditions. The unit tests validate software contracts and recipe
+structure, not hardware compatibility.
 
-## File layout
+## Recipe files and compatibility
 
-### `[profile]` - what this is and where it came from
+The app loads `i2c/*.toml`, excluding `TEMPLATE*` and `_`-prefixed authoring files.
+For a packaged build, files beside the EXE take precedence over same-named
+bundled fallbacks. Copy [TEMPLATE.toml](TEMPLATE.toml) only for a genuinely new
+recipe; another board with an already supported controller usually needs an
+evidence report rather than a duplicate file.
+
+[rtx2080ti-mp2888a.toml](rtx2080ti-mp2888a.toml) retains its historical parsed
+recipe data for saved-profile compatibility. The MP adapter overrides its old
+current encoding and fixed-location assumptions. At the original connection its
+saved recipe identity is preserved; relocated candidates bind their actual bus
+and discovery recipe into the fingerprint. Correct explanatory comments without
+silently changing parsed data. Behavioral recipe changes need compatibility
+tests or a deliberate migration; old tuning profiles may otherwise be refused.
+
+## TOML fields
+
+### `[profile]`
 
 ```toml
 [profile]
-format = 1                      # this spec's version. Required.
-name = "RTX 2080 Ti - NVVDD (MP2888A)"
-regulator = "MPS MP2888A"
-rail = "NVVDD"                  # NVVDD | FBVDD | MSVDD | PEXVDD ...
-author = "Thermetery"
+format = 1
+name = "Example board - NVVDD (Example controller)"
+regulator = "Vendor PARTNUM"
+rail = "NVVDD"
+author = "Contributor handle"
 ```
 
-### `[provenance]` - required, and it is not paperwork
+Use the actual part and rail. Do not infer rail identity solely from voltage or
+bus position. The controller display name and saved recipe identity may differ
+for discovered adapters.
+
+### `[provenance]`
 
 ```toml
 [provenance]
-datasheet = "MP2888A Rev. 1.1, 12/25/2018"
-registers = "datasheet pp.34-37 (command table), p.43 (bit fields)"
-address   = "measured: 0xBE reads 0xA0; datasheet Table 6 p.30 gives 20h for ADDR=0V"
-behaviour = "measured on the authoring board under load, 2026-09-04"
+datasheet = "Exact part, public document URL, revision and date"
+registers = "Command-table pages and field-definition pages"
+address = "Port/address, raw identification reads and interpretation"
+behaviour = "Measured conditions, load, results and date"
+hardware = "Stock board or exact modifications"
 ```
 
-Every register fact must be traceable to a **public** source or to a measurement
-you took. Datasheets, manufacturer application notes, FOSS project source (state
-the licence), your own bench results. **Do not source register maps from leaked
-proprietary driver code.** A profile whose `provenance` is missing or says
-"from a forum post" is still loadable, but say so honestly - somebody downstream
-is deciding whether to trust it with their hardware.
+Cite manufacturer documentation, public application notes or licensed open-source
+code, and distinguish those sources from your own measurements. Do not use leaked
+proprietary register maps. Contributor tests require filled provenance and no
+TODO markers; parsing alone does not certify the sources or measurements.
 
-### `[match]` - candidates only, never authority
+### `[match]`
 
 ```toml
 [match]
-pci_device  = ["0x1E02", "0x1E04", "0x1E07"]   # optional
-pci_subsys  = ["0x12A310DE"]                   # optional
+pci_device = ["0x1E02"]
+pci_subsys = ["0x12A310DE"]
 ```
 
-Omit both and the profile is offered for any card, which is fine for a widely
-used regulator. Matching narrows the candidate list; `[identity]` decides.
+These optional filters apply to ordinary TOML recipes. Each nonempty filter requires the selected GPU's known ID to occur in its
+list before that recipe probes the bus. Omitting
+both removes only this prefilter, not the identity checks. Built-in NCP4206 and
+MP2888A discovery bypass board-ID matching; the historical MP IDs record the
+authoring board, not an eligibility restriction.
 
-### `[bus]` - where to talk
+### `[bus]`
 
 ```toml
 [bus]
-port    = 1        # NVAPI port id
-addr7   = 0x20     # 7-bit. Druta shifts left by one for the wire.
+port = 1
+addr7 = 0x20
 ```
 
-If a part's address is strap-selected and you are unsure, list `addr7_probe =
-[0x20, 0x21, 0x22]`; Druta tries each and keeps the one whose identity passes.
-It never keeps two.
+Addresses are seven-bit values. For a generic recipe, replace `addr7` with
+`addr7_probe = [0x20, 0x21, 0x22]` to probe several documented addresses on the
+configured port. All matching candidates are retained; the first response does
+not automatically win. MP discovery supplies the runtime port/address itself.
+There is no generic TOML port-list or command-sequencing facility.
 
-### `[identity]` - the gate
+### `[[identity]]`
 
 ```toml
+# Address consistency ONLY; insufficient to identify a controller on its own.
 [[identity]]
 reg = 0xBE
 bytes = 1
-equals = 0xA0
-note = "MFR_PMBUS_ADDR. Bit7=1, 3 MSB=010, 4 LSB=0000 -> 0x20; the part states
-        its own address, so this both identifies it and confirms the strap."
+mask = 0x7F
+value = 0x20
+fingerprint = true
+note = "MP address field at this location; runtime adapter checks the rest."
 ```
 
-Multiple `[[identity]]` blocks all have to pass. If a part has no ID register
-(many uPI and Chil parts do not), use a **fingerprint**: several registers whose
-combined values are distinctive.
+For another controller, use its documented registers and expected values.
+`equals` checks the whole result; `mask` and `value` check selected bits. Every
+identity block must pass. Specify an actual expected value/mask, not merely a
+readable command. Mark fingerprint checks honestly; do not describe address
+configuration or user-programmable bytes as immutable model identification.
+
+### `[[telemetry]]`
 
 ```toml
-[[identity]]
-reg = 0x12
-bytes = 1
-equals = 0xBC
-fingerprint = true      # marks this as a weak check, not a real ID register
-```
-
-A profile whose identity is fingerprint-only is flagged in the UI and its
-staircase must pass before Apply unlocks - same as any other, but the label
-tells the user what they are relying on.
-
-### `[telemetry]` - read-only, and the honest readout
-
-```toml
+# MP2888A voltage example; not a universal PMBus encoding.
 [[telemetry]]
 key = "vout_mv"
 reg = 0x8B
 bytes = 2
 encoding = "uint"
 scale = 1.0
-note = "DIRECT millivolts on this part, not LINEAR11 - matched the GPU's own
-        reading exactly at 681 mV. Do not assume one encoding across commands."
-
-[[telemetry]]
-key = "iout_a"
-reg = 0x8C
-bytes = 2
-encoding = "linear11"
 ```
 
-`encoding` is one of `uint`, `int` (two's complement), `linear11`, `vid`.
-`vout_mv` is **required** - it is what the verifier watches and what the UI shows
-instead of the number on the slider.
+Generic decoding supports `uint`, `int` (two's complement), and `linear11`.
+Optional `bits = "hi:lo"` extracts a field; `scale` applies to integer encodings.
+`linear11` uses its embedded exponent. There is no generic `vid` decoder.
+`vout_mv` is required. Give signed fields explicit bit widths.
 
-### `[[write]]` - the whitelist, and the part to get right
+MP2888A current is **not LINEAR11**: the adapter checks the fixed high nibble,
+uses the low 12 bits and selects 0.25/0.5 A per code from `0x44` bit 3. Its voltage
+report is direct mV and temperature uses 0.1 degrees C per code. Static TOML
+scaling cannot express a scale selected by another register; use adapter logic.
+Sources: [MPS datasheet](https://www.monolithicpower.com/en/documentview/productdocument/index/version/2/document_type/Datasheet/lang/EN/sku/MP2888A)
+and [Linux MP2888 driver](https://kernel.googlesource.com/pub/scm/linux/kernel/git/axboe/linux/+/fc2ce3ee106f2d53eb344f5c4963c897bbb21634/drivers/hwmon/pmbus/mp2888.c).
+
+### `[[write]]`
 
 ```toml
+# MP2888A-specific signed offset recipe.
 [[write]]
 key = "offset_mv"
 reg = 0x23
-bytes = 2          # TRANSACTION width on the wire
-bits = "7:0"       # FIELD width inside it
+bytes = 2
+bits = "7:0"
 encoding = "int"
 lsb_mv = 6.25
 raw_min = -111
 raw_max = 112
-note = "VOUT_OFFSET. bytes=2 and bits=7:0 are DIFFERENT NUMBERS and both matter."
+note = "Transaction width 2 bytes; only the low 8-bit signed field is writable."
 ```
 
-> **`bytes` and `bits` are not the same thing, and conflating them is the single
-> most likely way to write a broken profile.** On the MP2888A the command table
-> gives `23h` a two-byte transaction, while p.43 shows bits 15:8 are reserved -
-> "writes are ignored and always read as 0" - and only bits 7:0 hold the value.
-> Druta originally masked this to 16 bits, so every negative offset went out as
-> `0xFFxx`, the reserved half was dropped, and read-back refused the write.
-> Undervolting was silently impossible until the datasheet was read properly.
-> Give the transaction width in `bytes` and the field in `bits`, always.
+Omit this section for read-only contributions. The generic UI/writer operates
+one `offset_mv` entry; adding other keys does not implement new controls or
+ordered sequences. `bytes` is the transaction width; `bits` is the field width.
+The generic setter writes that field and zeros bits outside it. A controller
+requiring preservation of neighboring writable fields needs a dedicated adapter.
 
-`raw_min`/`raw_max` are the **representable** range in raw codes, and they are
-not a safety opinion - they are what the field can hold. Past the MP2888A's +112
-the low byte wraps through its sign bit, so a request for +800 mV becomes raw 128
--> `0x80` -> -128 -> **-800 mV delivered**. Druta refuses outside this range in
-every mode, XOC included, because a clamp here would silently deliver a voltage
-nobody asked for.
+Document both the supported raw range and the field's representable range.
+MP2888A supports -111..112 codes, narrower than signed eight-bit representation;
+values 113..127 are already outside the documented range, while 128 wraps to a
+negative signed value. Druta refuses requests outside the declared supported
+range in every mode. Do not copy MP limits or scale into another part's recipe.
 
-### `[limits]` - three tiers, and only the middle one is removable
+### `[limits]`
 
 ```toml
 [limits]
-envelope_min_mv = -200.0    # default policy. XOC removes this.
-envelope_max_mv =  100.0
-rail_ceiling_mv = 1200.0    # default policy. XOC removes this.
-sanity_max_rail_mv = 2000.0 # typo catcher. NOTHING removes this.
+envelope_min_mv = -200.0
+envelope_max_mv = 100.0
+rail_ceiling_mv = 1200.0
+sanity_max_rail_mv = 2000.0
 plausible_rail_mv = [400.0, 1300.0]
 ```
 
-The tiers exist because they answer different questions:
+These are the historical MP recipe's software bounds, not universal board
+ratings. Normal mode enforces its offset envelope and predicted rail ceiling;
+XOC removes those software bounds. Supported raw range and the sanity ceiling
+remain enforced. Neither permission implies that cooling, silicon or board
+components tolerate the request. Establish the bounds from your contribution's
+sources and measured operating conditions; lowering voltage can also destabilize
+the GPU. Controller-specific limits may additionally constrain the request.
 
-| tier | question | XOC |
-|---|---|---|
-| representability (`raw_min/max`) | can the register even hold this? | **never removed** |
-| envelope / ceiling | is this sensible for this cooling? | removed |
-| sanity | is this a typo? | **never removed** |
-
-The sanity ceiling exists because a vendor ring-0 tool in this class accepted
-`14000` on a CPU rail and put it straight through. 14000 is 1400 with a slipped
-digit, and no sub-zero run on any part needs 14 V.
-
-### `[verify]` - the staircase this board should show
+### `[verify]`
 
 ```toml
 [verify]
 rungs_mv = [6.25, 12.50, 25.00, 50.00, 75.00]
 min_loaded_vout_mv = 800.0
-expect_deadband_mv = 31.0    # optional, informational
 ```
 
-`min_loaded_vout_mv` is the floor below which Druta refuses to render a verdict.
-**Never characterise a regulator at idle.** Multiphase controllers shed phases
-and change loadline under PSI/auto-phase, so an idle card is a different
-regulator from the one that carries an overclock - the measurement will be both
-noisy and *unrepresentative*, which is worse than noisy.
+These are bounded trial steps for the generic offset verifier, relative to its
+entry offset. The UI induces load and supplies the GPU voltage reference; the
+minimum operating voltage is checked before trials. `expect_deadband_mv` is
+optional historical metadata, not a gain correction or proof of behavior on
+another board. Do not widen a failed ladder merely to obtain a pass.
 
-### `[[never_write]]` - board-specific hazards
+### `[[never_write]]`
 
 ```toml
 [[never_write]]
 reg = 0x04
-why = "MFR_USER_PWD. One-shot: locks out PMBus writes until a power cycle and
-       can be committed to EEPROM."
+why = "MPS password command; not a voltage adjustment."
 ```
 
-> Every repeating section here is an array-of-tables - `[[identity]]`,
-> `[[telemetry]]`, `[[write]]`, `[[never_write]]` - and that uniformity is
-> deliberate. A bare `key = [...]` written after a `[table]` header silently
-> becomes part of *that table* rather than a top-level key, which is how the
-> first draft of the example file put its `never_write` list inside `[verify]`
-> and quietly disarmed it. Use `[[double brackets]]` and the mistake is
-> unavailable.
+This adds controller-specific hazards to `railctl.NEVER_WRITE`; it cannot remove
+a built-in entry. Whitelisting a built-in denied command is rejected. The generic
+writer refuses commands outside its write whitelist or in the combined denylist.
+These explicit lists do not automatically recognize every undocumented vendor
+command: document additional hazards and review adapter write paths separately.
 
-This **adds to** Druta's built-in denylist, and cannot subtract from it. Any
-register that commits to non-volatile storage is refused regardless of what a
-profile says - `STORE_DEFAULT_ALL (0x11)`, `STORE_USER_ALL (0x15)`,
-`RESTORE_*`, and known vendor password/EEPROM commands. A profile is untrusted
-input; it must not be able to hand itself permission to brick a card.
+## Checks before submitting
 
----
-
-## Checklist before you share one
-
-- [ ] Identity read passes on your board, and **fails** on a board it should not
-      match (test it if you have a second card).
-- [ ] `bytes` is the transaction width; `bits` is the field. You checked both.
-- [ ] `raw_min`/`raw_max` come from the datasheet's stated offset range, not from
-      the field width. They are usually narrower.
-- [ ] Verify passes under load, and the ladder is in your notes.
-- [ ] Negative offsets read back correctly - that is where width bugs hide.
-- [ ] `provenance` names a real source for every register.
-- [ ] You have power-cycled and confirmed the rail returned to stock.
-
-## What a profile still cannot do
-
-Change the guard structure. The identity check, the read-back verification, the
-dry run, the staircase, the sanity ceiling and the NVRAM denylist are Druta's,
-not the profile's. A profile chooses *which* registers and *what* bounds; it
-does not choose whether it is checked.
+Use the [contribution workflow](CONTRIBUTING.md#5-submit-the-evidence-and-run-checks)
+and [PR template](../.github/PULL_REQUEST_TEMPLATE/i2c_profile.md). Include
+read-only discovery evidence for every contribution and write/restore evidence
+only for capabilities actually exercised. Mock failure paths and unrelated
+responders; do not put live hardware writes in unit tests. Distinguish measured
+boards, controller-level expectations and untested configurations.

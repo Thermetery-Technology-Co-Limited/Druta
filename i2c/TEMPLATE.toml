@@ -1,4 +1,7 @@
-# TEMPLATE - copy to <card>-<regulator>.toml and fill in.
+# TEMPLATE - for a NEW generic register recipe, not each newly tested board.
+# Existing MP2888A/NCP4206: contribute scanner/Verify evidence first; see
+# CONTRIBUTING.md. Do not add board-ID exceptions or duplicate their recipes.
+# Copy to <board>-<regulator>.toml and fill in only when a recipe is needed.
 #
 # Delete every TODO as you answer it. A TODO left in the file is a profile that
 # is not ready, and the validator will say so.
@@ -10,9 +13,10 @@
 # width, encoding and offset range, and each of those differences has already
 # produced a bug here.
 #
-# A profile with fields left blank is still useful: telemetry-only, with no
+# A completed read-only profile is useful: telemetry-only, with no
 # [[write]] section at all, is a complete and valid contribution. It gets you a
-# live rail readout and it costs nothing to review. Add writes later, or never.
+# read-only telemetry interface for checking the decoder. Add writes later,
+# or never.
 
 [profile]
 format    = 1
@@ -35,11 +39,12 @@ hardware  = ""            # TODO stock board, or the exact modification you made
                           #      for a modified board must never look stock.
 
 # ---- match - candidates only, never authority ------------------------------ #
-# Narrows which profiles get tried. It does NOT decide anything: [[identity]]
-# below does. Two boards can share a PCI id and carry different regulators.
+# Optional prefilter for generic recipes; a specified ID must be known and
+# match. NCP4206 and MP2888A scanners do not use board-ID filters. Actual
+# register evidence below establishes a candidate, not the card name.
 [match]
 pci_device = []           # TODO ["0x2C02"]
-pci_subsys = []           # TODO ["0x89DE1043"] - usually the honest discriminator
+pci_subsys = []           # TODO optional board scope, not controller identification
 
 # ---- bus ------------------------------------------------------------------- #
 [bus]
@@ -59,7 +64,8 @@ note   = ""               # TODO what this register is and why it identifies it
 # ---- telemetry - read-only, and the honest readout ------------------------- #
 # encoding: "uint" | "int" | "linear11"
 # DO NOT assume one encoding across commands. On the reference part READ_VOUT is
-# direct millivolts while READ_IOUT is LINEAR11, on the same device.
+# direct millivolts; MP2888A READ_IOUT needs low12 bits and a configuration-
+# selected 0.25/0.5 A scale. That dynamic decoding lives in mp2888.py.
 [[telemetry]]
 key      = "vout_mv"      # keep this key name if you have an output voltage:
 reg      = 0x00           # TODO   it is what the verifier and the UI read
@@ -70,7 +76,11 @@ note     = ""             # TODO how you confirmed the encoding and the scale
 
 # ---- writes - the whitelist ------------------------------------------------ #
 # OPTIONAL. Omit this section entirely for a telemetry-only profile.
-# Anything not listed here cannot be written, by construction.
+# The generic writer implements one signed offset_mv field. More entries do
+# not implement additional controls or ordered write sequences. Use an adapter
+# for absolute VID, read-modify-write, or command/mode sequences (see ncp4206.py).
+# Bits outside the selected field are zeroed; do not use this generic writer
+# where other writable fields must be preserved.
 #
 # bytes and bits are DIFFERENT NUMBERS and both matter. bytes is the width of
 # the transaction on the wire; bits is the field inside it. Getting this wrong
@@ -90,7 +100,7 @@ note     = ""             # TODO how you confirmed the encoding and the scale
 
 # ---- limits ---------------------------------------------------------------- #
 [limits]
-envelope_min_mv    = -200.0   # normal-mode bounds. Down is the safe direction.
+envelope_min_mv    = -200.0   # TODO normal bounds; lowering voltage can also destabilize the GPU.
 envelope_max_mv    =  50.0    # TODO start LOW. You can raise it once measured.
 rail_ceiling_mv    = 0.0      # TODO absolute ceiling. Put it UNDER the part's
                               #      own VOUT_MAX / OVP, deliberately.
@@ -101,7 +111,9 @@ plausible_rail_mv  = [400.0, 1300.0]
 # The staircase: request the smallest step, watch the rail, and grow the step
 # only until the board is OBSERVED to move. Never measure at idle - a
 # multiphase controller sheds phases under light load and is a different
-# regulator there.
+# regulator there. Verify writes real trials and restores the entry field.
+# A failed restoration must invalidate the pass, even if voltage responded.
+# These sample rungs/ranges are not ratings for an unknown controller.
 [verify]
 rungs_mv           = [6.25, 12.50, 25.00, 50.00, 75.00]
 min_loaded_vout_mv = 800.0    # TODO refuse to measure below this

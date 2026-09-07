@@ -1,156 +1,158 @@
-# Adding a board to the I2C rail list
+# Contributing I2C controller support
 
-Druta talks to a board's voltage regulator through a **profile**: a TOML file
-describing where the part is, how to identify it, what can be read from it and
-- optionally - the one register that may be written. Profiles are data. The
-guards are code, and a profile cannot weaken them.
+Druta discovers a controller on the selected GPU's I2C buses, checks its
+register layout, and uses **Verify** to test a bounded voltage response before
+Apply. Discovery is read-only; Verify itself makes hardware writes and restores
+the entry setting. A responding address or a successful register readback does
+not establish controller compatibility or prove that voltage changed.
 
-This is the path we wish had existed when the first board was done by hand.
+This is the contribution workflow. [PROFILES.md](PROFILES.md) describes the
+TOML format and adapter interfaces. Use the [I2C PR template](../.github/PULL_REQUEST_TEMPLATE/i2c_profile.md)
+for evidence reports as well as code or recipe changes.
 
-`PROFILES.md` is the field-by-field reference. This file is the workflow.
+## Choose the contribution type
 
----
+| What you found | What to contribute |
+|---|---|
+| NCP4206 on another Kepler board | Discovery and Verify evidence; no new PCI/subsystem whitelist entry or duplicate TOML. |
+| MP2888A on another board or I2C location | Discovery and Verify evidence using the existing adapter and recipe. Report any fingerprint mismatch before changing the scanner. |
+| An unfamiliar controller with documented telemetry | A telemetry-only recipe, or a read-only discovery adapter when fixed-location TOML is insufficient. |
+| A new writable register layout or ordered control sequence | A cited recipe or controller adapter, mocked transport tests, and measured write/restore evidence. |
 
-## Before you start
+NCP4206 discovery scans Kepler ports 0–7 at address `0x20`. MP2888A discovery
+scans ports 0–7 and addresses `0x08`–`0x77`, starting at `0x20`. Neither uses
+DevID/subsystem filtering. Other TOML recipes still support optional PCI filters
+and configured bus locations. Record board IDs as evidence even when they are
+not discovery gates; controller support does not prove every board's wiring.
 
-You need three things, and the third is the one people skip:
+## 1. Record the board and discover candidates
 
-1. **The card**, in a machine where you can run Druta as administrator.
-2. **A load.** Never characterise a regulator at idle. A multiphase controller
-   sheds phases under light load and behaves like a different part - readings
-   taken there have sent us down a blind alley more than once. Druta's own
-   `Max it` or any sustained 3D load will do.
-3. **The regulator's datasheet.** Not a datasheet for "the same family". Parts
-   within one family differ in register width, encoding and offset range, and
-   every one of those differences has already caused a real bug here. If you
-   cannot get the datasheet, you can still contribute - see *telemetry-only*
-   below - but you cannot contribute a write.
+Record card name, PCI slot, driver, VBIOS, board IDs, regulator marking, rail,
+and whether the board is stock or modified. Describe fitted SMBus links if any.
+Select the intended GPU in Druta and open **I2C regulator**. **Rescan I2C** lists
+candidates by port/address with scan-time telemetry and clears verification.
+If several respond, choose a controller explicitly. Do not assume two matching
+ports are aliases or label every regulator NVVDD.
 
----
+For raw bus evidence, run the separate read-only survey:
 
-## Step 1 - survey the bus
-
+```powershell
+python tools/i2c_discover.py --slot 0000:01:00.0
 ```
-python tools/i2c_discover.py
-```
 
-Read-only. It issues no I2C writes and has no code path that could. It walks
-the ports, reports which addresses answer, and dumps the standard PMBus
-identification and telemetry registers for each responder as a Markdown block.
+Replace the slot with your GPU's slot. Use `--ports 0,1,2` to narrow the survey
+or `--full` for its wider address survey. This tool's responder list is broader
+than Druta's controller fingerprint checks. A bus error is a failed read; it
+alone does not prove a command is unimplemented. Discovery can be reported at
+idle; voltage response characterization needs a settled load.
 
-**Finding nothing is a normal result.** On many boards the regulator's bus is
-not connected to anything the GPU can reach. That is a property of the board,
-not something a profile can work around, and the honest thing is to say so.
+Finding nothing is a useful result. Many boards do not connect the regulator's
+SMBus to the GPU. A recipe cannot make an electrically disconnected part
+reachable. Do not create a new profile solely because an existing scan was empty.
 
-**An address that answers is not a regulator.** Fans, thermal sensors and
-EEPROMs live on these buses too. And a card can carry several regulators, so
-"something answered" is a long way from "this is the core rail".
+## 2. Establish controller and rail evidence
 
-## Step 2 - identify the part
+Use the exact part's public datasheet, manufacturer documentation, or cited
+open-source driver code. Include revision, page/command references and raw bytes.
+Do not import register maps from leaked proprietary driver code.
 
-This is your step, and it needs the datasheet. Match the bytes from Step 1
-against candidate parts. Useful anchors:
+- Prefer documented model/manufacturer IDs where implemented; respect each
+  command's transaction width. User-programmable IDs are supporting evidence,
+  not universal default values to require.
+- Address configuration is a consistency check, not a model ID. MP2888A's
+  `0xBE` lower seven bits must match its responding address; `0xA0` is not a
+  universal identity value. The adapter also checks register fields and repeated
+  telemetry. See [mp2888.py](../mp2888.py).
+- Record the voltage encoding and compare synchronized controller telemetry with
+  GPU VID or an independent rail measurement at several operating points. VID
+  is a requested voltage and can differ from the sensed rail because of loadline
+  or existing offsets. A plausible voltage alone cannot identify the rail.
+- Supply negative cases: unrelated responders must be rejected. If another board
+  is unavailable, exercise them with a mocked transport and label that evidence
+  as simulated.
 
-- `MFR_ID` / `MFR_MODEL` (`0x99` / `0x9A`) where implemented - many parts
-  don't, and return a bus error rather than a value. That is information, not
-  failure.
-- A register that states something *specific*, ideally the part's own address.
-- `READ_VOUT` (`0x8B`) decoding to a number that tracks the GPU's own reported
-  core voltage. This is the strongest single check available to you, because it
-  ties the device to the rail rather than just to the bus.
+Do not assume one encoding across commands. MP2888A voltage is direct mV;
+current uses the low 12 bits times 0.25 A or 0.5 A according to register `0x44`
+bit 3. It is **not LINEAR11**. The adapter corrects the historical encoding in
+the shipped recipe; do not copy that legacy field into a new recipe.
 
-**Do not identify a part by address alone.** On the reference board, fitting
-the modification links made a *different* device start answering at the same
-address. Address is where you look; identity is what you check.
+## 3. Add only the missing recipe or adapter
 
-## Step 3 - write a telemetry-only profile first
+For a new fixed-location controller, copy [TEMPLATE.toml](TEMPLATE.toml), rename
+it, fill the identification/telemetry/provenance fields, and omit `[[write]]`
+until write behavior is established. `TEMPLATE*` and `_`-prefixed files are
+excluded from normal loading. A completed read-only recipe is a valid
+contribution; omitted writes are intentional, not unfinished capability.
 
-Copy `TEMPLATE.toml`, fill in `[profile]`, `[provenance]`, `[match]`, `[bus]`,
-`[[identity]]` and `[[telemetry]]`, and **leave the `[[write]]` section
-commented out**.
+Generic recipes support one signed `offset_mv` field. Specify transaction width,
+field width, scale, documented raw range and measured software limits. The
+setter does not preserve unrelated writable fields in that transaction. If a
+part needs read-modify-write of other fields, page selection, absolute VID, or
+ordered commands, implement an adapter with explicit capture/restore behavior
+instead of adding arbitrary `[[write]]` entries. NCP4206 is the existing example.
 
-A telemetry-only profile is a complete, valid, mergeable contribution. It
-cannot write - not by policy but by construction, because it names no register
-to write - which makes it the safest thing to accept for a board nobody here
-owns. It gets you a live rail readout in the UI, and it is the foundation any
-later write work stands on.
+For MP2888A, extend the existing adapter only when evidence supports a missing
+layout case. Do not bypass its fingerprint with a second fixed-address profile
+or add a board-ID exception. Multiple recipes at the same location can create
+ambiguity. Changes to recipe data also change saved-profile compatibility;
+preserve or deliberately migrate identity, and test the migration.
 
-Check it:
+## 4. Prove the write and the restoration
 
-```
+Keep clock/voltage settings controlled and record the entry register value.
+Use **Unlock controls**, enable **I2C rail**, then press **Verify**. Druta induces
+a load for verification. **Max it is a tuning action, not a load generator**;
+it is not a prerequisite for I2C discovery or verification.
+
+Verify uses bounded trial steps, measures response against baseline variation,
+and restores the entry offset/control state. Submit the complete log, including:
+
+- baseline, noise/threshold, requested steps and measured response;
+- any refused step, missing reading, load error or failed fingerprint;
+- original control bytes and the restoration readback, including a failure if any.
+
+No response at the allowed steps is a failed or inconclusive result, not a
+reason to widen the ladder. A detecting step proves a response under those
+conditions; it does not calibrate 1:1 gain or establish an exact deadband.
+Restoration failure invalidates Verify and leaves Apply unavailable. Failed load
+setup before any MP write attempt does not authorize Stock/reset writes.
+
+After a successful Verify, test Apply and Stock/Auto with a bounded request and
+record both readbacks. Exercise negative offsets only where documented and
+appropriate, and record instability or refusals rather than assuming downward
+voltage changes are harmless. Restore the entry state when finished. For adapters,
+also test recovery from partial sequences and read/write failures with mocks.
+
+Changing GPUs/controllers, rescanning, or observed connection loss invalidates
+the pass. A saved tuning profile records the connection and recipe fingerprint;
+it can select exactly one matching candidate, but needs a fresh Verify when
+that connection has not been verified in the current session. Verification is
+not persisted as a permanent board approval.
+
+## 5. Submit the evidence and run checks
+
+Include the survey, discovery result, sources, stock/modified status, operating
+conditions, and write/restore log if writes were tested. Distinguish live hardware
+results from mocked tests and untested boards. An existing supported controller
+usually needs an evidence/matrix update, not another recipe.
+
+For a recipe contribution, run:
+
+```powershell
 python -m unittest test_profiles
 ```
 
-That runs without a GPU, so a reviewer gets the same answer you do.
+For discovery, adapter, Verify or UI changes, add focused mocked regressions and
+run the full hardware-free suite:
 
-## Step 4 - prove the telemetry
+```powershell
+python -m unittest discover -q
+```
 
-Under load, compare your decoded `vout_mv` against the GPU's own core voltage
-reading at the same moment. They should agree closely. If they don't, one of
-these is true and you need to find out which:
+These tests check software contracts; they do not certify a controller on real
+hardware. Keep discovery tests write-free. Cover unrelated responders, multiple
+candidates, location binding, failed restoration, and prevention of stale Verify
+results. Do not put live GPU writes into the ordinary unit-test suite.
 
-- the encoding is wrong (`uint` vs `linear11` vs a scale factor),
-- the part you found is a different rail,
-- it is not a regulator at all.
-
-**Do not assume one encoding across commands.** On the reference part
-`READ_VOUT` is direct millivolts while `READ_IOUT` on the same device is
-LINEAR11.
-
-## Step 5 - the write, if you're going there
-
-Only with the datasheet in hand. Fill in `[[write]]`, and note two things that
-have each caused a bug here:
-
-- **`bytes` and `bits` are different numbers.** `bytes` is the width of the
-  transaction on the wire; `bits` is the field inside it. On the reference part
-  the offset is an 8-bit field inside a 2-byte transaction, and treating it as
-  a 16-bit value made every *negative* offset silently fail.
-- **`raw_min`/`raw_max` are the PART's documented range, not the field's.**
-  They are often narrower. Past the top of the documented range the value can
-  wrap through the sign bit and move the rail the *wrong way*.
-
-Start `envelope_max_mv` low. Down is the safe direction. You can raise it once
-you have measured the response.
-
-Then run the staircase: request the smallest step, watch the *rail*, and grow
-the step only until the board is observed to move. If nothing has moved by the
-largest rung, the write is not working - report that, don't widen the rung.
-
----
-
-## What your PR should contain
-
-- the profile itself, in `i2c/`
-- the **Step 1 output**, pasted - reviewers want the bytes you saw
-- **how you identified the part**, with datasheet page numbers
-- **your telemetry comparison** from Step 4: decoded value against the GPU's
-  own, under load
-- if you added a write: the **staircase result**, including the rung at which
-  the rail first moved
-- whether the board is **stock or modified**. If links had to be fitted, say
-  so plainly - a profile for a modified board must never look like a stock one.
-
-`python -m unittest test_profiles` must pass.
-
-## What gets sent back
-
-- **A guessed identity.** Worse than no profile, because it will be trusted.
-- **Numbers copied from another board.** Including ours. The reference profile
-  carries a measured deadband that is specific to that part and unexplained;
-  copying it into another profile states something you did not observe.
-- **Anything measured at idle**, or a profile with no evidence it was ever run
-  under load.
-- **A profile that tries to whitelist a denied register.** `STORE_*`,
-  `RESTORE_*` and MPS `MFR_USER_PWD` commit to non-volatile memory or lock the
-  part out permanently. The loader refuses this and so will we.
-- **Provenance left blank.** Every line there answers "how do you know?". A
-  reviewer who cannot retrace a number cannot approve it.
-
-## What a profile still cannot do
-
-It cannot make an unreachable regulator reachable, and it cannot make the GPU
-aware of a voltage set behind its back. An I2C rail write does not pass through
-the driver or the firmware, so nothing on that path can catch a mistake. That
-is why this list is built out of measured, cited, board-specific facts rather
-than plausible ones.
+Leave capability unavailable when its write semantics or restoration are
+unconfirmed. A read-only result or a documented negative result is still useful.

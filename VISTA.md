@@ -53,11 +53,39 @@ rail writes remain disabled even when the write toggle is selected. Physical
 NVIDIA monitoring, V/F operations, clock/fan fallbacks and timing access on
 Vista still require testing with a supported card and its installed driver.
 
-The port passes 158 application tests and 54 compatibility/package tests
+Earlier port validation passed 158 application tests and 54 compatibility/package tests
 under the patched Python 3.8.10 runtime on the modern build host. Its source
 startup probe and full Control/Monitor/Timings fixture pass with all GPU
 backends, workers and subprocesses disabled (985 items, nine rendered frames).
 The fresh guest checks and earlier runtime validation are recorded separately below.
+
+## Shared-feature refresh (2026-09-07)
+
+This draft now inherits the shared application through `4f90922` and the
+Windows 7 compatibility refresh. It includes complete rail/I2C profile
+restoration, guarded sign-in loading, Kepler/Maxwell capability handling,
+verified-board P0 hold controls, automatic NCP4206/MP2888A discovery and
+session-bound verification, and the GTX 690 ROM/clock-domain decoder. The
+[clock evidence](experiments/kepler-gtx690-clock-domains.md) distinguishes
+confirmed identities from inferred names and the unresolved XBAR/SYS pair.
+Hardware controls retain their driver/capability checks; shared Windows 10
+measurements do not establish physical GPU support on Vista.
+
+The sign-in guard now normalizes Windows event timestamps with seven
+fractional digits for Python 3.8 while preserving the full boot identifier.
+Missing or abnormal shutdown evidence still prevents automatic profile
+loading. No startup task was registered during this port validation.
+
+Current validation on the Windows 10 build host, using the patched Vista
+Python 3.8.10 runtime: **359 application tests and 57 compatibility/package
+tests pass (416 total)**. Source startup renders three frames, and the full
+UI fixture renders 980 items across all three tabs and nine frames with no
+GPU, worker or subprocess access. Native runtime hashes/import constraints
+and the matching-source packaging preflight pass. The native Vista patches,
+SDK 10240 runtime, Unicode dialog behavior and optional nvtune packaging are
+preserved. These refreshed application sources have not been rerun in the
+Vista guest or on physical Vista NVIDIA hardware; earlier guest results below
+remain historical evidence.
 
 ## Required Windows components
 
