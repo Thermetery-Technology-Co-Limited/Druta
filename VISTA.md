@@ -61,13 +61,16 @@ The fresh guest checks and earlier runtime validation are recorded separately be
 
 ## Shared-feature refresh (2026-09-07)
 
-This draft now inherits the shared application through `3db9898` and the
+This draft now inherits the shared application through `1d6219f` and the
 Windows 7 compatibility refresh. It includes complete rail/I2C profile
 restoration, guarded sign-in loading, Kepler/Maxwell capability handling,
 verified-board P0 hold controls, automatic NCP4206/MP2888A discovery and
 session-bound verification, and the GTX 690 ROM/clock-domain decoder. The
 [clock evidence](experiments/kepler-gtx690-clock-domains.md) distinguishes
-confirmed identities from inferred names and the unresolved XBAR/SYS pair.
+confirmed identities from inferred names. The
+[GTX 770 cross-check](experiments/kepler-gtx770-clock-crosscheck.md) now
+resolves Kepler16=XBAR2CLK,17=SYS2CLK and25=L2C2CLK using distinct held-P0
+values; the generation map also names the equal GTX690 readings correctly.
 The [GM107 follow-up](experiments/maxwell-gtx745-clock-domains.md) resolves
 Maxwell domain16 as XBAR2CLK and17 as SYS2CLK using distinct edited-ROM
 targets and controlled P0 measurements. These inferred names retain `?`;
@@ -82,8 +85,8 @@ Missing or abnormal shutdown evidence still prevents automatic profile
 loading. No startup task was registered during this port validation.
 
 Current validation on the Windows 10 build host, using the patched Vista
-Python 3.8.10 runtime: **371 application tests and 57 compatibility/package
-tests pass (428 total)**. Source startup renders three frames, and the full
+Python 3.8.10 runtime: **373 application tests and 57 compatibility/package
+tests pass (430 total)**. Source startup renders three frames, and the full
 UI fixture renders 980 items across all three tabs and nine frames with no
 GPU, worker or subprocess access. Native runtime hashes/import constraints
 and the matching-source packaging preflight pass. The native Vista patches,
