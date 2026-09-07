@@ -1,5 +1,9 @@
 # GTX 690: BIOS clock table and private telemetry
 
+**Follow-up:** the [GTX 770 cross-check](kepler-gtx770-clock-crosscheck.md)
+now resolves Kepler16=XBAR2CLK and17=SYS2CLK and separates25=L2C2CLK.
+The observations and unresolved status below describe this earlier run.
+
 Verified 2026-09-07 on both GK104 cores (`0000:04:00.0`, `0000:05:00.0`),
 Windows driver 472.12, VBIOS 80.04.1e.00.18. The supplied GTX690.rom was read
 without modification. [Decoded ROM and live samples](kepler-gtx690-clock-domains.json)

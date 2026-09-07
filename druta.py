@@ -670,8 +670,8 @@ class Druta:
                     "returned by the driver. MEM retains the raw driver units;\n"
                     "the memory tile converts these for the memory technology.\n\n"
                     "Kepler/Maxwell names with '?' follow ROM/state correlation.\n"
-                    "GM107: domain 16 matches XBAR, 17 matches SYS. Kepler\n"
-                    "16/17 remain an unordered pair with identical ROM values.\n"
+                    "GTX 770 and GM107: 16 matches XBAR, 17 matches SYS.\n"
+                    "GTX 770 also separates domain 25 as L2C.\n"
                     "Domain 31, where populated, is shown as link generation\n"
                     "with its unidentified B field displayed raw.")
             dpg.add_separator()
@@ -683,8 +683,7 @@ class Druta:
                 "counter; GK104/GM107: identical in tested states. 2CLK = doubled "
                 "clock units. Delta colors use one / three graphics bins, "
                 "scaled only for identified 2CLK domains.\n"
-                "Names: plain = confirmed; '?' = inferred; '--' = unidentified. "
-                "Kepler XBAR/SYS2CLK? identifies the pair, not its individual order.",
+                "Names: plain = confirmed; '?' = inferred; '--' = unidentified.",
                 tag="dom_legend", color=DIM, wrap=self.s(1100))
             dpg.add_text("", tag="dom_err", color=BAD, show=False)
             with dpg.table(tag="dom_table", header_row=True,

@@ -2,7 +2,7 @@
 
 The v0x40 layout/frequency mask follows Nouveau's bios/perf.c; source roles
 follow clk/gk104.c. The short clock labels and P-state display names were
-cross-checked against the supplied GTX 690 and GM107 ROMs and BIOS Tweaker
+cross-checked against the supplied GTX 690, GTX 770 and GM107 ROMs and BIOS Tweaker
 clock-state displays. Nouveau source names below describe the GK104 reference
 implementation; they do not establish Maxwell register mappings.
 These are BIOS table indices, NOT private NVAPI GetAllClocks domain IDs.

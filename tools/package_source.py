@@ -34,6 +34,8 @@ FILES = (
     'experiments/kepler-gtx690-i2c-47212.md',
     'experiments/kepler-gtx690-timing-sweep-47212.json',
     'experiments/kepler-gtx690-validation-47212.json',
+    'experiments/kepler-gtx770-clock-crosscheck.json',
+    'experiments/kepler-gtx770-clock-crosscheck.md',
     'experiments/kepler-ncp4206-control-47212.json',
     'experiments/kepler-ncp4206-identity-47212.json',
     'experiments/kepler-timing-sweep-47212.json',

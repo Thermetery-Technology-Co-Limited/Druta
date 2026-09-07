@@ -60,13 +60,15 @@ The earlier phrase "private layout unvalidated" conflated separate interfaces.
 Private **clock telemetry** arrays are already decoded on Kepler/Maxwell.
 The [GTX 690 ROM and controlled state comparison](experiments/kepler-gtx690-clock-domains.md)
 now also identifies its primary clock domains and infers the BIOS clock roles.
-Domains 16/17 remain an unordered XBAR/SYS pair; extra Kepler names retain `?`.
+The [GTX 770 cross-check](experiments/kepler-gtx770-clock-crosscheck.md)
+resolves Kepler domain16 as XBAR2CLK and17 as SYS2CLK, and separates25 as
+L2C2CLK. Extra Kepler names retain `?` and apply by generation.
 The idle core/memory frequency collision no longer mislabels memory as GPC.
 The [GM107 ROM/state comparison](experiments/maxwell-gtx745-clock-domains.md)
 resolves Maxwell domain 16 as XBAR2CLK and 17 as SYS2CLK by their distinct
 held-P0 values. Those ROM-correlated names retain `?`; L2C/MSD have no
-populated private rows on the tested GTX 745. This does not resolve Kepler
-16/17 ordering or enable private clock-offset writes.
+populated private rows on the tested GTX 745. Private clock-offset controls
+remain suppressed; telemetry labels do not authorize writes.
 The private
 **offset-control fields** and their physical write effects have not been
 established on GTX 770/745/690. The four-limit getter uses a separate, already

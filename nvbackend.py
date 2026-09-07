@@ -543,13 +543,14 @@ def classify_domain_names(rows, core_mhz=None, mem_nvml=None,
     turing_like = architecture == 6 or (architecture is None and gpc_dom == 0)
     blind = architecture is None and not core_mhz
 
-    # GTX 690 ROM + both GK104 cores, R472.12, idle/boost/held P0.
-    # See experiments/kepler-gtx690-clock-domains.md. Equal XBAR/SYS clocks
-    # cannot establish their individual order. These are inferred identities,
-    # not independently measured engine counters, so retain question marks.
+    # GTX 690 and GTX 770 ROM/live-state comparisons, R472.12.
+    # GTX 770's distinct held-P0 targets resolve 16=XBAR, 17=SYS, 25=L2C;
+    # apply the Kepler map by architecture even when GTX 690 values coincide.
+    # These remain ROM-correlated identities, not independent engine counters.
+    # See experiments/kepler-gtx770-clock-crosscheck.md.
     KEPLER_NAMES = {
         6: ("DISP", 1),
-        16: ("XBAR/SYS2CLK", 2), 17: ("XBAR/SYS2CLK", 2),
+        16: ("XBAR2CLK", 2), 17: ("SYS2CLK", 2),
         18: ("HUB", 1), 20: ("PWR", 1), 21: ("MSD", 1),
         25: ("L2C2CLK", 2),
     }

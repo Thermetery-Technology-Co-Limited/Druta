@@ -86,13 +86,21 @@ class MaxwellClockNamesTests(unittest.TestCase):
             self.assertEqual(row['name'], '')
             self.assertEqual(row['grade'], PRIV_UNPOPULATED)
 
-    def test_maxwell_xbar_sys_order_does_not_resolve_kepler_pair(self):
-        rows = self.classify(self.HELD_P0, 539, 900,
-                             architecture=GPU.ARCH_KEPLER)
-        for domain in (16, 17):
-            self.assertEqual(rows[domain]['name'], 'XBAR/SYS2CLK')
-            self.assertEqual(rows[domain]['grade'], PRIV_LIKELY)
-            self.assertEqual(rows[domain]['scale'], 2)
+    def test_shared_xbar_sys_names_do_not_import_kepler_l2c_to_maxwell(self):
+        values = self.HELD_P0 + [(25, 1113.75)]
+        for architecture in (GPU.ARCH_KEPLER, GPU.ARCH_MAXWELL):
+            rows = self.classify(values, 539, 900, architecture=architecture)
+            for domain, name in ((16, 'XBAR2CLK'), (17, 'SYS2CLK')):
+                self.assertEqual(rows[domain]['name'], name)
+                self.assertEqual(rows[domain]['grade'], PRIV_LIKELY)
+                self.assertEqual(rows[domain]['scale'], 2)
+            if architecture == GPU.ARCH_KEPLER:
+                self.assertEqual(rows[25]['name'], 'L2C2CLK')
+                self.assertEqual(rows[25]['grade'], PRIV_LIKELY)
+                self.assertEqual(rows[25]['scale'], 2)
+            else:
+                self.assertEqual(rows[25]['name'], '')
+                self.assertEqual(rows[25]['scale'], 1)
 
     def test_maxwell_extra_names_do_not_leak_to_pascal_or_turing(self):
         for architecture in (GPU.ARCH_PASCAL, 6):
@@ -100,6 +108,17 @@ class MaxwellClockNamesTests(unittest.TestCase):
                 rows = self.classify(self.HELD_P0, 539, 900, architecture)
                 for domain in (6, 17, 18, 20):
                     self.assertEqual(rows[domain]['name'], '')
+
+    def test_switching_kepler_rows_to_maxwell_clears_l2c_and_msd(self):
+        rows = list(self.classify(
+            self.HELD_P0 + [(21, 540), (25, 1113.75)], 539, 900,
+            architecture=GPU.ARCH_KEPLER).values())
+        classify_domain_names(rows, 539, 900, architecture=GPU.ARCH_MAXWELL)
+        by_domain = {row['domain']: row for row in rows}
+        for domain in (21, 25):
+            self.assertEqual(by_domain[domain]['name'], '')
+            self.assertEqual(by_domain[domain]['scale'], 1)
+        self.assert_maxwell_identities(by_domain)
 
     def test_reclassification_clears_names_when_architecture_changes(self):
         rows = list(self.classify(self.HELD_P0, 539, 900).values())

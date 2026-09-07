@@ -78,6 +78,8 @@ function Get-SourceSnapshot {
         'experiments/legacy-private-layout-47212.json',
         'experiments/kepler-gtx690-clock-domains.json',
         'experiments/kepler-gtx690-clock-domains.md',
+        'experiments/kepler-gtx770-clock-crosscheck.json',
+        'experiments/kepler-gtx770-clock-crosscheck.md',
         'experiments/maxwell-gtx745-validation-47212.json',
         'experiments/maxwell-gtx745-clock-domains.json',
         'experiments/maxwell-gtx745-clock-domains.md',

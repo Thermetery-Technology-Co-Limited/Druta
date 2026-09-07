@@ -75,21 +75,38 @@ class KeplerClockNamesTests(unittest.TestCase):
     def test_kepler_rom_correlations_are_hedged_and_keep_units(self):
         rows = named(classify_domain_names(
             clock_rows([(4, 3004), (5, 277.8), (6, 540), (8, 27), (9, 27),
-                        (15, 1411), (16, 1480), (17, 1480), (18, 1080),
+                        (15, 1411), (16, 1480.344), (17, 1480.344), (18, 1080),
                         (20, 324), (21, 540), (22, 108), (25, 1411)]),
             705, 3004, architecture=GPU.ARCH_KEPLER))
         for dom, name in ((6, 'DISP'), (18, 'HUB'), (20, 'PWR'),
                           (21, 'MSD'), (25, 'L2C2CLK')):
             self.assertEqual(rows[dom]['name'], name)
             self.assertEqual(rows[dom]['grade'], PRIV_LIKELY)
-        for dom in (16, 17):
-            self.assertIn('XBAR', rows[dom]['name'])
-            self.assertIn('SYS', rows[dom]['name'])
+        for dom, name in ((16, 'XBAR2CLK'), (17, 'SYS2CLK')):
+            self.assertEqual(rows[dom]['name'], name)
             self.assertEqual(rows[dom]['grade'], PRIV_LIKELY)
         for dom in (5, 8, 9, 22):
             self.assertEqual(rows[dom]['name'], '')
         self.assertEqual({dom for dom, row in rows.items() if row['scale'] == 2},
                          {15, 16, 17, 25})
+
+    def test_gtx770_held_p0_separates_xbar_sys_and_l2c(self):
+        # Two captures reproduce the distinct targets in the supplied ROM:
+        # GPC 1080, XBAR 1165, SYS 1134, L2C 1115 MHz (PLL quantized).
+        values = [(4, 3505), (15, 1071.29), (16, 1164.375),
+                  (17, 1134), (25, 1113.75)]
+        for ordered in (values, values[::-1]):
+            rows = named(classify_domain_names(
+                clock_rows(ordered), 535, 3505,
+                architecture=GPU.ARCH_KEPLER))
+            for dom, name in ((16, 'XBAR2CLK'), (17, 'SYS2CLK'),
+                              (25, 'L2C2CLK')):
+                self.assertEqual(rows[dom]['name'], name)
+                self.assertEqual(rows[dom]['grade'], PRIV_LIKELY)
+                self.assertEqual(rows[dom]['scale'], 2)
+            self.assertEqual(rows[15]['name'], 'GPC2CLK')
+            self.assertEqual(rows[15]['grade'], PRIV_CONFIRMED)
+            self.assertEqual(rows[4]['name'], 'MEM')
 
     def test_turing_and_blackwell_idle_collision_keeps_core_and_memory(self):
         for kwargs in ({'architecture': 6}, {'blackwell': True}):
