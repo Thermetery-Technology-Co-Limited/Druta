@@ -38,6 +38,15 @@ def legacy_gpu(kind="turing", **identity):
 
 
 class LegacyRailReadTests(unittest.TestCase):
+    def test_vista_driver_does_not_inherit_unvalidated_titan_rail_writes(self):
+        for kind in ("turing", "pascal"):
+            with self.subTest(kind=kind):
+                gpu = fake_gpu(kind, driver="365.19")
+                gpu.volt_limits_write_enabled = True
+                self.assertFalse(gpu.volt_rail_limits_supported())
+                self.assertFalse(gpu.set_volt_rail_limits(0, reliability=1125)[0])
+                gpu._write_rail_records.assert_not_called()
+
     def test_profile_bases_and_boost_are_specific_to_measured_r470_boards(self):
         for kind, overvoltage in (("turing", 1125), ("pascal", 1200)):
             with self.subTest(kind=kind):

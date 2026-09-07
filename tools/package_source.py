@@ -13,6 +13,7 @@ FILES = (
     'COPYING',
     'DEBUG-SUMMARY-RTX5080.md',
     'DRIVER-COMPATIBILITY.md',
+    'Druta-vista.spec',
     'Druta-win7.spec',
     'Druta.spec',
     'MANUAL.md',
@@ -21,10 +22,12 @@ FILES = (
     'RELEASE-NOTES-1.3.0.md',
     'TECHNICALDOCUMENTATION.md',
     'THIRD-PARTY-NOTICES.md',
+    'VISTA.md',
     'VOLTAGE-RAILS-47212.md',
     'VOLTAGE-RAILS-TITAN.md',
     'WINDOWS7.md',
     'app.py',
+    'build-vista.ps1',
     'build-win7.ps1',
     'build.ps1',
     'druta.py',
@@ -53,6 +56,8 @@ FILES = (
     'experiments/maxwell-gtx745-timing-sweep-47212.md',
     'experiments/maxwell-gtx745-validation-47212.json',
     'experiments/mp2888a-discovery-47212.json',
+    'experiments/vista-driver-36519-exports.json',
+    'experiments/vista-port-validation-20260906.json',
     'experiments/voltage-rails-20260906.json',
     'gpuload.py',
     'mp2888.py',
@@ -60,6 +65,7 @@ FILES = (
     'nvbackend.py',
     'profiles.py',
     'railctl.py',
+    'requirements-vista.txt',
     'requirements-win7.txt',
     'requirements.txt',
     'shuntmod.py',
@@ -67,14 +73,18 @@ FILES = (
     'timings.py',
     'timingwrite.py',
     'tools/build_win7_sfx.py',
+    'tools/collect_vista_redist.py',
     'tools/collect_win7_redist.py',
     'tools/decode_kepler_clocks.py',
     'tools/extract_win7_crt.py',
     'tools/i2c_discover.py',
     'tools/package_source.py',
+    'tools/package_vista_nvtune.py',
     'tools/probe_volt_rails.py',
     'tools/probe_volt_rails_47212.py',
     'tools/smoke_full_ui.py',
+    'tools/smoke_vista_dialog.py',
+    'tools/vista_runtime.py',
     'wincompat.py',
 )
 
@@ -86,7 +96,8 @@ def digest(path):
 def snapshot(root):
     root = root.resolve(strict=True)
     paths = set(FILES)
-    for pattern in ('test_*.py', 'tests/test_*.py', 'i2c/*.toml', 'i2c/*.md'):
+    for pattern in ('test_*.py', 'tests/test_*.py', 'i2c/*.toml', 'i2c/*.md',
+                    'tools/vista/*.md', 'tools/vista/*.json', 'tools/vista/*.patch'):
         paths.update(path.relative_to(root).as_posix() for path in root.glob(pattern))
     result = []
     for relative in sorted(paths):
