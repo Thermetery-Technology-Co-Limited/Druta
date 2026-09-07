@@ -1,0 +1,1274 @@
+{
+  "gpu": "NVIDIA GeForce GTX 745",
+  "device_id": "1382",
+  "subsystem_id": "6893103c",
+  "driver": "472.12",
+  "vbios": "82.07.32.00.6a",
+  "architecture": "GM107 / Maxwell",
+  "memory": {
+    "type": "DDR3",
+    "ram_type_id": 7,
+    "reported_to_true_divisor": 1,
+    "offset_units_per_true_mhz": 2,
+    "loaded_stock_mhz": 900,
+    "reference": "https://www.nvidia.com/en-us/geforce/graphics-cards/geforce-gtx-745-oem/specifications/"
+  },
+  "scope": "Bounded functional checks, not maximum overclock or long-term stability testing. No voltage or CAS-latency writes.",
+  "baseline": {
+    "core_offset_mhz": 40,
+    "memory_offset_mhz": 0,
+    "fan_manual_pct": 100
+  },
+  "clock_step_khz": 13052,
+  "clock_tests": [
+    {
+      "label": "baseline loaded",
+      "samples": [
+        {
+          "core": 1072,
+          "mem": 900,
+          "core_off": 40,
+          "mem_off": 0,
+          "clk_domains_err": null,
+          "temp_edge": 28,
+          "temp_hotspot": 37.0625,
+          "temp_delta": 9.0625,
+          "num_fans": 1,
+          "fans": [
+            [
+              100,
+              null
+            ]
+          ],
+          "util_gpu": 82,
+          "util_fb": 42,
+          "util_vid": 0,
+          "util_bus": 48,
+          "event_mask": 0,
+          "perf_decrease": 1,
+          "pcie_gen": 3,
+          "pcie_width": 2,
+          "pcie_err_total": 0,
+          "pcie_err": {},
+          "pcie_err_since": 0,
+          "pstate": 0,
+          "core_p0max": 1072,
+          "mem_p0max": 900,
+          "vf_locked_domains": []
+        },
+        {
+          "core": 1072,
+          "mem": 900,
+          "core_off": 40,
+          "mem_off": 0,
+          "clk_domains_err": null,
+          "temp_edge": 27,
+          "temp_hotspot": 36.9375,
+          "temp_delta": 9.9375,
+          "num_fans": 1,
+          "fans": [
+            [
+              100,
+              null
+            ]
+          ],
+          "util_gpu": 82,
+          "util_fb": 42,
+          "util_vid": 0,
+          "util_bus": 48,
+          "event_mask": 0,
+          "perf_decrease": 1,
+          "pcie_gen": 3,
+          "pcie_width": 2,
+          "pcie_err_total": 0,
+          "pcie_err": {},
+          "pcie_err_since": 0,
+          "pstate": 0,
+          "core_p0max": 1072,
+          "mem_p0max": 900,
+          "vf_locked_domains": []
+        },
+        {
+          "core": 1072,
+          "mem": 900,
+          "core_off": 40,
+          "mem_off": 0,
+          "clk_domains_err": null,
+          "temp_edge": 27,
+          "temp_hotspot": 36.9375,
+          "temp_delta": 9.9375,
+          "num_fans": 1,
+          "fans": [
+            [
+              100,
+              null
+            ]
+          ],
+          "util_gpu": 82,
+          "util_fb": 42,
+          "util_vid": 0,
+          "util_bus": 48,
+          "event_mask": 0,
+          "perf_decrease": 1,
+          "pcie_gen": 3,
+          "pcie_width": 2,
+          "pcie_err_total": 0,
+          "pcie_err": {},
+          "pcie_err_since": 0,
+          "pstate": 0,
+          "core_p0max": 1072,
+          "mem_p0max": 900,
+          "vf_locked_domains": []
+        }
+      ]
+    },
+    {
+      "set": [
+        0,
+        26
+      ],
+      "result": [
+        true,
+        "core offset set to +27 MHz (NVAPI Pstates20)"
+      ]
+    },
+    {
+      "label": "cycle 0 offset 0",
+      "samples": [
+        {
+          "core": 1059,
+          "mem": 900,
+          "core_off": 27,
+          "mem_off": 0,
+          "clk_domains_err": null,
+          "temp_edge": 28,
+          "temp_hotspot": 37.40625,
+          "temp_delta": 9.40625,
+          "num_fans": 1,
+          "fans": [
+            [
+              100,
+              null
+            ]
+          ],
+          "util_gpu": 81,
+          "util_fb": 58,
+          "util_vid": 0,
+          "util_bus": 32,
+          "event_mask": 2,
+          "perf_decrease": 1,
+          "pcie_gen": 3,
+          "pcie_width": 2,
+          "pcie_err_total": 0,
+          "pcie_err": {},
+          "pcie_err_since": 0,
+          "pstate": 0,
+          "core_p0max": 1059,
+          "mem_p0max": 900,
+          "vf_locked_domains": []
+        },
+        {
+          "core": 1059,
+          "mem": 900,
+          "core_off": 27,
+          "mem_off": 0,
+          "clk_domains_err": null,
+          "temp_edge": 28,
+          "temp_hotspot": 37.40625,
+          "temp_delta": 9.40625,
+          "num_fans": 1,
+          "fans": [
+            [
+              100,
+              null
+            ]
+          ],
+          "util_gpu": 81,
+          "util_fb": 58,
+          "util_vid": 0,
+          "util_bus": 32,
+          "event_mask": 2,
+          "perf_decrease": 1,
+          "pcie_gen": 3,
+          "pcie_width": 2,
+          "pcie_err_total": 0,
+          "pcie_err": {},
+          "pcie_err_since": 0,
+          "pstate": 0,
+          "core_p0max": 1059,
+          "mem_p0max": 900,
+          "vf_locked_domains": []
+        },
+        {
+          "core": 1059,
+          "mem": 900,
+          "core_off": 27,
+          "mem_off": 0,
+          "clk_domains_err": null,
+          "temp_edge": 28,
+          "temp_hotspot": 37.40625,
+          "temp_delta": 9.40625,
+          "num_fans": 1,
+          "fans": [
+            [
+              100,
+              null
+            ]
+          ],
+          "util_gpu": 81,
+          "util_fb": 58,
+          "util_vid": 0,
+          "util_bus": 32,
+          "event_mask": 2,
+          "perf_decrease": 1,
+          "pcie_gen": 3,
+          "pcie_width": 2,
+          "pcie_err_total": 0,
+          "pcie_err": {},
+          "pcie_err_since": 0,
+          "pstate": 0,
+          "core_p0max": 1059,
+          "mem_p0max": 900,
+          "vf_locked_domains": []
+        }
+      ]
+    },
+    {
+      "label": "cycle 0 restored 0",
+      "samples": [
+        {
+          "core": 1072,
+          "mem": 900,
+          "core_off": 40,
+          "mem_off": 0,
+          "clk_domains_err": null,
+          "temp_edge": 28,
+          "temp_hotspot": 37.8125,
+          "temp_delta": 9.8125,
+          "num_fans": 1,
+          "fans": [
+            [
+              100,
+              null
+            ]
+          ],
+          "util_gpu": 80,
+          "util_fb": 43,
+          "util_vid": 0,
+          "util_bus": 45,
+          "event_mask": 0,
+          "perf_decrease": 1,
+          "pcie_gen": 3,
+          "pcie_width": 2,
+          "pcie_err_total": 0,
+          "pcie_err": {},
+          "pcie_err_since": 0,
+          "pstate": 0,
+          "core_p0max": 1072,
+          "mem_p0max": 900,
+          "vf_locked_domains": []
+        },
+        {
+          "core": 1072,
+          "mem": 900,
+          "core_off": 40,
+          "mem_off": 0,
+          "clk_domains_err": null,
+          "temp_edge": 28,
+          "temp_hotspot": 37.8125,
+          "temp_delta": 9.8125,
+          "num_fans": 1,
+          "fans": [
+            [
+              100,
+              null
+            ]
+          ],
+          "util_gpu": 80,
+          "util_fb": 43,
+          "util_vid": 0,
+          "util_bus": 45,
+          "event_mask": 0,
+          "perf_decrease": 1,
+          "pcie_gen": 3,
+          "pcie_width": 2,
+          "pcie_err_total": 0,
+          "pcie_err": {},
+          "pcie_err_since": 0,
+          "pstate": 0,
+          "core_p0max": 1072,
+          "mem_p0max": 900,
+          "vf_locked_domains": []
+        },
+        {
+          "core": 1072,
+          "mem": 900,
+          "core_off": 40,
+          "mem_off": 0,
+          "clk_domains_err": null,
+          "temp_edge": 28,
+          "temp_hotspot": 37.8125,
+          "temp_delta": 9.8125,
+          "num_fans": 1,
+          "fans": [
+            [
+              100,
+              null
+            ]
+          ],
+          "util_gpu": 87,
+          "util_fb": 50,
+          "util_vid": 0,
+          "util_bus": 46,
+          "event_mask": 0,
+          "perf_decrease": 1,
+          "pcie_gen": 3,
+          "pcie_width": 2,
+          "pcie_err_total": 0,
+          "pcie_err": {},
+          "pcie_err_since": 0,
+          "pstate": 0,
+          "core_p0max": 1072,
+          "mem_p0max": 900,
+          "vf_locked_domains": []
+        }
+      ]
+    },
+    {
+      "set": [
+        2,
+        10
+      ],
+      "result": [
+        true,
+        "mem offset set to +10 MHz eff (NVAPI Pstates20)"
+      ]
+    },
+    {
+      "label": "cycle 0 offset 2",
+      "samples": [
+        {
+          "core": 1072,
+          "mem": 910,
+          "core_off": 40,
+          "mem_off": 20,
+          "clk_domains_err": null,
+          "temp_edge": 29,
+          "temp_hotspot": 38.09375,
+          "temp_delta": 9.09375,
+          "num_fans": 1,
+          "fans": [
+            [
+              100,
+              null
+            ]
+          ],
+          "util_gpu": 86,
+          "util_fb": 59,
+          "util_vid": 0,
+          "util_bus": 36,
+          "event_mask": 0,
+          "perf_decrease": 1,
+          "pcie_gen": 3,
+          "pcie_width": 2,
+          "pcie_err_total": 0,
+          "pcie_err": {},
+          "pcie_err_since": 0,
+          "pstate": 0,
+          "core_p0max": 1072,
+          "mem_p0max": 910,
+          "vf_locked_domains": []
+        },
+        {
+          "core": 1072,
+          "mem": 910,
+          "core_off": 40,
+          "mem_off": 20,
+          "clk_domains_err": null,
+          "temp_edge": 29,
+          "temp_hotspot": 38.09375,
+          "temp_delta": 9.09375,
+          "num_fans": 1,
+          "fans": [
+            [
+              100,
+              null
+            ]
+          ],
+          "util_gpu": 86,
+          "util_fb": 59,
+          "util_vid": 0,
+          "util_bus": 36,
+          "event_mask": 0,
+          "perf_decrease": 1,
+          "pcie_gen": 3,
+          "pcie_width": 2,
+          "pcie_err_total": 0,
+          "pcie_err": {},
+          "pcie_err_since": 0,
+          "pstate": 0,
+          "core_p0max": 1072,
+          "mem_p0max": 910,
+          "vf_locked_domains": []
+        },
+        {
+          "core": 1072,
+          "mem": 910,
+          "core_off": 40,
+          "mem_off": 20,
+          "clk_domains_err": null,
+          "temp_edge": 29,
+          "temp_hotspot": 38.09375,
+          "temp_delta": 9.09375,
+          "num_fans": 1,
+          "fans": [
+            [
+              100,
+              null
+            ]
+          ],
+          "util_gpu": 86,
+          "util_fb": 59,
+          "util_vid": 0,
+          "util_bus": 36,
+          "event_mask": 0,
+          "perf_decrease": 1,
+          "pcie_gen": 3,
+          "pcie_width": 2,
+          "pcie_err_total": 0,
+          "pcie_err": {},
+          "pcie_err_since": 0,
+          "pstate": 0,
+          "core_p0max": 1072,
+          "mem_p0max": 910,
+          "vf_locked_domains": []
+        }
+      ]
+    },
+    {
+      "label": "cycle 0 restored 2",
+      "samples": [
+        {
+          "core": 1072,
+          "mem": 900,
+          "core_off": 40,
+          "mem_off": 0,
+          "clk_domains_err": null,
+          "temp_edge": 29,
+          "temp_hotspot": 38.34375,
+          "temp_delta": 9.34375,
+          "num_fans": 1,
+          "fans": [
+            [
+              100,
+              null
+            ]
+          ],
+          "util_gpu": 81,
+          "util_fb": 54,
+          "util_vid": 0,
+          "util_bus": 35,
+          "event_mask": 0,
+          "perf_decrease": 1,
+          "pcie_gen": 3,
+          "pcie_width": 2,
+          "pcie_err_total": 0,
+          "pcie_err": {},
+          "pcie_err_since": 0,
+          "pstate": 0,
+          "core_p0max": 1072,
+          "mem_p0max": 900,
+          "vf_locked_domains": []
+        },
+        {
+          "core": 1072,
+          "mem": 900,
+          "core_off": 40,
+          "mem_off": 0,
+          "clk_domains_err": null,
+          "temp_edge": 29,
+          "temp_hotspot": 38.34375,
+          "temp_delta": 9.34375,
+          "num_fans": 1,
+          "fans": [
+            [
+              100,
+              null
+            ]
+          ],
+          "util_gpu": 81,
+          "util_fb": 54,
+          "util_vid": 0,
+          "util_bus": 35,
+          "event_mask": 0,
+          "perf_decrease": 1,
+          "pcie_gen": 3,
+          "pcie_width": 2,
+          "pcie_err_total": 0,
+          "pcie_err": {},
+          "pcie_err_since": 0,
+          "pstate": 0,
+          "core_p0max": 1072,
+          "mem_p0max": 900,
+          "vf_locked_domains": []
+        },
+        {
+          "core": 1072,
+          "mem": 900,
+          "core_off": 40,
+          "mem_off": 0,
+          "clk_domains_err": null,
+          "temp_edge": 29,
+          "temp_hotspot": 38.34375,
+          "temp_delta": 9.34375,
+          "num_fans": 1,
+          "fans": [
+            [
+              100,
+              null
+            ]
+          ],
+          "util_gpu": 81,
+          "util_fb": 54,
+          "util_vid": 0,
+          "util_bus": 35,
+          "event_mask": 0,
+          "perf_decrease": 1,
+          "pcie_gen": 3,
+          "pcie_width": 2,
+          "pcie_err_total": 0,
+          "pcie_err": {},
+          "pcie_err_since": 0,
+          "pstate": 0,
+          "core_p0max": 1072,
+          "mem_p0max": 900,
+          "vf_locked_domains": []
+        }
+      ]
+    },
+    {
+      "set": [
+        0,
+        26
+      ],
+      "result": [
+        true,
+        "core offset set to +27 MHz (NVAPI Pstates20)"
+      ]
+    },
+    {
+      "label": "cycle 1 offset 0",
+      "samples": [
+        {
+          "core": 1059,
+          "mem": 900,
+          "core_off": 27,
+          "mem_off": 0,
+          "clk_domains_err": null,
+          "temp_edge": 29,
+          "temp_hotspot": 38.46875,
+          "temp_delta": 9.46875,
+          "num_fans": 1,
+          "fans": [
+            [
+              100,
+              null
+            ]
+          ],
+          "util_gpu": 73,
+          "util_fb": 32,
+          "util_vid": 0,
+          "util_bus": 47,
+          "event_mask": 2,
+          "perf_decrease": 1,
+          "pcie_gen": 3,
+          "pcie_width": 2,
+          "pcie_err_total": 0,
+          "pcie_err": {},
+          "pcie_err_since": 0,
+          "pstate": 0,
+          "core_p0max": 1059,
+          "mem_p0max": 900,
+          "vf_locked_domains": []
+        },
+        {
+          "core": 1059,
+          "mem": 900,
+          "core_off": 27,
+          "mem_off": 0,
+          "clk_domains_err": null,
+          "temp_edge": 29,
+          "temp_hotspot": 38.46875,
+          "temp_delta": 9.46875,
+          "num_fans": 1,
+          "fans": [
+            [
+              100,
+              null
+            ]
+          ],
+          "util_gpu": 73,
+          "util_fb": 32,
+          "util_vid": 0,
+          "util_bus": 47,
+          "event_mask": 2,
+          "perf_decrease": 1,
+          "pcie_gen": 3,
+          "pcie_width": 2,
+          "pcie_err_total": 0,
+          "pcie_err": {},
+          "pcie_err_since": 0,
+          "pstate": 0,
+          "core_p0max": 1059,
+          "mem_p0max": 900,
+          "vf_locked_domains": []
+        },
+        {
+          "core": 1059,
+          "mem": 900,
+          "core_off": 27,
+          "mem_off": 0,
+          "clk_domains_err": null,
+          "temp_edge": 29,
+          "temp_hotspot": 38.53125,
+          "temp_delta": 9.53125,
+          "num_fans": 1,
+          "fans": [
+            [
+              100,
+              null
+            ]
+          ],
+          "util_gpu": 73,
+          "util_fb": 32,
+          "util_vid": 0,
+          "util_bus": 47,
+          "event_mask": 2,
+          "perf_decrease": 1,
+          "pcie_gen": 3,
+          "pcie_width": 2,
+          "pcie_err_total": 0,
+          "pcie_err": {},
+          "pcie_err_since": 0,
+          "pstate": 0,
+          "core_p0max": 1059,
+          "mem_p0max": 900,
+          "vf_locked_domains": []
+        }
+      ]
+    },
+    {
+      "label": "cycle 1 restored 0",
+      "samples": [
+        {
+          "core": 1072,
+          "mem": 900,
+          "core_off": 40,
+          "mem_off": 0,
+          "clk_domains_err": null,
+          "temp_edge": 29,
+          "temp_hotspot": 38.53125,
+          "temp_delta": 9.53125,
+          "num_fans": 1,
+          "fans": [
+            [
+              100,
+              null
+            ]
+          ],
+          "util_gpu": 81,
+          "util_fb": 59,
+          "util_vid": 0,
+          "util_bus": 31,
+          "event_mask": 0,
+          "perf_decrease": 1,
+          "pcie_gen": 3,
+          "pcie_width": 2,
+          "pcie_err_total": 0,
+          "pcie_err": {},
+          "pcie_err_since": 0,
+          "pstate": 0,
+          "core_p0max": 1072,
+          "mem_p0max": 900,
+          "vf_locked_domains": []
+        },
+        {
+          "core": 1072,
+          "mem": 900,
+          "core_off": 40,
+          "mem_off": 0,
+          "clk_domains_err": null,
+          "temp_edge": 29,
+          "temp_hotspot": 38.53125,
+          "temp_delta": 9.53125,
+          "num_fans": 1,
+          "fans": [
+            [
+              100,
+              null
+            ]
+          ],
+          "util_gpu": 81,
+          "util_fb": 59,
+          "util_vid": 0,
+          "util_bus": 31,
+          "event_mask": 0,
+          "perf_decrease": 1,
+          "pcie_gen": 3,
+          "pcie_width": 2,
+          "pcie_err_total": 0,
+          "pcie_err": {},
+          "pcie_err_since": 0,
+          "pstate": 0,
+          "core_p0max": 1072,
+          "mem_p0max": 900,
+          "vf_locked_domains": []
+        },
+        {
+          "core": 1072,
+          "mem": 900,
+          "core_off": 40,
+          "mem_off": 0,
+          "clk_domains_err": null,
+          "temp_edge": 29,
+          "temp_hotspot": 38.625,
+          "temp_delta": 9.625,
+          "num_fans": 1,
+          "fans": [
+            [
+              100,
+              null
+            ]
+          ],
+          "util_gpu": 81,
+          "util_fb": 59,
+          "util_vid": 0,
+          "util_bus": 31,
+          "event_mask": 0,
+          "perf_decrease": 1,
+          "pcie_gen": 3,
+          "pcie_width": 2,
+          "pcie_err_total": 0,
+          "pcie_err": {},
+          "pcie_err_since": 0,
+          "pstate": 0,
+          "core_p0max": 1072,
+          "mem_p0max": 900,
+          "vf_locked_domains": []
+        }
+      ]
+    },
+    {
+      "set": [
+        2,
+        10
+      ],
+      "result": [
+        true,
+        "mem offset set to +10 MHz eff (NVAPI Pstates20)"
+      ]
+    },
+    {
+      "label": "cycle 1 offset 2",
+      "samples": [
+        {
+          "core": 1072,
+          "mem": 910,
+          "core_off": 40,
+          "mem_off": 20,
+          "clk_domains_err": null,
+          "temp_edge": 29,
+          "temp_hotspot": 38.6875,
+          "temp_delta": 9.6875,
+          "num_fans": 1,
+          "fans": [
+            [
+              100,
+              null
+            ]
+          ],
+          "util_gpu": 81,
+          "util_fb": 48,
+          "util_vid": 0,
+          "util_bus": 40,
+          "event_mask": 0,
+          "perf_decrease": 1,
+          "pcie_gen": 3,
+          "pcie_width": 2,
+          "pcie_err_total": 0,
+          "pcie_err": {},
+          "pcie_err_since": 0,
+          "pstate": 0,
+          "core_p0max": 1072,
+          "mem_p0max": 910,
+          "vf_locked_domains": []
+        },
+        {
+          "core": 1072,
+          "mem": 910,
+          "core_off": 40,
+          "mem_off": 20,
+          "clk_domains_err": null,
+          "temp_edge": 29,
+          "temp_hotspot": 38.6875,
+          "temp_delta": 9.6875,
+          "num_fans": 1,
+          "fans": [
+            [
+              100,
+              null
+            ]
+          ],
+          "util_gpu": 81,
+          "util_fb": 48,
+          "util_vid": 0,
+          "util_bus": 40,
+          "event_mask": 0,
+          "perf_decrease": 1,
+          "pcie_gen": 3,
+          "pcie_width": 2,
+          "pcie_err_total": 0,
+          "pcie_err": {},
+          "pcie_err_since": 0,
+          "pstate": 0,
+          "core_p0max": 1072,
+          "mem_p0max": 910,
+          "vf_locked_domains": []
+        },
+        {
+          "core": 1072,
+          "mem": 910,
+          "core_off": 40,
+          "mem_off": 20,
+          "clk_domains_err": null,
+          "temp_edge": 29,
+          "temp_hotspot": 38.6875,
+          "temp_delta": 9.6875,
+          "num_fans": 1,
+          "fans": [
+            [
+              100,
+              null
+            ]
+          ],
+          "util_gpu": 81,
+          "util_fb": 48,
+          "util_vid": 0,
+          "util_bus": 40,
+          "event_mask": 0,
+          "perf_decrease": 1,
+          "pcie_gen": 3,
+          "pcie_width": 2,
+          "pcie_err_total": 0,
+          "pcie_err": {},
+          "pcie_err_since": 0,
+          "pstate": 0,
+          "core_p0max": 1072,
+          "mem_p0max": 910,
+          "vf_locked_domains": []
+        }
+      ]
+    },
+    {
+      "label": "cycle 1 restored 2",
+      "samples": [
+        {
+          "core": 1072,
+          "mem": 900,
+          "core_off": 40,
+          "mem_off": 0,
+          "clk_domains_err": null,
+          "temp_edge": 29,
+          "temp_hotspot": 38.875,
+          "temp_delta": 9.875,
+          "num_fans": 1,
+          "fans": [
+            [
+              100,
+              null
+            ]
+          ],
+          "util_gpu": 81,
+          "util_fb": 40,
+          "util_vid": 0,
+          "util_bus": 48,
+          "event_mask": 0,
+          "perf_decrease": 1,
+          "pcie_gen": 3,
+          "pcie_width": 2,
+          "pcie_err_total": 0,
+          "pcie_err": {},
+          "pcie_err_since": 0,
+          "pstate": 0,
+          "core_p0max": 1072,
+          "mem_p0max": 900,
+          "vf_locked_domains": []
+        },
+        {
+          "core": 1072,
+          "mem": 900,
+          "core_off": 40,
+          "mem_off": 0,
+          "clk_domains_err": null,
+          "temp_edge": 30,
+          "temp_hotspot": 39.0,
+          "temp_delta": 9.0,
+          "num_fans": 1,
+          "fans": [
+            [
+              100,
+              null
+            ]
+          ],
+          "util_gpu": 81,
+          "util_fb": 40,
+          "util_vid": 0,
+          "util_bus": 48,
+          "event_mask": 0,
+          "perf_decrease": 1,
+          "pcie_gen": 3,
+          "pcie_width": 2,
+          "pcie_err_total": 0,
+          "pcie_err": {},
+          "pcie_err_since": 0,
+          "pstate": 0,
+          "core_p0max": 1072,
+          "mem_p0max": 900,
+          "vf_locked_domains": []
+        },
+        {
+          "core": 1072,
+          "mem": 900,
+          "core_off": 40,
+          "mem_off": 0,
+          "clk_domains_err": null,
+          "temp_edge": 30,
+          "temp_hotspot": 39.0,
+          "temp_delta": 9.0,
+          "num_fans": 1,
+          "fans": [
+            [
+              100,
+              null
+            ]
+          ],
+          "util_gpu": 81,
+          "util_fb": 40,
+          "util_vid": 0,
+          "util_bus": 48,
+          "event_mask": 0,
+          "perf_decrease": 1,
+          "pcie_gen": 3,
+          "pcie_width": 2,
+          "pcie_err_total": 0,
+          "pcie_err": {},
+          "pcie_err_since": 0,
+          "pstate": 0,
+          "core_p0max": 1072,
+          "mem_p0max": 900,
+          "vf_locked_domains": []
+        }
+      ]
+    },
+    {
+      "label": "fan 90",
+      "samples": [
+        {
+          "core": 1072,
+          "mem": 900,
+          "core_off": 40,
+          "mem_off": 0,
+          "clk_domains_err": null,
+          "temp_edge": 30,
+          "temp_hotspot": 39.34375,
+          "temp_delta": 9.34375,
+          "num_fans": 1,
+          "fans": [
+            [
+              90,
+              null
+            ]
+          ],
+          "util_gpu": 87,
+          "util_fb": 60,
+          "util_vid": 0,
+          "util_bus": 37,
+          "event_mask": 0,
+          "perf_decrease": 1,
+          "pcie_gen": 3,
+          "pcie_width": 2,
+          "pcie_err_total": 0,
+          "pcie_err": {},
+          "pcie_err_since": 0,
+          "pstate": 0,
+          "core_p0max": 1072,
+          "mem_p0max": 900,
+          "vf_locked_domains": []
+        },
+        {
+          "core": 1072,
+          "mem": 900,
+          "core_off": 40,
+          "mem_off": 0,
+          "clk_domains_err": null,
+          "temp_edge": 30,
+          "temp_hotspot": 39.46875,
+          "temp_delta": 9.46875,
+          "num_fans": 1,
+          "fans": [
+            [
+              90,
+              null
+            ]
+          ],
+          "util_gpu": 87,
+          "util_fb": 60,
+          "util_vid": 0,
+          "util_bus": 37,
+          "event_mask": 0,
+          "perf_decrease": 1,
+          "pcie_gen": 3,
+          "pcie_width": 2,
+          "pcie_err_total": 0,
+          "pcie_err": {},
+          "pcie_err_since": 0,
+          "pstate": 0,
+          "core_p0max": 1072,
+          "mem_p0max": 900,
+          "vf_locked_domains": []
+        },
+        {
+          "core": 1072,
+          "mem": 900,
+          "core_off": 40,
+          "mem_off": 0,
+          "clk_domains_err": null,
+          "temp_edge": 30,
+          "temp_hotspot": 39.46875,
+          "temp_delta": 9.46875,
+          "num_fans": 1,
+          "fans": [
+            [
+              90,
+              null
+            ]
+          ],
+          "util_gpu": 87,
+          "util_fb": 60,
+          "util_vid": 0,
+          "util_bus": 37,
+          "event_mask": 0,
+          "perf_decrease": 1,
+          "pcie_gen": 3,
+          "pcie_width": 2,
+          "pcie_err_total": 0,
+          "pcie_err": {},
+          "pcie_err_since": 0,
+          "pstate": 0,
+          "core_p0max": 1072,
+          "mem_p0max": 900,
+          "vf_locked_domains": []
+        }
+      ]
+    }
+  ],
+  "clock_load": {
+    "verified_64MiB_copies": 85,
+    "mismatches": 0,
+    "deadline_reached": false
+  },
+  "fan90": {
+    "source": "nvapi_cooler",
+    "fans": [
+      {
+        "id": 0,
+        "level": 90,
+        "policy": 1,
+        "default_policy": 16,
+        "manual": true,
+        "min": 20,
+        "max": 100
+      }
+    ]
+  },
+  "restoration": {
+    "restore_core": [
+      true,
+      "core offset set to +40 MHz (NVAPI Pstates20)"
+    ],
+    "restore_mem": [
+      true,
+      "mem offset set to +0 MHz eff (NVAPI Pstates20)"
+    ],
+    "restore_fan": [
+      true,
+      "fan control state restored"
+    ]
+  },
+  "vf": {
+    "idle_error": "could not determine this card's VF table layout",
+    "p0_error": "could not determine this card's VF table layout",
+    "applicable": false,
+    "scope": "GTX 745 PCI 1382, not all Maxwell"
+  },
+  "locks": {
+    "lock_before": null,
+    "gpu_lock": [
+      false,
+      "lock failed: Not Supported (needs admin)"
+    ],
+    "memory_lock": {
+      "rc": 3,
+      "status": "Not Supported"
+    },
+    "application_clock_reads": {
+      "nvmlDeviceGetApplicationsClock:0": {
+        "rc": 0,
+        "value": 1032,
+        "status": "Success"
+      },
+      "nvmlDeviceGetApplicationsClock:2": {
+        "rc": 0,
+        "value": 900,
+        "status": "Success"
+      },
+      "nvmlDeviceGetDefaultApplicationsClock:0": {
+        "rc": 0,
+        "value": 1032,
+        "status": "Success"
+      },
+      "nvmlDeviceGetDefaultApplicationsClock:2": {
+        "rc": 0,
+        "value": 900,
+        "status": "Success"
+      }
+    }
+  },
+  "timing": {
+    "field": "FAW",
+    "original": 38,
+    "request": 39,
+    "cycles": [
+      {
+        "result": [
+          {
+            "name": "FAW",
+            "before": 38,
+            "requested": 39,
+            "after": 39,
+            "outcome": "landed",
+            "detail": ""
+          }
+        ],
+        "restore_result": [
+          {
+            "name": "FAW",
+            "before": 39,
+            "requested": 38,
+            "after": 38,
+            "outcome": "landed",
+            "detail": ""
+          }
+        ],
+        "exact_register_restore": true
+      },
+      {
+        "result": [
+          {
+            "name": "FAW",
+            "before": 38,
+            "requested": 39,
+            "after": 39,
+            "outcome": "landed",
+            "detail": ""
+          }
+        ],
+        "restore_result": [
+          {
+            "name": "FAW",
+            "before": 39,
+            "requested": 38,
+            "after": 38,
+            "outcome": "landed",
+            "detail": ""
+          }
+        ],
+        "exact_register_restore": true
+      }
+    ],
+    "partitions": [
+      "fbpa0",
+      "fbpa1"
+    ],
+    "load": {
+      "verified_64MiB_copies": 108,
+      "mismatches": 0,
+      "deadline_reached": false
+    },
+    "load_error": ""
+  },
+  "profile": {
+    "restore": [
+      [
+        true,
+        "mem offset set to +0 MHz true (NVAPI Pstates20)"
+      ],
+      [
+        true,
+        "core offset set to +40 MHz (NVAPI Pstates20)"
+      ],
+      [
+        true,
+        "fan control state restored"
+      ]
+    ],
+    "core_mhz": 1072,
+    "mem_mhz": 900,
+    "temp_c": 28,
+    "exact_restore": true,
+    "finally_restore": [
+      [
+        true,
+        "mem offset set to +0 MHz true (NVAPI Pstates20)"
+      ],
+      [
+        true,
+        "core offset set to +40 MHz (NVAPI Pstates20)"
+      ],
+      [
+        true,
+        "fan control state restored"
+      ]
+    ],
+    "after": "core +40 MHz   mem +0 MHz",
+    "load": {
+      "verified_64MiB_copies": 14,
+      "mismatches": 0,
+      "deadline_reached": false
+    },
+    "load_error": ""
+  },
+  "private_voltage_controls": "Unvalidated Turing-shaped response; gated off without voltage writes",
+  "i2c": "No matching registered regulator profile found",
+  "ui": [
+    {
+      "slot": "0000:02:00.0",
+      "curve_points": 0,
+      "curve_ui": false
+    },
+    {
+      "slot": "0000:01:00.0",
+      "curve_points": 128,
+      "curve_ui": true
+    },
+    {
+      "slot": "0000:02:00.0",
+      "curve_points": 0,
+      "curve_ui": false
+    },
+    {
+      "profile_preflight": null,
+      "profile_summary": "core +40 MHz   mem +0 MHz"
+    }
+  ]
+}

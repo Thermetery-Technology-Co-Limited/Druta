@@ -1,64 +1,73 @@
-<!--
-For adding or changing an I2C rail profile. Read i2c/CONTRIBUTING.md first.
-For anything else, delete this template and describe your change normally.
--->
+<!-- For I2C evidence, discovery adapters or register recipes.
+Read i2c/CONTRIBUTING.md and i2c/PROFILES.md. Existing MP2888A/NCP4206 boards
+usually need evidence, not another board-ID entry or duplicate TOML. -->
 
-## Board
+## Contribution
 
-- Card:
-- PCI device / subsystem id:
-- Regulator (as the datasheet spells it):
-- Rail:
-- **Board is:** stock / modified *(if links were fitted, say exactly which)*
+- [ ] Existing controller: new board/location evidence
+- [ ] New read-only recipe or discovery adapter
+- [ ] New or changed writable recipe/adapter
+- Changed files / capability:
 
-## Profile type
+## Hardware and scope
 
-- [ ] Telemetry-only (no `[[write]]`) - read-only, cannot write by construction
-- [ ] Includes a write
+- Card and PCI slot:
+- Driver / VBIOS:
+- PCI device / subsystem IDs (evidence, not automatic scanner gates):
+- Controller marking / rail and how the rail was established:
+- Stock or modified; exact SMBus links or other modifications:
+- Live-tested boards versus mocked/untested configurations:
 
-## Step 1 - bus survey
+## Read-only discovery
 
-<details><summary><code>python tools/i2c_discover.py</code> output</summary>
+- Ports / addresses surveyed:
+- Candidates shown by Druta; selection if multiple responded:
+- Identity or compatibility-fingerprint registers, raw bytes and expected fields:
+- Datasheet URL, exact part/revision/pages; other public code sources and licence:
+- Unrelated responders rejected; live or mocked evidence:
 
-```
+<details><summary>Survey output: python tools/i2c_discover.py --slot YOUR_SLOT</summary>
+
+```text
 paste here
 ```
 
 </details>
 
-## Step 2 - how the part was identified
+<!-- Address acknowledgement and MP 0xBE alone are not unique model identities.
+An empty scan is a useful negative result. Discovery performs no writes. -->
 
-<!-- Which register(s), what they returned, and the datasheet page. "It ACKed at
-this address" is not an identification: on the reference board, fitting the mod
-links made a different device answer at the same address. -->
+## Telemetry
 
-- Datasheet (part, revision, date):
-- Identifying register(s) and page:
+| Operating point / load | Raw register bytes | Decoded rail voltage | GPU VID / independent measurement |
+|---|---|---|---|
+| | | | |
 
-## Step 4 - telemetry checked against the GPU
+- Per-command widths, encodings and scale/configuration:
+- Explanation of expected sensed-voltage versus VID differences:
 
-<!-- Under load, not at idle. -->
+## Write and restoration evidence (omit for read-only work)
 
-| | decoded from I2C | GPU's own reading |
-| --- | --- | --- |
-| core voltage | | |
+- Documented command/field, transaction width, supported raw range:
+- Generic signed offset or adapter sequence; preservation of neighboring fields:
+- Original control bytes / entry offset or mode:
+- Full Verify log: baseline/noise, every requested step, response and threshold:
+- Restoration result and exact readback:
+- Bounded Apply and Stock/Auto results after Verify:
+- Failure/recovery tests (wrong readback, partial sequence, load failure):
+- Final hardware state:
 
-- Load used:
-- Encoding confirmed as:
+<!-- Verify itself writes. Do not infer a calibrated gain/deadband from its
+first detecting step. A failed or inconclusive result stays in the report;
+do not enlarge the trial ladder solely to obtain a pass. -->
 
-## Step 5 - staircase (only if this PR adds a write)
+## Software checks
 
-- Rung at which the rail first moved:
-- Measured response:
-- Deadband observed, if any:
-
-<!-- If nothing moved by the largest rung, say so here and leave the write out
-of the profile. A write that was never observed to work should not ship. -->
-
-## Checks
-
-- [ ] `python -m unittest test_profiles` passes
-- [ ] Every `[provenance]` line is filled in and says how I know
-- [ ] No numbers copied from another board or another profile
-- [ ] Measurements were taken under load
-- [ ] No `TODO` markers left in the file
+- [ ] Recipe changes pass `python -m unittest test_profiles` (or not applicable)
+- [ ] Adapter/discovery/UI changes pass `python -m unittest discover -q` (or not applicable)
+- [ ] Discovery tests issue no writes; ordinary tests do not access real GPUs
+- [ ] Ambiguity, wrong-controller rejection and connection-bound Verify tested
+- [ ] Restore failure cannot authorize Apply; untouched MP candidates cannot reset
+- [ ] Saved-profile identity compatibility or migration documented
+- [ ] Provenance is complete; no unexplained copied measurements or TODOs
+- [ ] Hardware and mocked results are clearly distinguished

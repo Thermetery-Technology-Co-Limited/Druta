@@ -53,22 +53,42 @@ $sourceDir = Join-Path $bundleDir 'source'
 # of HEAD (which may describe a different executable).
 function Get-SourceSnapshot {
     $paths = @(
-        'app.py', 'druta.py', 'nvbackend.py', 'gpuload.py', 'profiles.py',
-        'railctl.py', 'shuntmod.py', 'timings.py', 'timingwrite.py',
+        'app.py', 'druta.py', 'nvbackend.py', 'gpuload.py', 'profiles.py', 'startup.py',
+        'railctl.py', 'ncp4206.py', 'mp2888.py', 'shuntmod.py', 'timings.py', 'timingwrite.py',
         'Druta.spec', 'build.ps1', 'requirements.txt',
         'wincompat.py', 'Druta-win7.spec', 'build-win7.ps1', 'requirements-win7.txt',
         'WINDOWS7.md', 'PORTABLE-WINDOWS7.md',
         'tools/package_source.py', 'tools/smoke_full_ui.py',
         'tools/extract_win7_crt.py', 'tools/collect_win7_redist.py', 'tools/build_win7_sfx.py',
-        'COPYING', 'THIRD-PARTY-NOTICES.md', 'README.md', 'MANUAL.md',
+        '.github/PULL_REQUEST_TEMPLATE/i2c_profile.md',
+        'AGENTS.md', 'COPYING', 'THIRD-PARTY-NOTICES.md', 'README.md', 'MANUAL.md',
         'TECHNICALDOCUMENTATION.md', 'DEBUG-SUMMARY-RTX5080.md',
         'VOLTAGE-RAILS-TITAN.md', 'VOLTAGE-RAILS-47212.md', 'DRIVER-COMPATIBILITY.md',
+        'RELEASE-NOTES-1.3.0.md',
         'experiments/voltage-rails-20260906.json',
         'experiments/legacy-offsets-47212-0000-01-00.0.json',
         'experiments/legacy-offsets-47212-0000-02-00.0.json',
         'experiments/legacy-frequency-production-47212.json',
         'experiments/compatibility-validation-47212.json',
-        'tools/i2c_discover.py', 'tools/probe_volt_rails.py'
+        'experiments/kepler-validation-47212.json',
+        'experiments/kepler-gtx690-validation-47212.json',
+        'experiments/kepler-gtx690-timing-sweep-47212.json',
+        'experiments/kepler-gtx690-i2c-47212.md',
+        'experiments/mp2888a-discovery-47212.json',
+        'experiments/legacy-private-layout-47212.json',
+        'experiments/kepler-gtx690-clock-domains.json',
+        'experiments/kepler-gtx690-clock-domains.md',
+        'experiments/maxwell-gtx745-validation-47212.json',
+        'experiments/maxwell-gtx745-p0-paths-47212.json',
+        'experiments/maxwell-gtx745-p0-fan-ui-47212.json',
+        'experiments/maxwell-gtx745-timing-sweep-47212.json',
+        'experiments/maxwell-gtx745-timing-sweep-47212.md',
+        'experiments/kepler-timing-writes-47212.json',
+        'experiments/kepler-timing-sweep-47212.json',
+        'experiments/kepler-ncp4206-identity-47212.json',
+        'experiments/kepler-ncp4206-control-47212.json',
+        'tools/i2c_discover.py', 'tools/probe_volt_rails.py',
+        'tools/decode_kepler_clocks.py'
     )
     # Only the explicitly public measurement files above are included
     # from experiments/. Other research/session captures remain excluded.

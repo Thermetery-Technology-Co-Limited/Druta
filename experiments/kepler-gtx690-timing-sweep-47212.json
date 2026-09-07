@@ -1,0 +1,4802 @@
+{
+  "date": "2026-09-07",
+  "scope": "Each non-warning delay field increased by one cycle in isolation under a data-checked CUDA workload; exact selected-core restoration and peer-core register equality checked. Latency/preamble/protocol, structural/split and inferred fields not written.",
+  "cards": [
+    {
+      "identity": {
+        "name": "NVIDIA GeForce GTX 690",
+        "driver": "472.12",
+        "vbios": "80.04.1e.00.18",
+        "admin": true,
+        "slot": "0000:04:00.0",
+        "mem_clocks": [
+          324,
+          810,
+          3004
+        ],
+        "gfx_min": 562,
+        "gfx_max": 1202,
+        "mem_div": 2,
+        "mem_type": "GDDR5",
+        "mem_type_id": 8,
+        "core_off_range": [
+          -549,
+          549,
+          0
+        ],
+        "mem_off_range": [
+          -4388,
+          6008,
+          0
+        ],
+        "fan_min": 30,
+        "fan_max": 100
+      },
+      "slot": "0000:04:00.0",
+      "fields": [
+        {
+          "field": "RC",
+          "before": 63,
+          "requested": 64,
+          "plan": {
+            "assignments": {
+              "RC": 64
+            },
+            "ops": [
+              {
+                "reg": "CONFIG0",
+                "offset": "0x10F290",
+                "old": "0x125A623F",
+                "new": "0x125A6240",
+                "changes": [
+                  {
+                    "name": "RC",
+                    "old": 63,
+                    "new": 64
+                  }
+                ]
+              }
+            ],
+            "warnings": [],
+            "raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG0 @0x10F290  0x125A623F -> 0x125A6240  [would write]\n      RC              63 -> 64",
+            "ok": true,
+            "error": ""
+          },
+          "commit_raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG0 @0x10F290  0x125A623F -> 0x125A6240  [write]\n      RC              63 -> 64    \n  stock values saved to <user>\\AppData\\Local\\nvtune\\0000-04-00.0.stock.json\n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "commit_rc": 0,
+          "after": 64,
+          "outcome": "landed",
+          "observations": [
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913280,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913280,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913280,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913280,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913280,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 33,
+              "verified_copies": 42
+            },
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913280,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913280,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913280,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913280,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913280,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 34,
+              "verified_copies": 51
+            }
+          ],
+          "peer_unchanged": true,
+          "restore_raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG0 @0x10F290  0x125A6240 -> 0x125A623F  [write]\n      RC              64 -> 63    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "restore_rc": 0,
+          "restored_exactly": true
+        },
+        {
+          "field": "RFC",
+          "before": 98,
+          "requested": 99,
+          "plan": {
+            "assignments": {
+              "RFC": 99
+            },
+            "ops": [
+              {
+                "reg": "CONFIG0",
+                "offset": "0x10F290",
+                "old": "0x125A623F",
+                "new": "0x125A633F",
+                "changes": [
+                  {
+                    "name": "RFC",
+                    "old": 98,
+                    "new": 99
+                  }
+                ]
+              }
+            ],
+            "warnings": [],
+            "raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG0 @0x10F290  0x125A623F -> 0x125A633F  [would write]\n      RFC             98 -> 99",
+            "ok": true,
+            "error": ""
+          },
+          "commit_raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG0 @0x10F290  0x125A623F -> 0x125A633F  [write]\n      RFC             98 -> 99    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "commit_rc": 0,
+          "after": 99,
+          "outcome": "landed",
+          "observations": [
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913535,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913535,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913535,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913535,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913535,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 34,
+              "verified_copies": 65
+            },
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913535,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913535,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913535,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913535,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913535,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 34,
+              "verified_copies": 74
+            }
+          ],
+          "peer_unchanged": true,
+          "restore_raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG0 @0x10F290  0x125A633F -> 0x125A623F  [write]\n      RFC             99 -> 98    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "restore_rc": 0,
+          "restored_exactly": true
+        },
+        {
+          "field": "RAS",
+          "before": 45,
+          "requested": 46,
+          "plan": {
+            "assignments": {
+              "RAS": 46
+            },
+            "ops": [
+              {
+                "reg": "CONFIG0",
+                "offset": "0x10F290",
+                "old": "0x125A623F",
+                "new": "0x125C623F",
+                "changes": [
+                  {
+                    "name": "RAS",
+                    "old": 45,
+                    "new": 46
+                  }
+                ]
+              }
+            ],
+            "warnings": [],
+            "raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG0 @0x10F290  0x125A623F -> 0x125C623F  [would write]\n      RAS             45 -> 46",
+            "ok": true,
+            "error": ""
+          },
+          "commit_raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG0 @0x10F290  0x125A623F -> 0x125C623F  [write]\n      RAS             45 -> 46    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "commit_rc": 0,
+          "after": 46,
+          "outcome": "landed",
+          "observations": [
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 308044351,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 308044351,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 308044351,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 308044351,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 308044351,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 34,
+              "verified_copies": 88
+            },
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 308044351,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 308044351,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 308044351,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 308044351,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 308044351,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 35,
+              "verified_copies": 97
+            }
+          ],
+          "peer_unchanged": true,
+          "restore_raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG0 @0x10F290  0x125C623F -> 0x125A623F  [write]\n      RAS             46 -> 45    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "restore_rc": 0,
+          "restored_exactly": true
+        },
+        {
+          "field": "RP",
+          "before": 18,
+          "requested": 19,
+          "plan": {
+            "assignments": {
+              "RP": 19
+            },
+            "ops": [
+              {
+                "reg": "CONFIG0",
+                "offset": "0x10F290",
+                "old": "0x125A623F",
+                "new": "0x135A623F",
+                "changes": [
+                  {
+                    "name": "RP",
+                    "old": 18,
+                    "new": 19
+                  }
+                ]
+              }
+            ],
+            "warnings": [],
+            "raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG0 @0x10F290  0x125A623F -> 0x135A623F  [would write]\n      RP              18 -> 19",
+            "ok": true,
+            "error": ""
+          },
+          "commit_raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG0 @0x10F290  0x125A623F -> 0x135A623F  [write]\n      RP              18 -> 19    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "commit_rc": 0,
+          "after": 19,
+          "outcome": "landed",
+          "observations": [
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 324690495,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 324690495,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 324690495,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 324690495,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 324690495,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 35,
+              "verified_copies": 111
+            },
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 324690495,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 324690495,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 324690495,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 324690495,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 324690495,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 35,
+              "verified_copies": 119
+            }
+          ],
+          "peer_unchanged": true,
+          "restore_raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG0 @0x10F290  0x135A623F -> 0x125A623F  [write]\n      RP              19 -> 18    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "restore_rc": 0,
+          "restored_exactly": true
+        },
+        {
+          "field": "CL",
+          "before": 21,
+          "outcome": "query-only",
+          "reason": "latency, preamble or protocol field; no live alignment experiment"
+        },
+        {
+          "field": "WL",
+          "before": 5,
+          "outcome": "query-only",
+          "reason": "latency, preamble or protocol field; no live alignment experiment"
+        },
+        {
+          "field": "RD_RCD",
+          "before": 21,
+          "requested": 22,
+          "plan": {
+            "assignments": {
+              "RD_RCD": 22
+            },
+            "ops": [
+              {
+                "reg": "CONFIG1",
+                "offset": "0x10F294",
+                "old": "0x3CE54295",
+                "new": "0x3CE58295",
+                "changes": [
+                  {
+                    "name": "RD_RCD",
+                    "old": 21,
+                    "new": 22
+                  }
+                ]
+              }
+            ],
+            "warnings": [],
+            "raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG1 @0x10F294  0x3CE54295 -> 0x3CE58295  [would write]\n      RD_RCD          21 -> 22",
+            "ok": true,
+            "error": ""
+          },
+          "commit_raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG1 @0x10F294  0x3CE54295 -> 0x3CE58295  [write]\n      RD_RCD          21 -> 22    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "commit_rc": 0,
+          "after": 22,
+          "outcome": "landed",
+          "observations": [
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021674133,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021674133,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021674133,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021674133,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021674133,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 35,
+              "verified_copies": 133
+            },
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021674133,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021674133,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021674133,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021674133,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021674133,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 35,
+              "verified_copies": 142
+            }
+          ],
+          "peer_unchanged": true,
+          "restore_raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG1 @0x10F294  0x3CE58295 -> 0x3CE54295  [write]\n      RD_RCD          22 -> 21    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "restore_rc": 0,
+          "restored_exactly": true
+        },
+        {
+          "field": "WR_RCD",
+          "before": 14,
+          "requested": 15,
+          "plan": {
+            "assignments": {
+              "WR_RCD": 15
+            },
+            "ops": [
+              {
+                "reg": "CONFIG1",
+                "offset": "0x10F294",
+                "old": "0x3CE54295",
+                "new": "0x3CF54295",
+                "changes": [
+                  {
+                    "name": "WR_RCD",
+                    "old": 14,
+                    "new": 15
+                  }
+                ]
+              }
+            ],
+            "warnings": [],
+            "raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG1 @0x10F294  0x3CE54295 -> 0x3CF54295  [would write]\n      WR_RCD          14 -> 15",
+            "ok": true,
+            "error": ""
+          },
+          "commit_raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG1 @0x10F294  0x3CE54295 -> 0x3CF54295  [write]\n      WR_RCD          14 -> 15    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "commit_rc": 0,
+          "after": 15,
+          "outcome": "landed",
+          "observations": [
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1022706325,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1022706325,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1022706325,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1022706325,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1022706325,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 36,
+              "verified_copies": 156
+            },
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1022706325,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1022706325,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1022706325,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1022706325,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1022706325,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 36,
+              "verified_copies": 164
+            }
+          ],
+          "peer_unchanged": true,
+          "restore_raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG1 @0x10F294  0x3CF54295 -> 0x3CE54295  [write]\n      WR_RCD          15 -> 14    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "restore_rc": 0,
+          "restored_exactly": true
+        },
+        {
+          "field": "RPRE",
+          "before": 0,
+          "outcome": "query-only",
+          "reason": "latency, preamble or protocol field; no live alignment experiment"
+        },
+        {
+          "field": "WPRE",
+          "before": 0,
+          "outcome": "query-only",
+          "reason": "latency, preamble or protocol field; no live alignment experiment"
+        },
+        {
+          "field": "CDLR",
+          "before": 8,
+          "requested": 9,
+          "plan": {
+            "assignments": {
+              "CDLR": 9
+            },
+            "ops": [
+              {
+                "reg": "CONFIG2",
+                "offset": "0x10F298",
+                "old": "0x8C150800",
+                "new": "0x8C150900",
+                "changes": [
+                  {
+                    "name": "CDLR",
+                    "old": 8,
+                    "new": 9
+                  }
+                ]
+              }
+            ],
+            "warnings": [],
+            "raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG2 @0x10F298  0x8C150800 -> 0x8C150900  [would write]\n      CDLR             8 -> 9",
+            "ok": true,
+            "error": ""
+          },
+          "commit_raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG2 @0x10F298  0x8C150800 -> 0x8C150900  [write]\n      CDLR             8 -> 9     \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "commit_rc": 0,
+          "after": 9,
+          "outcome": "landed",
+          "observations": [
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188800,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188800,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188800,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188800,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188800,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 36,
+              "verified_copies": 178
+            },
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188800,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188800,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188800,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188800,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188800,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 36,
+              "verified_copies": 187
+            }
+          ],
+          "peer_unchanged": true,
+          "restore_raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG2 @0x10F298  0x8C150900 -> 0x8C150800  [write]\n      CDLR             9 -> 8     \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "restore_rc": 0,
+          "restored_exactly": true
+        },
+        {
+          "field": "WR",
+          "before": 21,
+          "requested": 22,
+          "plan": {
+            "assignments": {
+              "WR": 22
+            },
+            "ops": [
+              {
+                "reg": "CONFIG2",
+                "offset": "0x10F298",
+                "old": "0x8C150800",
+                "new": "0x8C160800",
+                "changes": [
+                  {
+                    "name": "WR",
+                    "old": 21,
+                    "new": 22
+                  }
+                ]
+              }
+            ],
+            "warnings": [],
+            "raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG2 @0x10F298  0x8C150800 -> 0x8C160800  [would write]\n      WR              21 -> 22",
+            "ok": true,
+            "error": ""
+          },
+          "commit_raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG2 @0x10F298  0x8C150800 -> 0x8C160800  [write]\n      WR              21 -> 22    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "commit_rc": 0,
+          "after": 22,
+          "outcome": "landed",
+          "observations": [
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350254080,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350254080,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350254080,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350254080,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350254080,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 36,
+              "verified_copies": 201
+            },
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350254080,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350254080,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350254080,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350254080,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350254080,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 36,
+              "verified_copies": 209
+            }
+          ],
+          "peer_unchanged": true,
+          "restore_raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG2 @0x10F298  0x8C160800 -> 0x8C150800  [write]\n      WR              22 -> 21    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "restore_rc": 0,
+          "restored_exactly": true
+        },
+        {
+          "field": "W2R_BUS",
+          "before": 12,
+          "requested": 13,
+          "plan": {
+            "assignments": {
+              "W2R_BUS": 13
+            },
+            "ops": [
+              {
+                "reg": "CONFIG2",
+                "offset": "0x10F298",
+                "old": "0x8C150800",
+                "new": "0x8D150800",
+                "changes": [
+                  {
+                    "name": "W2R_BUS",
+                    "old": 12,
+                    "new": 13
+                  }
+                ]
+              }
+            ],
+            "warnings": [
+              "! W2R_BUS=13 is outside the typical range 0..12."
+            ],
+            "raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG2 @0x10F298  0x8C150800 -> 0x8D150800  [would write]\n      W2R_BUS         12 -> 13    \n      ! W2R_BUS=13 is outside the typical range 0..12.",
+            "ok": true,
+            "error": ""
+          },
+          "outcome": "not-written",
+          "reason": "dry-run warnings or failure"
+        },
+        {
+          "field": "R2W_BUS",
+          "before": 8,
+          "requested": 9,
+          "plan": {
+            "assignments": {
+              "R2W_BUS": 9
+            },
+            "ops": [
+              {
+                "reg": "CONFIG2",
+                "offset": "0x10F298",
+                "old": "0x8C150800",
+                "new": "0x9C150800",
+                "changes": [
+                  {
+                    "name": "R2W_BUS",
+                    "old": 8,
+                    "new": 9
+                  }
+                ]
+              }
+            ],
+            "warnings": [],
+            "raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG2 @0x10F298  0x8C150800 -> 0x9C150800  [would write]\n      R2W_BUS          8 -> 9",
+            "ok": true,
+            "error": ""
+          },
+          "commit_raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG2 @0x10F298  0x8C150800 -> 0x9C150800  [write]\n      R2W_BUS          8 -> 9     \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "commit_rc": 0,
+          "after": 9,
+          "outcome": "landed",
+          "observations": [
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2618624000,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2618624000,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2618624000,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2618624000,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2618624000,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 37,
+              "verified_copies": 224
+            },
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2618624000,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2618624000,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2618624000,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2618624000,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2618624000,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 37,
+              "verified_copies": 233
+            }
+          ],
+          "peer_unchanged": true,
+          "restore_raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG2 @0x10F298  0x9C150800 -> 0x8C150800  [write]\n      R2W_BUS          9 -> 8     \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "restore_rc": 0,
+          "restored_exactly": true
+        },
+        {
+          "field": "PDEX",
+          "before": 12,
+          "requested": 13,
+          "plan": {
+            "assignments": {
+              "PDEX": 13
+            },
+            "ops": [
+              {
+                "reg": "CONFIG3",
+                "offset": "0x10F29C",
+                "old": "0x220031EC",
+                "new": "0x220031ED",
+                "changes": [
+                  {
+                    "name": "PDEX",
+                    "old": 12,
+                    "new": 13
+                  }
+                ]
+              }
+            ],
+            "warnings": [],
+            "raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG3 @0x10F29C  0x220031EC -> 0x220031ED  [would write]\n      PDEX            12 -> 13",
+            "ok": true,
+            "error": ""
+          },
+          "commit_raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG3 @0x10F29C  0x220031EC -> 0x220031ED  [write]\n      PDEX            12 -> 13    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "commit_rc": 0,
+          "after": 13,
+          "outcome": "landed",
+          "observations": [
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438125,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438125,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438125,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438125,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438125,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 37,
+              "verified_copies": 247
+            },
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438125,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438125,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438125,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438125,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438125,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 37,
+              "verified_copies": 256
+            }
+          ],
+          "peer_unchanged": true,
+          "restore_raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG3 @0x10F29C  0x220031ED -> 0x220031EC  [write]\n      PDEX            13 -> 12    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "restore_rc": 0,
+          "restored_exactly": true
+        },
+        {
+          "field": "PDEN2PDEX",
+          "before": 15,
+          "requested": 16,
+          "plan": {
+            "assignments": {
+              "PDEN2PDEX": 16
+            },
+            "ops": [],
+            "warnings": [],
+            "raw": "error: PDEN2PDEX=16 does not fit its 4-bit field (0..15)",
+            "ok": false,
+            "error": "error: PDEN2PDEX=16 does not fit its 4-bit field (0..15)"
+          },
+          "outcome": "not-written",
+          "reason": "dry-run warnings or failure"
+        },
+        {
+          "field": "FAW",
+          "before": 24,
+          "requested": 25,
+          "plan": {
+            "assignments": {
+              "FAW": 25
+            },
+            "ops": [
+              {
+                "reg": "CONFIG3",
+                "offset": "0x10F29C",
+                "old": "0x220031EC",
+                "new": "0x220033EC",
+                "changes": [
+                  {
+                    "name": "FAW",
+                    "old": 24,
+                    "new": 25
+                  }
+                ]
+              }
+            ],
+            "warnings": [],
+            "raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG3 @0x10F29C  0x220031EC -> 0x220033EC  [would write]\n      FAW             24 -> 25",
+            "ok": true,
+            "error": ""
+          },
+          "commit_raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG3 @0x10F29C  0x220031EC -> 0x220033EC  [write]\n      FAW             24 -> 25    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "commit_rc": 0,
+          "after": 25,
+          "outcome": "landed",
+          "observations": [
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438636,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438636,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438636,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438636,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438636,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 38,
+              "verified_copies": 270
+            },
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438636,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438636,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438636,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438636,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438636,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 38,
+              "verified_copies": 279
+            }
+          ],
+          "peer_unchanged": true,
+          "restore_raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG3 @0x10F29C  0x220033EC -> 0x220031EC  [write]\n      FAW             25 -> 24    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "restore_rc": 0,
+          "restored_exactly": true
+        },
+        {
+          "field": "AOND",
+          "before": 0,
+          "requested": 1,
+          "plan": {
+            "assignments": {
+              "AOND": 1
+            },
+            "ops": [
+              {
+                "reg": "CONFIG3",
+                "offset": "0x10F29C",
+                "old": "0x220031EC",
+                "new": "0x220231EC",
+                "changes": [
+                  {
+                    "name": "AOND",
+                    "old": 0,
+                    "new": 1
+                  }
+                ]
+              }
+            ],
+            "warnings": [
+              "! AOND=1 is outside the typical range 3..40."
+            ],
+            "raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG3 @0x10F29C  0x220031EC -> 0x220231EC  [would write]\n      AOND             0 -> 1     \n      ! AOND=1 is outside the typical range 3..40.",
+            "ok": true,
+            "error": ""
+          },
+          "outcome": "not-written",
+          "reason": "dry-run warnings or failure"
+        },
+        {
+          "field": "CCDL",
+          "before": 2,
+          "requested": 3,
+          "plan": {
+            "assignments": {
+              "CCDL": 3
+            },
+            "ops": [
+              {
+                "reg": "CONFIG3",
+                "offset": "0x10F29C",
+                "old": "0x220031EC",
+                "new": "0x230031EC",
+                "changes": [
+                  {
+                    "name": "CCDL",
+                    "old": 2,
+                    "new": 3
+                  }
+                ]
+              }
+            ],
+            "warnings": [],
+            "raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG3 @0x10F29C  0x220031EC -> 0x230031EC  [would write]\n      CCDL             2 -> 3",
+            "ok": true,
+            "error": ""
+          },
+          "commit_raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG3 @0x10F29C  0x220031EC -> 0x230031EC  [write]\n      CCDL             2 -> 3     \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "commit_rc": 0,
+          "after": 3,
+          "outcome": "landed",
+          "observations": [
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 587215340,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 587215340,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 587215340,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 587215340,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 587215340,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 38,
+              "verified_copies": 293
+            },
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 587215340,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 587215340,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 587215340,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 587215340,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 587215340,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 38,
+              "verified_copies": 302
+            }
+          ],
+          "peer_unchanged": true,
+          "restore_raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG3 @0x10F29C  0x230031EC -> 0x220031EC  [write]\n      CCDL             3 -> 2     \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "restore_rc": 0,
+          "restored_exactly": true
+        },
+        {
+          "field": "CCDS",
+          "before": 2,
+          "requested": 3,
+          "plan": {
+            "assignments": {
+              "CCDS": 3
+            },
+            "ops": [
+              {
+                "reg": "CONFIG3",
+                "offset": "0x10F29C",
+                "old": "0x220031EC",
+                "new": "0x320031EC",
+                "changes": [
+                  {
+                    "name": "CCDS",
+                    "old": 2,
+                    "new": 3
+                  }
+                ]
+              }
+            ],
+            "warnings": [],
+            "raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG3 @0x10F29C  0x220031EC -> 0x320031EC  [would write]\n      CCDS             2 -> 3",
+            "ok": true,
+            "error": ""
+          },
+          "commit_raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG3 @0x10F29C  0x220031EC -> 0x320031EC  [write]\n      CCDS             2 -> 3     \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "commit_rc": 0,
+          "after": 3,
+          "outcome": "landed",
+          "observations": [
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 838873580,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 838873580,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 838873580,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 838873580,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 838873580,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 38,
+              "verified_copies": 316
+            },
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 838873580,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 838873580,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 838873580,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 838873580,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 838873580,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 38,
+              "verified_copies": 324
+            }
+          ],
+          "peer_unchanged": true,
+          "restore_raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG3 @0x10F29C  0x320031EC -> 0x220031EC  [write]\n      CCDS             3 -> 2     \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "restore_rc": 0,
+          "restored_exactly": true
+        },
+        {
+          "field": "REFRESH_LO",
+          "before": 3,
+          "outcome": "read-only",
+          "reason": "structural, split, or inferred field"
+        },
+        {
+          "field": "REFRESH",
+          "before": 6,
+          "outcome": "read-only",
+          "reason": "structural, split, or inferred field"
+        },
+        {
+          "field": "RRD",
+          "before": 6,
+          "requested": 7,
+          "plan": {
+            "assignments": {
+              "RRD": 7
+            },
+            "ops": [
+              {
+                "reg": "CONFIG4",
+                "offset": "0x10F2A0",
+                "old": "0x43630033",
+                "new": "0x43638033",
+                "changes": [
+                  {
+                    "name": "RRD",
+                    "old": 6,
+                    "new": 7
+                  }
+                ]
+              }
+            ],
+            "warnings": [],
+            "raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG4 @0x10F2A0  0x43630033 -> 0x43638033  [would write]\n      RRD              6 -> 7",
+            "ok": true,
+            "error": ""
+          },
+          "commit_raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG4 @0x10F2A0  0x43630033 -> 0x43638033  [write]\n      RRD              6 -> 7     \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "commit_rc": 0,
+          "after": 7,
+          "outcome": "landed",
+          "observations": [
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130594355,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130594355,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130594355,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130594355,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130594355,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 38,
+              "verified_copies": 338
+            },
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130594355,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130594355,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130594355,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130594355,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130594355,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 38,
+              "verified_copies": 347
+            }
+          ],
+          "peer_unchanged": true,
+          "restore_raw": "0000:04:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG4 @0x10F2A0  0x43638033 -> 0x43630033  [write]\n      RRD              7 -> 6     \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "restore_rc": 0,
+          "restored_exactly": true
+        },
+        {
+          "field": "DELAY0",
+          "before": 27,
+          "outcome": "read-only",
+          "reason": "structural, split, or inferred field"
+        },
+        {
+          "field": "ADR_MIN",
+          "before": 2,
+          "outcome": "read-only",
+          "reason": "structural, split, or inferred field"
+        },
+        {
+          "field": "WRCRC",
+          "before": 14,
+          "outcome": "query-only",
+          "reason": "latency, preamble or protocol field; no live alignment experiment"
+        },
+        {
+          "field": "OFFSET0",
+          "before": 39,
+          "outcome": "read-only",
+          "reason": "structural, split, or inferred field"
+        },
+        {
+          "field": "DELAY0_MSB",
+          "before": 0,
+          "outcome": "read-only",
+          "reason": "structural, split, or inferred field"
+        },
+        {
+          "field": "OFFSET1",
+          "before": 15,
+          "outcome": "read-only",
+          "reason": "structural, split, or inferred field"
+        },
+        {
+          "field": "OFFSET2",
+          "before": 6,
+          "outcome": "read-only",
+          "reason": "structural, split, or inferred field"
+        },
+        {
+          "field": "DELAY0_HI",
+          "before": 10,
+          "outcome": "read-only",
+          "reason": "structural, split, or inferred field"
+        },
+        {
+          "field": "RFCSBA",
+          "before": 7,
+          "outcome": "read-only",
+          "reason": "structural, split, or inferred field"
+        },
+        {
+          "field": "RFCSBR",
+          "before": 0,
+          "outcome": "read-only",
+          "reason": "structural, split, or inferred field"
+        }
+      ],
+      "baseline": {
+        "registers": {
+          "broadcast": {
+            "CONFIG0": 307913279,
+            "CONFIG1": 1021657749,
+            "CONFIG2": 2350188544,
+            "CONFIG3": 570438124,
+            "CONFIG4": 1130561587,
+            "CONFIG5": 2800906466,
+            "TIMING22": 7
+          },
+          "fbpa0": {
+            "CONFIG0": 307913279,
+            "CONFIG1": 1021657749,
+            "CONFIG2": 2350188544,
+            "CONFIG3": 570438124,
+            "CONFIG4": 1130561587,
+            "CONFIG5": 2800906466,
+            "TIMING22": 7
+          },
+          "fbpa1": {
+            "CONFIG0": 307913279,
+            "CONFIG1": 1021657749,
+            "CONFIG2": 2350188544,
+            "CONFIG3": 570438124,
+            "CONFIG4": 1130561587,
+            "CONFIG5": 2800906466,
+            "TIMING22": 7
+          },
+          "fbpa2": {
+            "CONFIG0": 307913279,
+            "CONFIG1": 1021657749,
+            "CONFIG2": 2350188544,
+            "CONFIG3": 570438124,
+            "CONFIG4": 1130561587,
+            "CONFIG5": 2800906466,
+            "TIMING22": 7
+          },
+          "fbpa3": {
+            "CONFIG0": 307913279,
+            "CONFIG1": 1021657749,
+            "CONFIG2": 2350188544,
+            "CONFIG3": 570438124,
+            "CONFIG4": 1130561587,
+            "CONFIG5": 2800906466,
+            "TIMING22": 7
+          }
+        },
+        "pstate": 0,
+        "mem": 3004,
+        "temperature": 33,
+        "verified_copies": 32
+      },
+      "peer_baseline": {
+        "broadcast": {
+          "CONFIG0": 307913279,
+          "CONFIG1": 1021657749,
+          "CONFIG2": 2350188544,
+          "CONFIG3": 570438124,
+          "CONFIG4": 1130561587,
+          "CONFIG5": 2800906466,
+          "TIMING22": 7
+        },
+        "fbpa0": {
+          "CONFIG0": 307913279,
+          "CONFIG1": 1021657749,
+          "CONFIG2": 2350188544,
+          "CONFIG3": 570438124,
+          "CONFIG4": 1130561587,
+          "CONFIG5": 2800906466,
+          "TIMING22": 7
+        },
+        "fbpa1": {
+          "CONFIG0": 307913279,
+          "CONFIG1": 1021657749,
+          "CONFIG2": 2350188544,
+          "CONFIG3": 570438124,
+          "CONFIG4": 1130561587,
+          "CONFIG5": 2800906466,
+          "TIMING22": 7
+        },
+        "fbpa2": {
+          "CONFIG0": 307913279,
+          "CONFIG1": 1021657749,
+          "CONFIG2": 2350188544,
+          "CONFIG3": 570438124,
+          "CONFIG4": 1130561587,
+          "CONFIG5": 2800906466,
+          "TIMING22": 7
+        },
+        "fbpa3": {
+          "CONFIG0": 307913279,
+          "CONFIG1": 1021657749,
+          "CONFIG2": 2350188544,
+          "CONFIG3": 570438124,
+          "CONFIG4": 1130561587,
+          "CONFIG5": 2800906466,
+          "TIMING22": 7
+        }
+      },
+      "final_registers": {
+        "broadcast": {
+          "CONFIG0": 307913279,
+          "CONFIG1": 1021657749,
+          "CONFIG2": 2350188544,
+          "CONFIG3": 570438124,
+          "CONFIG4": 1130561587,
+          "CONFIG5": 2800906466,
+          "TIMING22": 7
+        },
+        "fbpa0": {
+          "CONFIG0": 307913279,
+          "CONFIG1": 1021657749,
+          "CONFIG2": 2350188544,
+          "CONFIG3": 570438124,
+          "CONFIG4": 1130561587,
+          "CONFIG5": 2800906466,
+          "TIMING22": 7
+        },
+        "fbpa1": {
+          "CONFIG0": 307913279,
+          "CONFIG1": 1021657749,
+          "CONFIG2": 2350188544,
+          "CONFIG3": 570438124,
+          "CONFIG4": 1130561587,
+          "CONFIG5": 2800906466,
+          "TIMING22": 7
+        },
+        "fbpa2": {
+          "CONFIG0": 307913279,
+          "CONFIG1": 1021657749,
+          "CONFIG2": 2350188544,
+          "CONFIG3": 570438124,
+          "CONFIG4": 1130561587,
+          "CONFIG5": 2800906466,
+          "TIMING22": 7
+        },
+        "fbpa3": {
+          "CONFIG0": 307913279,
+          "CONFIG1": 1021657749,
+          "CONFIG2": 2350188544,
+          "CONFIG3": 570438124,
+          "CONFIG4": 1130561587,
+          "CONFIG5": 2800906466,
+          "TIMING22": 7
+        }
+      },
+      "passed": true,
+      "load_error": "",
+      "load_stats": {
+        "verified_64MiB_copies": 354,
+        "mismatches": 0,
+        "deadline_reached": false
+      },
+      "verified_copies": 354
+    },
+    {
+      "identity": {
+        "name": "NVIDIA GeForce GTX 690",
+        "driver": "472.12",
+        "vbios": "80.04.1e.00.18",
+        "admin": true,
+        "slot": "0000:05:00.0",
+        "mem_clocks": [
+          324,
+          810,
+          3004
+        ],
+        "gfx_min": 562,
+        "gfx_max": 1202,
+        "mem_div": 2,
+        "mem_type": "GDDR5",
+        "mem_type_id": 8,
+        "core_off_range": [
+          -549,
+          549,
+          0
+        ],
+        "mem_off_range": [
+          -4388,
+          6008,
+          0
+        ],
+        "fan_min": 30,
+        "fan_max": 100
+      },
+      "slot": "0000:05:00.0",
+      "fields": [
+        {
+          "field": "RC",
+          "before": 63,
+          "requested": 64,
+          "plan": {
+            "assignments": {
+              "RC": 64
+            },
+            "ops": [
+              {
+                "reg": "CONFIG0",
+                "offset": "0x10F290",
+                "old": "0x125A623F",
+                "new": "0x125A6240",
+                "changes": [
+                  {
+                    "name": "RC",
+                    "old": 63,
+                    "new": 64
+                  }
+                ]
+              }
+            ],
+            "warnings": [],
+            "raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG0 @0x10F290  0x125A623F -> 0x125A6240  [would write]\n      RC              63 -> 64",
+            "ok": true,
+            "error": ""
+          },
+          "commit_raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG0 @0x10F290  0x125A623F -> 0x125A6240  [write]\n      RC              63 -> 64    \n  stock values saved to <user>\\AppData\\Local\\nvtune\\0000-05-00.0.stock.json\n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "commit_rc": 0,
+          "after": 64,
+          "outcome": "landed",
+          "observations": [
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913280,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913280,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913280,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913280,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913280,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 35,
+              "verified_copies": 42
+            },
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913280,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913280,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913280,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913280,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913280,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 36,
+              "verified_copies": 51
+            }
+          ],
+          "peer_unchanged": true,
+          "restore_raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG0 @0x10F290  0x125A6240 -> 0x125A623F  [write]\n      RC              64 -> 63    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "restore_rc": 0,
+          "restored_exactly": true
+        },
+        {
+          "field": "RFC",
+          "before": 98,
+          "requested": 99,
+          "plan": {
+            "assignments": {
+              "RFC": 99
+            },
+            "ops": [
+              {
+                "reg": "CONFIG0",
+                "offset": "0x10F290",
+                "old": "0x125A623F",
+                "new": "0x125A633F",
+                "changes": [
+                  {
+                    "name": "RFC",
+                    "old": 98,
+                    "new": 99
+                  }
+                ]
+              }
+            ],
+            "warnings": [],
+            "raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG0 @0x10F290  0x125A623F -> 0x125A633F  [would write]\n      RFC             98 -> 99",
+            "ok": true,
+            "error": ""
+          },
+          "commit_raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG0 @0x10F290  0x125A623F -> 0x125A633F  [write]\n      RFC             98 -> 99    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "commit_rc": 0,
+          "after": 99,
+          "outcome": "landed",
+          "observations": [
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913535,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913535,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913535,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913535,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913535,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 36,
+              "verified_copies": 65
+            },
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913535,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913535,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913535,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913535,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913535,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 36,
+              "verified_copies": 74
+            }
+          ],
+          "peer_unchanged": true,
+          "restore_raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG0 @0x10F290  0x125A633F -> 0x125A623F  [write]\n      RFC             99 -> 98    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "restore_rc": 0,
+          "restored_exactly": true
+        },
+        {
+          "field": "RAS",
+          "before": 45,
+          "requested": 46,
+          "plan": {
+            "assignments": {
+              "RAS": 46
+            },
+            "ops": [
+              {
+                "reg": "CONFIG0",
+                "offset": "0x10F290",
+                "old": "0x125A623F",
+                "new": "0x125C623F",
+                "changes": [
+                  {
+                    "name": "RAS",
+                    "old": 45,
+                    "new": 46
+                  }
+                ]
+              }
+            ],
+            "warnings": [],
+            "raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG0 @0x10F290  0x125A623F -> 0x125C623F  [would write]\n      RAS             45 -> 46",
+            "ok": true,
+            "error": ""
+          },
+          "commit_raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG0 @0x10F290  0x125A623F -> 0x125C623F  [write]\n      RAS             45 -> 46    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "commit_rc": 0,
+          "after": 46,
+          "outcome": "landed",
+          "observations": [
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 308044351,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 308044351,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 308044351,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 308044351,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 308044351,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 36,
+              "verified_copies": 88
+            },
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 308044351,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 308044351,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 308044351,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 308044351,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 308044351,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 37,
+              "verified_copies": 97
+            }
+          ],
+          "peer_unchanged": true,
+          "restore_raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG0 @0x10F290  0x125C623F -> 0x125A623F  [write]\n      RAS             46 -> 45    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "restore_rc": 0,
+          "restored_exactly": true
+        },
+        {
+          "field": "RP",
+          "before": 18,
+          "requested": 19,
+          "plan": {
+            "assignments": {
+              "RP": 19
+            },
+            "ops": [
+              {
+                "reg": "CONFIG0",
+                "offset": "0x10F290",
+                "old": "0x125A623F",
+                "new": "0x135A623F",
+                "changes": [
+                  {
+                    "name": "RP",
+                    "old": 18,
+                    "new": 19
+                  }
+                ]
+              }
+            ],
+            "warnings": [],
+            "raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG0 @0x10F290  0x125A623F -> 0x135A623F  [would write]\n      RP              18 -> 19",
+            "ok": true,
+            "error": ""
+          },
+          "commit_raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG0 @0x10F290  0x125A623F -> 0x135A623F  [write]\n      RP              18 -> 19    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "commit_rc": 0,
+          "after": 19,
+          "outcome": "landed",
+          "observations": [
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 324690495,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 324690495,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 324690495,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 324690495,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 324690495,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 37,
+              "verified_copies": 111
+            },
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 324690495,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 324690495,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 324690495,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 324690495,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 324690495,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 37,
+              "verified_copies": 119
+            }
+          ],
+          "peer_unchanged": true,
+          "restore_raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG0 @0x10F290  0x135A623F -> 0x125A623F  [write]\n      RP              19 -> 18    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "restore_rc": 0,
+          "restored_exactly": true
+        },
+        {
+          "field": "CL",
+          "before": 21,
+          "outcome": "query-only",
+          "reason": "latency, preamble or protocol field; no live alignment experiment"
+        },
+        {
+          "field": "WL",
+          "before": 5,
+          "outcome": "query-only",
+          "reason": "latency, preamble or protocol field; no live alignment experiment"
+        },
+        {
+          "field": "RD_RCD",
+          "before": 21,
+          "requested": 22,
+          "plan": {
+            "assignments": {
+              "RD_RCD": 22
+            },
+            "ops": [
+              {
+                "reg": "CONFIG1",
+                "offset": "0x10F294",
+                "old": "0x3CE54295",
+                "new": "0x3CE58295",
+                "changes": [
+                  {
+                    "name": "RD_RCD",
+                    "old": 21,
+                    "new": 22
+                  }
+                ]
+              }
+            ],
+            "warnings": [],
+            "raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG1 @0x10F294  0x3CE54295 -> 0x3CE58295  [would write]\n      RD_RCD          21 -> 22",
+            "ok": true,
+            "error": ""
+          },
+          "commit_raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG1 @0x10F294  0x3CE54295 -> 0x3CE58295  [write]\n      RD_RCD          21 -> 22    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "commit_rc": 0,
+          "after": 22,
+          "outcome": "landed",
+          "observations": [
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021674133,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021674133,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021674133,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021674133,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021674133,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 37,
+              "verified_copies": 133
+            },
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021674133,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021674133,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021674133,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021674133,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021674133,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 37,
+              "verified_copies": 142
+            }
+          ],
+          "peer_unchanged": true,
+          "restore_raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG1 @0x10F294  0x3CE58295 -> 0x3CE54295  [write]\n      RD_RCD          22 -> 21    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "restore_rc": 0,
+          "restored_exactly": true
+        },
+        {
+          "field": "WR_RCD",
+          "before": 14,
+          "requested": 15,
+          "plan": {
+            "assignments": {
+              "WR_RCD": 15
+            },
+            "ops": [
+              {
+                "reg": "CONFIG1",
+                "offset": "0x10F294",
+                "old": "0x3CE54295",
+                "new": "0x3CF54295",
+                "changes": [
+                  {
+                    "name": "WR_RCD",
+                    "old": 14,
+                    "new": 15
+                  }
+                ]
+              }
+            ],
+            "warnings": [],
+            "raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG1 @0x10F294  0x3CE54295 -> 0x3CF54295  [would write]\n      WR_RCD          14 -> 15",
+            "ok": true,
+            "error": ""
+          },
+          "commit_raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG1 @0x10F294  0x3CE54295 -> 0x3CF54295  [write]\n      WR_RCD          14 -> 15    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "commit_rc": 0,
+          "after": 15,
+          "outcome": "landed",
+          "observations": [
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1022706325,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1022706325,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1022706325,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1022706325,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1022706325,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 37,
+              "verified_copies": 156
+            },
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1022706325,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1022706325,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1022706325,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1022706325,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1022706325,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 37,
+              "verified_copies": 165
+            }
+          ],
+          "peer_unchanged": true,
+          "restore_raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG1 @0x10F294  0x3CF54295 -> 0x3CE54295  [write]\n      WR_RCD          15 -> 14    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "restore_rc": 0,
+          "restored_exactly": true
+        },
+        {
+          "field": "RPRE",
+          "before": 0,
+          "outcome": "query-only",
+          "reason": "latency, preamble or protocol field; no live alignment experiment"
+        },
+        {
+          "field": "WPRE",
+          "before": 0,
+          "outcome": "query-only",
+          "reason": "latency, preamble or protocol field; no live alignment experiment"
+        },
+        {
+          "field": "CDLR",
+          "before": 8,
+          "requested": 9,
+          "plan": {
+            "assignments": {
+              "CDLR": 9
+            },
+            "ops": [
+              {
+                "reg": "CONFIG2",
+                "offset": "0x10F298",
+                "old": "0x8C150800",
+                "new": "0x8C150900",
+                "changes": [
+                  {
+                    "name": "CDLR",
+                    "old": 8,
+                    "new": 9
+                  }
+                ]
+              }
+            ],
+            "warnings": [],
+            "raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG2 @0x10F298  0x8C150800 -> 0x8C150900  [would write]\n      CDLR             8 -> 9",
+            "ok": true,
+            "error": ""
+          },
+          "commit_raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG2 @0x10F298  0x8C150800 -> 0x8C150900  [write]\n      CDLR             8 -> 9     \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "commit_rc": 0,
+          "after": 9,
+          "outcome": "landed",
+          "observations": [
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188800,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188800,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188800,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188800,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188800,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 37,
+              "verified_copies": 179
+            },
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188800,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188800,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188800,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188800,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188800,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 38,
+              "verified_copies": 187
+            }
+          ],
+          "peer_unchanged": true,
+          "restore_raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG2 @0x10F298  0x8C150900 -> 0x8C150800  [write]\n      CDLR             9 -> 8     \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "restore_rc": 0,
+          "restored_exactly": true
+        },
+        {
+          "field": "WR",
+          "before": 21,
+          "requested": 22,
+          "plan": {
+            "assignments": {
+              "WR": 22
+            },
+            "ops": [
+              {
+                "reg": "CONFIG2",
+                "offset": "0x10F298",
+                "old": "0x8C150800",
+                "new": "0x8C160800",
+                "changes": [
+                  {
+                    "name": "WR",
+                    "old": 21,
+                    "new": 22
+                  }
+                ]
+              }
+            ],
+            "warnings": [],
+            "raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG2 @0x10F298  0x8C150800 -> 0x8C160800  [would write]\n      WR              21 -> 22",
+            "ok": true,
+            "error": ""
+          },
+          "commit_raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG2 @0x10F298  0x8C150800 -> 0x8C160800  [write]\n      WR              21 -> 22    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "commit_rc": 0,
+          "after": 22,
+          "outcome": "landed",
+          "observations": [
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350254080,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350254080,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350254080,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350254080,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350254080,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 38,
+              "verified_copies": 201
+            },
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350254080,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350254080,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350254080,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350254080,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350254080,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 38,
+              "verified_copies": 210
+            }
+          ],
+          "peer_unchanged": true,
+          "restore_raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG2 @0x10F298  0x8C160800 -> 0x8C150800  [write]\n      WR              22 -> 21    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "restore_rc": 0,
+          "restored_exactly": true
+        },
+        {
+          "field": "W2R_BUS",
+          "before": 12,
+          "requested": 13,
+          "plan": {
+            "assignments": {
+              "W2R_BUS": 13
+            },
+            "ops": [
+              {
+                "reg": "CONFIG2",
+                "offset": "0x10F298",
+                "old": "0x8C150800",
+                "new": "0x8D150800",
+                "changes": [
+                  {
+                    "name": "W2R_BUS",
+                    "old": 12,
+                    "new": 13
+                  }
+                ]
+              }
+            ],
+            "warnings": [
+              "! W2R_BUS=13 is outside the typical range 0..12."
+            ],
+            "raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG2 @0x10F298  0x8C150800 -> 0x8D150800  [would write]\n      W2R_BUS         12 -> 13    \n      ! W2R_BUS=13 is outside the typical range 0..12.",
+            "ok": true,
+            "error": ""
+          },
+          "outcome": "not-written",
+          "reason": "dry-run warnings or failure"
+        },
+        {
+          "field": "R2W_BUS",
+          "before": 8,
+          "requested": 9,
+          "plan": {
+            "assignments": {
+              "R2W_BUS": 9
+            },
+            "ops": [
+              {
+                "reg": "CONFIG2",
+                "offset": "0x10F298",
+                "old": "0x8C150800",
+                "new": "0x9C150800",
+                "changes": [
+                  {
+                    "name": "R2W_BUS",
+                    "old": 8,
+                    "new": 9
+                  }
+                ]
+              }
+            ],
+            "warnings": [],
+            "raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG2 @0x10F298  0x8C150800 -> 0x9C150800  [would write]\n      R2W_BUS          8 -> 9",
+            "ok": true,
+            "error": ""
+          },
+          "commit_raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG2 @0x10F298  0x8C150800 -> 0x9C150800  [write]\n      R2W_BUS          8 -> 9     \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "commit_rc": 0,
+          "after": 9,
+          "outcome": "landed",
+          "observations": [
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2618624000,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2618624000,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2618624000,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2618624000,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2618624000,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 38,
+              "verified_copies": 224
+            },
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2618624000,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2618624000,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2618624000,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2618624000,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2618624000,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 38,
+              "verified_copies": 233
+            }
+          ],
+          "peer_unchanged": true,
+          "restore_raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG2 @0x10F298  0x9C150800 -> 0x8C150800  [write]\n      R2W_BUS          9 -> 8     \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "restore_rc": 0,
+          "restored_exactly": true
+        },
+        {
+          "field": "PDEX",
+          "before": 12,
+          "requested": 13,
+          "plan": {
+            "assignments": {
+              "PDEX": 13
+            },
+            "ops": [
+              {
+                "reg": "CONFIG3",
+                "offset": "0x10F29C",
+                "old": "0x220031EC",
+                "new": "0x220031ED",
+                "changes": [
+                  {
+                    "name": "PDEX",
+                    "old": 12,
+                    "new": 13
+                  }
+                ]
+              }
+            ],
+            "warnings": [],
+            "raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG3 @0x10F29C  0x220031EC -> 0x220031ED  [would write]\n      PDEX            12 -> 13",
+            "ok": true,
+            "error": ""
+          },
+          "commit_raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG3 @0x10F29C  0x220031EC -> 0x220031ED  [write]\n      PDEX            12 -> 13    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "commit_rc": 0,
+          "after": 13,
+          "outcome": "landed",
+          "observations": [
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438125,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438125,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438125,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438125,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438125,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 38,
+              "verified_copies": 247
+            },
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438125,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438125,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438125,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438125,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438125,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 38,
+              "verified_copies": 256
+            }
+          ],
+          "peer_unchanged": true,
+          "restore_raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG3 @0x10F29C  0x220031ED -> 0x220031EC  [write]\n      PDEX            13 -> 12    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "restore_rc": 0,
+          "restored_exactly": true
+        },
+        {
+          "field": "PDEN2PDEX",
+          "before": 15,
+          "requested": 16,
+          "plan": {
+            "assignments": {
+              "PDEN2PDEX": 16
+            },
+            "ops": [],
+            "warnings": [],
+            "raw": "error: PDEN2PDEX=16 does not fit its 4-bit field (0..15)",
+            "ok": false,
+            "error": "error: PDEN2PDEX=16 does not fit its 4-bit field (0..15)"
+          },
+          "outcome": "not-written",
+          "reason": "dry-run warnings or failure"
+        },
+        {
+          "field": "FAW",
+          "before": 24,
+          "requested": 25,
+          "plan": {
+            "assignments": {
+              "FAW": 25
+            },
+            "ops": [
+              {
+                "reg": "CONFIG3",
+                "offset": "0x10F29C",
+                "old": "0x220031EC",
+                "new": "0x220033EC",
+                "changes": [
+                  {
+                    "name": "FAW",
+                    "old": 24,
+                    "new": 25
+                  }
+                ]
+              }
+            ],
+            "warnings": [],
+            "raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG3 @0x10F29C  0x220031EC -> 0x220033EC  [would write]\n      FAW             24 -> 25",
+            "ok": true,
+            "error": ""
+          },
+          "commit_raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG3 @0x10F29C  0x220031EC -> 0x220033EC  [write]\n      FAW             24 -> 25    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "commit_rc": 0,
+          "after": 25,
+          "outcome": "landed",
+          "observations": [
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438636,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438636,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438636,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438636,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438636,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 39,
+              "verified_copies": 270
+            },
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438636,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438636,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438636,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438636,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438636,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 39,
+              "verified_copies": 279
+            }
+          ],
+          "peer_unchanged": true,
+          "restore_raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG3 @0x10F29C  0x220033EC -> 0x220031EC  [write]\n      FAW             25 -> 24    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "restore_rc": 0,
+          "restored_exactly": true
+        },
+        {
+          "field": "AOND",
+          "before": 0,
+          "requested": 1,
+          "plan": {
+            "assignments": {
+              "AOND": 1
+            },
+            "ops": [
+              {
+                "reg": "CONFIG3",
+                "offset": "0x10F29C",
+                "old": "0x220031EC",
+                "new": "0x220231EC",
+                "changes": [
+                  {
+                    "name": "AOND",
+                    "old": 0,
+                    "new": 1
+                  }
+                ]
+              }
+            ],
+            "warnings": [
+              "! AOND=1 is outside the typical range 3..40."
+            ],
+            "raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG3 @0x10F29C  0x220031EC -> 0x220231EC  [would write]\n      AOND             0 -> 1     \n      ! AOND=1 is outside the typical range 3..40.",
+            "ok": true,
+            "error": ""
+          },
+          "outcome": "not-written",
+          "reason": "dry-run warnings or failure"
+        },
+        {
+          "field": "CCDL",
+          "before": 2,
+          "requested": 3,
+          "plan": {
+            "assignments": {
+              "CCDL": 3
+            },
+            "ops": [
+              {
+                "reg": "CONFIG3",
+                "offset": "0x10F29C",
+                "old": "0x220031EC",
+                "new": "0x230031EC",
+                "changes": [
+                  {
+                    "name": "CCDL",
+                    "old": 2,
+                    "new": 3
+                  }
+                ]
+              }
+            ],
+            "warnings": [],
+            "raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG3 @0x10F29C  0x220031EC -> 0x230031EC  [would write]\n      CCDL             2 -> 3",
+            "ok": true,
+            "error": ""
+          },
+          "commit_raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG3 @0x10F29C  0x220031EC -> 0x230031EC  [write]\n      CCDL             2 -> 3     \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "commit_rc": 0,
+          "after": 3,
+          "outcome": "landed",
+          "observations": [
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 587215340,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 587215340,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 587215340,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 587215340,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 587215340,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 39,
+              "verified_copies": 293
+            },
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 587215340,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 587215340,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 587215340,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 587215340,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 587215340,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 39,
+              "verified_copies": 302
+            }
+          ],
+          "peer_unchanged": true,
+          "restore_raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG3 @0x10F29C  0x230031EC -> 0x220031EC  [write]\n      CCDL             3 -> 2     \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "restore_rc": 0,
+          "restored_exactly": true
+        },
+        {
+          "field": "CCDS",
+          "before": 2,
+          "requested": 3,
+          "plan": {
+            "assignments": {
+              "CCDS": 3
+            },
+            "ops": [
+              {
+                "reg": "CONFIG3",
+                "offset": "0x10F29C",
+                "old": "0x220031EC",
+                "new": "0x320031EC",
+                "changes": [
+                  {
+                    "name": "CCDS",
+                    "old": 2,
+                    "new": 3
+                  }
+                ]
+              }
+            ],
+            "warnings": [],
+            "raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG3 @0x10F29C  0x220031EC -> 0x320031EC  [would write]\n      CCDS             2 -> 3",
+            "ok": true,
+            "error": ""
+          },
+          "commit_raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG3 @0x10F29C  0x220031EC -> 0x320031EC  [write]\n      CCDS             2 -> 3     \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "commit_rc": 0,
+          "after": 3,
+          "outcome": "landed",
+          "observations": [
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 838873580,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 838873580,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 838873580,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 838873580,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 838873580,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 39,
+              "verified_copies": 316
+            },
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 838873580,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 838873580,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 838873580,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 838873580,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 838873580,
+                  "CONFIG4": 1130561587,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 39,
+              "verified_copies": 324
+            }
+          ],
+          "peer_unchanged": true,
+          "restore_raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG3 @0x10F29C  0x320031EC -> 0x220031EC  [write]\n      CCDS             3 -> 2     \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "restore_rc": 0,
+          "restored_exactly": true
+        },
+        {
+          "field": "REFRESH_LO",
+          "before": 3,
+          "outcome": "read-only",
+          "reason": "structural, split, or inferred field"
+        },
+        {
+          "field": "REFRESH",
+          "before": 6,
+          "outcome": "read-only",
+          "reason": "structural, split, or inferred field"
+        },
+        {
+          "field": "RRD",
+          "before": 6,
+          "requested": 7,
+          "plan": {
+            "assignments": {
+              "RRD": 7
+            },
+            "ops": [
+              {
+                "reg": "CONFIG4",
+                "offset": "0x10F2A0",
+                "old": "0x43630033",
+                "new": "0x43638033",
+                "changes": [
+                  {
+                    "name": "RRD",
+                    "old": 6,
+                    "new": 7
+                  }
+                ]
+              }
+            ],
+            "warnings": [],
+            "raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG4 @0x10F2A0  0x43630033 -> 0x43638033  [would write]\n      RRD              6 -> 7",
+            "ok": true,
+            "error": ""
+          },
+          "commit_raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG4 @0x10F2A0  0x43630033 -> 0x43638033  [write]\n      RRD              6 -> 7     \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "commit_rc": 0,
+          "after": 7,
+          "outcome": "landed",
+          "observations": [
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130594355,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130594355,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130594355,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130594355,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130594355,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 39,
+              "verified_copies": 338
+            },
+            {
+              "registers": {
+                "broadcast": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130594355,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa0": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130594355,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa1": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130594355,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa2": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130594355,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                },
+                "fbpa3": {
+                  "CONFIG0": 307913279,
+                  "CONFIG1": 1021657749,
+                  "CONFIG2": 2350188544,
+                  "CONFIG3": 570438124,
+                  "CONFIG4": 1130594355,
+                  "CONFIG5": 2800906466,
+                  "TIMING22": 7
+                }
+              },
+              "pstate": 0,
+              "mem": 3004,
+              "temperature": 40,
+              "verified_copies": 347
+            }
+          ],
+          "peer_unchanged": true,
+          "restore_raw": "0000:05:00.0  GK104 (Kepler)\n  [broadcast]\n  CONFIG4 @0x10F2A0  0x43638033 -> 0x43630033  [write]\n      RRD              7 -> 6     \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.",
+          "restore_rc": 0,
+          "restored_exactly": true
+        },
+        {
+          "field": "DELAY0",
+          "before": 27,
+          "outcome": "read-only",
+          "reason": "structural, split, or inferred field"
+        },
+        {
+          "field": "ADR_MIN",
+          "before": 2,
+          "outcome": "read-only",
+          "reason": "structural, split, or inferred field"
+        },
+        {
+          "field": "WRCRC",
+          "before": 14,
+          "outcome": "query-only",
+          "reason": "latency, preamble or protocol field; no live alignment experiment"
+        },
+        {
+          "field": "OFFSET0",
+          "before": 39,
+          "outcome": "read-only",
+          "reason": "structural, split, or inferred field"
+        },
+        {
+          "field": "DELAY0_MSB",
+          "before": 0,
+          "outcome": "read-only",
+          "reason": "structural, split, or inferred field"
+        },
+        {
+          "field": "OFFSET1",
+          "before": 15,
+          "outcome": "read-only",
+          "reason": "structural, split, or inferred field"
+        },
+        {
+          "field": "OFFSET2",
+          "before": 6,
+          "outcome": "read-only",
+          "reason": "structural, split, or inferred field"
+        },
+        {
+          "field": "DELAY0_HI",
+          "before": 10,
+          "outcome": "read-only",
+          "reason": "structural, split, or inferred field"
+        },
+        {
+          "field": "RFCSBA",
+          "before": 7,
+          "outcome": "read-only",
+          "reason": "structural, split, or inferred field"
+        },
+        {
+          "field": "RFCSBR",
+          "before": 0,
+          "outcome": "read-only",
+          "reason": "structural, split, or inferred field"
+        }
+      ],
+      "baseline": {
+        "registers": {
+          "broadcast": {
+            "CONFIG0": 307913279,
+            "CONFIG1": 1021657749,
+            "CONFIG2": 2350188544,
+            "CONFIG3": 570438124,
+            "CONFIG4": 1130561587,
+            "CONFIG5": 2800906466,
+            "TIMING22": 7
+          },
+          "fbpa0": {
+            "CONFIG0": 307913279,
+            "CONFIG1": 1021657749,
+            "CONFIG2": 2350188544,
+            "CONFIG3": 570438124,
+            "CONFIG4": 1130561587,
+            "CONFIG5": 2800906466,
+            "TIMING22": 7
+          },
+          "fbpa1": {
+            "CONFIG0": 307913279,
+            "CONFIG1": 1021657749,
+            "CONFIG2": 2350188544,
+            "CONFIG3": 570438124,
+            "CONFIG4": 1130561587,
+            "CONFIG5": 2800906466,
+            "TIMING22": 7
+          },
+          "fbpa2": {
+            "CONFIG0": 307913279,
+            "CONFIG1": 1021657749,
+            "CONFIG2": 2350188544,
+            "CONFIG3": 570438124,
+            "CONFIG4": 1130561587,
+            "CONFIG5": 2800906466,
+            "TIMING22": 7
+          },
+          "fbpa3": {
+            "CONFIG0": 307913279,
+            "CONFIG1": 1021657749,
+            "CONFIG2": 2350188544,
+            "CONFIG3": 570438124,
+            "CONFIG4": 1130561587,
+            "CONFIG5": 2800906466,
+            "TIMING22": 7
+          }
+        },
+        "pstate": 0,
+        "mem": 3004,
+        "temperature": 35,
+        "verified_copies": 32
+      },
+      "peer_baseline": {
+        "broadcast": {
+          "CONFIG0": 307913279,
+          "CONFIG1": 1021657749,
+          "CONFIG2": 2350188544,
+          "CONFIG3": 570438124,
+          "CONFIG4": 1130561587,
+          "CONFIG5": 2800906466,
+          "TIMING22": 7
+        },
+        "fbpa0": {
+          "CONFIG0": 307913279,
+          "CONFIG1": 1021657749,
+          "CONFIG2": 2350188544,
+          "CONFIG3": 570438124,
+          "CONFIG4": 1130561587,
+          "CONFIG5": 2800906466,
+          "TIMING22": 7
+        },
+        "fbpa1": {
+          "CONFIG0": 307913279,
+          "CONFIG1": 1021657749,
+          "CONFIG2": 2350188544,
+          "CONFIG3": 570438124,
+          "CONFIG4": 1130561587,
+          "CONFIG5": 2800906466,
+          "TIMING22": 7
+        },
+        "fbpa2": {
+          "CONFIG0": 307913279,
+          "CONFIG1": 1021657749,
+          "CONFIG2": 2350188544,
+          "CONFIG3": 570438124,
+          "CONFIG4": 1130561587,
+          "CONFIG5": 2800906466,
+          "TIMING22": 7
+        },
+        "fbpa3": {
+          "CONFIG0": 307913279,
+          "CONFIG1": 1021657749,
+          "CONFIG2": 2350188544,
+          "CONFIG3": 570438124,
+          "CONFIG4": 1130561587,
+          "CONFIG5": 2800906466,
+          "TIMING22": 7
+        }
+      },
+      "final_registers": {
+        "broadcast": {
+          "CONFIG0": 307913279,
+          "CONFIG1": 1021657749,
+          "CONFIG2": 2350188544,
+          "CONFIG3": 570438124,
+          "CONFIG4": 1130561587,
+          "CONFIG5": 2800906466,
+          "TIMING22": 7
+        },
+        "fbpa0": {
+          "CONFIG0": 307913279,
+          "CONFIG1": 1021657749,
+          "CONFIG2": 2350188544,
+          "CONFIG3": 570438124,
+          "CONFIG4": 1130561587,
+          "CONFIG5": 2800906466,
+          "TIMING22": 7
+        },
+        "fbpa1": {
+          "CONFIG0": 307913279,
+          "CONFIG1": 1021657749,
+          "CONFIG2": 2350188544,
+          "CONFIG3": 570438124,
+          "CONFIG4": 1130561587,
+          "CONFIG5": 2800906466,
+          "TIMING22": 7
+        },
+        "fbpa2": {
+          "CONFIG0": 307913279,
+          "CONFIG1": 1021657749,
+          "CONFIG2": 2350188544,
+          "CONFIG3": 570438124,
+          "CONFIG4": 1130561587,
+          "CONFIG5": 2800906466,
+          "TIMING22": 7
+        },
+        "fbpa3": {
+          "CONFIG0": 307913279,
+          "CONFIG1": 1021657749,
+          "CONFIG2": 2350188544,
+          "CONFIG3": 570438124,
+          "CONFIG4": 1130561587,
+          "CONFIG5": 2800906466,
+          "TIMING22": 7
+        }
+      },
+      "passed": true,
+      "load_error": "",
+      "load_stats": {
+        "verified_64MiB_copies": 354,
+        "mismatches": 0,
+        "deadline_reached": false
+      },
+      "verified_copies": 354
+    }
+  ]
+}

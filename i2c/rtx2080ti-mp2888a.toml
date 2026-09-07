@@ -23,6 +23,9 @@ address   = "measured: 0xBE reads 0xA0. Independently agrees with datasheet Tabl
 behaviour = "measured under gpuload bandwidth load at NVVDD 1050 mV, 2026-09-04"
 hardware  = "the two SMBus links to the core VRM fitted by hand on the authoring card; regulator identity then confirmed on the bus"
 
+# Historical authoring-board provenance. MP2888A discovery ignores these
+# filters and scans the selected GPU using mp2888.py. Retained in the recipe
+# so existing saved profiles at port 1/address 0x20 remain compatible.
 [match]
 pci_device = ["0x1E02"]        # this die is a TITAN RTX on a 2080 Ti board, so
 pci_subsys = ["0x12A310DE"]    # the subsys is the honest discriminator
@@ -32,7 +35,9 @@ port  = 1                      # NVAPI port 1
 addr7 = 0x20
 
 # ---- identity -------------------------------------------------------------- #
-# Checked by identity, never by address alone. The bus map on this card moved
+# Legacy address fingerprint, not a unique model ID. mp2888.py also checks
+# documented register shapes and repeated telemetry at the discovered address.
+# Address acknowledgement alone is insufficient. The bus map on this card moved
 # once already: fitting the links made a second device answer on port 1 as well
 # as port 2, so "something ACKed 0x20" is not evidence of what is there.
 [[identity]]
@@ -58,6 +63,8 @@ note     = "READ_VOUT is DIRECT millivolts on this part, not LINEAR11 - it read 
 key      = "iout_a"
 reg      = 0x8C
 bytes    = 2
+# Legacy recipe encoding retained for saved-profile compatibility; mp2888.py
+# overrides this with low 12 bits * 0.25/0.5 A, selected by register 0x44 bit 3.
 encoding = "linear11"
 
 [[telemetry]]

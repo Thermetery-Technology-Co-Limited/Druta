@@ -1,0 +1,193 @@
+{
+  "date": "2026-09-07",
+  "driver": "472.12",
+  "scope": "MP2888A automatic discovery and connection-bound verification; no PCI or subsystem filtering",
+  "discovery": {
+    "scan": [
+      {
+        "slot": "0000:01:00.0",
+        "name": "NVIDIA TITAN RTX",
+        "seconds": 1.84,
+        "candidates": [
+          {
+            "name": "MP2888A candidate - NVVDD (port 1, 0x20)",
+            "port": 1,
+            "addr7": 32,
+            "telemetry": {
+              "vout_mv": 681.0,
+              "iout_a": 6.625,
+              "vrm_temp_c": 29.200000000000003,
+              "vout_max_mv": 1300.0,
+              "offset_raw": 0,
+              "offset_mv": 0.0,
+              "current_lsb_a": 0.25,
+              "address_register": 160.0
+            },
+            "diagnostics": {
+              "vendor_id_user": 37,
+              "product_id_user": 136,
+              "product_rev_user": 0
+            }
+          }
+        ]
+      },
+      {
+        "slot": "0000:04:00.0",
+        "name": "NVIDIA GeForce GTX 690",
+        "seconds": 0.863,
+        "candidates": [
+          {
+            "name": "Kepler - NVVDD (NCP4206, port 2)",
+            "port": 2,
+            "addr7": 32,
+            "telemetry": {
+              "vout_mv": 1023.4375,
+              "target_mv": null,
+              "control": {
+                "kind": "absolute_vid",
+                "enabled": false,
+                "command": 0
+              },
+              "offset_mv": null
+            },
+            "diagnostics": {}
+          }
+        ]
+      },
+      {
+        "slot": "0000:05:00.0",
+        "name": "NVIDIA GeForce GTX 690",
+        "seconds": 0.369,
+        "candidates": [
+          {
+            "name": "Kepler - NVVDD (NCP4206, port 2)",
+            "port": 2,
+            "addr7": 32,
+            "telemetry": {
+              "vout_mv": 1023.4375,
+              "target_mv": null,
+              "control": {
+                "kind": "absolute_vid",
+                "enabled": false,
+                "command": 0
+              },
+              "offset_mv": null
+            },
+            "diagnostics": {}
+          }
+        ]
+      }
+    ],
+    "discovery_writes": 0
+  },
+  "voltage_ui": {
+    "writes": [
+      {
+        "port": 1,
+        "addr7": 32,
+        "register": 35,
+        "value": 1,
+        "width": 2
+      },
+      {
+        "port": 1,
+        "addr7": 32,
+        "register": 35,
+        "value": 2,
+        "width": 2
+      },
+      {
+        "port": 1,
+        "addr7": 32,
+        "register": 35,
+        "value": 4,
+        "width": 2
+      },
+      {
+        "port": 1,
+        "addr7": 32,
+        "register": 35,
+        "value": 8,
+        "width": 2
+      },
+      {
+        "port": 1,
+        "addr7": 32,
+        "register": 35,
+        "value": 12,
+        "width": 2
+      },
+      {
+        "port": 1,
+        "addr7": 32,
+        "register": 35,
+        "value": 0,
+        "width": 2
+      },
+      {
+        "port": 1,
+        "addr7": 32,
+        "register": 35,
+        "value": 1,
+        "width": 2
+      },
+      {
+        "port": 1,
+        "addr7": 32,
+        "register": 35,
+        "value": 0,
+        "width": 2
+      }
+    ],
+    "entry_offset_raw": 0,
+    "unverified_apply_and_stock_blocked": true,
+    "verify_passed": true,
+    "verification_log": [
+      "[ok] MP2888A candidate - NVVDD (port 1, 0x20): read-only fingerprint passed; 681 mV, 6.62 A, 29.0 C. Verify required before Apply.",
+      "[ok] i2c candidate: MP2888A candidate - NVVDD (port 1, 0x20) at 0x20/port 1",
+      "[!!] rail: press Verify first. Until the staircase has been watched moving this card's rail, a write here is a write into a path nobody has confirmed reaches anything - and this is the one knob whose mistakes are not undone by a reboot.",
+      "[!!] MP2888A candidate has not been verified; no reset write issued",
+      "verifying the rail write path under load - the card will be busy for a few seconds and the offset is restored after",
+      "  baseline rail-minus-VID 18 mV, wander 2 mV (entry offset +0.00 mV)",
+      "     +6.25 mV  rail-minus-VID 20 mV  delta +2 mV (need 3.1)  flat",
+      "    +12.50 mV  rail-minus-VID 20 mV  delta +2 mV (need 6.2)  flat",
+      "    +25.00 mV  rail-minus-VID 19 mV  delta +1 mV (need 12.5)  flat",
+      "    +50.00 mV  rail-minus-VID 37 mV  delta +19 mV (need 25.0)  flat",
+      "    +75.00 mV  rail-minus-VID 62 mV  delta +44 mV (need 37.5)  MOVED",
+      "  restored to +0.00 mV",
+      "[ok] verify: WRITE PATH CONFIRMED under load (GPU rail 1050.00 mV). The rail first moved at +75.00 mV, by +44 mV against a 37.5 mV threshold. Nothing up to +50.00 mV cleared the detection threshold, so the usable floor is between +50.00 and +75.00 mV - below it this knob does much less than it says, and above it roughly 1:1. Restored to +0.00 mV. Read the measured column from here on, not the number on the slider."
+    ],
+    "restored_offset_raw": 0,
+    "verified_apply_readback": 1,
+    "stock_restored": true,
+    "final_offset_raw": 0,
+    "scope": "Verify, Apply and Stock completed. Separate read-only UI run covers rescan/switching; initial combined harness stopped after voltage stages on a harness-only attribute error."
+  },
+  "readonly_ui": {
+    "switches": [
+      {
+        "slot": "0000:04:00.0",
+        "rail": "NCP4206",
+        "vf_points": 0,
+        "verified": false
+      },
+      {
+        "slot": "0000:05:00.0",
+        "rail": "NCP4206",
+        "vf_points": 0,
+        "verified": false
+      },
+      {
+        "slot": "0000:01:00.0",
+        "rail": "MPS MP2888A",
+        "vf_points": 128,
+        "verified": false
+      }
+    ],
+    "rescan_invalidates_preserves_staged_curve": true,
+    "passed": true
+  },
+  "limits": "All verification writes restricted to TITAN RTX port1/address0x20 register0x23, raw0..12 (+0..75mV). Final offset raw0. No NCP writes or voltage ceiling changes.",
+  "coverage_limit": "Only original MP physical port/address tested live. Other locations and ambiguity are covered by mocked transport tests. Controller fingerprint is not unique chip identification.",
+  "tests_passed": 323
+}

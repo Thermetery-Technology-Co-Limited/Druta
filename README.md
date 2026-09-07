@@ -1,5 +1,7 @@
 # Druta
 
+**Version 1.3.0** — [release notes](RELEASE-NOTES-1.3.0.md).
+
 A monitor and tuner for Pascal/Turing/Blackwell NVIDIA cards, driven through NVAPI/NVML private
 interfaces. It edits the V/F curve
 with planners built around how the boost arbiter actually behaves, and reads and
@@ -78,7 +80,7 @@ python -m pip install -r requirements.txt
 ```
 
 The local build produces `dist\Druta\Druta.exe` and
-`dist\Druta-dev-win64.zip` (or the app version when defined). Distribute the
+`dist\Druta-1.3.0-win64.zip`. Distribute the
 whole `Druta` folder or ZIP: the EXE needs its adjacent `_internal` folder.
 
 `dist\Druta\source\` contains the matching working-tree source, including
@@ -575,16 +577,85 @@ live voltage in two repeated cycles on each card. The former claim here that
 this cap could not be raised was disproved by that measurement. See
 [the per-rail findings](VOLTAGE-RAILS-TITAN.md) for exact conditions and scope.
 
+## Contributing I2C controller support
+
+Start with the [I2C contribution workflow](i2c/CONTRIBUTING.md),
+[recipe and adapter reference](i2c/PROFILES.md), and
+[I2C PR template](.github/PULL_REQUEST_TEMPLATE/i2c_profile.md).
+Kepler NCP4206 and MP2888A discovery scan actual buses without board-ID filters.
+Another board with one of these controllers usually needs discovery and
+Verify/restore evidence, rather than a duplicate TOML profile. Druta lists
+matching candidates by port/address; an ambiguous scan requires selection.
+Verify performs bounded writes and must confirm restoration before Apply.
+
 ## Profiles and undo points
 
 Named profiles snapshot both offsets, the power limit, the voltage boost, the
 fan **policy** (not just its duty — auto-at-0% and manual-at-0% read identically,
 and handing a captured duty back as a manual duty would be a thermal change) and
-every V/F delta, as readable JSON in `profiles/`.
+every V/F delta, as readable JSON in `profiles/`. New profiles also capture
+the confirmed **NVVDD/MSVDD limit fields in absolute mV**, the NVVDD voltage
+offset, per-domain clock requests (including **Additional Memory Clock
+Offset**), the identified I2C regulator's offset and XOC mode. The profile
+list names these values, and loading reports each control's result. Rails
+that Druta has not confirmed writable remain unavailable; MSVDD's unconfirmed
+voltage-offset field is not replayed.
+
+I2C tuning profiles save the controller state (MP2888A offset or NCP4206
+absolute target/Auto), its port/address, and a fingerprint of the bound register
+recipe, including its limits. They do not save or replay
+arbitrary VRM registers or replace that recipe's whitelist/envelope. Loading
+restores the saved XOC mode and enables the required rail controls. Values that
+need XOC (including above-normal carryover left after unticking XOC and a nonzero
+Additional Memory Clock Offset) mark the saved profile as XOC so it can restore
+those requests after reboot. An I2C load
+automatically runs the existing verification under load if this session has not
+verified the regulator yet, then executes its dry run and checked write.
+
+Private-control profiles must match the GPU, VBIOS and driver. If these change,
+save a fresh profile after validating the settings on that configuration.
+Older JSON profiles still load their original fields; their menu rows explicitly
+say that I2C/per-rail settings were not saved. Missing fields never reset a rail
+to an invented zero. A failed voltage restore stops before applying clocks that
+may depend on it; the log reports any partial application and the undo point
+contains the preceding rail settings too.
 
 The delta table is written **last** and wins, because the core offset and the
 delta table are the same driver rows. A profile from a different card or VBIOS
 asks for a second, deliberate confirmation.
+
+### Load at Windows sign-in
+
+In **Profiles > Load profile**, choose **Load at startup** beside a named
+profile. Run Druta as administrator when configuring this option. It stores a
+fixed copy of that tune for this Windows user and registers an interactive,
+elevated Task Scheduler task with a 30-second sign-in delay. No password is
+stored. Selecting the action again replaces the startup copy; overwriting the
+ordinary named profile does not silently update it. Only one startup profile
+is selected per user, bound to the saved card. **Disable startup loading**
+removes the selection and task. Moving a portable installation requires selecting
+the profile again from its new location so the task points to the new EXE.
+
+Automatic loading requires positive evidence of a clean previous Windows
+shutdown/boot and a clean Druta session. A crash, forced termination, power loss,
+missing/corrupt session record or unavailable Windows boot evidence causes the
+profile to be **skipped for the entire boot**. Reopening Druta cannot retry it
+automatically during that boot; manual loading remains available. A normal
+Windows shutdown while Druta is open is recognized through `WM_ENDSESSION`.
+Shutdown during I2C verification/profile application remains unclean. The next
+clean boot can load again. Hibernate/Fast Startup variants without matching
+boot evidence also skip loading rather than assuming success.
+
+The attempt is recorded on disk **before any GPU is opened for startup loading**.
+A second Druta window cannot own startup loading or clear the first window's
+crash marker. GPU/driver identity and a complete undo capture are checked again
+before applying. A startup application failure is logged and is not retried
+automatically. Configuration/session files live in `%LOCALAPPDATA%\Druta\`;
+they are separate from the portable source/binary distribution.
+
+Windows references: [shutdown notifications](https://learn.microsoft.com/en-us/windows/win32/shutdown/wm-endsession),
+[unexpected reboot events](https://learn.microsoft.com/en-us/troubleshoot/windows-client/performance/event-id-41-restart),
+[Task Scheduler schema](https://learn.microsoft.com/en-us/windows/win32/taskschd/task-scheduler-schema).
 
 An automatic undo point is taken before each of: the core-offset apply, `Reset
 all to stock`, the V/F apply, `Reset curve to stock`, a profile load, and **a

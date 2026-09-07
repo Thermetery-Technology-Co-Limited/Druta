@@ -1092,6 +1092,27 @@ the plan once the user had already committed to pressing; the banner describes
 it continuously, and `autosave_before` makes the write recoverable. `Reset all
 to stock` still takes two, because it drops every knob at once.
 
+## I2C discovery and contribution interfaces
+
+`railctl.discover()` returns all controller candidates on the selected GPU.
+NCP4206 uses a Kepler port scan and an absolute-VID adapter; MP2888A scans
+ports/addresses, checks a repeated register fingerprint and binds an offset
+recipe to the discovered connection. These scanners do not use board-ID gates;
+other generic TOML recipes retain optional PCI matching and fixed bus settings.
+
+Candidate selection and Verify are separate steps. Verify makes bounded writes
+under load, measures response and checks restoration. Failed restoration cannot
+authorize Apply. Verification is bound to the current GPU/controller/recipe;
+rescans and selection changes invalidate it. Tuning profiles also capture
+per-rail limits and controller state, including NCP target/Auto or MP offset,
+with the exact connection and recipe fingerprint. An exact unique saved identity
+can resolve multiple candidates but does not replace fresh verification.
+
+See [CONTRIBUTING.md](i2c/CONTRIBUTING.md) for evidence requirements and
+[PROFILES.md](i2c/PROFILES.md) for recipe fields, adapter responsibilities and
+hardware-free checks. Discovery, decode and write-path validation are separate
+claims; a successful read does not establish an effective or restorable write.
+
 ## Profiles and undo points
 
 Named profiles snapshot both offsets, the power limit, the voltage boost, the

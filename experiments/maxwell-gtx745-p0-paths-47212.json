@@ -1,0 +1,525 @@
+{
+  "gpu": "NVIDIA GeForce GTX 745",
+  "device_id": "1382",
+  "architecture": "GM107 Maxwell",
+  "memory": "DDR3",
+  "driver": "472.12",
+  "scope": "GTX 745 measured; GTX 770 no longer installed, so legacy Kepler forcing remains unverified. No voltage writes, no clock-offset changes by this test. User changed memory offset during the first application-clock experiment; that run was excluded and repeated after the user restored it to stock.",
+  "nvml_locks": {
+    "lock_before": null,
+    "gpu_lock": [
+      false,
+      "lock failed: Not Supported (needs admin)"
+    ],
+    "memory_lock": {
+      "rc": 3,
+      "status": "Not Supported"
+    },
+    "application_clock_reads": {
+      "nvmlDeviceGetApplicationsClock:0": {
+        "rc": 0,
+        "value": 1032,
+        "status": "Success"
+      },
+      "nvmlDeviceGetApplicationsClock:2": {
+        "rc": 0,
+        "value": 900,
+        "status": "Success"
+      },
+      "nvmlDeviceGetDefaultApplicationsClock:0": {
+        "rc": 0,
+        "value": 1032,
+        "status": "Success"
+      },
+      "nvmlDeviceGetDefaultApplicationsClock:2": {
+        "rc": 0,
+        "value": 900,
+        "status": "Success"
+      }
+    }
+  },
+  "nvidia_smi": [
+    {
+      "args": [
+        "-i",
+        "0000:02:00.0",
+        "-lgc",
+        "1072,1072"
+      ],
+      "returncode": 0,
+      "stdout": "Setting locked GPU clocks is not supported for GPU 00000000:02:00.0.\nTreating as warning and moving on.\nAll done.\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "-i",
+        "0000:02:00.0",
+        "-lmc",
+        "900,900"
+      ],
+      "returncode": 0,
+      "stdout": "Setting locked Memory clocks is not supported for GPU 00000000:02:00.0.\nTreating as warning and moving on.\nAll done.\n",
+      "stderr": ""
+    }
+  ],
+  "legacy_force": {
+    "query_id": "0x025BFB10",
+    "signature": "status(physical_gpu_handle, uint32 pstate, uint32 fallback)",
+    "force_request": [
+      0,
+      2
+    ],
+    "release_request": [
+      16,
+      2
+    ],
+    "idle_cycles": [
+      {
+        "set_status": 0,
+        "forced_states": [
+          {
+            "pstate": 0,
+            "core_mhz": 540,
+            "memory_mhz": 900,
+            "util_pct": 0
+          }
+        ],
+        "release_status": 0,
+        "released_last": {
+          "pstate": 8,
+          "core": 135,
+          "mem": 405,
+          "util_gpu": 0,
+          "temp_edge": 27,
+          "core_off": 40,
+          "mem_off": 0
+        }
+      },
+      {
+        "set_status": 0,
+        "forced_states": [
+          {
+            "pstate": 0,
+            "core_mhz": 540,
+            "memory_mhz": 900,
+            "util_pct": 0
+          }
+        ],
+        "release_status": 0,
+        "released_last": {
+          "pstate": 8,
+          "core": 135,
+          "mem": 405,
+          "util_gpu": 0,
+          "temp_edge": 28,
+          "core_off": 40,
+          "mem_off": 0
+        }
+      }
+    ],
+    "loaded_fallback_2": {
+      "set_status": 0,
+      "forced_idle": {
+        "pstate": 0,
+        "core": 540,
+        "mem": 900,
+        "util_gpu": 0,
+        "temp_edge": 28,
+        "core_off": 40,
+        "mem_off": 0
+      },
+      "loaded": [
+        {
+          "pstate": 0,
+          "core": 540,
+          "mem": 900,
+          "util_gpu": 81,
+          "temp_edge": 28,
+          "core_off": 40,
+          "mem_off": 0
+        },
+        {
+          "pstate": 0,
+          "core": 540,
+          "mem": 900,
+          "util_gpu": 81,
+          "temp_edge": 28,
+          "core_off": 40,
+          "mem_off": 0
+        },
+        {
+          "pstate": 0,
+          "core": 540,
+          "mem": 900,
+          "util_gpu": 81,
+          "temp_edge": 28,
+          "core_off": 40,
+          "mem_off": 0
+        },
+        {
+          "pstate": 0,
+          "core": 540,
+          "mem": 900,
+          "util_gpu": 81,
+          "temp_edge": 29,
+          "core_off": 40,
+          "mem_off": 0
+        },
+        {
+          "pstate": 0,
+          "core": 540,
+          "mem": 900,
+          "util_gpu": 81,
+          "temp_edge": 29,
+          "core_off": 40,
+          "mem_off": 0
+        },
+        {
+          "pstate": 0,
+          "core": 540,
+          "mem": 900,
+          "util_gpu": 83,
+          "temp_edge": 29,
+          "core_off": 40,
+          "mem_off": 0
+        }
+      ],
+      "timings": {
+        "ok": true,
+        "pstate_before": 0,
+        "pstate_after": 0,
+        "mem_before": 900,
+        "mem_after": 900
+      },
+      "after_context_closed": {
+        "pstate": 0,
+        "core": 540,
+        "mem": 900,
+        "util_gpu": 0,
+        "temp_edge": 28,
+        "core_off": 40,
+        "mem_off": 0
+      },
+      "release_status": 0,
+      "released": {
+        "pstate": 0,
+        "core": 784,
+        "mem": 900,
+        "util_gpu": 0,
+        "temp_edge": 29,
+        "core_off": 40,
+        "mem_off": 0
+      },
+      "load_stats": {
+        "verified_64MiB_copies": 32,
+        "mismatches": 0,
+        "deadline_reached": false
+      },
+      "load_error": ""
+    },
+    "loaded_fallback_1": {
+      "set_status": 0,
+      "forced_idle": {
+        "pstate": 0,
+        "core": 540,
+        "mem": 900,
+        "util_gpu": 0,
+        "temp_edge": 28,
+        "core_off": 40,
+        "mem_off": 0
+      },
+      "loaded": [
+        {
+          "pstate": 0,
+          "core": 540,
+          "mem": 900,
+          "util_gpu": 81,
+          "temp_edge": 28,
+          "core_off": 40,
+          "mem_off": 0
+        },
+        {
+          "pstate": 0,
+          "core": 540,
+          "mem": 900,
+          "util_gpu": 84,
+          "temp_edge": 28,
+          "core_off": 40,
+          "mem_off": 0
+        },
+        {
+          "pstate": 0,
+          "core": 540,
+          "mem": 900,
+          "util_gpu": 87,
+          "temp_edge": 28,
+          "core_off": 40,
+          "mem_off": 0
+        },
+        {
+          "pstate": 0,
+          "core": 540,
+          "mem": 900,
+          "util_gpu": 84,
+          "temp_edge": 29,
+          "core_off": 40,
+          "mem_off": 0
+        },
+        {
+          "pstate": 0,
+          "core": 540,
+          "mem": 900,
+          "util_gpu": 81,
+          "temp_edge": 29,
+          "core_off": 40,
+          "mem_off": 0
+        },
+        {
+          "pstate": 0,
+          "core": 540,
+          "mem": 900,
+          "util_gpu": 80,
+          "temp_edge": 29,
+          "core_off": 40,
+          "mem_off": 0
+        }
+      ],
+      "timings": {
+        "ok": true,
+        "pstate_before": 0,
+        "pstate_after": 0,
+        "mem_before": 900,
+        "mem_after": 900
+      },
+      "after_context_closed": {
+        "pstate": 0,
+        "core": 540,
+        "mem": 900,
+        "util_gpu": 0,
+        "temp_edge": 28,
+        "core_off": 40,
+        "mem_off": 0
+      },
+      "release_status": 0,
+      "released": {
+        "pstate": 0,
+        "core": 784,
+        "mem": 900,
+        "util_gpu": 0,
+        "temp_edge": 28,
+        "core_off": 40,
+        "mem_off": 0
+      },
+      "load_stats": {
+        "verified_64MiB_copies": 31,
+        "mismatches": 0,
+        "deadline_reached": false
+      },
+      "load_error": ""
+    },
+    "automatic_fallback_1": {
+      "set_status": 0,
+      "forced_idle": {
+        "pstate": 8,
+        "core": 135,
+        "mem": 405,
+        "util_gpu": 0,
+        "temp_edge": 27,
+        "core_off": 40,
+        "mem_off": 0
+      },
+      "loaded": [
+        {
+          "pstate": 0,
+          "core": 1072,
+          "mem": 900,
+          "util_gpu": 84,
+          "temp_edge": 28,
+          "core_off": 40,
+          "mem_off": 0
+        },
+        {
+          "pstate": 0,
+          "core": 1072,
+          "mem": 900,
+          "util_gpu": 80,
+          "temp_edge": 29,
+          "core_off": 40,
+          "mem_off": 0
+        },
+        {
+          "pstate": 0,
+          "core": 1072,
+          "mem": 900,
+          "util_gpu": 80,
+          "temp_edge": 29,
+          "core_off": 40,
+          "mem_off": 0
+        },
+        {
+          "pstate": 0,
+          "core": 1072,
+          "mem": 900,
+          "util_gpu": 80,
+          "temp_edge": 29,
+          "core_off": 40,
+          "mem_off": 0
+        },
+        {
+          "pstate": 0,
+          "core": 1072,
+          "mem": 900,
+          "util_gpu": 81,
+          "temp_edge": 29,
+          "core_off": 40,
+          "mem_off": 0
+        },
+        {
+          "pstate": 0,
+          "core": 1072,
+          "mem": 900,
+          "util_gpu": 80,
+          "temp_edge": 29,
+          "core_off": 40,
+          "mem_off": 0
+        }
+      ],
+      "timings": {
+        "ok": true,
+        "pstate_before": 0,
+        "pstate_after": 0,
+        "mem_before": 900,
+        "mem_after": 900
+      },
+      "after_context_closed": {
+        "pstate": 0,
+        "core": 1072,
+        "mem": 900,
+        "util_gpu": 0,
+        "temp_edge": 29,
+        "core_off": 40,
+        "mem_off": 0
+      },
+      "release_status": 0,
+      "released": {
+        "pstate": 0,
+        "core": 1072,
+        "mem": 900,
+        "util_gpu": 0,
+        "temp_edge": 29,
+        "core_off": 40,
+        "mem_off": 0
+      },
+      "load_stats": {
+        "verified_64MiB_copies": 32,
+        "mismatches": 0,
+        "deadline_reached": false
+      },
+      "load_error": ""
+    }
+  },
+  "application_clocks": {
+    "original_pair": {
+      "core": 1033,
+      "mem": 900
+    },
+    "request": {
+      "core_mhz": 1007,
+      "memory_mhz": 900
+    },
+    "set": {
+      "rc": 0,
+      "status": "Success"
+    },
+    "readback": {
+      "core": 1007,
+      "mem": 900
+    },
+    "idle_states": [
+      {
+        "pstate": 8,
+        "core_mhz": 135,
+        "memory_mhz": 405,
+        "util_pct": 0
+      }
+    ],
+    "loaded_states": [
+      {
+        "pstate": 0,
+        "core_mhz": 1019,
+        "memory_mhz": 900,
+        "util_pct": 0
+      },
+      {
+        "pstate": 0,
+        "core_mhz": 1072,
+        "memory_mhz": 900,
+        "util_pct": 66
+      },
+      {
+        "pstate": 0,
+        "core_mhz": 1072,
+        "memory_mhz": 900,
+        "util_pct": 100
+      }
+    ],
+    "restore_status": 0,
+    "after": {
+      "core": 1033,
+      "mem": 900
+    },
+    "conclusion": "Stored/readable request; not an idle P0 hold, and not a fixed graphics-clock lock under the tested workload"
+  },
+  "final_restoration": {
+    "reset_applications_status": 0,
+    "nvmlDeviceGetApplicationsClock": {
+      "0": {
+        "rc": 0,
+        "mhz": 1032
+      },
+      "2": {
+        "rc": 0,
+        "mhz": 900
+      }
+    },
+    "nvmlDeviceGetDefaultApplicationsClock": {
+      "0": {
+        "rc": 0,
+        "mhz": 1032
+      },
+      "2": {
+        "rc": 0,
+        "mhz": 900
+      }
+    },
+    "final": {
+      "pstate": 8,
+      "core": 135,
+      "mem": 405,
+      "core_off": 40,
+      "mem_off": 0,
+      "temp_edge": 27
+    },
+    "fan": {
+      "source": "nvapi_cooler",
+      "fans": [
+        {
+          "id": 0,
+          "level": 100,
+          "policy": 1,
+          "default_policy": 16,
+          "manual": true,
+          "min": 20,
+          "max": 100
+        }
+      ]
+    }
+  },
+  "max_it": "Not exposed: verified forced P0 reduces loaded core from 1072 to 540 MHz on this board",
+  "sources": [
+    "https://github.com/Demion/nvapioc/blob/master/Source/main.cpp",
+    "https://github.com/falahati/NvAPIWrapper/pull/73/files",
+    "https://docs.nvidia.com/deploy/archive/R535/nvml-api/group__nvmlDeviceCommands.html",
+    "https://github.com/valleyofdoom/limit-nvpstate/blob/main/limit-nvpstate/nvidia.cpp"
+  ]
+}

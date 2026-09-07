@@ -1,0 +1,4432 @@
+{
+  "date": "2026-09-07",
+  "driver": "472.12",
+  "control_writes": 0,
+  "scope": "Known private clock/rail getters at idle and settled CUDA load; 64KiB clock buffers and 8KiB rail buffers",
+  "cards": [
+    {
+      "slot": "0000:01:00.0",
+      "name": "NVIDIA TITAN RTX",
+      "driver": "472.12",
+      "idle": {
+        "pstate": 8,
+        "clock": [
+          {
+            "version": "0x261a4",
+            "mask": "0x0",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x1",
+            "status": 0,
+            "changed_dwords": [
+              12,
+              292
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000",
+              "0x124": "0x8"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x2",
+            "status": 0,
+            "changed_dwords": [
+              12,
+              1064
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000",
+              "0x428": "0x9"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x4",
+            "status": 0,
+            "changed_dwords": [
+              12,
+              1836
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000",
+              "0x72c": "0x8"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x8",
+            "status": 0,
+            "changed_dwords": [
+              12,
+              2608
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000",
+              "0xa30": "0x9"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x10",
+            "status": 0,
+            "changed_dwords": [
+              12,
+              3380
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000",
+              "0xd34": "0x9"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x20",
+            "status": 0,
+            "changed_dwords": [
+              12,
+              4152
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000",
+              "0x1038": "0x9"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x40",
+            "status": 0,
+            "changed_dwords": [
+              12,
+              4924
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000",
+              "0x133c": "0x2"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x80",
+            "status": 0,
+            "changed_dwords": [
+              12,
+              5696
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000",
+              "0x1640": "0x8"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x100",
+            "status": 0,
+            "changed_dwords": [
+              12,
+              6468
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000",
+              "0x1944": "0x9"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x200",
+            "status": 0,
+            "changed_dwords": [
+              12,
+              7240
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000",
+              "0x1c48": "0x9"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x400",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x800",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x1000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x2000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x4000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x8000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x10000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x20000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x40000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x80000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x100000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x200000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x400000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x800000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x1000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x2000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x4000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x8000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x10000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x20000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x40000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x80000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0xffffffff",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x0",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x1",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x2",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x4",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x8",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x10",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x20",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x40",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x80",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x100",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x200",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x400",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x800",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x1000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x2000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x4000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x8000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x10000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x20000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x40000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x80000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x100000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x200000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x400000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x800000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x1000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x2000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x4000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x8000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x10000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x20000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x40000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x80000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0xffffffff",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          }
+        ],
+        "rails": [
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x20ac8",
+            "mask": 0,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x20ac8",
+            "mask": 1,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x20ac8",
+            "mask": 2,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x20ac8",
+            "mask": 3,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x10ac8",
+            "mask": 0,
+            "status": 0,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x10ac8",
+            "mask": 1,
+            "status": 0,
+            "generated_nonzero": {
+              "0x48": "0x1"
+            },
+            "changed_dwords": [
+              72
+            ]
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x10ac8",
+            "mask": 2,
+            "status": 0,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x10ac8",
+            "mask": 3,
+            "status": 0,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x10ac8",
+            "mask": 0,
+            "status": 0,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x10ac8",
+            "mask": 1,
+            "status": 0,
+            "generated_nonzero": {
+              "0x48": "0x1",
+              "0x4c": "0xa6522",
+              "0x50": "0x104ece",
+              "0x54": "0x10b076",
+              "0x58": "0x112a88",
+              "0x5c": "0x104ece",
+              "0x60": "0x9eb10",
+              "0x68": "0xa6522"
+            },
+            "changed_dwords": [
+              72,
+              76,
+              80,
+              84,
+              88,
+              92,
+              96,
+              104
+            ]
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x10ac8",
+            "mask": 2,
+            "status": -1,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x10ac8",
+            "mask": 3,
+            "status": -1,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x21620",
+            "mask": 0,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x21620",
+            "mask": 1,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x21620",
+            "mask": 2,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x21620",
+            "mask": 3,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          }
+        ]
+      },
+      "loaded": {
+        "pstate": 2,
+        "clock": [
+          {
+            "version": "0x261a4",
+            "mask": "0x0",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x1",
+            "status": 0,
+            "changed_dwords": [
+              12,
+              292
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000",
+              "0x124": "0x8"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x2",
+            "status": 0,
+            "changed_dwords": [
+              12,
+              1064
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000",
+              "0x428": "0x9"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x4",
+            "status": 0,
+            "changed_dwords": [
+              12,
+              1836
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000",
+              "0x72c": "0x8"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x8",
+            "status": 0,
+            "changed_dwords": [
+              12,
+              2608
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000",
+              "0xa30": "0x9"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x10",
+            "status": 0,
+            "changed_dwords": [
+              12,
+              3380
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000",
+              "0xd34": "0x9"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x20",
+            "status": 0,
+            "changed_dwords": [
+              12,
+              4152
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000",
+              "0x1038": "0x9"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x40",
+            "status": 0,
+            "changed_dwords": [
+              12,
+              4924
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000",
+              "0x133c": "0x2"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x80",
+            "status": 0,
+            "changed_dwords": [
+              12,
+              5696
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000",
+              "0x1640": "0x8"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x100",
+            "status": 0,
+            "changed_dwords": [
+              12,
+              6468
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000",
+              "0x1944": "0x9"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x200",
+            "status": 0,
+            "changed_dwords": [
+              12,
+              7240
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000",
+              "0x1c48": "0x9"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x400",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x800",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x1000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x2000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x4000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x8000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x10000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x20000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x40000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x80000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x100000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x200000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x400000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x800000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x1000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x2000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x4000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x8000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x10000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x20000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x40000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x80000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0xffffffff",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x0",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x1",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x2",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x4",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x8",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x10",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x20",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x40",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x80",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x100",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x200",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x400",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x800",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x1000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x2000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x4000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x8000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x10000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x20000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x40000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x80000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x100000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x200000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x400000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x800000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x1000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x2000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x4000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x8000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x10000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x20000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x40000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x80000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0xffffffff",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          }
+        ],
+        "rails": [
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x20ac8",
+            "mask": 0,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x20ac8",
+            "mask": 1,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x20ac8",
+            "mask": 2,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x20ac8",
+            "mask": 3,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x10ac8",
+            "mask": 0,
+            "status": 0,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x10ac8",
+            "mask": 1,
+            "status": 0,
+            "generated_nonzero": {
+              "0x48": "0x1"
+            },
+            "changed_dwords": [
+              72
+            ]
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x10ac8",
+            "mask": 2,
+            "status": 0,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x10ac8",
+            "mask": 3,
+            "status": 0,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x10ac8",
+            "mask": 0,
+            "status": 0,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x10ac8",
+            "mask": 1,
+            "status": 0,
+            "generated_nonzero": {
+              "0x48": "0x1",
+              "0x4c": "0x104ece",
+              "0x50": "0x104ece",
+              "0x54": "0x10b076",
+              "0x58": "0x112a88",
+              "0x5c": "0x104ece",
+              "0x60": "0x9eb10",
+              "0x68": "0xa6522"
+            },
+            "changed_dwords": [
+              72,
+              76,
+              80,
+              84,
+              88,
+              92,
+              96,
+              104
+            ]
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x10ac8",
+            "mask": 2,
+            "status": -1,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x10ac8",
+            "mask": 3,
+            "status": -1,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x21620",
+            "mask": 0,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x21620",
+            "mask": 1,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x21620",
+            "mask": 2,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x21620",
+            "mask": 3,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          }
+        ]
+      },
+      "load_error": ""
+    },
+    {
+      "slot": "0000:04:00.0",
+      "name": "NVIDIA GeForce GTX 690",
+      "driver": "472.12",
+      "idle": {
+        "pstate": 8,
+        "clock": [
+          {
+            "version": "0x261a4",
+            "mask": "0x0",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x1",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x2",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x4",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x8",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x10",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x20",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x40",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x80",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x100",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x200",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x400",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x800",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x1000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x2000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x4000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x8000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x10000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x20000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x40000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x80000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x100000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x200000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x400000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x800000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x1000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x2000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x4000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x8000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x10000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x20000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x40000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x80000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0xffffffff",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x0",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x1",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x2",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x4",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x8",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x10",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x20",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x40",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x80",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x100",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x200",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x400",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x800",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x1000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x2000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x4000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x8000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x10000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x20000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x40000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x80000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x100000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x200000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x400000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x800000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x1000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x2000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x4000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x8000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x10000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x20000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x40000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x80000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0xffffffff",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          }
+        ],
+        "rails": [
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x20ac8",
+            "mask": 0,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x20ac8",
+            "mask": 1,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x20ac8",
+            "mask": 2,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x20ac8",
+            "mask": 3,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x10ac8",
+            "mask": 0,
+            "status": 0,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x10ac8",
+            "mask": 1,
+            "status": 0,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x10ac8",
+            "mask": 2,
+            "status": 0,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x10ac8",
+            "mask": 3,
+            "status": 0,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x10ac8",
+            "mask": 0,
+            "status": -104,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x10ac8",
+            "mask": 1,
+            "status": -104,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x10ac8",
+            "mask": 2,
+            "status": -104,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x10ac8",
+            "mask": 3,
+            "status": -104,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x21620",
+            "mask": 0,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x21620",
+            "mask": 1,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x21620",
+            "mask": 2,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x21620",
+            "mask": 3,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          }
+        ]
+      },
+      "loaded": {
+        "pstate": 0,
+        "clock": [
+          {
+            "version": "0x261a4",
+            "mask": "0x0",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x1",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x2",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x4",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x8",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x10",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x20",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x40",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x80",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x100",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x200",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x400",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x800",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x1000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x2000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x4000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x8000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x10000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x20000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x40000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x80000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x100000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x200000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x400000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x800000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x1000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x2000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x4000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x8000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x10000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x20000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x40000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x80000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0xffffffff",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x0",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x1",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x2",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x4",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x8",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x10",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x20",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x40",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x80",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x100",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x200",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x400",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x800",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x1000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x2000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x4000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x8000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x10000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x20000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x40000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x80000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x100000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x200000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x400000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x800000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x1000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x2000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x4000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x8000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x10000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x20000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x40000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x80000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0xffffffff",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          }
+        ],
+        "rails": [
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x20ac8",
+            "mask": 0,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x20ac8",
+            "mask": 1,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x20ac8",
+            "mask": 2,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x20ac8",
+            "mask": 3,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x10ac8",
+            "mask": 0,
+            "status": 0,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x10ac8",
+            "mask": 1,
+            "status": 0,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x10ac8",
+            "mask": 2,
+            "status": 0,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x10ac8",
+            "mask": 3,
+            "status": 0,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x10ac8",
+            "mask": 0,
+            "status": -104,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x10ac8",
+            "mask": 1,
+            "status": -104,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x10ac8",
+            "mask": 2,
+            "status": -104,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x10ac8",
+            "mask": 3,
+            "status": -104,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x21620",
+            "mask": 0,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x21620",
+            "mask": 1,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x21620",
+            "mask": 2,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x21620",
+            "mask": 3,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          }
+        ]
+      },
+      "load_error": ""
+    },
+    {
+      "slot": "0000:05:00.0",
+      "name": "NVIDIA GeForce GTX 690",
+      "driver": "472.12",
+      "idle": {
+        "pstate": 0,
+        "clock": [
+          {
+            "version": "0x261a4",
+            "mask": "0x0",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x1",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x2",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x4",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x8",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x10",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x20",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x40",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x80",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x100",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x200",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x400",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x800",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x1000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x2000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x4000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x8000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x10000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x20000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x40000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x80000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x100000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x200000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x400000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x800000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x1000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x2000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x4000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x8000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x10000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x20000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x40000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x80000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0xffffffff",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x0",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x1",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x2",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x4",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x8",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x10",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x20",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x40",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x80",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x100",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x200",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x400",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x800",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x1000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x2000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x4000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x8000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x10000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x20000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x40000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x80000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x100000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x200000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x400000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x800000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x1000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x2000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x4000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x8000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x10000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x20000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x40000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x80000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0xffffffff",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          }
+        ],
+        "rails": [
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x20ac8",
+            "mask": 0,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x20ac8",
+            "mask": 1,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x20ac8",
+            "mask": 2,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x20ac8",
+            "mask": 3,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x10ac8",
+            "mask": 0,
+            "status": 0,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x10ac8",
+            "mask": 1,
+            "status": 0,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x10ac8",
+            "mask": 2,
+            "status": 0,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x10ac8",
+            "mask": 3,
+            "status": 0,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x10ac8",
+            "mask": 0,
+            "status": -104,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x10ac8",
+            "mask": 1,
+            "status": -104,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x10ac8",
+            "mask": 2,
+            "status": -104,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x10ac8",
+            "mask": 3,
+            "status": -104,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x21620",
+            "mask": 0,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x21620",
+            "mask": 1,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x21620",
+            "mask": 2,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x21620",
+            "mask": 3,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          }
+        ]
+      },
+      "loaded": {
+        "pstate": 0,
+        "clock": [
+          {
+            "version": "0x261a4",
+            "mask": "0x0",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x1",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x2",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x4",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x8",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x10",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x20",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x40",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x80",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x100",
+            "status": 0,
+            "changed_dwords": [
+              12
+            ],
+            "generated_nonzero": {
+              "0xc": "0x1010000"
+            },
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x200",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x400",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x800",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x1000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x2000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x4000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x8000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x10000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x20000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x40000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x80000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x100000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x200000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x400000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x800000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x1000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x2000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x4000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x8000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x10000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x20000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x40000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0x80000000",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x261a4",
+            "mask": "0xffffffff",
+            "status": -1,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x0",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x1",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x2",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x4",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x8",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x10",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x20",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x40",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x80",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x100",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x200",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x400",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x800",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x1000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x2000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x4000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x8000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x10000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x20000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x40000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x80000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x100000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x200000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x400000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x800000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x1000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x2000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x4000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x8000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x10000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x20000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x40000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0x80000000",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          },
+          {
+            "version": "0x161a4",
+            "mask": "0xffffffff",
+            "status": -9,
+            "changed_dwords": [],
+            "generated_nonzero": {},
+            "tail_changed": false
+          }
+        ],
+        "rails": [
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x20ac8",
+            "mask": 0,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x20ac8",
+            "mask": 1,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x20ac8",
+            "mask": 2,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x20ac8",
+            "mask": 3,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x10ac8",
+            "mask": 0,
+            "status": 0,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x10ac8",
+            "mask": 1,
+            "status": 0,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x10ac8",
+            "mask": 2,
+            "status": 0,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsCtlGet",
+            "version": "0x10ac8",
+            "mask": 3,
+            "status": 0,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x10ac8",
+            "mask": 0,
+            "status": -104,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x10ac8",
+            "mask": 1,
+            "status": -104,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x10ac8",
+            "mask": 2,
+            "status": -104,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x10ac8",
+            "mask": 3,
+            "status": -104,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x21620",
+            "mask": 0,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x21620",
+            "mask": 1,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x21620",
+            "mask": 2,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          },
+          {
+            "getter": "VoltRailsGet",
+            "version": "0x21620",
+            "mask": 3,
+            "status": -9,
+            "generated_nonzero": {},
+            "changed_dwords": []
+          }
+        ]
+      },
+      "load_error": ""
+    }
+  ]
+}

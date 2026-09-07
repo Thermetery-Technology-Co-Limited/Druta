@@ -12,7 +12,25 @@ Druta is from Sanskrit *druta* meaning fast. In Hindu performing art, it can als
 
 # II. A couple useful functions:
 
-## 1. `De-flatten`: 
+## Save a tune and load it at Windows sign-in
+
+**Profiles > Save profile** captures the applied curve, clocks, power, fan policy,
+confirmed per-rail limits and voltage offsets, the Additional Memory Clock
+Offset, and the identified I2C regulator's offset. The Load profile list shows
+these settings. Loading also restores XOC mode and enables the rail controls
+needed by the tune; I2C verification runs under load in each new session.
+
+Choose **Load at startup** beside a named profile to apply a saved copy at
+Windows sign-in. Configure this while running Druta as administrator. Selecting
+it again updates that copy; **Disable startup loading** turns it off. The card,
+VBIOS and driver must still match. After changing drivers, save a fresh profile.
+
+If Windows or Druta did not shut down normally, or the shutdown record cannot
+be verified, automatic loading is skipped for that boot. You can still load a
+profile manually. Reopening Druta does not bypass the skipped boot. After a
+clean shutdown and boot, automatic loading can resume.
+
+## 1. `De-flatten`:
 When two or more points on the VF curve land on the same frequency, only the one with the lowest voltage will ever be used. For example, if 1081, 1087, and 1093mv all correspond to 2000mhz, the card will always run at 1081mv, 2000mhz. Deflatten makes sure that every point on the the V/F curve between 1000mv to 1091mv (adjustable) are *mathematically strictly increasing*. That way, you can run 1091mv immediately without a hard voltage mod. 
 
 The TITAN RTX and TITAN Xp default cap is 1093.75 mV. On the confirmed
@@ -33,6 +51,17 @@ This mode is actually the opposite of deflatten. It flattens everything after 80
 ## 3. (my favorite function) `Max it`: 
 
 Had enough with boring sliders to the maximum? Click "max it". It does the V/F deflatten, maxes out the voltage boost, power limit, fan, and holds at 1093mv all in one click. You click it once, and the rest is the actual part of overclocking: changing the frequency. 
+
+On the verified GTX 745 and GTX 690 with driver 472.12, this position instead
+has a yellow **Lock P0 and max fan** button. It holds P0 and sets manual fan
+duty to 100%. Loaded core clocks were about 540 MHz on GTX 745 and 705 MHz
+on GTX 690; this keeps memory in its top band without maximizing core boost.
+The GTX 690 shares one blower between its two GPU cores.
+**Release P0** drops the hold; **Auto** restores automatic fan control.
+**Undo last write** restores the saved fan policy while retaining the P0 hold.
+**Reset all to stock** releases the hold and restores Auto; closing Druta
+releases the hold but leaves fan duty as set. Clock, power and voltage settings
+are not changed by this button.
 
 ## 4. What about XBAR? 
 
@@ -55,3 +84,12 @@ You should almost always use `Read memory timings (will hold P0)` (blue) because
 `Load nvtune` and `Enable Test Signing` are conspicuously displayed when nvtune isn't loaded.  
 
 Once `nvtune` EXE is loaded, these buttons move up to the `Device` menus on the taskbar. 
+
+## I2C controller selection
+
+MP2888A is discovered automatically by scanning the selected GPU's I2C ports
+and addresses. Open I2C regulator to see each candidate's port, address and
+scan-time telemetry. Choose a candidate when several respond, enable I2C rail,
+and press Verify before Apply. Rescan I2C refreshes discovery and clears the
+verification result; it preserves staged curve edits. Verification is repeated
+after changing GPUs or controllers, and cannot pass if restoration fails.
