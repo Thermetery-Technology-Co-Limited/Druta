@@ -1,5 +1,9 @@
 # GTX 745 DDR3 (GM107): ROM and private clock domains
 
+**Follow-up:** the [GTX 770 cross-check](kepler-gtx770-clock-crosscheck.md)
+now resolves Kepler16=XBAR2CLK and17=SYS2CLK and separates25=L2C2CLK.
+The observations and unresolved status below describe this earlier run.
+
 Verified 2026-09-07 on `0000:02:00.0`, driver 472.12, VBIOS
 82.07.32.00.6a. The supplied `GM107_edited.rom` and Maxwell II BIOS Tweaker
 screenshot provide distinct XBAR, L2C and SYS P0 targets. These are edited
