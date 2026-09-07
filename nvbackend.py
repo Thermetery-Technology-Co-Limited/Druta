@@ -392,7 +392,7 @@ class _ClkFreqs(ctypes.Structure):
 # On TU102 these are distinct observations. A is the PROGRAMMED target: always
 # exactly on the 15 MHz grid, and bit-identical across samples for a fixed
 # domain. B is a MEASURED counter: it jitters 1-3 Hz and never lands on the
-# grid. GK104 returns identical A/B values in tested states; it has not
+# grid. GK104/GM107 return identical A/B values in tested states; it has not
 # established an independent measured counter. Keep that scope explicit.
 #
 # HOW FAR APART THEY ACTUALLY RUN, measured on TU102 under ~99% GPU load,
@@ -512,7 +512,7 @@ def classify_domain_names(rows, core_mhz=None, mem_nvml=None,
     Equal frequencies do not identify a domain: Kepler's idle MEM and graphics
     clocks both read 324 MHz. Known families use their established primary
     slots; unknown families require a unique independent clock correlation.
-    Extra Kepler names are GK104 ROM/live-state inferences and remain LIKELY.
+    Extra legacy names are GK104/GM107 ROM/live-state inferences and remain LIKELY.
     These telemetry IDs never authorize private offset-control writes.
     """
     def close(a, b, tol=0.005):
@@ -552,6 +552,16 @@ def classify_domain_names(rows, core_mhz=None, mem_nvml=None,
         16: ("XBAR/SYS2CLK", 2), 17: ("XBAR/SYS2CLK", 2),
         18: ("HUB", 1), 20: ("PWR", 1), 21: ("MSD", 1),
         25: ("L2C2CLK", 2),
+    }
+
+    # GM107's deliberately distinct P0 ROM values resolve the pair that was
+    # ambiguous on GK104: 16 tracks XBAR 1165 MHz, 17 tracks SYS 1120 MHz.
+    # The 1130 MHz L2C and 540 MHz MSD entries have no populated private row
+    # in these captures. Do not transfer Kepler's 25/21 labels to empty slots.
+    # See experiments/maxwell-gtx745-clock-domains.md.
+    MAXWELL_NAMES = {
+        6: ("DISP", 1), 16: ("XBAR2CLK", 2), 17: ("SYS2CLK", 2),
+        18: ("HUB", 1), 20: ("PWR", 1),
     }
 
     # GP102's own earned name, gated on the GP102 signature exactly as the
@@ -624,6 +634,9 @@ def classify_domain_names(rows, core_mhz=None, mem_nvml=None,
             r["name"], r["grade"] = "MEM", PRIV_CONFIRMED
         elif architecture == 2 and dom in KEPLER_NAMES:
             r["name"], r["scale"] = KEPLER_NAMES[dom]
+            r["grade"] = PRIV_LIKELY
+        elif architecture == 3 and dom in MAXWELL_NAMES:
+            r["name"], r["scale"] = MAXWELL_NAMES[dom]
             r["grade"] = PRIV_LIKELY
         elif pascal_like and dom in PASCAL_NAMES:
             r["name"], r["grade"] = PASCAL_NAMES[dom]
@@ -1875,7 +1888,7 @@ class GPU:
             srcid       array-B's second dword
 
         Delta is B minus A. The physical-counter interpretation was measured
-        on TU102; GK104 returned identical A/B words in all tested states.
+        on TU102; GK104/GM107 returned identical A/B words in all tested states.
 
         `pc` lets a caller that already read a payload this tick hand it over
         instead of paying for a second round trip."""

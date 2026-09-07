@@ -650,7 +650,7 @@ class Druta:
     def build_domains(self):
         """Show both private clock arrays without assuming every GPU has counters.
 
-        A/B roles were measured on TU102. GK104 returns identical values in
+        A/B roles were measured on TU102. GK104/GM107 return identical values in
         both arrays, so its B values do not establish physical clock delivery.
         Rows retain their domain numbers across performance states and cards.
         """
@@ -663,15 +663,15 @@ class Druta:
                     "Two arrays cover 32 private clock domains:\n"
                     "A: 2*d {frequency, flags}; B: 64+7*d {frequency, srcid, ...}.\n"
                     "On TU102, A tracks the programmed target and B behaves as\n"
-                    "a measured counter. On GK104, A and B matched exactly in\n"
+                    "a measured counter. On GK104/GM107, A and B matched exactly in\n"
                     "idle, boost and held-P0 samples; B is not independent proof\n"
                     "of the physical clock. Other GPUs need their own validation.\n\n"
                     "GPC2CLK and other 2CLK labels retain the doubled units\n"
                     "returned by the driver. MEM retains the raw driver units;\n"
                     "the memory tile converts these for the memory technology.\n\n"
-                    "Kepler names with '?' follow GTX 690 ROM/state correlation.\n"
-                    "Domains 16/17 form the XBAR/SYS pair; their individual order\n"
-                    "is unresolved because both clocks have identical values.\n"
+                    "Kepler/Maxwell names with '?' follow ROM/state correlation.\n"
+                    "GM107: domain 16 matches XBAR, 17 matches SYS. Kepler\n"
+                    "16/17 remain an unordered pair with identical ROM values.\n"
                     "Domain 31, where populated, is shown as link generation\n"
                     "with its unidentified B field displayed raw.")
             dpg.add_separator()
@@ -680,7 +680,7 @@ class Druta:
             # hovering.
             dpg.add_text(
                 "A / B = driver-reported clock arrays. TU102: target / measured "
-                "counter; GK104: identical in tested states. 2CLK = doubled "
+                "counter; GK104/GM107: identical in tested states. 2CLK = doubled "
                 "clock units. Delta colors use one / three graphics bins, "
                 "scaled only for identified 2CLK domains.\n"
                 "Names: plain = confirmed; '?' = inferred; '--' = unidentified. "

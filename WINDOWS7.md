@@ -102,7 +102,9 @@ python druta.py
 
 The draft includes the shared Druta 1.3.0 profile and sign-in workflow,
 Kepler/Maxwell controls, automatic NCP4206 and MP2888A discovery and verification,
-and the GTX 690 clock-domain decoding. Windows 7 retains its Python 3.8,
+and the GTX 690 and GTX 745 (GM107 DDR3) clock-domain decoding. The ROM
+decoder accepts the observed Maxwell performance-table format, and uncertain
+clock identities retain their inferred labels. Windows 7 retains its Python 3.8,
 legacy NVML export selection, TOML parser and DPI fallbacks. Suppressed features
 remain unavailable in Druta and therefore not shown; a new label does not
 make an unverified register writable.
@@ -111,7 +113,7 @@ The sign-in shutdown check normalizes Windows event timestamps from seven
 fractional digits to six for Python 3.8 while preserving the full boot ID.
 Missing or inconclusive shutdown evidence still prevents automatic loading.
 
-On the Windows 10 build host, the propagated source passed 358 root-level
+On the Windows 10 build host, the propagated source passed 370 root-level
 unit tests and 42 legacy tests with Python 3.8.10. The source startup smoke
 rendered three frames; the full-interface fixture rendered Control, Monitor
 and Timings (980 items, nine frames) with no worker or subprocess attempts.
