@@ -25,7 +25,6 @@ hiddenimports = []
 tmp_ret = collect_all('dearpygui')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
-
 # KNOWN AND DELIBERATELY NOT "FIXED": Analysis collects the Visual C++ runtime
 # from three different origins, so the shipped bundle carries three CRT
 # versions at once.
@@ -60,8 +59,8 @@ datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 # does become implicated, the evidence to gather first is whether the fault
 # reproduces OUTSIDE the bundle - if it does, this is not the cause.
 a = Analysis(
-    ['druta.py'],
-    pathex=[],
+    ['src/run_druta.py'],
+    pathex=['src'],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,

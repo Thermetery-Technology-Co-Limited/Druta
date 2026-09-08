@@ -2,6 +2,10 @@
 
 **Version 1.3.0** — [release notes](RELEASE-NOTES-1.3.0.md).
 
+Package-refactor validation: [Maxwell/Pascal](MAXWELL-PASCAL-VALIDATION.md)
+and [RTX 5080 / Blackwell](BLACKWELL-VALIDATION.md), including controlled
+writes, readbacks, restoration and the limits of the tested coverage.
+
 A monitor and tuner for Pascal/Turing/Blackwell NVIDIA cards, driven through NVAPI/NVML private
 interfaces. It edits the V/F curve
 with planners built around how the boost arbiter actually behaves, and reads and
@@ -92,11 +96,54 @@ commands inside `source`.
 
 ---
 
+# Development
+
+Use Python 3.11 or newer. Release builds use the interpreter and dependency
+versions recorded in `requirements.txt`.
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e ".[dev]"
+python -m druta
+```
+
+Run the hardware-free regression suite:
+
+```powershell
+python -m pytest
+```
+
+Lint and type-check:
+
+```powershell
+ruff check src/ tests/
+pyright
+```
+
+Application modules live in `src/druta/`; regression tests live in `tests/`.
+The root `druta.py` remains a small compatibility launcher so existing source
+commands and registered sign-in tasks keep working after the move.
+The diagnostic commands below use package modules and require the editable
+installation above. For example, `python -m druta.tools.i2c_discover --help`
+shows the survey options without accessing a GPU.
+
+Existing source profiles and undo snapshots remain in the checkout's
+`profiles/` directory, and editable regulator recipes remain in `i2c/`.
+Bundled applications retain their existing `_internal/profiles/` storage and
+beside-executable `i2c/` overrides. A regular wheel installation stores tuning
+profiles under `%LOCALAPPDATA%\Thermetery\Druta\profiles` and includes its
+regulator recipes and license documents as package data.
+
+---
+
 
 # Run
 
 - `dist\Druta\Druta.exe` — bundled application, no Python needed.
-- or `python druta.py` from source.
+- `python druta.py` — launch a source checkout after installing
+  `requirements.txt`; no editable installation is required.
+- `python -m druta` — launch an editable or regular installed package.
 - **Run as administrator** for every write path: clock lock, fan, power limit,
   V/F curve, memory timings.
 ---
@@ -297,20 +344,20 @@ by an end-to-end test after the first build exposed a reversed XBAR slider.
 Before testing a new RTX 50-series card or driver, collect a read-only report:
 
 ```powershell
-python nvbackend.py --clkdom-debug --json > clkdom-debug.json
+python -m druta.nvbackend --clkdom-debug --json > clkdom-debug.json
 ```
 
 For an administrator-only, temporary mapping check, use the explicit probe:
 
 ```powershell
-python nvbackend.py --clkdom-map-probe --confirm > clkdom-map.json
+python -m druta.nvbackend --clkdom-map-probe --confirm > clkdom-map.json
 ```
 
 If the mapping probe reports accepted writes but no settled clock movement,
 compare the two frequency-field candidates with the field-only probe:
 
 ```powershell
-python nvbackend.py --clkdom-field-probe --confirm > clkdom-fields.json
+python -m druta.nvbackend --clkdom-field-probe --confirm > clkdom-fields.json
 ```
 
 This tests only `+0x10C` and `+0x114`; it never writes the neighbouring NVVDD
@@ -324,7 +371,7 @@ If the field probe accepts the writes but controls 1/3/4 all remain inert,
 scan the other non-core/non-memory control indices:
 
 ```powershell
-python nvbackend.py --clkdom-control-probe --delta 25 --confirm > clkdom-controls.json
+python -m druta.nvbackend --clkdom-control-probe --delta 25 --confirm > clkdom-controls.json
 ```
 
 The scan deliberately excludes controls 0 and 2 because another driver branch
@@ -333,15 +380,15 @@ repeat with `--include-core-memory`; the probe still restores the complete GET
 buffer after every individual write:
 
 ```powershell
-python nvbackend.py --clkdom-control-probe --include-core-memory --delta 25 --confirm > clkdom-controls-all.json
+python -m druta.nvbackend --clkdom-control-probe --include-core-memory --delta 25 --confirm > clkdom-controls-all.json
 ```
 
 For a driver that stores a small request but shows no physical response, the
 explicit diagnostic also accepts a larger temporary delta up to `±200 MHz`:
 
 ```powershell
-python nvbackend.py --clkdom-field-probe --delta 200 --confirm > clkdom-fields-plus200.json
-python nvbackend.py --clkdom-field-probe --delta -200 --confirm > clkdom-fields-minus200.json
+python -m druta.nvbackend --clkdom-field-probe --delta 200 --confirm > clkdom-fields-plus200.json
+python -m druta.nvbackend --clkdom-field-probe --delta -200 --confirm > clkdom-fields-minus200.json
 ```
 
 Use this only with a stable test point and workload. The larger limit applies
@@ -760,8 +807,14 @@ The CUDA memcpy load is the fallback when the hold cannot be taken, such as in c
 
 Timing writings are quaduply guarded:
 
-1. **The card must be in its top memory band.** Timings are per band, so a write
-   in any other state will be writing into garbage and will be auto-rejected.
+1. **Controls must be unlocked and the current card must be in its top memory
+   band.** Apply checks a fresh P0/P2 memory-clock reading both before preparing
+   the write and immediately before commit. The applied memory offset is removed
+   before comparing against the nominal band. Unknown readings refuse the write;
+   an earlier performance capture cannot authorize a later idle-state write.
+   The nearby GP102/TU102 P2/P0 clock pairs are supported from measured register
+   equivalence. Other chips use their highest enumerated clock; the GTX 745's
+   idle 405 MHz state does not qualify against its 900 MHz top band.
 2. **Range and structural refusals before nvtune.**
    Druta does not allow you to write into structural fields (training and phase fragments that have no "looser" or "tigher" direction)
    and fields in a register whose offset is only *inferred* by nvtune. The `new value` column is completely empty for these fields. 
@@ -770,6 +823,9 @@ Timing writings are quaduply guarded:
    rather than inferred from an unchanged read-back. That inference is exactly
    what recorded four of twenty-five fields as hardware rejections in an earlier
    sweep when they had never reached BAR0.
+   Druta reads the helper's advertised command convention first: newer helpers
+   receive explicit `--dry-run`; legacy helpers must explicitly advertise that
+   writes require `--commit`. An unrecognized convention refuses the preview.
 4. **A per-card stock backup**, keyed by the card's **UUID**, NOT by PCI
    slot or by model name. nvtune's own default is `<slot>.stock.json` with
    an existence-only check, so swapping cards in one slot silently skipped the

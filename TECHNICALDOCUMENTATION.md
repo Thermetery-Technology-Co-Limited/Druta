@@ -33,7 +33,7 @@ Developed against two cards:
 
 ## Run
 
-- `dist\Druta.exe` — standalone, no Python needed.
+- `dist\Druta\Druta.exe` — bundled application, no Python needed.
 - or `python druta.py` from source.
 - **Run as administrator** for every write path: clock lock, fan, power limit,
   V/F curve, memory timings.
@@ -73,7 +73,7 @@ it was placed on, while the Release button in front of you would now be aimed at
 a different GPU. Staged-but-unwritten V/F or timing edits only ask for a
 confirming second click, since losing those costs nothing but the typing.
 
-Two things that are not obvious and are both tested in `test_swap.py`:
+Two things that are not obvious and are both tested in `tests/test_swap.py`:
 
 - A capture or an induced load can be several seconds — up to 25 — inside a call
   that started on the *previous* card. Each worker stamps a generation counter on
@@ -85,18 +85,18 @@ Two things that are not obvious and are both tested in `test_swap.py`:
   and, worse than the memory, a second live handler registry, which made one
   press of `W` nudge the point twice and one `Ctrl+Z` walk back two edits.
 
-`app.py` (the old Tk UI) is kept only as a parity reference for the Dear PyGui
+`src/druta/app.py` (the old Tk UI) is kept only as a parity reference for the Dear PyGui
 port. It has no build target and should not be edited. See
 [Why Dear PyGui](#why-dear-pygui).
 
 ## Build
 
 ```
-pip install dearpygui
-python -m PyInstaller --onefile --noconsole --name Druta --collect-all dearpygui druta.py
+python -m pip install -r requirements.txt
+.\build.ps1
 ```
 
-Output lands in `dist\Druta.exe`.
+Output lands in `dist\Druta\Druta.exe` and the matching ZIP. Distribute the whole bundle, including `_internal` and `source`.
 
 ---
 
@@ -536,15 +536,15 @@ be reused as the UI sign without repeating that test.
 For hardware validation, run:
 
 ```powershell
-python nvbackend.py --clkdom-debug --json > clkdom-debug.json
-python nvbackend.py --clkdom-map-probe --confirm > clkdom-map.json
+python -m druta.nvbackend --clkdom-debug --json > clkdom-debug.json
+python -m druta.nvbackend --clkdom-map-probe --confirm > clkdom-map.json
 ```
 
 When the candidate `+0x114` is accepted but produces no settled movement, use
 the frequency-only comparison probe:
 
 ```powershell
-python nvbackend.py --clkdom-field-probe --confirm > clkdom-fields.json
+python -m druta.nvbackend --clkdom-field-probe --confirm > clkdom-fields.json
 ```
 
 It compares `+0x10C` with `+0x114` for controls 1, 3 and 4. It deliberately
@@ -559,7 +559,7 @@ settled physical effect, scan the remaining non-core/non-memory control
 indices:
 
 ```powershell
-python nvbackend.py --clkdom-control-probe --delta 25 --confirm > clkdom-controls.json
+python -m druta.nvbackend --clkdom-control-probe --delta 25 --confirm > clkdom-controls.json
 ```
 
 This intentionally omits control indices 0 and 2 because they may be GPC and
@@ -567,7 +567,7 @@ memory on a different driver branch.  To include those two potentially
 high-impact paths on a test-only machine, pass the explicit opt-in:
 
 ```powershell
-python nvbackend.py --clkdom-control-probe --include-core-memory --delta 25 --confirm > clkdom-controls-all.json
+python -m druta.nvbackend --clkdom-control-probe --include-core-memory --delta 25 --confirm > clkdom-controls-all.json
 ```
 
 The scan is still one-field-at-a-time, checks the complete returned block
@@ -1224,8 +1224,14 @@ the load is skipped entirely: opening a CUDA context on a P0 card pulls it
 
 Four guards sit in front of every write:
 
-1. **The card must be in its top memory band.** Timings are per band, so a write
-   in any other state edits a band you are not tuning.
+1. **Controls must be unlocked and the current card must be in its top memory
+   band.** Apply checks fresh P0/P2 and offset-normalized memory-clock readings
+   before preparation and again immediately before commit. Missing state, clock
+   or offset refuses the write. Both reads bracketing a capture must qualify.
+   Only the measured GP102/TU102 nearby P2/P0 clock pairs share a band; other
+   chips use their highest enumerated clock. The GTX 745's [405, 900] clock list
+   therefore has a 900 MHz floor, with the same 5 MHz quantization allowance used
+   for matching reported clocks to enumerated states.
 2. **Range and structural refusals happen here, before nvtune is consulted.**
    Structural fields (training and phase fragments, with no "looser" direction)
    and fields in a register whose offset is only *inferred* get no input at all.
@@ -1246,6 +1252,12 @@ Outcomes are reported as four distinct states — **landed**, **dropped** (reach
 the hardware and was rejected), **refused** (nvtune declined; BAR0 never
 touched), **failed** — because conflating the middle two produces a confident
 wrong conclusion.
+
+A nonzero helper exit, timeout, missing pre-write value or missing post-write
+readback is **failed**, with the diagnostic retained. A partial commit can have
+actual readback values and still be failed. Missing readback is never proof of a
+hardware rejection. `force` only overrides nvtune's warning refusal; it does not
+override the current-state or Unlock checks.
 
 > **Measured: GP102 accepts these writes; TU102 rejects every one of them at the
 > hardware.** Same tool, same driver, same slot. `FAW 24→25` on GP102 applied,

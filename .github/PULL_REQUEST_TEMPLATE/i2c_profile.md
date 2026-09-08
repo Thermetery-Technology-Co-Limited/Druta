@@ -26,7 +26,7 @@ usually need evidence, not another board-ID entry or duplicate TOML. -->
 - Datasheet URL, exact part/revision/pages; other public code sources and licence:
 - Unrelated responders rejected; live or mocked evidence:
 
-<details><summary>Survey output: python tools/i2c_discover.py --slot YOUR_SLOT</summary>
+<details><summary>Survey output: python -m druta.tools.i2c_discover --slot YOUR_SLOT</summary>
 
 ```text
 paste here
@@ -63,7 +63,7 @@ do not enlarge the trial ladder solely to obtain a pass. -->
 
 ## Software checks
 
-- [ ] Recipe changes pass `python -m unittest test_profiles` (or not applicable)
+- [ ] Recipe changes pass `python -m unittest tests.test_profiles` (or not applicable)
 - [ ] Adapter/discovery/UI changes pass `python -m unittest discover -q` (or not applicable)
 - [ ] Discovery tests issue no writes; ordinary tests do not access real GPUs
 - [ ] Ambiguity, wrong-controller rejection and connection-bound Verify tested

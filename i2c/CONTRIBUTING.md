@@ -37,7 +37,7 @@ ports are aliases or label every regulator NVVDD.
 For raw bus evidence, run the separate read-only survey:
 
 ```powershell
-python tools/i2c_discover.py --slot 0000:01:00.0
+python -m druta.tools.i2c_discover --slot 0000:01:00.0
 ```
 
 Replace the slot with your GPU's slot. Use `--ports 0,1,2` to narrow the survey
@@ -139,7 +139,7 @@ usually needs an evidence/matrix update, not another recipe.
 For a recipe contribution, run:
 
 ```powershell
-python -m unittest test_profiles
+python -m unittest tests.test_profiles
 ```
 
 For discovery, adapter, Verify or UI changes, add focused mocked regressions and

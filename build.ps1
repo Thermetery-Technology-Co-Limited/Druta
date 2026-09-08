@@ -19,7 +19,7 @@
        beside-exe i2c/) into dist/Druta-<version>-win64.zip.
 
     Version comes from a VERSION / __version__-style constant grepped out of
-    druta.py at build time. This script does not own druta.py and will not
+    src/druta/druta.py at build time. This script does not own druta.py and will not
     add one: if no such constant is found, the zip is named with "dev"
     instead of an invented version number.
 
@@ -44,7 +44,7 @@ $exePath   = Join-Path $bundleDir 'Druta.exe'
 $specPath  = Join-Path $root 'Druta.spec'
 $i2cSrc    = Join-Path $root 'i2c'
 $i2cDst    = Join-Path $bundleDir 'i2c'
-$drutaPy   = Join-Path $root 'druta.py'
+$drutaPy   = Join-Path $root 'src/druta/druta.py'
 $sourceDir = Join-Path $bundleDir 'source'
 
 # Keep this explicit: a working tree also contains private research, session
@@ -53,14 +53,14 @@ $sourceDir = Join-Path $bundleDir 'source'
 # of HEAD (which may describe a different executable).
 function Get-SourceSnapshot {
     $paths = @(
-        'app.py', 'druta.py', 'nvbackend.py', 'gpuload.py', 'profiles.py', 'startup.py',
-        'railctl.py', 'ncp4206.py', 'mp2888.py', 'shuntmod.py', 'timings.py', 'timingwrite.py',
+        'druta.py', 'src/run_druta.py', 'src/druta/__init__.py', 'src/druta/__main__.py',
         'Druta.spec', 'build.ps1', 'requirements.txt',
+        'pyproject.toml', 'setup.py', 'MANIFEST.in',
         '.github/PULL_REQUEST_TEMPLATE/i2c_profile.md',
         'AGENTS.md', 'COPYING', 'THIRD-PARTY-NOTICES.md', 'README.md', 'MANUAL.md',
         'TECHNICALDOCUMENTATION.md', 'DEBUG-SUMMARY-RTX5080.md',
         'VOLTAGE-RAILS-TITAN.md', 'VOLTAGE-RAILS-47212.md', 'DRIVER-COMPATIBILITY.md',
-        'RELEASE-NOTES-1.3.0.md',
+        'RELEASE-NOTES-1.3.0.md', 'MAXWELL-PASCAL-VALIDATION.md', 'BLACKWELL-VALIDATION.md',
         'experiments/voltage-rails-20260906.json',
         'experiments/legacy-offsets-47212-0000-01-00.0.json',
         'experiments/legacy-offsets-47212-0000-02-00.0.json',
@@ -86,15 +86,18 @@ function Get-SourceSnapshot {
         'experiments/kepler-timing-writes-47212.json',
         'experiments/kepler-timing-sweep-47212.json',
         'experiments/kepler-ncp4206-identity-47212.json',
-        'experiments/kepler-ncp4206-control-47212.json',
-        'tools/i2c_discover.py', 'tools/probe_volt_rails.py',
-        'tools/decode_kepler_clocks.py'
+        'experiments/kepler-ncp4206-control-47212.json'
     )
     # Only the explicitly public measurement files above are included
     # from experiments/. Other research/session captures remain excluded.
-    # Include regression tests and the public regulator profiles, including
-    # newly added files. No recursive wildcard can wander into docs/ or drv/.
-    foreach ($pattern in @('test_*.py', 'tests/test_*.py', 'i2c/*.toml', 'i2c/*.md')) {
+    # Include the complete package and regression suite, including package
+    # initializers and test helpers. Restrict recursion to these source trees;
+    # private docs/, drv/, profiles/, and other experiments remain excluded.
+    foreach ($directory in @('src/druta', 'tests')) {
+        $paths += @(Get-ChildItem -LiteralPath (Join-Path $root $directory) -Filter '*.py' -File -Recurse |
+            ForEach-Object { $_.FullName.Substring($root.Length + 1).Replace('\', '/') })
+    }
+    foreach ($pattern in @('i2c/*.toml', 'i2c/*.md')) {
         $paths += @(Get-ChildItem -Path (Join-Path $root $pattern) -File -ErrorAction SilentlyContinue |
             ForEach-Object { $_.FullName.Substring($root.Length + 1).Replace('\', '/') })
     }
