@@ -72,6 +72,8 @@ backup keyed by the card's UUID.
 --- 
 # Build
 
+For current Windows, use CPython 3.14 x64 and the pinned build recipe:
+
 ```powershell
 python -m pip install -r requirements.txt
 .\build.ps1
@@ -89,6 +91,10 @@ working tree had changes. The build refuses to package if source files change
 during compilation. Private research, GPU session profiles, and generated
 build files are excluded. To rebuild from the included source, run the same
 commands inside `source`.
+
+**Windows 7 SP1 x64:** use the separate `Druta-dev-win7-x64.zip` build.
+See [Windows 7 setup, build instructions and validation](WINDOWS7.md) for
+required Windows updates and the CPython 3.8 build recipe.
 
 ---
 

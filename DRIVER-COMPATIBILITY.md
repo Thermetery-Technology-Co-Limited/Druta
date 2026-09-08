@@ -4,7 +4,7 @@ This matrix tracks the local TITAN RTX (TU102, VBIOS 90.02.1E.00.02),
 TITAN Xp (GP102, VBIOS 86.02.3D.00.01), and GTX 770 (GK104, VBIOS
 80.04.c3.00.01, PCI 1184 / subsystem 1033196e), and GTX 745 (GM107 DDR3,
 VBIOS 82.07.32.00.6a, PCI 1382), and both GTX 690 cores (GK104,
-VBIOS 80.04.1e.00.18, PCI 1188 / subsystem 84061043) on Windows. Results are scoped to
+VBIOS 80.04.1e.00.18, PCI 1188 / subsystem 84061043) on Windows 10. Results are scoped to
 these boards and drivers. Blackwell's existing 580.97 controls are separate;
 this comparison does not establish a 472.12 Blackwell path. The 580.97 baseline
 column describes the TITAN boards; GTX 770, GTX 745 and GTX 690 were tested only on 472.12.

@@ -206,6 +206,24 @@ class WindowsIntegration(unittest.TestCase):
         with self.assertRaises(ValueError):
             startup.parse_boot(start, stale)
 
+    def test_windows_seven_digit_timestamps_preserve_boot_id_and_time_checks(self):
+        stamp = "2026-09-06T12:00:00.1234567Z"
+        start = boot_event("Microsoft-Windows-Kernel-General", 12, 100, stamp)
+        for timestamp, accepted in (("2026-09-06T12:00:00.1234568Z", True),
+                                    ("2026-09-06T12:00:01.1234567+00:00", True),
+                                    ("2026-09-06T11:59:59.1234567Z", False),
+                                    ("2026-09-06T12:02:01.1234567Z", False)):
+            with self.subTest(timestamp=timestamp):
+                status = boot_event("Microsoft-Windows-Kernel-Boot", 20, 103, timestamp,
+                                    LastShutdownGood="true", LastBootGood="true")
+                if accepted:
+                    result = startup.parse_boot(start, status)
+                    self.assertTrue(result["clean"])
+                    self.assertEqual(result["id"], stamp)
+                else:
+                    with self.assertRaises(ValueError):
+                        startup.parse_boot(start, status)
+
     def test_task_is_per_user_interactive_elevated_with_no_password_or_retry(self):
         command = [r"C:\Druta & tuning\Druta.exe", "--startup-profile"]
         xml = startup.task_xml(command, "S-1-5-21-123")

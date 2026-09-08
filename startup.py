@@ -10,6 +10,7 @@ import csv
 import io
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -77,8 +78,11 @@ def parse_boot(start_xml, status_xml):
                 or system.findtext(NS + "EventID") != str(event_id)):
             raise ValueError("unexpected Windows boot event")
         timestamp = system.find(NS + "TimeCreated").get("SystemTime")
-        # Windows uses seven fractional digits; Python accepts and truncates them.
-        at = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        # Event logs use 100 ns precision; Python 3.8 accepts only 3 or 6
+        # fractional digits. Preserve the original boot ID, truncating only
+        # the value used for comparing event times to microsecond precision.
+        normalized = re.sub(r"(\.\d{6})\d(?=Z$|[+-]\d{2}:\d{2}$)", r"\1", timestamp)
+        at = datetime.fromisoformat(normalized.replace("Z", "+00:00"))
         fields = {n.get("Name"): n.text for n in node.findall(NS + "EventData/" + NS + "Data")}
         return int(system.findtext(NS + "EventRecordID")), timestamp, at, fields
     start = event(start_xml, "Microsoft-Windows-Kernel-General", 12)

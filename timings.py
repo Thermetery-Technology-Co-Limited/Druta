@@ -298,7 +298,7 @@ READ_ONLY_SUBCOMMANDS = frozenset({
     "list", "fields", "dump", "get", "save", "probe", "vbios"})
 # Belt and braces on top of that whitelist: even a read-only subcommand may not
 # carry these. `set`/`restore`/`apply`/`daemon` are the writing subcommands,
-# --commit is what turns nvtune's dry run into a hardware write, --force
+# --commit explicitly requests a hardware write, --force
 # defeats its range checks, and -i/--input only feeds `restore`.
 FORBIDDEN_TOKENS = frozenset({
     "set", "restore", "apply", "daemon", "--commit", "--force",
@@ -534,7 +534,7 @@ def _run(exe, subcmd, args=(), timeout=20.0, slot=None):
         nvtune save -o P     -> card 1 writes P, card 2 fails "cannot replace",
                                 and the file is card 1's registers regardless of
                                 which card the caller meant
-        nvtune set FAW=13    -> plans an op on BOTH cards
+        nvtune set --dry-run FAW=13 -> plans an op on BOTH cards
 
     Passing slot=None is still allowed, because `fields` is genuinely
     card-independent (verified: byte-identical output on TU102 and GP102), but
@@ -752,7 +752,7 @@ def field_table(override=None, refresh=False, timeout=20.0, exe=None):
         if not refresh and exe in _FT_CACHE:
             return _FT_CACHE[exe]
     r = _run(exe, "fields", timeout=timeout)
-    if r.returncode != 0 and not r.stdout.strip():
+    if r.returncode != 0:
         raise TimingsError(f"nvtune fields failed (exit {r.returncode}): "
                            f"{(r.stderr or '').strip()[:400]}")
     ft = parse_fields(r.stdout)
@@ -1154,6 +1154,10 @@ def snapshot(gpu=None, override=None, timeout=20.0):
         snap.mem_after, snap.pstate_after = _state_now(gpu)
         # ------------------------------------------------------------------ #
 
+        if r.returncode != 0:
+            snap.error = (f"nvtune save failed (exit {r.returncode}): "
+                          f"{(r.stderr or r.stdout or '').strip()[:400]}")
+            return snap
         if not os.path.isfile(path):
             snap.error = (f"nvtune save wrote no file (exit {r.returncode}): "
                           f"{(r.stderr or r.stdout or '').strip()[:400]}")

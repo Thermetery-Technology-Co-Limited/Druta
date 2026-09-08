@@ -46,7 +46,10 @@ import ctypes
 import os
 import sys
 import time
-import tomllib
+try:
+    import tomllib
+except ImportError:  # Python 3.8 is the Windows 7 runtime.
+    import tomli as tomllib
 
 u8, u32 = ctypes.c_uint8, ctypes.c_uint32
 PTR, P8 = ctypes.c_void_p, ctypes.POINTER(u8)

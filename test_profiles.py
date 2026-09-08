@@ -10,7 +10,10 @@ apart, and then a file passes review and is refused at runtime.
 """
 import glob
 import os
-import tomllib
+try:
+    import tomllib
+except ImportError:
+    import tomli as tomllib
 import unittest
 
 import railctl
