@@ -1,13 +1,21 @@
 # I2C recipes and controller adapters
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution workflow. This
-reference describes the current interfaces in [railctl.py](../railctl.py),
-[mp2888.py](../mp2888.py), and [ncp4206.py](../ncp4206.py).
+reference describes the current interfaces in [railctl.py](../src/druta/railctl.py),
+[mp2888.py](../src/druta/mp2888.py), and [ncp4206.py](../src/druta/ncp4206.py).
 
 An I2C recipe is TOML register data. A controller adapter supplies behavior that
 cannot be represented by the generic signed-offset writer. A saved **tuning
 profile** is a separate JSON snapshot of requested settings and the controller
 connection/recipe fingerprint; it is not a new register recipe.
+
+## Measured Astral MP29816 support
+
+The ASUS RTX 5080 Astral profile at port 2 / 7-bit address `0x30` provides
+PAGE 0 NVVDD telemetry and a sourced, experimental offset map. NVIDIA driver
+580.97 rejected the tested writes; a matching identity does not establish a
+working write path. Apply remains gated on successful per-session verification.
+See [MP29816 measurements and scope](MP29816-ASTRAL.md).
 
 ## Discovery and selection
 
@@ -45,7 +53,7 @@ trial. Verify cannot make an incorrectly specified register safe to probe.
 
 The generic verifier compares sensed rail voltage with GPU VID when available,
 stops at a detected response or failure, and checks restoration of the exact
-original offset field. Refused restoration, exceptions or incorrect readback
+original register word. Refused restoration, exceptions or incorrect readback
 force failure. A detecting step is not a calibrated gain or exact deadband.
 NCP4206 has its own voltage-target ladder and command/mode restoration.
 
@@ -158,6 +166,12 @@ identity block must pass. Specify an actual expected value/mask, not merely a
 readable command. Mark fingerprint checks honestly; do not describe address
 configuration or user-programmable bytes as immutable model identification.
 
+`profile.runtime_checks = true` enables identity/PAGE/scaling checks around
+transactions for writable profiles; telemetry-only profiles always use them.
+A detected configuration change discards the reading. These separate checks
+cannot exclude a change and return between transactions and do not lock out
+another I2C client. Existing unpaged writable profiles retain their polling cost.
+
 ### `[[telemetry]]`
 
 ```toml
@@ -201,8 +215,9 @@ note = "Transaction width 2 bytes; only the low 8-bit signed field is writable."
 Omit this section for read-only contributions. The generic UI/writer operates
 one `offset_mv` entry; adding other keys does not implement new controls or
 ordered sequences. `bytes` is the transaction width; `bits` is the field width.
-The generic setter writes that field and zeros bits outside it. A controller
-requiring preservation of neighboring writable fields needs a dedicated adapter.
+The generic setter replaces only that field, preserving other bits in the
+original word. Full-word readback is checked; failures after dispatch attempt
+restoration of the exact captured word.
 
 Document both the supported raw range and the field's representable range.
 MP2888A supports -111..112 codes, narrower than signed eight-bit representation;

@@ -29,11 +29,12 @@ the legacy RM transport without guessing a command:
 | Parameter header | mask, boost | selector, mask, boost |
 | Rail record | type 1, four deltas | type 5, four deltas, reserved/valid fields |
 
-The production writer selects the measured transport through an exact
-board/VBIOS/driver profile and preserves all unrelated packet words. A shared
-lock serializes hook installation across GPU objects; only the installing
-native thread may substitute a write. A background thread's intercepted read
-is forwarded without modification.
+The production writer selects the generation profile and then requires the
+live getter to confirm the measured transport layout. Device ID, subsystem ID,
+driver string and VBIOS do not gate the slider. The writer preserves all
+unrelated packet words. A shared lock serializes hook installation across GPU
+objects; only the installing native thread may substitute a write. A background
+thread's intercepted read is forwarded without modification.
 
 ## Measured bases and live behavior
 

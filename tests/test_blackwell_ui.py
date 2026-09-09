@@ -24,6 +24,7 @@ class BlackwellClockUiTests(FakeUiTest):
                 (15000, -13, -15), (15000, -200, -195)):
             with self.subTest(grid=grid, request=request):
                 self.app.gpu, driver = modern_gpu()
+                self.app.gpu.arch = lambda: 10
                 self.app.gpu.static.update(name="NVIDIA GeForce RTX 5080",
                                            core_off_range=(-200, 300))
                 self.app.gpu.clock_step_khz.return_value = grid
@@ -40,6 +41,7 @@ class BlackwellClockUiTests(FakeUiTest):
 
     def test_private_domain_keeps_one_mhz_requests_independently_of_graphics_grid(self):
         self.app.gpu, _ = modern_gpu()
+        self.app.gpu.arch = lambda: 10
         self.app.gpu.static["name"] = "NVIDIA GeForce RTX 5080"
         self.app.gpu.clock_step_khz.return_value = 12000
         self.app.gpu.set_clk_domain_offset = Mock(return_value=(True, "stored"))

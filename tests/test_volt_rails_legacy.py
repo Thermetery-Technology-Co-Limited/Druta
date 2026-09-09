@@ -15,6 +15,10 @@ from tests.test_volt_rails import fake_gpu
 def legacy_gpu(kind="turing", **identity):
     gpu = fake_gpu(kind, driver="472.12", **identity)
     api = gpu.nvapi
+    if kind == "pascal":
+        # R470's v1 control block uses the 1068.75 mV reliability base.
+        api.live[0][2] = 1068750
+        api.live[0][5] = min(api.live[0][2:5])
 
     def control(handle, buf):
         if api.escape_hook is not None:
@@ -38,7 +42,7 @@ def legacy_gpu(kind="turing", **identity):
 
 
 class LegacyRailReadTests(unittest.TestCase):
-    def test_profile_bases_and_boost_are_specific_to_measured_r470_boards(self):
+    def test_profile_bases_and_boost_follow_generation_and_runtime_version(self):
         for kind, overvoltage in (("turing", 1125), ("pascal", 1200)):
             with self.subTest(kind=kind):
                 gpu = legacy_gpu(kind)
@@ -49,7 +53,7 @@ class LegacyRailReadTests(unittest.TestCase):
                     "overvoltage": overvoltage, "vmin": 650})
                 self.assertEqual(fields["_headroom_mv"], 25)
                 self.assertEqual(gpu._volt_rail_profile()["control_version"], 0x10AC8)
-        self.assertFalse(legacy_gpu(vbios="unmeasured").volt_rail_limits_supported())
+        self.assertTrue(legacy_gpu(vbios="unmeasured").volt_rail_limits_supported())
 
     def test_v1_success_for_an_absent_rail_does_not_expose_msvdd(self):
         gpu = legacy_gpu()

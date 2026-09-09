@@ -12,16 +12,17 @@ from druta import railctl
 class MPVerifyRestoreTests(unittest.TestCase):
     def setUp(self):
         self.rail = railctl.Rail.__new__(railctl.Rail)
-        self.rail.p = SimpleNamespace(wreg=0x23, wbytes=2, wbits=(7, 0),
+        self.rail.p = SimpleNamespace(read_only=False, wreg=0x23, wbytes=2, wbits=(7, 0),
                                      lsb_mv=6.25, min_loaded_mv=800,
                                      rungs=[6.25, 12.5, 25.0])
         self.rail.addr7 = 0x20
         self.rail.present = Mock(return_value=True)
         # A negative starting offset exercises two's-complement restoration;
-        # upper transaction bits are reserved, not part of the offset field.
-        self.rail.read = Mock(side_effect=[0xABFE, 0x00FE])
+        # the captured upper transaction bits must also be restored.
+        self.rail.read = Mock(side_effect=[0xABFE, 0xABFE])
         self.rail._sample = Mock(side_effect=[(0.0, 1.0), (6.25, 1.0)])
         self.rail.set_offset_mv = Mock(return_value=(True, "written"))
+        self.rail._restore_word = Mock(return_value=(True, "restored"))
         self.log = Mock()
         self.sleep = patch("druta.railctl.time.sleep").start()
         self.addCleanup(patch.stopall)
@@ -31,8 +32,8 @@ class MPVerifyRestoreTests(unittest.TestCase):
                                 ref=lambda: 1050.0)
 
     def assert_restoration_attempted(self):
-        self.assertEqual(self.rail.set_offset_mv.call_args,
-                         call(-12.5, acknowledged=True))
+        self.assertEqual(self.rail._restore_word.call_args,
+                         call(0xABFE))
         self.assertEqual(self.rail.read.call_args, call(0x23, 2))
 
     def assert_restore_failed(self):
@@ -45,19 +46,17 @@ class MPVerifyRestoreTests(unittest.TestCase):
         self.assert_restoration_attempted()
         return message, ladder
 
-    def test_response_passes_only_after_exact_original_field_restored(self):
+    def test_response_passes_only_after_exact_original_word_restored(self):
         ok, message, ladder = self.verify()
         self.assertTrue(ok)
         self.assertIn("Restored to -12.50 mV", message)
         self.assertTrue(ladder[0]["moved"])
         self.assertEqual(self.rail.set_offset_mv.call_args_list,
-                         [call(-6.25, acknowledged=True),
-                          call(-12.5, acknowledged=True)])
+                         [call(-6.25, acknowledged=True)])
         self.assert_restoration_attempted()
 
     def test_refused_restore_overrides_success_even_if_readback_matches(self):
-        self.rail.set_offset_mv.side_effect = [(True, "written"),
-                                               (False, "identity changed")]
+        self.rail._restore_word.return_value = (False, "identity changed")
         message, _ = self.assert_restore_failed()
         self.assertIn("identity changed", message)
         self.assertEqual(self.rail.read.call_count, 2)
@@ -65,7 +64,7 @@ class MPVerifyRestoreTests(unittest.TestCase):
     def test_wrong_restore_field_overrides_success(self):
         self.rail.read.side_effect = [0xABFE, 0x00FF]
         message, _ = self.assert_restore_failed()
-        self.assertIn("expected field 0xFE", message)
+        self.assertIn("expected word 0xABFE", message)
 
     def test_unreadable_restore_field_overrides_success(self):
         self.rail.read.side_effect = [0xABFE, None]
@@ -73,8 +72,7 @@ class MPVerifyRestoreTests(unittest.TestCase):
         self.assertIn("unreadable", message)
 
     def test_restore_exception_still_attempts_readback_and_fails(self):
-        self.rail.set_offset_mv.side_effect = [(True, "written"),
-                                               RuntimeError("bus gone")]
+        self.rail._restore_word.side_effect = RuntimeError("bus gone")
         message, _ = self.assert_restore_failed()
         self.assertIn("bus gone", message)
         self.assertEqual(self.rail.read.call_count, 2)
@@ -91,7 +89,7 @@ class MPVerifyRestoreTests(unittest.TestCase):
         self.assertIn("INCONCLUSIVE", message)
         self.assertIn("Restored to", message)
         self.assertTrue(ladder[0]["read_failed"])
-        self.assertEqual(self.rail.set_offset_mv.call_count, 2)
+        self.assertEqual(self.rail.set_offset_mv.call_count, 1)
         self.assert_restoration_attempted()
 
     def test_measurement_exception_restores_and_returns_failure(self):
@@ -103,16 +101,15 @@ class MPVerifyRestoreTests(unittest.TestCase):
         self.assert_restoration_attempted()
 
     def test_early_rung_refusal_does_not_bypass_failed_restoration(self):
-        self.rail.set_offset_mv.side_effect = [(False, "no headroom"),
-                                               (False, "restore failed")]
+        self.rail.set_offset_mv.return_value = (False, "no headroom")
+        self.rail._restore_word.return_value = (False, "restore failed")
         message, ladder = self.assert_restore_failed()
         self.assertIn("no headroom", message)
         self.assertEqual(ladder, [{"rung_mv": 6.25,
                                    "refused": "no headroom"}])
 
     def test_early_rung_refusal_restores_and_preserves_inconclusive_verdict(self):
-        self.rail.set_offset_mv.side_effect = [(False, "no headroom"),
-                                               (True, "restored")]
+        self.rail.set_offset_mv.return_value = (False, "no headroom")
         ok, message, _ = self.verify()
         self.assertFalse(ok)
         self.assertIn("INCONCLUSIVE", message)
@@ -120,8 +117,7 @@ class MPVerifyRestoreTests(unittest.TestCase):
         self.assert_restoration_attempted()
 
     def test_rung_write_exception_also_attempts_restoration(self):
-        self.rail.set_offset_mv.side_effect = [RuntimeError("write lost"),
-                                               (True, "restored")]
+        self.rail.set_offset_mv.side_effect = RuntimeError("write lost")
         ok, message, _ = self.verify()
         self.assertFalse(ok)
         self.assertIn("write lost", message)

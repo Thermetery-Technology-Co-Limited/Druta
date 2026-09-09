@@ -44,8 +44,23 @@ Developed against two cards:
 **Per-rail voltage update, 2026-09-06:** both TITANs passed repeated tests
 above their default 1093.75 mV NVVDD cap. With the ceiling raised to 1125 mV
 and the V/F curve requesting it, both reported **1112.5 mV**. Druta now exposes
-the confirmed NVVDD limit controls for these board/VBIOS/driver combinations;
-MSVDD remains unavailable on both. See [measurements and reproduction](VOLTAGE-RAILS-TITAN.md).
+NVVDD limit controls by GPU generation plus runtime layout validation; no
+non-I2C slider is gated by device ID or VBIOS. MSVDD remains unavailable on
+both tested TITANs. See [measurements and reproduction](VOLTAGE-RAILS-TITAN.md).
+
+**Current limits:** the Control tab exposes the runtime-validated core-current
+policy on Pascal, Turing and Blackwell. The tested TITAN Xp and TITAN RTX allow
+**218 A** and **390 A** respectively. Blackwell also exposes its other-rail
+policy; normal mode caps those two controls at **500 A / 200 A**, while XOC
+permits the advertised API maximum (**5,001 A** on the tested Astral). Apply,
+Stock, live readback, profiles and Reset all use these limits. See
+[controls and validation](CURRENT-LIMITS-RTX5080.md).
+
+**RTX 5080 Astral I2C:** the MP29816 profile exposes measured NVVDD voltage at
+port 2 / 7-bit address 0x30 and an experimental 5 mV-step offset function.
+Identity, PAGE and scaling are checked around transactions. The tested driver
+rejects offset writes; Apply requires successful loaded verification each session.
+See [supported profiles](i2c/PROFILES.md) and [bench results](experiments/power-5080-20260908/MP29816-VALIDATION.md).
 
 ---
 
@@ -329,9 +344,9 @@ This block does not naively use the clock getter's domain numbering, because tha
 | 9 | LTC | coarser step — `+45` requested moved it `+30` |
 | 4, 6, 7, 8 | nothing | accept a write, store it, move no clock — left unnamed |
 
-### RTX 50-series / Blackwell diagnostic path
+### Blackwell diagnostic path
 
-The Turing mapping above is not reused for Blackwell.  RTX 50-series cards
+The Turing mapping above is not reused for Blackwell. Blackwell-generation GPUs
 use the same `0xF58938F5` / `0xD14B69CF` interface, but the Windows control
 block's frequency and MSVDD fields are at different offsets in the public
 Blackwell [implementation notes](https://github.com/SHANAjam/rtx5090-xbar-control/blob/main/docs/TECHNICAL_NOTES.md).  Druta therefore selects a separate candidate
@@ -341,7 +356,7 @@ one-hot domain probe and version echo succeed.  On the validated RTX 5080 /
 the XBAR request with the same sign selected by the user; this was confirmed
 by an end-to-end test after the first build exposed a reversed XBAR slider.
 
-Before testing a new RTX 50-series card or driver, collect a read-only report:
+Before testing a new Blackwell card or driver, collect a read-only report:
 
 ```powershell
 python -m druta.nvbackend --clkdom-debug --json > clkdom-debug.json
@@ -400,7 +415,7 @@ complete buffer in a `finally` block.  For a conclusive result, first use a
 fixed GPU-clock/V/F hold or a steady workload; otherwise a P-state transition
 is reported as unstable rather than as a mapping.  It is not run automatically
 by the UI.  Include the GPU model, driver, VBIOS and both JSON reports when
-reporting a driver-specific failure.  Do not use the probe on a non-RTX-50 card
+reporting a driver-specific failure. Do not use the probe on a non-Blackwell GPU
 or with an untrusted driver build.  GPC is retained as an operating-point
 diagnostic, but only the direct XBAR/SYS/memory/VIDEO observations can make the
 mapping verdict.  Large requests scale the minimum effect threshold (up to

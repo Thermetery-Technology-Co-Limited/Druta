@@ -57,6 +57,7 @@ long as the label never comes off - which is why `exact` is part of the return
 value rather than a footnote in the UI.
 """
 import json
+import math
 import os
 
 # Rated capacity per rail, in watts. Used ONLY to weight a mixed-multiplier
@@ -78,6 +79,25 @@ DEFAULT_RAILS = [
     {"kind": "pin8", "orig": DEFAULT_MOHM, "mod": DEFAULT_MOHM},
     {"kind": "pin8", "orig": DEFAULT_MOHM, "mod": DEFAULT_MOHM},
 ]
+
+
+def parallel_resistance(resistors):
+    """Return the parallel equivalent of *resistors*, in mOhm.
+
+    This is deliberately separate from the saved per-rail configuration: it
+    is a bench-side helper for working out the EFFECTIVE value to enter above,
+    not another source of truth for the correction.  A zero or malformed
+    value has no meaningful physical answer here, so return ``None`` while a
+    user is still editing rather than quietly treating it as absent.
+    """
+    try:
+        values = [float(resistance) for resistance in resistors]
+    except (TypeError, ValueError):
+        return None
+    if not values or any(not math.isfinite(value) or value <= 0.0
+                         for value in values):
+        return None
+    return 1.0 / sum(1.0 / value for value in values)
 
 
 def config_path():

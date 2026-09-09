@@ -16,6 +16,28 @@ The readings establish driver-reported live voltage, not an independent ADC
 or multimeter measurement. This is a short functional test, not a stability
 qualification or a search for the highest possible voltage.
 
+On TU102, the independent absolute-status getter can show VMIN one or two
+6.25 mV VID steps below the value reconstructed from the writable control
+block, and the ceiling fields can quantize independently even though the
+writable control block preserves the exact request. Those numeric differences
+are telemetry and never suppress rail controls on a supported generation.
+Structural getter/rail/type checks remain, as does exact control-block readback
+after each write. I2C regulator discovery is independent and never suppresses
+the NVVDD reliability, alternate-reliability, overvoltage, or VMIN controls.
+
+## Turing slider-suppression correction
+
+An earlier gate treated disagreement between absolute-status telemetry and
+the writable control block as a capability failure. That could hide all
+NVVDD controls on a supported Turing card even when the setter and exact
+control readback worked. Numeric telemetry skew no longer gates control
+eligibility. Structural checks and exact stored-request verification remain.
+The regression suite covers skewed status, malformed status structure and
+an overvoltage write with a skewed independent getter in
+[`tests/test_volt_rails.py`](tests/test_volt_rails.py); legacy transport coverage
+is in [`tests/test_volt_rails_legacy.py`](tests/test_volt_rails_legacy.py).
+No new live voltage experiment was performed while integrating this PR.
+
 ## The decisive test
 
 Raising the ceilings alone left both cards at 1081.25 mV: their evaluated
@@ -88,9 +110,11 @@ operating state.
 
 ## Druta behavior and reproduction
 
-The two tested PCI/subsystem/VBIOS/driver identities receive their own voltage
-bases, stock values, bounds, and NVVDD controls. Unknown identities retain
-read-only absolute telemetry. Rail-write opt-in is local to each selected GPU.
+Pascal and Turing receive generation-specific voltage bases, stock values,
+bounds, and NVVDD controls once the live driver getter confirms the expected
+record layout. Device ID, subsystem ID, driver string and VBIOS are not slider
+gates. Unknown generations or an unrecognized runtime layout retain read-only
+absolute telemetry. Rail-write opt-in is local to each selected GPU.
 The user-selected rail request bounds are **1200 mV normally / 1500 mV
 with XOC**, including overvoltage. NVVDD offset permits **+200 / +500 mV**
 respectively. These are software request limits, not verified hardware maxima.

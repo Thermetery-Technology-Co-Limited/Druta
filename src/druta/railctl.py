@@ -205,6 +205,10 @@ class Profile:
         wr = d.get("write") or []
         self.write = next((w for w in wr if w.get("key") == "offset_mv"), None)
         self.read_only = self.write is None
+        # Paged controllers need their PAGE/scaling identity gates around every
+        # operation. Read-only profiles already use this; existing unpaged
+        # writable profiles keep their established polling cost unless opted in.
+        self.runtime_checks = self.read_only or bool(p.get("runtime_checks", False))
         if self.read_only:
             self.wreg = self.wbytes = self.wbits = None
             self.lsb_mv = self.raw_min = self.raw_max = None
@@ -398,12 +402,17 @@ class Rail:
             out[str(t["key"])] = _decode(raw, t.get("encoding", "uint"),
                                          _bitspec(t.get("bits")),
                                          float(t.get("scale", 1.0)))
+        # PAGE/scaling can change through another controller client.
+        if self.p.runtime_checks and not self.present():
+            return {}
         if self.p.read_only:
             # No offset register to report, and reporting 0 would read as
             # "no offset applied" rather than "this profile cannot apply one".
             out["offset_raw"] = out["offset_mv"] = None
             return out
         raw = self.read(self.p.wreg, self.p.wbytes)
+        if self.p.runtime_checks and not self.present():
+            return {}
         out["offset_raw"] = raw
         out["offset_mv"] = None if raw is None else self._offset_mv(raw)
         return out
@@ -565,48 +574,83 @@ class Rail:
                           f"base {base:.2f} mV -> predicted {predicted:.2f} "
                           f"mV, ceiling {cap}. Nothing was written.{tag}")
 
-        # Only the FIELD, placed where the profile says it lives. The reserved
-        # bits of a wider transaction are documented to ignore writes and read
-        # back as zero, so sending a sign-extended value guarantees a read-back
-        # mismatch on every negative offset.
+        # Replace only the declared field. Other bits may be factory settings,
+        # not reserved zeros. Masking first also prevents sign extension from
+        # overwriting those settings for a negative offset.
         width = ((p.wbits[0] - p.wbits[1] + 1) if p.wbits else p.wbytes * 8)
         field = steps & ((1 << width) - 1)
-        raw = field << (p.wbits[1] if p.wbits else 0)
-        if not self._raw_write(cmd, raw, p.wbytes):
-            return False, "the I2C write was rejected by NVAPI"
-
-        back = self.read(cmd, p.wbytes)
-        if back is None or _extract(back, p.wbits) != field:
-            undo = self._panic_zero()
-            return False, (f"WROTE BUT READ BACK WRONG: sent field "
-                           f"0x{field:0{max(2, width // 4)}X}, read "
-                           f"0x{-1 if back is None else back:04X}. Offset "
-                           f"auto-reset: {undo}. Treat the rail as unknown "
-                           f"until a telemetry read agrees.")
-        now = self.read_vout()
+        shift = p.wbits[1] if p.wbits else 0
+        mask = ((1 << width) - 1) << shift
+        raw = (cur_raw & ~mask) | (field << shift)
+        if p.runtime_checks:
+            if not self.present():
+                return False, "refused: controller identity/PAGE/scaling changed before writing"
+            if self.read(cmd, p.wbytes) != cur_raw:
+                return False, "refused: the offset word changed before writing; retry with a fresh reading"
+            if not self.present():
+                return False, "refused: controller identity/PAGE/scaling changed before dispatch"
+        failure = None
+        try:
+            # Even a rejected/exceptional transaction may have reached the
+            # controller. Every failure after dispatch attempts exact rollback.
+            if not self._raw_write(cmd, raw, p.wbytes):
+                failure = "the I2C write was rejected by NVAPI"
+            elif p.runtime_checks and not self.present():
+                failure = "controller identity/PAGE/scaling changed after writing"
+            else:
+                back = self.read(cmd, p.wbytes)
+                if back != raw:
+                    failure = (f"WROTE BUT READ BACK WRONG: sent word 0x{raw:04X}, "
+                               f"read 0x{-1 if back is None else back:04X}")
+                elif p.runtime_checks and not self.present():
+                    failure = "controller identity/PAGE/scaling changed during readback"
+                else:
+                    now = self.read_vout()
+                    if p.runtime_checks and now is None:
+                        failure = "controller voltage/configuration could not be verified after writing"
+        except Exception as e:                                  # noqa: BLE001
+            failure = f"I2C transaction raised {type(e).__name__}: {e}"
+        if failure is not None:
+            restored, undo = self._restore_word(cur_raw)
+            status = "restored original word" if restored else "RESTORE FAILED; rail state unknown"
+            return False, f"{failure}. {status}: {undo}"
         return True, (f"{p.rail} offset {applied:+.2f} mV (raw {steps:+d}), "
                       f"rail now {'?' if now is None else f'{now:.0f}'} mV. "
                       f"This does NOT clear on reboot - only 'Reset all to "
                       f"stock' or a power cycle.{tag}")
 
-    def _panic_zero(self):
-        """Do not merely ADVISE a reset after a bad read-back - attempt it.
+    def _restore_word(self, original):
+        """Restore a captured word, preserving its field and factory bits.
 
-        The alternative is returning an error while the regulator holds an
-        offset neither the caller nor this module can name, which is the worst
-        state available on this path.
+        Restoration is not a new voltage request, so it does not depend on
+        today's voltage envelope or telemetry. Device/configuration identity,
+        the command whitelist and the NVRAM denylist still apply.
         """
-        if self.p.read_only:
-            return "no offset register on this profile - nothing to zero"
+        p = self.p
+        if p.read_only or p.wreg not in p.writable or p.wreg in p.never:
+            return False, "no permitted offset register to restore"
         try:
-            if not self._raw_write(self.p.wreg, 0, self.p.wbytes):
-                return "ZERO WRITE REJECTED"
-            chk = self.read(self.p.wreg, self.p.wbytes)
-            if chk is not None and _extract(chk, self.p.wbits) == 0:
-                return "zeroed"
-            return f"ZERO FAILED (reads 0x{-1 if chk is None else chk:04X})"
+            if not self.present():
+                return False, "controller identity/PAGE/scaling does not match; restore not dispatched"
+            if not isinstance(original, int) or not 0 <= original < 1 << (p.wbytes * 8):
+                return False, "invalid captured register word"
+            chk = self.read(p.wreg, p.wbytes)
+            if p.runtime_checks and not self.present():
+                return False, "controller identity/PAGE/scaling changed during restore readback"
+            if chk == original:
+                return True, f"original 0x{original:04X} already reads back exactly"
+            if not self._raw_write(p.wreg, original, p.wbytes):
+                return False, "restore write rejected"
+            if p.runtime_checks and not self.present():
+                return False, "controller identity/PAGE/scaling changed during restore"
+            chk = self.read(p.wreg, p.wbytes)
+            if p.runtime_checks and not self.present():
+                return False, "controller identity/PAGE/scaling changed during restore readback"
+            if chk == original:
+                return True, f"0x{original:04X} read back exactly"
+            return False, f"restore readback mismatch (reads 0x{-1 if chk is None else chk:04X})"
         except Exception as e:                                  # noqa: BLE001
-            return f"ZERO RAISED {e!r}"
+            return False, f"restore raised {e!r}"
 
     def reset(self):
         """Zero the offset. The only reliable undo; a reboot is not one."""
@@ -614,12 +658,16 @@ class Rail:
 
     # -- measurement ---------------------------------------------------------- #
     def read_vout(self):
+        if self.p.runtime_checks and not self.present():
+            return None
         t = next((x for x in self.p.telemetry_specs
                   if x.get("key") == "vout_mv"), None)
         if t is None:
             return None
         raw = self.read(int(t["reg"]), int(t.get("bytes", 2)))
         if raw is None:
+            return None
+        if self.p.runtime_checks and not self.present():
             return None
         return _decode(raw, t.get("encoding", "uint"),
                        _bitspec(t.get("bits")), float(t.get("scale", 1.0)))
@@ -699,6 +747,8 @@ class Rail:
             return False, "verification cancelled; nothing written", []
         entry_xoc = bool(getattr(self, "xoc", False))
         p = self.p
+        if p.read_only:
+            return False, "refused: this profile supports telemetry only", []
         if not acknowledged:
             return False, ("refused: verification writes real offsets to the "
                            "VRM. The caller must pass acknowledged=True."), []
@@ -769,10 +819,9 @@ class Rail:
                     ladder.append({"rung_mv": rung, "refused": msg})
                     say(f"  {rung:+6.2f} mV  REFUSED - {msg}")
                     failure = (
-                        f"INCONCLUSIVE - the ladder ran out of headroom at "
-                        f"{rung:+.2f} mV before the rail was seen to move, so "
-                        f"this is a refusal and not a verdict on the write "
-                        f"path. Refusal was: {msg}")
+                        f"INCONCLUSIVE - verification stopped at "
+                        f"{rung:+.2f} mV because the offset request failed. "
+                        f"The voltage write path remains unverified. {msg}")
                     break
 
                 time.sleep(VERIFY_SETTLE_S)
@@ -815,11 +864,7 @@ class Rail:
             # restoration verdict. A measured response cannot authorize Apply
             # while the entry setting is unconfirmed.
             try:
-                restore_policy = ({"_xoc": entry_xoc}
-                                  if bool(getattr(self, "xoc", False)) != entry_xoc
-                                  else {})
-                rok, rmsg = (self.set_offset_mv(entry_mv, acknowledged=True,
-                                               **restore_policy)
+                rok, rmsg = (self._restore_word(entry_raw)
                              if self._verification_write_attempted
                              else (True, "nothing written"))
                 if not rok:
@@ -827,15 +872,13 @@ class Rail:
             except Exception as exc:                            # noqa: BLE001
                 restore_errors.append(f"restore raised {exc!r}")
             try:
-                # Compare the exact original FIELD, not a value reconstructed
-                # through mV rounding. Reserved bits are ignored by the part;
-                # the guarded setter intentionally never writes them back.
+                # Independently confirm the captured complete word. Neighboring
+                # fields are controller state, not necessarily reserved zeros.
                 back = self.read(p.wreg, p.wbytes)
-                want = _extract(entry_raw, p.wbits)
-                if back is None or _extract(back, p.wbits) != want:
+                if back != entry_raw:
                     seen = "unreadable" if back is None else f"0x{back:04X}"
                     restore_errors.append(
-                        f"restore readback {seen}, expected field 0x{want:X}")
+                        f"restore readback {seen}, expected word 0x{entry_raw:X}")
             except Exception as exc:                            # noqa: BLE001
                 restore_errors.append(f"restore readback raised {exc!r}")
             self._verification_restore_ok = not restore_errors
@@ -852,7 +895,7 @@ class Rail:
         if restore_errors:
             return False, (
                 "RESTORE FAILED - verification is invalid; treat the rail as "
-                "unknown and leave Apply disabled. "
+                "unknown; verification cannot unlock Apply. "
                 + "; ".join(restore_errors)
                 + (f". {failure}" if failure else "")), ladder
         if failure:

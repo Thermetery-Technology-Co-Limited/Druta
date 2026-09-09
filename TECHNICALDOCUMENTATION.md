@@ -506,7 +506,7 @@ Detect that signature through `GPU.read()`, never a bare
 the unpopulated check, names a dead domain 0 "GPC", and reports every card as
 Turing.
 
-### Blackwell / RTX 50-series adaptation
+### Blackwell adaptation
 
 The Turing measurements above must not be applied to Blackwell by changing only
 `CLKDOM_PAIR_TURING`. There are two independent namespaces: the control index
@@ -523,8 +523,8 @@ frequency delta = entry + 0x114
 MSVDD delta     = entry + 0x11C
 ```
 
-Those field offsets are a candidate until they have been checked against the
-exact GPU, VBIOS and driver. The version echo and one-hot accepted-domain probe
+Those field offsets are selected only for the Blackwell generation, then checked
+against the live runtime ABI. The version echo and one-hot accepted-domain probe
 are read-only gates. The UI uses the accepted control indices for Blackwell and
 displays the requested offsets; it does not label those values with a Turing
 private-getter domain.  On the validated RTX 5080 / 610.88 path, the tested
@@ -605,9 +605,9 @@ frequency delta, compares median/range windows of physical XBAR/SYS/VIDEO
 observations, verifies the original requested frequency after restoration, and
 restores the complete GET buffer even if sampling fails. Use a fixed GPU-clock
 or V/F hold, or a steady workload, while running it; an unstable P-state is
-reported as inconclusive. It is deliberately not called by the UI. A new
-driver or VBIOS should not be added to a validated profile until both the field
-location and the measured control effect are confirmed.
+reported as inconclusive. It is deliberately not called by the UI. A changed runtime layout must not be treated as validated until both the field
+location and the measured control effect are confirmed. No device/VBIOS allowlist
+participates in slider eligibility.
 
 The voltage fields are a **rail array**, not one value — probing every dword
 from `+0x100` to `+0x140` found exactly three consecutive refused slots on every
@@ -816,6 +816,13 @@ Two things it does not do: the fans stay at **100% manual** until `Auto` or
 *below* the voltage cap in the V/F editor's cap box, so that box bounds what
 "max" means. The log names the cap it used.
 
+
+On Pascal, Turing and Blackwell, the Control tab exposes current policies only
+after the generation descriptor agrees with the live masks, record types,
+channels and mA unit. Pascal/Turing expose the validated core current; Blackwell
+also exposes its other rail. Blackwell normal caps are 500 A / 200 A and XOC
+follows the API maxima. Limits participate in profiles and Reset all. See
+[current-limit ABI and validation](CURRENT-LIMITS-RTX5080.md).
 
 Core and memory clock offsets, power limit, voltage boost, fan duty (with an
 Auto button that restores the curve), and the GPU clock lock. All writes sit

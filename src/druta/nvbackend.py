@@ -2584,40 +2584,42 @@ class GPU:
         return self.CLKDOM_DELTA_CLEARS_CEILING.get((self.arch(), domain))
 
     def clkdom_is_blackwell(self):
-        """Whether this is an RTX 50-series card.
+        """Whether NVML identifies this GPU as Blackwell.
 
-        Device ids are not used as the primary discriminator because NVIDIA
-        has already shipped multiple board variants for the same GB20x GPU.
-        NVML's model string is the stable user-visible identity and also
-        covers desktop and laptop RTX 50-series names.
+        Slider layouts are selected by architecture, never by a marketing
+        name, PCI device id or VBIOS.  The private getter still has to echo the
+        generation's expected version before a control is exposed.
         """
-        name = str(getattr(self, "static", {}).get("name", ""))
-        return bool(re.search(r"\bRTX\s*50\d{2}\b", name, re.IGNORECASE))
+        return self.arch() == 10
 
     def clkdom_layout(self):
         """Return the validated layout for this card, or ``None``.
 
-        Druta's original offsets were measured on TU102.  Blackwell uses the
-        same private NvAPI ids and version word but the frequency/MSVDD fields
-        are at different offsets in the Windows control block.  Select the
-        candidate by architecture, then require a successful one-domain GET
-        and an exact version echo before any read or write can use it.
+        Druta's legacy offsets were measured on Pascal and Turing.  Blackwell
+        uses the same private NvAPI ids and version word but the
+        frequency/MSVDD fields are at different offsets in the Windows control
+        block.  Select only a measured candidate by architecture, then require
+        a successful one-domain GET and an exact version echo before any read
+        or write can use it.  Unknown and unmeasured generations fail closed;
+        a matching version word alone does not establish field offsets.
         """
-        # GK104 accepts this getter and echoes zero-filled Turing-shaped
-        # records. Neither the field meanings nor voltage response have been
-        # established on Kepler; successful GET alone cannot authorize SET.
-        # GM107 GTX 745 exhibits the same unvalidated Turing-shaped response.
-        if self.arch() == self.ARCH_KEPLER or self.is_gtx745():
+        # GK104 and GM107 echo Turing-shaped zero records, which does not
+        # establish their field meanings. Only measured generations proceed.
+        architecture = self.arch()
+        if architecture == 10:
+            layout = CLKDOM_LAYOUT_BLACKWELL
+        elif architecture in (self.ARCH_PASCAL, self.ARCH_TURING):
+            layout = CLKDOM_LAYOUT_TURING
+        else:
+            self._clkdom_layout_cache = False
             return None
+
         cached = getattr(self, "_clkdom_layout_cache", None)
         if cached is not None:
             return None if cached is False else cached
         if not self.clkdom_ok():
             self._clkdom_layout_cache = False
             return None
-
-        layout = (CLKDOM_LAYOUT_BLACKWELL if self.clkdom_is_blackwell()
-                  else CLKDOM_LAYOUT_TURING)
         if layout.header + CLKDOM_SLOTS * layout.stride != layout.size:
             self._clkdom_layout_cache = False
             return None
@@ -2793,7 +2795,7 @@ class GPU:
             result["error"] = "pass confirm=True to enable the temporary write probe"
             return result
         if not self.clkdom_is_blackwell():
-            result["error"] = "this probe is restricted to RTX 50-series cards"
+            result["error"] = "this probe is restricted to the Blackwell generation"
             return result
         if (not isinstance(delta_mhz, int)
                 or not 1 <= abs(delta_mhz) <= CLKDOM_PROBE_MAX_DELTA_MHZ):
@@ -3022,7 +3024,7 @@ class GPU:
                 "clkdom_set": bool(self.nvapi.ClkDomCtlSet),
                 "clk_measure": bool(self.nvapi.ClkMeasureFreq),
             },
-            "blackwell_name_match": self.clkdom_is_blackwell(),
+            "blackwell_architecture": self.clkdom_is_blackwell(),
             "accepted_domains": [],
             "layout": None,
             "getter_status": None,
@@ -3192,7 +3194,7 @@ class GPU:
             return None, "per-domain clock control unavailable (0xF58938F5)"
         layout = self.clkdom_layout()
         if layout is None:
-            return None, "clock-domain layout is not validated for this GPU/driver"
+            return None, "clock-domain layout is not validated for this generation/runtime ABI"
         doms = self.clkdom_domains()
         if not doms:
             return None, "no clock domain accepted by this driver"
@@ -3267,7 +3269,7 @@ class GPU:
             return False, "per-domain clock control unavailable"
         layout = self.clkdom_layout()
         if layout is None or layout.nvvdd_uv is None:
-            return False, "NVVDD layout is not validated for this GPU/driver"
+            return False, "NVVDD layout is not validated for this generation/runtime ABI"
         field = layout.nvvdd_uv if rail == 0 else layout.msvdd_uv
         if field is None:
             return False, f"rail {rail} has no field in the {layout.name} layout"
@@ -3352,7 +3354,7 @@ class GPU:
             return False, "per-domain clock control unavailable"
         layout = self.clkdom_layout()
         if layout is None:
-            return False, "clock-domain layout is not validated for this GPU/driver"
+            return False, "clock-domain layout is not validated for this generation/runtime ABI"
         if domain not in self.clkdom_domains():
             return False, (f"domain {domain} is not one this driver accepts "
                            f"({self.clkdom_domains()})")
@@ -3754,11 +3756,11 @@ class GPU:
         return (lo // 1000, hi // 1000)
 
     def _read_legacy_clk_lock(self):
-        # This private ABI is measured on the TITAN RTX with 472.12. Pascal's
-        # NVML frequency-lock setter is unsupported on both tested drivers.
-        if (self.static.get("driver") != "472.12"
-                or not self.nvapi.ok
-                or self.nvapi.selected.get("devid") != 0x1E02):
+        # This private ABI is a Turing-generation fallback. Runtime record
+        # identifiers, modes, units and lengths below decide whether the live
+        # driver actually has it; device ids, VBIOS and driver strings do not.
+        # Pascal's NVML frequency-lock setter remains unsupported.
+        if not self.nvapi.ok or self.arch() != self.ARCH_TURING:
             return None
         records = self._legacy_clk_limit_records()
         if records is None or len(records) != 2:
@@ -3921,6 +3923,292 @@ class GPU:
                 kernel.VirtualProtect(address, 14, old.value,
                                       ctypes.byref(previous))
             return found[0] if status == 0 and len(found) == 1 else None
+
+    # ---- current-limit policies ------------------------------------------ #
+    # The surrounding ABI is shared by Pascal, Turing and Blackwell on the
+    # tested driver, but the valid mask and current-policy descriptors are not.
+    # Select only by NVML architecture, then validate every live descriptor,
+    # mask, stored value and effective value before exposing a slider.
+    #
+    # Both bounds are generation-level safety facts, not card identities.
+    # The live advertised maximum must fit inside ``maximum_ceiling_ma`` before
+    # any slider is exposed.  This prevents a shifted/corrupt private record
+    # from turning an arbitrary u32 into an XOC write ceiling.
+    CURRENT_LIMIT_GENERATION_POLICIES = {
+        ARCH_PASCAL: {
+            13: {"label": "Core current", "type": 0x0B, "channel": 11,
+                 "normal_maximum_ma": 218_000,
+                 "maximum_ceiling_ma": 218_000},
+        },
+        ARCH_TURING: {
+            13: {"label": "Core current", "type": 0x0B, "channel": 19,
+                 "normal_maximum_ma": 390_000,
+                 "maximum_ceiling_ma": 390_000},
+        },
+        10: {
+            13: {"label": "Core current", "type": 0x12, "channel": 13,
+                 "normal_maximum_ma": 500_000,
+                 "maximum_ceiling_ma": 5_001_000},
+            14: {"label": "Other rail current", "type": 0x12, "channel": 12,
+                 "normal_maximum_ma": 200_000,
+                 "maximum_ceiling_ma": 5_001_000},
+        },
+    }
+    _CURRENT_LIMIT_ALL_MASK = (1 << 18) - 1
+    _CURRENT_LIMIT_SIZES = {0x2080A618: 8620, 0x2080A619: 172080,
+                            0x2080A61A: 4432, 0x2080E61B: 4432}
+
+    def _current_limit_generation_policies(self):
+        return self.CURRENT_LIMIT_GENERATION_POLICIES.get(self.arch(), {})
+
+    def _current_limit_profile_supported(self):
+        a = getattr(self, "nvapi", None)
+        return bool(a and a.ok and self._current_limit_generation_policies())
+
+    def _capture_current_limit_transport(self):
+        """Borrow the live client header from an unmodified power GET once.
+
+        This uses the same process-local capture mechanism as the rail writer.
+        The hook never substitutes a command or parameters. Subsequent calls
+        use the ordinary PCI-matched escape transport, without a hook.
+        """
+        if not self._current_limit_profile_supported():
+            return None
+        a = self.nvapi
+        if not getattr(a, "PowerPolInfo", None):
+            return None
+        with GPU._RAIL_HOOK_LOCK:
+            gdi = self._legacy_clk_gdi()
+            if gdi is None:
+                return None
+            kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel.VirtualProtect.argtypes = [ctypes.c_void_p, ctypes.c_size_t,
+                                             u32, ctypes.POINTER(u32)]
+            kernel.GetCurrentThreadId.restype = u32
+            kernel.GetCurrentProcess.restype = ctypes.c_void_p
+            kernel.FlushInstructionCache.argtypes = [ctypes.c_void_p,
+                                                      ctypes.c_void_p,
+                                                      ctypes.c_size_t]
+            owner = kernel.GetCurrentThreadId()
+            process = kernel.GetCurrentProcess()
+            address = ctypes.cast(gdi.D3DKMTEscape, ctypes.c_void_p).value
+            original = ctypes.string_at(address, 14)
+            proto = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p)
+            found = []
+
+            def restore():
+                ctypes.memmove(address, original, 14)
+                kernel.FlushInstructionCache(process, address, 14)
+
+            def capture(ptr):
+                restore()
+                owned = kernel.GetCurrentThreadId() == owner
+                try:
+                    if ptr and owned:
+                        escape = self._Escape.from_address(ptr)
+                        if (escape.pPrivateDriverData
+                                and escape.PrivateDriverDataSize == 11748):
+                            words = ctypes.cast(escape.pPrivateDriverData,
+                                                ctypes.POINTER(u32))
+                            if (words[2] == 11748 and words[14] == 0x2080A612
+                                    and words[15] == 11680):
+                                found.append((list(words[:17]), {
+                                    key: getattr(escape, key) for key in
+                                    ("hAdapter", "hDevice", "Type", "Flags", "hContext")}))
+                    return proto(address)(ptr)
+                finally:
+                    # PowerPolInfo can query architecture before its power
+                    # getter. Stop intercepting as soon as the header is found.
+                    if not found:
+                        ctypes.memmove(address, patch, 14)
+                        kernel.FlushInstructionCache(process, address, 14)
+
+            callback = proto(capture)
+            patch = (b"\xff\x25\0\0\0\0" + struct.pack(
+                "<Q", ctypes.cast(callback, ctypes.c_void_p).value))
+            old = u32()
+            if not kernel.VirtualProtect(address, 14, 0x40, ctypes.byref(old)):
+                return None
+            try:
+                ctypes.memmove(address, patch, 14)
+                kernel.FlushInstructionCache(process, address, 14)
+                block = _PwrPolInfo(version=a.ver(_PwrPolInfo, 1))
+                status = a.PowerPolInfo(a.gpu, ctypes.byref(block))
+            finally:
+                restore()
+                previous = u32()
+                kernel.VirtualProtect(address, 14, old.value,
+                                      ctypes.byref(previous))
+            return found[0] if status == 0 and len(found) == 1 else None
+
+    def _current_limit_rm(self, command, params=None, policy_mask=None):
+        """Only the four measured policy operations, on this live GPU client."""
+        if not self._current_limit_profile_supported():
+            raise ValueError("current limits are not validated for this GPU generation")
+        size = self._CURRENT_LIMIT_SIZES.get(command)
+        if size is None:
+            raise ValueError("unvalidated current-policy command")
+        if params is None:
+            if command == 0x2080E61B:
+                raise ValueError("current-policy writes require a getter buffer")
+            params = [0] * (size // 4)
+            if command == 0x2080A619:
+                if policy_mask is None:
+                    raise ValueError("current-policy status requires a validated mask")
+                params[1] = policy_mask
+            elif command == 0x2080A61A:
+                if policy_mask is None:
+                    raise ValueError("current-policy control requires a validated mask")
+                params[4] = policy_mask
+        if len(params) * 4 != size:
+            raise ValueError("unexpected current-policy buffer size")
+        if command == 0x2080E61B:
+            allowed_masks = {1 << policy for policy in self._current_limit_generation_policies()}
+            if params[4] not in allowed_masks:
+                raise ValueError("current-policy write must select one generation-supported rail")
+        transport = getattr(self, "_current_limit_transport", None)
+        if transport is None:
+            transport = self._capture_current_limit_transport()
+            if transport is None:
+                raise ValueError("could not obtain the current-policy transport")
+            self._current_limit_transport = transport
+        header, fields = transport
+        packet = (u32 * (17 + size // 4))(*header, *params)
+        packet[2], packet[14], packet[15], packet[16] = (
+            ctypes.sizeof(packet), command, size, 0)
+        status = self._legacy_clk_escape(packet, fields)
+        if status != 0 or packet[16] != 0:
+            if status != 0:
+                self._current_limit_transport = None
+            raise ValueError(f"policy request failed (NTSTATUS {status}, "
+                             f"RM 0x{packet[16]:X})")
+        return list(packet[17:])
+
+    def _current_limit_state(self):
+        info = self._current_limit_rm(0x2080A618)
+        if len(info) != 2155:
+            raise ValueError("current-policy info size differs from the measured ABI")
+        mask = info[1]
+        specs = self._current_limit_generation_policies()
+        required = sum(1 << policy for policy in specs)
+        if (not mask or mask & ~self._CURRENT_LIMIT_ALL_MASK
+                or mask & required != required):
+            raise ValueError("current-policy mask does not contain this generation's currents")
+        control = self._current_limit_rm(0x2080A61A, policy_mask=mask)
+        dynamic = self._current_limit_rm(0x2080A619, policy_mask=mask)
+        if (len(info) != 2155 or len(control) != 1108 or len(dynamic) != 43020
+                or dynamic[1] != mask
+                or control[:5] != [0, 0, 0, 255, mask]):
+            raise ValueError("current-policy layout or mask differs from the measured ABI")
+        rows = []
+        for policy, spec in specs.items():
+            meta = (0x58 + policy * 0xE4) // 4
+            state = (0x70 + policy * 0x1454) // 4
+            record = (0x14 + policy * 0x7C) // 4
+            type_id = info[meta + 1] & 255
+            channel = info[meta + 1] >> 8 & 255
+            unit = info[meta + 1] >> 16 & 255
+            minimum, default, maximum = info[meta + 2:meta + 5]
+            maximum_ceiling = spec["maximum_ceiling_ma"]
+            normal_maximum = min(spec["normal_maximum_ma"], maximum)
+            if (type_id != spec["type"] or channel != spec["channel"] or unit != 1
+                    or not 1 <= minimum <= default <= maximum
+                    or maximum > maximum_ceiling
+                    or dynamic[state] & 255 != type_id
+                    or control[record] != type_id
+                    or not minimum <= control[record + 1] <= maximum
+                    or not minimum <= dynamic[state + 1] <= maximum
+                    or not default <= normal_maximum <= maximum):
+                raise ValueError(f"policy {policy} is not this generation's current rail")
+            rows.append({"policy": policy, "label": spec["label"],
+                         "minimum_ma": minimum,
+                         "maximum_ma": maximum,
+                         "normal_maximum_ma": normal_maximum,
+                         "default_ma": default,
+                         "limit_ma": dynamic[state + 1],
+                         "requested_ma": control[record + 1],
+                         "value_ma": dynamic[state + 2]})
+        return rows, control
+
+    def get_current_limits(self):
+        """Supported current policies in mA; empty on an unvalidated adapter.
+
+        ``limit_ma`` is the independent effective policy limit, and
+        ``maximum_ma`` is the API ceiling regardless of Druta's XOC setting.
+        """
+        if not self._current_limit_profile_supported():
+            return []
+        try:
+            rows, _ = self._current_limit_state()
+            self._current_limit_error = ""
+            return rows
+        except Exception as exc:
+            self._current_limit_error = str(exc)
+            return []
+
+    def set_current_limit_ma(self, policy, ma):
+        """Change one policy and verify stored AND effective limits.
+
+        Preserve all other control bytes. If verification fails, replay only
+        this policy's original record and report whether restoration verified.
+        """
+        def amps(value_ma):
+            return format(value_ma / 1000, ".3f").rstrip("0").rstrip(".")
+
+        if (type(policy) is not int
+                or policy not in self._current_limit_generation_policies()):
+            return False, "not a supported current policy"
+        if type(ma) is not int:
+            return False, "current limit must be an integer number of milliamps"
+        if not self._current_limit_profile_supported():
+            return False, "current limits are not validated for this GPU generation"
+        try:
+            rows, original = self._current_limit_state()
+            row = next(r for r in rows if r["policy"] == policy)
+            if any(r["limit_ma"] != r["requested_ma"] for r in rows):
+                return False, "stored and effective current limits disagree; nothing written"
+            maximum = row["maximum_ma"] if self.voltage_xoc_enabled else max(
+                row["normal_maximum_ma"], row["limit_ma"])
+            maximum = min(maximum, row["maximum_ma"])
+            if not row["minimum_ma"] <= ma <= maximum:
+                return False, (f"{row['label']} must be between "
+                               f"{amps(row['minimum_ma'])} and "
+                               f"{amps(maximum)} A in the current mode")
+            if ma == row["limit_ma"]:
+                return True, f"{row['label']} already at {amps(ma)} A"
+        except Exception as exc:
+            return False, str(exc)
+        word = (0x14 + policy * 0x7C) // 4 + 1
+        expected = list(original)
+        expected[word] = ma
+        request = list(expected)
+        request[4] = 1 << policy
+        try:
+            self._current_limit_rm(0x2080E61B, request)
+            back_rows, back_control = self._current_limit_state()
+            if back_control != expected:
+                raise ValueError("current-policy control read-back disagrees")
+            wanted = {r["policy"]: r["limit_ma"] for r in rows}
+            wanted[policy] = ma
+            if any(r["limit_ma"] != wanted[r["policy"]] for r in back_rows):
+                raise ValueError("effective current-policy read-back disagrees")
+            return True, f"{row['label']} set to {amps(ma)} A; effective limit verified"
+        except Exception as exc:
+            # This also runs when the SET itself throws: an uncertain write
+            # must not be mistaken for proof that nothing changed.
+            restore = list(original)
+            restore[4] = 1 << policy
+            try:
+                self._current_limit_rm(0x2080E61B, restore)
+                restored_rows, restored_control = self._current_limit_state()
+                if (restored_control != original
+                        or any(r["limit_ma"] != r["requested_ma"]
+                               for r in restored_rows)):
+                    raise ValueError("restoration read-back disagrees")
+                note = "original current limit restored and verified"
+            except Exception as restore_error:
+                note = f"restoration could not be verified: {restore_error}"
+            return False, f"{exc}; {note}"
 
     def set_vf_lock(self, volt_uv, domain=None):
         """Lock the curve to the highest V/F point AT OR BELOW volt_uv.
@@ -4384,11 +4672,14 @@ class GPU:
     #
     # "No export" is not "no write path", and conflating the two is what kept
     # this read-only for longer than it needed to be.
-    # The TITAN profiles are deliberately board/VBIOS/driver-specific. All
-    # four fields were independently changed and restored on these adapters;
-    # an accepted getter or an all-zero record alone proves no write support.
-    # Their native RM getter reports type 2, but the type-5 F214 writes below
-    # do apply. Both boards also held 1112.5 mV after raising the ceilings past
+    # Rail slider eligibility is generation based. All four fields were
+    # independently changed and restored on Pascal, Turing and Blackwell;
+    # an accepted getter or an all-zero record alone still proves no write
+    # support, so volt_rail_limits_supported also requires the generation's
+    # rail set and both live getter layouts to agree structurally at runtime.
+    # Their native
+    # RM getter reports type 2, but the type-5 F214 writes below do apply. Both
+    # legacy generations also held 1112.5 mV after raising the ceilings past
     # 1093.75 mV, in two A/B repetitions with a distinct V/F point at 1112.5.
     # See VOLTAGE-RAILS-TITAN.md and docs/rail-probes for the measurements and
     # restoration checks. Pascal vmin applies at idle but can be bypassed by
@@ -4396,56 +4687,72 @@ class GPU:
     # Reliability bases here are at ZERO boost. The absolute status header's
     # dw2 is the current boost contribution, not a fixed headroom value, and
     # the absolute reliability field includes that contribution.
-    _TITAN_VOLT_RAIL_PROFILES = {
-        (0x1E02, 312676574, "90.02.1e.00.02", "472.12"): {
-            "bases": {"reliability": 1068.75, "alt_reliability": 1093.75,
-                      "overvoltage": 1125.0, "vmin": 650.0},
-            "headroom_mv": 25.0,
-            "control_version": 0x00010AC8,
+    # Absolute status is telemetry, not a capability gate. It quantizes limits
+    # and can legitimately diverge from the exact millivolt request retained
+    # by the control getter. Numeric differences must therefore never hide an
+    # otherwise validated generation's sliders or block a write.
+    _VOLT_RAIL_GENERATION_PROFILES = {
+        ARCH_TURING: {
+            "bases_v1": {"reliability": 1068.75,
+                         "alt_reliability": 1093.75,
+                         "overvoltage": 1125.0, "vmin": 650.0},
+            "bases_v2": {"reliability": 1068.75,
+                         "alt_reliability": 1093.75,
+                         "overvoltage": 1125.0, "vmin": 650.0},
+            "headroom_v1": 25.0, "headroom_v2": 25.0,
+            "poweron": {0: (0, 0, 0, 0)}, "min_mv": 650.0,
         },
-        (0x1B02, 299831518, "86.02.3d.00.01", "472.12"): {
-            # R470 measures a different zero-boost base/headroom from R580.
-            "bases": {"reliability": 1068.75, "alt_reliability": 1093.75,
-                      "overvoltage": 1200.0, "vmin": 650.0},
-            "headroom_mv": 25.0,
-            "control_version": 0x00010AC8,
-            "settle_vmin": True,
+        ARCH_PASCAL: {
+            # The successful getter version distinguishes the two measured
+            # zero-boost geometries without consulting a driver string.
+            "bases_v1": {"reliability": 1068.75,
+                         "alt_reliability": 1093.75,
+                         "overvoltage": 1200.0, "vmin": 650.0},
+            "bases_v2": {"reliability": 1062.5,
+                         "alt_reliability": 1093.75,
+                         "overvoltage": 1200.0, "vmin": 650.0},
+            "headroom_v1": 25.0, "headroom_v2": 31.25,
+            "poweron": {0: (0, 0, 0, 0)}, "min_mv": 650.0,
         },
-        (0x1E02, 312676574, "90.02.1e.00.02", "580.97"): {
-            "bases": {"reliability": 1068.75, "alt_reliability": 1093.75,
-                      "overvoltage": 1125.0, "vmin": 650.0},
-            "headroom_mv": 25.0,
-        },
-        (0x1B02, 299831518, "86.02.3d.00.01", "580.97"): {
-            "bases": {"reliability": 1062.5, "alt_reliability": 1093.75,
-                      "overvoltage": 1200.0, "vmin": 650.0},
-            "headroom_mv": 31.25,
+        10: {
+            "bases_v1": {"reliability": 1040.0,
+                         "alt_reliability": 1060.0,
+                         "overvoltage": 1200.0, "vmin": 800.0},
+            "bases_v2": {"reliability": 1040.0,
+                         "alt_reliability": 1060.0,
+                         "overvoltage": 1200.0, "vmin": 800.0},
+            "headroom_v1": 20.0, "headroom_v2": 20.0,
+            "poweron": {0: (0, 0, 0, 0), 1: (-50000, 0, 0, 0)},
+            "min_mv": 700.0,
         },
     }
 
     def _volt_rail_profile(self):
-        """Known conversion/defaults for this exact adapter, or ``None``."""
-        static = getattr(self, "static", {})
-        selected = getattr(getattr(self, "nvapi", None), "selected", None) or {}
-        key = (selected.get("devid"), selected.get("subsys"),
-               str(static.get("vbios", "")).lower(), static.get("driver"))
-        titan = self._TITAN_VOLT_RAIL_PROFILES.get(key)
-        if titan is not None:
-            return {"bases": {0: titan["bases"]},
-                    "headroom_mv": {0: titan["headroom_mv"]},
-                    "poweron": {0: (0, 0, 0, 0)},
-                    "fields": {0: self.VOLT_LIMIT_FIELDS},
-                    "control_version": titan.get("control_version", 0x00020AC8),
-                    "settle_vmin": titan.get("settle_vmin", False),
-                    "min_mv": 650.0,
-                    "max_mv": self.VOLT_LIMIT_MAX_MV}
-        if self.clkdom_is_blackwell():
-            return {"bases": {r: dict(GPU.VOLT_LIMIT_BASE_MV) for r in (0, 1)},
-                    "headroom_mv": {0: 20.0, 1: 20.0},
-                    "poweron": {0: (0, 0, 0, 0), 1: (-50000, 0, 0, 0)},
-                    "fields": {r: self.VOLT_LIMIT_FIELDS for r in (0, 1)},
-                    "min_mv": 700.0, "max_mv": self.VOLT_LIMIT_MAX_MV}
-        return None
+        """Generation conversion/default candidate, or ``None``.
+
+        Runtime getters still have to prove the version, rail masks and live
+        layout. Identity strings and PCI/VBIOS fields never participate.
+        """
+        candidate = self._VOLT_RAIL_GENERATION_PROFILES.get(self.arch())
+        if candidate is None:
+            return None
+        versions = getattr(self, "_volt_rail_read_versions", {})
+        control_version = versions.get("VoltRailsCtlGet", 0x00020AC8)
+        suffix = "v1" if control_version == 0x00010AC8 else "v2"
+        rails = tuple(candidate["poweron"])
+        return {
+            "bases": {rail: dict(candidate[f"bases_{suffix}"])
+                      for rail in rails},
+            "headroom_mv": {rail: candidate[f"headroom_{suffix}"]
+                            for rail in rails},
+            "poweron": dict(candidate["poweron"]),
+            "fields": {rail: self.VOLT_LIMIT_FIELDS for rail in rails},
+            "control_version": control_version,
+            "settle_vmin": (self.arch() == self.ARCH_PASCAL
+                            and control_version == 0x00010AC8),
+            "min_mv": candidate["min_mv"],
+            "max_mv": self.VOLT_LIMIT_MAX_MV,
+        }
 
     def _read_volt_rail_blocks(self, function, version):
         """Read present rails with singleton masks, cached per GPU/getter.
@@ -4497,7 +4804,30 @@ class GPU:
         if profile is None:
             return False
         cur = self.read_volt_rail_limits()
-        return cur is not None and set(cur) == set(profile["poweron"])
+        state = self.read_volt_rail_state()
+        expected = set(profile["poweron"])
+        if cur is None or state is None or set(cur) != expected or set(state) != expected:
+            return False
+
+        # The absolute getter is a separate RM path and supplies the rail
+        # discriminator that the delta getter cannot reliably provide (a stock
+        # v2 control record can be entirely zero).  Require both paths to name
+        # the same positional rails and a sane record shape before a
+        # generation profile is allowed to enable writes. Do not compare the
+        # numeric values between getters: the status path is VID-quantized and
+        # its skew is runtime state, not evidence that the ABI disappeared.
+        expected_types = {0: 1, 1: 3}  # NVVDD, MSVDD
+        for rail in expected:
+            absolute = state[rail]
+            if absolute.get("type") != expected_types.get(rail):
+                return False
+            values = [absolute.get(key) for key in
+                      ("live", *self.VOLT_LIMIT_FIELDS, "effective")]
+            if any(not isinstance(value, (int, float))
+                   or not math.isfinite(value) or not 250.0 <= value <= 2000.0
+                   for value in values):
+                return False
+        return True
 
     def volt_rail_limit_fields(self, rail):
         """Limit fields with measured effects on this rail, or no fields."""
@@ -4600,7 +4930,7 @@ class GPU:
         for rail, buf in blocks.items():
             pu = ctypes.cast(buf, ctypes.POINTER(u32))
             base = (self.LIVE_RAIL_BASE + rail * self.LIVE_RAIL_STRIDE) // 4
-            rec = {}
+            rec = {"_boost_mv": pu[2] / 1000.0}
             for n, key in enumerate(self.LIVE_RAIL_FIELDS):
                 v = pu[base + n]
                 rec[key] = v if key == "type" else v / 1000.0
@@ -4728,11 +5058,16 @@ class GPU:
         # The code patch is process-wide even when GPU objects have different
         # per-card locks. Only one installer may own it at a time.
         with GPU._RAIL_HOOK_LOCK:
+            # Resolve the live getter version before selecting generation
+            # quirks. This is also a fresh pre-write snapshot for the vmin
+            # settle decision; no driver string is consulted.
+            reader = getattr(self, "read_volt_rail_limits", None)
+            previous = reader() if callable(reader) else None
             profile = self._volt_rail_profile() or {}
             settle = False
             boost = None
             if profile.get("settle_vmin"):
-                previous = self.read_volt_rail_limits() or {}
+                previous = previous or {}
                 settle = any(len(values) == 4 and rail in previous
                              and round(previous[rail]["vmin"] * 1000) != values[3]
                              for rail, values in records.items())
@@ -4892,7 +5227,7 @@ class GPU:
             return False, ("rail limit writes are disabled: nothing bounds "
                            "this value but Druta, so it is off by default")
         if not self.volt_rail_limits_supported():
-            return False, "rail limit writes are not validated for this GPU/driver"
+            return False, "rail limit runtime getters are unavailable or structurally inconsistent"
         unknown = set(limits) - set(self.VOLT_LIMIT_FIELDS)
         if unknown:
             return False, f"not a rail limit: {', '.join(sorted(unknown))}"
@@ -4936,7 +5271,7 @@ class GPU:
         wrote = ", ".join(f"{k} {self.abs_limit_mv(back[rail], k):.0f}"
                           for k in sorted(limits))
         note = ""
-        if "vmin" in limits and self.nvapi.selected.get("devid") == 0x1B02:
+        if "vmin" in limits and self.arch() == self.ARCH_PASCAL:
             note = ("; Pascal vmin was verified at idle; a V/F point lock or "
                     "P2 can hold the live voltage below this floor")
         return True, (f"{_RAIL_NAME[rail]}: {wrote} mV stored; floor "
@@ -5020,7 +5355,7 @@ class GPU:
         stickiness that made this feature necessary.
         """
         if not self.volt_rail_limits_supported():
-            return False, "rail reset defaults are not validated for this GPU/driver"
+            return False, "rail reset defaults are not validated for this generation/runtime ABI"
         profile = self._volt_rail_profile()
         cur = self.read_volt_rail_limits()
         if cur is None:
@@ -6050,6 +6385,17 @@ class GPU:
         if off_stock:
             steps.append(ResetStep("rail limits",
                                    self.reset_volt_rail_limits()))
+        current_limits = self.get_current_limits()
+        if (not current_limits and self._current_limit_profile_supported()
+                and getattr(self, "_current_limit_error", "")):
+            steps.append(ResetStep("current limits", (False,
+                f"cannot read current limits: {self._current_limit_error}")))
+        for current in current_limits:
+            if (current["limit_ma"] != current["default_ma"]
+                    or current["requested_ma"] != current["default_ma"]):
+                steps.append(ResetStep(
+                    current["label"].lower(), self.set_current_limit_ma(
+                        current["policy"], current["default_ma"])))
         if self.static.get("pl_def_mw"):
             steps.append(ResetStep(
                 "power limit", self.set_power_limit_mw(self.static["pl_def_mw"])))
@@ -6194,5 +6540,6 @@ for _m in ("read", "read_clock_domains", "read_vf_curve", "apply_vf_deltas",
            "recover_vf_lock",
            "vf_lock_self_test",
            "set_voltage_boost", "read_voltage_boost", "reset_all",
+           "get_current_limits", "set_current_limit_ma",
            "clkdom_debug_report", "clkdom_mapping_probe"):
     setattr(GPU, _m, _synchronized(getattr(GPU, _m)))

@@ -151,6 +151,7 @@ def capture(gpu, rail=None):
         "mem_off_scale": scale,
         # The enforced ceiling can lag/quantize; replay the configured request.
         "power_limit_mw": power_limit,
+        "current_limits_ma": {},
         "volt_boost_pct": None,
         # Duty alone is not restorable state. A card idling at 0% on the auto
         # curve and a card pinned to 0% manually read identically, and handing
@@ -168,6 +169,19 @@ def capture(gpu, rail=None):
             and gpu.static.get("pl_max_mw") is not None):
         state[INCOMPLETE_KEY].append("requested power limit NOT captured"
                                      + (f" ({power_error})" if power_error else ""))
+    # Store exact driver units; XOC authorization is deliberately not a
+    # profile setting. Restore uses the same bounded setters as the controls.
+    reader = getattr(gpu, "get_current_limits", None)
+    if callable(reader):
+        try:
+            rows = reader()
+            if not rows and getattr(gpu, "_current_limit_error", ""):
+                raise RuntimeError(gpu._current_limit_error)
+            state["current_limits_ma"] = {
+                str(row["policy"]): row.get("requested_ma", row["limit_ma"])
+                for row in rows}
+        except Exception as exc:
+            state[INCOMPLETE_KEY].append(f"Current limits NOT captured ({exc})")
     # Modern NVML and the legacy NVAPI fallbacks expose requested per-fan
     # levels. The measured duty above can still be ramping toward that request.
     try:
@@ -651,6 +665,16 @@ def _restore_validated(gpu, state, apply_curve, rail, results):
     if mw:
         step("power limit", lambda: gpu.set_power_limit_mw(int(mw)))
 
+    current_limits = state.get("current_limits_ma") or {}
+    if not isinstance(current_limits, dict):
+        results.append((False, "current limits: invalid profile data"))
+    else:
+        for policy, ma in current_limits.items():
+            # Leave value validation and normal/XOC enforcement to the
+            # backend; a profile must not silently truncate a malformed value.
+            step(f"current policy {policy}",
+                 lambda policy=policy, ma=ma: gpu.set_current_limit_ma(int(policy), ma))
+
     vb = state.get("volt_boost_pct")
     if vb is not None:
         step("voltage boost", lambda: gpu.set_voltage_boost(int(vb)))
@@ -725,6 +749,13 @@ def summarize(state):
     mw = state.get("power_limit_mw")
     if mw:
         bits.append(f"PL {mw / 1000:g} W")
+    currents = state.get("current_limits_ma") or {}
+    if isinstance(currents, dict):
+        for policy, label in (("13", "core limit"), ("14", "other limit")):
+            value = currents.get(policy)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                amps = f"{value / 1000:.3f}".rstrip("0").rstrip(".")
+                bits.append(f"{label} {amps} A")
     vb = state.get("volt_boost_pct")
     if vb is not None:
         bits.append(f"vboost {vb}%")
