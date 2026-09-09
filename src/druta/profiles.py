@@ -941,7 +941,7 @@ def summarize(state):
     i2c = state.get("i2c")
     if i2c:
         if "control" in i2c:
-            from .ncp4206 import decode_vid
+            from .controllers.ncp4206 import decode_vid
             control = i2c["control"]
             target = (f"{decode_vid(control['command']):g} mV" if control['enabled'] else 'Auto (GPU VID)')
             label = i2c.get("display_name") or i2c['profile']

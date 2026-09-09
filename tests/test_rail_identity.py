@@ -20,7 +20,7 @@ class RailIdentityTests(unittest.TestCase):
             "devid": 0x1E02, "subsys": 0x12A310DE})
         for target, name in (("druta.railctl.load_profiles", "profiles"),
                              ("druta.railctl.Rail", "rail"),
-                             ("druta.ncp4206.NCP4206", "ncp")):
+                             ("druta.controllers.ncp4206.NCP4206", "ncp")):
             p = patch(target)
             setattr(self, name, p.start())
             self.addCleanup(p.stop)
