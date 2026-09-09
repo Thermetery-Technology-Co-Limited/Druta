@@ -1,0 +1,113 @@
+{
+  "started": 1788943753.5880404,
+  "hardware_writes": [],
+  "gpu": {
+    "name": "NVIDIA GeForce GTX 770",
+    "driver": "472.12",
+    "vbios": "80.04.c3.00.01",
+    "admin": true,
+    "slot": "0000:01:00.0",
+    "uuid": "GPU-be025ef3-b767-50db-11e1-f0f941a9c93d",
+    "mem_clocks": [
+      324,
+      810,
+      3505
+    ],
+    "gfx_min": 136,
+    "gfx_max": 1202,
+    "mem_div": 2,
+    "mem_type": "GDDR5",
+    "mem_type_id": 8,
+    "core_off_range": [
+      -105,
+      1001,
+      0
+    ],
+    "mem_off_range": [
+      -5390,
+      7010,
+      0
+    ],
+    "fan_min": 26,
+    "fan_max": 100
+  },
+  "fan_before": {
+    "source": "nvapi_cooler",
+    "fans": [
+      {
+        "id": 0,
+        "level": 26,
+        "policy": 16,
+        "default_policy": 16,
+        "manual": false,
+        "min": 26,
+        "max": 100,
+        "rpm": 1110
+      }
+    ]
+  },
+  "p0_before": false,
+  "p0_fan_button": "Lock P0 and max fan",
+  "p0_release_button": true,
+  "controllers": [
+    {
+      "profile": "GTX 770 - NVVDD (NCP4206)",
+      "sha256": "74432370b0c625ac99663ca1f0de39c27038711e4dc8f5c84551f94ae7e7786e",
+      "port": 2,
+      "addr7": 32,
+      "rail": "NVVDD"
+    }
+  ],
+  "initial_build_seconds": 2.949225425720215,
+  "refresh_ui_generation": 1,
+  "same_gpu_generation": true,
+  "same_i2c_connection": true,
+  "refresh_p0_fan_button": "Lock P0 and max fan",
+  "logs": [
+    "[ok] i2c candidate: NCP4206 output (port 2, 0x20; physical rail unassigned) at 0x20/port 2",
+    "[ok] capabilities refreshed from this adapter; no GPU settings written"
+  ],
+  "fan_after": {
+    "source": "nvapi_cooler",
+    "fans": [
+      {
+        "id": 0,
+        "level": 26,
+        "policy": 16,
+        "default_policy": 16,
+        "manual": false,
+        "min": 26,
+        "max": 100,
+        "rpm": 1080
+      }
+    ]
+  },
+  "p0_after": false,
+  "passed": true,
+  "elapsed_seconds": 3.1464593410491943,
+  "source_sha256": {
+    "src\\druta\\app.py": "776445bcfbed88810faac93bc4642f08a1d4b1facac6e0134e69ed5656fb0bbd",
+    "src\\druta\\bench_move.py": "2dfd87920b3f8904fb6e0fdde70353277267a1cf5bcaa4c7a4a9009b705ba2e3",
+    "src\\druta\\dpg_probe.py": "852abfa989f009d146646d60a8dfd83d3f15e32ac9a01b6bbe5399d7faa6b11e",
+    "src\\druta\\drag_probe.py": "3af0c65c8bf011065aafe9c44767c0442ac6ca099e8b35a296a0c8e5f88e292c",
+    "src\\druta\\druta.py": "7369d9352ee0f5824fba5ae90b017fef31c325cd15029305acd1c13fd9900bfc",
+    "src\\druta\\gpuload.py": "070d45846ebf8cb235e29fe038d059386023c1dd2146f0c525928ec1234f2ea9",
+    "src\\druta\\launch_notice.py": "649390784fe5400424bb83e8c144200f989e6e1dd21da2e5a893a4faed5c0bb1",
+    "src\\druta\\mp2888.py": "26bb98ec029c2991fecf66aa05890ac1aabd0b1e3bce7bc26de3a47ba30601ca",
+    "src\\druta\\mp29816.py": "1b881c594a299e57a2d4677798a0a0ea7cc59f3f62b06c3ceeac26a2ac6a94be",
+    "src\\druta\\ncp4206.py": "66f1860c82f6c668660982a25b12cb373dd980d84e9f634b595a443162221e68",
+    "src\\druta\\nvbackend.py": "7107dc49e3f7fee2a87b2f7d98075332ebf4ef6f984e2d520298f0b7a3039810",
+    "src\\druta\\paths.py": "8460d0efba660198758b4a6ed1c169efdab95fe2ab03d9fb524bfe2b7d23f1ca",
+    "src\\druta\\ping_ui.py": "b494aee785be5389b36fa1cb3919ebd24a45005562d7d7f62275d885740de471",
+    "src\\druta\\profiles.py": "2305e1be430f7bc210a161d8317b7477030b443ee8df7a78ef9e37875e07faec",
+    "src\\druta\\railctl.py": "5351d43a859db3bc6d355b8fd4e822dc21cd4cd15ca77daeed0041cafd49e5f6",
+    "src\\druta\\shuntmod.py": "1b0bd3bda5e85798776fb53d7d58fb0a843c0a64a91e91acc50f1211ba37031a",
+    "src\\druta\\size_probe.py": "037da2d6c05cb7b2246523c0030ae23e2485ea31a93e800144082bbff42ef562",
+    "src\\druta\\startup.py": "626faddb6f02c80e3c27bee0bc117935aa0aaffe9be037f528297086d4dad121",
+    "src\\druta\\threshold_probe.py": "dea4cc6bfe87beb54e75309e6020470e8c374015f365e24cbfbbd613ca2013ae",
+    "src\\druta\\timings.py": "232b44a7a78bf19e1f8a37571e6a9e55e26a69e306dd9dfbb2538d0a86b99085",
+    "src\\druta\\timingwrite.py": "7f2c15bb2a88112953d72533bdee55fde85295f544ca5fb3f121f9b722e3054b",
+    "src\\druta\\__init__.py": "154ab2715bae17d25e6e4df97d9ef378ec55b9fd70e611c5df252d6c03e70a02",
+    "src\\druta\\__main__.py": "0c403b40845008e21719b9839b32659fe16f0ee9afd61bf46a4513ebcefc99fe"
+  }
+}

@@ -33,7 +33,10 @@ def _bound_profile(profile, port, addr7):
                              'fingerprint_version': FINGERPRINT_VERSION}
     p = Profile(data, profile.path)
     p.profile_name = profile.name
-    p.name = f'MP2888A candidate - {p.rail} (port {port}, 0x{addr7:02X})'
+    p.profile_rail = p.rail  # Saved profiles used the original recipe's NVVDD label.
+    p.rail = 'Controller output'
+    p.name = (f'MP2888A candidate (port {port}, 0x{addr7:02X}; '
+              'physical rail unassigned)')
     p.port, p.addr7, p.addrs = port, addr7, [addr7]
     p.pci_device = p.pci_subsys = set()
     p.weak_id = True

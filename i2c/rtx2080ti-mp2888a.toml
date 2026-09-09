@@ -108,7 +108,7 @@ plausible_rail_mv  = [400.0, 1300.0]
 # ---- verification ---------------------------------------------------------- #
 [verify]
 rungs_mv           = [6.25, 12.50, 25.00, 50.00, 75.00]
-min_loaded_vout_mv = 800.0
+min_loaded_vout_mv = 800.0 # Legacy metadata, ignored; retained for saved-profile identity.
 # MEASURED ON THIS BOARD, and the reason the UI shows the rail rather than the
 # slider value: the response is NOT 1:1 near zero. Sweeping raw 0->16 under load
 # at VID 1050 mV, the first ~31 mV up and ~12 mV down delivered nothing at all,

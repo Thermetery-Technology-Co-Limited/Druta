@@ -87,9 +87,9 @@ XOC_CONFIRM = "I ACCEPT PERMANENT HARDWARE DAMAGE"
 
 VERIFY_SAMPLES = 9
 VERIFY_SETTLE_S = 0.15
-# READ_VOUT is whole millivolts, so two adjacent codes can differ by 1 mV with
-# nothing having happened.
-VERIFY_MIN_DETECT_MV = 3.0
+# Observe a full second rather than one short burst of VRM telemetry.
+VERIFY_MEASUREMENT_SAMPLES = 25
+VERIFY_MEASUREMENT_INTERVAL_S = 0.04
 
 
 class ProfileError(ValueError):
@@ -205,6 +205,10 @@ class Profile:
         wr = d.get("write") or []
         self.write = next((w for w in wr if w.get("key") == "offset_mv"), None)
         self.read_only = self.write is None
+        # Paged controllers need their PAGE/scaling identity gates around every
+        # operation. Read-only profiles already use this; existing unpaged
+        # writable profiles keep their established polling cost unless opted in.
+        self.runtime_checks = self.read_only or bool(p.get("runtime_checks", False))
         if self.read_only:
             self.wreg = self.wbytes = self.wbits = None
             self.lsb_mv = self.raw_min = self.raw_max = None
@@ -243,7 +247,7 @@ class Profile:
         v = d.get("verify") or {}
         self.rungs = tuple(float(x) for x in
                            v.get("rungs_mv", (6.25, 12.5, 25.0, 50.0, 75.0)))
-        self.min_loaded_mv = float(v.get("min_loaded_vout_mv", 800.0))
+        # Legacy min_loaded_vout_mv metadata is ignored; voltage is not a load detector.
         self.deadband_mv = v.get("expect_deadband_mv")
 
         m = d.get("match") or {}
@@ -398,12 +402,17 @@ class Rail:
             out[str(t["key"])] = _decode(raw, t.get("encoding", "uint"),
                                          _bitspec(t.get("bits")),
                                          float(t.get("scale", 1.0)))
+        # PAGE/scaling can change through another controller client.
+        if self.p.runtime_checks and not self.present():
+            return {}
         if self.p.read_only:
             # No offset register to report, and reporting 0 would read as
             # "no offset applied" rather than "this profile cannot apply one".
             out["offset_raw"] = out["offset_mv"] = None
             return out
         raw = self.read(self.p.wreg, self.p.wbytes)
+        if self.p.runtime_checks and not self.present():
+            return {}
         out["offset_raw"] = raw
         out["offset_mv"] = None if raw is None else self._offset_mv(raw)
         return out
@@ -565,48 +574,83 @@ class Rail:
                           f"base {base:.2f} mV -> predicted {predicted:.2f} "
                           f"mV, ceiling {cap}. Nothing was written.{tag}")
 
-        # Only the FIELD, placed where the profile says it lives. The reserved
-        # bits of a wider transaction are documented to ignore writes and read
-        # back as zero, so sending a sign-extended value guarantees a read-back
-        # mismatch on every negative offset.
+        # Replace only the declared field. Other bits may be factory settings,
+        # not reserved zeros. Masking first also prevents sign extension from
+        # overwriting those settings for a negative offset.
         width = ((p.wbits[0] - p.wbits[1] + 1) if p.wbits else p.wbytes * 8)
         field = steps & ((1 << width) - 1)
-        raw = field << (p.wbits[1] if p.wbits else 0)
-        if not self._raw_write(cmd, raw, p.wbytes):
-            return False, "the I2C write was rejected by NVAPI"
-
-        back = self.read(cmd, p.wbytes)
-        if back is None or _extract(back, p.wbits) != field:
-            undo = self._panic_zero()
-            return False, (f"WROTE BUT READ BACK WRONG: sent field "
-                           f"0x{field:0{max(2, width // 4)}X}, read "
-                           f"0x{-1 if back is None else back:04X}. Offset "
-                           f"auto-reset: {undo}. Treat the rail as unknown "
-                           f"until a telemetry read agrees.")
-        now = self.read_vout()
+        shift = p.wbits[1] if p.wbits else 0
+        mask = ((1 << width) - 1) << shift
+        raw = (cur_raw & ~mask) | (field << shift)
+        if p.runtime_checks:
+            if not self.present():
+                return False, "refused: controller identity/PAGE/scaling changed before writing"
+            if self.read(cmd, p.wbytes) != cur_raw:
+                return False, "refused: the offset word changed before writing; retry with a fresh reading"
+            if not self.present():
+                return False, "refused: controller identity/PAGE/scaling changed before dispatch"
+        failure = None
+        try:
+            # Even a rejected/exceptional transaction may have reached the
+            # controller. Every failure after dispatch attempts exact rollback.
+            if not self._raw_write(cmd, raw, p.wbytes):
+                failure = "the I2C write was rejected by NVAPI"
+            elif p.runtime_checks and not self.present():
+                failure = "controller identity/PAGE/scaling changed after writing"
+            else:
+                back = self.read(cmd, p.wbytes)
+                if back != raw:
+                    failure = (f"WROTE BUT READ BACK WRONG: sent word 0x{raw:04X}, "
+                               f"read 0x{-1 if back is None else back:04X}")
+                elif p.runtime_checks and not self.present():
+                    failure = "controller identity/PAGE/scaling changed during readback"
+                else:
+                    now = self.read_vout()
+                    if p.runtime_checks and now is None:
+                        failure = "controller voltage/configuration could not be verified after writing"
+        except Exception as e:                                  # noqa: BLE001
+            failure = f"I2C transaction raised {type(e).__name__}: {e}"
+        if failure is not None:
+            restored, undo = self._restore_word(cur_raw)
+            status = "restored original word" if restored else "RESTORE FAILED; rail state unknown"
+            return False, f"{failure}. {status}: {undo}"
         return True, (f"{p.rail} offset {applied:+.2f} mV (raw {steps:+d}), "
                       f"rail now {'?' if now is None else f'{now:.0f}'} mV. "
                       f"This does NOT clear on reboot - only 'Reset all to "
                       f"stock' or a power cycle.{tag}")
 
-    def _panic_zero(self):
-        """Do not merely ADVISE a reset after a bad read-back - attempt it.
+    def _restore_word(self, original):
+        """Restore a captured word, preserving its field and factory bits.
 
-        The alternative is returning an error while the regulator holds an
-        offset neither the caller nor this module can name, which is the worst
-        state available on this path.
+        Restoration is not a new voltage request, so it does not depend on
+        today's voltage envelope or telemetry. Device/configuration identity,
+        the command whitelist and the NVRAM denylist still apply.
         """
-        if self.p.read_only:
-            return "no offset register on this profile - nothing to zero"
+        p = self.p
+        if p.read_only or p.wreg not in p.writable or p.wreg in p.never:
+            return False, "no permitted offset register to restore"
         try:
-            if not self._raw_write(self.p.wreg, 0, self.p.wbytes):
-                return "ZERO WRITE REJECTED"
-            chk = self.read(self.p.wreg, self.p.wbytes)
-            if chk is not None and _extract(chk, self.p.wbits) == 0:
-                return "zeroed"
-            return f"ZERO FAILED (reads 0x{-1 if chk is None else chk:04X})"
+            if not self.present():
+                return False, "controller identity/PAGE/scaling does not match; restore not dispatched"
+            if not isinstance(original, int) or not 0 <= original < 1 << (p.wbytes * 8):
+                return False, "invalid captured register word"
+            chk = self.read(p.wreg, p.wbytes)
+            if p.runtime_checks and not self.present():
+                return False, "controller identity/PAGE/scaling changed during restore readback"
+            if chk == original:
+                return True, f"original 0x{original:04X} already reads back exactly"
+            if not self._raw_write(p.wreg, original, p.wbytes):
+                return False, "restore write rejected"
+            if p.runtime_checks and not self.present():
+                return False, "controller identity/PAGE/scaling changed during restore"
+            chk = self.read(p.wreg, p.wbytes)
+            if p.runtime_checks and not self.present():
+                return False, "controller identity/PAGE/scaling changed during restore readback"
+            if chk == original:
+                return True, f"0x{original:04X} read back exactly"
+            return False, f"restore readback mismatch (reads 0x{-1 if chk is None else chk:04X})"
         except Exception as e:                                  # noqa: BLE001
-            return f"ZERO RAISED {e!r}"
+            return False, f"restore raised {e!r}"
 
     def reset(self):
         """Zero the offset. The only reliable undo; a reboot is not one."""
@@ -614,6 +658,8 @@ class Rail:
 
     # -- measurement ---------------------------------------------------------- #
     def read_vout(self):
+        if self.p.runtime_checks and not self.present():
+            return None
         t = next((x for x in self.p.telemetry_specs
                   if x.get("key") == "vout_mv"), None)
         if t is None:
@@ -621,31 +667,22 @@ class Rail:
         raw = self.read(int(t["reg"]), int(t.get("bytes", 2)))
         if raw is None:
             return None
+        if self.p.runtime_checks and not self.present():
+            return None
         return _decode(raw, t.get("encoding", "uint"),
                        _bitspec(t.get("bits")), float(t.get("scale", 1.0)))
 
-    def _sample(self, n=VERIFY_SAMPLES, ref=None):
-        """(median, peak-to-peak) of the detection quantity.
+    def _sample(self, n=VERIFY_MEASUREMENT_SAMPLES, ref=None, check=None):
+        """Return a complete window's median and peak-to-peak noise.
 
-        WITHOUT `ref` the quantity is the raw rail, and it is only as steady as
-        the GPU's governor: at idle the VID request wanders on its own and a
-        small offset disappears into that movement. Measured on the authoring
-        card at idle - 9 mV of wander, which swallowed the 6.25, 12.50 and
-        25.00 mV rungs outright.
-
-        WITH `ref` - a callable returning the GPU's own reported rail in mV -
-        the quantity is `rail - ref`, the offset the regulator is ACTUALLY
-        adding. That subtracts the governor entirely, because it moves both
-        terms. It is the software equivalent of what a volt modder does with a
-        meter on the rail and the vendor tool on screen: watch the difference,
-        not either number. Same card, under load: 2 mV.
-
-        Peak-to-peak rather than a standard deviation because the question is
-        not how the samples are distributed, it is how far the reading wanders
-        while nobody is writing to it. Less than that cannot be attributed.
+        Verification uses raw controller VOUT and checks the operating point
+        during sampling. The optional subtraction is retained for diagnostic
+        callers only: it cannot establish the physical I2C voltage response.
         """
         xs = []
         for _ in range(n):
+            if check is not None:
+                check()
             v = self.read_vout()
             if v is not None:
                 if ref is None:
@@ -657,16 +694,76 @@ class Rail:
                         r = None
                     if r is not None:
                         xs.append(float(v) - float(r))
-            time.sleep(0.01)
-        if not xs:
+            time.sleep(VERIFY_MEASUREMENT_INTERVAL_S)
+        if check is not None:
+            check()
+        if len(xs) != n or any(not math.isfinite(x) for x in xs):
             return None, None
         s = sorted(xs)
         n2 = len(s)
         med = s[n2 // 2] if n2 % 2 else (s[n2 // 2 - 1] + s[n2 // 2]) / 2.0
         return med, (max(xs) - min(xs))
 
+    def _verification_stability(self, ref=None, operating_point=None, cancelled=None,
+                                check_voltage=True):
+        """Require complete, repeatable samples before interpreting a response.
+
+        Baseline spread is compared with the controller's offset resolution.
+        After a write, spread becomes part of the response detection noise
+        threshold; rejecting a noisy small rung would prevent testing a larger
+        measurable response. P-state and clock samples
+        must agree when the caller provides them. This proves only stability
+        over the sampling window, not a particular load or electrical rail ID.
+        """
+        cancelled = cancelled or (lambda: False)
+        volts, references, points = [], [], []
+        for _ in range(VERIFY_SAMPLES):
+            if cancelled():
+                raise ValueError("verification cancelled")
+            voltage = self.read_vout()
+            if voltage is None or not math.isfinite(float(voltage)):
+                raise ValueError("selected rail voltage unreadable during stability check")
+            volts.append(float(voltage))
+            if ref is not None:
+                try:
+                    value = ref()
+                except Exception:
+                    value = None
+                references.append(value)
+            if operating_point is not None:
+                point = operating_point()
+                if (not isinstance(point, tuple) or len(point) != 3
+                        or any(v is None or not isinstance(v, (int, float))
+                               or not math.isfinite(v) for v in point)):
+                    raise ValueError("GPU P-state/core/memory clocks unreadable")
+                points.append(point)
+            time.sleep(0.01)
+        resolution = abs(self.p.lsb_mv)
+        if not math.isfinite(resolution) or resolution <= 0:
+            raise ValueError("controller offset resolution is invalid")
+        spread = max(volts) - min(volts)
+        if check_voltage and spread > resolution:
+            raise ValueError(f"selected rail changed by {spread:.2f} mV during sampling "
+                             f"(controller offset resolution {resolution:g} mV)")
+        available = [v for v in references if v is not None]
+        if available:
+            if len(available) != len(references) or any(
+                    not isinstance(v, (int, float)) or not math.isfinite(v) for v in available):
+                raise ValueError("NVAPI reference was intermittent or invalid")
+            spread = max(available) - min(available)
+            if check_voltage and spread > resolution:
+                raise ValueError(f"NVAPI reference changed by {spread:.2f} mV during sampling "
+                                 f"(controller offset resolution {resolution:g} mV)")
+        if points and any(point != points[0] for point in points):
+            raise ValueError("GPU P-state or core/memory clocks changed during sampling")
+        return {"vout_min_mv": min(volts), "vout_max_mv": max(volts),
+                "reference_available": bool(available),
+                "reference_min_mv": min(available) if available else None,
+                "reference_max_mv": max(available) if available else None,
+                "operating_point": points[0] if points else None}
+
     def verify(self, *, acknowledged=False, log=None, ref=None,
-               allow_idle=False, cancelled=None):
+               allow_idle=False, cancelled=None, operating_point=None):
         """Climb the smallest offsets that could move the rail until one does.
 
         WHY A LADDER AND NOT A SINGLE WRITE. This is how a volt mod is proven on
@@ -681,12 +778,14 @@ class Rail:
         ignores - passes the dry run AND the read-back, because the read-back
         only proves the REGISTER took the value, not that the RAIL did.
 
-        THE CARD MUST BE UNDER LOAD, and refusing at idle is not caution. A
-        multiphase controller sheds phases and changes loadline under PSI, so an
-        idle card is a DIFFERENT REGULATOR from the one that carries an
-        overclock. A result measured there is unrepresentative, which is worse
-        than noisy. `allow_idle` downgrades to a path-only verdict with no
-        magnitude attached rather than letting an idle number stand in.
+        Voltage alone does not establish load state. No minimum operating-voltage
+        gate is applied. ``allow_idle`` remains accepted for older callers but
+        no longer changes behavior. ``ref`` is also retained for compatibility
+        but is never sampled: response detection uses controller VOUT directly.
+        A driver voltage is not an independent measurement of an I2C offset;
+        subtracting it can mask the response or manufacture a false response.
+        Success establishes only a measured response
+        at the tested operating point, not full-load validation or voltage gain.
 
         Returns (ok, message, ladder). The entry offset is restored in a
         finally, and the restore is verified.
@@ -694,34 +793,20 @@ class Rail:
         self._verification_write_attempted = False
         self._verification_restore_ok = True
         self._verification_restore_error = ""
+        ref = None
         cancelled = cancelled or (lambda: False)
         if cancelled():
             return False, "verification cancelled; nothing written", []
         entry_xoc = bool(getattr(self, "xoc", False))
         p = self.p
+        if p.read_only:
+            return False, "refused: this profile supports telemetry only", []
         if not acknowledged:
             return False, ("refused: verification writes real offsets to the "
                            "VRM. The caller must pass acknowledged=True."), []
         if not self.present():
             return False, ("refused: no device matching this profile - "
                            "nothing to verify against."), []
-
-        vcore = None
-        if ref is not None:
-            try:
-                vcore = ref()
-            except Exception:                                   # noqa: BLE001
-                vcore = None
-        idle = vcore is None or vcore < p.min_loaded_mv
-        if idle and not allow_idle:
-            seen = "unreadable" if vcore is None else f"{vcore:.2f} mV"
-            return False, (
-                f"refused: the card is not at a real operating point (rail "
-                f"reads {seen}, and this profile wants at least "
-                f"{p.min_loaded_mv:.0f} mV). The regulator drops phases and "
-                f"changes loadline at idle, so a result measured here would "
-                f"describe a configuration nobody runs. Load the card and "
-                f"repeat."), []
 
         entry_raw = self.read(p.wreg, p.wbytes)
         if entry_raw is None:
@@ -732,17 +817,30 @@ class Rail:
             if log:
                 log(m)
 
-        base, noise = self._sample(ref=ref)
+        try:
+            stable = self._verification_stability(ref, operating_point, cancelled,
+                                                 check_voltage=operating_point is None)
+        except Exception as exc:
+            return False, f"INCONCLUSIVE - {exc}; nothing written", []
+        say(f"stable baseline: {stable}")
+        def check_sample():
+            if cancelled():
+                raise ValueError("verification cancelled")
+            if operating_point() != stable["operating_point"]:
+                raise ValueError("GPU operating point changed during measurement")
+        sample_args = {"ref": None}
+        if operating_point is not None:
+            sample_args["check"] = check_sample
+        try:
+            base, noise = self._sample(**sample_args)
+        except Exception as exc:
+            return False, f"INCONCLUSIVE - {exc}; nothing written", []
         if cancelled():
             return False, "verification cancelled; nothing written", []
-        if base is None and ref is not None:
-            say("GPU voltage readback unavailable - falling back to the raw "
-                "rail, which needs a bigger step to clear idle wander")
-            ref = None
-            base, noise = self._sample()
         if base is None:
             return False, "refused: could not read the rail", []
-        what = "rail-minus-VID" if ref is not None else "rail"
+        noise = max(noise, stable["vout_max_mv"] - stable["vout_min_mv"])
+        what = "I2C VOUT"
         say(f"baseline {what} {base:.0f} mV, wander {noise:.0f} mV "
             f"(entry offset {entry_mv:+.2f} mV)")
 
@@ -757,6 +855,9 @@ class Rail:
                 if bool(getattr(self, "xoc", False)) != entry_xoc:
                     failure = "verification stopped: XOC mode changed"
                     break
+                if operating_point is not None and operating_point() != stable["operating_point"]:
+                    failure = "INCONCLUSIVE - GPU operating point changed before the write"
+                    break
                 self._verification_write_attempted = True
                 self._verification_restore_ok = False
                 ok, msg = self.set_offset_mv(entry_mv + rung,
@@ -769,17 +870,16 @@ class Rail:
                     ladder.append({"rung_mv": rung, "refused": msg})
                     say(f"  {rung:+6.2f} mV  REFUSED - {msg}")
                     failure = (
-                        f"INCONCLUSIVE - the ladder ran out of headroom at "
-                        f"{rung:+.2f} mV before the rail was seen to move, so "
-                        f"this is a refusal and not a verdict on the write "
-                        f"path. Refusal was: {msg}")
+                        f"INCONCLUSIVE - verification stopped at "
+                        f"{rung:+.2f} mV because the offset request failed. "
+                        f"The voltage write path remains unverified. {msg}")
                     break
 
                 time.sleep(VERIFY_SETTLE_S)
                 if cancelled():
                     failure = "verification cancelled"
                     break
-                now, _pp = self._sample(ref=ref)
+                now, _pp = self._sample(**sample_args)
                 if cancelled():
                     failure = "verification cancelled"
                     break
@@ -793,14 +893,23 @@ class Rail:
                                "verification; no further offsets attempted.")
                     break
 
+                # Confirm that a transient operating-point change did not
+                # masquerade as a voltage response before accepting the rung.
+                check = self._verification_stability(ref, operating_point, cancelled,
+                                                     check_voltage=False)
+                if check["operating_point"] != stable["operating_point"]:
+                    failure = "INCONCLUSIVE - GPU operating point changed during the trial"
+                    break
                 delta = now - base
-                # Three floors, largest wins. Half the rung stops a rail that
-                # drifted up on its own being counted as a response; the wander
-                # term stops noise being counted at all.
-                thr = max(VERIFY_MIN_DETECT_MV, noise, 0.5 * rung)
-                moved = delta >= thr
+                # Detect against measured noise and the controller's step,
+                # not an assumed fraction of the requested voltage gain.
+                response_noise = max(noise, _pp,
+                                     check["vout_max_mv"] - check["vout_min_mv"])
+                thr = max(abs(p.lsb_mv), response_noise)
+                moved = delta >= abs(p.lsb_mv) and delta > response_noise
                 ladder.append({"rung_mv": rung, "rail_mv": now,
                                "delta_mv": delta, "threshold_mv": thr,
+                               "noise_mv": response_noise,
                                "moved": moved})
                 say(f"  {rung:+6.2f} mV  {what} {now:.0f} mV  delta "
                     f"{delta:+.0f} mV (need {thr:.1f})  "
@@ -815,11 +924,7 @@ class Rail:
             # restoration verdict. A measured response cannot authorize Apply
             # while the entry setting is unconfirmed.
             try:
-                restore_policy = ({"_xoc": entry_xoc}
-                                  if bool(getattr(self, "xoc", False)) != entry_xoc
-                                  else {})
-                rok, rmsg = (self.set_offset_mv(entry_mv, acknowledged=True,
-                                               **restore_policy)
+                rok, rmsg = (self._restore_word(entry_raw)
                              if self._verification_write_attempted
                              else (True, "nothing written"))
                 if not rok:
@@ -827,15 +932,13 @@ class Rail:
             except Exception as exc:                            # noqa: BLE001
                 restore_errors.append(f"restore raised {exc!r}")
             try:
-                # Compare the exact original FIELD, not a value reconstructed
-                # through mV rounding. Reserved bits are ignored by the part;
-                # the guarded setter intentionally never writes them back.
+                # Independently confirm the captured complete word. Neighboring
+                # fields are controller state, not necessarily reserved zeros.
                 back = self.read(p.wreg, p.wbytes)
-                want = _extract(entry_raw, p.wbits)
-                if back is None or _extract(back, p.wbits) != want:
+                if back != entry_raw:
                     seen = "unreadable" if back is None else f"0x{back:04X}"
                     restore_errors.append(
-                        f"restore readback {seen}, expected field 0x{want:X}")
+                        f"restore readback {seen}, expected word 0x{entry_raw:X}")
             except Exception as exc:                            # noqa: BLE001
                 restore_errors.append(f"restore readback raised {exc!r}")
             self._verification_restore_ok = not restore_errors
@@ -852,7 +955,7 @@ class Rail:
         if restore_errors:
             return False, (
                 "RESTORE FAILED - verification is invalid; treat the rail as "
-                "unknown and leave Apply disabled. "
+                "unknown; verification cannot unlock Apply. "
                 + "; ".join(restore_errors)
                 + (f". {failure}" if failure else "")), ladder
         if failure:
@@ -860,49 +963,86 @@ class Rail:
 
         if hit is None:
             return False, (
-                f"WRITE PATH NOT WORKING. The rail did not move at any rung up "
-                f"to {p.rungs[-1]:.0f} mV. Every write was accepted and read "
-                f"back correctly, so the register is taking the value and the "
-                f"rail is not following it: the part at 0x{self.addr7:02X} is "
-                f"not what drives this rail, or this profile describes a "
-                f"different board. Do not use the offset slider."), ladder
+                f"INCONCLUSIVE - no positive I2C VOUT response exceeded the "
+                f"detection threshold through +{p.rungs[-1]:.2f} mV. "
+                f"Register writes/readback succeeded, but this does not prove "
+                f"a voltage change or identify the electrical rail. "
+                f"Baseline {base:.1f} mV; see the rung measurements in the log. "
+                f"Restored to {entry_mv:+.2f} mV. Apply remains unverified."), ladder
 
-        if idle:
-            # Deliberately no magnitude. The path was exercised, which is real
-            # and useful, but the NUMBER belongs to a phase-shed regulator.
-            return True, (
-                f"WRITE PATH REACHES THE RAIL - but measured at IDLE, so this "
-                f"is a path verdict only. It moved at {hit['rung_mv']:+.2f} "
-                f"mV. How much it moves under load is not established here and "
-                f"no figure from this run should be quoted. Restored to "
-                f"{entry_mv:+.2f} mV."), ladder
+        # A register readback proves restoration of the command, not that the
+        # observed response was caused by it. Require an A-B-A measurement:
+        # controller VOUT must return to its entry baseline while P0 is held.
+        try:
+            time.sleep(VERIFY_SETTLE_S)
+            restored = self._verification_stability(operating_point=operating_point,
+                                                     cancelled=cancelled,
+                                                     check_voltage=False)
+            if restored["operating_point"] != stable["operating_point"]:
+                raise ValueError("GPU operating point changed after restoration")
+            restored_mv, restored_noise = self._sample(**sample_args)
+            if restored_mv is None:
+                raise ValueError("restored I2C VOUT is unreadable")
+            step = abs(p.lsb_mv)
+            telemetry = next((t for t in getattr(p, "telemetry_specs", [])
+                              if t.get("key") == "vout_mv"), {})
+            quantum = abs(float(telemetry.get("scale", 1)))
+            if telemetry.get("encoding", "uint") in ("uint", "int") and quantum > 0:
+                # A 6.25 mV step can span seven 1 mV READ_VOUT codes.
+                step = math.ceil(step / quantum) * quantum
+            tolerance = max(step, noise, restored_noise)
+            if abs(restored_mv - base) > tolerance:
+                raise ValueError(f"I2C VOUT did not return to baseline "
+                                 f"({restored_mv:.1f} vs {base:.1f} mV)")
+            reversal = hit["rail_mv"] - restored_mv
+            if reversal < abs(p.lsb_mv) or reversal <= max(hit["noise_mv"], restored_noise):
+                raise ValueError("I2C VOUT did not show a downward response above noise after restoration")
+            if cancelled():
+                raise ValueError("verification cancelled")
+            hit["restored_vout_mv"] = restored_mv
+            hit["reversal_mv"] = reversal
+            say(f"I2C VOUT returned within the baseline noise/resolution band: "
+                f"{restored_mv:.1f} mV (entry {base:.1f} mV; "
+                f"downward response {reversal:.1f} mV)")
+        except Exception as exc:
+            return False, (f"INCONCLUSIVE - {exc}. Offset word restored to "
+                           f"{entry_mv:+.2f} mV; voltage response remains unverified."), ladder
 
         # A detecting step is not a calibrated gain or a measured deadband.
         # Boards with the same controller may have different loadline settings.
         return True, (
-            f"WRITE PATH CONFIRMED under load (GPU rail {vcore:.2f} mV). "
+            "WRITE PATH CONFIRMED at the tested operating point. "
             f"First detected response at {hit['rung_mv']:+.2f} mV: "
             f"{hit['delta_mv']:+.0f} mV against a {hit['threshold_mv']:.1f} mV "
-            f"threshold. Restored to {entry_mv:+.2f} mV. "
-            "This verifies a response, not a 1:1 voltage gain."
+            f"threshold. I2C VOUT returned to {restored_mv:.1f} mV after restoration. "
+            f"Restored to {entry_mv:+.2f} mV. "
+            "This verifies a response, not full-load behavior or a 1:1 voltage gain."
         ), ladder
 
 
 def discover(nvapi, dev_id=None, subsys=None, log=None, *, architecture=None):
     """Read-only candidate discovery on the selected GPU's actual I2C buses.
 
-    NCP4206 and MP2888A use controller fingerprints, without board-ID gates.
+    NCP4206, MP2888A and MP29816 use controller evidence, without board-ID gates.
     Other TOML recipes retain their explicit board constraints. Return every
     candidate: a caller must never silently resolve an ambiguous bus map.
     """
-    from .ncp4206 import DISCOVERY_PORTS, NCP4206
+    from .ncp4206 import DISCOVERY_PORTS, DISCOVERY_ADDRESSES, NCP4206
     from .mp2888 import discover as discover_mp2888
+    from .mp29816 import discover as discover_mp29816
     hits = []
-    if architecture == 2 and getattr(nvapi, "ok", False):
-        for port in DISCOVERY_PORTS:
-            ncp = NCP4206(nvapi, architecture=architecture, port=port)
-            if ncp.present():
-                hits.append(ncp)
+    if getattr(nvapi, "ok", False):
+        for addr7 in DISCOVERY_ADDRESSES:
+            for port in DISCOVERY_PORTS:
+                ncp = NCP4206(nvapi, architecture=architecture, port=port, addr7=addr7)
+                try:
+                    if ncp.present():
+                        hits.append(ncp)
+                    elif log and ncp.discovery_diagnostics.get('model') is not None:
+                        log(f'onsemi candidate at port {port}/0x{addr7:02X}: '
+                            f'{ncp.discovery_diagnostics}; no understood NCP4206 layout.', False)
+                except Exception:
+                    continue
     selected = getattr(nvapi, "selected", None) or {}
     conflict = any(supplied is not None and selected.get(key) is not None
                    and supplied != selected[key]
@@ -914,6 +1054,9 @@ def discover(nvapi, dev_id=None, subsys=None, log=None, *, architecture=None):
     for p in load_profiles(log=log):
         if getattr(p, "regulator", "").upper() == "MPS MP2888A":
             hits.extend(discover_mp2888(nvapi, p, log=log))
+            continue
+        if getattr(p, "regulator", "").upper() == "MPS MP29816":
+            hits.extend(discover_mp29816(nvapi, p, log=log))
             continue
         if conflict or not p.candidate_for(dev_id, subsys):
             continue

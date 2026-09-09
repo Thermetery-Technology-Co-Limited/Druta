@@ -14,14 +14,15 @@ for evidence reports as well as code or recipe changes.
 
 | What you found | What to contribute |
 |---|---|
-| NCP4206 on another Kepler board | Discovery and Verify evidence; no new PCI/subsystem whitelist entry or duplicate TOML. |
+| NCP4206 on another board | Discovery and Verify evidence; no new generation/PCI/subsystem whitelist entry or duplicate TOML. |
 | MP2888A on another board or I2C location | Discovery and Verify evidence using the existing adapter and recipe. Report any fingerprint mismatch before changing the scanner. |
+| MP29816 on another board or I2C location | Use the model-ID scanner and report the already-selected PAGE/scaling. Do not add OEM string/revision gates or select PAGE to discover a rail. |
 | An unfamiliar controller with documented telemetry | A telemetry-only recipe, or a read-only discovery adapter when fixed-location TOML is insufficient. |
 | A new writable register layout or ordered control sequence | A cited recipe or controller adapter, mocked transport tests, and measured write/restore evidence. |
 
-NCP4206 discovery scans Kepler ports 0–7 at address `0x20`. MP2888A discovery
-scans ports 0–7 and addresses `0x08`–`0x77`, starting at `0x20`. Neither uses
-DevID/subsystem filtering. Other TOML recipes still support optional PCI filters
+NCP4206, MP2888A and MP29816 discovery scan ports 0–7 and addresses
+`0x08`–`0x77`, starting at `0x20` for the former two and `0x30` for MP29816.
+None uses generation/DevID/subsystem filtering. Other TOML recipes still support optional PCI filters
 and configured bus locations. Record board IDs as evidence even when they are
 not discovery gates; controller support does not prove every board's wiring.
 

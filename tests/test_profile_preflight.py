@@ -116,6 +116,44 @@ class ProfilePreflightTests(unittest.TestCase):
                 state[key] = value
                 self.assert_rejected_without_writes(state)
 
+    def test_raw_voltage_deltas_reject_malformed_payloads_before_any_write(self):
+        for value in (None, [], {"0": []}, {"00": {"vmin": 0}},
+                      {"0": {"unknown": 1}}, {"0": {"vmin": True}},
+                      {"0": {"vmin": 1.0}}, {"0": {"vmin": 1.5}},
+                      {"0": {"vmin": float("nan")}},
+                      {"0": {"vmin": -(1 << 31) - 1}},
+                      {"0": {"vmin": 1 << 31}}):
+            with self.subTest(value=value):
+                state = copy.deepcopy(self.state)
+                state["rail_limits_uv"] = value
+                self.assert_rejected_without_writes(state)
+
+    def test_raw_voltage_deltas_use_current_reference_and_saved_mode_bounds(self):
+        state = copy.deepcopy(self.state)
+        state["xoc"] = False
+        state["i2c"] = None
+        state["nvvdd_offset_mv"] = None
+        state["clock_domain_offsets_mhz"] = {}
+        state["rail_limits_uv"] = {"0": {"reliability": 106250}}
+        self.assertIsNone(profiles.preflight(self.gpu, state))  # exactly 1200 mV
+        state["rail_limits_uv"]["0"]["reliability"] += 1
+        self.assertIn("voltage bounds", self.assert_rejected_without_writes(state))
+        state["xoc"] = True
+        self.assertIsNone(profiles.preflight(self.gpu, state))
+        state["rail_limits_uv"]["0"]["reliability"] = -800000
+        self.assertIn("voltage bounds", self.assert_rejected_without_writes(state))
+
+    def test_raw_replay_never_falls_back_to_absolute_values_if_writer_is_missing(self):
+        del self.gpu.set_volt_rail_limits_raw
+        self.assertIn("exact per-rail control replay", self.assert_rejected_without_writes(self.state))
+
+    def test_raw_only_profile_is_valid_and_requires_the_same_device(self):
+        state = {"schema": profiles.SCHEMA, "device": copy.deepcopy(self.state["device"]),
+                 "rail_limits_uv": {"0": {"reliability": 12501}}}
+        self.assertIsNone(profiles.preflight(self.gpu, state))
+        state["device"]["uuid"] = "different"
+        self.assertIn("uuid", self.assert_rejected_without_writes(state))
+
     def test_mp_offset_checks_actual_recipe_before_bus_access_or_other_writes(self):
         discovery = mp_discovery.DiscoveryTests()
         discovery.setUp()
@@ -175,8 +213,8 @@ class ProfilePreflightTests(unittest.TestCase):
         self.rail.plan.side_effect = None
         self.rail.plan.return_value = False, "live predicted voltage exceeds ceiling"
         result = profiles.restore(self.gpu, self.state, rail=self.rail, i2c_verified=True)
-        self.assertEqual(result[:3], [(True, "set_volt_rail_limits"),
-                                     (True, "set_volt_rail_limits"),
+        self.assertEqual(result[:3], [(True, "set_volt_rail_limits_raw"),
+                                     (True, "set_volt_rail_limits_raw"),
                                      (True, "set_rail_offset_mv")])
         self.assertEqual(result[-1], (False, "live predicted voltage exceeds ceiling"))
         self.rail.set_offset_mv.assert_not_called()
@@ -195,7 +233,7 @@ class ProfilePreflightTests(unittest.TestCase):
         self.gpu.set_power_limit_mw.side_effect = RuntimeError("power failure")
         result = profiles.restore(self.gpu, self.state, rail=self.rail, i2c_verified=True)
         self.assertIn((False, "power limit: power failure"), result)
-        self.assertEqual(result[0], (True, "set_volt_rail_limits"))
+        self.assertEqual(result[0], (True, "set_volt_rail_limits_raw"))
         self.assertEqual(result[-1], (True, "apply_vf_deltas"))
 
 

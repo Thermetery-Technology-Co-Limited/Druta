@@ -85,6 +85,8 @@ def rm_call(gpu, replacement=None, control_version=0x20AC8, invoke=None,
         e = GPU._Escape.from_address(pesc)
         p = ctypes.cast(e.pPrivateDriverData, ctypes.POINTER(u32))
         result["escape_size"] = int(e.PrivateDriverDataSize)
+        result["escape_fields"] = {key: getattr(e, key) for key in
+                                   ("hAdapter", "hDevice", "Type", "Flags", "hContext")}
         if e.pPrivateDriverData and e.PrivateDriverDataSize >= 68:
             result["escape_header"] = list(p[:17])
             result["escape_prefix"] = list(p[:min(40, e.PrivateDriverDataSize // 4)])
@@ -104,7 +106,9 @@ def rm_call(gpu, replacement=None, control_version=0x20AC8, invoke=None,
                     p[17 + i] = value
             result["input_params"] = list(p[17:17 + param_words])
         rc = proto(addr)(pesc)
+        result["escape_ntstatus"] = rc
         if e.pPrivateDriverData and e.PrivateDriverDataSize >= 68:
+            result["escape_header_after"] = list(p[:17])
             result["escape_output_params"] = list(p[17:e.PrivateDriverDataSize // 4])
             result["escape_rm_status"] = int(p[16])
         if valid:

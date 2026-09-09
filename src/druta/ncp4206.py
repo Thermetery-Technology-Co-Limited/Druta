@@ -1,6 +1,6 @@
 # Copyright (C) 2026 Thermetery Technology Co Limited
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""NCP4206 absolute VID control, identified on a Kepler GPU's I2C bus.
+"""NCP4206 absolute VID control, identified on the selected GPU's I2C bus.
 
 Public source: onsemi NCP4206 datasheet, Table 10/11 and Voltage Control Mode.
 Only VOUT_COMMAND and bit 3 of the paired VR Config registers are writable.
@@ -17,12 +17,14 @@ NORMAL_MAX_MV = 1281
 XOC_MAX_MV = 2000
 MIN_MV = 600
 DISCOVERY_PORTS = (2, 0, 1, 3, 4, 5, 6, 7)
-# onsemi NCP4206 datasheet Table 11 (p.27) default, plus the OEM identity
-# measured on GTX 770 and both GTX 690 controllers. Do not accept every
-# onsemi manufacturer ID as this controller: model AND revision must match.
+DISCOVERY_ADDRESSES = (0x20,) + tuple(a for a in range(0x08, 0x78) if a != 0x20)
+# https://www.onsemi.com/download/data-sheet/pdf/ncp4206-d.pdf Table 11:
+# these are read-only IDs, not user-programmable MP2888 identifiers. Keep
+# model identity, but do not mistake the sampled revision for an ABI version.
+# 0x20 is the documented address; other unicast routes can identify OEM parts.
 OEM_IDENTITY = (0x41, 0x3298, 0x01)
 DEFAULT_IDENTITY = (0x41, 0x0208, 0x03)
-IDENTITIES = (OEM_IDENTITY, DEFAULT_IDENTITY)
+MODEL_IDS = (OEM_IDENTITY[1], DEFAULT_IDENTITY[1])
 
 
 def decode_vid(code):
@@ -41,23 +43,26 @@ def encode_vid(mv):
 class NCP4206(Rail):
     absolute_voltage = True
 
-    def __init__(self, nvapi, *, architecture=None, port=2):
+    def __init__(self, nvapi, *, architecture=None, port=2, addr7=0x20):
         if type(port) is not int or port not in DISCOVERY_PORTS:
             raise ValueError('NCP4206 discovery supports only I2C ports 0..7')
+        if type(addr7) is not int or addr7 not in DISCOVERY_ADDRESSES:
+            raise ValueError('NCP4206 discovery requires unicast 0x08..0x77')
         self.architecture = architecture
         self._identity = None
-        recipe = {'kind': 'ncp4206-absolute-v1', 'port': port, 'addr7': 32,
+        self.discovery_diagnostics = {}
+        recipe = {'kind': 'ncp4206-absolute-v1', 'port': port, 'addr7': addr7,
                   'identity': None, 'normal_max': NORMAL_MAX_MV,
                   'xoc_max': XOC_MAX_MV, 'vid_max': 1600, 'min_mv': MIN_MV}
-        p = SimpleNamespace(name=f'Kepler - NVVDD (NCP4206, port {port})', regulator='NCP4206',
-                            rail='NVVDD', port=port, addr7=32, src=recipe,
+        p = SimpleNamespace(name=f'NCP4206 output (port {port}, 0x{addr7:02X}; physical rail unassigned)', regulator='NCP4206',
+                            rail='Controller output', port=port, addr7=addr7, src=recipe,
                             read_only=False, env_min=MIN_MV, env_max=NORMAL_MAX_MV,
                             hw_min_mv=MIN_MV, hw_max_mv=XOC_MAX_MV)
         super().__init__(p, nvapi)
         self._mutex = threading.RLock()
 
     def present(self):
-        if self.architecture != 2 or not getattr(self.nvapi, 'ok', False):
+        if not getattr(self.nvapi, 'ok', False):
             return False
         # Port/address ACKs alone never identify the regulator. Stop at the
         # manufacturer mismatch so empty ports need only one driver round trip.
@@ -65,17 +70,23 @@ class NCP4206(Rail):
         if manufacturer != 0x41:
             return False
         identity = (manufacturer, self.read(0x9a, 2), self.read(0x9b, 1))
-        if identity not in IDENTITIES or self.read(0x20, 1) != 32:
+        self.discovery_diagnostics = dict(zip(('manufacturer', 'model', 'revision'), identity))
+        if (identity[1] not in MODEL_IDS or type(identity[2]) is not int
+                or not 0 <= identity[2] <= 255 or self.read(0x20, 1) != 32):
             return False
         if self._identity is not None:
             return identity == self._identity
         self._identity = identity
         self.p.src['identity'] = list(identity)
-        # Preserve the saved-profile fingerprint for the original port-2 OEM
-        # recipe, while the visible name describes any identified Kepler card.
+        # A model ID establishes register semantics, not which GPU rail is
+        # connected. Preserve only the historical saved-profile identity.
+        legacy = self.addr7 == 0x20 and identity in (OEM_IDENTITY, DEFAULT_IDENTITY)
         self.p.profile_name = ('GTX 770 - NVVDD (NCP4206)'
-                               if self.p.port == 2 and identity == OEM_IDENTITY
-                               else self.p.name)
+                               if legacy and self.p.port == 2 and identity == OEM_IDENTITY
+                               else (f'Kepler - NVVDD (NCP4206, port {self.p.port})'
+                                     if legacy else self.p.name))
+        if legacy:
+            self.p.profile_rail = 'NVVDD'
         return True
 
     def capture_control(self):
@@ -218,7 +229,23 @@ class NCP4206(Rail):
         except Exception as exc:
             return False, 'NCP4206 Auto recovery failed: ' + str(exc)
 
-    def verify(self, *, acknowledged=False, ref=None, log=None, cancelled=None):
+    def _verification_vmon(self):
+        """Read physical VMON and its actual LINEAR11 least-significant bit."""
+        raw = self.read(0xd7, 2)
+        if type(raw) is not int or not 0 <= raw <= 0xffff:
+            raise ValueError('NCP4206 VMON read failed')
+        exponent = raw >> 11
+        if exponent & 16:
+            exponent -= 32
+        value = _linear11(raw) * 1000
+        if not math.isfinite(value) or not 300 <= value <= 2000:
+            raise ValueError('NCP4206 VMON is unavailable or outside its telemetry range')
+        return value, (2.0 ** exponent) * 1000
+
+    def verify(self, *, acknowledged=False, ref=None, log=None, cancelled=None,
+               operating_point=None):
+        # ref is retained for callers of the older interface. A driver voltage
+        # or VID is not a reference for a physical controller-voltage response.
         self._verification_write_attempted = False
         self._verification_restore_ok = True
         self._verification_restore_error = ''
@@ -227,95 +254,178 @@ class NCP4206(Rail):
             return False, 'NCP4206 verification cancelled; nothing written', []
         if not acknowledged:
             return False, 'I2C verification requires acknowledgment', []
+        if not callable(operating_point):
+            return False, 'NCP4206 verification requires a held P0 operating-point callback; nothing written', []
         with self._mutex:
-            original = self.capture_control()
-
-            def sample(delay):
-                values = []
-                for _ in range(5):
-                    if cancelled():
-                        break
-                    time.sleep(delay)
-                    if cancelled():
-                        break
-                    values.append(self.read_vout())
-                return values
-
-            def complete(values):
-                return all(isinstance(v, (int, float)) and not isinstance(v, bool)
-                           and math.isfinite(v) for v in values)
-
-            baseline_samples = sample(.05)
-            if cancelled():
-                return False, 'NCP4206 verification cancelled; nothing written', []
-            if not complete(baseline_samples):
-                return False, 'NCP4206 baseline voltage read failed; nothing written', []
-            baseline = statistics.median(baseline_samples)
-            noise = max(baseline_samples) - min(baseline_samples)
-            threshold = max(8.0, 2 * noise)
-            targets = sorted({math.floor((baseline + step) / 6.25) * 6.25
-                              for step in (25, 37.5, 50)})
-            targets = [target for target in targets
-                       if MIN_MV <= target <= NORMAL_MAX_MV
-                       and target >= baseline + threshold]
-            if not 800 <= baseline <= NORMAL_MAX_MV or not targets:
-                return False, 'loaded rail lacks headroom for the bounded verification staircase', []
             ladder = []
-            result = (False, 'NCP4206 verification did not run', ladder)
+            point = None
+            entry_xoc = bool(self.xoc)
+
+            def check():
+                nonlocal point
+                if cancelled():
+                    raise ValueError('verification cancelled')
+                if bool(self.xoc) != entry_xoc:
+                    raise ValueError('XOC mode changed during verification')
+                if operating_point is not None:
+                    current = operating_point()
+                    if (not isinstance(current, (tuple, list)) or len(current) != 3
+                            or any(type(v) not in (int, float) or not math.isfinite(v)
+                                   for v in current)):
+                        raise ValueError('GPU operating point is unreadable')
+                    current = tuple(current)
+                    if current[0] != 0:
+                        raise ValueError('GPU is not held in P0')
+                    if current[1] <= 0 or current[2] <= 0:
+                        raise ValueError('GPU core/memory clocks are unavailable or nonpositive')
+                    if point is None:
+                        point = current
+                    elif current != point:
+                        raise ValueError('GPU P-state or core/memory clocks changed during verification')
+
+            def sample(expected, *, voltage_ceiling=None):
+                values, quanta = [], []
+                # Match the offset verifier's complete one-second windows.
+                # Never accept a partly sampled window after cancellation.
+                for _ in range(25):
+                    check()
+                    if self.capture_control() != expected:
+                        raise ValueError('NCP4206 command/mode changed during sampling')
+                    value, quantum = self._verification_vmon()
+                    if (type(value) not in (int, float) or not math.isfinite(value)
+                            or type(quantum) not in (int, float)
+                            or not math.isfinite(quantum) or quantum <= 0):
+                        raise ValueError('NCP4206 VMON read failed')
+                    if voltage_ceiling is not None and value > voltage_ceiling:
+                        raise ValueError(f'VMON exceeded the normal verification ceiling '
+                                         f'({voltage_ceiling:g} mV): {value:.2f} mV')
+                    values.append(value)
+                    quanta.append(quantum)
+                    check()
+                    time.sleep(.04)
+                check()
+                return {'samples_mv': values, 'median_mv': statistics.median(values),
+                        'noise_mv': max(values) - min(values),
+                        'quantum_mv': max(quanta)}
+
+            try:
+                original = self.capture_control()
+                baseline = sample(original)
+                base = baseline['median_mv']
+                # These are bounded absolute-command trials, not a calibration
+                # assumption about what fraction of the command VMON follows.
+                targets = sorted({math.floor((base + step) / 6.25) * 6.25
+                                  for step in (25, 37.5, 50)})
+                targets = [target for target in targets
+                           if MIN_MV <= target <= NORMAL_MAX_MV and target > base]
+                if not targets:
+                    raise ValueError('rail lacks headroom for the bounded verification staircase')
+            except Exception as exc:
+                return False, f'NCP4206 INCONCLUSIVE - {exc}; nothing written', ladder
+
+            hit, failure = None, None
             try:
                 for target in targets:
-                    if cancelled():
-                        result = (False, 'NCP4206 verification cancelled', ladder)
-                        break
-                    rung = {'baseline_mv': baseline, 'baseline_samples_mv': baseline_samples,
-                            'noise_mv': noise, 'threshold_mv': threshold,
-                            'target_mv': target, 'samples_mv': [], 'moved': False}
+                    check()
+                    rung = {'baseline_mv': base,
+                            'baseline_samples_mv': baseline['samples_mv'],
+                            'baseline_quantum_mv': baseline['quantum_mv'],
+                            'target_mv': target, 'voltage_ceiling_mv': NORMAL_MAX_MV, 'moved': False}
                     ladder.append(rung)
                     self._verification_write_attempted = True
                     self._verification_restore_ok = False
-                    ok, msg = self.set_voltage_mv(target, acknowledged=True)
+                    ok, message = self.set_voltage_mv(target, acknowledged=True)
                     if not ok:
-                        rung['refused'] = msg
-                        result = (False, 'NCP4206 verification write refused: ' + msg, ladder)
-                        break
-                    samples = rung['samples_mv'] = sample(.15)
-                    if cancelled():
-                        result = (False, 'NCP4206 verification cancelled', ladder)
-                        break
-                    if not complete(samples):
-                        rung['read_failed'] = True
-                        result = (False, 'NCP4206 verification voltage read failed', ladder)
-                        break
-                    # Loadline drop can leave VMON well below the requested
-                    # VID. Require a sustained rise above measured noise, not
-                    # closeness below the target. Overshoot still fails closed.
-                    overshoot = max(samples) > target + 15
-                    moved = not overshoot and min(samples) >= baseline + threshold
-                    rung.update(moved=moved, overshoot=overshoot,
-                                minimum_rise_mv=min(samples) - baseline)
-                    message = (f'NCP4206 {baseline:.2f} -> target {target:.2f} mV; '
-                               f'VMON {samples}; minimum rise {min(samples)-baseline:.2f} mV '
-                               f'(need {threshold:.2f} mV)')
+                        raise ValueError('verification write refused: ' + message)
+                    time.sleep(.15)
+                    trial = sample({'kind': 'absolute_vid', 'enabled': True,
+                                    'command': encode_vid(target)}, voltage_ceiling=NORMAL_MAX_MV)
+                    noise = max(baseline['noise_mv'], trial['noise_mv'])
+                    quantum = max(baseline['quantum_mv'], trial['quantum_mv'])
+                    # VID is a command, not a calibrated physical-voltage
+                    # ceiling. GTX 770 VMON reproducibly reads above the VID
+                    # target. Enforce the existing normal voltage envelope per
+                    # sample, and judge response/reversal independently of gain.
+                    delta = trial['median_mv'] - base
+                    threshold = max(6.25, quantum, noise)
+                    moved = delta >= max(6.25, quantum) and delta > noise
+                    rung.update(trial, delta_mv=delta, threshold_mv=threshold,
+                                response_noise_mv=noise, moved=moved)
                     if log:
-                        log(message + ('; MOVED' if moved else '; overshoot' if overshoot else '; flat'))
-                    result = (moved, message + ('' if moved else
-                              '; overshoot rejected' if overshoot else '; no confirmed response'), ladder)
-                    if moved or overshoot:
+                        log(f'NCP4206 I2C VMON {base:.2f} -> {trial["median_mv"]:.2f} mV; '
+                            f'target {target:.2f} mV; change {delta:.2f} mV; '
+                            f'noise {noise:.2f} mV; quantum {quantum:.4f} mV')
+                    if moved:
+                        hit = rung
                         break
             except Exception as exc:
-                result = (False, f'NCP4206 verification failed: {exc}', ladder)
+                failure = str(exc)
             finally:
+                errors = []
                 try:
-                    ok, msg = (self.restore_control(original, recovery=True)
-                               if self._verification_write_attempted
-                               else (True, 'nothing written'))
+                    ok, message = (self.restore_control(original, recovery=True)
+                                   if self._verification_write_attempted
+                                   else (True, 'nothing written'))
+                    if not ok:
+                        errors.append(message)
                 except Exception as exc:
-                    ok, msg = False, str(exc)
-                self._verification_restore_ok = bool(ok)
-                self._verification_restore_error = '' if ok else msg
-            if not ok:
-                return False, ('NCP4206 verification restoration failed: ' + msg
-                               + '; ' + result[1]), ladder
+                    errors.append(str(exc))
+                try:
+                    if self.capture_control() != original:
+                        errors.append('original command/mode independent readback mismatch')
+                except Exception as exc:
+                    errors.append('original command/mode readback failed: ' + str(exc))
+                self._verification_restore_ok = not errors
+                self._verification_restore_error = '; '.join(errors)
             if cancelled():
-                return False, 'NCP4206 verification cancelled; original control restored', ladder
-            return result
+                failure = 'verification cancelled' + ('; ' + failure if failure else '')
+            if errors:
+                return False, ('NCP4206 verification restoration failed: ' + '; '.join(errors)
+                               + ('; ' + failure if failure else '')), ladder
+            if failure:
+                return False, ('NCP4206 INCONCLUSIVE - ' + failure
+                               + '; original control restored'), ladder
+            if hit is None:
+                return False, ('NCP4206 INCONCLUSIVE - no positive I2C VMON response '
+                               'exceeded measured noise and controller resolution; '
+                               'original control restored. Apply remains unverified.'), ladder
+            try:
+                time.sleep(.15)
+                restored = sample(original)
+                quantum = max(baseline['quantum_mv'], restored['quantum_mv'])
+                # One command step may span a nonintegral number of VMON
+                # codes; round the band up to complete measured ADC codes.
+                tolerance = max(math.ceil(6.25 / quantum) * quantum,
+                                baseline['noise_mv'], restored['noise_mv'])
+                if abs(restored['median_mv'] - base) > tolerance:
+                    raise ValueError('I2C VMON did not return within the baseline noise/resolution band')
+                reversal = hit['median_mv'] - restored['median_mv']
+                if (reversal < max(6.25, hit['quantum_mv'], restored['quantum_mv'])
+                        or reversal <= max(hit['response_noise_mv'], restored['noise_mv'])):
+                    raise ValueError('I2C VMON did not show a downward response above noise after restoration')
+                hit.update(restored_vout_mv=restored['median_mv'],
+                           restored_samples_mv=restored['samples_mv'],
+                           restored_quantum_mv=restored['quantum_mv'],
+                           reversal_mv=reversal)
+            except Exception as exc:
+                failure = str(exc)
+            finally:
+                # The reversal window can itself reveal a controller-state
+                # change. Do not publish a pass based on an earlier readback.
+                try:
+                    if self.capture_control() != original:
+                        raise ValueError('original command/mode changed during voltage-restoration observation')
+                except Exception as exc:
+                    self._verification_restore_ok = False
+                    self._verification_restore_error = str(exc)
+            if not self._verification_restore_ok:
+                return False, ('NCP4206 verification restoration failed: '
+                               + self._verification_restore_error
+                               + ('; ' + failure if failure else '')), ladder
+            if failure:
+                return False, (f'NCP4206 INCONCLUSIVE - {failure}; original command/mode restored; '
+                               'voltage response remains unverified'), ladder
+            return True, ('NCP4206 WRITE PATH CONFIRMED at the tested operating point. '
+                          f'I2C VMON rose {hit["delta_mv"]:.2f} mV and returned to '
+                          f'{restored["median_mv"]:.2f} mV after exact command/mode restoration. '
+                          'This verifies a response, not full-load behavior or a 1:1 voltage gain.'), ladder

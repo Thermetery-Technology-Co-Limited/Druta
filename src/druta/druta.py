@@ -78,6 +78,7 @@ Safety model, carried over from the Tk version:
     checkbox that no tooltip can substitute for.
 """
 import ctypes
+import json
 import math
 import os
 from collections import namedtuple
@@ -149,8 +150,8 @@ RISK_BAND_TEXT = {
 }
 RISK_FEATURE_TEXT = {
     "xoc": (
-        "XOC: the software voltage envelope is removed; a typo catcher at "
-        "2000 mV is the only bound left in Druta."),
+        "XOC: expanded voltage and clock ranges; current limits use the "
+        "API ceilings."),
     "volt_limits": (
         "RAIL LIMITS: the driver-held per-rail voltage ceilings are being "
         "written directly. EXPERIMENTAL."),
@@ -222,6 +223,11 @@ class Druta:
         # list on every frame.
         self.shunt_rails = shuntmod.load()
         self.shunt = shuntmod.correction(self.shunt_rails)
+        # Bench-side helper state. This is intentionally not saved with the
+        # rails: it only calculates the effective value the user may choose
+        # to enter for a rail, and must never alter a correction by itself.
+        self.shunt_parallel_resistors = [shuntmod.DEFAULT_MOHM,
+                                         shuntmod.DEFAULT_MOHM]
         self.scale = dpi_scale()
         self.log_lines = []
         self.vf_points = None
@@ -278,6 +284,8 @@ class Druta:
         self._once = {}            # log-dedup state, keyed per source
         self._ctl_widgets = []     # write widgets greyed out while locked
         self._slider_ranges = {}   # knob key -> KnobRange, filled by slider_row
+        self._knob_decimals = {}
+        self._current_limits = {}
         # Observed requests outside normal bounds must survive narrowing.
         # Each knob keeps the applicable endpoint; see ov_carryover().
         self._carryover_hi = {}
@@ -1300,38 +1308,11 @@ class Druta:
         ok, msg = self.gpu.set_volt_rail_limits(rail, **limits)
         self.log(msg, ok)
         if ok and rail == 1:
-            # Say it on every MSVDD write, not once in a tooltip - but say the
-            # CURRENT truth. This used to warn that no MSVDD voltage was
-            # exposed anywhere, which was the state of knowledge and is no
-            # longer the state of the card: the rail reports a live voltage
-            # that follows an MSVDD clamp while NVVDD's stays put. So the line
-            # now quotes what the rail actually did rather than telling the
-            # user to go and measure board power.
-            # SAMPLED IMMEDIATELY AFTER THE WRITE, which is a caveat and not a
-            # confirmation: a ceiling PERMITS a voltage, the arbiter then
-            # decides whether to take it, and this read can easily land before
-            # it has. The number is what the rail says now, nothing more.
-            #
-            # The ~20 W board-power result is deliberately described as a past
-            # experiment rather than as evidence about THIS write. It
-            # established that the field reaches hardware at all; it says
-            # nothing about the value just sent, and wording it as
-            # confirmation would be exactly the mistake this file keeps
-            # warning about.
             live = self.gpu.read_rail_live_mv(1)
-            if live is not None:
-                self.log(f"MSVDD reads {live:.0f} mV immediately after the "
-                         f"write. A ceiling permits a voltage rather than "
-                         f"setting one, so this may not have settled yet - "
-                         f"watch the live cell. That the field reaches "
-                         f"hardware was established separately, as ~20 W of "
-                         f"board power between 900 and 1200 mV.", ok)
-            else:
-                self.log("MSVDD limits written, but the rail did not read "
-                         "back this time, so nothing here confirms an effect. "
-                         "The field is known to reach hardware - ~20 W of "
-                         "board power between 900 and 1200 mV - but that was "
-                         "a separate experiment, not this write.", False)
+            self.log((f"MSVDD driver reading after request: {live:g} mV. "
+                      "Stored controls and driver telemetry do not prove physical VOUT."
+                      if live is not None else
+                      "MSVDD request stored; driver rail telemetry unavailable."), live is not None)
         self.refresh_volt_limits()
 
     def sync_vcap_to_ceiling(self, raw):
@@ -1356,6 +1337,8 @@ class Druta:
             return
         reach = GPU.rail_ceiling_mv(raw[0])
         cur = float(dpg.get_value("vcap"))
+        if not math.isfinite(reach):
+            return
         snapped = math.floor(reach / self.VCAP_STEP + 1e-9) * self.VCAP_STEP
         if snapped <= cur + 1e-6:
             return
@@ -1386,6 +1369,14 @@ class Druta:
                 self.report(self.rail.reset())
                 self.sync_profile_rail_sliders()
             return
+        if key.startswith("current"):
+            policy = int(key.removeprefix("current"))
+            rows = self.read_current_limit_rows()
+            row = next((r for r in rows if r["policy"] == policy), None)
+            if row is None:
+                self.log("current limit could not be read; Stock was not applied", False)
+                return
+            return self.apply_current_limit(policy, row["default_ma"] / 1000.0)
         if key.startswith("vlim"):
             # ONE field on ONE rail. These share a block, and resetting the
             # block put the other rail back to stock along with it - pressing
@@ -1435,7 +1426,9 @@ class Druta:
             self.ov_carryover(raw)
             self.sync_vcap_to_ceiling(raw)
         for r in (0, 1):
-            cells = self.volt_limits_cells(raw, r, state, supported)
+            cells = self.volt_limits_cells(raw, r, state,
+                                          supported and bool((raw or {}).get(r, {}).get("_base_mv"))
+                                          and GPU._valid_volt_rail_state(r, (state or {}).get(r, {})))
             if not cells:
                 continue
             if dpg.does_item_exist(f"vlim_txt{r}"):
@@ -1474,11 +1467,11 @@ class Druta:
         """
         f = (raw or {}).get(rail)
         s = (state or {}).get(rail) or {}
-        if supported and f:
+        if supported and f and f.get("_base_mv"):
             limits = {key: GPU.abs_limit_mv(f, key)
                       for key in GPU.VOLT_LIMIT_FIELDS}
-            cap = f"cap {GPU.rail_ceiling_mv(f):.9g}"
-            suffix = " limits"
+            cap = f"estimated cap {GPU.rail_ceiling_mv(f):.9g}"
+            suffix = " estimated limits"
         elif s:
             limits = s
             cap = ""
@@ -1496,6 +1489,125 @@ class Druta:
         return (("NVVDD" if rail == 0 else "MSVDD") + suffix,
                 fields, cap, live, eff)
 
+    def read_current_limit_rows(self):
+        """An unavailable capability must not prevent the Control tab opening."""
+        getter = getattr(self.gpu, "get_current_limits", None)
+        if getter is None:
+            return []
+        try:
+            rows = []
+            for row in getter() or []:
+                if (type(row.get("policy")) is int
+                        and isinstance(row.get("label"), str)
+                        and type(row.get("normal_maximum_ma")) is int):
+                    rows.append(row)
+            return rows
+        except Exception:                                       # noqa: BLE001
+            return []
+
+    def build_current_limits_rows(self):
+        """Show supported controls, or a visible diagnostic for missing policies."""
+        self._current_limits = {}
+        for row in self.read_current_limit_rows():
+            policy = row["policy"]
+            key = f"current{policy}"
+            label = f"{row['label']} limit (A)"
+            normal_ma = row["normal_maximum_ma"]
+            lo, api_hi = row["minimum_ma"] / 1000.0, row["maximum_ma"] / 1000.0
+            hi = min(normal_ma / 1000.0, api_hi)
+            if lo > hi:
+                continue
+            init = row["limit_ma"] / 1000.0
+            self._current_limits[policy] = dict(row)
+            if init > hi:
+                self._carryover_hi[key] = init
+
+            def apply_for(p):
+                return lambda value: self.apply_current_limit(p, value)
+
+            def stock_for(k):
+                return lambda: self.stock_knob(k)
+
+            self.slider_row(key, label, lo, hi, init, apply_for(policy),
+                            extra=("Stock", stock_for(key)),
+                            xoc_lo=lo, xoc_hi=api_hi, decimals=3)
+            with dpg.tooltip(f"live_{key}"):
+                dpg.add_text("First line: reported rail current.\n"
+                             "Second line: effective current ceiling.")
+        diagnose = getattr(self.gpu, "current_limit_diagnostics", None)
+        if diagnose is not None:
+            diagnostic = diagnose()
+            for policy, spec in diagnostic.get("expected_policies", {}).items():
+                if policy in self._current_limits:
+                    continue
+                # These placeholders never enter the apply/profile/range registries.
+                # Unknown limits are not represented as an editable zero-amp request.
+                with dpg.table_row():
+                    dpg.add_text(f"{spec['label']} limit (A)",
+                                 wrap=self.s(self.KNOB_COLS[0] - 10), color=DIM)
+                    dpg.add_slider_float(tag=f"unavailable_current{policy}",
+                                         min_value=0, max_value=1, default_value=0,
+                                         format="Unavailable", width=-1, enabled=False)
+                    dpg.add_text("--")
+                    detail = dpg.add_text("API unavailable", color=DIM,
+                                          wrap=self.s(self.KNOB_COLS[3] - 4))
+                    with dpg.tooltip(detail):
+                        dpg.add_text(next((r["error"] for r in diagnostic.get("unavailable_policies", [])
+                                               if r["policy"] == policy), None)
+                                     or diagnostic.get("error") or "Policy not returned",
+                                     wrap=self.s(550))
+                    dpg.add_button(label="Copy info", width=-1,
+                                   callback=lambda: dpg.set_clipboard_text(json.dumps(
+                                       self.gpu.current_limit_diagnostics(), indent=2)))
+                    dpg.add_text("Read only", color=DIM)
+        self.refresh_current_limits()
+
+    def refresh_current_limits(self, sync=False):
+        """Refresh reported current and limits without discarding staged inputs."""
+        if not getattr(self, "_current_limits", None):
+            return
+        rows = {r["policy"]: r for r in self.read_current_limit_rows()}
+        changed = False
+        for policy in self._current_limits:
+            key, row = f"current{policy}", rows.get(policy)
+            live = f"live_{key}"
+            if dpg.does_item_exist(live):
+                if row:
+                    limit = f"{row['limit_ma'] / 1000.0:.3f}".rstrip("0").rstrip(".")
+                    txt = f"{row['value_ma'] / 1000.0:.1f} A\n≤{limit} A"
+                else:
+                    txt = "unavailable"
+                dpg.set_value(live, txt)
+                dpg.configure_item(live, color=TEXT if row else DIM)
+            if row is None:
+                continue
+            self._current_limits[policy] = dict(row)
+            current = row["limit_ma"] / 1000.0
+            r = self._slider_ranges[key]
+            previous = self._carryover_hi.get(key)
+            if current > r.hi:
+                self._carryover_hi[key] = current
+            else:
+                self._carryover_hi.pop(key, None)
+            changed |= previous != self._carryover_hi.get(key)
+            if sync:
+                for pre in ("sl_", "in_"):
+                    if dpg.does_item_exist(pre + key):
+                        dpg.set_value(pre + key, current)
+        if changed or sync:
+            self.sync_slider_ranges(self._xoc_bounds)
+
+    def apply_current_limit(self, policy, amps):
+        if not self.guard():
+            return
+        try:
+            milliamps = int(round(float(amps) * 1000.0))
+        except (TypeError, ValueError, OverflowError):
+            self.log("current limit must be a finite number of amperes", False)
+            return
+        self.report(self.gpu.set_current_limit_ma(policy, milliamps))
+        self.refresh_current_limits(sync=True)
+
     def build_volt_limits_rows(self):
         """Build readouts and confirmed controls for the rails on this card."""
         lim = self.gpu.read_volt_rail_limits()
@@ -1503,10 +1615,12 @@ class Druta:
         supported = self.gpu.volt_rail_limits_supported()
         self._rail_readonly = set()
         for rail in (0, 1):
-            cells = self.volt_limits_cells(lim, rail, state, supported)
+            rail_supported = (supported and bool((lim or {}).get(rail, {}).get("_base_mv"))
+                              and GPU._valid_volt_rail_state(rail, (state or {}).get(rail, {})))
+            cells = self.volt_limits_cells(lim, rail, state, rail_supported)
             if not cells:
                 continue
-            if not (supported and (lim or {}).get(rail)):
+            if not rail_supported:
                 self._rail_readonly.add(rail)
             with dpg.table_row():
                 dpg.add_text(cells[0], color=DIM)
@@ -1532,17 +1646,23 @@ class Druta:
                     if a else
                     "rail ceilings unlinked: each field moves independently; "
                     "watch the cap and effective limit", True))
+        with dpg.table_row():
+            dpg.add_text("Reference", color=DIM)
+            dpg.add_text("Absolute values are estimates from this card's first "
+                         "stable driver reading, which may be quantized. Initial "
+                         "restores exact first-read controls, not factory defaults.",
+                         color=DIM, wrap=self.s(self.KNOB_COLS[1]))
         if 0 in lim and 1 not in lim:
             with dpg.table_row():
                 dpg.add_text("NVVDD", color=DIM)
-                dpg.add_text("NVVDD ceiling clamps confirmed. The driver "
-                             "does not expose MSVDD.", color=DIM,
+                dpg.add_text("Driver reports NVVDD only. Absolute requests "
+                             "use this card's first-read reference.", color=DIM,
                              wrap=self.s(self.KNOB_COLS[1]))
 
         # Each slider retains its own field; Link is the explicit convenience
         # for moving the reliability pair together. Build no absent rail.
         for rail in (0, 1):
-            if rail not in lim:
+            if rail not in lim or rail in self._rail_readonly:
                 continue
             name = "NVVDD" if rail == 0 else "MSVDD"
             prefix = "vlim" if rail == 0 else "vlim1"
@@ -1550,8 +1670,8 @@ class Druta:
             if rail == 1:
                 with dpg.table_row():
                     dpg.add_text("MSVDD", color=WARN)
-                    dpg.add_text("APPLIES, LIVE READING (setpoint or sensed "
-                                 "is unresolved)", color=WARN,
+                    dpg.add_text("Driver-reported rail; physical effect of a "
+                                 "request must be checked on this board.", color=WARN,
                                  wrap=self.s(self.KNOB_COLS[1]))
             for short, field, label in (
                     ("rel", "reliability", "reliability"),
@@ -1561,11 +1681,16 @@ class Druta:
                 if field not in self.gpu.volt_rail_limit_fields(rail):
                     continue
                 key = f"{prefix}_{short}"
+                initial = GPU.abs_limit_mv(lim[rail], field)
+                lower = getattr(self, "_carryover_lo", {})
+                if initial < lo_mv:
+                    lower[key] = initial
+                self._carryover_lo = lower
                 self.slider_row(
-                    key, f"{name} {label} (mV)", lo_mv, hi_mv,
+                    key, f"{name} {label} (~mV)", lo_mv, hi_mv,
                     GPU.abs_limit_mv(lim[rail], field),
                     lambda v, r=rail, f=field: self.apply_vlim(r, **{f: v}),
-                    color=color, extra=("Stock", lambda k=key: self.stock_knob(k)),
+                    color=color, extra=("Initial", lambda k=key: self.stock_knob(k)),
                     xoc_lo=lo_mv, xoc_hi=xoc_hi_mv)
                 if field == "vmin" and self.gpu.arch() == GPU.ARCH_PASCAL:
                     with dpg.tooltip(f"sl_{key}"):
@@ -1590,7 +1715,8 @@ class Druta:
         live = set()
         if dpg.does_item_exist("xoc_mode") and dpg.get_value("xoc_mode"):
             live.add("xoc")
-        if (self.rail is not None and dpg.does_item_exist("i2c_mode")
+        if (self.rail is not None and not self.rail.p.read_only
+                and dpg.does_item_exist("i2c_mode")
                 and dpg.get_value("i2c_mode") and self.rail.present()):
             live.add("i2c")
         if (dpg.does_item_exist("vlim_mode") and dpg.get_value("vlim_mode")
@@ -1618,13 +1744,15 @@ class Druta:
         if (dpg.does_item_exist("i2c_mode") and dpg.get_value("i2c_mode")
                 and "i2c" not in live):
             dpg.set_value("i2c_mode", False)
-            self.log("no voltage regulator identified on this card's I2C bus "
+            self.log("this regulator profile supports telemetry only" if
+                     self.rail is not None and self.rail.p.read_only else
+                     "no voltage regulator identified on this card's I2C bus "
                      "- rail control needs a matching profile in i2c/ and, on "
                      "most boards, the links fitted", False)
 
         # XOC is per-Rail state, not a module global: two cards in one rig must
         # not share an unlocked envelope.
-        if self.rail is not None:
+        if self.rail is not None and not self.rail.p.read_only:
             if "xoc" in live:
                 self.rail.enable_xoc(railctl.XOC_CONFIRM)
             else:
@@ -1666,7 +1794,7 @@ class Druta:
         # Its Stock button stays enabled for the same reason the rail ones do -
         # putting a clock back is the action you want available exactly when
         # you have just taken the permission away.
-        for k in (kn.key for kn in self.DOMAIN_KNOBS if kn.xoc_only):
+        for k in [kn.key for kn in self.DOMAIN_KNOBS if kn.xoc_only] + ["msvdd"]:
             for pre in ("sl_", "in_", "go_"):
                 if dpg.does_item_exist(pre + k):
                     dpg.configure_item(pre + k, enabled="xoc" in live)
@@ -1675,6 +1803,7 @@ class Druta:
         # is the call that puts the knobs BACK when XOC is unticked, and behind
         # the return it would run on every state except the one that needs it.
         self.ov_carryover(self.gpu.read_volt_rail_limits())
+        self.refresh_current_limits()
         self.sync_slider_ranges("xoc" in live)
 
         if band == RISK_STOCK:
@@ -1725,7 +1854,8 @@ class Druta:
                                  callback=lambda s, a, u: self.sync_risk_ui())
                 dpg.add_checkbox(label="I2C rail", tag="i2c_mode",
                                  default_value=False,
-                                 show=railctl is not None,
+                                 show=(railctl is not None and
+                                       (self.rail is None or not self.rail.p.read_only)),
                                  callback=lambda s, a, u: self.sync_risk_ui())
                 # A readable block alone does not establish working writes or
                 # the bases needed to translate its deltas into millivolts.
@@ -1736,10 +1866,10 @@ class Druta:
                 dpg.add_spacer(width=self.s(16))
                 # sits with the gate, not inside a knob group: it undoes every
                 # group at once (and the curve), so it belongs to the tab
-                dpg.add_button(label="Reset all to stock", callback=self.reset_all,
+                dpg.add_button(label="Reset controls", callback=self.reset_all,
                                width=self.s(200), height=self.s(28))
                 dpg.add_spacer(width=self.s(20))
-                if self.vf_applicable():
+                if self.vf_applicable() and not self.legacy_p0_supported():
                     # Beside 'Reset all to stock' deliberately: they are the two
                     # ends of the same axis, and the way back should never be
                     # further from the hand than the way out.
@@ -2085,6 +2215,8 @@ class Druta:
                                                     st["pl_def_mw"] / 1000, self.apply_pl,
                                                     extra=("Stock", lambda: self.stock_knob("pl")))
 
+                                self.build_current_limits_rows()
+
                                 vb = self.gpu.read_voltage_boost()
                                 # raises the reliability-voltage ceiling
                                 if vb is not None:
@@ -2145,18 +2277,20 @@ class Druta:
                                         extra=("Stock",
                                                lambda: self.stock_knob("rail")))
 
-                                # THE MSVDD OFFSET KNOB IS GONE, and this note is what is
-                                # left of it. The clock-domain block has an MSVDD field at
-                                # +0x11C and Blackwell ACCEPTS writes to it - including on
-                                # control domains that move nothing at all, which is what
-                                # "accepted" is worth here. Against NVVDD as a positive
-                                # control it moved neither voltage nor board power, and the
-                                # rail limits later proved MSVDD IS reachable by a
-                                # different route entirely (worth ~20 W between 900 and
-                                # 1200 mV), so the offset field is not an unproven path to
-                                # something real - it is a field that does nothing while
-                                # looking like a voltage control. Use the MSVDD rail limits
-                                # below.
+                                capability = self.gpu.rail_offset_capability(rail=1)
+                                self._msvdd_domain = capability.get("domain") if capability["available"] else None
+                                if self._msvdd_domain is not None:
+                                    self.slider_row(
+                                        "msvdd", "MSVDD requested offset (mV)", -500, 500,
+                                        capability["value_mv"], self.apply_msvdd,
+                                        color=WARN, xoc_lo=-500, xoc_hi=500,
+                                        extra=("Zero", self.zero_msvdd))
+                                    with dpg.tooltip("sl_msvdd"):
+                                        dpg.add_text(
+                                            "Experimental; enable XOC to write. This is a stored "
+                                            "request, not a measured voltage. An inert result on one "
+                                            "5080/580.97 does not establish behavior on your board.",
+                                            wrap=self.s(400))
             if railctl is not None:
                 with dpg.collapsing_header(label="I2C regulator",
                                            default_open=bool(getattr(self, "_rail_candidates", []))):
@@ -2175,7 +2309,7 @@ class Druta:
             self.bind("log", "mono")
 
     def slider_row(self, key, label, lo, hi, init, cb, note=None, extra=None,
-                   color=None, xoc_lo=None, xoc_hi=None):
+                   color=None, xoc_lo=None, xoc_hi=None, decimals=0):
         """One knob = one row of the enclosing knob table (see knob_cols), so
         every Apply lands in the same column even though the labels, the notes
         and the presence of an extra button all differ per row.
@@ -2186,6 +2320,10 @@ class Druta:
         bound is the unit itself - the voltage boost is a percentage of the
         VBIOS headroom and 101% is not a bigger overclock, it is nonsense."""
         self._slider_ranges[key] = KnobRange(label, lo, hi, xoc_lo, xoc_hi)
+        if not hasattr(self, "_knob_decimals"):
+            self._knob_decimals = {}
+        self._knob_decimals[key] = decimals
+        lo, hi = self.knob_bounds(key)
         # Remembered so a Stock button can drive the SAME apply path the row's
         # own button does, rather than a second one that could drift from it.
         self._knob_cb[key] = cb
@@ -2194,7 +2332,7 @@ class Druta:
             # grade colour so a hedged name looks hedged on both tabs
             dpg.add_text(label, color=color or TEXT,
                          wrap=self.s(self.KNOB_COLS[0] - 10)
-                         if key == "memdom" else -1)
+                         if key == "memdom" or key.startswith("current") else -1)
             with dpg.group():
                 # clamped: in DPG min_value/max_value only bound the DRAG.
                 # Ctrl+click turns a slider into a text field that accepts
@@ -2239,7 +2377,8 @@ class Druta:
             input_box(tag=f"in_{key}", label="", default_value=init,
                       min_value=lo, max_value=hi, min_clamped=True,
                       max_clamped=True, step=0, width=-1,
-                      **({"format": "%.9g"} if self.float_knob(key) else {}),
+                      **({"format": f"%.{decimals}f" if decimals else "%.9g"}
+                         if self.float_knob(key) else {}),
                       callback=lambda: self.knob_typed(key))
             # what the card is MEASURED to be doing for this knob, kept beside
             # the value being asked for (refresh_control fills it). Its cell
@@ -2278,7 +2417,11 @@ class Druta:
     # ---- slider <-> text box, and what either is allowed to reach ---------- #
     @staticmethod
     def float_knob(key):
-        return key in ("mem", "pl", "rail", "i2crail") or key.startswith("vlim")
+        return (key in ("mem", "pl", "rail", "msvdd", "i2crail")
+                or key.startswith(("vlim", "current")))
+
+    def knob_value(self, key, value):
+        return self.knob_input_value(key, value)
 
     def knob_input_value(self, key, value):
         """Encode fractional inputs on the same wire grid as their setter."""
@@ -2455,8 +2598,8 @@ class Druta:
         fan_caps = self.gpu.fan_capabilities()
         fan_manual = fan_caps["manual"]
         fan_auto = fan_caps["auto"]
-        frequency_lock = (self.gpu.arch() not in (GPU.ARCH_KEPLER, GPU.ARCH_PASCAL)
-                          and not getattr(self.gpu, "is_gtx745", lambda: False)())
+        frequency_lock = self.gpu.arch() not in (GPU.ARCH_KEPLER, GPU.ARCH_MAXWELL,
+                                                 GPU.ARCH_PASCAL)
         for tag in self._ctl_widgets:
             if dpg.does_item_exist(tag):
                 available = (fan_manual if tag in ("sl_fan", "in_fan", "go_fan")
@@ -2544,6 +2687,75 @@ class Druta:
                 dpg.set_value(tag, value)
         self.report(self.gpu.set_clock_offset(2, value))
 
+    def build_i2c_rail_row(self):
+        """Expose identified telemetry separately from a verified offset path."""
+        if self.rail is None:
+            return
+        try:
+            if not self.rail.present():
+                return
+        except Exception as exc:
+            self.log(f"i2c telemetry unavailable: {exc}", False)
+            return
+        if self.rail.p.read_only:
+            rp = self.rail.p
+            with dpg.table_row():
+                dpg.add_text(f"{rp.rail} at the VRM", color=TEXT,
+                             wrap=self.s(self.KNOB_COLS[0] - 10))
+                with dpg.group():
+                    dpg.add_text(f"{rp.regulator} - telemetry only", color=DIM,
+                                 wrap=self.s(self.KNOB_COLS[1] - 10))
+                    dpg.add_text(f"Port {rp.port} / 0x{self.rail.addr7:02X}",
+                                 color=DIM, tag="i2c_profile_status")
+                    with dpg.tooltip("i2c_profile_status"):
+                        dpg.add_text(rp.name, wrap=self.s(340))
+                dpg.add_text("--", color=DIM)
+                dpg.add_text("--", tag="live_i2crail", color=DIM)
+                self.bind("live_i2crail", "mono")
+                dpg.set_value("live_i2crail", self.i2c_rail_text(None) or "--")
+            return
+        rp = self.rail.p
+        tel = self.rail.telemetry()
+        absolute = getattr(self.rail, "absolute_voltage", False)
+        self.slider_row(
+            "i2crail", (f"{rp.rail} voltage target (mV)" if absolute
+                        else f"{rp.rail} offset at VRM (mV)"),
+            rp.env_min, rp.env_max,
+            ((tel.get("target_mv") or tel.get("vout_mv") or rp.env_min)
+             if absolute else (tel.get("offset_mv") or 0)),
+            self.apply_i2c_rail,
+            extra=[("Verify", self.verify_i2c_rail),
+                   ("Auto" if absolute else "Stock", lambda: self.stock_knob("i2crail"))],
+            color=BAD, xoc_lo=rp.hw_min_mv, xoc_hi=rp.hw_max_mv)
+        if not absolute:
+            with dpg.tooltip("sl_i2crail"):
+                dpg.add_text(self.i2c_verify_description(), wrap=self.s(340))
+        with dpg.table_row():
+            dpg.add_text("")
+            dpg.add_text("Write path unverified - Verify first",
+                         tag="i2c_write_status", color=DIM,
+                         wrap=self.s(self.KNOB_COLS[1] - 10))
+            dpg.add_text("")
+            dpg.add_text("")
+        self._i2c_status_built = True
+        self.sync_i2c_write_status()
+
+    def i2c_verify_description(self):
+        rungs = ", ".join(f"{v:+g}" for v in self.rail.p.rungs)
+        return (f"Verify tests {rungs} mV relative to the entry offset under "
+                "load, stopping once a rail response is measured. The exact "
+                "entry register word is restored and checked. Apply requires "
+                "a successful verification on this card in this session.")
+
+    def sync_i2c_write_status(self):
+        if not getattr(self, "_i2c_status_built", False):
+            return
+        if dpg.does_item_exist("i2c_write_status"):
+            verified = self.i2c_verified()
+            dpg.set_value("i2c_write_status", "Write path verified this session"
+                          if verified else "Write path unverified - Verify first")
+            dpg.configure_item("i2c_write_status", color=TEXT if verified else DIM)
+
     def i2c_rail_text(self, vc):
         """Measured rail, and its disagreement with the GPU's own reading."""
         if self.rail is None or not dpg.does_item_exist("live_i2crail"):
@@ -2551,7 +2763,7 @@ class Druta:
         # The verifier owns the bus while it runs. Interleaving a refresh read
         # into its staircase would cost the measurement, and the measurement is
         # the only thing standing between this knob and an unproven write path.
-        if self._i2c_busy:
+        if self._i2c_busy and not self.rail.p.read_only:
             return "verifying"
         try:
             if getattr(self.rail, "absolute_voltage", False):
@@ -2569,7 +2781,7 @@ class Druta:
         if v is None:
             self.invalidate_i2c_verification()
             return None
-        if not vc:
+        if not vc or self.rail.p.read_only or not self.i2c_verified():
             return f"{v:.9g} mV"
         return f"{v:.9g} mV  ({v - vc:+.9g} vs GPU)"
 
@@ -2630,7 +2842,7 @@ class Druta:
             if details:
                 dpg.add_text(self.i2c_candidate_label(r) + " - " + ", ".join(details), color=DIM)
         if self.rail is None:
-            dpg.add_text("Select a controller, then Verify its response under load." if candidates
+            dpg.add_text("Select a controller, then Verify its voltage response." if candidates
                          else "No compatible controller responded to the scan.", color=WARN)
             return
         dpg.add_text(self.rail.p.name, color=DIM)
@@ -2638,25 +2850,10 @@ class Druta:
             self.invalidate_i2c_verification()
             dpg.add_text("Controller no longer responds; rescan I2C.", color=WARN)
             return
-        rp = self.rail.p
-        if rp.read_only:
-            dpg.add_text("Read-only profile; voltage adjustment is unavailable.", color=DIM)
-            return
-        tel = self.rail.telemetry()
-        absolute = getattr(self.rail, "absolute_voltage", False)
         with dpg.table(header_row=False, no_host_extendX=True,
                        policy=dpg.mvTable_SizingFixedFit):
             self.knob_cols()
-            self.slider_row(
-                "i2crail", (f"{rp.rail} voltage target (mV)" if absolute
-                            else f"{rp.rail} offset at VRM (mV)"),
-                rp.env_min, rp.env_max,
-                ((tel.get("target_mv") or tel.get("vout_mv") or rp.env_min)
-                 if absolute else (tel.get("offset_mv") or 0)),
-                self.apply_i2c_rail,
-                extra=[("Verify", self.verify_i2c_rail),
-                       ("Auto" if absolute else "Stock", lambda: self.stock_knob("i2crail"))],
-                color=BAD, xoc_lo=rp.hw_min_mv, xoc_hi=rp.hw_max_mv)
+            self.build_i2c_rail_row()
 
     def refresh_i2c_candidates(self):
         if not dpg.does_item_exist("i2c_candidates"):
@@ -2720,6 +2917,8 @@ class Druta:
         if self.rail is None:
             return False, ("no i2c profile identifies a regulator on this "
                            "card - see i2c/PROFILES.md to write one")
+        if getattr(self.rail.p, "read_only", False):
+            return False, "this regulator profile supports telemetry only"
         if not (dpg.does_item_exist("i2c_mode") and dpg.get_value("i2c_mode")):
             return False, ("tick 'I2C rail' first. That box is what turns the "
                            "tab red, and the red is the only warning this path "
@@ -2754,6 +2953,7 @@ class Druta:
                     or getattr(self, "_profile_pending", None)
                     or getattr(self, "_profile_applying", False)
                     or getattr(self, "_clk_lock", None)
+                    or getattr(self.gpu, "legacy_p0_owned", lambda: False)()
                     or self.vf_recovery_pending())
 
     def stop_i2c_verification(self):
@@ -2786,11 +2986,10 @@ class Druta:
     def verify_i2c_rail(self):
         """Prove the write path reaches the rail before trusting the knob.
 
-        Runs the staircase UNDER LOAD, on a worker thread, because the answer
-        is worthless at idle: the regulator sheds phases and changes loadline
-        there, so an idle result describes a configuration nobody runs. This
-        is the same reason the timings capture induces a load rather than
-        reading whatever the card happens to be doing.
+        Hold confirmed P0 for direct-controller voltage measurements. Modern
+        offset controllers use a CUDA warmup to select a V/F point; Kepler's
+        absolute-voltage controller uses the legacy P0 request. Restore the
+        controller before releasing the temporary hold.
         """
         if self._i2c_busy:
             self.log("rail verification already running", False)
@@ -2804,7 +3003,8 @@ class Druta:
         if not ok:
             self.log("verify: " + why, False)
             return
-        avail, msg = gpuload.available()
+        avail, msg = ((True, "") if getattr(self.rail, "absolute_voltage", False)
+                      else gpuload.available())
         if not avail:
             self.log("verify: " + msg, False)
             return
@@ -2832,7 +3032,7 @@ class Druta:
                                             self._i2c_cancel))
             self._i2c_thread = worker
             self.sync_lock_ui()
-            self.log("verifying the rail write path under load - the card will be "
+            self.log("preparing rail verification - the card will be "
                      "busy for a few seconds and the entry setting is restored after", None)
             worker.start()
         except Exception as exc:
@@ -2854,15 +3054,21 @@ class Druta:
         rail._verification_restore_ok = True
         rail._verification_restore_error = ""
         try:
-            def staircase():
-                return rail.verify(acknowledged=True,
-                                   ref=gpu.read_vcore_mv,
-                                   log=lambda m: self.log("  " + m, None),
-                                   cancelled=cancel.is_set)
-            out = gpuload.induce(gpu, max_seconds=180.0, on_settled=staircase,
-                                 cancelled=cancel.is_set)
-            res["err"] = out.get("error") or ""
-            res["v"] = out.get("result")
+            voltage = None
+            if not getattr(rail, "absolute_voltage", False):
+                out = gpuload.induce(gpu, max_seconds=180.0,
+                                    on_settled=gpu.read_vcore_mv, cancelled=cancel.is_set)
+                if out.get("error"):
+                    raise RuntimeError(out["error"])
+                voltage = out.get("result")
+                if voltage is None:
+                    raise RuntimeError("loaded operating voltage is unavailable; nothing written")
+            self.log("verify: acquiring a temporary hold and waiting for confirmed P0", None)
+            res["v"] = gpuload.verify_in_p0(
+                gpu, lambda point: rail.verify(
+                    acknowledged=True, log=lambda m: self.log("  " + m, None),
+                    cancelled=cancel.is_set, operating_point=point),
+                cancelled=cancel.is_set, voltage_mv=voltage)
         except Exception as e:                                  # noqa: BLE001
             res["err"] = f"{type(e).__name__}: {e}"
         try:
@@ -2932,6 +3138,28 @@ class Druta:
                   else self.rail.set_offset_mv)
         self.report(setter(v, acknowledged=True))
         self.sync_profile_rail_sliders()
+
+    def apply_msvdd(self, value):
+        if not self.guard():
+            return
+        domain = getattr(self, "_msvdd_domain", None)
+        if domain is None:
+            self.log("no readable MSVDD request field selected", False)
+            return
+        try:
+            value = self.knob_input_value("msvdd", value)
+        except (TypeError, ValueError, OverflowError) as exc:
+            self.log(f"MSVDD request input: {exc}", False)
+            return
+        self.autosave_before("msvdd-request-offset")
+        self.report(self.gpu.set_rail_offset_mv(value, domain, rail=1))
+        self.sync_profile_rail_sliders()
+
+    def zero_msvdd(self, sender=None, app_data=None, user_data=None):
+        if self.guard() and getattr(self, "_msvdd_domain", None) is not None:
+            self.autosave_before("msvdd-request-zero")
+            self.report(self.gpu.reset_msvdd_offset_mv(self._msvdd_domain))
+            self.sync_profile_rail_sliders()
 
     def apply_rail(self, v):
         # An undo point, like the core offset and unlike the other single
@@ -3167,7 +3395,7 @@ class Druta:
                      "still applied", False)
 
     def legacy_p0_supported(self):
-        """Only a backend-confirmed board/driver pair may expose P0 writes."""
+        """Expose the legacy P0 action when the backend can attempt a verified hold."""
         return bool(getattr(self.gpu, "legacy_p0_supported", lambda: False)())
 
     def legacy_p0_measurement(self):
@@ -3196,7 +3424,7 @@ class Druta:
         self.sync_legacy_p0_lock()
 
     def lock_p0_and_max_fan(self, sender=None, app_data=None, user_data=None):
-        """Hold the verified legacy P0 state and set only fan duty to 100%."""
+        """Request and verify legacy P0, then set fan duty to 100%."""
         if not self.legacy_p0_supported() or not self.guard():
             return
         if not self.gpu.fan_capabilities()["manual"]:
@@ -3205,7 +3433,7 @@ class Druta:
         already_owned = self.gpu.legacy_p0_owned()
         # Capture the original fan before either write. Profiles intentionally
         # exclude lock ownership; Release is still needed after Undo.
-        if not self.autosave_before("lock P0 and max fan"):
+        if not self.autosave_before("lock P0 and max fan", scope="fan"):
             self.log("P0 + fan: could not capture a complete undo point; nothing changed", False)
             return
         if not self.handover(self.LOCK_P0):
@@ -3285,7 +3513,9 @@ class Druta:
         (this card was found holding Afterburner's), and taking someone else's
         lock away because a button was nearby is not this app's business."""
         if self.vf_recovery_pending():
-            previous = (self._clk_lock or {}).get("previous_lock")
+            pending = getattr(self.gpu, "_vf_lock_recovery", {}) or {}
+            previous = (self._clk_lock if pending.get("verification") else
+                        (self._clk_lock or {}).get("previous_lock"))
             ok, message = self.gpu.recover_vf_lock()
             if not ok:
                 return ok, message
@@ -3400,10 +3630,11 @@ class Druta:
 
         Printed as well as logged: no frame renders after the loop exits, so the
         log widget is written for consistency and never appears on screen."""
-        if not self._clk_lock and not self.vf_recovery_pending():
+        if (not self._clk_lock and not self.vf_recovery_pending()
+                and not getattr(self.gpu, "legacy_p0_owned", lambda: False)()):
             return
         what = (self.LOCK_NAME[self._clk_lock["kind"]] if self._clk_lock
-                else "pending V/F lock recovery")
+                else "pending P0/lock recovery")
         ok, m = self.release_current()
         note = f"exit: releasing the {what} this app took - {m}"
         print(note)
@@ -3572,6 +3803,7 @@ class Druta:
         # and the whole Rails readout kept showing pre-reset numbers - claiming
         # a ceiling the card no longer had.
         self.refresh_volt_limits()
+        self.refresh_current_limits(sync=True)
         self.vf_read(force=True)
 
     def ov_carryover(self, raw):
@@ -3595,6 +3827,14 @@ class Druta:
                                  ("ov", "overvoltage"), ("lo", "vmin")):
                 key = f"{prefix}_{short}"
                 cur = GPU.abs_limit_mv(fields, field)
+                lower = getattr(self, "_carryover_lo", {})
+                initial = self.gpu.stock_limit_mv(rail, field)
+                minimum = min(cur, initial if initial is not None else cur)
+                if minimum < self.gpu.VOLT_LIMIT_MIN_MV:
+                    lower[key] = minimum
+                else:
+                    lower.pop(key, None)
+                self._carryover_lo = lower
                 if cur > self.gpu.VOLT_LIMIT_MAX_MV:
                     self._carryover_hi[key] = cur
                 else:
@@ -3646,6 +3886,7 @@ class Druta:
         c_t = d.get("core_p0max", "?")
         m_t = self.mem_fmt(d.get("mem_p0max"))[0]
         self.refresh_rail_live()
+        self.refresh_current_limits()
         # Vcore is formatted on its own, exactly as Tk did: it needs NVAPI AND a
         # non-zero rail reading, and the app runs fine with NVAPI down. Folding
         # it into the conditional made ONE missing field blank the whole
@@ -5770,6 +6011,9 @@ Lockable clocks: {st.get('gfx_min','?')}-{st.get('gfx_max','?')} MHz
 {self.lockable_summary()}
 Backend: {self.gpu.status_line()}
 
+Current-policy diagnostics:
+{json.dumps(getattr(self.gpu, 'current_limit_diagnostics', lambda: {})(), indent=2, default=str)}
+
 CAUTION
     The core/mem offset sliders and the V/F curve are the SAME delta table,
     and Afterburner writes it too - drive clocks from ONE tool at a time.
@@ -5788,7 +6032,7 @@ deliberately does not put behind a button."""
     # ====================================================================== #
     #  PROFILES                                                              #
     # ====================================================================== #
-    def autosave_before(self, action):
+    def autosave_before(self, action, *, scope=None):
         """Undo point taken IMMEDIATELY before a destructive write. This is the
         other half of single-click Apply: the banner makes the click informed,
         this makes it reversible. Returns True only when a snapshot was taken
@@ -5815,12 +6059,20 @@ deliberately does not put behind a button."""
         failure. It says so as an error instead, which reddens the V/F tab's
         status line as well as the log."""
         try:
-            name, _path, missing = profiles.autosave(self.gpu, action, getattr(self, "rail", None))
+            options = {"scope": scope} if scope is not None else {}
+            name, _path, missing = profiles.autosave(
+                self.gpu, action, getattr(self, "rail", None), **options)
         except Exception as e:
+            if scope == "fan":
+                self.log(f"could not save fan undo state before {action}: {e}; nothing changed", False)
+                return False
             self.log(f"could NOT save an undo point before {action}: {e} - "
                      f"the write is going ahead unprotected", False)
             return False
         if missing:
+            if scope == "fan":
+                self.log(f"fan undo point is incomplete: {'; '.join(missing)}; nothing changed", False)
+                return False
             # An incomplete snapshot must not be announced as an undo point.
             # The one field that goes missing is the V/F delta table, i.e.
             # precisely what the write about to happen overwrites: restore()
@@ -6042,15 +6294,17 @@ deliberately does not put behind a button."""
             self.refresh_i2c_candidates()
         # The action label is bounded: undoing an undo would otherwise compose
         # 'load-autosave-load-autosave-...' into a filename that only grows
-        captured = self.autosave_before(f"load-{name}"[:40])
-        if automatic and not captured:
+        scope = state.get("scope")
+        options = {"scope": scope} if scope is not None else {}
+        captured = self.autosave_before(f"load-{name}"[:40], **options)
+        if (automatic or scope == "fan") and not captured:
             self.profile_failure("could not capture a complete undo point", automatic)
             return
         self.log(f"restoring '{name}' ({state.get('saved_at','?')}): "
                  f"{profiles.summarize(state)}", None)
-        if state.get("schema", 1) >= 2:
+        if state.get("schema", 1) >= 2 and scope != "fan":
             for tag, value in (("xoc_mode", bool(state.get("xoc"))),
-                               ("vlim_mode", bool(state.get("rail_limits_mv"))),
+                               ("vlim_mode", bool(state.get("rail_limits_uv") or state.get("rail_limits_mv"))),
                                ("i2c_mode", bool(state.get("i2c")))):
                 dpg.set_value(tag, value)
             self.sync_risk_ui()
@@ -6070,6 +6324,7 @@ deliberately does not put behind a button."""
     def poll_profile_load(self):
         if getattr(self, "_i2c_ui_pending", False) and not self._i2c_busy:
             self._i2c_ui_pending = False
+            self.sync_i2c_write_status()
             self.sync_lock_ui()
         pending = self._profile_pending
         if not pending or self._i2c_busy:
@@ -6105,6 +6360,8 @@ deliberately does not put behind a button."""
         else:
             self.log(f"profile '{name}' applied", True)
         self.sync_sliders_from_gpu(state)
+        if state.get("scope") == "fan":
+            return
         self.sync_profile_rail_sliders()
         self.refresh_volt_limits()
         # the delta table is written LAST and wins over the core offset (see
@@ -6115,6 +6372,8 @@ deliberately does not put behind a button."""
         """Use fresh requests after restore, including a partially failed load."""
         try:
             values = {"rail": self.gpu.read_rail_offset_mv(0)}
+            if getattr(self, "_msvdd_domain", None) is not None:
+                values["msvdd"] = self.gpu.read_rail_offset_mv(self._msvdd_domain, rail=1)
             domains, _ = self.gpu.read_clk_domain_offsets()
             for knob in self.DOMAIN_KNOBS:
                 if knob.ctrl in (domains or {}):
@@ -6230,6 +6489,7 @@ deliberately does not put behind a button."""
                              "fan slider was left unchanged", None)
             except Exception as e:
                 self.log(f"fan target could not be read: {e}; slider left unchanged", False)
+        self.refresh_current_limits(sync=True)
         self.sync_knob_boxes()
 
     # ====================================================================== #
@@ -6281,6 +6541,8 @@ deliberately does not put behind a button."""
                                   callback=self.show_win)
                 dpg.add_menu_item(label="Copy device report",
                                   callback=self.copy_device_report)
+                dpg.add_menu_item(label="Refresh capabilities",
+                                  callback=self.refresh_capabilities)
                 dpg.add_separator()
                 # nvtune is NOT shipped with Druta, so the Timings tab needs to
                 # be pointed at it once. This is that once.
@@ -6360,8 +6622,9 @@ deliberately does not put behind a button."""
                 dpg.add_text("GPU CLOCK LOCK", color=ACCENT)
                 if self.gpu.arch() == GPU.ARCH_KEPLER:
                     dpg.add_text("NVML GPU and memory clock locks are unavailable on Kepler.", color=DIM)
-                elif self.gpu.is_gtx745():
-                    dpg.add_text("NVML GPU and memory clock locks are unavailable on GTX 745.", color=DIM)
+                elif self.gpu.arch() == GPU.ARCH_MAXWELL:
+                    dpg.add_text("NVML GPU frequency locks are unavailable on Maxwell.\n"
+                                 "Use Lock P0 and max fan for a performance-state hold.", color=DIM)
                 elif self.gpu.arch() == GPU.ARCH_PASCAL:
                     dpg.add_text("NVML frequency locking is unavailable on Pascal.\n"
                                  "Use Ctrl+H on the V/F curve to hold a point.", color=DIM)
@@ -6585,7 +6848,7 @@ deliberately does not put behind a button."""
                              "also retune the curve.", color=DIM, wrap=self.s(580))
 
         with dpg.window(label="Shunt mod", tag="win_shunt", show=False,
-                        width=self.s(900), height=self.s(560),
+                        width=self.s(900), height=self.s(740),
                         pos=[self.s(150), self.s(110)]):
             dpg.add_text("Shunt-mod corrected power", color=ACCENT)
             dpg.add_text(
@@ -6625,6 +6888,29 @@ deliberately does not put behind a button."""
                 dpg.add_button(label="Reset to stock (no mod)",
                                width=self.s(220), callback=self.shunt_reset)
             dpg.add_spacer(height=self.s(10))
+            dpg.add_separator()
+            dpg.add_spacer(height=self.s(6))
+            dpg.add_text("Parallel-resistance helper", color=ACCENT)
+            dpg.add_text(
+                "Enter the original shunt and each resistor stacked across "
+                "the same two pads. This calculator does not change a rail; "
+                "enter its result above if it is the effective resistance "
+                "you measured or installed.", color=DIM, wrap=self.s(860))
+            dpg.add_spacer(height=self.s(4))
+            with dpg.table(tag="shunt_parallel_table", header_row=True,
+                           policy=dpg.mvTable_SizingFixedFit,
+                           borders_innerH=True, borders_outerH=True,
+                           borders_innerV=True, borders_outerV=True):
+                for lbl, w in (("resistor", 180), ("mOhm", 170), ("", 100)):
+                    dpg.add_table_column(label=lbl, width_fixed=True,
+                                         init_width_or_weight=self.s(w))
+            dpg.add_spacer(height=self.s(6))
+            with dpg.group(horizontal=True):
+                dpg.add_button(label="Add resistor", width=self.s(180),
+                               callback=self.shunt_parallel_add)
+                dpg.add_spacer(width=self.s(16))
+                dpg.add_text("", tag="shunt_parallel_result", color=GOOD)
+            dpg.add_spacer(height=self.s(8))
             dpg.add_separator()
             dpg.add_spacer(height=self.s(6))
             dpg.add_text("", tag="shunt_result", wrap=self.s(860))
@@ -7534,6 +7820,7 @@ deliberately does not put behind a button."""
         self.gpu.voltage_xoc_enabled = False
         self._carryover_hi = {}
         self._carryover_lo = {}
+        self._current_limits = {}
         self._discard_armed = False
         self._reset_armed = False
         self._pending_load = None
@@ -7582,7 +7869,8 @@ deliberately does not put behind a button."""
         than by blocking, because an induce can hold the card for 25 s and
         refusing to switch for that long would be worse than dropping its
         result."""
-        if getattr(self, "_clk_lock", None) or self.vf_recovery_pending():
+        if (getattr(self, "_clk_lock", None) or self.vf_recovery_pending()
+                or getattr(self.gpu, "legacy_p0_owned", lambda: False)()):
             self.log("release the current card's hold or pending V/F recovery before switching", False)
             return False
         if getattr(self, "_profile_pending", None) or getattr(self, "_i2c_busy", False):
@@ -7992,12 +8280,34 @@ deliberately does not put behind a button."""
                          name="Druta-read-p0").start()
 
     def hold_for_read(self):
-        """Pin the card on the cap point so a capture lands in the top band.
+        """Hold the selected card in P0 so a capture lands in the top band.
 
-        Returns True only if the lock is really in force. Every failure is a
-        reason to fall back to the load, not to give up: a locked gate, a card
-        with no readable V/F table, or an NVAPI that will not take the lock all
-        leave the CUDA path perfectly able to reach the band."""
+        Kepler/Maxwell use the legacy request without needing a V/F curve.
+        Rechecking a request already owned by this session does not write it
+        again, so it remains available with controls locked. Other cards use
+        a V/F point; failure leaves the existing direct-read/load fallback.
+        """
+        owned = getattr(self.gpu, "legacy_p0_owned", lambda: False)()
+        if owned or self.legacy_p0_supported():
+            if not owned:
+                if not self.unlocked():
+                    self.log("read: controls are locked, so the P0 hold was skipped - "
+                             "falling back to a GPU load", None)
+                    return False
+                if not self.handover(self.LOCK_P0):
+                    return False
+            ok = False
+            try:
+                ok, message = self.gpu.hold_legacy_p0()
+                self.log("read: " + message, ok)
+            except Exception as exc:
+                self.log(f"read: could not confirm the P0 hold ({exc}) - "
+                         "falling back to a GPU load", False)
+            finally:
+                # Even failed verification may leave a request whose release
+                # failed. Keep its owner and release route visible.
+                self.sync_legacy_p0_lock(verified=ok)
+            return bool(ok and self.gpu.legacy_p0_owned())
         if not self.vf_applicable():
             return False
         if not self.unlocked():
@@ -8080,12 +8390,12 @@ deliberately does not put behind a button."""
                     up, (mem, ps) = self.wait_for_band(gpu)
                     snap = timings.snapshot(gpu)
                     if up:
-                        note = (f"Holding P0 (memory {mem}) with the V/F point "
-                                f"lock - no load needed, and the band stays up "
+                        note = (f"Holding P0 (memory {mem}) - no load needed, "
+                                f"and the band stays up "
                                 f"after this capture. 'Re-read timings' is now "
-                                f"a cheap sanity check. Ctrl+H releases.")
+                                f"a cheap sanity check. Clocks > Release drops the hold.")
                     else:
-                        note = (f"The V/F point lock is on, but the card was "
+                        note = (f"The P0 hold was requested, but the card was "
                                 f"still at memory {mem}, p-state {ps} after "
                                 f"{self.HOLD_SETTLE_S:.0f}s. Captured anyway - "
                                 f"read the state line above before trusting "
@@ -8567,6 +8877,7 @@ deliberately does not put behind a button."""
     # ---- shunt-mod corrected power ------------------------------------------ #
     def open_shunt(self, sender=None, app_data=None, user_data=None):
         self.draw_shunt_rows()
+        self.draw_shunt_parallel_rows()
         dpg.configure_item("win_shunt", show=True)
         dpg.focus_item("win_shunt")
 
@@ -8651,6 +8962,78 @@ deliberately does not put behind a button."""
         self.log(msg, ok)
         self.shunt_refold()
 
+    # ---- shunt parallel-resistance helper ---------------------------------- #
+    def _shunt_parallel_resistors(self):
+        """Return the helper inputs, restoring its two-input starting point.
+
+        ``__new__`` based UI tests and older live instances do not necessarily
+        have the attribute installed by ``__init__``. Keeping that compatibility
+        here also ensures the calculator always retains a base and one stacked
+        resistor after rows are removed.
+        """
+        resistors = getattr(self, "shunt_parallel_resistors", None)
+        if not isinstance(resistors, list):
+            resistors = []
+        while len(resistors) < 2:
+            resistors.append(shuntmod.DEFAULT_MOHM)
+        self.shunt_parallel_resistors = resistors
+        return resistors
+
+    def draw_shunt_parallel_rows(self):
+        """Rebuild the small, unsaved parallel-resistance calculator."""
+        resistors = self._shunt_parallel_resistors()
+        dpg.delete_item("shunt_parallel_table", children_only=True, slot=1)
+        for i, resistance in enumerate(resistors):
+            with dpg.table_row(parent="shunt_parallel_table"):
+                dpg.add_text("Base shunt" if i == 0 else
+                             f"Stacked resistor {i}")
+                dpg.add_input_float(default_value=float(resistance),
+                                    tag=f"sh_pr{i}", width=-1, step=0.5,
+                                    format="%.3f", min_value=0.0,
+                                    min_clamped=True, user_data=i,
+                                    callback=self.shunt_parallel_edit)
+                if i < 2:
+                    dpg.add_text("")
+                else:
+                    dpg.add_button(label="remove", width=-1, user_data=i,
+                                   callback=self.shunt_parallel_remove)
+        self.shunt_parallel_refold()
+
+    def shunt_parallel_refold(self):
+        """Display the live equivalent without changing saved rail values."""
+        resistors = self._shunt_parallel_resistors()
+        equivalent = shuntmod.parallel_resistance(resistors)
+        if equivalent is None:
+            dpg.set_value("shunt_parallel_result",
+                          "Enter positive resistance values.")
+            dpg.configure_item("shunt_parallel_result", color=BAD)
+            return
+        joined = " || ".join(f"{resistance:.4g}" for resistance in resistors)
+        dpg.set_value("shunt_parallel_result",
+                      f"{joined} mOhm = {equivalent:.4g} mOhm")
+        dpg.configure_item("shunt_parallel_result", color=GOOD)
+
+    def shunt_parallel_edit(self, sender=None, app_data=None, user_data=None):
+        resistors = self._shunt_parallel_resistors()
+        if 0 <= user_data < len(resistors):
+            try:
+                resistors[user_data] = float(app_data)
+            except (TypeError, ValueError):
+                # Dear PyGui normally supplies a float, but preserve the last
+                # valid input if an embedding sends an intermediate string.
+                pass
+        self.shunt_parallel_refold()
+
+    def shunt_parallel_add(self, sender=None, app_data=None, user_data=None):
+        self._shunt_parallel_resistors().append(shuntmod.DEFAULT_MOHM)
+        self.draw_shunt_parallel_rows()
+
+    def shunt_parallel_remove(self, sender=None, app_data=None, user_data=None):
+        resistors = self._shunt_parallel_resistors()
+        if 2 <= user_data < len(resistors):
+            del resistors[user_data]
+        self.draw_shunt_parallel_rows()
+
     # ---- test signing, which nvtune's driver needs -------------------------- #
     # Exactly what gets run, in order, as one copiable block. THE THIRD ONE IS
     # THE LOAD-BEARING COMMAND: Microsoft documents `testsigning` as what makes
@@ -8712,6 +9095,42 @@ deliberately does not put behind a button."""
             return None
         return "" if out == "NONE" else out
 
+    def refresh_capabilities(self, sender=None, app_data=None, user_data=None):
+        """Deliberate read-only retry; retain ownership and staged slider values."""
+        if (getattr(self, "_i2c_busy", False) or getattr(self, "_tim_busy", False)
+                or getattr(self, "_profile_pending", None) or getattr(self, "_closing", False)):
+            self.log("wait for the active operation before refreshing capabilities", False)
+            return
+        if (any(v != getattr(self, "vf_orig", {}).get(i)
+                for i, v in getattr(self, "vf_work", {}).items())
+                or getattr(self, "_tw_pending", {})):
+            self.log("apply or revert staged curve/timing edits before refreshing capabilities", False)
+            return
+        tags = ["unlock", "xoc_mode", "i2c_mode", "vlim_mode", "vlim_link",
+                "vcap", "rfloor"]
+        tags += [prefix + key for key in getattr(self, "_slider_ranges", {})
+                 for prefix in ("sl_", "in_")]
+        values = {t: dpg.get_value(t) for t in tags if dpg.does_item_exist(t)}
+        self._rebuilding = True
+        self._ui_gen = getattr(self, "_ui_gen", 0) + 1
+        try:
+            self.gpu.refresh_capabilities()
+            self.build_ui(rebuild=True)
+            for tag, value in values.items():
+                if dpg.does_item_exist(tag):
+                    dpg.set_value(tag, value)
+            self.sync_risk_ui()
+            self.sync_lock_ui()
+            if self.vf_points:
+                self.vf_redraw()
+            self.relayout()
+        except Exception as exc:
+            self.log(f"capability refresh failed: {exc}; retry is available", False)
+            return
+        finally:
+            self._rebuilding = False
+        self.log("capabilities refreshed from this adapter; no GPU settings written", True)
+
     def build_ui(self, rebuild=False):
         """Build (or rebuild) everything that depends on which card this is.
 
@@ -8743,6 +9162,8 @@ deliberately does not put behind a button."""
             # and a card switch is exactly when they stop being true. The flag
             # goes with it because the rebuilt XOC checkbox comes up unticked.
             self._slider_ranges = {}
+            self._knob_decimals = {}
+            self._current_limits = {}
             self._knob_cb = {}
             self._xoc_bounds = False
             for tag in ("hdr_row", "tabs", "menubar", "win_device", "win_save",
@@ -8832,9 +9253,11 @@ deliberately does not put behind a button."""
     def dispatch_callbacks(self):
         """Discard outgoing-card jobs when a callback rebuilds the widget tree."""
         generation = getattr(self, "_gpu_gen", None)
+        ui_generation = getattr(self, "_ui_gen", 0)
         for job in dpg.get_callback_queue() or ():
             dpg.run_callbacks([job])
             if (getattr(self, "_gpu_gen", None) != generation
+                    or getattr(self, "_ui_gen", 0) != ui_generation
                     or not dpg.is_dearpygui_running()):
                 break
 

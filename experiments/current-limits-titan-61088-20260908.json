@@ -1,0 +1,142 @@
+{
+  "identity": "NVIDIA TITAN RTX, 00000000:01:00.0, 610.88, 90.02.1e.00.02",
+  "policy": 13,
+  "mask": "0xebbf",
+  "events": [
+    {
+      "command": "0x2080a61a",
+      "ntstatus": 0,
+      "rm_status": 0
+    },
+    {
+      "command": "0x2080a619",
+      "ntstatus": 0,
+      "rm_status": 0
+    },
+    {
+      "command": "0x2080e61b",
+      "ntstatus": 0,
+      "rm_status": 0
+    },
+    {
+      "command": "0x2080a61a",
+      "ntstatus": 0,
+      "rm_status": 0
+    },
+    {
+      "command": "0x2080a619",
+      "ntstatus": 0,
+      "rm_status": 0
+    },
+    {
+      "verified_ma": 350780,
+      "all_control_words_preserved_except_limit": true
+    },
+    {
+      "command": "0x2080e61b",
+      "ntstatus": 0,
+      "rm_status": 0
+    },
+    {
+      "command": "0x2080a61a",
+      "ntstatus": 0,
+      "rm_status": 0
+    },
+    {
+      "command": "0x2080a619",
+      "ntstatus": 0,
+      "rm_status": 0
+    },
+    {
+      "verified_ma": 349780,
+      "all_control_words_preserved_except_limit": true
+    },
+    {
+      "command": "0x2080e61b",
+      "ntstatus": 0,
+      "rm_status": 0
+    },
+    {
+      "command": "0x2080a61a",
+      "ntstatus": 0,
+      "rm_status": 0
+    },
+    {
+      "command": "0x2080a619",
+      "ntstatus": 0,
+      "rm_status": 0
+    },
+    {
+      "verified_ma": 350780,
+      "all_control_words_preserved_except_limit": true
+    },
+    {
+      "command": "0x2080a61a",
+      "ntstatus": 0,
+      "rm_status": 0
+    },
+    {
+      "command": "0x2080a619",
+      "ntstatus": 0,
+      "rm_status": 0
+    }
+  ],
+  "original_ma": 350780,
+  "test_passed": true,
+  "restored_verified": true,
+  "original_control_sha256": "f66508ef959cbcc785a8f202904c19badc4102e1e1d5877131e820bc0fba4eab",
+  "control_parameter_bytes": 13840,
+  "control_record_base": 20,
+  "control_record_stride": 196,
+  "limit_word_byte_offset": 2572,
+  "scope": "Isolated live transport validation; same-value, minus 1 A, exact restoration. No load or boundary test.",
+  "production_backend": {
+    "before": [
+      {
+        "policy": 13,
+        "label": "Core current",
+        "minimum_ma": 1000,
+        "maximum_ma": 390000,
+        "normal_maximum_ma": 390000,
+        "default_ma": 350780,
+        "limit_ma": 350780,
+        "requested_ma": 350780,
+        "value_ma": 9843
+      }
+    ],
+    "operations": [
+      {
+        "ok": true,
+        "message": "Core current set to 349.78 A; effective limit verified"
+      },
+      {
+        "ok": true,
+        "message": "Core current set to 350.78 A; effective limit verified"
+      }
+    ],
+    "changed_control_words": [
+      643
+    ],
+    "after": [
+      {
+        "policy": 13,
+        "label": "Core current",
+        "minimum_ma": 1000,
+        "maximum_ma": 390000,
+        "normal_maximum_ma": 390000,
+        "default_ma": 350780,
+        "limit_ma": 349780,
+        "requested_ma": 349780,
+        "value_ma": 9237
+      }
+    ],
+    "restored": true
+  },
+  "live_getter_ui": {
+    "slider_exists": true,
+    "value_a": 350.7799987792969,
+    "max_a": 390.0,
+    "min_a": 1.0,
+    "other_slider_exists": false
+  }
+}
