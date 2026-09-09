@@ -3930,34 +3930,37 @@ class GPU:
     # Select only by NVML architecture, then validate every live descriptor,
     # mask, stored value and effective value before exposing a slider.
     #
-    # Both bounds are generation-level safety facts, not card identities.
-    # The live advertised maximum must fit inside ``maximum_ceiling_ma`` before
-    # any slider is exposed.  This prevents a shifted/corrupt private record
-    # from turning an arbitrary u32 into an XOC write ceiling.
+    # Generation selects policy semantics; board-specific channels and ranges
+    # come from the driver. Exact packet geometry and mA units remain required.
     CURRENT_LIMIT_GENERATION_POLICIES = {
         ARCH_PASCAL: {
             13: {"label": "Core current", "type": 0x0B, "channel": 11,
-                 "normal_maximum_ma": 218_000,
-                 "maximum_ceiling_ma": 218_000},
+                 "normal_maximum_ma": 500_000},
         },
         ARCH_TURING: {
             13: {"label": "Core current", "type": 0x0B, "channel": 19,
-                 "normal_maximum_ma": 390_000,
-                 "maximum_ceiling_ma": 390_000},
+                 "normal_maximum_ma": 500_000},
         },
         10: {
             13: {"label": "Core current", "type": 0x12, "channel": 13,
-                 "normal_maximum_ma": 500_000,
-                 "maximum_ceiling_ma": 5_001_000},
+                 "normal_maximum_ma": 500_000},
             14: {"label": "Other rail current", "type": 0x12, "channel": 12,
-                 "normal_maximum_ma": 200_000,
-                 "maximum_ceiling_ma": 5_001_000},
+                 "normal_maximum_ma": 200_000},
         },
     }
     _CURRENT_LIMIT_ALL_MASK = (1 << 18) - 1
     # Keyed by the exact unmodified A612 packet and parameter sizes. Never
     # infer private ABI geometry from a driver string or a device identity.
     _CURRENT_LIMIT_LAYOUTS = {
+        (3548, 3480): {
+            "transport_command": 0x20802612,
+            "sizes": {0x2080A618: 5520, 0x2080A619: 69148,
+                      0x2080A61A: 2124, 0x2080E61B: 2124},
+            "commands": {0x2080A618: 0x20802618, 0x2080A619: 0x20802619,
+                         0x2080A61A: 0x2080261A, 0x2080E61B: 0x2080261B},
+            "info": (0x3C, 0x84), "status": (0x64, 0x828),
+            "control": (0x14, 0x34), "status_mask_word": 0,
+        },
         (11748, 11680): {
             "sizes": {0x2080A618: 8620, 0x2080A619: 172080,
                       0x2080A61A: 4432, 0x2080E61B: 4432},
@@ -4021,12 +4024,18 @@ class GPU:
                     if ptr and owned:
                         escape = self._Escape.from_address(ptr)
                         if (escape.pPrivateDriverData
-                                and escape.PrivateDriverDataSize in
-                                {key[0] for key in self._CURRENT_LIMIT_LAYOUTS}):
+                                and escape.PrivateDriverDataSize >= 68):
                             words = ctypes.cast(escape.pPrivateDriverData,
                                                 ctypes.POINTER(u32))
                             if (words[2] == escape.PrivateDriverDataSize
-                                    and words[14] == 0x2080A612
+                                    and words[14] in (0x2080A612, 0x20802612)):
+                                self._current_limit_observed_transport = {
+                                    "command": f"0x{words[14]:08X}",
+                                    "packet_bytes": int(words[2]),
+                                    "parameter_bytes": int(words[15]),
+                                }
+                            if (words[2] == escape.PrivateDriverDataSize
+                                    and words[14] in (0x2080A612, 0x20802612)
                                     and (words[2], words[15]) in
                                     self._CURRENT_LIMIT_LAYOUTS):
                                 found.append((list(words[:17]), {
@@ -4063,11 +4072,15 @@ class GPU:
         if transport is None:
             transport = self._capture_current_limit_transport()
             if transport is None:
-                raise ValueError("could not obtain the current-policy transport")
+                observed = getattr(self, "_current_limit_observed_transport", {})
+                detail = (f"observed {observed['command']}, "
+                          f"{observed['packet_bytes']}/{observed['parameter_bytes']} bytes"
+                          if observed else "no recognized power GET captured")
+                raise ValueError("unsupported current-policy transport: " + detail)
         header, _ = transport
         layout = (self._CURRENT_LIMIT_LAYOUTS.get((header[2], header[15]))
-                  if len(header) == 17 and header[14] == 0x2080A612 else None)
-        if layout is None:
+                  if len(header) == 17 else None)
+        if layout is None or header[14] != layout.get("transport_command", 0x2080A612):
             self._current_limit_transport = None
             raise ValueError("unvalidated current-policy transport geometry")
         self._current_limit_transport = transport
@@ -4085,13 +4098,17 @@ class GPU:
             allowed_masks = {1 << policy for policy in self._current_limit_generation_policies()}
             if len(params) < 5 or params[4] not in allowed_masks:
                 raise ValueError("current-policy write must select one generation-supported rail")
-        size = self._current_limit_abi()["sizes"][command]
+        layout = self._current_limit_abi()
+        size = layout["sizes"][command]
+        wire_command = layout.get("commands", {}).get(command, command)
+        if "commands" in layout and command not in layout["commands"]:
+            raise ValueError("legacy current-policy SET has not been identified")
         if params is None:
             params = [0] * (size // 4)
             if command == 0x2080A619:
                 if policy_mask is None:
                     raise ValueError("current-policy status requires a validated mask")
-                params[1] = policy_mask
+                params[layout.get("status_mask_word", 1)] = policy_mask
             elif command == 0x2080A61A:
                 if policy_mask is None:
                     raise ValueError("current-policy control requires a validated mask")
@@ -4101,7 +4118,7 @@ class GPU:
         header, fields = self._current_limit_transport
         packet = (u32 * (17 + size // 4))(*header, *params)
         packet[2], packet[14], packet[15], packet[16] = (
-            ctypes.sizeof(packet), command, size, 0)
+            ctypes.sizeof(packet), wire_command, size, 0)
         status = self._legacy_clk_escape(packet, fields)
         if status != 0 or packet[16] != 0:
             if status != 0:
@@ -4126,7 +4143,7 @@ class GPU:
         dynamic = self._current_limit_rm(0x2080A619, policy_mask=mask)
         if (len(control) * 4 != sizes[0x2080A61A]
                 or len(dynamic) * 4 != sizes[0x2080A619]
-                or dynamic[1] != mask
+                or dynamic[layout.get("status_mask_word", 1)] != mask
                 or control[:5] != [0, 0, 0, 255, mask]):
             raise ValueError("current-policy layout or mask differs from the measured ABI")
         rows = []
@@ -4138,18 +4155,19 @@ class GPU:
             channel = info[meta + 1] >> 8 & 255
             unit = info[meta + 1] >> 16 & 255
             minimum, default, maximum = info[meta + 2:meta + 5]
-            maximum_ceiling = spec["maximum_ceiling_ma"]
-            normal_maximum = min(spec["normal_maximum_ma"], maximum)
-            if (type_id != spec["type"] or channel != spec["channel"] or unit != 1
+            normal_maximum = min(max(spec["normal_maximum_ma"], minimum), maximum)
+            if (type_id != spec["type"] or unit != 1
                     or not 1 <= minimum <= default <= maximum
-                    or maximum > maximum_ceiling
                     or dynamic[state] & 255 != type_id
                     or control[record] != type_id
                     or not minimum <= control[record + 1] <= maximum
-                    or not minimum <= dynamic[state + 1] <= maximum
-                    or not default <= normal_maximum <= maximum):
-                raise ValueError(f"policy {policy} is not this generation's current rail")
-            rows.append({"policy": policy, "label": spec["label"],
+                    or not minimum <= dynamic[state + 1] <= maximum):
+                raise ValueError(f"policy {policy}: invalid current record "
+                                 f"(type=0x{type_id:X}, channel={channel}, unit={unit}, "
+                                 f"min/default/max={minimum}/{default}/{maximum})")
+            label = (spec["label"] if channel == spec["channel"] else
+                     f"Policy {policy} current (channel {channel})")
+            rows.append({"policy": policy, "label": label, "channel": channel,
                          "minimum_ma": minimum,
                          "maximum_ma": maximum,
                          "normal_maximum_ma": normal_maximum,
@@ -4166,14 +4184,31 @@ class GPU:
         ``maximum_ma`` is the API ceiling regardless of Druta's XOC setting.
         """
         if not self._current_limit_profile_supported():
+            self._current_limit_error = "NVAPI unavailable or GPU generation unsupported"
+            self._current_limit_last_rows = []
             return []
         try:
             rows, _ = self._current_limit_state()
             self._current_limit_error = ""
+            self._current_limit_last_rows = rows
             return rows
         except Exception as exc:
             self._current_limit_error = str(exc)
+            self._current_limit_last_rows = []
             return []
+
+    def current_limit_diagnostics(self):
+        """Last GET outcome only; contains no client handles and performs no writes."""
+        return {
+            "build": "current-visibility-v1",
+            "driver": getattr(self, "static", {}).get("driver"),
+            "vbios": getattr(self, "static", {}).get("vbios"),
+            "generation": self.arch(),
+            "expected_policies": self._current_limit_generation_policies(),
+            "transport": getattr(self, "_current_limit_observed_transport", {}),
+            "error": getattr(self, "_current_limit_error", ""),
+            "policies": getattr(self, "_current_limit_last_rows", []),
+        }
 
     def set_current_limit_ma(self, policy, ma):
         """Change one policy and verify stored AND effective limits.

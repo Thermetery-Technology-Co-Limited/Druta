@@ -78,6 +78,7 @@ Safety model, carried over from the Tk version:
     checkbox that no tooltip can substitute for.
 """
 import ctypes
+import json
 import math
 import os
 from collections import namedtuple
@@ -1528,7 +1529,7 @@ class Druta:
             return []
 
     def build_current_limits_rows(self):
-        """Expose only current policies whose layout the backend recognizes."""
+        """Show supported controls, or a visible diagnostic for missing policies."""
         self._current_limits = {}
         for row in self.read_current_limit_rows():
             policy = row["policy"]
@@ -1556,6 +1557,30 @@ class Druta:
             with dpg.tooltip(f"live_{key}"):
                 dpg.add_text("First line: reported rail current.\n"
                              "Second line: effective current ceiling.")
+        diagnose = getattr(self.gpu, "current_limit_diagnostics", None)
+        if diagnose is not None:
+            diagnostic = diagnose()
+            for policy, spec in diagnostic.get("expected_policies", {}).items():
+                if policy in self._current_limits:
+                    continue
+                # These placeholders never enter the apply/profile/range registries.
+                # Unknown limits are not represented as an editable zero-amp request.
+                with dpg.table_row():
+                    dpg.add_text(f"{spec['label']} limit (A)",
+                                 wrap=self.s(self.KNOB_COLS[0] - 10), color=DIM)
+                    dpg.add_slider_float(tag=f"unavailable_current{policy}",
+                                         min_value=0, max_value=1, default_value=0,
+                                         format="Unavailable", width=-1, enabled=False)
+                    dpg.add_text("--")
+                    detail = dpg.add_text("API unavailable", color=DIM,
+                                          wrap=self.s(self.KNOB_COLS[3] - 4))
+                    with dpg.tooltip(detail):
+                        dpg.add_text(diagnostic.get("error") or "Policy not returned",
+                                     wrap=self.s(550))
+                    dpg.add_button(label="Copy info", width=-1,
+                                   callback=lambda: dpg.set_clipboard_text(json.dumps(
+                                       self.gpu.current_limit_diagnostics(), indent=2)))
+                    dpg.add_text("Read only", color=DIM)
         self.refresh_current_limits()
 
     def refresh_current_limits(self, sync=False):
@@ -5951,6 +5976,9 @@ Lockable clocks: {st.get('gfx_min','?')}-{st.get('gfx_max','?')} MHz
     The list also shrinks with the memory clock on this card:
 {self.lockable_summary()}
 Backend: {self.gpu.status_line()}
+
+Current-policy diagnostics:
+{json.dumps(getattr(self.gpu, 'current_limit_diagnostics', lambda: {})(), indent=2, default=str)}
 
 CAUTION
     The core/mem offset sliders and the V/F curve are the SAME delta table,

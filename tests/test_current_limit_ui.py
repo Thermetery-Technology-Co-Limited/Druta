@@ -97,6 +97,19 @@ class CurrentLimitUiTests(unittest.TestCase):
         self.assertTrue(dpg.does_item_exist("sl_current13"))
         self.assertFalse(dpg.does_item_exist("sl_current14"))
 
+    def test_unavailable_generation_policy_has_visible_nonwriting_placeholder(self):
+        self.rows = []
+        self.app.gpu.current_limit_diagnostics = Mock(return_value={
+            'expected_policies': {13: {'label': 'Core current'}},
+            'error': 'unsupported transport 0x20802612'})
+        self.build()
+        self.assertTrue(dpg.does_item_exist('unavailable_current13'))
+        self.assertFalse(dpg.get_item_configuration('unavailable_current13')['enabled'])
+        self.assertNotIn('current13', self.app._slider_ranges)
+        self.assertNotIn('current13', self.app._knob_cb)
+        self.assertEqual(self.app._current_limits, {})
+        self.app.gpu.set_current_limit_ma.assert_not_called()
+
     def test_live_above_normal_is_preserved_when_xoc_is_disabled(self):
         self.rows = rows(core=600125, other=250000)
         self.build()

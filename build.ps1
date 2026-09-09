@@ -65,6 +65,7 @@ function Get-SourceSnapshot {
         'CURRENT-LIMITS-KEPLER-MAXWELL.md',
         'experiments/current-limits-titan-20260908.json',
         'experiments/current-limits-titan-61088-20260908.json',
+        'experiments/current-limits-titan-47212-20260908.json',
         'experiments/current-limit-ceiling-titan-rtx-20260908.json',
         'experiments/current-limit-ceiling-titan-xp-20260908.json',
         'experiments/probe_titan_current_ceiling.py',

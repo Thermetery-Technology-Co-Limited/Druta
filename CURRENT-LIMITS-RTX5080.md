@@ -137,10 +137,44 @@ existing UI row from the live getter produced **Core current limit (A)** at
 350.780 A, with a 1–390 A range and no policy-14 slider on this Turing card.
 
 Evidence: [610.88 validation](experiments/current-limits-titan-61088-20260908.json).
-On 472.12 this TITAN uses the older 0x208026xx commands, which remain outside
+On 472.12 this TITAN uses the older 0x208026xx commands, which at that validation remained outside
 these two current-control layouts.
 
 ## Public reproduction evidence
+
+### Current diagnostic build validation (2026-09-08)
+
+`1.3.0-current-diag` adds the 472.12 transport (2612: 3548-byte
+packet / 3480-byte parameters). Legacy info/status/control/SET commands are
+20802618/20802619/2080261A/2080261B; parameter sizes are
+5520/69148/2124/2124 bytes. Record base/stride pairs are
+0x3C/0x84, 0x64/0x828 and 0x14/0x34. Status selection uses word 0,
+whereas the modern status layouts use word 1. Control selection uses word 4.
+
+Evidence combines an original TITAN 472.12 info capture (retained in
+`tests/fixture_current_47212.py`), original GTX 770 status/control captures,
+and static inspection of NVIDIA's 472.12 nvapi64.dll. DLL SHA-256:
+`4b8f6048bdc9b74cde55a6eced3ee517ee83b013e0706477298feb9d28ca13c2`.
+RVA 0x8FB91 supplies SET size 0x84C, RVA 0x8FB99 selects 0x2080261B;
+RVA 0x25E875 confirms a 0x34-byte control stride with base 0x14.
+The subsequent [local TITAN 472.12 live check](experiments/current-limits-titan-47212-20260908.json)
+verified full-mask control GET and policy 13 SET: 350.780 A -> 349.780 A ->
+350.780 A, including stored/effective readback and exact restoration of the
+complete original control block. The local board uses VBIOS 90.02.1e.00.02;
+the remote HOF PCB / newer VBIOS still needs its own confirmation. The setter preserves the complete getter block,
+selects one policy, checks stored/effective readback and attempts restoration
+if a dispatched write has an uncertain result.
+
+This diagnostic build removes fixed board-channel and advertised-maximum
+matches. A differing channel is labeled by policy and channel rather than
+assuming it is the core rail. Normal requests use a 500 A core / 200 A other
+envelope, intersected with API bounds; XOC uses the returned maximum.
+Known geometry, generation/type semantics, mA units and consistent values
+remain required. An unavailable expected policy has a disabled visible row
+with a reason and Copy info button, rather than being silently omitted.
+Help's device report also includes current-policy diagnostics.
+
+### Earlier live validation
 
 The 5080 idle production check is retained in
 [production-current-limits.json](experiments/power-5080-20260908/production-current-limits.json).

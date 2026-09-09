@@ -13,8 +13,11 @@ column describes the TITAN boards; GTX 770, GTX 745 and GTX 690 were tested only
 architecture plus exact runtime descriptor/mask checks, never device ID,
 driver string or VBIOS. On driver **580.97**, the TITAN Xp and TITAN RTX
 core-current policies passed 5 A down/up/readback/restore checks and expose
-maxima of **218 A / 390 A**. The Pascal/Turing current-policy path has not
-been tested on 472.12. Separate read-only checks on the GTX 745 (Maxwell)
+maxima of **218 A / 390 A**. The diagnostic build's Turing 472.12 path passed
+a 1 A reduction, stored/effective readback and exact restoration on the local
+TITAN RTX; Pascal remains untested on 472.12. See the
+[472.12 live record](experiments/current-limits-titan-47212-20260908.json).
+Separate read-only checks on the GTX 745 (Maxwell)
 and GTX 770 (Kepler) with 472.12 found no supported current-control interface;
 see the [Kepler/Maxwell measurements](CURRENT-LIMITS-KEPLER-MAXWELL.md).
 Blackwell policy 13 (core) and policy 14 (other rail) retain normal caps of
@@ -42,7 +45,7 @@ not suppressed.
 | Four NVVDD limits | Confirmed; see measurements below | Confirmed, including live ceiling clamps and idle floor | Confirmed, including live ceiling clamps; floor uses verified legacy re-send | Suppressed: no verified limit-write path | Suppressed: no verified limit-write path | Suppressed: control getter has no rail records; live getter reports Not Supported |
 | Per-domain clock offsets | Confirmed for mapped controls | XBAR, Additional Memory Clock Offset, SYS, VIDEO and LTC each moved by about +30 MHz under load | Additional Memory Clock Offset +25 MHz moved reported memory by +20.25 MHz twice; other paired controls remain suppressed | Suppressed: offset-control fields/write effects unverified, including Additional Memory Clock Offset | Suppressed: control-to-clock pairing/write effects unverified | Suppressed: private getter supplies no domain records |
 | Power limit and voltage boost | Confirmed | Confirmed with independent readback | Confirmed with independent readback | NVML power-limit range and voltage-boost getter unavailable; sliders suppressed | Power-limit range and voltage-boost getter unavailable; sliders suppressed | NVML watt limits and voltage-boost getter unsupported; sliders suppressed |
-| Core current limit | TITAN Xp / RTX: 218 A / 390 A maxima; ±5 A apply/readback/restore verified | Not tested on 472.12 | Not tested on 472.12 | Modern info GET unsupported; no validated legacy current policy | Modern info GET unsupported; zero active legacy policies | Not tested |
+| Core current limit | TITAN Xp / RTX: 218 A / 390 A maxima; ±5 A apply/readback/restore verified | Diagnostic build: 350.780 -> 349.780 -> 350.780 A verified; API max 390 A | Not tested on 472.12 | Modern info GET unsupported; no validated legacy current policy | Modern info GET unsupported; zero active legacy policies | Not tested |
 | NVML frequency lock | Works on Turing; unsupported on Pascal | Confirmed at 1500 MHz under load; legacy RM readback also sees another process's range | Unsupported baseline; V/F point lock remains available | GPU 1176..1176 MHz and memory 3505..3505 MHz both return Not Supported (3), while elevated | GPU 1072 MHz / memory 900 MHz locks return Not Supported through NVML and nvidia-smi; application-clock writes/readback succeed but do not hold P0 | GPU 1202 MHz / memory 3004 MHz locks and application-clock queries return Not Supported (3) |
 | Profiles, Undo, Reset all and Max it | Existing composite actions | All 13 UI callback checks passed; exact controls/table/lock restoration | All 13 UI callback checks passed; exact controls/table/lock restoration | Profiles omit the inapplicable V/F table; Reset all skips curve writes; Max it suppressed. Core/memory/fan and I2C restoration verified separately; default profile replay covered by hardware-free tests | Full profile replay restored +40 core, zero memory offset and manual 100% fan; no V/F requirement | Independent profile identity/replay; P0/fan Undo, Release, Reset and exit verified on both cores |
 | I2C regulator control | Board/tool dependent | MP2888A verified under load: +75 mV request moved rail-minus-VID by +45 mV; original raw value restored | No matching regulator found on this board | NCP4206 absolute target verified at 1250/1262.5 mV; Auto and profile restoration exact | No matching registered profile found; no voltage writes | NCP4206 discovered independently on both cores; bounded response and exact restoration verified |

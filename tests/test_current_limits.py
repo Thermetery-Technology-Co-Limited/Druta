@@ -8,9 +8,10 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from druta import nvbackend as n
+from tests.fixture_current_47212 import TITAN_INFO
 
 
-def fixture(arch=10, newer=False):
+def fixture(arch=10, newer=False, legacy=False):
     g = n.GPU.__new__(n.GPU)
     g._lock = threading.RLock()
     g.static = {"driver": "580.97", "vbios": "98.03.3b.c0.6f"}
@@ -31,12 +32,21 @@ def fixture(arch=10, newer=False):
     info_base, info_stride = (0xCC, 0xFC) if newer else (0x58, 0xE4)
     status_base, status_stride = (0x9C, 0x1720) if newer else (0x70, 0x1454)
     control_base, control_stride = (0x14, 0xC4) if newer else (0x14, 0x7C)
+    status_mask_word = 0 if legacy else 1
+    wire = {c: c for c in (0x2080A618, 0x2080A619, 0x2080A61A, 0x2080E61B)}
+    if legacy:
+        packet_bytes, param_bytes = 3548, 3480
+        info_bytes, status_bytes, control_bytes = 5520, 69148, 2124
+        info_base, info_stride = 0x3C, 0x84
+        status_base, status_stride = 0x64, 0x828
+        control_base, control_stride = 0x14, 0x34
+        wire = dict(zip(wire, (0x20802618, 0x20802619, 0x2080261A, 0x2080261B)))
     info = [0] * (info_bytes // 4)
     info[1] = mask
     control = [(i * 17) & 0xFFFFFFFF for i in range(control_bytes // 4)]
     control[:5] = [0, 0, 0, 255, mask]
     dynamic = [0] * (status_bytes // 4)
-    dynamic[1] = mask
+    dynamic[status_mask_word] = mask
     for policy, type_id, channel, default, maximum in policies:
         meta = (info_base + policy * info_stride) // 4
         state = (status_base + policy * status_stride) // 4
@@ -51,6 +61,8 @@ def fixture(arch=10, newer=False):
                             mutate_other=False, failed_after_set=False)
     header = [0] * 17
     header[2], header[14], header[15] = packet_bytes, 0x2080A612, param_bytes
+    if legacy:
+        header[14] = 0x20802612
     header[12:14] = [1234, 5678]
     fields = dict(hAdapter=3, hDevice=0, Type=0, Flags=8, hContext=0)
     g._capture_current_limit_transport = Mock(return_value=(header, fields))
@@ -60,7 +72,7 @@ def fixture(arch=10, newer=False):
         assert list(packet[12:14]) == [1234, 5678]
         assert packet[2] == ctypes.sizeof(packet)
         assert packet[15] == (len(packet) - 17) * 4
-        command = packet[14]
+        command = next(c for c, actual in wire.items() if actual == packet[14])
         if command == 0x2080E61B:
             params = list(packet[17:])
             state.writes.append(params)
@@ -87,7 +99,7 @@ def fixture(arch=10, newer=False):
         if command == 0x2080A618:
             assert not any(packet[17:])
         elif command == 0x2080A619:
-            assert list(packet[17:19]) == [0, mask]
+            assert list(packet[17:19]) == ([mask, 0] if legacy else [0, mask])
             assert not any(packet[19:])
         else:
             assert list(packet[17:22]) == [0, 0, 0, 0, mask]
@@ -100,6 +112,52 @@ def fixture(arch=10, newer=False):
 
 
 class CurrentLimitTests(unittest.TestCase):
+    def test_original_47212_titan_info_capture_decodes_current_descriptor(self):
+        g, state = fixture(n.GPU.ARCH_TURING, legacy=True)
+        state.info = list(TITAN_INFO)
+        row = g.get_current_limits()[0]
+        self.assertEqual((row['policy'], row['channel'], row['minimum_ma'],
+                          row['default_ma'], row['maximum_ma']),
+                         (13, 19, 1000, 350780, 390000))
+        self.assertEqual(state.writes, [])
+
+    def test_legacy_turing_layout_reads_and_writes_one_current_word(self):
+        g, state = fixture(n.GPU.ARCH_TURING, legacy=True)
+        original = list(state.control)
+        self.assertEqual(g.get_current_limits()[0]['limit_ma'], 350780)
+        self.assertEqual(state.writes, [])
+        ok, message = g.set_current_limit_ma(13, 349780)
+        self.assertTrue(ok, message)
+        expected = list(original)
+        expected[(0x14 + 13 * 0x34) // 4 + 1] = 349780
+        self.assertEqual(state.control, expected)
+        expected[4] = 1 << 13
+        self.assertEqual(state.writes, [expected])
+        self.assertEqual(len(expected) * 4, 2124)
+
+    def test_legacy_uncertain_set_restores_and_checks_effective_limit(self):
+        for flag in ('store_only', 'failed_after_set', 'break_get_once'):
+            with self.subTest(flag=flag):
+                g, state = fixture(n.GPU.ARCH_TURING, legacy=True)
+                original = list(state.control)
+                setattr(state, flag, True)
+                ok, message = g.set_current_limit_ma(13, 349780)
+                self.assertFalse(ok)
+                self.assertIn('restored and verified', message)
+                self.assertEqual(state.control, original)
+                self.assertEqual(len(state.writes), 2)
+
+    def test_legacy_status_mask_position_and_command_geometry_are_required(self):
+        g, state = fixture(n.GPU.ARCH_TURING, legacy=True)
+        state.dynamic[1], state.dynamic[0] = state.dynamic[0], 0
+        self.assertEqual(g.get_current_limits(), [])
+        self.assertFalse(g.set_current_limit_ma(13, 349780)[0])
+        self.assertEqual(state.writes, [])
+        g, state = fixture(n.GPU.ARCH_TURING, legacy=True)
+        g._capture_current_limit_transport.return_value[0][14] = 0x2080A612
+        self.assertEqual(g.get_current_limits(), [])
+        g._legacy_clk_escape.assert_not_called()
+
     def test_new_geometry_reads_each_generation_independently_of_identity(self):
         for arch, defaults in ((n.GPU.ARCH_TURING, [350780]),
                                (n.GPU.ARCH_PASCAL, [204700]),
@@ -232,21 +290,28 @@ class CurrentLimitTests(unittest.TestCase):
             self.assertTrue(g.set_current_limit_ma(13, default + 1000)[0])
             self.assertFalse(g.set_current_limit_ma(14, 1)[0])
 
-    def test_generation_ceiling_rejects_implausible_advertised_maximum(self):
+    def test_board_channel_and_higher_api_maximum_do_not_hide_current_policy(self):
         for arch in (n.GPU.ARCH_PASCAL, n.GPU.ARCH_TURING, 10):
             with self.subTest(arch=arch):
                 g, state = fixture(arch)
                 meta = (0x58 + 13 * 0xE4) // 4
-                state.info[meta + 4] = 4_000_000_000
+                state.info[meta + 1] = (state.info[meta + 1] & ~0xFF00) | (22 << 8)
+                state.info[meta + 4] = 6_000_000
+                row = g.get_current_limits()[0]
+                self.assertEqual(row['maximum_ma'], 6_000_000)
+                self.assertEqual(row['normal_maximum_ma'], 500_000)
+                self.assertEqual(row['channel'], 22)
+                self.assertIn('channel 22', row['label'])
+                self.assertFalse(g.set_current_limit_ma(13, 600_000)[0])
                 g.voltage_xoc_enabled = True
-                self.assertEqual(g.get_current_limits(), [])
-                self.assertFalse(g.set_current_limit_ma(13, 1_000_000)[0])
-                self.assertEqual(state.writes, [])
+                self.assertTrue(g.set_current_limit_ma(13, 600_000)[0])
+                self.assertEqual(g.get_current_limits()[0]['limit_ma'], 600_000)
+                self.assertFalse(g.set_current_limit_ma(13, 6_000_001)[0])
 
-    def test_malformed_masks_types_units_channels_defaults_and_sizes_fail_closed(self):
+    def test_malformed_masks_types_units_defaults_and_sizes_fail_closed(self):
         meta = (0x58 + 13 * 0xE4) // 4
         cases = [("info", 1, 0), ("dynamic", 1, 0), ("control", 4, 0),
-                 ("control", 3, 0), ("info", meta + 1, 0x00010C12),
+                 ("control", 3, 0),
                  ("info", meta + 1, 0x00000D12),
                  ("info", meta + 1, 0x00010D11),
                  ("info", meta + 2, 0), ("info", meta + 3, 0),
