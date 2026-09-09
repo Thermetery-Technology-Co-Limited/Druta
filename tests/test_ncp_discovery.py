@@ -8,7 +8,7 @@ import json
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from druta import ncp4206
+from druta.controllers import ncp4206
 from druta import profiles
 from druta import railctl
 

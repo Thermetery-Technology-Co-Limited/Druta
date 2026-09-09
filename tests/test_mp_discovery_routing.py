@@ -14,7 +14,7 @@ class DiscoveryRouting(unittest.TestCase):
         self.mp = SimpleNamespace(regulator="MPS MP2888A", candidate_for=Mock(return_value=False))
         self.generic = SimpleNamespace(regulator="Other", candidate_for=Mock(return_value=False))
         self.hit = SimpleNamespace(p=SimpleNamespace(name="MP candidate", port=4), addr7=0x24)
-        self.scanner_patch = patch("druta.mp2888.discover", return_value=[self.hit])
+        self.scanner_patch = patch("druta.controllers.mp2888.discover", return_value=[self.hit])
         self.scan = self.scanner_patch.start()
         self.addCleanup(self.scanner_patch.stop)
         self.profiles_patch = patch("druta.railctl.load_profiles", return_value=[self.mp, self.generic])
@@ -41,8 +41,8 @@ class DiscoveryRouting(unittest.TestCase):
 
     def test_kepler_ncp_and_mp_candidates_are_both_returned(self):
         ncp = SimpleNamespace(present=lambda: True)
-        with patch("druta.ncp4206.NCP4206", return_value=ncp), \
-                patch("druta.ncp4206.DISCOVERY_PORTS", (2,)):
+        with patch("druta.controllers.ncp4206.NCP4206", return_value=ncp), \
+                patch("druta.controllers.ncp4206.DISCOVERY_PORTS", (2,)):
             self.assertEqual(railctl.discover(self.nvapi, architecture=2), [ncp, self.hit])
 
 

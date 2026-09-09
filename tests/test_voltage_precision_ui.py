@@ -4,7 +4,7 @@
 import ctypes
 from unittest.mock import Mock
 
-from druta import ncp4206
+from druta.controllers import ncp4206
 from druta.druta import Druta, KnobRange
 from druta.nvbackend import CLKDOM_LAYOUT_TURING, GPU, i32
 from tests.test_arch_ui_regressions import FakeUiTest

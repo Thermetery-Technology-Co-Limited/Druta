@@ -7,7 +7,7 @@ from pathlib import Path
 import tomllib
 import unittest
 
-from druta import mp2888
+from druta.controllers import mp2888
 from druta import profiles
 from druta import railctl
 

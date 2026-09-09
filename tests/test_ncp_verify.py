@@ -5,7 +5,7 @@
 import unittest
 from unittest.mock import Mock, patch
 
-from druta import ncp4206
+from druta.controllers import ncp4206
 from tests import test_ncp4206
 
 
@@ -22,7 +22,7 @@ class NcpVerifyTests(unittest.TestCase):
                 return (False, "test restore failure") if recovery else restore(state)
 
             rail.restore_control = Mock(side_effect=fail_recovery)
-        with patch("druta.ncp4206.time.sleep"):
+        with patch("druta.controllers.ncp4206.time.sleep"):
             result = rail.verify(acknowledged=True)
         if not restore_failure:
             self.assertEqual(rail.regs, before)

@@ -130,7 +130,7 @@ class ControllerCancellationTests(unittest.TestCase):
             return 1200
 
         rail.read_vout = voltage
-        with patch("druta.ncp4206.time.sleep"):
+        with patch("druta.controllers.ncp4206.time.sleep"):
             ok, message, _ = rail.verify(acknowledged=True, cancelled=cancel.is_set)
         self.assertFalse(ok)
         self.assertIn("cancelled", message)
@@ -140,7 +140,7 @@ class ControllerCancellationTests(unittest.TestCase):
     def test_ncp_cancel_in_baseline_never_writes(self):
         rail = test_ncp4206.NCPTests().rail()
         cancel = threading.Event()
-        with patch("druta.ncp4206.time.sleep", side_effect=lambda _: cancel.set()):
+        with patch("druta.controllers.ncp4206.time.sleep", side_effect=lambda _: cancel.set()):
             ok, message, _ = rail.verify(acknowledged=True, cancelled=cancel.is_set)
         self.assertFalse(ok)
         self.assertIn("nothing written", message)
@@ -160,7 +160,7 @@ class ControllerCancellationTests(unittest.TestCase):
         rail.restore_control = Mock(side_effect=lambda state, **kwargs:
                                     (False, "identity disappeared")
                                     if kwargs.get("recovery") else restore(state, **kwargs))
-        with patch("druta.ncp4206.time.sleep"):
+        with patch("druta.controllers.ncp4206.time.sleep"):
             ok, message, _ = rail.verify(acknowledged=True, cancelled=cancel.is_set)
         self.assertFalse(ok)
         self.assertIn("restoration failed: identity disappeared", message)
@@ -238,7 +238,7 @@ class VerificationLifecycleTests(unittest.TestCase):
             events.append("destroy")
 
         ui.destroy_context.side_effect = destroy
-        with patch("druta.druta.dpg", ui), patch("druta.ncp4206.time.sleep"), \
+        with patch("druta.druta.dpg", ui), patch("druta.controllers.ncp4206.time.sleep"), \
                 patch("druta.druta.gpuload.available", return_value=(True, "")), \
                 patch("druta.druta.gpuload.induce", side_effect=lambda _gpu, **kw:
                       {"result": kw["on_settled"]()}), \
