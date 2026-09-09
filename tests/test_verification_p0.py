@@ -14,6 +14,7 @@ class VerificationP0Tests(unittest.TestCase):
     def setUp(self):
         self.driver = LockDriver()
         self.gpu = self.driver.gpu()
+        self.gpu.arch = Mock(return_value=self.gpu.ARCH_TURING)
         self.gpu.read_vcore_mv = Mock(return_value=743.0)
         self.gpu.read_vf_curve = Mock(return_value=([
             {"volt_mv": 737.5}, {"volt_mv": 750.0}], None))

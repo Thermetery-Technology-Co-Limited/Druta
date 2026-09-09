@@ -4277,6 +4277,41 @@ class GPU:
             return False, f"{exc}; {note}"
 
     @contextmanager
+    def verification_legacy_p0(self):
+        """Own a temporary Kepler P0 request; the caller confirms physical P0.
+
+        This bounded verification path probes capability on the selected
+        Kepler, rather than adding it to the persistent UI hold allowlist.
+        The API cannot read another process's force-request ownership. Preserve
+        a hold already owned by this session; otherwise return to automatic.
+        """
+        api = getattr(self, "nvapi", None)
+        if (self.arch() != self.ARCH_KEPLER or not api or not api.ok
+                or not getattr(api, "ForcePstate", None)
+                or getattr(self, "pairing_error", None)):
+            raise RuntimeError("Kepler P0 request is unavailable; verification cannot write")
+        acquired = False
+        try:
+            with self._lock:
+                if not self.legacy_p0_owned():
+                    # A transport exception may follow an accepted write.
+                    acquired = True
+                    self._legacy_p0_owned = True
+                    status = api.ForcePstate(api.gpu, u32(0), u32(2))
+                    if status != 0:
+                        raise RuntimeError(f"Kepler P0 request failed (NVAPI status {status})")
+            def check_hold():
+                if not self.legacy_p0_owned():
+                    raise RuntimeError("verification's Kepler P0 request was released")
+            yield check_hold
+        finally:
+            if acquired:
+                with self._lock:
+                    ok, message = self.release_legacy_p0()
+                if not ok:
+                    raise RuntimeError("verification P0 hold RELEASE FAILED: " + message)
+
+    @contextmanager
     def verification_p0(self, voltage_mv=None):
         """Temporarily hold a loaded V/F point; restore the exact prior target.
 
@@ -4284,6 +4319,10 @@ class GPU:
         still confirm physical P0 and settling; an accepted lock is not proof
         that the hardware has reached that state.
         """
+        if self.arch() == self.ARCH_KEPLER:
+            with self.verification_legacy_p0() as check_hold:
+                yield check_hold
+            return
         with self._lock:
             if self.vf_lock_recovery_pending():
                 raise RuntimeError("V/F lock recovery is pending")

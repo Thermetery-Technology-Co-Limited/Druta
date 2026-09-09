@@ -2959,6 +2959,7 @@ class Druta:
                     or getattr(self, "_profile_pending", None)
                     or getattr(self, "_profile_applying", False)
                     or getattr(self, "_clk_lock", None)
+                    or getattr(self.gpu, "legacy_p0_owned", lambda: False)()
                     or self.vf_recovery_pending())
 
     def stop_i2c_verification(self):
@@ -2991,9 +2992,10 @@ class Druta:
     def verify_i2c_rail(self):
         """Prove the write path reaches the rail before trusting the knob.
 
-        Offset controllers use a CUDA warmup, then stop CUDA and hold a V/F
-        point in confirmed P0 for the staircase. Absolute-voltage controllers
-        retain their existing loaded verifier. Restore before releasing holds.
+        Hold confirmed P0 for direct-controller voltage measurements. Modern
+        offset controllers use a CUDA warmup to select a V/F point; Kepler's
+        absolute-voltage controller uses the legacy P0 request. Restore the
+        controller before releasing the temporary hold.
         """
         if self._i2c_busy:
             self.log("rail verification already running", False)
@@ -3007,7 +3009,8 @@ class Druta:
         if not ok:
             self.log("verify: " + why, False)
             return
-        avail, msg = gpuload.available()
+        avail, msg = ((True, "") if getattr(self.rail, "absolute_voltage", False)
+                      else gpuload.available())
         if not avail:
             self.log("verify: " + msg, False)
             return
@@ -3057,29 +3060,21 @@ class Druta:
         rail._verification_restore_ok = True
         rail._verification_restore_error = ""
         try:
-            def warmup():
-                if getattr(rail, "absolute_voltage", False):
-                    return rail.verify(acknowledged=True, ref=gpu.read_vcore_mv,
-                                       log=lambda m: self.log("  " + m, None),
-                                       cancelled=cancel.is_set)
-                return gpu.read_vcore_mv()
-            out = gpuload.induce(gpu, max_seconds=180.0, on_settled=warmup,
-                                cancelled=cancel.is_set)
-            voltage = out.get("result")
+            voltage = None
             if not getattr(rail, "absolute_voltage", False):
-                out["result"] = None
-            if not getattr(rail, "absolute_voltage", False) and not out.get("error"):
+                out = gpuload.induce(gpu, max_seconds=180.0,
+                                    on_settled=gpu.read_vcore_mv, cancelled=cancel.is_set)
+                if out.get("error"):
+                    raise RuntimeError(out["error"])
+                voltage = out.get("result")
                 if voltage is None:
                     raise RuntimeError("loaded operating voltage is unavailable; nothing written")
-                self.log("verify: CUDA stopped; holding a V/F point and waiting for P0", None)
-                out["result"] = gpuload.verify_in_p0(
-                    gpu, lambda point: rail.verify(
-                        acknowledged=True,
-                        log=lambda m: self.log("  " + m, None),
-                        cancelled=cancel.is_set, operating_point=point),
-                    cancelled=cancel.is_set, voltage_mv=voltage)
-            res["err"] = out.get("error") or ""
-            res["v"] = out.get("result")
+            self.log("verify: acquiring a temporary hold and waiting for confirmed P0", None)
+            res["v"] = gpuload.verify_in_p0(
+                gpu, lambda point: rail.verify(
+                    acknowledged=True, log=lambda m: self.log("  " + m, None),
+                    cancelled=cancel.is_set, operating_point=point),
+                cancelled=cancel.is_set, voltage_mv=voltage)
         except Exception as e:                                  # noqa: BLE001
             res["err"] = f"{type(e).__name__}: {e}"
         try:
@@ -3619,10 +3614,11 @@ class Druta:
 
         Printed as well as logged: no frame renders after the loop exits, so the
         log widget is written for consistency and never appears on screen."""
-        if not self._clk_lock and not self.vf_recovery_pending():
+        if (not self._clk_lock and not self.vf_recovery_pending()
+                and not getattr(self.gpu, "legacy_p0_owned", lambda: False)()):
             return
         what = (self.LOCK_NAME[self._clk_lock["kind"]] if self._clk_lock
-                else "pending V/F lock recovery")
+                else "pending P0/lock recovery")
         ok, m = self.release_current()
         note = f"exit: releasing the {what} this app took - {m}"
         print(note)
@@ -7832,7 +7828,8 @@ deliberately does not put behind a button."""
         than by blocking, because an induce can hold the card for 25 s and
         refusing to switch for that long would be worse than dropping its
         result."""
-        if getattr(self, "_clk_lock", None) or self.vf_recovery_pending():
+        if (getattr(self, "_clk_lock", None) or self.vf_recovery_pending()
+                or getattr(self.gpu, "legacy_p0_owned", lambda: False)()):
             self.log("release the current card's hold or pending V/F recovery before switching", False)
             return False
         if getattr(self, "_profile_pending", None) or getattr(self, "_i2c_busy", False):

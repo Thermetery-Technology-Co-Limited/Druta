@@ -218,7 +218,23 @@ class NCP4206(Rail):
         except Exception as exc:
             return False, 'NCP4206 Auto recovery failed: ' + str(exc)
 
-    def verify(self, *, acknowledged=False, ref=None, log=None, cancelled=None):
+    def _verification_vmon(self):
+        """Read physical VMON and its actual LINEAR11 least-significant bit."""
+        raw = self.read(0xd7, 2)
+        if type(raw) is not int or not 0 <= raw <= 0xffff:
+            raise ValueError('NCP4206 VMON read failed')
+        exponent = raw >> 11
+        if exponent & 16:
+            exponent -= 32
+        value = _linear11(raw) * 1000
+        if not math.isfinite(value) or not 300 <= value <= 2000:
+            raise ValueError('NCP4206 VMON is unavailable or outside its telemetry range')
+        return value, (2.0 ** exponent) * 1000
+
+    def verify(self, *, acknowledged=False, ref=None, log=None, cancelled=None,
+               operating_point=None):
+        # ref is retained for callers of the older interface. A driver voltage
+        # or VID is not a reference for a physical controller-voltage response.
         self._verification_write_attempted = False
         self._verification_restore_ok = True
         self._verification_restore_error = ''
@@ -227,95 +243,178 @@ class NCP4206(Rail):
             return False, 'NCP4206 verification cancelled; nothing written', []
         if not acknowledged:
             return False, 'I2C verification requires acknowledgment', []
+        if not callable(operating_point):
+            return False, 'NCP4206 verification requires a held P0 operating-point callback; nothing written', []
         with self._mutex:
-            original = self.capture_control()
-
-            def sample(delay):
-                values = []
-                for _ in range(5):
-                    if cancelled():
-                        break
-                    time.sleep(delay)
-                    if cancelled():
-                        break
-                    values.append(self.read_vout())
-                return values
-
-            def complete(values):
-                return all(isinstance(v, (int, float)) and not isinstance(v, bool)
-                           and math.isfinite(v) for v in values)
-
-            baseline_samples = sample(.05)
-            if cancelled():
-                return False, 'NCP4206 verification cancelled; nothing written', []
-            if not complete(baseline_samples):
-                return False, 'NCP4206 baseline voltage read failed; nothing written', []
-            baseline = statistics.median(baseline_samples)
-            noise = max(baseline_samples) - min(baseline_samples)
-            threshold = max(8.0, 2 * noise)
-            targets = sorted({math.floor((baseline + step) / 6.25) * 6.25
-                              for step in (25, 37.5, 50)})
-            targets = [target for target in targets
-                       if MIN_MV <= target <= NORMAL_MAX_MV
-                       and target >= baseline + threshold]
-            if not 800 <= baseline <= NORMAL_MAX_MV or not targets:
-                return False, 'loaded rail lacks headroom for the bounded verification staircase', []
             ladder = []
-            result = (False, 'NCP4206 verification did not run', ladder)
+            point = None
+            entry_xoc = bool(self.xoc)
+
+            def check():
+                nonlocal point
+                if cancelled():
+                    raise ValueError('verification cancelled')
+                if bool(self.xoc) != entry_xoc:
+                    raise ValueError('XOC mode changed during verification')
+                if operating_point is not None:
+                    current = operating_point()
+                    if (not isinstance(current, (tuple, list)) or len(current) != 3
+                            or any(type(v) not in (int, float) or not math.isfinite(v)
+                                   for v in current)):
+                        raise ValueError('GPU operating point is unreadable')
+                    current = tuple(current)
+                    if current[0] != 0:
+                        raise ValueError('GPU is not held in P0')
+                    if current[1] <= 0 or current[2] <= 0:
+                        raise ValueError('GPU core/memory clocks are unavailable or nonpositive')
+                    if point is None:
+                        point = current
+                    elif current != point:
+                        raise ValueError('GPU P-state or core/memory clocks changed during verification')
+
+            def sample(expected):
+                values, quanta = [], []
+                # Match the offset verifier's complete one-second windows.
+                # Never accept a partly sampled window after cancellation.
+                for _ in range(25):
+                    check()
+                    if self.capture_control() != expected:
+                        raise ValueError('NCP4206 command/mode changed during sampling')
+                    value, quantum = self._verification_vmon()
+                    if (type(value) not in (int, float) or not math.isfinite(value)
+                            or type(quantum) not in (int, float)
+                            or not math.isfinite(quantum) or quantum <= 0):
+                        raise ValueError('NCP4206 VMON read failed')
+                    values.append(value)
+                    quanta.append(quantum)
+                    check()
+                    time.sleep(.04)
+                check()
+                return {'samples_mv': values, 'median_mv': statistics.median(values),
+                        'noise_mv': max(values) - min(values),
+                        'quantum_mv': max(quanta)}
+
+            try:
+                original = self.capture_control()
+                baseline = sample(original)
+                base = baseline['median_mv']
+                # These are bounded absolute-command trials, not a calibration
+                # assumption about what fraction of the command VMON follows.
+                targets = sorted({math.floor((base + step) / 6.25) * 6.25
+                                  for step in (25, 37.5, 50)})
+                targets = [target for target in targets
+                           if MIN_MV <= target <= NORMAL_MAX_MV and target > base]
+                if not targets:
+                    raise ValueError('rail lacks headroom for the bounded verification staircase')
+            except Exception as exc:
+                return False, f'NCP4206 INCONCLUSIVE - {exc}; nothing written', ladder
+
+            hit, failure = None, None
             try:
                 for target in targets:
-                    if cancelled():
-                        result = (False, 'NCP4206 verification cancelled', ladder)
-                        break
-                    rung = {'baseline_mv': baseline, 'baseline_samples_mv': baseline_samples,
-                            'noise_mv': noise, 'threshold_mv': threshold,
-                            'target_mv': target, 'samples_mv': [], 'moved': False}
+                    check()
+                    rung = {'baseline_mv': base,
+                            'baseline_samples_mv': baseline['samples_mv'],
+                            'baseline_quantum_mv': baseline['quantum_mv'],
+                            'target_mv': target, 'moved': False}
                     ladder.append(rung)
                     self._verification_write_attempted = True
                     self._verification_restore_ok = False
-                    ok, msg = self.set_voltage_mv(target, acknowledged=True)
+                    ok, message = self.set_voltage_mv(target, acknowledged=True)
                     if not ok:
-                        rung['refused'] = msg
-                        result = (False, 'NCP4206 verification write refused: ' + msg, ladder)
-                        break
-                    samples = rung['samples_mv'] = sample(.15)
-                    if cancelled():
-                        result = (False, 'NCP4206 verification cancelled', ladder)
-                        break
-                    if not complete(samples):
-                        rung['read_failed'] = True
-                        result = (False, 'NCP4206 verification voltage read failed', ladder)
-                        break
-                    # Loadline drop can leave VMON well below the requested
-                    # VID. Require a sustained rise above measured noise, not
-                    # closeness below the target. Overshoot still fails closed.
-                    overshoot = max(samples) > target + 15
-                    moved = not overshoot and min(samples) >= baseline + threshold
-                    rung.update(moved=moved, overshoot=overshoot,
-                                minimum_rise_mv=min(samples) - baseline)
-                    message = (f'NCP4206 {baseline:.2f} -> target {target:.2f} mV; '
-                               f'VMON {samples}; minimum rise {min(samples)-baseline:.2f} mV '
-                               f'(need {threshold:.2f} mV)')
+                        raise ValueError('verification write refused: ' + message)
+                    time.sleep(.15)
+                    trial = sample({'kind': 'absolute_vid', 'enabled': True,
+                                    'command': encode_vid(target)})
+                    noise = max(baseline['noise_mv'], trial['noise_mv'])
+                    quantum = max(baseline['quantum_mv'], trial['quantum_mv'])
+                    # Use the measured LINEAR11 quantum, not an invented fixed
+                    # ADC resolution or an arbitrary overshoot allowance.
+                    allowance = max(quantum, noise)
+                    overshoot = max(trial['samples_mv']) > target + allowance
+                    delta = trial['median_mv'] - base
+                    threshold = max(6.25, quantum, noise)
+                    moved = delta >= max(6.25, quantum) and delta > noise and not overshoot
+                    rung.update(trial, delta_mv=delta, threshold_mv=threshold,
+                                response_noise_mv=noise, overshoot=overshoot,
+                                overshoot_allowance_mv=allowance, moved=moved)
                     if log:
-                        log(message + ('; MOVED' if moved else '; overshoot' if overshoot else '; flat'))
-                    result = (moved, message + ('' if moved else
-                              '; overshoot rejected' if overshoot else '; no confirmed response'), ladder)
-                    if moved or overshoot:
+                        log(f'NCP4206 I2C VMON {base:.2f} -> {trial["median_mv"]:.2f} mV; '
+                            f'target {target:.2f} mV; change {delta:.2f} mV; '
+                            f'noise {noise:.2f} mV; quantum {quantum:.4f} mV')
+                    if overshoot:
+                        raise ValueError('VMON exceeded the command plus measured noise/quantization allowance')
+                    if moved:
+                        hit = rung
                         break
             except Exception as exc:
-                result = (False, f'NCP4206 verification failed: {exc}', ladder)
+                failure = str(exc)
             finally:
+                errors = []
                 try:
-                    ok, msg = (self.restore_control(original, recovery=True)
-                               if self._verification_write_attempted
-                               else (True, 'nothing written'))
+                    ok, message = (self.restore_control(original, recovery=True)
+                                   if self._verification_write_attempted
+                                   else (True, 'nothing written'))
+                    if not ok:
+                        errors.append(message)
                 except Exception as exc:
-                    ok, msg = False, str(exc)
-                self._verification_restore_ok = bool(ok)
-                self._verification_restore_error = '' if ok else msg
-            if not ok:
-                return False, ('NCP4206 verification restoration failed: ' + msg
-                               + '; ' + result[1]), ladder
+                    errors.append(str(exc))
+                try:
+                    if self.capture_control() != original:
+                        errors.append('original command/mode independent readback mismatch')
+                except Exception as exc:
+                    errors.append('original command/mode readback failed: ' + str(exc))
+                self._verification_restore_ok = not errors
+                self._verification_restore_error = '; '.join(errors)
             if cancelled():
-                return False, 'NCP4206 verification cancelled; original control restored', ladder
-            return result
+                failure = 'verification cancelled' + ('; ' + failure if failure else '')
+            if errors:
+                return False, ('NCP4206 verification restoration failed: ' + '; '.join(errors)
+                               + ('; ' + failure if failure else '')), ladder
+            if failure:
+                return False, ('NCP4206 INCONCLUSIVE - ' + failure
+                               + '; original control restored'), ladder
+            if hit is None:
+                return False, ('NCP4206 INCONCLUSIVE - no positive I2C VMON response '
+                               'exceeded measured noise and controller resolution; '
+                               'original control restored. Apply remains unverified.'), ladder
+            try:
+                time.sleep(.15)
+                restored = sample(original)
+                quantum = max(baseline['quantum_mv'], restored['quantum_mv'])
+                # One command step may span a nonintegral number of VMON
+                # codes; round the band up to complete measured ADC codes.
+                tolerance = max(math.ceil(6.25 / quantum) * quantum,
+                                baseline['noise_mv'], restored['noise_mv'])
+                if abs(restored['median_mv'] - base) > tolerance:
+                    raise ValueError('I2C VMON did not return within the baseline noise/resolution band')
+                reversal = hit['median_mv'] - restored['median_mv']
+                if (reversal < max(6.25, hit['quantum_mv'], restored['quantum_mv'])
+                        or reversal <= max(hit['response_noise_mv'], restored['noise_mv'])):
+                    raise ValueError('I2C VMON did not show a downward response above noise after restoration')
+                hit.update(restored_vout_mv=restored['median_mv'],
+                           restored_samples_mv=restored['samples_mv'],
+                           restored_quantum_mv=restored['quantum_mv'],
+                           reversal_mv=reversal)
+            except Exception as exc:
+                failure = str(exc)
+            finally:
+                # The reversal window can itself reveal a controller-state
+                # change. Do not publish a pass based on an earlier readback.
+                try:
+                    if self.capture_control() != original:
+                        raise ValueError('original command/mode changed during voltage-restoration observation')
+                except Exception as exc:
+                    self._verification_restore_ok = False
+                    self._verification_restore_error = str(exc)
+            if not self._verification_restore_ok:
+                return False, ('NCP4206 verification restoration failed: '
+                               + self._verification_restore_error
+                               + ('; ' + failure if failure else '')), ladder
+            if failure:
+                return False, (f'NCP4206 INCONCLUSIVE - {failure}; original command/mode restored; '
+                               'voltage response remains unverified'), ladder
+            return True, ('NCP4206 WRITE PATH CONFIRMED at the tested operating point. '
+                          f'I2C VMON rose {hit["delta_mv"]:.2f} mV and returned to '
+                          f'{restored["median_mv"]:.2f} mV after exact command/mode restoration. '
+                          'This verifies a response, not full-load behavior or a 1:1 voltage gain.'), ladder
