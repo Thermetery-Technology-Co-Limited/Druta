@@ -3925,8 +3925,8 @@ class GPU:
             return found[0] if status == 0 and len(found) == 1 else None
 
     # ---- current-limit policies ------------------------------------------ #
-    # The surrounding ABI is shared by Pascal, Turing and Blackwell on the
-    # tested driver, but the valid mask and current-policy descriptors are not.
+    # The surrounding ABI varies with the driver; generation determines the
+    # valid current-policy descriptors, independently of the packet layout.
     # Select only by NVML architecture, then validate every live descriptor,
     # mask, stored value and effective value before exposing a slider.
     #
@@ -3955,8 +3955,22 @@ class GPU:
         },
     }
     _CURRENT_LIMIT_ALL_MASK = (1 << 18) - 1
-    _CURRENT_LIMIT_SIZES = {0x2080A618: 8620, 0x2080A619: 172080,
-                            0x2080A61A: 4432, 0x2080E61B: 4432}
+    # Keyed by the exact unmodified A612 packet and parameter sizes. Never
+    # infer private ABI geometry from a driver string or a device identity.
+    _CURRENT_LIMIT_LAYOUTS = {
+        (11748, 11680): {
+            "sizes": {0x2080A618: 8620, 0x2080A619: 172080,
+                      0x2080A61A: 4432, 0x2080E61B: 4432},
+            "info": (0x58, 0xE4), "status": (0x70, 0x1454),
+            "control": (0x14, 0x7C),
+        },
+        (54420, 54352): {
+            "sizes": {0x2080A618: 20000, 0x2080A619: 396024,
+                      0x2080A61A: 13840, 0x2080E61B: 13840},
+            "info": (0xCC, 0xFC), "status": (0x9C, 0x1720),
+            "control": (0x14, 0xC4),
+        },
+    }
 
     def _current_limit_generation_policies(self):
         return self.CURRENT_LIMIT_GENERATION_POLICIES.get(self.arch(), {})
@@ -4007,11 +4021,14 @@ class GPU:
                     if ptr and owned:
                         escape = self._Escape.from_address(ptr)
                         if (escape.pPrivateDriverData
-                                and escape.PrivateDriverDataSize == 11748):
+                                and escape.PrivateDriverDataSize in
+                                {key[0] for key in self._CURRENT_LIMIT_LAYOUTS}):
                             words = ctypes.cast(escape.pPrivateDriverData,
                                                 ctypes.POINTER(u32))
-                            if (words[2] == 11748 and words[14] == 0x2080A612
-                                    and words[15] == 11680):
+                            if (words[2] == escape.PrivateDriverDataSize
+                                    and words[14] == 0x2080A612
+                                    and (words[2], words[15]) in
+                                    self._CURRENT_LIMIT_LAYOUTS):
                                 found.append((list(words[:17]), {
                                     key: getattr(escape, key) for key in
                                     ("hAdapter", "hDevice", "Type", "Flags", "hContext")}))
@@ -4041,16 +4058,35 @@ class GPU:
                                       ctypes.byref(previous))
             return found[0] if status == 0 and len(found) == 1 else None
 
+    def _current_limit_abi(self):
+        transport = getattr(self, "_current_limit_transport", None)
+        if transport is None:
+            transport = self._capture_current_limit_transport()
+            if transport is None:
+                raise ValueError("could not obtain the current-policy transport")
+        header, _ = transport
+        layout = (self._CURRENT_LIMIT_LAYOUTS.get((header[2], header[15]))
+                  if len(header) == 17 and header[14] == 0x2080A612 else None)
+        if layout is None:
+            self._current_limit_transport = None
+            raise ValueError("unvalidated current-policy transport geometry")
+        self._current_limit_transport = transport
+        return layout
+
     def _current_limit_rm(self, command, params=None, policy_mask=None):
         """Only the four measured policy operations, on this live GPU client."""
         if not self._current_limit_profile_supported():
             raise ValueError("current limits are not validated for this GPU generation")
-        size = self._CURRENT_LIMIT_SIZES.get(command)
-        if size is None:
+        if command not in (0x2080A618, 0x2080A619, 0x2080A61A, 0x2080E61B):
             raise ValueError("unvalidated current-policy command")
-        if params is None:
-            if command == 0x2080E61B:
+        if command == 0x2080E61B:
+            if params is None:
                 raise ValueError("current-policy writes require a getter buffer")
+            allowed_masks = {1 << policy for policy in self._current_limit_generation_policies()}
+            if len(params) < 5 or params[4] not in allowed_masks:
+                raise ValueError("current-policy write must select one generation-supported rail")
+        size = self._current_limit_abi()["sizes"][command]
+        if params is None:
             params = [0] * (size // 4)
             if command == 0x2080A619:
                 if policy_mask is None:
@@ -4062,17 +4098,7 @@ class GPU:
                 params[4] = policy_mask
         if len(params) * 4 != size:
             raise ValueError("unexpected current-policy buffer size")
-        if command == 0x2080E61B:
-            allowed_masks = {1 << policy for policy in self._current_limit_generation_policies()}
-            if params[4] not in allowed_masks:
-                raise ValueError("current-policy write must select one generation-supported rail")
-        transport = getattr(self, "_current_limit_transport", None)
-        if transport is None:
-            transport = self._capture_current_limit_transport()
-            if transport is None:
-                raise ValueError("could not obtain the current-policy transport")
-            self._current_limit_transport = transport
-        header, fields = transport
+        header, fields = self._current_limit_transport
         packet = (u32 * (17 + size // 4))(*header, *params)
         packet[2], packet[14], packet[15], packet[16] = (
             ctypes.sizeof(packet), command, size, 0)
@@ -4085,8 +4111,10 @@ class GPU:
         return list(packet[17:])
 
     def _current_limit_state(self):
+        layout = self._current_limit_abi()
+        sizes = layout["sizes"]
         info = self._current_limit_rm(0x2080A618)
-        if len(info) != 2155:
+        if len(info) * 4 != sizes[0x2080A618]:
             raise ValueError("current-policy info size differs from the measured ABI")
         mask = info[1]
         specs = self._current_limit_generation_policies()
@@ -4096,15 +4124,16 @@ class GPU:
             raise ValueError("current-policy mask does not contain this generation's currents")
         control = self._current_limit_rm(0x2080A61A, policy_mask=mask)
         dynamic = self._current_limit_rm(0x2080A619, policy_mask=mask)
-        if (len(info) != 2155 or len(control) != 1108 or len(dynamic) != 43020
+        if (len(control) * 4 != sizes[0x2080A61A]
+                or len(dynamic) * 4 != sizes[0x2080A619]
                 or dynamic[1] != mask
                 or control[:5] != [0, 0, 0, 255, mask]):
             raise ValueError("current-policy layout or mask differs from the measured ABI")
         rows = []
         for policy, spec in specs.items():
-            meta = (0x58 + policy * 0xE4) // 4
-            state = (0x70 + policy * 0x1454) // 4
-            record = (0x14 + policy * 0x7C) // 4
+            meta = (layout["info"][0] + policy * layout["info"][1]) // 4
+            state = (layout["status"][0] + policy * layout["status"][1]) // 4
+            record = (layout["control"][0] + policy * layout["control"][1]) // 4
             type_id = info[meta + 1] & 255
             channel = info[meta + 1] >> 8 & 255
             unit = info[meta + 1] >> 16 & 255
@@ -4176,9 +4205,10 @@ class GPU:
                                f"{amps(maximum)} A in the current mode")
             if ma == row["limit_ma"]:
                 return True, f"{row['label']} already at {amps(ma)} A"
+            control_base, control_stride = self._current_limit_abi()["control"]
+            word = (control_base + policy * control_stride) // 4 + 1
         except Exception as exc:
             return False, str(exc)
-        word = (0x14 + policy * 0x7C) // 4 + 1
         expected = list(original)
         expected[word] = ma
         request = list(expected)

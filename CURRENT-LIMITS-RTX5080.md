@@ -89,7 +89,7 @@ captures and the limits of this finding.
 and returns `(ok, message)`. Profile data uses `current_limits_ma` with string
 policy IDs and integer milliamp values; older profiles remain compatible.
 
-Control GET **0x2080a61a** and SET **0x2080e61b** use a **4432-byte** parameter
+On the measured 580.97 ABI, control GET **0x2080a61a** and SET **0x2080e61b** use a **4432-byte** parameter
 block. The selection mask is at **0x10**; records start at **0x14** with
 **0x7c** stride. Policy 13 selects **0x2000**, with its limit at **0x664**;
 policy 14 selects **0x4000**, with its limit at **0x6e0**. Blackwell current
@@ -101,6 +101,44 @@ Blackwell's `0x3ffff`) and must be echoed by control and dynamic GETs.
 Writes preserve the freshly read control block and select only the requested
 policy. Success requires matching control and effective dynamic readbacks.
 An unknown generation or descriptor mismatch exposes no current slider.
+
+### Driver 610.88 layout
+
+The missing slider was reproduced on a TITAN RTX with driver **610.88** and
+VBIOS **90.02.1e.00.02**. Architecture detection and policy 13's descriptor
+still passed; the old transport capture rejected the driver's larger packet.
+The other user's HOF-board TITAN has not been measured directly.
+
+Druta selects between the two measured layouts using the captured power GET
+packet geometry, without a driver-version or board-identity allowlist:
+
+| Parameter layout | 580.97 | 610.88 |
+|---|---:|---:|
+| Power GET A612 bytes | 11,680 | 54,352 |
+| Policy info A618 bytes | 8,620 | 20,000 |
+| Policy status A619 bytes | 172,080 | 396,024 |
+| Policy control A61A / E61B bytes | 4,432 | 13,840 |
+| Info record base / stride | 0x58 / 0xE4 | 0xCC / 0xFC |
+| Status record base / stride | 0x70 / 0x1454 | 0x9C / 0x1720 |
+| Control record base / stride | 0x14 / 0x7C | 0x14 / 0xC4 |
+
+The newer info, status and control type echoes agreed across all 12 active
+policies (mask **0xEBBF**). Policy 13 remains type **0x0B**, channel **19**,
+with limits of **1 A minimum, 350.780 A default and 390 A advertised maximum**.
+Its limit word moves from **0x664** to **0xA0C**. The setter accepted a
+same-value request and **350.780 → 349.780 → 350.780 A**; stored and independent
+effective readbacks matched each request, and all other control words were
+preserved. The full original control block was verified after restoration.
+The 390 A boundary was not retested on 610.88.
+
+The updated production backend separately passed the same 1 A reduction and
+exact restoration. Its only changed control word was at 0xA0C. Building the
+existing UI row from the live getter produced **Core current limit (A)** at
+350.780 A, with a 1–390 A range and no policy-14 slider on this Turing card.
+
+Evidence: [610.88 validation](experiments/current-limits-titan-61088-20260908.json).
+On 472.12 this TITAN uses the older 0x208026xx commands, which remain outside
+these two current-control layouts.
 
 ## Public reproduction evidence
 

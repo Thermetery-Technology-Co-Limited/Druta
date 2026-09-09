@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 from druta import nvbackend as n
 
 
-def fixture(arch=10):
+def fixture(arch=10, newer=False):
     g = n.GPU.__new__(n.GPU)
     g._lock = threading.RLock()
     g.static = {"driver": "580.97", "vbios": "98.03.3b.c0.6f"}
@@ -25,16 +25,22 @@ def fixture(arch=10):
         n.GPU.ARCH_PASCAL: (0xEDBF, ((13, 0x0B, 11, 204700, 218000),)),
     }
     mask, policies = generation.get(arch, (0, ()))
-    info = [0] * 2155
+    packet_bytes, param_bytes = (54420, 54352) if newer else (11748, 11680)
+    info_bytes, status_bytes, control_bytes = ((20000, 396024, 13840) if newer
+                                              else (8620, 172080, 4432))
+    info_base, info_stride = (0xCC, 0xFC) if newer else (0x58, 0xE4)
+    status_base, status_stride = (0x9C, 0x1720) if newer else (0x70, 0x1454)
+    control_base, control_stride = (0x14, 0xC4) if newer else (0x14, 0x7C)
+    info = [0] * (info_bytes // 4)
     info[1] = mask
-    control = [(i * 17) & 0xFFFFFFFF for i in range(1108)]
+    control = [(i * 17) & 0xFFFFFFFF for i in range(control_bytes // 4)]
     control[:5] = [0, 0, 0, 255, mask]
-    dynamic = [0] * 43020
+    dynamic = [0] * (status_bytes // 4)
     dynamic[1] = mask
     for policy, type_id, channel, default, maximum in policies:
-        meta = (0x58 + policy * 0xE4) // 4
-        state = (0x70 + policy * 0x1454) // 4
-        record = (0x14 + policy * 0x7C) // 4
+        meta = (info_base + policy * info_stride) // 4
+        state = (status_base + policy * status_stride) // 4
+        record = (control_base + policy * control_stride) // 4
         info[meta + 1:meta + 5] = [type_id | channel << 8 | 1 << 16,
                                    1, default, maximum]
         control[record:record + 2] = [type_id, default]
@@ -44,6 +50,7 @@ def fixture(arch=10):
                             break_get_once=False, break_restore=False,
                             mutate_other=False, failed_after_set=False)
     header = [0] * 17
+    header[2], header[14], header[15] = packet_bytes, 0x2080A612, param_bytes
     header[12:14] = [1234, 5678]
     fields = dict(hAdapter=3, hDevice=0, Type=0, Flags=8, hContext=0)
     g._capture_current_limit_transport = Mock(return_value=(header, fields))
@@ -61,10 +68,11 @@ def fixture(arch=10):
                 packet[16] = 31
                 return 0
             policy = {1 << 13: 13, 1 << 14: 14}[params[4]]
-            record = (0x14 + policy * 0x7C) // 4
-            state.control[record:record + 31] = params[record:record + 31]
+            record = (control_base + policy * control_stride) // 4
+            end = record + control_stride // 4
+            state.control[record:end] = params[record:end]
             if not state.store_only:
-                offset = (0x70 + policy * 0x1454) // 4
+                offset = (status_base + policy * status_stride) // 4
                 state.dynamic[offset + 1] = params[record + 1]
             if state.mutate_other:
                 state.control[10] += 1
@@ -92,6 +100,88 @@ def fixture(arch=10):
 
 
 class CurrentLimitTests(unittest.TestCase):
+    def test_new_geometry_reads_each_generation_independently_of_identity(self):
+        for arch, defaults in ((n.GPU.ARCH_TURING, [350780]),
+                               (n.GPU.ARCH_PASCAL, [204700]),
+                               (10, [300000, 120000])):
+            with self.subTest(arch=arch):
+                g, state = fixture(arch, newer=True)
+                # A deliberately stale driver label must not select the ABI.
+                g.static["driver"] = "580.97"
+                g.nvapi.selected["devid"] = 0xFFFF
+                self.assertEqual([r["limit_ma"] for r in g.get_current_limits()],
+                                 defaults)
+                self.assertEqual(state.writes, [])
+
+    def test_new_geometry_preserves_full_getter_buffer_and_changes_one_word(self):
+        for arch, policy, target in ((n.GPU.ARCH_TURING, 13, 349780),
+                                     (10, 14, 180000)):
+            with self.subTest(arch=arch, policy=policy):
+                g, state = fixture(arch, newer=True)
+                original = list(state.control)
+                ok, message = g.set_current_limit_ma(policy, target)
+                self.assertTrue(ok, message)
+                word = (0x14 + policy * 0xC4) // 4 + 1
+                expected = list(original)
+                expected[word] = target
+                self.assertEqual(state.control, expected)
+                expected[4] = 1 << policy
+                self.assertEqual(len(expected) * 4, 13840)
+                self.assertEqual(state.writes, [expected])
+                self.assertEqual(g.get_current_limits()[-1]["limit_ma"], target)
+
+    def test_new_geometry_verification_and_uncertain_writes_restore_full_record(self):
+        for flag in ("store_only", "break_get_once", "failed_after_set"):
+            with self.subTest(flag=flag):
+                g, state = fixture(n.GPU.ARCH_TURING, newer=True)
+                original = list(state.control)
+                setattr(state, flag, True)
+                ok, message = g.set_current_limit_ma(13, 349780)
+                self.assertFalse(ok)
+                self.assertIn("restored and verified", message)
+                self.assertEqual(state.control, original)
+                restore = list(original)
+                restore[4] = 1 << 13
+                self.assertEqual(state.writes[-1], restore)
+                self.assertEqual(len(state.writes), 2)
+
+    def test_unknown_or_mixed_transport_geometry_never_dispatches(self):
+        for packet_bytes, param_bytes, command in (
+                (54424, 54356, 0x2080A612),
+                (54420, 11680, 0x2080A612),
+                (11748, 54352, 0x2080A612),
+                (54420, 54352, 0x20802612)):
+            with self.subTest(packet_bytes=packet_bytes, param_bytes=param_bytes,
+                              command=command):
+                g, state = fixture(n.GPU.ARCH_TURING, newer=True)
+                header, _ = g._capture_current_limit_transport.return_value
+                header[2], header[14], header[15] = packet_bytes, command, param_bytes
+                self.assertEqual(g.get_current_limits(), [])
+                self.assertFalse(g.set_current_limit_ma(13, 349780)[0])
+                g._legacy_clk_escape.assert_not_called()
+
+    def test_new_transport_rejects_legacy_getter_sizes_and_record_offsets(self):
+        for block in ("info", "control", "dynamic"):
+            g, state = fixture(n.GPU.ARCH_TURING, newer=True)
+            _, legacy = fixture(n.GPU.ARCH_TURING)
+            responses = [state.info, state.control, state.dynamic]
+            responses[("info", "control", "dynamic").index(block)] = getattr(legacy, block)
+            g._current_limit_rm = Mock(side_effect=responses)
+            self.assertEqual(g.get_current_limits(), [])
+        g, state = fixture(n.GPU.ARCH_TURING, newer=True)
+        _, legacy = fixture(n.GPU.ARCH_TURING)
+        legacy_request = list(legacy.control)
+        legacy_request[4] = 1 << 13
+        with self.assertRaisesRegex(ValueError, "buffer size"):
+            g._current_limit_rm(0x2080E61B, legacy_request)
+        g._legacy_clk_escape.assert_not_called()
+        # Valid lengths with a descriptor only at the old position also fail.
+        state.info[2:] = [0] * (len(state.info) - 2)
+        state.info[2:len(legacy.info)] = legacy.info[2:]
+        self.assertEqual(g.get_current_limits(), [])
+        self.assertFalse(g.set_current_limit_ma(13, 349780)[0])
+        self.assertEqual(state.writes, [])
+
     def test_reads_both_live_currents_and_reuses_only_this_client_transport(self):
         g, state = fixture()
         rows = g.get_current_limits()
@@ -333,7 +423,7 @@ class CurrentLimitTests(unittest.TestCase):
 
 
 class CurrentTransportCaptureTests(unittest.TestCase):
-    def exercise(self, *, fail=False, owner=True):
+    def exercise(self, *, fail=False, owner=True, newer=False, mismatch=False):
         g, _ = fixture()
         del g._capture_current_limit_transport
         g.nvapi.gpu = object()
@@ -344,8 +434,11 @@ class CurrentTransportCaptureTests(unittest.TestCase):
         callback_storage = ctypes.create_string_buffer(14)
         architecture = (n.u32 * 33)()
         architecture[2], architecture[14], architecture[15] = 132, 0x20800111, 64
-        power = (n.u32 * 2937)()
-        power[2], power[14], power[15] = 11748, 0x2080A612, 11680
+        packet_bytes, param_bytes = (54420, 54352) if newer else (11748, 11680)
+        power = (n.u32 * (packet_bytes // 4))()
+        power[2], power[14], power[15] = packet_bytes, 0x2080A612, param_bytes
+        if mismatch:
+            power[2] += 4
         power[12:14] = [9988, 7766]
         packets = [architecture, power]
         escapes = [n.GPU._Escape(hAdapter=987, hDevice=0, Type=0, Flags=8,
@@ -406,9 +499,12 @@ class CurrentTransportCaptureTests(unittest.TestCase):
         return result
 
     def test_capture_only_reads_and_restores_bytes_before_each_call(self):
-        header, fields = self.exercise()
-        self.assertEqual(header[12:14], [9988, 7766])
-        self.assertEqual(fields["hAdapter"], 987)
+        for newer in (False, True):
+            with self.subTest(newer=newer):
+                header, fields = self.exercise(newer=newer)
+                self.assertEqual(header[12:14], [9988, 7766])
+                self.assertEqual(fields["hAdapter"], 987)
+                self.assertIsNone(self.exercise(newer=newer, mismatch=True))
 
     def test_exception_and_wrong_thread_restore_hook_without_a_transport(self):
         self.assertIsNone(self.exercise(fail=True))
