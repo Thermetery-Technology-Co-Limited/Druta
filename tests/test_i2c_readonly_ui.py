@@ -212,8 +212,9 @@ class ReadOnlyI2cUiTests(unittest.TestCase):
         old_gpu, old_rail = self.app.gpu, self.app.rail
         old_gpu.read_vcore_mv = Mock(return_value=1040)
         self.app._gpu_gen = 1
-        with patch("druta.gpuload.induce", return_value={
-                "result": (True, "rail moved and entry restored", [])}):
+        with patch("druta.gpuload.induce", return_value={"result": 1040}), \
+                patch("druta.gpuload.verify_in_p0", return_value=(
+                    True, "rail moved and entry restored", [])):
             # Even switching away and back to the same object invalidates it.
             self.app._i2c_verify_worker(old_gpu, old_rail, (id(old_gpu), id(old_rail), 0))
             self.assertFalse(self.app._i2c_verified)

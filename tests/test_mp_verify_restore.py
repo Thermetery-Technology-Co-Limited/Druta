@@ -104,7 +104,7 @@ class MPVerifyRestoreTests(unittest.TestCase):
         self.assert_restoration_attempted()
 
     def test_new_stable_operating_point_after_write_is_inconclusive_and_restored(self):
-        point = Mock(side_effect=[(0, 1800, 850)] * 9 + [(0, 1785, 850)] * 9)
+        point = Mock(side_effect=[(0, 1800, 850)] * 10 + [(0, 1785, 850)] * 9)
         ok, message, _ = self.rail.verify(acknowledged=True, ref=lambda: 737.5,
                                           operating_point=point)
         self.assertFalse(ok)
@@ -123,6 +123,16 @@ class MPVerifyRestoreTests(unittest.TestCase):
         message, _ = self.assert_restore_failed()
         self.assertIn("identity changed", message)
         self.assertEqual(self.rail.read.call_count, 2)
+
+    def test_response_noise_cannot_be_reported_as_movement(self):
+        self.rail.p.rungs = [6.25, 12.5]
+        self.rail._sample.side_effect = [(0, 1), (6.25, 15), (12.5, 15)]
+        ok, message, ladder = self.verify()
+        self.assertFalse(ok)
+        self.assertEqual(len(ladder), 2)
+        self.assertTrue(all(row["threshold_mv"] == 15 for row in ladder))
+        self.assertTrue(all(not row["moved"] for row in ladder))
+        self.assert_restoration_attempted()
 
     def test_wrong_restore_field_overrides_success(self):
         self.rail.read.side_effect = [0xABFE, 0x00FF]

@@ -713,11 +713,14 @@ class Rail:
         med = s[n2 // 2] if n2 % 2 else (s[n2 // 2 - 1] + s[n2 // 2]) / 2.0
         return med, (max(xs) - min(xs))
 
-    def _verification_stability(self, ref=None, operating_point=None, cancelled=None):
+    def _verification_stability(self, ref=None, operating_point=None, cancelled=None,
+                                check_voltage=True):
         """Require complete, repeatable samples before interpreting a response.
 
-        Voltage spread is compared with this controller's offset resolution,
-        not an absolute operating-voltage threshold. P-state and clock samples
+        Baseline spread is compared with the controller's offset resolution.
+        After a write, spread becomes part of the response detection noise
+        threshold; rejecting a noisy small rung would prevent testing a larger
+        measurable response. P-state and clock samples
         must agree when the caller provides them. This proves only stability
         over the sampling window, not a particular load or electrical rail ID.
         """
@@ -748,7 +751,7 @@ class Rail:
         if not math.isfinite(resolution) or resolution <= 0:
             raise ValueError("controller offset resolution is invalid")
         spread = max(volts) - min(volts)
-        if spread > resolution:
+        if check_voltage and spread > resolution:
             raise ValueError(f"selected rail changed by {spread:.2f} mV during sampling "
                              f"(controller offset resolution {resolution:g} mV)")
         available = [v for v in references if v is not None]
@@ -757,7 +760,7 @@ class Rail:
                     not isinstance(v, (int, float)) or not math.isfinite(v) for v in available):
                 raise ValueError("NVAPI reference was intermittent or invalid")
             spread = max(available) - min(available)
-            if spread > resolution:
+            if check_voltage and spread > resolution:
                 raise ValueError(f"NVAPI reference changed by {spread:.2f} mV during sampling "
                                  f"(controller offset resolution {resolution:g} mV)")
         if points and any(point != points[0] for point in points):
@@ -851,6 +854,9 @@ class Rail:
                 if bool(getattr(self, "xoc", False)) != entry_xoc:
                     failure = "verification stopped: XOC mode changed"
                     break
+                if operating_point is not None and operating_point() != stable["operating_point"]:
+                    failure = "INCONCLUSIVE - GPU operating point changed before the write"
+                    break
                 self._verification_write_attempted = True
                 self._verification_restore_ok = False
                 ok, msg = self.set_offset_mv(entry_mv + rung,
@@ -888,7 +894,8 @@ class Rail:
 
                 # Confirm that a transient operating-point change did not
                 # masquerade as a voltage response before accepting the rung.
-                check = self._verification_stability(ref, operating_point, cancelled)
+                check = self._verification_stability(ref, operating_point, cancelled,
+                                                     check_voltage=False)
                 if check["operating_point"] != stable["operating_point"]:
                     failure = "INCONCLUSIVE - GPU operating point changed during the trial"
                     break
@@ -897,10 +904,14 @@ class Rail:
                     break
 
                 delta = now - base
-                # Three floors, largest wins. Half the rung stops a rail that
+                # Include measured response noise as well as baseline noise.
+                # Half the rung stops a rail that
                 # drifted up on its own being counted as a response; the wander
                 # term stops noise being counted at all.
-                thr = max(VERIFY_MIN_DETECT_MV, noise, 0.5 * rung)
+                thr = max(VERIFY_MIN_DETECT_MV, noise, _pp,
+                          check["vout_max_mv"] - check["vout_min_mv"],
+                          ((check["reference_max_mv"] - check["reference_min_mv"])
+                           if check["reference_available"] else 0), 0.5 * rung)
                 moved = delta >= thr
                 ladder.append({"rung_mv": rung, "rail_mv": now,
                                "delta_mv": delta, "threshold_mv": thr,

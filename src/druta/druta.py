@@ -2848,7 +2848,7 @@ class Druta:
             if details:
                 dpg.add_text(self.i2c_candidate_label(r) + " - " + ", ".join(details), color=DIM)
         if self.rail is None:
-            dpg.add_text("Select a controller, then Verify its response under load." if candidates
+            dpg.add_text("Select a controller, then Verify its voltage response." if candidates
                          else "No compatible controller responded to the scan.", color=WARN)
             return
         dpg.add_text(self.rail.p.name, color=DIM)
@@ -2991,10 +2991,9 @@ class Druta:
     def verify_i2c_rail(self):
         """Prove the write path reaches the rail before trusting the knob.
 
-        Runs the staircase with a CUDA memory workload on a worker thread.
-        A settled memory clock is not proof of full core load. The verifier
-        checks the measured response and restoration without a voltage-based
-        idle classification.
+        Offset controllers use a CUDA warmup, then stop CUDA and hold a V/F
+        point in confirmed P0 for the staircase. Absolute-voltage controllers
+        retain their existing loaded verifier. Restore before releasing holds.
         """
         if self._i2c_busy:
             self.log("rail verification already running", False)
@@ -3036,7 +3035,7 @@ class Druta:
                                             self._i2c_cancel))
             self._i2c_thread = worker
             self.sync_lock_ui()
-            self.log("verifying the rail response with CUDA memory traffic - the card will be "
+            self.log("preparing rail verification - the card will be "
                      "busy for a few seconds and the entry setting is restored after", None)
             worker.start()
         except Exception as exc:
@@ -3058,18 +3057,27 @@ class Druta:
         rail._verification_restore_ok = True
         rail._verification_restore_error = ""
         try:
-            def staircase():
-                def operating_point():
-                    sample = gpu.read()
-                    return tuple(sample.get(key) for key in ("pstate", "core", "mem"))
-                return rail.verify(acknowledged=True,
-                                   ref=gpu.read_vcore_mv,
-                                   log=lambda m: self.log("  " + m, None),
-                                   cancelled=cancel.is_set,
-                                   **({"operating_point": operating_point}
-                                      if not getattr(rail, "absolute_voltage", False) else {}))
-            out = gpuload.induce(gpu, max_seconds=180.0, on_settled=staircase,
-                                 cancelled=cancel.is_set)
+            def warmup():
+                if getattr(rail, "absolute_voltage", False):
+                    return rail.verify(acknowledged=True, ref=gpu.read_vcore_mv,
+                                       log=lambda m: self.log("  " + m, None),
+                                       cancelled=cancel.is_set)
+                return gpu.read_vcore_mv()
+            out = gpuload.induce(gpu, max_seconds=180.0, on_settled=warmup,
+                                cancelled=cancel.is_set)
+            voltage = out.get("result")
+            if not getattr(rail, "absolute_voltage", False):
+                out["result"] = None
+            if not getattr(rail, "absolute_voltage", False) and not out.get("error"):
+                if voltage is None:
+                    raise RuntimeError("loaded operating voltage is unavailable; nothing written")
+                self.log("verify: CUDA stopped; holding a V/F point and waiting for P0", None)
+                out["result"] = gpuload.verify_in_p0(
+                    gpu, lambda point: rail.verify(
+                        acknowledged=True, ref=gpu.read_vcore_mv,
+                        log=lambda m: self.log("  " + m, None),
+                        cancelled=cancel.is_set, operating_point=point),
+                    cancelled=cancel.is_set, voltage_mv=voltage)
             res["err"] = out.get("error") or ""
             res["v"] = out.get("result")
         except Exception as e:                                  # noqa: BLE001
@@ -3494,7 +3502,9 @@ class Druta:
         (this card was found holding Afterburner's), and taking someone else's
         lock away because a button was nearby is not this app's business."""
         if self.vf_recovery_pending():
-            previous = (self._clk_lock or {}).get("previous_lock")
+            pending = getattr(self.gpu, "_vf_lock_recovery", {}) or {}
+            previous = (self._clk_lock if pending.get("verification") else
+                        (self._clk_lock or {}).get("previous_lock"))
             ok, message = self.gpu.recover_vf_lock()
             if not ok:
                 return ok, message

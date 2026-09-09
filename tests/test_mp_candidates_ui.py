@@ -23,7 +23,9 @@ class CandidateUi(unittest.TestCase):
     def setUp(self):
         self.app = Druta.__new__(Druta)
         self.app.gpu = SimpleNamespace(nvapi=object(), arch=lambda: 4,
-                                       read_vcore_mv=Mock())
+                                       read_vcore_mv=Mock(return_value=1050),
+                                       read=lambda: {"pstate": 0, "core": 1965, "mem": 7000},
+                                       verification_p0=lambda **kw: nullcontext(lambda: None))
         self.first, self.second = candidate(), candidate(3, 0x22)
         self.app.rail = self.first
         self.app._rail_candidates = [self.first, self.second]
@@ -169,7 +171,7 @@ class CandidateUi(unittest.TestCase):
                     self.app._i2c_verify_worker()
                 self.assertEqual(self.app.i2c_verified(), expected)
                 self.assertFalse(self.app._i2c_busy)
-                self.first.verify.assert_called_once()
+                self.assertEqual(self.first.verify.call_count, 0 if error else 1)
                 self.second.verify.assert_not_called()
 
     def test_load_failure_before_callback_does_not_authorize_recovery(self):

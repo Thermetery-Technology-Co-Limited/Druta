@@ -38,6 +38,7 @@ original bytes back restores it exactly. The V/F point lock below is the worked
 example, and vf_lock_self_test() keeps the middle rung runnable on any machine.
 """
 import ctypes
+from contextlib import contextmanager
 import json
 import math
 import ntpath
@@ -4274,6 +4275,61 @@ class GPU:
             except Exception as restore_error:
                 note = f"restoration could not be verified: {restore_error}"
             return False, f"{exc}; {note}"
+
+    @contextmanager
+    def verification_p0(self, voltage_mv=None):
+        """Temporarily hold a loaded V/F point; restore the exact prior target.
+
+        Reuse an existing point hold without taking ownership. The caller must
+        still confirm physical P0 and settling; an accepted lock is not proof
+        that the hardware has reached that state.
+        """
+        with self._lock:
+            if self.vf_lock_recovery_pending():
+                raise RuntimeError("V/F lock recovery is pending")
+            held, error = self.read_vf_lock_status()
+            if error:
+                raise RuntimeError(error)
+            pending = None
+            if held is None:
+                voltage = self.read_vcore_mv() if voltage_mv is None else voltage_mv
+                points, error = self.read_vf_curve()
+                if error or not points or voltage is None or not math.isfinite(voltage):
+                    raise RuntimeError("cannot select a loaded V/F point for verification")
+                under = [p for p in points if p["volt_mv"] <= voltage]
+                if not under:
+                    raise RuntimeError("no V/F point at or below the loaded voltage")
+                requested = int(round(max(under, key=lambda p: p["volt_mv"])["volt_mv"] * 1000))
+                raw = self._vf_lock_read_raw()
+                target = next((e for e in self._vf_lock_entries(raw)
+                               if e.domain == VF_LOCK_DOMAIN), None) if raw is not None else None
+                if target is None or target.lockMode != VF_LOCK_MODE_OFF:
+                    raise RuntimeError("verification V/F target is unavailable or already in use")
+                pending = {"domain": VF_LOCK_DOMAIN, "verification": True,
+                           "previous": (int(target.lockMode), int(target.volt_uV)),
+                           "requested": (VF_LOCK_MODE_POINT, requested)}
+                ok, message = self.set_vf_lock(requested, domain=VF_LOCK_DOMAIN)
+                if not ok:
+                    if self.vf_lock_recovery_pending():
+                        self._vf_lock_recovery["verification"] = True
+                    raise RuntimeError(message)
+                held = {"domain": VF_LOCK_DOMAIN, "volt_uV": requested}
+
+        def check_hold():
+            current, error = self.read_vf_lock_status(domain=held["domain"])
+            if error or current is None or current["volt_uV"] != held["volt_uV"]:
+                raise RuntimeError("verification V/F hold changed or became unreadable")
+
+        try:
+            check_hold()
+            yield check_hold
+        finally:
+            with self._lock:
+                if pending is not None:
+                    self._vf_lock_recovery = pending
+                    ok, message = self.recover_vf_lock()
+                    if not ok:
+                        raise RuntimeError("verification P0 hold RESTORE FAILED: " + message)
 
     def set_vf_lock(self, volt_uv, domain=None):
         """Lock the curve to the highest V/F point AT OR BELOW volt_uv.
