@@ -1,5 +1,5 @@
 # TEMPLATE - for a NEW generic register recipe, not each newly tested board.
-# Existing MP2888A/NCP4206: contribute scanner/Verify evidence first; see
+# Existing MP2888A/MP29816/NCP4206: contribute scanner/Verify evidence first; see
 # CONTRIBUTING.md. Do not add board-ID exceptions or duplicate their recipes.
 # Copy to <board>-<regulator>.toml and fill in only when a recipe is needed.
 #
@@ -40,7 +40,7 @@ hardware  = ""            # TODO stock board, or the exact modification you made
 
 # ---- match - candidates only, never authority ------------------------------ #
 # Optional prefilter for generic recipes; a specified ID must be known and
-# match. NCP4206 and MP2888A scanners do not use board-ID filters. Actual
+# match. NCP4206, MP2888A and MP29816 scanners do not use board-ID filters. Actual
 # register evidence below establishes a candidate, not the card name.
 [match]
 pci_device = []           # TODO ["0x2C02"]

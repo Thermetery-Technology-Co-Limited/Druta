@@ -3,6 +3,9 @@
 # comes from EVC2's exact MP29816 profile, but writes on this board have so far
 # been rejected by NVIDIA's transport. This is experimental write support:
 # Druta's per-session loaded verification must pass before Apply is enabled.
+# Historical measurements/recipe identity below remain for saved profiles.
+# Runtime mp29816.py discovers all routes by model ID, treats OEM fingerprints
+# as diagnostics, and binds the currently selected PAGE and voltage scale.
 
 [profile]
 format = 1

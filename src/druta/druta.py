@@ -1308,38 +1308,11 @@ class Druta:
         ok, msg = self.gpu.set_volt_rail_limits(rail, **limits)
         self.log(msg, ok)
         if ok and rail == 1:
-            # Say it on every MSVDD write, not once in a tooltip - but say the
-            # CURRENT truth. This used to warn that no MSVDD voltage was
-            # exposed anywhere, which was the state of knowledge and is no
-            # longer the state of the card: the rail reports a live voltage
-            # that follows an MSVDD clamp while NVVDD's stays put. So the line
-            # now quotes what the rail actually did rather than telling the
-            # user to go and measure board power.
-            # SAMPLED IMMEDIATELY AFTER THE WRITE, which is a caveat and not a
-            # confirmation: a ceiling PERMITS a voltage, the arbiter then
-            # decides whether to take it, and this read can easily land before
-            # it has. The number is what the rail says now, nothing more.
-            #
-            # The ~20 W board-power result is deliberately described as a past
-            # experiment rather than as evidence about THIS write. It
-            # established that the field reaches hardware at all; it says
-            # nothing about the value just sent, and wording it as
-            # confirmation would be exactly the mistake this file keeps
-            # warning about.
             live = self.gpu.read_rail_live_mv(1)
-            if live is not None:
-                self.log(f"MSVDD reads {live:.0f} mV immediately after the "
-                         f"write. A ceiling permits a voltage rather than "
-                         f"setting one, so this may not have settled yet - "
-                         f"watch the live cell. That the field reaches "
-                         f"hardware was established separately, as ~20 W of "
-                         f"board power between 900 and 1200 mV.", ok)
-            else:
-                self.log("MSVDD limits written, but the rail did not read "
-                         "back this time, so nothing here confirms an effect. "
-                         "The field is known to reach hardware - ~20 W of "
-                         "board power between 900 and 1200 mV - but that was "
-                         "a separate experiment, not this write.", False)
+            self.log((f"MSVDD driver reading after request: {live:g} mV. "
+                      "Stored controls and driver telemetry do not prove physical VOUT."
+                      if live is not None else
+                      "MSVDD request stored; driver rail telemetry unavailable."), live is not None)
         self.refresh_volt_limits()
 
     def sync_vcap_to_ceiling(self, raw):
@@ -1364,6 +1337,8 @@ class Druta:
             return
         reach = GPU.rail_ceiling_mv(raw[0])
         cur = float(dpg.get_value("vcap"))
+        if not math.isfinite(reach):
+            return
         snapped = math.floor(reach / self.VCAP_STEP + 1e-9) * self.VCAP_STEP
         if snapped <= cur + 1e-6:
             return
@@ -1451,7 +1426,9 @@ class Druta:
             self.ov_carryover(raw)
             self.sync_vcap_to_ceiling(raw)
         for r in (0, 1):
-            cells = self.volt_limits_cells(raw, r, state, supported)
+            cells = self.volt_limits_cells(raw, r, state,
+                                          supported and bool((raw or {}).get(r, {}).get("_base_mv"))
+                                          and GPU._valid_volt_rail_state(r, (state or {}).get(r, {})))
             if not cells:
                 continue
             if dpg.does_item_exist(f"vlim_txt{r}"):
@@ -1490,11 +1467,11 @@ class Druta:
         """
         f = (raw or {}).get(rail)
         s = (state or {}).get(rail) or {}
-        if supported and f:
+        if supported and f and f.get("_base_mv"):
             limits = {key: GPU.abs_limit_mv(f, key)
                       for key in GPU.VOLT_LIMIT_FIELDS}
-            cap = f"cap {GPU.rail_ceiling_mv(f):.9g}"
-            suffix = " limits"
+            cap = f"estimated cap {GPU.rail_ceiling_mv(f):.9g}"
+            suffix = " estimated limits"
         elif s:
             limits = s
             cap = ""
@@ -1575,7 +1552,9 @@ class Druta:
                     detail = dpg.add_text("API unavailable", color=DIM,
                                           wrap=self.s(self.KNOB_COLS[3] - 4))
                     with dpg.tooltip(detail):
-                        dpg.add_text(diagnostic.get("error") or "Policy not returned",
+                        dpg.add_text(next((r["error"] for r in diagnostic.get("unavailable_policies", [])
+                                               if r["policy"] == policy), None)
+                                     or diagnostic.get("error") or "Policy not returned",
                                      wrap=self.s(550))
                     dpg.add_button(label="Copy info", width=-1,
                                    callback=lambda: dpg.set_clipboard_text(json.dumps(
@@ -1636,10 +1615,12 @@ class Druta:
         supported = self.gpu.volt_rail_limits_supported()
         self._rail_readonly = set()
         for rail in (0, 1):
-            cells = self.volt_limits_cells(lim, rail, state, supported)
+            rail_supported = (supported and bool((lim or {}).get(rail, {}).get("_base_mv"))
+                              and GPU._valid_volt_rail_state(rail, (state or {}).get(rail, {})))
+            cells = self.volt_limits_cells(lim, rail, state, rail_supported)
             if not cells:
                 continue
-            if not (supported and (lim or {}).get(rail)):
+            if not rail_supported:
                 self._rail_readonly.add(rail)
             with dpg.table_row():
                 dpg.add_text(cells[0], color=DIM)
@@ -1665,17 +1646,23 @@ class Druta:
                     if a else
                     "rail ceilings unlinked: each field moves independently; "
                     "watch the cap and effective limit", True))
+        with dpg.table_row():
+            dpg.add_text("Reference", color=DIM)
+            dpg.add_text("Absolute values are estimates from this card's first "
+                         "stable driver reading, which may be quantized. Initial "
+                         "restores exact first-read controls, not factory defaults.",
+                         color=DIM, wrap=self.s(self.KNOB_COLS[1]))
         if 0 in lim and 1 not in lim:
             with dpg.table_row():
                 dpg.add_text("NVVDD", color=DIM)
-                dpg.add_text("NVVDD ceiling clamps confirmed. The driver "
-                             "does not expose MSVDD.", color=DIM,
+                dpg.add_text("Driver reports NVVDD only. Absolute requests "
+                             "use this card's first-read reference.", color=DIM,
                              wrap=self.s(self.KNOB_COLS[1]))
 
         # Each slider retains its own field; Link is the explicit convenience
         # for moving the reliability pair together. Build no absent rail.
         for rail in (0, 1):
-            if rail not in lim:
+            if rail not in lim or rail in self._rail_readonly:
                 continue
             name = "NVVDD" if rail == 0 else "MSVDD"
             prefix = "vlim" if rail == 0 else "vlim1"
@@ -1683,8 +1670,8 @@ class Druta:
             if rail == 1:
                 with dpg.table_row():
                     dpg.add_text("MSVDD", color=WARN)
-                    dpg.add_text("APPLIES, LIVE READING (setpoint or sensed "
-                                 "is unresolved)", color=WARN,
+                    dpg.add_text("Driver-reported rail; physical effect of a "
+                                 "request must be checked on this board.", color=WARN,
                                  wrap=self.s(self.KNOB_COLS[1]))
             for short, field, label in (
                     ("rel", "reliability", "reliability"),
@@ -1694,11 +1681,16 @@ class Druta:
                 if field not in self.gpu.volt_rail_limit_fields(rail):
                     continue
                 key = f"{prefix}_{short}"
+                initial = GPU.abs_limit_mv(lim[rail], field)
+                lower = getattr(self, "_carryover_lo", {})
+                if initial < lo_mv:
+                    lower[key] = initial
+                self._carryover_lo = lower
                 self.slider_row(
-                    key, f"{name} {label} (mV)", lo_mv, hi_mv,
+                    key, f"{name} {label} (~mV)", lo_mv, hi_mv,
                     GPU.abs_limit_mv(lim[rail], field),
                     lambda v, r=rail, f=field: self.apply_vlim(r, **{f: v}),
-                    color=color, extra=("Stock", lambda k=key: self.stock_knob(k)),
+                    color=color, extra=("Initial", lambda k=key: self.stock_knob(k)),
                     xoc_lo=lo_mv, xoc_hi=xoc_hi_mv)
                 if field == "vmin" and self.gpu.arch() == GPU.ARCH_PASCAL:
                     with dpg.tooltip(f"sl_{key}"):
@@ -1802,7 +1794,7 @@ class Druta:
         # Its Stock button stays enabled for the same reason the rail ones do -
         # putting a clock back is the action you want available exactly when
         # you have just taken the permission away.
-        for k in (kn.key for kn in self.DOMAIN_KNOBS if kn.xoc_only):
+        for k in [kn.key for kn in self.DOMAIN_KNOBS if kn.xoc_only] + ["msvdd"]:
             for pre in ("sl_", "in_", "go_"):
                 if dpg.does_item_exist(pre + k):
                     dpg.configure_item(pre + k, enabled="xoc" in live)
@@ -1874,7 +1866,7 @@ class Druta:
                 dpg.add_spacer(width=self.s(16))
                 # sits with the gate, not inside a knob group: it undoes every
                 # group at once (and the curve), so it belongs to the tab
-                dpg.add_button(label="Reset all to stock", callback=self.reset_all,
+                dpg.add_button(label="Reset controls", callback=self.reset_all,
                                width=self.s(200), height=self.s(28))
                 dpg.add_spacer(width=self.s(20))
                 if self.vf_applicable() and not self.legacy_p0_supported():
@@ -2285,18 +2277,20 @@ class Druta:
                                         extra=("Stock",
                                                lambda: self.stock_knob("rail")))
 
-                                # THE MSVDD OFFSET KNOB IS GONE, and this note is what is
-                                # left of it. The clock-domain block has an MSVDD field at
-                                # +0x11C and Blackwell ACCEPTS writes to it - including on
-                                # control domains that move nothing at all, which is what
-                                # "accepted" is worth here. Against NVVDD as a positive
-                                # control it moved neither voltage nor board power, and the
-                                # rail limits later proved MSVDD IS reachable by a
-                                # different route entirely (worth ~20 W between 900 and
-                                # 1200 mV), so the offset field is not an unproven path to
-                                # something real - it is a field that does nothing while
-                                # looking like a voltage control. Use the MSVDD rail limits
-                                # below.
+                                capability = self.gpu.rail_offset_capability(rail=1)
+                                self._msvdd_domain = capability.get("domain") if capability["available"] else None
+                                if self._msvdd_domain is not None:
+                                    self.slider_row(
+                                        "msvdd", "MSVDD requested offset (mV)", -500, 500,
+                                        capability["value_mv"], self.apply_msvdd,
+                                        color=WARN, xoc_lo=-500, xoc_hi=500,
+                                        extra=("Zero", self.zero_msvdd))
+                                    with dpg.tooltip("sl_msvdd"):
+                                        dpg.add_text(
+                                            "Experimental; enable XOC to write. This is a stored "
+                                            "request, not a measured voltage. An inert result on one "
+                                            "5080/580.97 does not establish behavior on your board.",
+                                            wrap=self.s(400))
             if railctl is not None:
                 with dpg.collapsing_header(label="I2C regulator",
                                            default_open=bool(getattr(self, "_rail_candidates", []))):
@@ -2423,7 +2417,7 @@ class Druta:
     # ---- slider <-> text box, and what either is allowed to reach ---------- #
     @staticmethod
     def float_knob(key):
-        return (key in ("mem", "pl", "rail", "i2crail")
+        return (key in ("mem", "pl", "rail", "msvdd", "i2crail")
                 or key.startswith(("vlim", "current")))
 
     def knob_value(self, key, value):
@@ -3145,6 +3139,28 @@ class Druta:
         self.report(setter(v, acknowledged=True))
         self.sync_profile_rail_sliders()
 
+    def apply_msvdd(self, value):
+        if not self.guard():
+            return
+        domain = getattr(self, "_msvdd_domain", None)
+        if domain is None:
+            self.log("no readable MSVDD request field selected", False)
+            return
+        try:
+            value = self.knob_input_value("msvdd", value)
+        except (TypeError, ValueError, OverflowError) as exc:
+            self.log(f"MSVDD request input: {exc}", False)
+            return
+        self.autosave_before("msvdd-request-offset")
+        self.report(self.gpu.set_rail_offset_mv(value, domain, rail=1))
+        self.sync_profile_rail_sliders()
+
+    def zero_msvdd(self, sender=None, app_data=None, user_data=None):
+        if self.guard() and getattr(self, "_msvdd_domain", None) is not None:
+            self.autosave_before("msvdd-request-zero")
+            self.report(self.gpu.reset_msvdd_offset_mv(self._msvdd_domain))
+            self.sync_profile_rail_sliders()
+
     def apply_rail(self, v):
         # An undo point, like the core offset and unlike the other single
         # knobs: this is the only slider on the tab that raises VOLTAGE
@@ -3811,6 +3827,14 @@ class Druta:
                                  ("ov", "overvoltage"), ("lo", "vmin")):
                 key = f"{prefix}_{short}"
                 cur = GPU.abs_limit_mv(fields, field)
+                lower = getattr(self, "_carryover_lo", {})
+                initial = self.gpu.stock_limit_mv(rail, field)
+                minimum = min(cur, initial if initial is not None else cur)
+                if minimum < self.gpu.VOLT_LIMIT_MIN_MV:
+                    lower[key] = minimum
+                else:
+                    lower.pop(key, None)
+                self._carryover_lo = lower
                 if cur > self.gpu.VOLT_LIMIT_MAX_MV:
                     self._carryover_hi[key] = cur
                 else:
@@ -6280,7 +6304,7 @@ deliberately does not put behind a button."""
                  f"{profiles.summarize(state)}", None)
         if state.get("schema", 1) >= 2 and scope != "fan":
             for tag, value in (("xoc_mode", bool(state.get("xoc"))),
-                               ("vlim_mode", bool(state.get("rail_limits_mv"))),
+                               ("vlim_mode", bool(state.get("rail_limits_uv") or state.get("rail_limits_mv"))),
                                ("i2c_mode", bool(state.get("i2c")))):
                 dpg.set_value(tag, value)
             self.sync_risk_ui()
@@ -6348,6 +6372,8 @@ deliberately does not put behind a button."""
         """Use fresh requests after restore, including a partially failed load."""
         try:
             values = {"rail": self.gpu.read_rail_offset_mv(0)}
+            if getattr(self, "_msvdd_domain", None) is not None:
+                values["msvdd"] = self.gpu.read_rail_offset_mv(self._msvdd_domain, rail=1)
             domains, _ = self.gpu.read_clk_domain_offsets()
             for knob in self.DOMAIN_KNOBS:
                 if knob.ctrl in (domains or {}):
@@ -6515,6 +6541,8 @@ deliberately does not put behind a button."""
                                   callback=self.show_win)
                 dpg.add_menu_item(label="Copy device report",
                                   callback=self.copy_device_report)
+                dpg.add_menu_item(label="Refresh capabilities",
+                                  callback=self.refresh_capabilities)
                 dpg.add_separator()
                 # nvtune is NOT shipped with Druta, so the Timings tab needs to
                 # be pointed at it once. This is that once.
@@ -9067,6 +9095,42 @@ deliberately does not put behind a button."""
             return None
         return "" if out == "NONE" else out
 
+    def refresh_capabilities(self, sender=None, app_data=None, user_data=None):
+        """Deliberate read-only retry; retain ownership and staged slider values."""
+        if (getattr(self, "_i2c_busy", False) or getattr(self, "_tim_busy", False)
+                or getattr(self, "_profile_pending", None) or getattr(self, "_closing", False)):
+            self.log("wait for the active operation before refreshing capabilities", False)
+            return
+        if (any(v != getattr(self, "vf_orig", {}).get(i)
+                for i, v in getattr(self, "vf_work", {}).items())
+                or getattr(self, "_tw_pending", {})):
+            self.log("apply or revert staged curve/timing edits before refreshing capabilities", False)
+            return
+        tags = ["unlock", "xoc_mode", "i2c_mode", "vlim_mode", "vlim_link",
+                "vcap", "rfloor"]
+        tags += [prefix + key for key in getattr(self, "_slider_ranges", {})
+                 for prefix in ("sl_", "in_")]
+        values = {t: dpg.get_value(t) for t in tags if dpg.does_item_exist(t)}
+        self._rebuilding = True
+        self._ui_gen = getattr(self, "_ui_gen", 0) + 1
+        try:
+            self.gpu.refresh_capabilities()
+            self.build_ui(rebuild=True)
+            for tag, value in values.items():
+                if dpg.does_item_exist(tag):
+                    dpg.set_value(tag, value)
+            self.sync_risk_ui()
+            self.sync_lock_ui()
+            if self.vf_points:
+                self.vf_redraw()
+            self.relayout()
+        except Exception as exc:
+            self.log(f"capability refresh failed: {exc}; retry is available", False)
+            return
+        finally:
+            self._rebuilding = False
+        self.log("capabilities refreshed from this adapter; no GPU settings written", True)
+
     def build_ui(self, rebuild=False):
         """Build (or rebuild) everything that depends on which card this is.
 
@@ -9189,9 +9253,11 @@ deliberately does not put behind a button."""
     def dispatch_callbacks(self):
         """Discard outgoing-card jobs when a callback rebuilds the widget tree."""
         generation = getattr(self, "_gpu_gen", None)
+        ui_generation = getattr(self, "_ui_gen", 0)
         for job in dpg.get_callback_queue() or ():
             dpg.run_callbacks([job])
             if (getattr(self, "_gpu_gen", None) != generation
+                    or getattr(self, "_ui_gen", 0) != ui_generation
                     or not dpg.is_dearpygui_running()):
                 break
 

@@ -70,6 +70,7 @@ class ClkDomUnitTests(unittest.TestCase):
                     self.assertEqual(mask, 1)
                     buf = (ctypes.c_ubyte * gpu._CLKDOM_BUF)()
                     ctypes.cast(buf, ctypes.POINTER(u32))[0] = CLKDOM_VERSION
+                    ctypes.cast(buf, ctypes.POINTER(u32))[2] = mask
                     return 0, buf
 
                 gpu._clkdom_get = fake_get

@@ -25,16 +25,22 @@ fitted controller as MP29816. Count-prefixed manufacturer block responses:
 The manufacturer payload is numeric MPS code `0x4D5053`. The model payload
 reverses to `M2:816`. Command `0xAD` returns payload `0x0002A816`, matching
 the exact MP29816 detection entry in ElmorLabs EVC2 (annotated `MPS29816A`).
-The profile combines this device ID with the measured board fingerprints and
-PCI candidate filtering. Other boards and revisions remain untested.
+The original recipe retains these board fingerprints and PCI metadata for
+saved-profile compatibility. Runtime discovery now uses the source-backed
+`0xAD` device ID on all ports and unicast addresses; manufacturer/model strings
+and revision are diagnostics. Other boards and revisions remain untested on
+hardware, but are no longer excluded by those authoring-board observations.
 
 ## Measured voltage decoding
 
 The [upstream Linux MP2869-family driver](https://github.com/torvalds/linux/blob/master/drivers/hwmon/pmbus/mp2869.c)
 (GPL-2.0-or-later) explicitly supports MP29816. `0x29[12:10] = 1` selects
 5 mV per count; READ_VOUT `0x8B` uses its lower 12 bits. This board returned
-`0x29 = 0x0420` and PAGE `0x00 = 0`. The profile requires those PAGE and scale
-conditions and checks them before and after telemetry. It never selects PAGE.
+`0x29 = 0x0420` and PAGE `0x00 = 0`. The adapter binds the currently selected
+PAGE 0 or 1 and its scale selector, checking both around telemetry and writes.
+It never selects PAGE. All eight Linux-documented VOUT scale selectors decode
+as telemetry. Only selector 1 has sourced offset-write semantics in this recipe.
+The UI labels each PAGE output without assuming which physical rail it drives.
 
 A PCI-selected CUDA memory-copy load ran for 5.17 seconds without tuning or
 I2C writes. All 40 loaded samples returned **1040 mV**; NVAPI returned
@@ -66,6 +72,10 @@ contains `I2C_DEVICES/MP29816.xml`, which specifies:
 | Offset field | Bits 7:0, signed two's complement |
 | Step | 5 mV when `0x29[12:10] = 1` |
 | Other bits | Preserved from the original word |
+
+The same XML specifies the identical 5 mV offset field for Loop 2 at PAGE 1.
+The runtime adapter supports that field when PAGE 1 is already selected; this
+is register-source coverage, not a new claim of successful hardware writes.
 
 The normal envelope is -50 to +50 mV. The signed encoding represents -640 to
 +635 mV; those endpoints are encoding limits, not a validated operating range.

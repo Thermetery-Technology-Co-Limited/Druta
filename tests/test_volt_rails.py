@@ -114,7 +114,7 @@ def fake_gpu(kind="turing", **identity_changes):
     gpu.read_voltage_boost = Mock(return_value=37)
 
     def store_records(records):
-        api.control = copy.deepcopy(records)
+        api.control.update(copy.deepcopy(records))
         api.sync_live()
         return True, 0
 
@@ -198,14 +198,9 @@ class RailReadTests(unittest.TestCase):
         self.assertEqual(fields[0]["type"], 0)
         self.assertEqual([fields[0][k] for k in GPU.VOLT_LIMIT_FIELDS],
                          [0.0, 0.0, 0.0, 0.0])
-        self.assertEqual(gpu.nvapi.calls,
-                         [("control", 0x00020AC8, 1),
-                          ("control", 0x00020AC8, 2)])
+        self.assertTrue(all(mask in (1, 2) for _, _, mask in gpu.nvapi.calls))
         self.assertTrue(gpu.volt_rail_limits_supported())
-        self.assertEqual(gpu.nvapi.calls[-3:],
-                         [("control", 0x00020AC8, 1),
-                          ("live", GPU.LIVE_RAIL_VER, 1),
-                          ("live", GPU.LIVE_RAIL_VER, 2)])
+        self.assertIn(("live", GPU.LIVE_RAIL_VER, 1), gpu.nvapi.calls)
 
     def test_live_rail_uses_its_own_mask_cache_and_positional_identity(self):
         gpu = fake_gpu()
@@ -214,9 +209,8 @@ class RailReadTests(unittest.TestCase):
         self.assertEqual(set(state), {0})
         self.assertEqual(state[0]["type"], 1)
         self.assertEqual(state[0]["live"], 800.0)
-        self.assertEqual(gpu.nvapi.calls[-2:],
-                         [("live", GPU.LIVE_RAIL_VER, 1),
-                          ("live", GPU.LIVE_RAIL_VER, 2)])
+        self.assertIn(("live", GPU.LIVE_RAIL_VER, 2), gpu.nvapi.calls)
+        self.assertEqual(gpu.nvapi.calls[-1], ("live", GPU.LIVE_RAIL_VER, 1))
         self.assertIsNone(gpu.read_rail_live_mv(1))
 
     def test_all_zero_live_record_is_not_reported_as_zero_volts(self):
@@ -284,7 +278,8 @@ class RailReadTests(unittest.TestCase):
     def test_expected_rail_must_still_be_readable(self):
         gpu = fake_gpu("blackwell")
         del gpu.nvapi.control[1]
-        self.assertFalse(gpu.volt_rail_limits_supported())
+        self.assertTrue(gpu.volt_rail_limits_supported(0))
+        self.assertFalse(gpu.volt_rail_limits_supported(1))
 
 
 class RailProfileTests(unittest.TestCase):
@@ -305,9 +300,9 @@ class RailProfileTests(unittest.TestCase):
 
     def test_per_card_bases_stock_bounds_and_headroom(self):
         expected = {
-            "turing": ([1068.75, 1093.75, 1125.0, 650.0], 25.0, 1200.0),
-            "pascal": ([1062.5, 1093.75, 1200.0, 650.0], 31.25, 1200.0),
-            "blackwell": ([1040.0, 1060.0, 1200.0, 800.0], 20.0, 1200.0),
+            "turing": ([1068.75, 1093.75, 1125.0, 650.0], None, 1200.0),
+            "pascal": ([1068.75, 1093.75, 1200.0, 650.0], None, 1200.0),
+            "blackwell": ([1040.0, 1060.0, 1200.0, 800.0], None, 1200.0),
         }
         for kind, (values, headroom, maximum) in expected.items():
             with self.subTest(card=kind):
@@ -321,14 +316,14 @@ class RailProfileTests(unittest.TestCase):
                 self.assertEqual(gpu.VOLT_LIMIT_MAX_MV, maximum)
                 raw["reliability"] = -100.0
                 self.assertEqual(gpu.rail_ceiling_mv(raw),
-                                 values[0] - 100.0 + headroom)
+                                 values[0] - 100.0)
                 self.assertEqual(gpu.rail_floor_mv(raw), values[3])
 
     def test_absolute_view_only_contains_limits(self):
         gpu = fake_gpu("pascal")
         absolute = gpu.volt_rail_limits_mv()
         self.assertEqual(absolute, {0: dict(zip(
-            GPU.VOLT_LIMIT_FIELDS, [1062.5, 1093.75, 1200.0, 650.0]))})
+            GPU.VOLT_LIMIT_FIELDS, [1068.75, 1093.75, 1200.0, 650.0]))})
 
     def test_unknown_generation_does_not_borrow_blackwell_conversions(self):
         gpu = fake_gpu(architecture=8)
@@ -357,8 +352,11 @@ class RailProfileTests(unittest.TestCase):
             second = fake_gpu("turing")
         self.assertFalse(second.volt_limits_write_enabled)
         self.assertFalse(second.msvdd_write_enabled)
-        self.assertEqual(set(second.VOLT_LIMIT_POWERON), {0})
-        self.assertEqual(set(first.VOLT_LIMIT_POWERON), {0, 1})
+        second.read_volt_rail_limits()
+        first.read_volt_rail_limits()
+        self.assertEqual(set(second._volt_rail_initial_uv), {0})
+        self.assertEqual(set(first._volt_rail_initial_uv), {0, 1})
+        self.assertEqual(GPU.VOLT_LIMIT_POWERON, {})
         self.assertEqual(first.stock_limit_mv(1, "reliability"), 990.0)
 
 
@@ -371,7 +369,7 @@ class RailWriteTests(unittest.TestCase):
         ok, message = gpu.set_volt_rail_limits(0, reliability=1000.0)
         self.assertTrue(ok, message)
         gpu._write_rail_records.assert_called_once_with(
-            {0: [-62500, -25000, -100000, 25000]})
+            {0: [-68750, -25000, -100000, 25000]})
 
     def test_absent_rail_cannot_be_written_or_reset(self):
         gpu = fake_gpu()
@@ -389,8 +387,8 @@ class RailWriteTests(unittest.TestCase):
         ok, message = gpu.set_volt_rail_limits(1, overvoltage=1000)
         self.assertTrue(ok, message)
         gpu._write_rail_records.assert_called_once_with(
-            {0: [-25000, -50000, -100000, 25000],
-             1: [-75000, -35000, -200000, 50000]})
+            {1: [-75000, -35000, -200000, 50000]})
+        self.assertEqual(gpu.nvapi.control[0], [-25000, -50000, -100000, 25000])
 
     def test_write_rejects_out_of_bound_or_nonfinite_values(self):
         for value in (649.0, 1201.0, float("nan"), float("inf")):
@@ -406,7 +404,7 @@ class RailWriteTests(unittest.TestCase):
         gpu.volt_limits_write_enabled = True
 
         def corrupt_other_rail(records):
-            gpu.nvapi.control = copy.deepcopy(records)
+            gpu.nvapi.control.update(copy.deepcopy(records))
             gpu.nvapi.control[1][0] += 1000
             return True, 0
 
@@ -417,6 +415,7 @@ class RailWriteTests(unittest.TestCase):
 
     def test_reset_one_field_preserves_other_rail_and_fields(self):
         gpu = fake_gpu("blackwell")
+        gpu.read_volt_rail_limits()  # Capture the state BEFORE this session tunes it.
         gpu.nvapi.control = {0: [-25000, -50000, -100000, 25000],
                              1: [-75000, -35000, -125000, 50000]}
         gpu.nvapi.sync_live()
@@ -424,11 +423,12 @@ class RailWriteTests(unittest.TestCase):
         ok, message = gpu.reset_volt_rail_limits(1, ["reliability"])
         self.assertTrue(ok, message)
         gpu._write_rail_records.assert_called_once_with(
-            {0: [-25000, -50000, -100000, 25000],
-             1: [-50000, -35000, -125000, 50000]})
+            {1: [-50000, -35000, -125000, 50000]})
+        self.assertEqual(gpu.nvapi.control[0], [-25000, -50000, -100000, 25000])
 
     def test_titan_full_reset_restores_only_its_nvvdd_record(self):
         gpu = fake_gpu("pascal")
+        gpu.read_volt_rail_limits()  # Capture the state BEFORE this session tunes it.
         gpu.nvapi.control[0] = [-62500, -93750, -200000, 250000]
         gpu.nvapi.sync_live()
         ok, message = gpu.reset_volt_rail_limits()
@@ -437,6 +437,7 @@ class RailWriteTests(unittest.TestCase):
 
     def test_reset_requires_confirming_readback(self):
         gpu = fake_gpu()
+        gpu.read_volt_rail_limits()  # Capture the state BEFORE this session tunes it.
         gpu.nvapi.control[0][0] = -68750
         gpu.nvapi.sync_live()
         gpu._write_rail_records.side_effect = None

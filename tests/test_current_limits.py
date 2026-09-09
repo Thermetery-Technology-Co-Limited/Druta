@@ -99,10 +99,11 @@ def fixture(arch=10, newer=False, legacy=False):
         if command == 0x2080A618:
             assert not any(packet[17:])
         elif command == 0x2080A619:
-            assert list(packet[17:19]) == ([mask, 0] if legacy else [0, mask])
+            live_mask = state.info[1]
+            assert list(packet[17:19]) == ([live_mask, 0] if legacy else [0, live_mask])
             assert not any(packet[19:])
         else:
-            assert list(packet[17:22]) == [0, 0, 0, 0, mask]
+            assert list(packet[17:22]) == [0, 0, 0, 0, state.info[1]]
             assert not any(packet[22:])
         packet[17:] = data
         return 0
@@ -308,7 +309,7 @@ class CurrentLimitTests(unittest.TestCase):
                 self.assertEqual(g.get_current_limits()[0]['limit_ma'], 600_000)
                 self.assertFalse(g.set_current_limit_ma(13, 6_000_001)[0])
 
-    def test_malformed_masks_types_units_defaults_and_sizes_fail_closed(self):
+    def test_malformed_current_record_does_not_hide_other_valid_policy(self):
         meta = (0x58 + 13 * 0xE4) // 4
         cases = [("info", 1, 0), ("dynamic", 1, 0), ("control", 4, 0),
                  ("control", 3, 0),
@@ -324,13 +325,73 @@ class CurrentLimitTests(unittest.TestCase):
             with self.subTest(name=name, index=index, value=value):
                 g, state = fixture()
                 getattr(state, name)[index] = value
-                self.assertEqual(g.get_current_limits(), [])
+                global_failure = (name, index) in (("info", 1), ("dynamic", 1),
+                                                    ("control", 4), ("control", 3))
+                self.assertEqual([r["policy"] for r in g.get_current_limits()],
+                                 [] if global_failure else [14])
                 self.assertFalse(g.set_current_limit_ma(13, 400000)[0])
                 self.assertEqual(state.writes, [])
+                if not global_failure:
+                    self.assertTrue(g.set_current_limit_ma(14, 150000)[0])
+                    self.assertTrue(g.current_limit_diagnostics()["unavailable_policies"][0]["present"])
         g, state = fixture()
         g._current_limit_rm = Mock(side_effect=[state.info[:-1], state.control,
                                                state.dynamic])
         self.assertEqual(g.get_current_limits(), [])
+
+    def test_single_current_rail_and_extra_policies_use_full_abi_mask(self):
+        for legacy, newer in ((True, False), (False, False), (False, True)):
+            for surviving in (13, 14):
+                with self.subTest(legacy=legacy, newer=newer, surviving=surviving):
+                    g, state = fixture(legacy=legacy, newer=newer)
+                    mask = (1 << surviving) | (1 << 31)
+                    state.info[1] = state.control[4] = mask
+                    state.dynamic[0 if legacy else 1] = mask
+                    original = list(state.control)
+                    rows = g.get_current_limits()
+                    self.assertEqual([row["policy"] for row in rows], [surviving])
+                    self.assertEqual(g._current_limit_error, "")
+                    absent, = g.current_limit_diagnostics()["unavailable_policies"]
+                    self.assertFalse(absent["present"])
+                    self.assertTrue(g.set_current_limit_ma(surviving, 150000)[0])
+                    changes = [i for i, (a, b) in enumerate(zip(original, state.control))
+                               if a != b]
+                    self.assertEqual(len(changes), 1)
+                    self.assertEqual(state.writes[0][4], 1 << surviving)
+                    self.assertEqual(state.control[4], mask)
+
+    def test_policy_mask_capacity_is_derived_from_all_known_buffers(self):
+        for layout in n.GPU._CURRENT_LIMIT_LAYOUTS.values():
+            self.assertEqual(n.GPU._current_limit_capacity(layout), 32)
+        g, state = fixture()
+        state.info[1] |= 1 << 32
+        g._current_limit_rm = Mock(return_value=state.info)
+        self.assertEqual(g.get_current_limits(), [])
+        self.assertIn("ABI capacity", g._current_limit_error)
+        self.assertEqual(g._current_limit_rm.call_count, 1)
+
+    def test_no_known_currents_is_absence_not_a_global_read_failure(self):
+        for mask in (0, 1 << 31):
+            g, state = fixture()
+            state.info[1] = state.control[4] = state.dynamic[1] = mask
+            self.assertEqual(g.get_current_limits(), [])
+            self.assertEqual(g._current_limit_error, "")
+            unavailable = g.current_limit_diagnostics()["unavailable_policies"]
+            self.assertEqual({r["policy"] for r in unavailable}, {13, 14})
+            self.assertTrue(all(not r["present"] for r in unavailable))
+            self.assertFalse(g.set_current_limit_ma(13, 400000)[0])
+            self.assertEqual(state.writes, [])
+
+    def test_other_current_disagreement_does_not_suppress_selected_policy_write(self):
+        for fail_after_dispatch in (False, True):
+            g, state = fixture()
+            state.dynamic[(0x70 + 14 * 0x1454) // 4 + 1] = 110000
+            state.failed_after_set = fail_after_dispatch
+            ok, message = g.set_current_limit_ma(13, 400000)
+            self.assertEqual(ok, not fail_after_dispatch, message)
+            if fail_after_dispatch:
+                self.assertIn("restored and verified", message)
+            self.assertEqual(g.get_current_limits()[1]["limit_ma"], 110000)
 
     def test_only_selected_limit_changes_and_effective_readback_is_required(self):
         for policy, target in ((13, 400000), (14, 175000)):
@@ -436,10 +497,10 @@ class CurrentLimitTests(unittest.TestCase):
         self.assertEqual(state.control[409], original[409])
         self.assertTrue(all(w[4] == 1 << 13 for w in state.writes))
 
-    def test_stored_effective_disagreement_blocks_a_new_write(self):
+    def test_selected_policy_disagreement_blocks_a_new_write(self):
         g, state = fixture()
         state.dynamic[(0x70 + 13 * 0x1454) // 4 + 1] = 295000
-        ok, message = g.set_current_limit_ma(14, 180000)
+        ok, message = g.set_current_limit_ma(13, 400000)
         self.assertFalse(ok)
         self.assertIn("nothing written", message)
         self.assertEqual(state.writes, [])

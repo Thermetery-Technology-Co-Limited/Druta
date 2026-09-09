@@ -242,6 +242,6 @@ class VoltagePrecisionUiTests(FakeUiTest):
         gpu = fake_gpu("pascal")
         cells = self.app.volt_limits_cells(gpu.read_volt_rail_limits(), 0,
                                             gpu.read_volt_rail_state())
-        self.assertIn("1062.5", cells[1])
+        self.assertIn("1068.75", cells[1])
         self.assertIn("1093.75", cells[1])
         self.assertIn("1068.75", cells[4])

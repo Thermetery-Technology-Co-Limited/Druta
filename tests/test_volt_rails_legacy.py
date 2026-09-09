@@ -51,7 +51,7 @@ class LegacyRailReadTests(unittest.TestCase):
                 self.assertEqual(fields["_base_mv"], {
                     "reliability": 1068.75, "alt_reliability": 1093.75,
                     "overvoltage": overvoltage, "vmin": 650})
-                self.assertEqual(fields["_headroom_mv"], 25)
+                self.assertIsNone(fields["_headroom_mv"])
                 self.assertEqual(gpu._volt_rail_profile()["control_version"], 0x10AC8)
         self.assertTrue(legacy_gpu(vbios="unmeasured").volt_rail_limits_supported())
 

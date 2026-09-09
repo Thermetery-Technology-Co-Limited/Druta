@@ -187,11 +187,11 @@ def capture(gpu, rail=None):
             # still make the snapshot incomplete instead of hiding lost state.
             if not callable(policies) or policies():
                 rows = reader()
-                if not rows and getattr(gpu, "_current_limit_error", ""):
-                    raise RuntimeError(gpu._current_limit_error)
                 state["current_limits_ma"] = {
                     str(row["policy"]): row.get("requested_ma", row["limit_ma"])
                     for row in rows}
+                if getattr(gpu, "_current_limit_error", ""):
+                    raise RuntimeError(gpu._current_limit_error)
         except Exception as exc:
             state[INCOMPLETE_KEY].append(f"Current limits NOT captured ({exc})")
     # Modern NVML and the legacy NVAPI fallbacks expose requested per-fan
@@ -262,7 +262,8 @@ def rail_identity(rail):
     encoded = json.dumps(rail.p.src, sort_keys=True, default=str).encode("utf-8")
     return {"profile": getattr(rail.p, "profile_name", rail.p.name),
             "sha256": hashlib.sha256(encoded).hexdigest(),
-            "port": rail.p.port, "addr7": rail.addr7, "rail": rail.p.rail}
+            "port": rail.p.port, "addr7": rail.addr7,
+            "rail": getattr(rail.p, "profile_rail", rail.p.rail)}
 
 
 def clock_controls(gpu):
@@ -276,7 +277,7 @@ def clock_controls(gpu):
 
 
 def capture_rails(gpu, state, rail):
-    state.update(rail_limits_mv={}, nvvdd_offset_mv=None,
+    state.update(rail_limits_mv={}, rail_limits_uv={}, nvvdd_offset_mv=None, msvdd_offsets_mv={},
                  clock_domain_offsets_mhz={}, i2c=None,
                  xoc=bool(getattr(gpu, "voltage_xoc_enabled", False)))
     missing = state[INCOMPLETE_KEY]
@@ -286,6 +287,17 @@ def capture_rails(gpu, state, rail):
         for index, record in (records or {}).items():
             fields = gpu.volt_rail_limit_fields(index)
             if fields:
+                raw = {}
+                for key in fields:
+                    value = _number(record[key], f"rail {index} {key}") * 1000
+                    units = round(value)
+                    if (abs(value - units) > 0.000001
+                            or not -(1 << 31) <= units < (1 << 31)):
+                        raise ValueError(f"rail {index} {key} is not a signed microvolt control")
+                    raw[key] = units
+                # Exact signed controls are authoritative when replayed. The
+                # absolute values are estimates retained for human display.
+                state["rail_limits_uv"][str(index)] = raw
                 state["rail_limits_mv"][str(index)] = {
                     key: gpu.abs_limit_mv(record, key) for key in fields}
         # One readable rail does not prove a complete capture on a two-rail
@@ -293,7 +305,7 @@ def capture_rails(gpu, state, rail):
         if reader:
             for index in (0, 1):
                 if (gpu.volt_rail_limit_fields(index)
-                        and str(index) not in state["rail_limits_mv"]):
+                        and str(index) not in state["rail_limits_uv"]):
                     missing.append(f"per-rail limits NOT captured (rail {index})")
     except Exception as e:
         missing.append(f"per-rail limits NOT captured ({e})")
@@ -315,6 +327,22 @@ def capture_rails(gpu, state, rail):
                     state["clock_domain_offsets_mhz"][str(index)] = records[index]["freq_khz"] / 1000
     except Exception as e:
         missing.append(f"voltage/clock offsets NOT captured ({e})")
+    capability_reader = getattr(gpu, "rail_offset_capability", None)
+    if callable(capability_reader):
+        try:
+            capability = capability_reader(rail=1)
+            domains = set(getattr(gpu, "_msvdd_offset_domains_written", ()))
+            domains.update(getattr(gpu, "_msvdd_offset_domains_seen", ()))
+            if capability["available"]:
+                domains.add(capability["domain"])
+            for domain in sorted(domains):
+                current = capability_reader(rail=1, domain=domain)
+                if not current["available"]:
+                    missing.append(f"MSVDD request at control {domain} NOT captured")
+                else:
+                    state["msvdd_offsets_mv"][str(domain)] = current["value_mv"]
+        except Exception as e:
+            missing.append(f"MSVDD requests NOT captured ({e})")
     if rail is not None and not rail.p.read_only:
         try:
             if getattr(rail, "absolute_voltage", False):
@@ -336,6 +364,7 @@ def capture_rails(gpu, state, rail):
     offset = state["nvvdd_offset_mv"]
     required = required or (offset is not None and not -100 <= offset <= 200)
     required = required or bool(state["clock_domain_offsets_mhz"].get("2"))
+    required = required or any(state["msvdd_offsets_mv"].values())
     if state["i2c"]:
         if "control" in state["i2c"]:
             try:
@@ -396,9 +425,22 @@ def _validate_saved_fields(gpu, state):
     Missing fields still mean "not captured" for both supported schemas. GPU
     availability and live read-back checks remain with the individual setters.
     """
-    for key in ("device", "rail_limits_mv", "clock_domain_offsets_mhz", "i2c"):
+    for key in ("device", "rail_limits_mv", "rail_limits_uv", "clock_domain_offsets_mhz", "msvdd_offsets_mv", "i2c"):
         if state.get(key) is not None and not isinstance(state[key], dict):
             raise ValueError(f"{key} must be a mapping")
+    if "rail_limits_uv" in state and not isinstance(state["rail_limits_uv"], dict):
+        raise ValueError("rail_limits_uv must be a mapping")
+    for key in ("rail_limits_mv", "rail_limits_uv"):
+        for rail, fields in (state.get(key) or {}).items():
+            if rail not in ("0", "1") or not isinstance(fields, dict) or not fields:
+                raise ValueError(f"{key}: invalid voltage rail")
+            for field, value in fields.items():
+                if field not in ("reliability", "alt_reliability", "overvoltage", "vmin"):
+                    raise ValueError(f"unconfirmed limit field on rail {rail}")
+                _number(value, f"rail {rail} {field}")
+                if key == "rail_limits_uv" and (type(value) is not int
+                        or not -(1 << 31) <= value < (1 << 31)):
+                    raise ValueError(f"rail {rail} {field} must be a signed 32-bit microvolt integer")
     for key in ("xoc", "fan_manual", "vf_applicable"):
         if state.get(key) is not None and not isinstance(state[key], bool):
             raise ValueError(f"{key} must be a boolean")
@@ -406,6 +448,13 @@ def _validate_saved_fields(gpu, state):
                 "volt_boost_pct", "fan_pct", "nvvdd_offset_mv"):
         if state.get(key) is not None:
             _number(state[key], key)
+    for key, value in (state.get("msvdd_offsets_mv") or {}).items():
+        if not isinstance(key, str) or not key.isdigit() or str(int(key)) != key or not 0 <= int(key) < 32:
+            raise ValueError("invalid MSVDD clock-control index")
+        _number(value, f"MSVDD request at control {key}")
+        uv = value * 1000
+        if not -(1 << 31) <= uv < (1 << 31) or abs(uv - round(uv)) > 0.000001:
+            raise ValueError("MSVDD offset is not representable in signed microvolts")
     core = state.get("core_off_mhz")
     if core is not None and not -(1 << 31) <= core < (1 << 31):
         raise ValueError("core offset is outside the driver's representation")
@@ -506,11 +555,13 @@ def preflight(gpu, state, rail=None, *, apply_curve=True):
                 invalid = set(deltas) - set(layout.gpu_idx)
                 if invalid:
                     raise ValueError(f"V/F point indices {sorted(invalid)} are not GPU points on this card")
-        limits = state.get("rail_limits_mv") or {}
+        raw_limits = "rail_limits_uv" in state
+        limits = state.get("rail_limits_uv" if raw_limits else "rail_limits_mv") or {}
         offsets = state.get("clock_domain_offsets_mhz") or {}
         i2c = state.get("i2c")
         nvvdd = state.get("nvvdd_offset_mv")
-        if not (limits or offsets or i2c or nvvdd is not None):
+        msvdd = state.get("msvdd_offsets_mv") or {}
+        if not (limits or offsets or i2c or msvdd or nvvdd is not None):
             return None
         error = strict_device_error(state, gpu)
         if error:
@@ -533,6 +584,8 @@ def preflight(gpu, state, rail=None, *, apply_curve=True):
             if not rail.present():
                 raise ValueError("saved I2C regulator is not available")
         if limits:
+            if raw_limits and not callable(getattr(gpu, "set_volt_rail_limits_raw", None)):
+                raise ValueError("exact per-rail control replay is unavailable")
             if not gpu.volt_rail_limits_supported():
                 raise ValueError("per-rail limits are not supported on this GPU/driver")
             current = gpu.read_volt_rail_limits()
@@ -543,10 +596,22 @@ def preflight(gpu, state, rail=None, *, apply_curve=True):
                     raise ValueError("invalid voltage rail")
                 if set(values) - set(gpu.volt_rail_limit_fields(int(key))):
                     raise ValueError(f"unconfirmed limit field on rail {key}")
+                if int(key) not in (current or {}):
+                    raise ValueError(f"voltage rail {key} is not readable")
                 for field, value in values.items():
                     _number(value, f"rail {key} {field}")
-                    bound = max(maximum, gpu.abs_limit_mv(current[int(key)], field))
-                    if not getattr(gpu, "VOLT_LIMIT_MIN_MV", 300) <= value <= bound:
+                    current_value = gpu.abs_limit_mv(current[int(key)], field)
+                    if not math.isfinite(current_value):
+                        raise ValueError(f"voltage rail {key} has no readable reference")
+                    wanted = (current_value - current[int(key)][field] + value / 1000
+                              if raw_limits else value)
+                    bound = max(maximum, current_value)
+                    minimum = min(getattr(gpu, "VOLT_LIMIT_MIN_MV", 300), current_value)
+                    initial_reader = getattr(gpu, "stock_limit_mv", None)
+                    initial = initial_reader(int(key), field) if callable(initial_reader) else None
+                    if type(initial) in (int, float) and math.isfinite(initial):
+                        minimum = min(minimum, initial)
+                    if not minimum <= wanted <= bound:
                         raise ValueError(f"rail {key} {field} is outside the saved mode's voltage bounds")
         if nvvdd is not None:
             current = gpu.read_rail_offset_mv(0)
@@ -555,6 +620,20 @@ def preflight(gpu, state, rail=None, *, apply_curve=True):
             lower, upper = (-500, 500) if state.get("xoc") else (-100, 200)
             if not min(lower, current) <= nvvdd <= max(upper, current):
                 raise ValueError("NVVDD offset is outside the saved mode's voltage bounds")
+        if msvdd:
+            reader = getattr(gpu, "rail_offset_capability", None)
+            if not callable(reader):
+                raise ValueError("MSVDD request fields are unavailable")
+            for key, value in msvdd.items():
+                capability = reader(rail=1, domain=int(key))
+                if not capability["available"]:
+                    raise ValueError(f"MSVDD request at control {key} is unavailable")
+                current = capability["value_mv"]
+                if value != 0 and not state.get("xoc"):
+                    raise ValueError("MSVDD offset requires the saved experimental XOC opt-in")
+                upper = getattr(gpu, "RAIL_OFFSET_XOC_MAX_MV", 500)
+                if not min(-500, current) <= value <= max(upper, current):
+                    raise ValueError("MSVDD offset is outside the request bounds")
         if offsets:
             controls = clock_controls(gpu)
             for key, value in offsets.items():
@@ -711,8 +790,11 @@ def _restore_validated(gpu, state, apply_curve, rail, results):
     # Voltage requests precede clocks. If any voltage operation fails, do not
     # apply a curve that may depend on it. Individual setters preserve their
     # normal whitelist, bounds and read-back checks.
-    for key, values in (state.get("rail_limits_mv") or {}).items():
-        if not step(f"rail {key} limits", lambda: gpu.set_volt_rail_limits(int(key), **values)):
+    raw_limits = "rail_limits_uv" in state
+    limits = state.get("rail_limits_uv" if raw_limits else "rail_limits_mv") or {}
+    for key, values in limits.items():
+        writer = gpu.set_volt_rail_limits_raw if raw_limits else gpu.set_volt_rail_limits
+        if not step(f"rail {key} limits", lambda: writer(int(key), **values)):
             results.append((False, "profile stopped after a rail failure; remaining settings were not applied"))
             return results
     offset = state.get("nvvdd_offset_mv")
@@ -725,6 +807,13 @@ def _restore_validated(gpu, state, apply_curve, rail, results):
             return ok, msg
         if not step("NVVDD offset", restore_offset):
             return results + [(False, "profile stopped after NVVDD offset failure")]
+    for key, value in (state.get("msvdd_offsets_mv") or {}).items():
+        def restore_msvdd(domain=int(key), target=value):
+            if target == 0:
+                return gpu.reset_msvdd_offset_mv(domain)
+            return gpu.set_rail_offset_mv(target, domain, rail=1)
+        if not step(f"MSVDD request at control {key}", restore_msvdd):
+            return results + [(False, "profile stopped after MSVDD request failure")]
     if state.get("i2c"):
         if "control" in state["i2c"]:
             if not step("I2C voltage/mode", lambda: rail.restore_control(state["i2c"]["control"])):
@@ -839,10 +928,16 @@ def summarize(state):
     for key, fields in (state.get("rail_limits_mv") or {}).items():
         name = "NVVDD" if key == "0" else "MSVDD"
         values = "/".join(f"{k} {v:g}" for k, v in fields.items())
-        bits.append(f"{name} limits {values} mV")
+        bits.append(f"{name} limits ~{values} mV")
+    if state.get("rail_limits_uv"):
+        bits.append("rail replay uses exact saved controls")
+    elif state.get("rail_limits_mv") and "rail_limits_uv" not in state:
+        bits.append("legacy absolute rail limits use this session's estimated reference")
     offset = state.get("nvvdd_offset_mv")
     if offset is not None:
         bits.append(f"NVVDD offset {offset:+g} mV")
+    for key, value in (state.get("msvdd_offsets_mv") or {}).items():
+        bits.append(f"MSVDD request {key} {value:+g} mV (experimental)")
     i2c = state.get("i2c")
     if i2c:
         if "control" in i2c:

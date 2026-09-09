@@ -441,9 +441,9 @@ establishes long-term stability.
 I ported NCP4206-based I2C voltage control on GTX 770, GTX 780,
 GTX 780 Ti, TITAN Black and the original TITAN.
 
-Kepler GPUs, including GK104 and GK110, automatically scan their I2C ports
-for NCP4206. There is no GPU model or subsystem-ID whitelist. A detected
-controller exposes the rail, and Verify must confirm a measured response
+All selected GPU generations now scan ports 0–7 and unicast addresses for
+NCP4206. There is no GPU model or subsystem-ID whitelist. A detected
+controller exposes its output without assuming the physical rail, and Verify must confirm a measured response
 before normal voltage adjustments are enabled.
 
 The local GTX 770 responds at 7-bit address 0x20 on NVAPI port 2: MFR_ID
@@ -453,9 +453,10 @@ at that address. This confirms an accessible I2C device consistent with the
 reported controller family. The manufacturer ID matches the
 [onsemi NCP4206 datasheet](https://www.onsemi.com/download/data-sheet/pdf/ncp4206-d.pdf),
 Table 11; the observed model/revision differ from its default 0x0208/0x03,
-so discovery accepts both the documented 0x41/0x0208/0x03 tuple and the
-observed OEM 0x41/0x3298/0x01 tuple, with VOUT_MODE 0x20. The detected tuple
-and port are retained in profile identity; the manufacturer byte alone is not
+so discovery accepts the documented/OEM model IDs with VOUT_MODE 0x20,
+records any returned byte-sized revision, and pins that identity for the
+instance. The detected tuple, port and address are retained in profile identity;
+the manufacturer byte alone is not
 enough. The datasheet specifies the seven-bit address as 0x20 (page 15).
 
 The previous "no matching regulator profile" observation meant Druta shipped

@@ -147,7 +147,7 @@ class MultiRailProfileTests(unittest.TestCase):
         self.assertTrue(all(ok for ok, _ in results), results)
         self.gpu.set_clock_offset.assert_any_call(2, -50)
         for index in (0, 1):
-            self.gpu.set_volt_rail_limits.assert_any_call(index, **state["rail_limits_mv"][str(index)])
+            self.gpu.set_volt_rail_limits_raw.assert_any_call(index, **state["rail_limits_uv"][str(index)])
         for index in (1, 2, 3, 4):
             self.gpu.set_clk_domain_offset.assert_any_call(index, 25 * index)
         self.assertEqual(self.calls[-1][0], "apply_vf_deltas")

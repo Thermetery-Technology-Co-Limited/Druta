@@ -212,11 +212,12 @@ class MP29816ProfileTests(unittest.TestCase):
         self.assertIsNone(telemetry["offset_raw"])
         self.assertIsNone(telemetry["offset_mv"])
 
-    def test_find_rejects_pci_mismatch_before_bus_access(self):
+    def test_discovery_bypasses_legacy_recipe_pci_metadata(self):
         with patch.object(railctl, "load_profiles", return_value=[profile()]), \
-                patch.object(railctl.Rail, "present") as present:
-            self.assertIsNone(railctl.find(SimpleNamespace(ok=True), 0x2C02, 0x12341043))
-            present.assert_not_called()
+                patch('druta.mp29816.discover', return_value=[]) as scanner:
+            api = SimpleNamespace(ok=False)
+            self.assertIsNone(railctl.find(api, 0x2C02, 0x12341043))
+            scanner.assert_called_once()
 
 
 if __name__ == "__main__":

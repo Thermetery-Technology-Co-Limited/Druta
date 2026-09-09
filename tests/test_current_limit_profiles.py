@@ -68,6 +68,22 @@ class CurrentLimitProfileTests(unittest.TestCase):
         state = profiles.capture(gpu)
         self.assertTrue(any("policy read failed" in s for s in profiles.incomplete(state)))
 
+    def test_partial_current_capture_keeps_valid_row_and_reports_failed_present_row(self):
+        gpu = fixture()
+        gpu.get_current_limits.return_value = [{"policy": 13, "limit_ma": 300125}]
+        gpu._current_limit_error = "policy 14: invalid current record"
+        state = profiles.capture(gpu)
+        self.assertEqual(state["current_limits_ma"], {"13": 300125})
+        self.assertTrue(any("policy 14" in s for s in profiles.incomplete(state)))
+
+    def test_absent_second_current_does_not_make_capture_incomplete(self):
+        gpu = fixture()
+        gpu.get_current_limits.return_value = [{"policy": 13, "limit_ma": 300125}]
+        gpu._current_limit_error = ""
+        state = profiles.capture(gpu)
+        self.assertEqual(state["current_limits_ma"], {"13": 300125})
+        self.assertFalse(profiles.incomplete(state))
+
     def test_unsupported_generations_omit_currents_without_making_snapshot_incomplete(self):
         for generation in (GPU.ARCH_KEPLER, GPU.ARCH_MAXWELL):
             with self.subTest(generation=generation):

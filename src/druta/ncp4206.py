@@ -1,6 +1,6 @@
 # Copyright (C) 2026 Thermetery Technology Co Limited
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""NCP4206 absolute VID control, identified on a Kepler GPU's I2C bus.
+"""NCP4206 absolute VID control, identified on the selected GPU's I2C bus.
 
 Public source: onsemi NCP4206 datasheet, Table 10/11 and Voltage Control Mode.
 Only VOUT_COMMAND and bit 3 of the paired VR Config registers are writable.
@@ -17,12 +17,14 @@ NORMAL_MAX_MV = 1281
 XOC_MAX_MV = 2000
 MIN_MV = 600
 DISCOVERY_PORTS = (2, 0, 1, 3, 4, 5, 6, 7)
-# onsemi NCP4206 datasheet Table 11 (p.27) default, plus the OEM identity
-# measured on GTX 770 and both GTX 690 controllers. Do not accept every
-# onsemi manufacturer ID as this controller: model AND revision must match.
+DISCOVERY_ADDRESSES = (0x20,) + tuple(a for a in range(0x08, 0x78) if a != 0x20)
+# https://www.onsemi.com/download/data-sheet/pdf/ncp4206-d.pdf Table 11:
+# these are read-only IDs, not user-programmable MP2888 identifiers. Keep
+# model identity, but do not mistake the sampled revision for an ABI version.
+# 0x20 is the documented address; other unicast routes can identify OEM parts.
 OEM_IDENTITY = (0x41, 0x3298, 0x01)
 DEFAULT_IDENTITY = (0x41, 0x0208, 0x03)
-IDENTITIES = (OEM_IDENTITY, DEFAULT_IDENTITY)
+MODEL_IDS = (OEM_IDENTITY[1], DEFAULT_IDENTITY[1])
 
 
 def decode_vid(code):
@@ -41,23 +43,26 @@ def encode_vid(mv):
 class NCP4206(Rail):
     absolute_voltage = True
 
-    def __init__(self, nvapi, *, architecture=None, port=2):
+    def __init__(self, nvapi, *, architecture=None, port=2, addr7=0x20):
         if type(port) is not int or port not in DISCOVERY_PORTS:
             raise ValueError('NCP4206 discovery supports only I2C ports 0..7')
+        if type(addr7) is not int or addr7 not in DISCOVERY_ADDRESSES:
+            raise ValueError('NCP4206 discovery requires unicast 0x08..0x77')
         self.architecture = architecture
         self._identity = None
-        recipe = {'kind': 'ncp4206-absolute-v1', 'port': port, 'addr7': 32,
+        self.discovery_diagnostics = {}
+        recipe = {'kind': 'ncp4206-absolute-v1', 'port': port, 'addr7': addr7,
                   'identity': None, 'normal_max': NORMAL_MAX_MV,
                   'xoc_max': XOC_MAX_MV, 'vid_max': 1600, 'min_mv': MIN_MV}
-        p = SimpleNamespace(name=f'Kepler - NVVDD (NCP4206, port {port})', regulator='NCP4206',
-                            rail='NVVDD', port=port, addr7=32, src=recipe,
+        p = SimpleNamespace(name=f'NCP4206 output (port {port}, 0x{addr7:02X}; physical rail unassigned)', regulator='NCP4206',
+                            rail='Controller output', port=port, addr7=addr7, src=recipe,
                             read_only=False, env_min=MIN_MV, env_max=NORMAL_MAX_MV,
                             hw_min_mv=MIN_MV, hw_max_mv=XOC_MAX_MV)
         super().__init__(p, nvapi)
         self._mutex = threading.RLock()
 
     def present(self):
-        if self.architecture != 2 or not getattr(self.nvapi, 'ok', False):
+        if not getattr(self.nvapi, 'ok', False):
             return False
         # Port/address ACKs alone never identify the regulator. Stop at the
         # manufacturer mismatch so empty ports need only one driver round trip.
@@ -65,17 +70,23 @@ class NCP4206(Rail):
         if manufacturer != 0x41:
             return False
         identity = (manufacturer, self.read(0x9a, 2), self.read(0x9b, 1))
-        if identity not in IDENTITIES or self.read(0x20, 1) != 32:
+        self.discovery_diagnostics = dict(zip(('manufacturer', 'model', 'revision'), identity))
+        if (identity[1] not in MODEL_IDS or type(identity[2]) is not int
+                or not 0 <= identity[2] <= 255 or self.read(0x20, 1) != 32):
             return False
         if self._identity is not None:
             return identity == self._identity
         self._identity = identity
         self.p.src['identity'] = list(identity)
-        # Preserve the saved-profile fingerprint for the original port-2 OEM
-        # recipe, while the visible name describes any identified Kepler card.
+        # A model ID establishes register semantics, not which GPU rail is
+        # connected. Preserve only the historical saved-profile identity.
+        legacy = self.addr7 == 0x20 and identity in (OEM_IDENTITY, DEFAULT_IDENTITY)
         self.p.profile_name = ('GTX 770 - NVVDD (NCP4206)'
-                               if self.p.port == 2 and identity == OEM_IDENTITY
-                               else self.p.name)
+                               if legacy and self.p.port == 2 and identity == OEM_IDENTITY
+                               else (f'Kepler - NVVDD (NCP4206, port {self.p.port})'
+                                     if legacy else self.p.name))
+        if legacy:
+            self.p.profile_rail = 'NVVDD'
         return True
 
     def capture_control(self):

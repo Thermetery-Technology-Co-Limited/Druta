@@ -4,7 +4,11 @@ Druta's Control tab discovers current limits from a generation descriptor plus
 the live driver ABI. Slider eligibility never depends on a PCI device ID,
 board name, driver string or VBIOS. Pascal and Turing expose the validated
 **Core current limit**; Blackwell additionally exposes **Other rail current
-limit** when both returned policy descriptors validate.
+limit**. Each present policy is validated independently, so a missing or invalid
+second policy does not suppress a valid core slider. The occupancy mask is
+bounded by validated buffer capacity and its 32-bit field, rather than the
+18 policies observed on the development board. Unavailable policies retain
+separate diagnostics; writes still select only one understood policy.
 
 | Generation / control | Driver default on tested card | Normal maximum | XOC maximum |
 |---|---:|---:|---:|
@@ -100,7 +104,8 @@ Blackwell's `0x3ffff`) and must be echoed by control and dynamic GETs.
 
 Writes preserve the freshly read control block and select only the requested
 policy. Success requires matching control and effective dynamic readbacks.
-An unknown generation or descriptor mismatch exposes no current slider.
+An unknown generation exposes no current slider. A descriptor mismatch leaves
+that policy unavailable while preserving other valid current sliders.
 
 ### Driver 610.88 layout
 

@@ -19,7 +19,7 @@ class ResetReadbackTests(unittest.TestCase):
     def gpu(self):
         gpu = reset_gpu()
         gpu.clkdom_ok = Mock(return_value=True)
-        gpu.clkdom_layout = Mock(return_value=SimpleNamespace(nvvdd_uv=0x104))
+        gpu.clkdom_layout = Mock(return_value=SimpleNamespace(nvvdd_uv=0x104, msvdd_uv=None))
         gpu.read_clk_domain_offsets = Mock(return_value=({2: {"freq_khz": 0}}, None))
         gpu.read_rail_offset_mv = Mock(return_value=0)
         gpu.set_clk_domain_offset = Mock(return_value=(True, "clock reset"))
@@ -79,7 +79,7 @@ class ResetReadbackTests(unittest.TestCase):
 
     def test_layout_without_nvvdd_does_not_require_a_rail_offset_read(self):
         gpu = self.gpu()
-        gpu.clkdom_layout.return_value = SimpleNamespace(nvvdd_uv=None)
+        gpu.clkdom_layout.return_value = SimpleNamespace(nvvdd_uv=None, msvdd_uv=None)
         self.assertTrue(all(ok for ok, _ in self.steps(gpu).values()))
         gpu.read_rail_offset_mv.assert_not_called()
 

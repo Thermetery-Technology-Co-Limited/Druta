@@ -80,7 +80,8 @@ Blackwell-style type-5 records sent through **0x2080F214**, with requested mask
 1 and the current voltage-boost field preserved, change all four NVVDD limits.
 An all-zero NVAPI control record is valid at stock and must not be discarded.
 
-These are the zero-delta bases, with reliability expressed at **0% boost**:
+These are measured zero-delta bases on these boards, with reliability expressed
+at **0% boost**. They are historical measurements, not generation-wide defaults:
 
 | Field | TITAN RTX | TITAN Xp | RTX 5080 reference |
 |---|---:|---:|---:|
@@ -110,22 +111,26 @@ operating state.
 
 ## Druta behavior and reproduction
 
-Pascal and Turing receive generation-specific voltage bases, stock values,
-bounds, and NVVDD controls once the live driver getter confirms the expected
-record layout. Device ID, subsystem ID, driver string and VBIOS are not slider
-gates. Unknown generations or an unrecognized runtime layout retain read-only
-absolute telemetry. Rail-write opt-in is local to each selected GPU.
+Pascal, Turing and Blackwell use understood register layouts, but each present
+rail obtains its voltage reference from that adapter's first stable paired
+control/status readings. The current boost contribution is removed from the
+reliability reference. Displayed absolute limits are estimates because driver
+status can be quantized; signed control deltas are preserved exactly. No board's
+measured bases are applied to another board by generation. Device ID, subsystem
+ID, driver string and VBIOS are not slider gates, and a missing second rail does
+not suppress the first. Rail-write opt-in is local to each selected GPU.
 The user-selected rail request bounds are **1200 mV normally / 1500 mV
 with XOC**, including overvoltage. NVVDD offset permits **+200 / +500 mV**
 respectively. These are software request limits, not verified hardware maxima.
-Stock values remain the measured per-board defaults. Leaving XOC preserves
+**Initial** restores exact first-read control deltas, which may include earlier
+tuning by another application; it is not a factory reset. Leaving XOC preserves
 existing higher settings and permits reducing them, but prevents raising them
 further without re-enabling XOC.
 
 Enable **Rail limits**, link the reliability fields, and set the permitted
 ceiling. The V/F planning cap follows a raised ceiling; a suitable de-flattened
 curve or requested operating point must actually use the additional voltage.
-Use the live rail reading to check the result. Stock restores individual fields
+Use the live rail reading to check the result. Initial restores individual fields
 without resetting another field or the independent voltage-boost setting.
 
 The diagnostic defaults to reads. These explicit commands repeat the ceiling

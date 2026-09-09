@@ -319,7 +319,7 @@ header dword 2 = DOMAIN BITMASK (bit d selects domain d; any bit the card
 entry(d)       = 0x124 + d * 0x304
     +0x000  mode/type      reads 8, 9 or 2 per domain
     +0x10C  frequency delta, signed kHz
-    +0x114  MSVDD delta, signed microvolts   — never written by this app
+    +0x114  MSVDD request delta, signed microvolts
 ```
 
 **This block does not use the clock getter's domain numbering.** Assuming it did
@@ -617,10 +617,12 @@ like. Aligned against the frequency field, rail 0 is at `+0x110`:
 - **Rail 0 is NVVDD** and it works. `+50 mV` requested moves vcore exactly
   `+50 mV`, measured with the core clock pinned at 1500 MHz. Shipped as
   *NVVDD offset (mV)*.
-- **Rail 1 is MSVDD and is not reachable here.** Refused on every control domain
-  that does anything, and accepted only on domain 6 — which stores frequency
-  offsets it never applies either, so its acceptance means "nothing validates
-  this", not "this rail exists". Read and displayed, never written.
+- **The tested MSVDD request was ineffective on this board.** It was refused
+  on the measured active domains and accepted on domain 6 without establishing
+  a voltage response. This experiment does not suppress other boards' controls.
+  The current UI exposes readable MSVDD request fields in understood layouts
+  as an XOC experiment. It validates stored-field readback, explicitly reports
+  physical voltage response as unverified, and provides Zero after leaving XOC.
 
 **Measure a rail with the FREQUENCY lock, never the V/F point lock.** A held
 V/F point pins the voltage, so a rail offset applies and nothing moves — which
@@ -1102,9 +1104,11 @@ to stock` still takes two, because it drops every knob at once.
 ## I2C discovery and contribution interfaces
 
 `railctl.discover()` returns all controller candidates on the selected GPU.
-NCP4206 uses a Kepler port scan and an absolute-VID adapter; MP2888A scans
-ports/addresses, checks a repeated register fingerprint and binds an offset
-recipe to the discovered connection. These scanners do not use board-ID gates;
+NCP4206 uses controller-model discovery and an absolute-VID adapter; MP2888A
+checks a repeated register fingerprint; MP29816 checks its source-backed model
+ID and binds its already-selected PAGE/scaling. All scan ports and unicast
+addresses independently of GPU generation or board IDs, and identify the
+controller output without assuming its physical rail. These scanners do not use board-ID gates;
 other generic TOML recipes retain optional PCI matching and fixed bus settings.
 
 Candidate selection and Verify are separate steps. Verify makes bounded writes

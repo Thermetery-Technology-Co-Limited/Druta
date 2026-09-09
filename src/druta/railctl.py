@@ -1023,18 +1023,26 @@ class Rail:
 def discover(nvapi, dev_id=None, subsys=None, log=None, *, architecture=None):
     """Read-only candidate discovery on the selected GPU's actual I2C buses.
 
-    NCP4206 and MP2888A use controller fingerprints, without board-ID gates.
+    NCP4206, MP2888A and MP29816 use controller evidence, without board-ID gates.
     Other TOML recipes retain their explicit board constraints. Return every
     candidate: a caller must never silently resolve an ambiguous bus map.
     """
-    from .ncp4206 import DISCOVERY_PORTS, NCP4206
+    from .ncp4206 import DISCOVERY_PORTS, DISCOVERY_ADDRESSES, NCP4206
     from .mp2888 import discover as discover_mp2888
+    from .mp29816 import discover as discover_mp29816
     hits = []
-    if architecture == 2 and getattr(nvapi, "ok", False):
-        for port in DISCOVERY_PORTS:
-            ncp = NCP4206(nvapi, architecture=architecture, port=port)
-            if ncp.present():
-                hits.append(ncp)
+    if getattr(nvapi, "ok", False):
+        for addr7 in DISCOVERY_ADDRESSES:
+            for port in DISCOVERY_PORTS:
+                ncp = NCP4206(nvapi, architecture=architecture, port=port, addr7=addr7)
+                try:
+                    if ncp.present():
+                        hits.append(ncp)
+                    elif log and ncp.discovery_diagnostics.get('model') is not None:
+                        log(f'onsemi candidate at port {port}/0x{addr7:02X}: '
+                            f'{ncp.discovery_diagnostics}; no understood NCP4206 layout.', False)
+                except Exception:
+                    continue
     selected = getattr(nvapi, "selected", None) or {}
     conflict = any(supplied is not None and selected.get(key) is not None
                    and supplied != selected[key]
@@ -1046,6 +1054,9 @@ def discover(nvapi, dev_id=None, subsys=None, log=None, *, architecture=None):
     for p in load_profiles(log=log):
         if getattr(p, "regulator", "").upper() == "MPS MP2888A":
             hits.extend(discover_mp2888(nvapi, p, log=log))
+            continue
+        if getattr(p, "regulator", "").upper() == "MPS MP29816":
+            hits.extend(discover_mp29816(nvapi, p, log=log))
             continue
         if conflict or not p.candidate_for(dev_id, subsys):
             continue

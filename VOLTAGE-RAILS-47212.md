@@ -29,8 +29,11 @@ the legacy RM transport without guessing a command:
 | Parameter header | mask, boost | selector, mask, boost |
 | Rail record | type 1, four deltas | type 5, four deltas, reserved/valid fields |
 
-The production writer selects the generation profile and then requires the
-live getter to confirm the measured transport layout. Device ID, subsystem ID,
+The production writer selects understood generation/layout semantics and then
+requires the live getter to confirm the transport layout. Voltage references
+come from this adapter's first stable paired control/status reads, not the
+measured values in the table below. Initial restoration and new tuning profiles
+retain exact signed control deltas. Device ID, subsystem ID,
 driver string and VBIOS do not gate the slider. The writer preserves all
 unrelated packet words. A shared lock serializes hook installation across GPU
 objects; only the installing native thread may substitute a write. A background
@@ -71,7 +74,7 @@ Xp's idle minimum also
 raises voltage from **650 to 875 mV**, but R470 recomputes the idle voltage
 using the previously stored minimum on the first write. An identical second
 write makes the live voltage catch up. Druta performs that identity re-send
-only for a changed minimum on the measured GP102/472.12 profile, after
+only for a changed minimum through the understood Pascal V1 layout, after
 verifying all stored records and the preserved boost setting. The same step
 makes reset return the idle voltage to 650 mV. Two complete cycles through
 the production set/reset methods verified this behavior.

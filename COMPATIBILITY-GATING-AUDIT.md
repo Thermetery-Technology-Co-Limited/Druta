@@ -39,118 +39,139 @@ Relevant implementation: `nvbackend.py` (`legacy_p0_supported`,
 `hold_legacy_p0`, `vf_curve_applicable`), `druta.py` (`build_control`,
 `sync_lock_ui`, `hold_for_read`), and `profiles.py` (snapshot scope).
 
-## Remaining findings, not fixed by the P0 change
+## Compatibility fixes from the follow-up audit
 
-### 1. Voltage conversion and Stock inherit local measurements
+These eight findings are implemented in the working change. Their eligibility,
+readback and recovery contracts are covered by hardware-free regression tests;
+new cross-board physical behavior is not implied. Final integration validation
+is recorded below separately from earlier hardware measurements.
 
-`GPU._VOLT_RAIL_GENERATION_PROFILES` contains absolute reliability,
-alt-reliability, overvoltage/vmin bases, headroom and power-on deltas selected
-by architecture/getter version. `_volt_rail_profile()` supplies these to
-display, absolute-to-delta conversion and reset/Stock behavior.
+### 1. Per-device voltage references and exact Initial restoration
 
-Examples: Turing reliability 1068.75 mV / alt-reliability 1093.75 mV; Blackwell
-reliability 1040 mV and MSVDD power-on reliability delta -50000 microvolts.
-Structural ABI validation does not prove another board has those defaults.
-This can affect write interpretation, beyond hiding a slider.
+Removed generation-wide voltage bases, boost headroom and power-on deltas from
+control conversion and restoration. Each understood rail captures its first
+stable paired control/absolute-status samples on the current adapter. The
+reported boost contribution is removed from reliability when deriving its
+reference. Later writes and capability refreshes do not redefine that reference.
 
-**Priority follow-up:** establish native per-device bases/defaults or distinguish
-captured initial state from factory Stock. Do not describe architecture
-constants as confirmed current-card defaults. No different-board voltage error
-was measured during this audit; this is a code-supported risk. Simply removing
-the surrounding gates would not solve it.
+Absolute status is quantized driver data. UI limit values are therefore labelled
+estimates from the first stable read, not calibrated physical VOUT. The exact
+signed microvolt deltas are retained independently. **Initial** restores those
+first-read deltas, including any tuning that already existed when Druta started;
+it is not presented as factory Stock. Tuning profiles now preserve raw deltas
+for exact replay rather than depending on the displayed estimate.
 
-### 2. Current limits require the local complete policy set
+Implementation: `read_volt_rail_limits`, `_volt_rail_profile`,
+`set_volt_rail_limits_raw`, `reset_volt_rail_limits`, and profile capture/replay.
+A supported architecture still identifies understood register semantics. It no
+longer supplies another board's voltage values.
 
-`_current_limit_state()` requires every policy in
-`CURRENT_LIMIT_GENERATION_POLICIES` and rejects bits outside
-`_CURRENT_LIMIT_ALL_MASK = (1 << 18) - 1`.
+### 2. Independent current policies within the actual buffer capacity
 
-- Valid Blackwell core policy 13 is discarded if policy 14 is absent.
-- A valid known current is discarded if an unrelated policy uses bit 18+.
-- An invalid expected policy discards otherwise valid rows too.
+`_current_limit_capacity()` derives policy capacity from the validated info,
+status and control buffers, bounded by their 32-bit occupancy mask. The former
+18-policy ceiling is gone. Additional unrelated policies no longer discard
+understood current controls.
 
-The mask is 32 bits; all three known packet sizes/strides accommodate at least
-32 records. Eighteen reflects sampled occupancy, not buffer capacity.
+Each present generation-understood policy is validated separately. Missing or
+invalid policy 14 no longer hides a valid policy 13. Diagnostics distinguish
+absent policies from malformed present records; incomplete capture of a present
+record remains an undo/profile error. Writes still select one understood policy,
+preserve unrelated bytes and validate stored/effective readback. Type, units,
+ranges, packet geometry and echoed masks remain required.
 
-**Follow-up:** validate each present understood policy independently, derive
-bounds from the verified ABI, preserve unrelated bytes/write masks and report
-unavailable policies separately. Keep type/unit/range/header/readback checks.
-These rejection paths follow from code; no partial-policy board was measured.
+### 3. Independent voltage-rail visibility and writes
 
-### 3. Voltage-limit visibility requires an exact rail set
+`volt_rail_limits_supported(rail)` and `volt_rail_limit_fields(rail)` operate on
+the selected rail's current-adapter control record and independent rail identity.
+The UI renders each supported rail without requiring an exact topology. A
+missing MSVDD record no longer removes valid NVVDD controls, and an unrelated
+unsupported record does not authorize writes to itself.
 
-`volt_rail_limits_supported()` requires both getters to expose exactly `{0}`
-on Pascal/Turing or `{0,1}` on Blackwell. Write/reset paths repeat it. Valid
-Blackwell NVVDD without exposed MSVDD disables the whole group.
+The writer/reset paths likewise validate and select only requested, understood
+rails. Other records and voltage boost are preserved. Initial references and
+restoration remain per rail, rather than being copied from a generation profile.
 
-**Follow-up:** per-rail capability after resolving conversion/default provenance
-above. Keep agreement about the selected rail's identity and record structure.
-A missing second rail should not invalidate the first.
+### 4. Memory precision follows transport and reports readback
 
-### 4. Memory-offset precision depends on one exact RTX 5080
+Removed the exact RTX 5080 device/subsystem/VBIOS/driver tuple from
+`memory_offset_step_units()`. Every adapter is offered the transport's integer
+offset-unit precision; the Pstates20 fallback represents one unit as 500 kHz.
+Neither transport declares a hardware quantization grid, so the code does not
+invent one from a product ID or a single truncating write.
 
-`memory_offset_step_units()` returns two units only for
-`2C02 / 89DE1043 / 98.03.3b.c0.6f / 580.97`; others get one. Setter, slider
-snapping and profile preflight consume this. It does not hide the slider, but
-changes accepted precision and can cause readback failures elsewhere.
+The setter compares each requested value with actual readback and reports
+mismatch. Slider snapping and profile preflight use the same transport units.
+This makes another board's accepted precision testable without claiming that
+all GPUs implement every representable request physically.
 
-**Follow-up:** determine granularity from transport/runtime evidence and report
-quantization. Do not replace the board-specific rule with an equally unproven
-claim about every Blackwell GPU.
+### 5. Clock controls no longer require optional telemetry pairing
 
-### 5. Private clock controls depend on optional telemetry pairing
+`clkdom_controls_for_ui()` intersects understood control indices with masks
+accepted by the validated runtime layout. It no longer requires private clock
+counters at locally observed domain indices before exposing a control.
 
-Pascal/Turing `clkdom_controls_for_ui()` uses `clkdom_pairing()` keys. A valid
-control can disappear if the private getter lacks the expected domain 0/15.
-Additional memory offset already has an exception because Pascal R470 can
-lack the pairing while the control works. Blackwell uses accepted masks.
+Telemetry pairing supplies live labels/readouts when available. A missing
+counter leaves its live value unavailable instead of erasing a valid control.
+Unknown field semantics remain outside the writable control catalogue, even
+when a driver accepts the corresponding mask.
 
-**Follow-up:** separate understood writable indices from optional live labels.
-An unavailable counter should not erase a valid control. Unknown register
-semantics still require investigation before writes.
+### 6. Explicit capability refresh retries cached discovery
 
-### 6. Transient discovery failures can become permanent absence
+**Device > Refresh capabilities** clears positive and negative clock-layout,
+accepted-domain, pairing, and voltage-rail discovery caches for a deliberate
+read-only retry. Clock failures retain a reason distinguishing a failed read
+from an unsupported response. Partial or empty rail discovery can be retried
+without rebuilding the GPU object.
 
-`clkdom_layout()` caches failed reads/version checks as False;
-`clkdom_domains()` caches empty accepted-domain lists;
-`_read_volt_rail_blocks()` caches the initially observed rail set, even empty.
-Controls can stay missing until the GPU object is rebuilt.
+Polling continues to use cached outcomes so transient or unsupported transports
+do not cause repeated full scans. Refresh preserves settings, owned holds and
+first-read restoration references. I2C has its separate explicit Rescan action.
 
-**Follow-up:** explicit capability refresh; distinguish unsupported ABI from
-transport failure or temporary unavailability. Keep retries bounded.
+### 7. Controller-based I2C discovery across boards and routes
 
-### 7. I2C discovery still has local routing/fingerprint constraints
+NCP4206, MP2888A and MP29816 now scan ports 0–7 and unicast addresses
+`0x08`–`0x77` independently of GPU generation, PCI IDs and VBIOS. NCP4206/MP2888A
+try `0x20` first; MP29816 tries `0x30` first. Discovery only reads registers.
 
-The MP29816 recipe requires Astral RTX 5080 device/subsystem IDs, port 2/address
-0x30, observed manufacturer/model/revision fingerprints, PAGE 0 and one scaling
-configuration. Another MP29816 board can be excluded before identity reads.
-PAGE/scaling protect decoding; PCI/revision prefilters also limit discovery
-to local observations.
+MP29816 requires the source-backed count-prefixed `0xAD` model ID; the Astral's
+manufacturer/model strings and revision are diagnostics. It binds the currently
+selected PAGE 0 or 1 and runtime scale, checks them around operations, and never
+writes PAGE to discover another output. All eight source-documented scales can
+provide telemetry. The sourced offset field is available on either page only
+in its documented 5 mV mode; other scales are explicitly telemetry-only.
 
-NCP4206 has no GPU PCI/VBIOS allowlist, but is Kepler-only, probes address 0x20
-on ports 0..7 and accepts documented-default or observed-OEM identity tuples.
-Other routing/identity variants are not discovered.
+NCP4206 retains the documented or measured controller model IDs and VOUT_MODE
+semantics, while accepting unsampled revisions and pinning the observed identity
+to the instance. Its IDs are read-only according to the onsemi datasheet; they
+are not MP2888-style programmable labels. Unfamiliar onsemi models are reported
+without assuming compatible voltage-register semantics. MP2888A continues its
+repeatable register-layout fingerprint, with programmable IDs as diagnostics.
 
-MP2888A already ignores the original recipe's PCI match metadata at runtime,
-scans ports 0..7 and unicast addresses, and validates a repeatable candidate
-layout. Its old TOML match fields preserve saved-profile identity rather than
-gating product IDs. User-programmable vendor/product IDs are diagnostic.
+All three adapters label the physical rail as unassigned. A controller identity
+or PAGE number alone does not establish NVVDD wiring. Historical names/rail
+labels remain only in saved-profile identity fields so existing hashes retain
+compatibility. Ambiguous candidates require explicit selection, and Apply still
+requires per-session response verification. Each empty bus costs 896 initial
+identity reads per enabled scanner, only during discovery/rescan.
 
-**Follow-up:** controller-specific identity/decoding and location-bound candidate
-selection independent of GPU model. PAGE 0 and model identity alone do not
-identify which physical rail a new PCB routes there. Preserve explicit
-selection for ambiguity and per-session response checks. This change does not
-generalize an I2C recipe.
+Sources and decoding details: [I2C adapter reference](i2c/PROFILES.md) and
+[MP29816 source/measurement scope](i2c/MP29816-ASTRAL.md).
 
-### 8. One inert MSVDD offset experiment became a global omission
+### 8. MSVDD is an explicit stored-request experiment
 
-The UI omits MSVDD clock-domain offset after a stored-but-inert observation
-on RTX 5080/580.97. This is a universal omission, not an identity allowlist;
-separate MSVDD rail ceilings remain available through their own backend.
+The UI now offers **MSVDD requested offset** when the understood clock-control
+layout exposes a readable field on an accepted control. An explicit XOC opt-in
+permits the experiment. This removes the global omission caused by one stored-
+but-inert RTX 5080/580.97 observation, without turning that observation into a
+claim that physical MSVDD voltage will move on other boards.
 
-**Follow-up:** keep the negative experiment scoped to its tested mechanism.
-A separately understood layout could justify an experimental control, but
-this audit does not establish a working alternative.
+The writer changes only the selected signed microvolt field, checks a stable
+getter block before dispatch and verifies the stored request afterward. The
+result says that physical voltage response is unverified. **Zero** can clear
+stored requests after leaving XOC; profile capture/replay and reset track the
+relevant control domains. Optional driver rail telemetry is informational and
+is not proof of a direct I2C VOUT change.
 
 ## Restrictions with different purposes
 
@@ -196,5 +217,18 @@ Kepler/Maxwell eligibility and UI routing, repeated-hold ownership, failed
 cleanup, missing/malformed fan snapshots, scope-confused payloads, fan-only
 undo, and timing-read hold behavior are covered by automated tests. No Maxwell
 GPU is currently installed; its new broad eligibility has mock/API contract
-coverage, not a fresh Maxwell hardware claim. The remaining findings above
-were identified by source inspection and should not be mistaken for fixes.
+coverage, not a fresh Maxwell hardware claim. The eight follow-up fixes have
+regression coverage for alternate identities/topologies, malformed responses,
+refresh/retry, raw restoration and experimental-request behavior.
+
+The exact staged source passed **898 tests** after export to an independent
+folder. The working tree additionally contains 12 excluded launch-notice tests.
+The follow-up actual-widget check on GTX 770 / 472.12 rediscovered NCP4206 at
+port 2 / 0x20 and rebuilt capabilities while retaining the P0/max-fan controls,
+same GPU generation and I2C connection. Fan policy stayed at 26% Auto; no P0
+request was owned and no tuning writes occurred. Initial UI/discovery took
+about 3 seconds. Evidence:
+`experiments/gating-refresh-gtx770-47212-20260909.json`.
+This check does not validate modern voltage/current writes or physical MSVDD
+offset response. The downloadable diagnostic build carries matching source
+and SHA-256 manifest; pending launch-notice work is excluded from the commit.

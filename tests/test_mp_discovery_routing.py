@@ -42,7 +42,8 @@ class DiscoveryRouting(unittest.TestCase):
     def test_kepler_ncp_and_mp_candidates_are_both_returned(self):
         ncp = SimpleNamespace(present=lambda: True)
         with patch("druta.ncp4206.NCP4206", return_value=ncp), \
-                patch("druta.ncp4206.DISCOVERY_PORTS", (2,)):
+                patch("druta.ncp4206.DISCOVERY_PORTS", (2,)), \
+                patch("druta.ncp4206.DISCOVERY_ADDRESSES", (0x20,)):
             self.assertEqual(railctl.discover(self.nvapi, architecture=2), [ncp, self.hit])
 
 
