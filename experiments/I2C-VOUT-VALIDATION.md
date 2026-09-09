@@ -68,7 +68,7 @@ See the [onsemi NCP4206 datasheet](https://www.onsemi.com/download/data-sheet/pd
 Table 12: VMON reports the voltage between FB and FBRTN; VID_EN in the paired
 VR configuration registers selects the VID source.
 
-Validation for this revision is simulated hardware only. The production UI
+The simulated production-worker coverage verifies the control and cleanup path. The production UI
 worker test uses raw LINEAR11 telemetry at 750 mV, sees an 11.71875 mV rise
 for a 25 mV command, and observes the return to 750 mV before releasing P0.
 CUDA and NVAPI voltage calls are forbidden in that test. Regression cases
@@ -76,7 +76,42 @@ cover noisy baselines, missing telemetry, P-state/clock changes, cancellation,
 control readback failures, absent reversal, active original control, and failed
 P0 release/recovery. The historical GTX 770 and dual-GPU GTX 690 captures
 establish earlier direct-VMON/control observations, not validation of this new
-verifier. No Kepler GPU is currently installed; a hardware retest is pending.
+verifier. Subsequent hardware validation on GTX 770 is described below; the revised detector has not been retested on GTX 690.
+
+## GTX 770 hardware follow-up
+
+The first run of commit `6546c5c` reached stable P0 but returned inconclusive:
+VMON rose from 951.171875 to 988.28125 mV for a 975 mV VID command. Comparing
+VMON with the nominal command plus noise still assumed an unestablished
+command-to-measurement relationship. Two independent traces under the same P0
+hold reproduced 951.171875 -> 988.28125 -> 951.171875 mV. The physical cause
+of the command/VMON difference has not been established.
+
+The correction removes that command-relative rejection. Command trials remain
+bounded as before, and every trial VMON sample is checked against the existing
+1281 mV normal verification ceiling, including in XOC. Exceeding that ceiling
+immediately stops sampling and restores the original controller state. Response,
+noise, reversal, baseline return, and P0 checks remain required.
+
+Three consecutive production-worker runs then passed on the PNY GTX 770,
+VBIOS 80.04.c3.00.01, driver 472.12, NCP4206 at port 2/address 0x20. During
+all measurement windows the card held P0, core 535 MHz, memory 3505 MHz.
+Baseline medians were 953.125 mV; the 975 mV command produced 988.28125,
+990.234375, and 988.28125 mV respectively. All three restored medians were
+951.171875 mV. Upward responses were 35.15625–37.109375 mV, exceeding the
+5.859375–7.8125 mV observed response noise. The exact original registers
+0x21=0, 0xD2=0x72, 0xD3=0x72 and 0xDD=3 were retained/restored, the temporary
+P0 request was released, and no recovery remained pending. CUDA and NVAPI
+voltage calls were prohibited in the harness. This confirms repeatable response
+at that P0 point, not full-load stability or exact commanded voltage.
+
+Raw initial failure and subsequent production-worker results:
+`i2c-direct-vmon-worker-gtx770-47212-20260909.json`.
+Independent baseline/command/restoration traces:
+`i2c-vmon-command-trace-gtx770-47212-20260909.json`.
+The passing runs record the tested NCP4206 source hash because the correction
+was still uncommitted during measurement. This GTX 770 has the user's reported
+5 mOhm-on-5 mOhm shunt modification; power telemetry is not used for the verdict.
 
 ## Released generic-verifier provenance
 

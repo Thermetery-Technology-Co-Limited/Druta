@@ -205,19 +205,25 @@ class VerificationTests(unittest.TestCase):
         self.assertIn('downward response', message)
         self.assert_restored()
 
-    def test_actual_vmon_quantum_sets_overshoot_allowance(self):
-        self.rise = 27
-        self.quantum = 1000 / 256
+    def test_measured_gtx770_response_above_vid_command_passes_with_reversal(self):
+        self.base = 951.171875
+        self.rise = 37.109375
         ok, message, ladder = self.verify()
         self.assertTrue(ok, message)
-        self.assertEqual(ladder[0]['overshoot_allowance_mv'], self.quantum)
+        self.assertEqual(ladder[0]['target_mv'], 975)
+        self.assertEqual(ladder[0]['median_mv'], 988.28125)
+        self.assertEqual(ladder[0]['restored_vout_mv'], self.base)
         self.assert_restored()
-        self.rail.calls.clear()
-        self.rise = 30
+
+    def test_physical_ceiling_stops_at_first_sample_even_in_xoc(self):
+        self.rail.xoc = True
+        self.rise = 1300 - self.base
         ok, message, ladder = self.verify()
         self.assertFalse(ok)
-        self.assertIn('exceeded the command', message)
+        self.assertIn('exceeded the normal verification ceiling', message)
         self.assertEqual(len(ladder), 1)
+        self.assertEqual(self.voltage_reads, 26)
+        self.assertEqual(ladder[0]['voltage_ceiling_mv'], n.NORMAL_MAX_MV)
         self.assert_restored()
 
     def test_baseline_near_ceiling_never_increases_normal_verification_bounds(self):

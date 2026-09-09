@@ -272,7 +272,7 @@ class NCP4206(Rail):
                     elif current != point:
                         raise ValueError('GPU P-state or core/memory clocks changed during verification')
 
-            def sample(expected):
+            def sample(expected, *, voltage_ceiling=None):
                 values, quanta = [], []
                 # Match the offset verifier's complete one-second windows.
                 # Never accept a partly sampled window after cancellation.
@@ -285,6 +285,9 @@ class NCP4206(Rail):
                             or type(quantum) not in (int, float)
                             or not math.isfinite(quantum) or quantum <= 0):
                         raise ValueError('NCP4206 VMON read failed')
+                    if voltage_ceiling is not None and value > voltage_ceiling:
+                        raise ValueError(f'VMON exceeded the normal verification ceiling '
+                                         f'({voltage_ceiling:g} mV): {value:.2f} mV')
                     values.append(value)
                     quanta.append(quantum)
                     check()
@@ -316,7 +319,7 @@ class NCP4206(Rail):
                     rung = {'baseline_mv': base,
                             'baseline_samples_mv': baseline['samples_mv'],
                             'baseline_quantum_mv': baseline['quantum_mv'],
-                            'target_mv': target, 'moved': False}
+                            'target_mv': target, 'voltage_ceiling_mv': NORMAL_MAX_MV, 'moved': False}
                     ladder.append(rung)
                     self._verification_write_attempted = True
                     self._verification_restore_ok = False
@@ -325,25 +328,22 @@ class NCP4206(Rail):
                         raise ValueError('verification write refused: ' + message)
                     time.sleep(.15)
                     trial = sample({'kind': 'absolute_vid', 'enabled': True,
-                                    'command': encode_vid(target)})
+                                    'command': encode_vid(target)}, voltage_ceiling=NORMAL_MAX_MV)
                     noise = max(baseline['noise_mv'], trial['noise_mv'])
                     quantum = max(baseline['quantum_mv'], trial['quantum_mv'])
-                    # Use the measured LINEAR11 quantum, not an invented fixed
-                    # ADC resolution or an arbitrary overshoot allowance.
-                    allowance = max(quantum, noise)
-                    overshoot = max(trial['samples_mv']) > target + allowance
+                    # VID is a command, not a calibrated physical-voltage
+                    # ceiling. GTX 770 VMON reproducibly reads above the VID
+                    # target. Enforce the existing normal voltage envelope per
+                    # sample, and judge response/reversal independently of gain.
                     delta = trial['median_mv'] - base
                     threshold = max(6.25, quantum, noise)
-                    moved = delta >= max(6.25, quantum) and delta > noise and not overshoot
+                    moved = delta >= max(6.25, quantum) and delta > noise
                     rung.update(trial, delta_mv=delta, threshold_mv=threshold,
-                                response_noise_mv=noise, overshoot=overshoot,
-                                overshoot_allowance_mv=allowance, moved=moved)
+                                response_noise_mv=noise, moved=moved)
                     if log:
                         log(f'NCP4206 I2C VMON {base:.2f} -> {trial["median_mv"]:.2f} mV; '
                             f'target {target:.2f} mV; change {delta:.2f} mV; '
                             f'noise {noise:.2f} mV; quantum {quantum:.4f} mV')
-                    if overshoot:
-                        raise ValueError('VMON exceeded the command plus measured noise/quantization allowance')
                     if moved:
                         hit = rung
                         break

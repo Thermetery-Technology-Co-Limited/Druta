@@ -62,12 +62,12 @@ class NcpVerifyTests(unittest.TestCase):
         self.assertEqual(len(ladder), 1)
         self.assertFalse(ladder[0]["moved"])
 
-    def test_overshoot_stops_without_trying_a_higher_target(self):
-        _, (ok, message, ladder) = self.verify([1200] * 25 + [1241] * 25)
+    def test_physical_ceiling_stops_without_trying_a_higher_target(self):
+        _, (ok, message, ladder) = self.verify([1200] * 25 + [1300] * 25)
         self.assertFalse(ok)
         self.assertEqual(len(ladder), 1)
-        self.assertTrue(ladder[0]["overshoot"])
-        self.assertIn("exceeded the command", message)
+        self.assertFalse(ladder[0]["moved"])
+        self.assertIn("exceeded the normal verification ceiling", message)
 
     def test_restore_failure_overrides_success(self):
         _, (ok, message, ladder) = self.verify([1200] * 25 + [1210] * 25 + [1200] * 25,

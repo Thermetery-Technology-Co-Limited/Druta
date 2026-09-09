@@ -67,6 +67,8 @@ function Get-SourceSnapshot {
         'experiments/current-limits-titan-61088-20260908.json',
         'experiments/current-limits-titan-47212-20260908.json',
         'experiments/I2C-VOUT-VALIDATION.md',
+        'experiments/i2c-direct-vmon-worker-gtx770-47212-20260909.json',
+        'experiments/i2c-vmon-command-trace-gtx770-47212-20260909.json',
         'experiments/i2c-direct-vout-worker-titan-47212-20260909.json',
         'experiments/current-limit-ceiling-titan-rtx-20260908.json',
         'experiments/current-limit-ceiling-titan-xp-20260908.json',
