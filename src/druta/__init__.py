@@ -20,7 +20,7 @@
 Druta - GPU monitor and tuner for NVIDIA cards.
 """
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 __author__ = "Thermetery Technology Co Limited"
 __license__ = "GPL-3.0-or-later"
 

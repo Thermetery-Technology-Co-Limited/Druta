@@ -1,13 +1,14 @@
 # Druta
 
-**Version 1.3.0** — [release notes](RELEASE-NOTES-1.3.0.md).
+**Version 1.4.0** — [release notes](RELEASE-NOTES-1.4.0.md).
 
 Package-refactor validation: [Maxwell/Pascal](MAXWELL-PASCAL-VALIDATION.md)
 and [RTX 5080 / Blackwell](BLACKWELL-VALIDATION.md), including controlled
 writes, readbacks, restoration and the limits of the tested coverage.
 
-A monitor and tuner for Pascal/Turing/Blackwell NVIDIA cards, driven through NVAPI/NVML private
-interfaces. It edits the V/F curve
+A monitor and tuner for Kepler, Maxwell, Pascal, Turing and Blackwell NVIDIA cards,
+driven through NVAPI/NVML private interfaces. Available controls depend on the
+generation and the current adapter's runtime capabilities. It edits supported V/F curves
 with planners built around how the boost arbiter actually behaves, and reads and
 writes the framebuffer-partition memory timing registers.
 
@@ -34,7 +35,7 @@ ASUS AND STRIX ARE TRADEMARKS OF ASUSTEK COMPUTER INC. AFTERBURNER IS A
 TRADEMARK OF MICRO-STAR INTERNATIONAL CO., LTD. THESE NAMES APPEAR HERE SOLELY
 TO IDENTIFY HARDWARE AND SOFTWARE THAT DRUTA WORKS WITH OR IS COMPARABLE TO.**
 
-Developed against two cards:
+Initial development boards (measurements describe these configurations, not universal defaults):
 
 | | die | arch | memory | board |
 |---|---|---|---|---|
@@ -97,7 +98,7 @@ python -m pip install -r requirements.txt
 ```
 
 The local build produces `dist\Druta\Druta.exe` and
-`dist\Druta-1.3.0-win64.zip`. Distribute the
+`dist\Druta-1.4.0-win64.zip`. Distribute the
 whole `Druta` folder or ZIP: the EXE needs its adjacent `_internal` folder.
 
 `dist\Druta\source\` contains the matching working-tree source, including
@@ -329,7 +330,7 @@ entry(d)       = 0x124 + d * 0x304
     +0x000  mode/type      reads 8, 9 or 2 per domain
     +0x10C  frequency delta, signed kHz
     +0x110  NVVDD delta, signed microvolts   — the rail slider writes this
-    +0x114  MSVDD delta, also signed microvolts — never written by this app
+    +0x114  MSVDD delta, signed microvolts — experimental request when layout validates
 ```
 
 This block does not naively use the clock getter's domain numbering, because that numbering was off and would throw silent errors if you just ship the rest of the code using that. The mapping below was established by writing `+45 MHz` with my Titan RTX to each control index. We did that while using the Ctrl+H "HOLD" function that pinned the clock, we then recorded WHICH CLOCK ACTUALLY MOVED. XBAR was also doubly corroborated against GPUZ's reading. 
@@ -638,7 +639,7 @@ this cap could not be raised was disproved by that measurement. See
 Start with the [I2C contribution workflow](i2c/CONTRIBUTING.md),
 [recipe and adapter reference](i2c/PROFILES.md), and
 [I2C PR template](.github/PULL_REQUEST_TEMPLATE/i2c_profile.md).
-Kepler NCP4206 and MP2888A discovery scan actual buses without board-ID filters.
+NCP4206, MP2888A and MP29816 discovery scan actual buses without GPU board-ID filters.
 Another board with one of these controllers usually needs discovery and
 Verify/restore evidence, rather than a duplicate TOML profile. Druta lists
 matching candidates by port/address; an ambiguous scan requires selection.
@@ -650,12 +651,15 @@ Named profiles snapshot both offsets, the power limit, the voltage boost, the
 fan **policy** (not just its duty — auto-at-0% and manual-at-0% read identically,
 and handing a captured duty back as a manual duty would be a thermal change) and
 every V/F delta, as readable JSON in `profiles/`. New profiles also capture
-the confirmed **NVVDD/MSVDD limit fields in absolute mV**, the NVVDD voltage
-offset, per-domain clock requests (including **Additional Memory Clock
-Offset**), the identified I2C regulator's offset and XOC mode. The profile
-list names these values, and loading reports each control's result. Rails
-that Druta has not confirmed writable remain unavailable; MSVDD's unconfirmed
-voltage-offset field is not replayed.
+the **NVVDD/MSVDD limit fields as exact signed microvolt deltas**, estimated
+absolute values for display, the NVVDD voltage offset, experimental MSVDD
+requests, per-domain clock requests (including **Additional Memory Clock
+Offset**), the identified I2C regulator's controls and XOC mode. The profile
+list names these values, and loading reports each control's result. Each rail
+requires its own understood runtime interface. MSVDD requests retain their
+experimental XOC requirement; stored readback is not proof of physical VOUT.
+**Initial** restores first-read rail controls, which may contain prior tuning,
+rather than claiming another board's factory defaults.
 
 I2C tuning profiles save the controller state (MP2888A offset or NCP4206
 absolute target/Auto), its port/address, and a fingerprint of the bound register
