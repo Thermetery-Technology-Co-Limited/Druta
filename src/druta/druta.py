@@ -3074,7 +3074,7 @@ class Druta:
                 self.log("verify: CUDA stopped; holding a V/F point and waiting for P0", None)
                 out["result"] = gpuload.verify_in_p0(
                     gpu, lambda point: rail.verify(
-                        acknowledged=True, ref=gpu.read_vcore_mv,
+                        acknowledged=True,
                         log=lambda m: self.log("  " + m, None),
                         cancelled=cancel.is_set, operating_point=point),
                     cancelled=cancel.is_set, voltage_mv=voltage)

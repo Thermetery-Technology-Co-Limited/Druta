@@ -21,7 +21,7 @@ class MPVerifyRestoreTests(unittest.TestCase):
         # the captured upper transaction bits must also be restored.
         self.rail.read = Mock(side_effect=[0xABFE, 0xABFE])
         self.rail.read_vout = Mock(return_value=737.5)
-        self.rail._sample = Mock(side_effect=[(0.0, 1.0), (6.25, 1.0)])
+        self.rail._sample = Mock(side_effect=[(0.0, 1.0), (6.25, 1.0), (0.0, 1.0)])
         self.rail.set_offset_mv = Mock(return_value=(True, "written"))
         self.rail._restore_word = Mock(return_value=(True, "restored"))
         self.log = Mock()
@@ -66,7 +66,7 @@ class MPVerifyRestoreTests(unittest.TestCase):
         self.assert_restoration_attempted()
 
     def test_missing_reference_uses_measured_rail_without_idle_override(self):
-        self.rail._sample.side_effect = [(737.5, 1.0), (743.75, 1.0)]
+        self.rail._sample.side_effect = [(737.5, 1.0), (743.75, 1.0), (737.5, 1.0)]
         ok, message, ladder = self.rail.verify(acknowledged=True, ref=lambda: None)
         self.assertTrue(ok, message)
         self.assertTrue(ladder[0]['moved'])
@@ -111,18 +111,80 @@ class MPVerifyRestoreTests(unittest.TestCase):
         self.assertIn('operating point changed', message)
         self.assert_restoration_attempted()
 
-    def test_intermittent_reference_refuses_before_writing(self):
+    def test_driver_reference_is_not_sampled_or_used_for_the_verdict(self):
         reference = Mock(side_effect=[737.5] * 8 + [None])
         ok, message, _ = self.rail.verify(acknowledged=True, ref=reference)
-        self.assertFalse(ok)
-        self.assertIn('intermittent', message)
-        self.rail.set_offset_mv.assert_not_called()
+        self.assertTrue(ok, message)
+        reference.assert_not_called()
+        self.assertEqual(self.rail._sample.call_args_list[-1], call(ref=None))
 
     def test_refused_restore_overrides_success_even_if_readback_matches(self):
         self.rail._restore_word.return_value = (False, "identity changed")
         message, _ = self.assert_restore_failed()
         self.assertIn("identity changed", message)
         self.assertEqual(self.rail.read.call_count, 2)
+
+    def test_small_gain_passes_only_when_vout_returns_to_baseline(self):
+        self.rail.p.rungs = [75.0]
+        self.rail._sample.side_effect = [(1063, 1), (1075, 1), (1063, 1)]
+        ok, message, ladder = self.verify()
+        self.assertTrue(ok, message)
+        self.assertEqual(ladder[0]["delta_mv"], 12)
+        self.assertEqual(ladder[0]["restored_vout_mv"], 1063)
+
+    def test_voltage_that_does_not_return_to_baseline_cannot_unlock(self):
+        self.rail._sample.side_effect = [(1063, 1), (1075, 1), (1075, 1)]
+        ok, message, _ = self.verify()
+        self.assertFalse(ok)
+        self.assertIn("did not return to baseline", message)
+        self.assert_restoration_attempted()
+
+    def test_actual_vout_sampling_ignores_even_a_tracking_driver_reference(self):
+        from types import MethodType
+        vout = [737.5]
+        self.rail._sample = MethodType(railctl.Rail._sample, self.rail)
+        self.rail.read_vout = lambda: vout[0]
+        def write(_offset, **kwargs):
+            vout[0] = 750.0
+            return True, "written"
+        def restore(_word):
+            vout[0] = 737.5
+            return True, "restored"
+        self.rail.set_offset_mv.side_effect = write
+        self.rail._restore_word.side_effect = restore
+        reference = Mock(side_effect=lambda: vout[0])
+        ok, message, ladder = self.rail.verify(acknowledged=True, ref=reference)
+        self.assertTrue(ok, message)
+        reference.assert_not_called()
+        self.assertEqual(ladder[0]["rail_mv"], 750.0)
+        self.assertEqual(ladder[0]["delta_mv"], 12.5)
+
+    def test_driver_voltage_drop_cannot_manufacture_a_response(self):
+        from types import MethodType
+        self.rail._sample = MethodType(railctl.Rail._sample, self.rail)
+        self.rail.p.rungs = [6.25]
+        reference = Mock(side_effect=[1050] * 25 + [1000] * 25)
+        ok, message, ladder = self.rail.verify(acknowledged=True, ref=reference)
+        self.assertFalse(ok)
+        self.assertIn("INCONCLUSIVE", message)
+        self.assertNotIn("WRITE PATH NOT WORKING", message)
+        self.assertEqual(ladder[0]["delta_mv"], 0)
+        reference.assert_not_called()
+
+    def test_small_reversal_cannot_confirm_causality(self):
+        self.rail._sample.side_effect = [(1063, 1), (1070, 1), (1069, 1)]
+        ok, message, _ = self.verify()
+        self.assertFalse(ok)
+        self.assertIn("downward response above noise", message)
+
+    def test_operating_point_checked_inside_baseline_measurement(self):
+        from types import MethodType
+        self.rail._sample = MethodType(railctl.Rail._sample, self.rail)
+        point = Mock(side_effect=[(0, 1800, 850)] * 9 + [(0, 1785, 850)])
+        ok, message, _ = self.rail.verify(acknowledged=True, operating_point=point)
+        self.assertFalse(ok)
+        self.assertIn("changed during measurement", message)
+        self.rail.set_offset_mv.assert_not_called()
 
     def test_response_noise_cannot_be_reported_as_movement(self):
         self.rail.p.rungs = [6.25, 12.5]

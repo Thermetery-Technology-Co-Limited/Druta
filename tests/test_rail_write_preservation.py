@@ -196,7 +196,7 @@ class RegisterPreservationTests(unittest.TestCase):
 class VerificationRestoreTests(unittest.TestCase):
     def test_success_requires_exact_full_entry_word_restore(self):
         rail, state = make_rail()
-        rail._sample = Mock(side_effect=[(0, 0), (10, 0)])
+        rail._sample = Mock(side_effect=[(0, 0), (10, 0), (0, 0)])
         with patch.object(railctl.time, "sleep"):
             ok, message, _ = rail.verify(acknowledged=True, ref=lambda: 1000)
         self.assertTrue(ok, message)

@@ -87,9 +87,9 @@ XOC_CONFIRM = "I ACCEPT PERMANENT HARDWARE DAMAGE"
 
 VERIFY_SAMPLES = 9
 VERIFY_SETTLE_S = 0.15
-# READ_VOUT is whole millivolts, so two adjacent codes can differ by 1 mV with
-# nothing having happened.
-VERIFY_MIN_DETECT_MV = 3.0
+# Observe a full second rather than one short burst of VRM telemetry.
+VERIFY_MEASUREMENT_SAMPLES = 25
+VERIFY_MEASUREMENT_INTERVAL_S = 0.04
 
 
 class ProfileError(ValueError):
@@ -672,28 +672,17 @@ class Rail:
         return _decode(raw, t.get("encoding", "uint"),
                        _bitspec(t.get("bits")), float(t.get("scale", 1.0)))
 
-    def _sample(self, n=VERIFY_SAMPLES, ref=None):
-        """(median, peak-to-peak) of the detection quantity.
+    def _sample(self, n=VERIFY_MEASUREMENT_SAMPLES, ref=None, check=None):
+        """Return a complete window's median and peak-to-peak noise.
 
-        WITHOUT `ref` the quantity is the raw rail, and it is only as steady as
-        the GPU's governor: at idle the VID request wanders on its own and a
-        small offset disappears into that movement. Measured on the authoring
-        card at idle - 9 mV of wander, which swallowed the 6.25, 12.50 and
-        25.00 mV rungs outright.
-
-        WITH `ref` - a callable returning the GPU's own reported rail in mV -
-        the quantity is `rail - ref`, the offset the regulator is ACTUALLY
-        adding. That subtracts the governor entirely, because it moves both
-        terms. It is the software equivalent of what a volt modder does with a
-        meter on the rail and the vendor tool on screen: watch the difference,
-        not either number. Same card, under load: 2 mV.
-
-        Peak-to-peak rather than a standard deviation because the question is
-        not how the samples are distributed, it is how far the reading wanders
-        while nobody is writing to it. Less than that cannot be attributed.
+        Verification uses raw controller VOUT and checks the operating point
+        during sampling. The optional subtraction is retained for diagnostic
+        callers only: it cannot establish the physical I2C voltage response.
         """
         xs = []
         for _ in range(n):
+            if check is not None:
+                check()
             v = self.read_vout()
             if v is not None:
                 if ref is None:
@@ -705,8 +694,10 @@ class Rail:
                         r = None
                     if r is not None:
                         xs.append(float(v) - float(r))
-            time.sleep(0.01)
-        if not xs:
+            time.sleep(VERIFY_MEASUREMENT_INTERVAL_S)
+        if check is not None:
+            check()
+        if len(xs) != n or any(not math.isfinite(x) for x in xs):
             return None, None
         s = sorted(xs)
         n2 = len(s)
@@ -789,7 +780,11 @@ class Rail:
 
         Voltage alone does not establish load state. No minimum operating-voltage
         gate is applied. ``allow_idle`` remains accepted for older callers but
-        no longer changes behavior. Success establishes only a measured response
+        no longer changes behavior. ``ref`` is also retained for compatibility
+        but is never sampled: response detection uses controller VOUT directly.
+        A driver voltage is not an independent measurement of an I2C offset;
+        subtracting it can mask the response or manufacture a false response.
+        Success establishes only a measured response
         at the tested operating point, not full-load validation or voltage gain.
 
         Returns (ok, message, ladder). The entry offset is restored in a
@@ -798,6 +793,7 @@ class Rail:
         self._verification_write_attempted = False
         self._verification_restore_ok = True
         self._verification_restore_error = ""
+        ref = None
         cancelled = cancelled or (lambda: False)
         if cancelled():
             return False, "verification cancelled; nothing written", []
@@ -822,24 +818,29 @@ class Rail:
                 log(m)
 
         try:
-            stable = self._verification_stability(ref, operating_point, cancelled)
+            stable = self._verification_stability(ref, operating_point, cancelled,
+                                                 check_voltage=operating_point is None)
         except Exception as exc:
             return False, f"INCONCLUSIVE - {exc}; nothing written", []
         say(f"stable baseline: {stable}")
-        if ref is not None and not stable["reference_available"]:
-            say("NVAPI reference unavailable; using the selected rail directly")
-            ref = None
-        base, noise = self._sample(ref=ref)
+        def check_sample():
+            if cancelled():
+                raise ValueError("verification cancelled")
+            if operating_point() != stable["operating_point"]:
+                raise ValueError("GPU operating point changed during measurement")
+        sample_args = {"ref": None}
+        if operating_point is not None:
+            sample_args["check"] = check_sample
+        try:
+            base, noise = self._sample(**sample_args)
+        except Exception as exc:
+            return False, f"INCONCLUSIVE - {exc}; nothing written", []
         if cancelled():
             return False, "verification cancelled; nothing written", []
-        if base is None and ref is not None:
-            say("GPU voltage readback unavailable - falling back to the raw "
-                "rail, which needs a bigger step to clear idle wander")
-            ref = None
-            base, noise = self._sample()
         if base is None:
             return False, "refused: could not read the rail", []
-        what = "rail-minus-NVAPI" if ref is not None else "rail"
+        noise = max(noise, stable["vout_max_mv"] - stable["vout_min_mv"])
+        what = "I2C VOUT"
         say(f"baseline {what} {base:.0f} mV, wander {noise:.0f} mV "
             f"(entry offset {entry_mv:+.2f} mV)")
 
@@ -878,7 +879,7 @@ class Rail:
                 if cancelled():
                     failure = "verification cancelled"
                     break
-                now, _pp = self._sample(ref=ref)
+                now, _pp = self._sample(**sample_args)
                 if cancelled():
                     failure = "verification cancelled"
                     break
@@ -899,22 +900,16 @@ class Rail:
                 if check["operating_point"] != stable["operating_point"]:
                     failure = "INCONCLUSIVE - GPU operating point changed during the trial"
                     break
-                if ref is not None and not check["reference_available"]:
-                    failure = "INCONCLUSIVE - NVAPI reference disappeared during the trial"
-                    break
-
                 delta = now - base
-                # Include measured response noise as well as baseline noise.
-                # Half the rung stops a rail that
-                # drifted up on its own being counted as a response; the wander
-                # term stops noise being counted at all.
-                thr = max(VERIFY_MIN_DETECT_MV, noise, _pp,
-                          check["vout_max_mv"] - check["vout_min_mv"],
-                          ((check["reference_max_mv"] - check["reference_min_mv"])
-                           if check["reference_available"] else 0), 0.5 * rung)
-                moved = delta >= thr
+                # Detect against measured noise and the controller's step,
+                # not an assumed fraction of the requested voltage gain.
+                response_noise = max(noise, _pp,
+                                     check["vout_max_mv"] - check["vout_min_mv"])
+                thr = max(abs(p.lsb_mv), response_noise)
+                moved = delta >= abs(p.lsb_mv) and delta > response_noise
                 ladder.append({"rung_mv": rung, "rail_mv": now,
                                "delta_mv": delta, "threshold_mv": thr,
+                               "noise_mv": response_noise,
                                "moved": moved})
                 say(f"  {rung:+6.2f} mV  {what} {now:.0f} mV  delta "
                     f"{delta:+.0f} mV (need {thr:.1f})  "
@@ -968,12 +963,50 @@ class Rail:
 
         if hit is None:
             return False, (
-                f"WRITE PATH NOT WORKING. The rail did not move at any rung up "
-                f"to {p.rungs[-1]:.0f} mV. Every write was accepted and read "
-                f"back correctly, so the register is taking the value and the "
-                f"rail is not following it: the part at 0x{self.addr7:02X} is "
-                f"not what drives this rail, or this profile describes a "
-                f"different board. Do not use the offset slider."), ladder
+                f"INCONCLUSIVE - no positive I2C VOUT response exceeded the "
+                f"detection threshold through +{p.rungs[-1]:.2f} mV. "
+                f"Register writes/readback succeeded, but this does not prove "
+                f"a voltage change or identify the electrical rail. "
+                f"Baseline {base:.1f} mV; see the rung measurements in the log. "
+                f"Restored to {entry_mv:+.2f} mV. Apply remains unverified."), ladder
+
+        # A register readback proves restoration of the command, not that the
+        # observed response was caused by it. Require an A-B-A measurement:
+        # controller VOUT must return to its entry baseline while P0 is held.
+        try:
+            time.sleep(VERIFY_SETTLE_S)
+            restored = self._verification_stability(operating_point=operating_point,
+                                                     cancelled=cancelled,
+                                                     check_voltage=False)
+            if restored["operating_point"] != stable["operating_point"]:
+                raise ValueError("GPU operating point changed after restoration")
+            restored_mv, restored_noise = self._sample(**sample_args)
+            if restored_mv is None:
+                raise ValueError("restored I2C VOUT is unreadable")
+            step = abs(p.lsb_mv)
+            telemetry = next((t for t in getattr(p, "telemetry_specs", [])
+                              if t.get("key") == "vout_mv"), {})
+            quantum = abs(float(telemetry.get("scale", 1)))
+            if telemetry.get("encoding", "uint") in ("uint", "int") and quantum > 0:
+                # A 6.25 mV step can span seven 1 mV READ_VOUT codes.
+                step = math.ceil(step / quantum) * quantum
+            tolerance = max(step, noise, restored_noise)
+            if abs(restored_mv - base) > tolerance:
+                raise ValueError(f"I2C VOUT did not return to baseline "
+                                 f"({restored_mv:.1f} vs {base:.1f} mV)")
+            reversal = hit["rail_mv"] - restored_mv
+            if reversal < abs(p.lsb_mv) or reversal <= max(hit["noise_mv"], restored_noise):
+                raise ValueError("I2C VOUT did not show a downward response above noise after restoration")
+            if cancelled():
+                raise ValueError("verification cancelled")
+            hit["restored_vout_mv"] = restored_mv
+            hit["reversal_mv"] = reversal
+            say(f"I2C VOUT returned within the baseline noise/resolution band: "
+                f"{restored_mv:.1f} mV (entry {base:.1f} mV; "
+                f"downward response {reversal:.1f} mV)")
+        except Exception as exc:
+            return False, (f"INCONCLUSIVE - {exc}. Offset word restored to "
+                           f"{entry_mv:+.2f} mV; voltage response remains unverified."), ladder
 
         # A detecting step is not a calibrated gain or a measured deadband.
         # Boards with the same controller may have different loadline settings.
@@ -981,7 +1014,8 @@ class Rail:
             "WRITE PATH CONFIRMED at the tested operating point. "
             f"First detected response at {hit['rung_mv']:+.2f} mV: "
             f"{hit['delta_mv']:+.0f} mV against a {hit['threshold_mv']:.1f} mV "
-            f"threshold. Restored to {entry_mv:+.2f} mV. "
+            f"threshold. I2C VOUT returned to {restored_mv:.1f} mV after restoration. "
+            f"Restored to {entry_mv:+.2f} mV. "
             "This verifies a response, not full-load behavior or a 1:1 voltage gain."
         ), ladder
 
