@@ -101,4 +101,4 @@ plausible_rail_mv = [400.0, 1300.0]
 
 [verify]
 rungs_mv = [5.0, 10.0, 15.0, 20.0]
-min_loaded_vout_mv = 800.0
+min_loaded_vout_mv = 800.0 # Legacy metadata, ignored; retained for saved-profile identity.

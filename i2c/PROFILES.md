@@ -249,14 +249,25 @@ the GPU. Controller-specific limits may additionally constrain the request.
 ```toml
 [verify]
 rungs_mv = [6.25, 12.50, 25.00, 50.00, 75.00]
-min_loaded_vout_mv = 800.0
 ```
 
 These are bounded trial steps for the generic offset verifier, relative to its
-entry offset. The UI induces load and supplies the GPU voltage reference; the
-minimum operating voltage is checked before trials. `expect_deadband_mv` is
+entry offset. The UI induces memory traffic and supplies the GPU voltage
+reference. There is no minimum-voltage or inferred idle-state gate;
+legacy `min_loaded_vout_mv` metadata is ignored. A successful trial confirms
+a response at the tested operating point, not full-load behavior. `expect_deadband_mv` is
 optional historical metadata, not a gain correction or proof of behavior on
 another board. Do not widen a failed ladder merely to obtain a pass.
+
+Before writing and before accepting a trial response, the offset verifier
+requires nine complete samples of the selected rail and, when available, the
+NVAPI reference. Each voltage's spread must fit within one controller offset
+step (`lsb_mv`), rather than a fixed voltage floor. In the UI, sampled P-state,
+core clock and memory clock must remain unchanged, including across the trial.
+An intermittent reference, unreadable state or observed transition makes the
+trial inconclusive; any attempted offset is restored and checked. This checks
+stability only over those sampled windows, not electrical rail identity or
+NVAPI reference semantics on an unvalidated GPU.
 
 ### `[[never_write]]`
 

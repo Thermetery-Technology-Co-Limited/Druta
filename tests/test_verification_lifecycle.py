@@ -65,7 +65,7 @@ class ControllerCancellationTests(unittest.TestCase):
         rail = offset_rail()
         cancel = threading.Event()
         rail._sample = Mock(return_value=(0, 1))
-        with patch("druta.railctl.time.sleep", side_effect=lambda _: cancel.set()):
+        with patch("druta.railctl.time.sleep", side_effect=lambda _: cancel.set() if rail.writes else None):
             result = rail.verify(acknowledged=True, ref=lambda: 1000,
                                  cancelled=cancel.is_set)
         self.assertFalse(result[0])
@@ -105,6 +105,8 @@ class ControllerCancellationTests(unittest.TestCase):
         rail._sample = Mock(return_value=(0, 1))
 
         def interrupt(_seconds):
+            if not rail.writes:
+                return
             rail.disable_xoc()
             rail.present.return_value = False
             cancel.set()

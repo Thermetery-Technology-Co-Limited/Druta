@@ -2991,11 +2991,10 @@ class Druta:
     def verify_i2c_rail(self):
         """Prove the write path reaches the rail before trusting the knob.
 
-        Runs the staircase UNDER LOAD, on a worker thread, because the answer
-        is worthless at idle: the regulator sheds phases and changes loadline
-        there, so an idle result describes a configuration nobody runs. This
-        is the same reason the timings capture induces a load rather than
-        reading whatever the card happens to be doing.
+        Runs the staircase with a CUDA memory workload on a worker thread.
+        A settled memory clock is not proof of full core load. The verifier
+        checks the measured response and restoration without a voltage-based
+        idle classification.
         """
         if self._i2c_busy:
             self.log("rail verification already running", False)
@@ -3037,7 +3036,7 @@ class Druta:
                                             self._i2c_cancel))
             self._i2c_thread = worker
             self.sync_lock_ui()
-            self.log("verifying the rail write path under load - the card will be "
+            self.log("verifying the rail response with CUDA memory traffic - the card will be "
                      "busy for a few seconds and the entry setting is restored after", None)
             worker.start()
         except Exception as exc:
@@ -3060,10 +3059,15 @@ class Druta:
         rail._verification_restore_error = ""
         try:
             def staircase():
+                def operating_point():
+                    sample = gpu.read()
+                    return tuple(sample.get(key) for key in ("pstate", "core", "mem"))
                 return rail.verify(acknowledged=True,
                                    ref=gpu.read_vcore_mv,
                                    log=lambda m: self.log("  " + m, None),
-                                   cancelled=cancel.is_set)
+                                   cancelled=cancel.is_set,
+                                   **({"operating_point": operating_point}
+                                      if not getattr(rail, "absolute_voltage", False) else {}))
             out = gpuload.induce(gpu, max_seconds=180.0, on_settled=staircase,
                                  cancelled=cancel.is_set)
             res["err"] = out.get("error") or ""

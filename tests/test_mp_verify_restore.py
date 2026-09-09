@@ -20,6 +20,7 @@ class MPVerifyRestoreTests(unittest.TestCase):
         # A negative starting offset exercises two's-complement restoration;
         # the captured upper transaction bits must also be restored.
         self.rail.read = Mock(side_effect=[0xABFE, 0xABFE])
+        self.rail.read_vout = Mock(return_value=737.5)
         self.rail._sample = Mock(side_effect=[(0.0, 1.0), (6.25, 1.0)])
         self.rail.set_offset_mv = Mock(return_value=(True, "written"))
         self.rail._restore_word = Mock(return_value=(True, "restored"))
@@ -54,6 +55,68 @@ class MPVerifyRestoreTests(unittest.TestCase):
         self.assertEqual(self.rail.set_offset_mv.call_args_list,
                          [call(-6.25, acknowledged=True)])
         self.assert_restoration_attempted()
+
+    def test_sub_800mv_reference_does_not_block_response_verification(self):
+        ok, message, ladder = self.rail.verify(acknowledged=True, ref=lambda: 737.5)
+        self.assertTrue(ok, message)
+        self.assertTrue(ladder[0]['moved'])
+        self.assertIn('tested operating point', message)
+        self.assertNotIn('CONFIRMED under load', message)
+        self.rail.set_offset_mv.assert_called_once()
+        self.assert_restoration_attempted()
+
+    def test_missing_reference_uses_measured_rail_without_idle_override(self):
+        self.rail._sample.side_effect = [(737.5, 1.0), (743.75, 1.0)]
+        ok, message, ladder = self.rail.verify(acknowledged=True, ref=lambda: None)
+        self.assertTrue(ok, message)
+        self.assertTrue(ladder[0]['moved'])
+        self.assertEqual(self.rail._sample.call_args_list[-1], call(ref=None))
+        self.assert_restoration_attempted()
+
+    def test_unreadable_rail_still_refuses_without_any_write(self):
+        self.rail._sample.side_effect = [(None, None), (None, None)]
+        ok, message, ladder = self.rail.verify(acknowledged=True, ref=lambda: None)
+        self.assertFalse(ok)
+        self.assertIn('could not read the rail', message)
+        self.rail.set_offset_mv.assert_not_called()
+        self.rail._restore_word.assert_not_called()
+
+    def test_unstable_raw_rail_refuses_even_with_constant_reference_difference(self):
+        self.rail.read_vout.side_effect = [737.5, 750.0] * 5
+        reference = Mock(side_effect=[737.5, 750.0] * 5)
+        ok, message, _ = self.rail.verify(acknowledged=True, ref=reference)
+        self.assertFalse(ok)
+        self.assertIn('selected rail changed', message)
+        self.rail.set_offset_mv.assert_not_called()
+
+    def test_clock_transition_refuses_before_writing(self):
+        point = Mock(side_effect=[(8, 300, 405)] * 4 + [(0, 1800, 850)] * 5)
+        ok, message, _ = self.rail.verify(acknowledged=True, ref=lambda: 737.5,
+                                          operating_point=point)
+        self.assertFalse(ok)
+        self.assertIn('clocks changed', message)
+        self.rail.set_offset_mv.assert_not_called()
+
+    def test_stable_low_voltage_and_clocks_pass_without_a_voltage_floor(self):
+        ok, message, _ = self.rail.verify(acknowledged=True, ref=lambda: 737.5,
+                                          operating_point=lambda: (0, 1800, 850))
+        self.assertTrue(ok, message)
+        self.assert_restoration_attempted()
+
+    def test_new_stable_operating_point_after_write_is_inconclusive_and_restored(self):
+        point = Mock(side_effect=[(0, 1800, 850)] * 9 + [(0, 1785, 850)] * 9)
+        ok, message, _ = self.rail.verify(acknowledged=True, ref=lambda: 737.5,
+                                          operating_point=point)
+        self.assertFalse(ok)
+        self.assertIn('operating point changed', message)
+        self.assert_restoration_attempted()
+
+    def test_intermittent_reference_refuses_before_writing(self):
+        reference = Mock(side_effect=[737.5] * 8 + [None])
+        ok, message, _ = self.rail.verify(acknowledged=True, ref=reference)
+        self.assertFalse(ok)
+        self.assertIn('intermittent', message)
+        self.rail.set_offset_mv.assert_not_called()
 
     def test_refused_restore_overrides_success_even_if_readback_matches(self):
         self.rail._restore_word.return_value = (False, "identity changed")

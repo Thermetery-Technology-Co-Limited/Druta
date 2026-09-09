@@ -247,7 +247,7 @@ class Profile:
         v = d.get("verify") or {}
         self.rungs = tuple(float(x) for x in
                            v.get("rungs_mv", (6.25, 12.5, 25.0, 50.0, 75.0)))
-        self.min_loaded_mv = float(v.get("min_loaded_vout_mv", 800.0))
+        # Legacy min_loaded_vout_mv metadata is ignored; voltage is not a load detector.
         self.deadband_mv = v.get("expect_deadband_mv")
 
         m = d.get("match") or {}
@@ -713,8 +713,63 @@ class Rail:
         med = s[n2 // 2] if n2 % 2 else (s[n2 // 2 - 1] + s[n2 // 2]) / 2.0
         return med, (max(xs) - min(xs))
 
+    def _verification_stability(self, ref=None, operating_point=None, cancelled=None):
+        """Require complete, repeatable samples before interpreting a response.
+
+        Voltage spread is compared with this controller's offset resolution,
+        not an absolute operating-voltage threshold. P-state and clock samples
+        must agree when the caller provides them. This proves only stability
+        over the sampling window, not a particular load or electrical rail ID.
+        """
+        cancelled = cancelled or (lambda: False)
+        volts, references, points = [], [], []
+        for _ in range(VERIFY_SAMPLES):
+            if cancelled():
+                raise ValueError("verification cancelled")
+            voltage = self.read_vout()
+            if voltage is None or not math.isfinite(float(voltage)):
+                raise ValueError("selected rail voltage unreadable during stability check")
+            volts.append(float(voltage))
+            if ref is not None:
+                try:
+                    value = ref()
+                except Exception:
+                    value = None
+                references.append(value)
+            if operating_point is not None:
+                point = operating_point()
+                if (not isinstance(point, tuple) or len(point) != 3
+                        or any(v is None or not isinstance(v, (int, float))
+                               or not math.isfinite(v) for v in point)):
+                    raise ValueError("GPU P-state/core/memory clocks unreadable")
+                points.append(point)
+            time.sleep(0.01)
+        resolution = abs(self.p.lsb_mv)
+        if not math.isfinite(resolution) or resolution <= 0:
+            raise ValueError("controller offset resolution is invalid")
+        spread = max(volts) - min(volts)
+        if spread > resolution:
+            raise ValueError(f"selected rail changed by {spread:.2f} mV during sampling "
+                             f"(controller offset resolution {resolution:g} mV)")
+        available = [v for v in references if v is not None]
+        if available:
+            if len(available) != len(references) or any(
+                    not isinstance(v, (int, float)) or not math.isfinite(v) for v in available):
+                raise ValueError("NVAPI reference was intermittent or invalid")
+            spread = max(available) - min(available)
+            if spread > resolution:
+                raise ValueError(f"NVAPI reference changed by {spread:.2f} mV during sampling "
+                                 f"(controller offset resolution {resolution:g} mV)")
+        if points and any(point != points[0] for point in points):
+            raise ValueError("GPU P-state or core/memory clocks changed during sampling")
+        return {"vout_min_mv": min(volts), "vout_max_mv": max(volts),
+                "reference_available": bool(available),
+                "reference_min_mv": min(available) if available else None,
+                "reference_max_mv": max(available) if available else None,
+                "operating_point": points[0] if points else None}
+
     def verify(self, *, acknowledged=False, log=None, ref=None,
-               allow_idle=False, cancelled=None):
+               allow_idle=False, cancelled=None, operating_point=None):
         """Climb the smallest offsets that could move the rail until one does.
 
         WHY A LADDER AND NOT A SINGLE WRITE. This is how a volt mod is proven on
@@ -729,12 +784,10 @@ class Rail:
         ignores - passes the dry run AND the read-back, because the read-back
         only proves the REGISTER took the value, not that the RAIL did.
 
-        THE CARD MUST BE UNDER LOAD, and refusing at idle is not caution. A
-        multiphase controller sheds phases and changes loadline under PSI, so an
-        idle card is a DIFFERENT REGULATOR from the one that carries an
-        overclock. A result measured there is unrepresentative, which is worse
-        than noisy. `allow_idle` downgrades to a path-only verdict with no
-        magnitude attached rather than letting an idle number stand in.
+        Voltage alone does not establish load state. No minimum operating-voltage
+        gate is applied. ``allow_idle`` remains accepted for older callers but
+        no longer changes behavior. Success establishes only a measured response
+        at the tested operating point, not full-load validation or voltage gain.
 
         Returns (ok, message, ladder). The entry offset is restored in a
         finally, and the restore is verified.
@@ -756,23 +809,6 @@ class Rail:
             return False, ("refused: no device matching this profile - "
                            "nothing to verify against."), []
 
-        vcore = None
-        if ref is not None:
-            try:
-                vcore = ref()
-            except Exception:                                   # noqa: BLE001
-                vcore = None
-        idle = vcore is None or vcore < p.min_loaded_mv
-        if idle and not allow_idle:
-            seen = "unreadable" if vcore is None else f"{vcore:.2f} mV"
-            return False, (
-                f"refused: the card is not at a real operating point (rail "
-                f"reads {seen}, and this profile wants at least "
-                f"{p.min_loaded_mv:.0f} mV). The regulator drops phases and "
-                f"changes loadline at idle, so a result measured here would "
-                f"describe a configuration nobody runs. Load the card and "
-                f"repeat."), []
-
         entry_raw = self.read(p.wreg, p.wbytes)
         if entry_raw is None:
             return False, "refused: could not read the current offset", []
@@ -782,6 +818,14 @@ class Rail:
             if log:
                 log(m)
 
+        try:
+            stable = self._verification_stability(ref, operating_point, cancelled)
+        except Exception as exc:
+            return False, f"INCONCLUSIVE - {exc}; nothing written", []
+        say(f"stable baseline: {stable}")
+        if ref is not None and not stable["reference_available"]:
+            say("NVAPI reference unavailable; using the selected rail directly")
+            ref = None
         base, noise = self._sample(ref=ref)
         if cancelled():
             return False, "verification cancelled; nothing written", []
@@ -792,7 +836,7 @@ class Rail:
             base, noise = self._sample()
         if base is None:
             return False, "refused: could not read the rail", []
-        what = "rail-minus-VID" if ref is not None else "rail"
+        what = "rail-minus-NVAPI" if ref is not None else "rail"
         say(f"baseline {what} {base:.0f} mV, wander {noise:.0f} mV "
             f"(entry offset {entry_mv:+.2f} mV)")
 
@@ -840,6 +884,16 @@ class Rail:
                     say(f"  {rung:+6.2f} mV  rail read failed")
                     failure = ("INCONCLUSIVE - rail read failed during "
                                "verification; no further offsets attempted.")
+                    break
+
+                # Confirm that a transient operating-point change did not
+                # masquerade as a voltage response before accepting the rung.
+                check = self._verification_stability(ref, operating_point, cancelled)
+                if check["operating_point"] != stable["operating_point"]:
+                    failure = "INCONCLUSIVE - GPU operating point changed during the trial"
+                    break
+                if ref is not None and not check["reference_available"]:
+                    failure = "INCONCLUSIVE - NVAPI reference disappeared during the trial"
                     break
 
                 delta = now - base
@@ -910,24 +964,14 @@ class Rail:
                 f"not what drives this rail, or this profile describes a "
                 f"different board. Do not use the offset slider."), ladder
 
-        if idle:
-            # Deliberately no magnitude. The path was exercised, which is real
-            # and useful, but the NUMBER belongs to a phase-shed regulator.
-            return True, (
-                f"WRITE PATH REACHES THE RAIL - but measured at IDLE, so this "
-                f"is a path verdict only. It moved at {hit['rung_mv']:+.2f} "
-                f"mV. How much it moves under load is not established here and "
-                f"no figure from this run should be quoted. Restored to "
-                f"{entry_mv:+.2f} mV."), ladder
-
         # A detecting step is not a calibrated gain or a measured deadband.
         # Boards with the same controller may have different loadline settings.
         return True, (
-            f"WRITE PATH CONFIRMED under load (GPU rail {vcore:.2f} mV). "
+            "WRITE PATH CONFIRMED at the tested operating point. "
             f"First detected response at {hit['rung_mv']:+.2f} mV: "
             f"{hit['delta_mv']:+.0f} mV against a {hit['threshold_mv']:.1f} mV "
             f"threshold. Restored to {entry_mv:+.2f} mV. "
-            "This verifies a response, not a 1:1 voltage gain."
+            "This verifies a response, not full-load behavior or a 1:1 voltage gain."
         ), ladder
 
 

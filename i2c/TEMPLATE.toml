@@ -116,7 +116,7 @@ plausible_rail_mv  = [400.0, 1300.0]
 # These sample rungs/ranges are not ratings for an unknown controller.
 [verify]
 rungs_mv           = [6.25, 12.50, 25.00, 50.00, 75.00]
-min_loaded_vout_mv = 800.0    # TODO refuse to measure below this
+# There is no minimum voltage gate: voltage alone does not identify load state.
 #expect_deadband_mv = 0.0     # TODO only if you MEASURED one. Do not copy the
                               #      reference board's number - it is specific
                               #      to that part and unexplained.
