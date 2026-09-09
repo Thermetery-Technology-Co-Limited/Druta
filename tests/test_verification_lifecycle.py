@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Verification owns temporary writes until restoration, using fake hardware only."""
 from pathlib import Path
+from contextlib import nullcontext
 import threading
 import tomllib
 import unittest
@@ -37,7 +38,9 @@ def offset_rail():
 def bare_app():
     app = Druta.__new__(Druta)
     app.gpu = SimpleNamespace(available=lambda: True, status_line=lambda: "mock",
-                              read_vcore_mv=lambda: 1200)
+                              read_vcore_mv=lambda: 1200,
+                              read=lambda: {"pstate": 0, "core": 1000, "mem": 3500},
+                              verification_p0=lambda **kw: nullcontext(lambda: None))
     app.rail = test_ncp4206.NCPTests().rail()
     app._gpu_gen = 1
     app._i2c_busy = False
@@ -65,7 +68,7 @@ class ControllerCancellationTests(unittest.TestCase):
         rail = offset_rail()
         cancel = threading.Event()
         rail._sample = Mock(return_value=(0, 1))
-        with patch("druta.railctl.time.sleep", side_effect=lambda _: cancel.set()):
+        with patch("druta.railctl.time.sleep", side_effect=lambda _: cancel.set() if rail.writes else None):
             result = rail.verify(acknowledged=True, ref=lambda: 1000,
                                  cancelled=cancel.is_set)
         self.assertFalse(result[0])
@@ -105,6 +108,8 @@ class ControllerCancellationTests(unittest.TestCase):
         rail._sample = Mock(return_value=(0, 1))
 
         def interrupt(_seconds):
+            if not rail.writes:
+                return
             rail.disable_xoc()
             rail.present.return_value = False
             cancel.set()
@@ -129,9 +134,10 @@ class ControllerCancellationTests(unittest.TestCase):
                 cancel.set()
             return 1200
 
-        rail.read_vout = voltage
+        rail._verification_vmon = lambda: (voltage(), 1000 / 512)
         with patch("druta.controllers.ncp4206.time.sleep"):
-            ok, message, _ = rail.verify(acknowledged=True, cancelled=cancel.is_set)
+            ok, message, _ = rail.verify(acknowledged=True, cancelled=cancel.is_set,
+                                         operating_point=lambda: (0, 1000, 3000))
         self.assertFalse(ok)
         self.assertIn("cancelled", message)
         self.assertEqual(rail.regs, original)
@@ -141,7 +147,8 @@ class ControllerCancellationTests(unittest.TestCase):
         rail = test_ncp4206.NCPTests().rail()
         cancel = threading.Event()
         with patch("druta.controllers.ncp4206.time.sleep", side_effect=lambda _: cancel.set()):
-            ok, message, _ = rail.verify(acknowledged=True, cancelled=cancel.is_set)
+            ok, message, _ = rail.verify(acknowledged=True, cancelled=cancel.is_set,
+                                         operating_point=lambda: (0, 1000, 3000))
         self.assertFalse(ok)
         self.assertIn("nothing written", message)
         self.assertEqual(rail.calls, [])
@@ -155,13 +162,14 @@ class ControllerCancellationTests(unittest.TestCase):
                 cancel.set()
             return 1200
 
-        rail.read_vout = voltage
+        rail._verification_vmon = lambda: (voltage(), 1000 / 512)
         restore = rail.restore_control
         rail.restore_control = Mock(side_effect=lambda state, **kwargs:
                                     (False, "identity disappeared")
                                     if kwargs.get("recovery") else restore(state, **kwargs))
         with patch("druta.controllers.ncp4206.time.sleep"):
-            ok, message, _ = rail.verify(acknowledged=True, cancelled=cancel.is_set)
+            ok, message, _ = rail.verify(acknowledged=True, cancelled=cancel.is_set,
+                                         operating_point=lambda: (0, 1000, 3000))
         self.assertFalse(ok)
         self.assertIn("restoration failed: identity disappeared", message)
         self.assertIn("cancelled", message)
@@ -197,7 +205,7 @@ class VerificationLifecycleTests(unittest.TestCase):
                     raise RuntimeError("shutdown did not cancel the owned verifier")
             return 1200
 
-        app.rail.read_vout = voltage
+        app.rail._verification_vmon = lambda: (voltage(), 1000 / 512)
         restore = app.rail.restore_control
 
         def record_restore(state, **kwargs):
@@ -336,12 +344,12 @@ class VerificationLifecycleTests(unittest.TestCase):
         cancel = threading.Event()
         app.rail.verify = Mock(return_value=(True, "restored", []))
 
-        def induce(_gpu, **kwargs):
-            result = kwargs["on_settled"]()
+        def verify_in_p0(_gpu, callback, **kwargs):
+            result = callback(lambda: (0, 1000, 3500))
             cancel.set()
-            return {"result": result}
+            return result
 
-        with patch("druta.druta.gpuload.induce", side_effect=induce):
+        with patch("druta.druta.gpuload.verify_in_p0", side_effect=verify_in_p0):
             app._i2c_verify_worker(cancel=cancel)
         self.assertFalse(app.i2c_verified())
         self.assertFalse(app._i2c_busy)
@@ -369,7 +377,7 @@ class VerificationLifecycleTests(unittest.TestCase):
             raise RuntimeError("log sink failed")
 
         app.rail.verify = verify
-        app.log.side_effect = RuntimeError("log sink failed again")
+        app.log.side_effect = [None, RuntimeError("log sink failed again")]
         with patch("druta.druta.gpuload.induce", side_effect=lambda _gpu, **kw:
                    {"result": kw["on_settled"]()}):
             with self.assertRaisesRegex(RuntimeError, "log sink failed again"):

@@ -40,7 +40,7 @@ def hardware():
         read_clk_domain_offsets=Mock(return_value=({0: {"freq_khz": 90000},
                                                    2: {"freq_khz": 200000},
                                                    7: {"freq_khz": 45000}}, None)))
-    for label in ("set_volt_rail_limits", "set_rail_offset_mv", "set_clk_domain_offset",
+    for label in ("set_volt_rail_limits", "set_volt_rail_limits_raw", "set_rail_offset_mv", "set_clk_domain_offset",
                   "set_clock_offset", "set_power_limit_mw", "set_voltage_boost",
                   "restore_fan_control_state", "apply_vf_deltas"):
         setattr(gpu, label, writer(label))
@@ -60,7 +60,7 @@ class RailProfiles(unittest.TestCase):
         self.gpu, self.rail, self.calls = hardware()
         self.state = json.loads(json.dumps(profiles.capture(self.gpu, self.rail)))
 
-    def test_json_round_trip_preserves_absolute_limits_fractional_offsets_and_units(self):
+    def test_json_round_trip_preserves_exact_controls_display_estimates_and_units(self):
         state = self.state
         self.assertEqual(state["rail_limits_mv"]["0"]["reliability"], 1093.75)
         self.assertEqual(state["rail_limits_mv"]["1"]["overvoltage"], 1125)
@@ -70,8 +70,9 @@ class RailProfiles(unittest.TestCase):
         self.assertEqual(state["clock_domain_offsets_mhz"], {"2": 200, "7": 45})
         results = profiles.restore(self.gpu, state, rail=self.rail, i2c_verified=True)
         self.assertTrue(all(ok for ok, _ in results), results)
-        self.gpu.set_volt_rail_limits.assert_any_call(0, **state["rail_limits_mv"]["0"])
-        self.gpu.set_volt_rail_limits.assert_any_call(1, **state["rail_limits_mv"]["1"])
+        self.gpu.set_volt_rail_limits_raw.assert_any_call(0, **state["rail_limits_uv"]["0"])
+        self.gpu.set_volt_rail_limits_raw.assert_any_call(1, **state["rail_limits_uv"]["1"])
+        self.gpu.set_volt_rail_limits.assert_not_called()
         self.gpu.set_rail_offset_mv.assert_called_once_with(12.5, 0)
         self.rail.set_offset_mv.assert_called_once_with(18.75, acknowledged=True)
         self.gpu.set_clock_offset.assert_any_call(2, 100)
@@ -124,8 +125,8 @@ class RailProfiles(unittest.TestCase):
             self.assertEqual(self.calls, [])
 
     def test_failed_limit_write_stops_before_offsets_i2c_or_clocks(self):
-        self.gpu.set_volt_rail_limits.return_value = (False, "driver refused")
-        self.gpu.set_volt_rail_limits.side_effect = None
+        self.gpu.set_volt_rail_limits_raw.return_value = (False, "driver refused")
+        self.gpu.set_volt_rail_limits_raw.side_effect = None
         result = profiles.restore(self.gpu, self.state, rail=self.rail, i2c_verified=True)
         self.assertFalse(result[0][0])
         self.assertEqual(self.calls, [])
@@ -183,6 +184,40 @@ class RailProfiles(unittest.TestCase):
         self.assertTrue(state["xoc"])
         self.gpu.read_volt_rail_limits.return_value[0]["overvoltage"] = 0
         self.assertIsNone(profiles.preflight(self.gpu, state))
+
+    def test_exact_microvolt_controls_survive_a_shift_in_reference_after_restart(self):
+        row = self.gpu.read_volt_rail_limits.return_value[0]
+        deltas = dict(reliability=-12.501, alt_reliability=25.003,
+                      overvoltage=0.001, vmin=-0.002)
+        row.update(deltas)
+        state = json.loads(json.dumps(profiles.capture(self.gpu)))
+        self.assertEqual(state["rail_limits_uv"]["0"], {
+            "reliability": -12501, "alt_reliability": 25003,
+            "overvoltage": 1, "vmin": -2})
+        for field in deltas:
+            row["_base_mv"][field] += 6.25
+            row[field] = 0
+        results = profiles.restore(self.gpu, state)
+        self.assertTrue(all(ok for ok, _ in results), results)
+        self.gpu.set_volt_rail_limits_raw.assert_any_call(0, **state["rail_limits_uv"]["0"])
+        self.gpu.set_volt_rail_limits.assert_not_called()
+        self.assertIn("exact saved controls", profiles.summarize(state))
+
+    def test_legacy_absolute_voltage_profiles_remain_readable_with_reference_notice(self):
+        state = copy.deepcopy(self.state)
+        del state["rail_limits_uv"]
+        results = profiles.restore(self.gpu, state, rail=self.rail, i2c_verified=True)
+        self.assertTrue(all(ok for ok, _ in results), results)
+        self.gpu.set_volt_rail_limits.assert_any_call(0, **state["rail_limits_mv"]["0"])
+        self.gpu.set_volt_rail_limits_raw.assert_not_called()
+        self.assertIn("legacy absolute rail limits use this session's estimated reference",
+                      profiles.summarize(state))
+
+    def test_opaque_profile_identity_is_stable_when_controller_display_label_changes(self):
+        identity = profiles.rail_identity(self.rail)
+        self.rail.p.profile_rail = self.rail.p.rail
+        self.rail.p.rail = "controller rail (explicit selection required)"
+        self.assertEqual(profiles.rail_identity(self.rail), identity)
 
 
 class ProfileFlow(unittest.TestCase):

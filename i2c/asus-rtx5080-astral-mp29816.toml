@@ -1,0 +1,107 @@
+# ASUS RTX 5080 Astral - MPS MP29816, PAGE 0 / NVVDD.
+# Telemetry and the EVC2 device-ID match are measured. The voltage-offset map
+# comes from EVC2's exact MP29816 profile, but writes on this board have so far
+# been rejected by NVIDIA's transport. This is experimental write support:
+# Druta's per-session loaded verification must pass before Apply is enabled.
+# Historical measurements/recipe identity below remain for saved profiles.
+# Runtime mp29816.py discovers all routes by model ID, treats OEM fingerprints
+# as diagnostics, and binds the currently selected PAGE and voltage scale.
+
+[profile]
+format = 1
+name = "ASUS RTX 5080 Astral - MP29816 (write path unverified)"
+regulator = "MPS MP29816"
+rail = "NVVDD"
+author = "Thermetery"
+runtime_checks = true
+
+[provenance]
+datasheet = "Public Linux drivers/hwmon/pmbus/mp2869.c, GPL-2.0-or-later; explicitly supports mp29816: https://github.com/torvalds/linux/blob/master/drivers/hwmon/pmbus/mp2869.c"
+registers = "Linux mp2869.c: READ_VOUT lower 12 bits; VOUT_SCALE_LOOP (0x29) bits 12:10 equal 1 select 5 mV/LSB. Only that observed configuration is supported."
+address = "Measured on PCI 2C02/subsystem 89DE1043, VBIOS 98.03.3b.c0.6f, driver 580.97: NVAPI port 2, 7-bit address 0x30."
+behaviour = "Bench survey 2026-09-08: 40 stable loaded samples read 1040 mV versus NVAPI core voltage 1035-1040 mV (mean absolute difference 0.625 mV), supporting PAGE 0 as NVVDD. Manufacturer/model/revision, PAGE and scale were stable across all 70 follow-up samples. Read command 0xAD additionally matched EVC2's MP29816 device ID. Writes have not been verified: NVAPI rejected them and direct RM reported NV_ERR_INVALID_STATE."
+hardware = "ASUS RTX 5080 Astral; I2C already reachable. The owner's 12 V shunt modification is separate from this controller telemetry path."
+offset = "ElmorLabs EVC2 1.0.1.18_t6, exact MP29816.xml: Loop 1 VID Offset, command 0x22, two-byte transaction, bits 7:0 signed two's complement at 5 mV/LSB, gated by PAGE 0 and 0x29 bits 12:10 = 1. Public-source evidence: experiments/power-5080-20260908/evc2-public-source/MP29816.xml. Register facts transcribed; this file does not assert successful hardware writes."
+
+[match]
+pci_device = ["0x2C02"]
+pci_subsys = ["0x89DE1043"]
+
+[bus]
+port = 2
+addr7 = 0x30
+
+# These are complete count-prefixed block responses, interpreted little-endian
+# by Rail.read. Preserve the count byte: a short/shifted response must not match.
+[[identity]]
+reg = 0xAD
+bytes = 5
+equals = 0x0002A81604
+note = "Measured bytes 04 16 A8 02 00 match the four-byte payload 0x0002A816 in EVC2's MP29816 Detect entry, annotated MPS29816A. This is a source-backed device ID, in addition to the board fingerprints below."
+
+[[identity]]
+reg = 0x99
+bytes = 4
+equals = 0x4D505303
+fingerprint = true
+note = "Observed MFR_ID bytes 03 53 50 4D: count 3 and manufacturer code MPS."
+
+[[identity]]
+reg = 0x9A
+bytes = 7
+equals = 0x4D323A38313606
+fingerprint = true
+note = "Observed MFR_MODEL bytes 06 36 31 38 3A 32 4D. Exact fingerprint, not a claimed documented model-ID decoding."
+
+[[identity]]
+reg = 0x9B
+bytes = 3
+equals = 0x000102
+fingerprint = true
+note = "Observed MFR_REVISION bytes 02 01 00. Other revisions are untested."
+
+[[identity]]
+reg = 0x00
+bytes = 1
+equals = 0
+fingerprint = true
+note = "Only already-selected PAGE 0 is supported. Never select a page by writing."
+
+[[identity]]
+reg = 0x29
+bytes = 2
+mask = 0x1C00
+value = 0x0400
+fingerprint = true
+note = "VOUT_SCALE_LOOP selector bits 12:10 must remain 1 (5 mV/LSB). Other fields are not scaling bits."
+
+[[telemetry]]
+key = "vout_mv"
+reg = 0x8B
+bytes = 2
+bits = "11:0"
+encoding = "uint"
+scale = 5.0
+note = "Read-only NVVDD voltage on already-selected PAGE 0, supported by stable loaded correlation with NVAPI core voltage. Current and temperature conversions are not yet bench-validated and are omitted."
+
+[[write]]
+key = "offset_mv"
+reg = 0x22
+bytes = 2
+bits = "7:0"
+encoding = "int"
+lsb_mv = 5.0
+raw_min = -128
+raw_max = 127
+note = "EVC2 MP29816 Loop 1 VID Offset map. Preserve the upper byte through read-modify-write. Signed-byte endpoints describe encoding only; physical response and usable operating range remain unverified on this board. No PAGE, mode, load-line or protection writes are allowed."
+
+[limits]
+envelope_min_mv = -50.0
+envelope_max_mv = 50.0
+rail_ceiling_mv = 1200.0
+sanity_max_rail_mv = 2000.0
+plausible_rail_mv = [400.0, 1300.0]
+
+[verify]
+rungs_mv = [5.0, 10.0, 15.0, 20.0]
+min_loaded_vout_mv = 800.0 # Legacy metadata, ignored; retained for saved-profile identity.

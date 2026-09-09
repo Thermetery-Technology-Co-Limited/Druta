@@ -5,9 +5,9 @@
 
 """Tests that do not load NVAPI or write GPU state.
 
-The actual RTX 50-series validation is intentionally a separate, explicit
-runtime probe because the mapping is a property of the installed driver and
-VBIOS, not something a Windows CI runner can infer from Python alone.
+The actual Blackwell validation is intentionally a separate, explicit runtime
+probe because the mapping is a property of the generation and live driver ABI,
+not something a Windows CI runner can infer from Python alone.
 """
 
 import ctypes
@@ -26,20 +26,18 @@ from druta.nvbackend import (
 
 class ClkDomUnitTests(unittest.TestCase):
     @staticmethod
-    def gpu_named(name):
+    def gpu_arch(architecture, name="GPU"):
         gpu = GPU.__new__(GPU)
         gpu.static = {"name": name}
+        gpu.arch = lambda: architecture
         return gpu
 
-    def test_only_rtx_50_series_selects_blackwell(self):
-        self.assertTrue(
-            self.gpu_named("NVIDIA GeForce RTX 5080").clkdom_is_blackwell())
-        self.assertTrue(
-            self.gpu_named("NVIDIA GeForce RTX 5090 Laptop GPU")
-            .clkdom_is_blackwell())
-        self.assertFalse(
-            self.gpu_named("NVIDIA GeForce RTX 4080 SUPER")
-            .clkdom_is_blackwell())
+    def test_only_nvml_blackwell_architecture_selects_blackwell(self):
+        self.assertTrue(self.gpu_arch(10, "arbitrary name").clkdom_is_blackwell())
+        self.assertFalse(self.gpu_arch(8, "NVIDIA GeForce RTX 5090")
+                         .clkdom_is_blackwell())
+        self.assertFalse(self.gpu_arch(None, "NVIDIA GeForce RTX 5080")
+                         .clkdom_is_blackwell())
 
     def test_architecture_specific_entry_geometry(self):
         self.assertEqual(
@@ -55,8 +53,40 @@ class ClkDomUnitTests(unittest.TestCase):
         self.assertNotEqual(CLKDOM_LAYOUT_TURING.msvdd_uv,
                             CLKDOM_LAYOUT_BLACKWELL.msvdd_uv)
 
+    def test_pascal_and_turing_select_the_measured_legacy_layout(self):
+        for architecture in (GPU.ARCH_PASCAL, GPU.ARCH_TURING):
+            with self.subTest(architecture=architecture):
+                gpu = self.gpu_arch(architecture)
+                gpu._clkdom_layout_cache = None
+                gpu._clkdom_valid = [0]
+
+                class FakeNvapi:
+                    ok = True
+                    ClkDomCtlGet = object()
+
+                gpu.nvapi = FakeNvapi()
+
+                def fake_get(mask):
+                    self.assertEqual(mask, 1)
+                    buf = (ctypes.c_ubyte * gpu._CLKDOM_BUF)()
+                    ctypes.cast(buf, ctypes.POINTER(u32))[0] = CLKDOM_VERSION
+                    ctypes.cast(buf, ctypes.POINTER(u32))[2] = mask
+                    return 0, buf
+
+                gpu._clkdom_get = fake_get
+                self.assertEqual(gpu.clkdom_layout(), CLKDOM_LAYOUT_TURING)
+
+    def test_unmeasured_architectures_fail_closed_before_runtime_probe(self):
+        for architecture in (None, 2, 3, 5, 7, 8, 9):
+            with self.subTest(architecture=architecture):
+                gpu = self.gpu_arch(architecture)
+                gpu._clkdom_layout_cache = None
+                gpu.clkdom_ok = lambda: self.fail("unsupported layout probed")
+                self.assertIsNone(gpu.clkdom_layout())
+                self.assertIs(gpu._clkdom_layout_cache, False)
+
     def test_blackwell_control_names_have_no_turing_private_mapping(self):
-        gpu = self.gpu_named("NVIDIA GeForce RTX 5080")
+        gpu = self.gpu_arch(10, "NVIDIA GeForce RTX 5080")
         self.assertEqual(gpu.clkdom_control_label(1), "XBAR")
         self.assertEqual(gpu.clkdom_control_label(3), "SYSCLK")
         self.assertEqual(gpu.clkdom_control_label(4), "VIDEO")
@@ -67,7 +97,7 @@ class ClkDomUnitTests(unittest.TestCase):
         self.assertEqual(gpu.clkdom_step_mhz(), 1)
 
     def test_blackwell_read_uses_shifted_frequency_field(self):
-        gpu = self.gpu_named("NVIDIA GeForce RTX 5080")
+        gpu = self.gpu_arch(10, "NVIDIA GeForce RTX 5080")
         gpu._clkdom_layout_cache = None
         gpu._clkdom_valid = [1, 3, 5]
         gpu._set_calls = []

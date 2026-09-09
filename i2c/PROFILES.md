@@ -1,20 +1,30 @@
 # I2C recipes and controller adapters
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution workflow. This
-reference describes the current interfaces in [railctl.py](../railctl.py),
-[mp2888.py](../mp2888.py), and [ncp4206.py](../ncp4206.py).
+reference describes the current interfaces in [railctl.py](../src/druta/railctl.py),
+[mp2888.py](../src/druta/mp2888.py), [mp29816.py](../src/druta/mp29816.py),
+and [ncp4206.py](../src/druta/ncp4206.py).
 
 An I2C recipe is TOML register data. A controller adapter supplies behavior that
 cannot be represented by the generic signed-offset writer. A saved **tuning
 profile** is a separate JSON snapshot of requested settings and the controller
 connection/recipe fingerprint; it is not a new register recipe.
 
+## Measured Astral MP29816 support
+
+The ASUS RTX 5080 Astral profile at port 2 / 7-bit address `0x30` provides
+PAGE 0 NVVDD telemetry and a sourced, experimental offset map. NVIDIA driver
+580.97 rejected the tested writes; a matching identity does not establish a
+working write path. Apply remains gated on successful per-session verification.
+See [MP29816 measurements and scope](MP29816-ASTRAL.md).
+
 ## Discovery and selection
 
 | Path | Discovery | Write behavior |
 |---|---|---|
-| NCP4206 | Kepler ports 0–7, address `0x20`; documented or observed controller identity plus VOUT_MODE; no PCI/subsystem filter | Absolute VID and ordered command/mode changes in the Python adapter; Auto restores GPU VID control |
+| NCP4206 | Ports 0–7, unicast addresses `0x08`–`0x77`, `0x20` first; known read-only model ID plus VOUT_MODE, with the observed revision pinned to the instance; no generation/PCI/revision allowlist | Absolute VID and ordered command/mode changes; Auto restores GPU VID control |
 | MP2888A | Ports 0–7, addresses `0x08`–`0x77`, `0x20` first; repeated register/telemetry fingerprint; no PCI/subsystem filter | Adapter binds the TOML offset recipe to the discovered location and rechecks its fingerprint |
+| MP29816 | Ports 0–7, unicast addresses, `0x30` first; source-backed count-prefixed `0xAD` model ID; already-selected PAGE 0 or 1 and runtime scale | Both pages have the sourced signed-byte offset in 5 mV mode; other documented scales provide telemetry only |
 | Other TOML recipes | Optional PCI constraints, one configured port and configured address(es), then all identity checks | One signed `offset_mv` field through the generic guarded writer |
 
 `railctl.discover()` returns all matching candidates. `railctl.find()` returns a
@@ -24,10 +34,30 @@ saved tuning profile may select exactly one candidate matching its complete
 recorded identity. Neither an address acknowledgement nor an address register
 is a unique model ID or proof of which rail the controller drives.
 
-The MP scanner is dispatched for recipes whose `profile.regulator`, compared
-case-insensitively, is `MPS MP2888A`. This is recipe routing, not evidence that a
-device is an MP2888A. Do not give another part that name to bypass its discovery
+The MP scanners are dispatched for recipes whose `profile.regulator`, compared
+case-insensitively, is `MPS MP2888A` or `MPS MP29816`. This is recipe routing,
+not evidence of device identity. Do not give another part that name to bypass its discovery
 checks. NCP4206 uses its built-in adapter rather than a TOML offset recipe.
+
+Scanning labels physical rails as unassigned: identifying a controller or PAGE
+does not establish that its output is NVVDD. Historical recipe names and rail
+labels are retained only in saved-profile identity fields, preserving existing
+fingerprints while presenting the actual location in the UI.
+
+NCP4206's manufacturer/model/revision registers are read-only in the
+[onsemi datasheet](https://www.onsemi.com/download/data-sheet/pdf/ncp4206-d.pdf),
+Table 11. The documented model `0x0208` and measured OEM model `0x3298` are
+understood; unfamiliar onsemi models are reported and require register evidence.
+Revision is recorded and must remain unchanged during use, rather than matching
+the developer's board. The documented address is `0x20`; broad probing permits
+alternate OEM routing without claiming every unicast address is a supported strap.
+
+MP29816's board-observed manufacturer strings and revision are diagnostics.
+Its PAGE and scaling are bound to the discovered instance and rechecked around
+reads and writes. A change invalidates that instance; Rescan can discover the
+new already-selected page. No PAGE-selection write is performed. Each empty
+bus costs 896 first-identity reads per enabled scanner, during discovery or
+explicit rescan only; subsequent telemetry probes only selected candidates.
 
 The MP fingerprint checks `0xBE & 0x7f` against the responding address, documented
 field/reserved-bit patterns, supported offset range, and repeated voltage,
@@ -43,9 +73,10 @@ load, measures response against baseline variation, and restores the entry
 setting. Fingerprint checks must establish compatibility before that first
 trial. Verify cannot make an incorrectly specified register safe to probe.
 
-The generic verifier compares sensed rail voltage with GPU VID when available,
-stops at a detected response or failure, and checks restoration of the exact
-original offset field. Refused restoration, exceptions or incorrect readback
+The generic verifier compares direct I2C VOUT before and during its bounded
+trial at a held operating point, stops at a detected response or failure,
+and checks restoration of the exact
+original register word. Refused restoration, exceptions or incorrect readback
 force failure. A detecting step is not a calibrated gain or exact deadband.
 NCP4206 has its own voltage-target ladder and command/mode restoration.
 
@@ -121,8 +152,8 @@ pci_subsys = ["0x12A310DE"]
 
 These optional filters apply to ordinary TOML recipes. Each nonempty filter requires the selected GPU's known ID to occur in its
 list before that recipe probes the bus. Omitting
-both removes only this prefilter, not the identity checks. Built-in NCP4206 and
-MP2888A discovery bypass board-ID matching; the historical MP IDs record the
+both removes only this prefilter, not the identity checks. Built-in NCP4206,
+MP2888A and MP29816 discovery bypass board-ID matching; the historical MP IDs record the
 authoring board, not an eligibility restriction.
 
 ### `[bus]`
@@ -157,6 +188,12 @@ For another controller, use its documented registers and expected values.
 identity block must pass. Specify an actual expected value/mask, not merely a
 readable command. Mark fingerprint checks honestly; do not describe address
 configuration or user-programmable bytes as immutable model identification.
+
+`profile.runtime_checks = true` enables identity/PAGE/scaling checks around
+transactions for writable profiles; telemetry-only profiles always use them.
+A detected configuration change discards the reading. These separate checks
+cannot exclude a change and return between transactions and do not lock out
+another I2C client. Existing unpaged writable profiles retain their polling cost.
 
 ### `[[telemetry]]`
 
@@ -201,8 +238,9 @@ note = "Transaction width 2 bytes; only the low 8-bit signed field is writable."
 Omit this section for read-only contributions. The generic UI/writer operates
 one `offset_mv` entry; adding other keys does not implement new controls or
 ordered sequences. `bytes` is the transaction width; `bits` is the field width.
-The generic setter writes that field and zeros bits outside it. A controller
-requiring preservation of neighboring writable fields needs a dedicated adapter.
+The generic setter replaces only that field, preserving other bits in the
+original word. Full-word readback is checked; failures after dispatch attempt
+restoration of the exact captured word.
 
 Document both the supported raw range and the field's representable range.
 MP2888A supports -111..112 codes, narrower than signed eight-bit representation;
@@ -234,14 +272,25 @@ the GPU. Controller-specific limits may additionally constrain the request.
 ```toml
 [verify]
 rungs_mv = [6.25, 12.50, 25.00, 50.00, 75.00]
-min_loaded_vout_mv = 800.0
 ```
 
 These are bounded trial steps for the generic offset verifier, relative to its
-entry offset. The UI induces load and supplies the GPU voltage reference; the
-minimum operating voltage is checked before trials. `expect_deadband_mv` is
+entry offset. The UI induces memory traffic and supplies the GPU voltage
+reference. There is no minimum-voltage or inferred idle-state gate;
+legacy `min_loaded_vout_mv` metadata is ignored. A successful trial confirms
+a response at the tested operating point, not full-load behavior. `expect_deadband_mv` is
 optional historical metadata, not a gain correction or proof of behavior on
 another board. Do not widen a failed ladder merely to obtain a pass.
+
+Before writing and before accepting a trial response, the offset verifier
+requires nine complete samples of the selected rail and, when available, the
+NVAPI reference. Each voltage's spread must fit within one controller offset
+step (`lsb_mv`), rather than a fixed voltage floor. In the UI, sampled P-state,
+core clock and memory clock must remain unchanged, including across the trial.
+An intermittent reference, unreadable state or observed transition makes the
+trial inconclusive; any attempted offset is restored and checked. This checks
+stability only over those sampled windows, not electrical rail identity or
+NVAPI reference semantics on an unvalidated GPU.
 
 ### `[[never_write]]`
 

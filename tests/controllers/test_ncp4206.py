@@ -59,7 +59,7 @@ class NCPTests(unittest.TestCase):
         auto=profiles.capture(gpu,r)
         self.assertIn('control',auto['i2c']);self.assertNotIn('offset_mv',auto['i2c'])
         self.assertIn('Auto (GPU VID)',profiles.summarize(auto))
-        self.assertIn('Kepler',profiles.summarize(auto))
+        self.assertIn('NCP4206',profiles.summarize(auto))
         self.assertNotIn('GTX 770',profiles.summarize(auto))
         self.assertTrue(r.set_voltage_mv(1250,acknowledged=True)[0])
         target=profiles.capture(gpu,r)

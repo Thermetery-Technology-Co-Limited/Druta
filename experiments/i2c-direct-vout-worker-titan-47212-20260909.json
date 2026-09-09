@@ -1,0 +1,157 @@
+{
+  "gpu": "NVIDIA TITAN RTX",
+  "driver": "472.12",
+  "path": "Druta._i2c_verify_worker; direct I2C VOUT",
+  "trials": [
+    {
+      "logs": [
+        {
+          "message": "verify: CUDA stopped; holding a V/F point and waiting for P0",
+          "ok": null
+        },
+        {
+          "message": "  stable baseline: {'vout_min_mv': 1063.0, 'vout_max_mv': 1063.0, 'reference_available': False, 'reference_min_mv': None, 'reference_max_mv': None, 'operating_point': (0, 1965, 7000)}",
+          "ok": null
+        },
+        {
+          "message": "  baseline I2C VOUT 1063 mV, wander 12 mV (entry offset +0.00 mV)",
+          "ok": null
+        },
+        {
+          "message": "     +6.25 mV  I2C VOUT 1063 mV  delta +0 mV (need 12.0)  flat",
+          "ok": null
+        },
+        {
+          "message": "    +12.50 mV  I2C VOUT 1063 mV  delta +0 mV (need 12.0)  flat",
+          "ok": null
+        },
+        {
+          "message": "    +25.00 mV  I2C VOUT 1063 mV  delta +0 mV (need 12.0)  flat",
+          "ok": null
+        },
+        {
+          "message": "    +50.00 mV  I2C VOUT 1088 mV  delta +25 mV (need 12.0)  MOVED",
+          "ok": null
+        },
+        {
+          "message": "  restored to +0.00 mV",
+          "ok": null
+        },
+        {
+          "message": "  I2C VOUT returned within the baseline noise/resolution band: 1070.0 mV (entry 1063.0 mV; downward response 18.0 mV)",
+          "ok": null
+        },
+        {
+          "message": "verify: WRITE PATH CONFIRMED at the tested operating point. First detected response at +50.00 mV: +25 mV against a 12.0 mV threshold. I2C VOUT returned to 1070.0 mV after restoration. Restored to +0.00 mV. This verifies a response, not full-load behavior or a 1:1 voltage gain.",
+          "ok": true
+        }
+      ],
+      "verified": true,
+      "offset_before": 0,
+      "offset_after": 0,
+      "exact_lock_restored": true,
+      "recovery_pending": false,
+      "busy": false
+    },
+    {
+      "logs": [
+        {
+          "message": "verify: CUDA stopped; holding a V/F point and waiting for P0",
+          "ok": null
+        },
+        {
+          "message": "  stable baseline: {'vout_min_mv': 1063.0, 'vout_max_mv': 1063.0, 'reference_available': False, 'reference_min_mv': None, 'reference_max_mv': None, 'operating_point': (0, 1965, 7000)}",
+          "ok": null
+        },
+        {
+          "message": "  baseline I2C VOUT 1063 mV, wander 12 mV (entry offset +0.00 mV)",
+          "ok": null
+        },
+        {
+          "message": "     +6.25 mV  I2C VOUT 1063 mV  delta +0 mV (need 12.0)  flat",
+          "ok": null
+        },
+        {
+          "message": "    +12.50 mV  I2C VOUT 1063 mV  delta +0 mV (need 12.0)  flat",
+          "ok": null
+        },
+        {
+          "message": "    +25.00 mV  I2C VOUT 1063 mV  delta +0 mV (need 12.0)  flat",
+          "ok": null
+        },
+        {
+          "message": "    +50.00 mV  I2C VOUT 1087 mV  delta +24 mV (need 12.0)  MOVED",
+          "ok": null
+        },
+        {
+          "message": "  restored to +0.00 mV",
+          "ok": null
+        },
+        {
+          "message": "  I2C VOUT returned within the baseline noise/resolution band: 1070.0 mV (entry 1063.0 mV; downward response 17.0 mV)",
+          "ok": null
+        },
+        {
+          "message": "verify: WRITE PATH CONFIRMED at the tested operating point. First detected response at +50.00 mV: +24 mV against a 12.0 mV threshold. I2C VOUT returned to 1070.0 mV after restoration. Restored to +0.00 mV. This verifies a response, not full-load behavior or a 1:1 voltage gain.",
+          "ok": true
+        }
+      ],
+      "verified": true,
+      "offset_before": 0,
+      "offset_after": 0,
+      "exact_lock_restored": true,
+      "recovery_pending": false,
+      "busy": false
+    },
+    {
+      "logs": [
+        {
+          "message": "verify: CUDA stopped; holding a V/F point and waiting for P0",
+          "ok": null
+        },
+        {
+          "message": "  stable baseline: {'vout_min_mv': 1063.0, 'vout_max_mv': 1063.0, 'reference_available': False, 'reference_min_mv': None, 'reference_max_mv': None, 'operating_point': (0, 1965, 7000)}",
+          "ok": null
+        },
+        {
+          "message": "  baseline I2C VOUT 1063 mV, wander 12 mV (entry offset +0.00 mV)",
+          "ok": null
+        },
+        {
+          "message": "     +6.25 mV  I2C VOUT 1063 mV  delta +0 mV (need 12.0)  flat",
+          "ok": null
+        },
+        {
+          "message": "    +12.50 mV  I2C VOUT 1063 mV  delta +0 mV (need 12.0)  flat",
+          "ok": null
+        },
+        {
+          "message": "    +25.00 mV  I2C VOUT 1063 mV  delta +0 mV (need 12.0)  flat",
+          "ok": null
+        },
+        {
+          "message": "    +50.00 mV  I2C VOUT 1088 mV  delta +25 mV (need 12.0)  MOVED",
+          "ok": null
+        },
+        {
+          "message": "  restored to +0.00 mV",
+          "ok": null
+        },
+        {
+          "message": "  I2C VOUT returned within the baseline noise/resolution band: 1070.0 mV (entry 1063.0 mV; downward response 18.0 mV)",
+          "ok": null
+        },
+        {
+          "message": "verify: WRITE PATH CONFIRMED at the tested operating point. First detected response at +50.00 mV: +25 mV against a 12.0 mV threshold. I2C VOUT returned to 1070.0 mV after restoration. Restored to +0.00 mV. This verifies a response, not full-load behavior or a 1:1 voltage gain.",
+          "ok": true
+        }
+      ],
+      "verified": true,
+      "offset_before": 0,
+      "offset_after": 0,
+      "exact_lock_restored": true,
+      "recovery_pending": false,
+      "busy": false
+    }
+  ]
+}

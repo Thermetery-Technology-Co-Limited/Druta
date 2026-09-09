@@ -1,0 +1,83 @@
+{
+  "identity": {
+    "name": "NVIDIA GeForce RTX 5080",
+    "driver": "580.97",
+    "vbios": "98.03.3b.c0.6f",
+    "admin": true,
+    "slot": "0000:01:00.0",
+    "pl_min_mw": 250000,
+    "pl_max_mw": 450000,
+    "pl_def_mw": 360000,
+    "mem_clocks": [
+      405,
+      810,
+      7001,
+      14801,
+      15001
+    ],
+    "fan_min": 30,
+    "fan_max": 100,
+    "mem_div": null,
+    "mem_type": "RAM type 16",
+    "mem_type_id": 16,
+    "core_off_range": [
+      -1000,
+      1000,
+      0
+    ],
+    "mem_off_range": [
+      -2000,
+      6000,
+      0
+    ]
+  },
+  "entry_word": 0,
+  "writes": [
+    {
+      "reg": 34,
+      "word": 1,
+      "width": 2,
+      "accepted": false
+    }
+  ],
+  "log": [
+    "baseline rail-minus-VID 0 mV, wander 0 mV (entry offset +0.00 mV)",
+    "   +5.00 mV  REFUSED - the I2C write was rejected by NVAPI. restored original word: original 0x0000 already reads back exactly",
+    "restored exact entry word 0x0000 (+0.00 mV)"
+  ],
+  "vout_before_mv": 1040.0,
+  "verification": [
+    false,
+    "INCONCLUSIVE - verification stopped at +5.00 mV because the offset request failed. The voltage write path remains unverified. the I2C write was rejected by NVAPI. restored original word: original 0x0000 already reads back exactly",
+    [
+      {
+        "rung_mv": 5.0,
+        "refused": "the I2C write was rejected by NVAPI. restored original word: original 0x0000 already reads back exactly"
+      }
+    ]
+  ],
+  "entry_restoration": [
+    true,
+    "original 0x0000 already reads back exactly"
+  ],
+  "final_word": 0,
+  "identity_after": true,
+  "load": {
+    "running": false,
+    "error": "",
+    "stats": {
+      "slot": "0000:01:00.0",
+      "device_name": "NVIDIA GeForce RTX 5080",
+      "copies": 440,
+      "bytes": 472446402560,
+      "seconds": 1.194240400000126,
+      "buf_mib": 1024,
+      "free_mib": 14865,
+      "total_mib": 16302,
+      "gbps_traffic": 791.2082065888077,
+      "hit_deadline": false
+    }
+  },
+  "public_summary": true,
+  "original_capture_sha256": "188f258a21803355382cea82237c4da2674f4606265af54fbe3cb07aa183d7cb"
+}

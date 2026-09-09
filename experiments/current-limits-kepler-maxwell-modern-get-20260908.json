@@ -1,0 +1,35 @@
+{
+  "read_only": true,
+  "public_summary": true,
+  "original_capture_sha256": "624499fa40d7ad5554506ef4d888efcb5b4d9d526b8ec594cdeede8846e7a0eb",
+  "cards": [
+    {
+      "identity": {
+        "name": "NVIDIA GeForce GTX 745",
+        "driver": "472.12",
+        "vbios": "82.07.32.00.6a",
+        "slot": "0000:01:00.0"
+      },
+      "ntstatus": 0,
+      "rm_status": 86,
+      "info": {
+        "word_count": 2155,
+        "sha256_le_u32": "9678b994aeabe08a6685767eb067893df19fc4e1ff74fee5bd72fa128bbadbd6"
+      }
+    },
+    {
+      "identity": {
+        "name": "NVIDIA GeForce GTX 770",
+        "driver": "472.12",
+        "vbios": "80.04.c3.00.01",
+        "slot": "0000:02:00.0"
+      },
+      "ntstatus": 0,
+      "rm_status": 86,
+      "info": {
+        "word_count": 2155,
+        "sha256_le_u32": "9678b994aeabe08a6685767eb067893df19fc4e1ff74fee5bd72fa128bbadbd6"
+      }
+    }
+  ]
+}

@@ -24,6 +24,7 @@ class BlackwellClockUiTests(FakeUiTest):
                 (15000, -13, -15), (15000, -200, -195)):
             with self.subTest(grid=grid, request=request):
                 self.app.gpu, driver = modern_gpu()
+                self.app.gpu.arch = lambda: 10
                 self.app.gpu.static.update(name="NVIDIA GeForce RTX 5080",
                                            core_off_range=(-200, 300))
                 self.app.gpu.clock_step_khz.return_value = grid
@@ -40,6 +41,7 @@ class BlackwellClockUiTests(FakeUiTest):
 
     def test_private_domain_keeps_one_mhz_requests_independently_of_graphics_grid(self):
         self.app.gpu, _ = modern_gpu()
+        self.app.gpu.arch = lambda: 10
         self.app.gpu.static["name"] = "NVIDIA GeForce RTX 5080"
         self.app.gpu.clock_step_khz.return_value = 12000
         self.app.gpu.set_clk_domain_offset = Mock(return_value=(True, "stored"))
@@ -50,7 +52,7 @@ class BlackwellClockUiTests(FakeUiTest):
                 self.app.gpu.set_clk_domain_offset.assert_called_with(1, request)
                 self.assertEqual(self.values["sl_xbar"], request)
 
-    def test_measured_memory_inputs_truncate_to_exact_even_driver_units(self):
+    def test_memory_inputs_keep_wire_precision_even_on_previously_profiled_identity(self):
         self.app.gpu, driver = modern_gpu()
         self.app.gpu.static.update(name="NVIDIA GeForce RTX 5080", mem_div=None,
                                    driver="580.97", vbios="98.03.3b.c0.6f")
@@ -61,7 +63,7 @@ class BlackwellClockUiTests(FakeUiTest):
         self.assertEqual(self.app.gpu.mem_offset_scale(), (2, "MHz eff"))
         for value in (0.5, -0.5, 1.5, -1.5, 2.5, -2.5, 12.5, -12.5, 12, -12):
             with self.subTest(value=value):
-                expected = int(value)
+                expected = int(value * 2) / 2
                 self.values.update(in_mem=value, sl_mem=0)
                 self.app.knob_typed("mem")
                 self.assertEqual(self.values["in_mem"], expected)
@@ -72,7 +74,7 @@ class BlackwellClockUiTests(FakeUiTest):
                 self.app.apply_mem(self.values["sl_mem"])
                 self.assertEqual(driver.current, expected * 2)
 
-    def test_unmeasured_identity_keeps_existing_fractional_memory_grid(self):
+    def test_other_firmware_uses_the_same_fractional_memory_wire_precision(self):
         self.app.gpu, driver = modern_gpu()
         self.app.gpu.static.update(name="NVIDIA GeForce RTX 5080", mem_div=None,
                                    driver="580.97", vbios="different")

@@ -22,6 +22,7 @@ def gpu():
     g._lock = threading.RLock()
     g.static = {"driver": "472.12"}
     g.nvapi = SimpleNamespace(ok=True, selected={"devid": 0x1E02})
+    g.arch = Mock(return_value=n.GPU.ARCH_TURING)
     g._vf_lock_read_raw = Mock(return_value=n._ClockLock(count=1))
     g._legacy_clk_limit_records = Mock(return_value=records())
     return g
@@ -51,13 +52,16 @@ class LegacyFrequencyLockTests(unittest.TestCase):
         self.assertEqual(g.read_clk_lock(), (1200, 1500))
         g._legacy_clk_limit_records.assert_not_called()
 
-    def test_private_fallback_is_scoped_to_measured_gpu_and_driver(self):
-        for driver, devid in (("580.97", 0x1E02), ("472.12", 0x1B02),
-                              ("472.13", 0x1E02)):
+    def test_private_fallback_is_scoped_to_generation_not_identity(self):
+        for architecture in (n.GPU.ARCH_PASCAL, 8, None):
             g = gpu()
-            g.static["driver"], g.nvapi.selected["devid"] = driver, devid
+            g.arch.return_value = architecture
             self.assertIsNone(g.read_clk_lock())
             g._legacy_clk_limit_records.assert_not_called()
+        g = gpu()
+        g.static["driver"] = "different"
+        g.nvapi.selected["devid"] = 0xFFFF
+        self.assertEqual(g.read_clk_lock(), (1200, 1500))
 
     def test_disabled_or_malformed_records_do_not_invent_a_lock(self):
         samples = [None, [], records(1500, 1200)]

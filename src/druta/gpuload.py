@@ -67,6 +67,7 @@ This runs an ordinary GPU workload. It writes no register and touches no tuning
 knob.
 """
 import ctypes
+import math
 import threading
 import time
 
@@ -419,6 +420,48 @@ def induce(gpu, settle_timeout=15.0, max_seconds=DEFAULT_MAX_SECONDS,
         if out["stats"].get("hit_deadline") and not out["error"]:
             out["error"] = "the GPU load reached its hard duration limit"
     return out
+
+
+def verify_in_p0(gpu, callback, cancelled=None, settle_timeout=15.0,
+                 voltage_mv=None):
+    """Run a verifier under a temporary GPU hold, after observing stable P0.
+
+    CUDA must have stopped first: it can force P2 even with a point hold.
+    voltage_mv may be the operating voltage captured by a preceding warmup.
+    Kepler uses its legacy P0 request and needs neither CUDA nor voltage_mv.
+    No voltage floor or fan/power-limit changes.
+    """
+    if cancelled is not None and cancelled():
+        raise LoadError("verification cancelled")
+    with gpu.verification_p0(voltage_mv=voltage_mv) as check_hold:
+        def operating_point():
+            if cancelled is not None and cancelled():
+                raise LoadError("verification cancelled")
+            check_hold()
+            sample = gpu.read()
+            point = tuple(sample.get(k) for k in ("pstate", "core", "mem"))
+            if point[0] != 0:
+                raise LoadError("verification requires physical P0")
+            return point
+
+        deadline = time.perf_counter() + settle_timeout
+        last, stable = None, 0
+        while time.perf_counter() < deadline:
+            if cancelled is not None and cancelled():
+                raise LoadError("verification cancelled")
+            check_hold()
+            sample = gpu.read()
+            point = tuple(sample.get(k) for k in ("pstate", "core", "mem"))
+            valid = (point[0] == 0 and all(isinstance(v, (int, float))
+                     and math.isfinite(v) and v > 0 for v in point[1:]))
+            stable = stable + 1 if valid and point == last else 0
+            if stable >= 2:
+                result = callback(operating_point)
+                operating_point()
+                return result
+            last = point
+            time.sleep(0.1)
+        raise LoadError("P0 hold did not settle before verification; nothing written")
 
 
 def _read(gpu):
