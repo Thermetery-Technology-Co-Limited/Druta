@@ -56,7 +56,7 @@ class Bus:
 
 class DiscoveryTests(unittest.TestCase):
     def setUp(self):
-        with (Path(__file__).resolve().parents[1] / 'i2c/rtx2080ti-mp2888a.toml').open('rb') as f:
+        with (Path(__file__).resolve().parents[2] / 'i2c/rtx2080ti-mp2888a.toml').open('rb') as f:
             self.profile = railctl.Profile(tomllib.load(f), 'original')
         self.bus = Bus()
 

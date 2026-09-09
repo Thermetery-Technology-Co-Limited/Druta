@@ -8,7 +8,7 @@ from druta.controllers import ncp4206
 from druta.druta import Druta, KnobRange
 from druta.nvbackend import CLKDOM_LAYOUT_TURING, GPU, i32
 from tests.test_arch_ui_regressions import FakeUiTest
-from tests import test_ncp4206
+from tests.controllers import test_ncp4206
 from tests.test_verification_lifecycle import offset_rail
 from tests.test_volt_rails import fake_gpu
 

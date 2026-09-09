@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from druta.controllers import ncp4206
-from tests import test_ncp4206
+from tests.controllers import test_ncp4206
 
 
 class NcpVerifyTests(unittest.TestCase):

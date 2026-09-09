@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, Mock, patch
 from druta import druta
 from druta import railctl
 from druta.druta import Druta
-from tests import test_ncp4206
+from tests.controllers import test_ncp4206
 
 
 def offset_rail():
