@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 from druta import profiles
+from druta.nvbackend import GPU
 
 
 def fixture():
@@ -66,6 +67,37 @@ class CurrentLimitProfileTests(unittest.TestCase):
         gpu._current_limit_error = "policy read failed"
         state = profiles.capture(gpu)
         self.assertTrue(any("policy read failed" in s for s in profiles.incomplete(state)))
+
+    def test_unsupported_generations_omit_currents_without_making_snapshot_incomplete(self):
+        for generation in (GPU.ARCH_KEPLER, GPU.ARCH_MAXWELL):
+            with self.subTest(generation=generation):
+                gpu = fixture()
+                gpu._current_limit_generation_policies = Mock(
+                    return_value=GPU.CURRENT_LIMIT_GENERATION_POLICIES.get(generation, {}))
+                gpu.get_current_limits.side_effect = AssertionError("unsupported reader called")
+                gpu._current_limit_error = "NVAPI unavailable or GPU generation unsupported"
+                state = profiles.capture(gpu)
+                self.assertEqual(state["current_limits_ma"], {})
+                self.assertFalse(profiles.incomplete(state))
+                gpu.get_current_limits.assert_not_called()
+
+    def test_applicable_generation_with_broken_api_still_marks_snapshot_incomplete(self):
+        gpu = fixture()
+        gpu._current_limit_generation_policies = Mock(
+            return_value=GPU.CURRENT_LIMIT_GENERATION_POLICIES[GPU.ARCH_TURING])
+        gpu.get_current_limits.return_value = []
+        gpu._current_limit_error = "NVAPI unavailable or GPU generation unsupported"
+        state = profiles.capture(gpu)
+        gpu.get_current_limits.assert_called_once_with()
+        self.assertTrue(any("Current limits NOT captured" in s
+                            for s in profiles.incomplete(state)))
+
+    def test_applicability_read_exception_does_not_silently_omit_currents(self):
+        gpu = fixture()
+        gpu._current_limit_generation_policies = Mock(side_effect=RuntimeError("architecture failed"))
+        state = profiles.capture(gpu)
+        self.assertTrue(any("architecture failed" in s for s in profiles.incomplete(state)))
+        gpu.get_current_limits.assert_not_called()
 
     def test_profile_cannot_enable_xoc_or_bypass_setter_rejection(self):
         gpu = fixture()

@@ -46,8 +46,9 @@ Those checks are now replaced with the direct-response methodology above.
 Verification requests legacy P0 on the selected Kepler GPU, requires observed
 P0 and settled positive core/memory clocks before a controller write, and
 checks the operating point throughout sampling. It does not require CUDA or
-an NVAPI voltage reading. This temporary capability path does not change the
-persistent P0 UI's measured-board allowlist. An existing session-owned P0 hold
+an NVAPI voltage reading. The persistent P0 button now uses generation/API eligibility for Kepler and
+Maxwell. Measured board profiles provide historical tooltip data rather than
+authorizing the control. An existing session-owned P0 hold
 is preserved; a new request is released to automatic states after controller
 restoration. The API does not expose another process's force-request ownership.
 A failed release remains owned, blocks GPU switching, and is retried through

@@ -31,6 +31,20 @@ class LegacyP0UiTests(unittest.TestCase):
         gpu.static["driver"] = "unknown"
         self.assertNotIn("705 MHz", self.app.legacy_p0_measurement())
 
+    def test_unprofiled_legacy_generation_exposes_action_without_borrowing_measurements(self):
+        from tests.test_legacy_p0 import card
+        for arch in (GPU.ARCH_KEPLER, GPU.ARCH_MAXWELL):
+            with self.subTest(arch=arch):
+                self.app.gpu = card()
+                self.app.gpu.arch.return_value = arch
+                self.app.gpu.nvapi.selected = {"devid": 0xFFFF, "subsys": 0x12345678}
+                self.app.gpu.static = {"driver": "unknown", "vbios": "unknown"}
+                self.assertTrue(self.app.legacy_p0_supported())
+                text = self.app.legacy_p0_measurement()
+                self.assertIn("Maximum core boost is not guaranteed", text)
+                self.assertNotIn("705 MHz", text)
+                self.assertNotIn("540 MHz", text)
+
     def setUp(self):
         for name, kwargs in (("does_item_exist", {"return_value": False}),
                              ("set_value", {}), ("configure_item", {})):
@@ -58,7 +72,9 @@ class LegacyP0UiTests(unittest.TestCase):
             set_voltage_boost=Mock(), apply_vf_deltas=Mock(),
             reset_gpu_clocks=Mock(), clear_vf_lock=Mock(), static={})
 
-    def capture(self, _action):
+    def capture(self, _action, *, scope=None):
+        if _action == "lock P0 and max fan":
+            self.assertEqual(scope, "fan")
         self.events.append("capture")
         return True
 

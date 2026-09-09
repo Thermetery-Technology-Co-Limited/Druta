@@ -2517,19 +2517,14 @@ class GPU:
     def arch_name(self):
         return self.ARCH_NAMES.get(self.arch() or -1)
 
-    def is_gtx745(self):
-        """The GM107 board tested on R472; not a blanket Maxwell capability."""
-        api = getattr(self, "nvapi", None)
-        return (self.arch() == self.ARCH_MAXWELL
-                and (getattr(api, "selected", None) or {}).get("devid") == 0x1382)
-
     def vf_curve_applicable(self):
-        """Kepler and the GTX 745 use ordinary clock offsets, not this V/F table.
+        """Kepler uses ordinary clock offsets, not this V/F table.
 
-        Other architectures retain their existing runtime layout validation;
-        an unavailable read must not be mistaken for an inapplicable curve.
+        Other architectures use runtime getter and layout validation, without
+        device-ID blacklists. An unavailable read must not be mistaken for a
+        successfully captured curve.
         """
-        return self.arch() != self.ARCH_KEPLER and not self.is_gtx745()
+        return self.arch() != self.ARCH_KEPLER
 
     # WHAT WAS ACTUALLY MEASURED, per (architecture, control domain). Absent
     # means nobody has looked, and absent must not be read as either answer.
@@ -3571,7 +3566,7 @@ class GPU:
     def legacy_p0_profile(self):
         """Measured behavior for this exact GPU/driver, or None if unverified."""
         api = getattr(self, "nvapi", None)
-        if not (api and api.ok and getattr(api, "ForcePstate", None)
+        if not (api and api.ok and callable(getattr(api, "ForcePstate", None))
                 and not getattr(self, "pairing_error", None)):
             return None
         card = getattr(api, "selected", None) or {}
@@ -3582,8 +3577,12 @@ class GPU:
         return dict(profile) if profile is not None else None
 
     def legacy_p0_supported(self):
-        """Only a measured board/firmware/driver combination may force P0."""
-        return self.legacy_p0_profile() is not None
+        """Kepler and Maxwell probe P0 at runtime, independent of board ID."""
+        api = getattr(self, "nvapi", None)
+        if not (api and api.ok and callable(getattr(api, "ForcePstate", None))
+                and not getattr(self, "pairing_error", None)):
+            return False
+        return self.arch() in (self.ARCH_KEPLER, self.ARCH_MAXWELL)
 
     def legacy_p0_owned(self):
         """Session ownership, not a claim to read another tuner's force state."""
@@ -3591,16 +3590,21 @@ class GPU:
 
     def hold_legacy_p0(self):
         if not self.legacy_p0_supported():
-            return False, "legacy P0 hold is not verified on this GPU/driver"
-        try:
-            status = self.nvapi.ForcePstate(self.nvapi.gpu, u32(0), u32(2))
-        except Exception as exc:
-            return False, f"P0 request failed: {exc}"
-        if status != 0:
-            return False, f"P0 request failed (NVAPI status {status})"
-        # Track a successful request immediately, even if verification fails.
-        # A failed rollback must remain releasable from the UI and on exit.
-        self._legacy_p0_owned = True
+            return False, "legacy P0 hold is unavailable on this GPU/driver"
+        already_owned = self.legacy_p0_owned()
+        if not already_owned:
+            # A transport exception can follow an accepted write. Own the
+            # request before calling so a failed rollback remains retryable.
+            self._legacy_p0_owned = True
+            try:
+                status = self.nvapi.ForcePstate(self.nvapi.gpu, u32(0), u32(2))
+            except Exception as exc:
+                ok, message = self.release_legacy_p0()
+                return False, (f"P0 request failed: {exc}; "
+                               + (message if ok else "RELEASE FAILED: " + message))
+            if status != 0:
+                self._legacy_p0_owned = False
+                return False, f"P0 request failed (NVAPI status {status})"
         reason = "P0 and its top memory band were not observed"
         consecutive = 0
         try:
@@ -3608,8 +3612,9 @@ class GPU:
                 data = self.read()
                 top = data.get("mem_p0max")
                 mem = data.get("mem")
-                good = (data.get("pstate") == 0 and top is not None and top > 0
-                        and mem is not None and mem >= top * 0.97)
+                good = (data.get("pstate") == 0 and top is not None
+                        and math.isfinite(top) and top > 0 and mem is not None
+                        and math.isfinite(mem) and mem >= top * 0.97)
                 consecutive = consecutive + 1 if good else 0
                 if consecutive >= 3:
                     return True, (f"P0 held; core {data.get('core', '?')} MHz, "
@@ -3617,6 +3622,8 @@ class GPU:
                 time.sleep(0.1)
         except Exception as exc:
             reason = f"P0 verification failed: {exc}"
+        if already_owned:
+            return False, reason + "; existing session P0 hold retained"
         ok, message = self.release_legacy_p0()
         return False, reason + "; " + (message if ok else "RELEASE FAILED: " + message)
 
@@ -4280,15 +4287,12 @@ class GPU:
     def verification_legacy_p0(self):
         """Own a temporary Kepler P0 request; the caller confirms physical P0.
 
-        This bounded verification path probes capability on the selected
-        Kepler, rather than adding it to the persistent UI hold allowlist.
+        Kepler capability is probed on the selected card at runtime.
         The API cannot read another process's force-request ownership. Preserve
         a hold already owned by this session; otherwise return to automatic.
         """
         api = getattr(self, "nvapi", None)
-        if (self.arch() != self.ARCH_KEPLER or not api or not api.ok
-                or not getattr(api, "ForcePstate", None)
-                or getattr(self, "pairing_error", None)):
+        if self.arch() != self.ARCH_KEPLER or not self.legacy_p0_supported():
             raise RuntimeError("Kepler P0 request is unavailable; verification cannot write")
         acquired = False
         try:

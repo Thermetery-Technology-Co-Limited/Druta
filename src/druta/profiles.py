@@ -62,6 +62,13 @@ def incomplete(state):
     whole). A profile written before this field existed reports nothing missing
     unless its V/F table is absent, which is the case that matters."""
     miss = list(state.get(INCOMPLETE_KEY) or [])
+    if state.get("scope") is not None:
+        try:
+            _validate_fan_scope(state)
+        except ValueError as exc:
+            if str(exc) not in miss:
+                miss.append(str(exc))
+        return miss
     if not miss and not state.get("vf_deltas") and state.get("vf_applicable") is not False:
         miss.append("V/F delta table NOT captured")
     return miss
@@ -174,12 +181,17 @@ def capture(gpu, rail=None):
     reader = getattr(gpu, "get_current_limits", None)
     if callable(reader):
         try:
-            rows = reader()
-            if not rows and getattr(gpu, "_current_limit_error", ""):
-                raise RuntimeError(gpu._current_limit_error)
-            state["current_limits_ma"] = {
-                str(row["policy"]): row.get("requested_ma", row["limit_ma"])
-                for row in rows}
+            policies = getattr(gpu, "_current_limit_generation_policies", None)
+            # An unsupported generation has no current-limit knob to save.
+            # Check generation alone: API failure on an applicable card must
+            # still make the snapshot incomplete instead of hiding lost state.
+            if not callable(policies) or policies():
+                rows = reader()
+                if not rows and getattr(gpu, "_current_limit_error", ""):
+                    raise RuntimeError(gpu._current_limit_error)
+                state["current_limits_ma"] = {
+                    str(row["policy"]): row.get("requested_ma", row["limit_ma"])
+                    for row in rows}
         except Exception as exc:
             state[INCOMPLETE_KEY].append(f"Current limits NOT captured ({exc})")
     # Modern NVML and the legacy NVAPI fallbacks expose requested per-fan
@@ -211,6 +223,37 @@ def capture(gpu, rail=None):
     except Exception as e:
         state[INCOMPLETE_KEY].append(f"V/F delta table NOT captured ({e})")
     capture_rails(gpu, state, rail)
+    return state
+
+
+def capture_fan(gpu):
+    """Capture only the fan policy that a P0/max-fan action can overwrite.
+
+    The P0 hold has its own explicit Release action. Missing curve, voltage or
+    current readers cannot make this fan undo point incomplete.
+    """
+    now = time.time()
+    state = {
+        "schema": SCHEMA, "scope": "fan",
+        "saved_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)),
+        "saved_ts": now,
+        "device": {key: gpu.static.get(key)
+                   for key in ("name", "vbios", "driver", "uuid", "slot")},
+        "fan_control_state": None, INCOMPLETE_KEY: [],
+    }
+    try:
+        reader = getattr(gpu, "read_fan_control_state", None)
+        if not callable(reader):
+            raise ValueError("fan control state reader unavailable")
+        state["fan_control_state"] = reader()
+        _validate_fan_scope(state)
+        if not callable(getattr(gpu, "restore_fan_control_state", None)):
+            raise ValueError("fan control state restore unavailable")
+        error = strict_device_error(state, gpu)
+        if error:
+            raise ValueError(error)
+    except Exception as exc:
+        state[INCOMPLETE_KEY].append(f"Fan policy NOT captured ({exc})")
     return state
 
 
@@ -415,6 +458,24 @@ def _validate_saved_fields(gpu, state):
     return deltas
 
 
+def _validate_fan_scope(state):
+    """A scope marker cannot conceal tune fields from their usual validation."""
+    if state.get("scope") != "fan" or state.get("schema") != SCHEMA:
+        raise ValueError("unsupported profile scope")
+    allowed = {"schema", "scope", "saved_at", "saved_ts", "device",
+               "fan_control_state", INCOMPLETE_KEY}
+    if set(state) - allowed:
+        raise ValueError("fan-only snapshot contains unrelated profile fields")
+    if state.get("fan_control_state") is None:
+        raise ValueError("fan-only snapshot has no captured fan policy")
+    missing = state.get(INCOMPLETE_KEY, [])
+    if not isinstance(missing, list) or any(not isinstance(item, str) for item in missing):
+        raise ValueError("fan-only snapshot has invalid completeness metadata")
+    # Only whitelisted fan/metadata fields reach this validator, so it cannot
+    # invoke clock-layout readers or validate an unrelated tune setting.
+    _validate_saved_fields(None, state)
+
+
 def preflight(gpu, state, rail=None, *, apply_curve=True):
     """Validate saved private controls before ANY write, including I2C verification.
 
@@ -425,6 +486,11 @@ def preflight(gpu, state, rail=None, *, apply_curve=True):
             or state.get("schema", 1) not in (1, SCHEMA)):
         return "unsupported profile format"
     try:
+        if state.get("scope") is not None:
+            _validate_fan_scope(state)
+            if state.get(INCOMPLETE_KEY):
+                raise ValueError("fan-only snapshot is incomplete")
+            return strict_device_error(state, gpu)
         deltas = _validate_saved_fields(gpu, state)
         applicable = vf_applicable(gpu)
         if state.get("vf_applicable") is False and applicable:
@@ -545,7 +611,7 @@ def list_profiles():
     return [r[:4] for r in out]
 
 
-def autosave(gpu, action, rail=None):
+def autosave(gpu, action, rail=None, *, scope=None):
     """Undo point taken immediately before a destructive write. Distinct from a
     named profile: it is not a tune you chose to keep, it is the state you are
     about to leave. Old ones are pruned so the directory stays readable.
@@ -562,7 +628,12 @@ def autosave(gpu, action, rail=None):
     stamp = (time.strftime("%Y%m%d-%H%M%S", time.localtime(t))
              + f".{int((t % 1) * 1000):03d}")
     name = f"{AUTOSAVE_PREFIX}{_slug(action)}-{stamp}"
-    state = capture(gpu, rail)
+    if scope is None:
+        state = capture(gpu, rail)
+    elif scope == "fan":
+        state = capture_fan(gpu)
+    else:
+        raise ValueError("unsupported autosave scope")
     p = save(name, state)
     autos = [r for r in list_profiles() if r[3]]
     for _n, old, _w, _a in autos[KEEP_AUTOSAVES:]:
@@ -632,6 +703,10 @@ def _restore_validated(gpu, state, apply_curve, rail, results):
             ok, msg = False, f"{label}: {e}"
         results.append((ok, msg))
         return ok
+
+    if state.get("scope") == "fan":
+        step("fan", lambda: gpu.restore_fan_control_state(state["fan_control_state"]))
+        return results
 
     # Voltage requests precede clocks. If any voltage operation fails, do not
     # apply a curve that may depend on it. Individual setters preserve their
@@ -740,6 +815,8 @@ def _restore_validated(gpu, state, apply_curve, rail, results):
 def summarize(state):
     """One-line description for a menu row or a confirmation banner."""
     bits = []
+    if state.get("scope") == "fan":
+        bits.append("fan policy only (P0 hold unchanged)")
     co = state.get("core_off_mhz")
     if isinstance(co, int):
         bits.append(f"core {co:+d} MHz")

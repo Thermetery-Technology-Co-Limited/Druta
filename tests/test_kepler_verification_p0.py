@@ -12,7 +12,7 @@ class KeplerVerificationP0(unittest.TestCase):
     def setUp(self):
         self.gpu = test_legacy_p0.card()
         self.gpu.arch.return_value = self.gpu.ARCH_KEPLER
-        # Deliberately absent from the persistent UI's measured-board list.
+        # Runtime Kepler capability is independent of historical measurements.
         self.gpu.nvapi.selected = {"devid": 0x1184, "subsys": 0x1033196e}
 
     def run_verify(self, callback, **kwargs):
@@ -20,7 +20,8 @@ class KeplerVerificationP0(unittest.TestCase):
             return gpuload.verify_in_p0(self.gpu, callback, **kwargs)
 
     def test_runtime_capability_requires_p0_and_releases_new_request(self):
-        self.assertFalse(self.gpu.legacy_p0_supported())
+        self.assertTrue(self.gpu.legacy_p0_supported())
+        self.assertIsNone(self.gpu.legacy_p0_profile())
         def callback(point):
             self.assertTrue(self.gpu.legacy_p0_owned())
             self.assertEqual(point(), (0, 540, 900))

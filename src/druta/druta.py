@@ -1877,7 +1877,7 @@ class Druta:
                 dpg.add_button(label="Reset all to stock", callback=self.reset_all,
                                width=self.s(200), height=self.s(28))
                 dpg.add_spacer(width=self.s(20))
-                if self.vf_applicable():
+                if self.vf_applicable() and not self.legacy_p0_supported():
                     # Beside 'Reset all to stock' deliberately: they are the two
                     # ends of the same axis, and the way back should never be
                     # further from the hand than the way out.
@@ -2604,8 +2604,8 @@ class Druta:
         fan_caps = self.gpu.fan_capabilities()
         fan_manual = fan_caps["manual"]
         fan_auto = fan_caps["auto"]
-        frequency_lock = (self.gpu.arch() not in (GPU.ARCH_KEPLER, GPU.ARCH_PASCAL)
-                          and not getattr(self.gpu, "is_gtx745", lambda: False)())
+        frequency_lock = self.gpu.arch() not in (GPU.ARCH_KEPLER, GPU.ARCH_MAXWELL,
+                                                 GPU.ARCH_PASCAL)
         for tag in self._ctl_widgets:
             if dpg.does_item_exist(tag):
                 available = (fan_manual if tag in ("sl_fan", "in_fan", "go_fan")
@@ -3379,7 +3379,7 @@ class Druta:
                      "still applied", False)
 
     def legacy_p0_supported(self):
-        """Only a backend-confirmed board/driver pair may expose P0 writes."""
+        """Expose the legacy P0 action when the backend can attempt a verified hold."""
         return bool(getattr(self.gpu, "legacy_p0_supported", lambda: False)())
 
     def legacy_p0_measurement(self):
@@ -3408,7 +3408,7 @@ class Druta:
         self.sync_legacy_p0_lock()
 
     def lock_p0_and_max_fan(self, sender=None, app_data=None, user_data=None):
-        """Hold the verified legacy P0 state and set only fan duty to 100%."""
+        """Request and verify legacy P0, then set fan duty to 100%."""
         if not self.legacy_p0_supported() or not self.guard():
             return
         if not self.gpu.fan_capabilities()["manual"]:
@@ -3417,7 +3417,7 @@ class Druta:
         already_owned = self.gpu.legacy_p0_owned()
         # Capture the original fan before either write. Profiles intentionally
         # exclude lock ownership; Release is still needed after Undo.
-        if not self.autosave_before("lock P0 and max fan"):
+        if not self.autosave_before("lock P0 and max fan", scope="fan"):
             self.log("P0 + fan: could not capture a complete undo point; nothing changed", False)
             return
         if not self.handover(self.LOCK_P0):
@@ -6008,7 +6008,7 @@ deliberately does not put behind a button."""
     # ====================================================================== #
     #  PROFILES                                                              #
     # ====================================================================== #
-    def autosave_before(self, action):
+    def autosave_before(self, action, *, scope=None):
         """Undo point taken IMMEDIATELY before a destructive write. This is the
         other half of single-click Apply: the banner makes the click informed,
         this makes it reversible. Returns True only when a snapshot was taken
@@ -6035,12 +6035,20 @@ deliberately does not put behind a button."""
         failure. It says so as an error instead, which reddens the V/F tab's
         status line as well as the log."""
         try:
-            name, _path, missing = profiles.autosave(self.gpu, action, getattr(self, "rail", None))
+            options = {"scope": scope} if scope is not None else {}
+            name, _path, missing = profiles.autosave(
+                self.gpu, action, getattr(self, "rail", None), **options)
         except Exception as e:
+            if scope == "fan":
+                self.log(f"could not save fan undo state before {action}: {e}; nothing changed", False)
+                return False
             self.log(f"could NOT save an undo point before {action}: {e} - "
                      f"the write is going ahead unprotected", False)
             return False
         if missing:
+            if scope == "fan":
+                self.log(f"fan undo point is incomplete: {'; '.join(missing)}; nothing changed", False)
+                return False
             # An incomplete snapshot must not be announced as an undo point.
             # The one field that goes missing is the V/F delta table, i.e.
             # precisely what the write about to happen overwrites: restore()
@@ -6262,13 +6270,15 @@ deliberately does not put behind a button."""
             self.refresh_i2c_candidates()
         # The action label is bounded: undoing an undo would otherwise compose
         # 'load-autosave-load-autosave-...' into a filename that only grows
-        captured = self.autosave_before(f"load-{name}"[:40])
-        if automatic and not captured:
+        scope = state.get("scope")
+        options = {"scope": scope} if scope is not None else {}
+        captured = self.autosave_before(f"load-{name}"[:40], **options)
+        if (automatic or scope == "fan") and not captured:
             self.profile_failure("could not capture a complete undo point", automatic)
             return
         self.log(f"restoring '{name}' ({state.get('saved_at','?')}): "
                  f"{profiles.summarize(state)}", None)
-        if state.get("schema", 1) >= 2:
+        if state.get("schema", 1) >= 2 and scope != "fan":
             for tag, value in (("xoc_mode", bool(state.get("xoc"))),
                                ("vlim_mode", bool(state.get("rail_limits_mv"))),
                                ("i2c_mode", bool(state.get("i2c")))):
@@ -6326,6 +6336,8 @@ deliberately does not put behind a button."""
         else:
             self.log(f"profile '{name}' applied", True)
         self.sync_sliders_from_gpu(state)
+        if state.get("scope") == "fan":
+            return
         self.sync_profile_rail_sliders()
         self.refresh_volt_limits()
         # the delta table is written LAST and wins over the core offset (see
@@ -6582,8 +6594,9 @@ deliberately does not put behind a button."""
                 dpg.add_text("GPU CLOCK LOCK", color=ACCENT)
                 if self.gpu.arch() == GPU.ARCH_KEPLER:
                     dpg.add_text("NVML GPU and memory clock locks are unavailable on Kepler.", color=DIM)
-                elif self.gpu.is_gtx745():
-                    dpg.add_text("NVML GPU and memory clock locks are unavailable on GTX 745.", color=DIM)
+                elif self.gpu.arch() == GPU.ARCH_MAXWELL:
+                    dpg.add_text("NVML GPU frequency locks are unavailable on Maxwell.\n"
+                                 "Use Lock P0 and max fan for a performance-state hold.", color=DIM)
                 elif self.gpu.arch() == GPU.ARCH_PASCAL:
                     dpg.add_text("NVML frequency locking is unavailable on Pascal.\n"
                                  "Use Ctrl+H on the V/F curve to hold a point.", color=DIM)
@@ -8239,12 +8252,34 @@ deliberately does not put behind a button."""
                          name="Druta-read-p0").start()
 
     def hold_for_read(self):
-        """Pin the card on the cap point so a capture lands in the top band.
+        """Hold the selected card in P0 so a capture lands in the top band.
 
-        Returns True only if the lock is really in force. Every failure is a
-        reason to fall back to the load, not to give up: a locked gate, a card
-        with no readable V/F table, or an NVAPI that will not take the lock all
-        leave the CUDA path perfectly able to reach the band."""
+        Kepler/Maxwell use the legacy request without needing a V/F curve.
+        Rechecking a request already owned by this session does not write it
+        again, so it remains available with controls locked. Other cards use
+        a V/F point; failure leaves the existing direct-read/load fallback.
+        """
+        owned = getattr(self.gpu, "legacy_p0_owned", lambda: False)()
+        if owned or self.legacy_p0_supported():
+            if not owned:
+                if not self.unlocked():
+                    self.log("read: controls are locked, so the P0 hold was skipped - "
+                             "falling back to a GPU load", None)
+                    return False
+                if not self.handover(self.LOCK_P0):
+                    return False
+            ok = False
+            try:
+                ok, message = self.gpu.hold_legacy_p0()
+                self.log("read: " + message, ok)
+            except Exception as exc:
+                self.log(f"read: could not confirm the P0 hold ({exc}) - "
+                         "falling back to a GPU load", False)
+            finally:
+                # Even failed verification may leave a request whose release
+                # failed. Keep its owner and release route visible.
+                self.sync_legacy_p0_lock(verified=ok)
+            return bool(ok and self.gpu.legacy_p0_owned())
         if not self.vf_applicable():
             return False
         if not self.unlocked():
@@ -8327,12 +8362,12 @@ deliberately does not put behind a button."""
                     up, (mem, ps) = self.wait_for_band(gpu)
                     snap = timings.snapshot(gpu)
                     if up:
-                        note = (f"Holding P0 (memory {mem}) with the V/F point "
-                                f"lock - no load needed, and the band stays up "
+                        note = (f"Holding P0 (memory {mem}) - no load needed, "
+                                f"and the band stays up "
                                 f"after this capture. 'Re-read timings' is now "
-                                f"a cheap sanity check. Ctrl+H releases.")
+                                f"a cheap sanity check. Clocks > Release drops the hold.")
                     else:
-                        note = (f"The V/F point lock is on, but the card was "
+                        note = (f"The P0 hold was requested, but the card was "
                                 f"still at memory {mem}, p-state {ps} after "
                                 f"{self.HOLD_SETTLE_S:.0f}s. Captured anyway - "
                                 f"read the state line above before trusting "
