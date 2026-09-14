@@ -1,0 +1,1157 @@
+{
+  "date": "2026-09-14",
+  "tested_commit": "0e54e80af04a390930ef54fcf343459429c360d8",
+  "gpu": "NVIDIA TITAN Xp / GP102",
+  "slot": "0000:01:00.0",
+  "method": "Actual DearPyGui timing edit/Apply/Restore callbacks, real nvtune subprocesses; held P0, fresh isolated backup, all broadcast and six partition registers compared. Read-only capability smoke and packaged EXE startup on both drivers.",
+  "scope": "One TITAN Xp, FAW loosening only; no general claim for other timing fields, boards, firmware, or other tuning writes.",
+  "driver_switches": [
+    {
+      "driver": "58097",
+      "success": true,
+      "reboot_required": false
+    },
+    {
+      "driver": "47212",
+      "success": true,
+      "reboot_required": false
+    }
+  ],
+  "stages": [
+    {
+      "stage": "47212-before",
+      "driver": "472.12",
+      "vbios": "86.02.3d.00.01",
+      "initial_registers": {
+        "broadcast": {
+          "CONFIG0": 373857594,
+          "CONFIG1": 824574867,
+          "CONFIG2": 1427638272,
+          "CONFIG3": 570437962,
+          "CONFIG4": 1837301810,
+          "CONFIG5": 1953657010,
+          "TIMING22": 7
+        },
+        "fbpa0": {
+          "CONFIG0": 373857594,
+          "CONFIG1": 824574867,
+          "CONFIG2": 1427638272,
+          "CONFIG3": 570437962,
+          "CONFIG4": 1837301810,
+          "CONFIG5": 1953657010,
+          "TIMING22": 7
+        },
+        "fbpa1": {
+          "CONFIG0": 373857594,
+          "CONFIG1": 824574867,
+          "CONFIG2": 1427638272,
+          "CONFIG3": 570437962,
+          "CONFIG4": 1837301810,
+          "CONFIG5": 1953657010,
+          "TIMING22": 7
+        },
+        "fbpa2": {
+          "CONFIG0": 373857594,
+          "CONFIG1": 824574867,
+          "CONFIG2": 1427638272,
+          "CONFIG3": 570437962,
+          "CONFIG4": 1837301810,
+          "CONFIG5": 1953657010,
+          "TIMING22": 7
+        },
+        "fbpa3": {
+          "CONFIG0": 373857594,
+          "CONFIG1": 824574867,
+          "CONFIG2": 1427638272,
+          "CONFIG3": 570437962,
+          "CONFIG4": 1837301810,
+          "CONFIG5": 1953657010,
+          "TIMING22": 7
+        },
+        "fbpa4": {
+          "CONFIG0": 373857594,
+          "CONFIG1": 824574867,
+          "CONFIG2": 1427638272,
+          "CONFIG3": 570437962,
+          "CONFIG4": 1837301810,
+          "CONFIG5": 1953657010,
+          "TIMING22": 7
+        },
+        "fbpa5": {
+          "CONFIG0": 373857594,
+          "CONFIG1": 824574867,
+          "CONFIG2": 1427638272,
+          "CONFIG3": 570437962,
+          "CONFIG4": 1837301810,
+          "CONFIG5": 1953657010,
+          "TIMING22": 7
+        }
+      },
+      "initial_vf_lock": [
+        null,
+        null
+      ],
+      "final_vf_lock": [
+        null,
+        null
+      ],
+      "fan_policy_preserved": true,
+      "runs": [
+        {
+          "helper": "public-1.0.0-alpha",
+          "sha256": "027c1e43ae30f7e080151ce8259aabcdbd19a3256d0e1b43531bbf55995cb4ce",
+          "pstate": 0,
+          "memory_clock": 5702,
+          "scopes": [
+            "fbpa0",
+            "fbpa1",
+            "fbpa2",
+            "fbpa3",
+            "fbpa4",
+            "fbpa5"
+          ],
+          "before": 24,
+          "requested": 25,
+          "preview_text": "1 field(s): FAW 24->25   [CONFIG3 0x2200314A->0x2200334A]\nRead-only preview calculated by Druta from nvtune fields and dump. Additional checks inside nvtune may still refuse Apply.",
+          "preview_unchanged": true,
+          "apply_text": "FAW: 24 \u2192 asked 25, reads 25   written and verified",
+          "only_requested_bits_changed": true,
+          "held_readbacks": 4,
+          "restored_exactly": true,
+          "passed": true,
+          "preview_flags": null,
+          "commit_flags": [],
+          "supports_force": true,
+          "preview_commands": [
+            [
+              "fields"
+            ],
+            [
+              "dump",
+              "-d",
+              "0000:01:00.0",
+              "--raw"
+            ]
+          ],
+          "actual_set_commands": [
+            {
+              "argv": [
+                "set",
+                "-d",
+                "0000:01:00.0",
+                "FAW=25",
+                "--force"
+              ],
+              "returncode": 0,
+              "stdout": "0000:01:00.0  GP102 (Pascal)\n  [broadcast]\n  CONFIG3 @0x9A029C  0x2200314A -> 0x2200334A  [write]\n      FAW             24 -> 25    \n  stock values saved to C:\\Users\\Administrator\\AppData\\Local\\Temp\\druta-pr24-live-47212-before\\isolated-appdata\\nvtune\\0000-01-00.0.stock.json\n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.\n",
+              "stderr": ""
+            }
+          ],
+          "restore_commands": [
+            {
+              "command": "restore",
+              "target": "0000:01:00.0",
+              "commit_flag": false,
+              "returncode": 0
+            }
+          ]
+        },
+        {
+          "helper": "public-1.0.1-alpha",
+          "sha256": "9642f301bab53beba33a4ba68edfbd07221ffda02ec340798ec495ceadf2a552",
+          "pstate": 0,
+          "memory_clock": 5702,
+          "scopes": [
+            "fbpa0",
+            "fbpa1",
+            "fbpa2",
+            "fbpa3",
+            "fbpa4",
+            "fbpa5"
+          ],
+          "before": 24,
+          "requested": 25,
+          "preview_text": "1 field(s): FAW 24->25   [CONFIG3 0x2200314A->0x2200334A]\nRead-only preview calculated by Druta from nvtune fields and dump. Additional checks inside nvtune may still refuse Apply.",
+          "preview_unchanged": true,
+          "apply_text": "FAW: 24 \u2192 asked 25, reads 25   written and verified",
+          "only_requested_bits_changed": true,
+          "held_readbacks": 4,
+          "restored_exactly": true,
+          "passed": true,
+          "preview_flags": null,
+          "commit_flags": [],
+          "supports_force": false,
+          "preview_commands": [
+            [
+              "fields"
+            ],
+            [
+              "dump",
+              "-d",
+              "0000:01:00.0",
+              "--raw"
+            ]
+          ],
+          "actual_set_commands": [
+            {
+              "argv": [
+                "set",
+                "-d",
+                "0000:01:00.0",
+                "FAW=25"
+              ],
+              "returncode": 0,
+              "stdout": "0000:01:00.0  GP102 (Pascal)\n  [broadcast]\n  CONFIG3 @0x9A029C  0x2200314A -> 0x2200334A  [write]\n      FAW             24 -> 25    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.\n",
+              "stderr": ""
+            }
+          ],
+          "restore_commands": [
+            {
+              "command": "restore",
+              "target": "0000:01:00.0",
+              "commit_flag": false,
+              "returncode": 0
+            }
+          ]
+        },
+        {
+          "helper": "intermediate-native-preview",
+          "sha256": "9a42adda8b0cc5969cfd10b7ff798165c24ca8c93299e18d7d3f75e14840e519",
+          "pstate": 0,
+          "memory_clock": 5702,
+          "scopes": [
+            "fbpa0",
+            "fbpa1",
+            "fbpa2",
+            "fbpa3",
+            "fbpa4",
+            "fbpa5"
+          ],
+          "before": 24,
+          "requested": 25,
+          "preview_text": "1 field(s): FAW 24->25   [CONFIG3 0x2200314A->0x2200334A]",
+          "preview_unchanged": true,
+          "apply_text": "FAW: 24 \u2192 asked 25, reads 25   written and verified",
+          "only_requested_bits_changed": true,
+          "held_readbacks": 4,
+          "restored_exactly": true,
+          "passed": true,
+          "preview_flags": [],
+          "commit_flags": [
+            "--commit"
+          ],
+          "supports_force": true,
+          "preview_commands": [
+            [
+              "set",
+              "-d",
+              "0000:01:00.0",
+              "FAW=25"
+            ]
+          ],
+          "actual_set_commands": [
+            {
+              "argv": [
+                "set",
+                "-d",
+                "0000:01:00.0",
+                "FAW=25",
+                "--commit",
+                "--force"
+              ],
+              "returncode": 0,
+              "stdout": "0000:01:00.0  GP102 (Pascal)\n  [broadcast]\n  CONFIG3 @0x9A029C  0x2200314A -> 0x2200334A  [write]\n      FAW             24 -> 25    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.\n",
+              "stderr": ""
+            }
+          ],
+          "restore_commands": [
+            {
+              "command": "restore",
+              "target": "0000:01:00.0",
+              "commit_flag": true,
+              "returncode": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "stage": "58097",
+      "driver": "580.97",
+      "vbios": "86.02.3d.00.01",
+      "initial_registers": {
+        "broadcast": {
+          "CONFIG0": 373857594,
+          "CONFIG1": 824574867,
+          "CONFIG2": 1427638272,
+          "CONFIG3": 570437962,
+          "CONFIG4": 1837301810,
+          "CONFIG5": 1953657010,
+          "TIMING22": 7
+        },
+        "fbpa0": {
+          "CONFIG0": 373857594,
+          "CONFIG1": 824574867,
+          "CONFIG2": 1427638272,
+          "CONFIG3": 570437962,
+          "CONFIG4": 1837301810,
+          "CONFIG5": 1953657010,
+          "TIMING22": 7
+        },
+        "fbpa1": {
+          "CONFIG0": 373857594,
+          "CONFIG1": 824574867,
+          "CONFIG2": 1427638272,
+          "CONFIG3": 570437962,
+          "CONFIG4": 1837301810,
+          "CONFIG5": 1953657010,
+          "TIMING22": 7
+        },
+        "fbpa2": {
+          "CONFIG0": 373857594,
+          "CONFIG1": 824574867,
+          "CONFIG2": 1427638272,
+          "CONFIG3": 570437962,
+          "CONFIG4": 1837301810,
+          "CONFIG5": 1953657010,
+          "TIMING22": 7
+        },
+        "fbpa3": {
+          "CONFIG0": 373857594,
+          "CONFIG1": 824574867,
+          "CONFIG2": 1427638272,
+          "CONFIG3": 570437962,
+          "CONFIG4": 1837301810,
+          "CONFIG5": 1953657010,
+          "TIMING22": 7
+        },
+        "fbpa4": {
+          "CONFIG0": 373857594,
+          "CONFIG1": 824574867,
+          "CONFIG2": 1427638272,
+          "CONFIG3": 570437962,
+          "CONFIG4": 1837301810,
+          "CONFIG5": 1953657010,
+          "TIMING22": 7
+        },
+        "fbpa5": {
+          "CONFIG0": 373857594,
+          "CONFIG1": 824574867,
+          "CONFIG2": 1427638272,
+          "CONFIG3": 570437962,
+          "CONFIG4": 1837301810,
+          "CONFIG5": 1953657010,
+          "TIMING22": 7
+        }
+      },
+      "initial_vf_lock": [
+        null,
+        null
+      ],
+      "final_vf_lock": [
+        null,
+        null
+      ],
+      "fan_policy_preserved": true,
+      "runs": [
+        {
+          "helper": "public-1.0.0-alpha",
+          "sha256": "027c1e43ae30f7e080151ce8259aabcdbd19a3256d0e1b43531bbf55995cb4ce",
+          "pstate": 0,
+          "memory_clock": 5702,
+          "scopes": [
+            "fbpa0",
+            "fbpa1",
+            "fbpa2",
+            "fbpa3",
+            "fbpa4",
+            "fbpa5"
+          ],
+          "before": 24,
+          "requested": 25,
+          "preview_text": "1 field(s): FAW 24->25   [CONFIG3 0x2200314A->0x2200334A]\nRead-only preview calculated by Druta from nvtune fields and dump. Additional checks inside nvtune may still refuse Apply.",
+          "preview_unchanged": true,
+          "apply_text": "FAW: 24 \u2192 asked 25, reads 25   written and verified",
+          "only_requested_bits_changed": true,
+          "held_readbacks": 4,
+          "restored_exactly": true,
+          "passed": true,
+          "preview_flags": null,
+          "commit_flags": [],
+          "supports_force": true,
+          "preview_commands": [
+            [
+              "fields"
+            ],
+            [
+              "dump",
+              "-d",
+              "0000:01:00.0",
+              "--raw"
+            ]
+          ],
+          "actual_set_commands": [
+            {
+              "argv": [
+                "set",
+                "-d",
+                "0000:01:00.0",
+                "FAW=25",
+                "--force"
+              ],
+              "returncode": 0,
+              "stdout": "0000:01:00.0  GP102 (Pascal)\n  [broadcast]\n  CONFIG3 @0x9A029C  0x2200314A -> 0x2200334A  [write]\n      FAW             24 -> 25    \n  stock values saved to C:\\Users\\Administrator\\AppData\\Local\\Temp\\druta-pr24-live-58097\\isolated-appdata\\nvtune\\0000-01-00.0.stock.json\n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.\n",
+              "stderr": ""
+            }
+          ],
+          "restore_commands": [
+            {
+              "command": "restore",
+              "target": "0000:01:00.0",
+              "commit_flag": false,
+              "returncode": 0
+            }
+          ]
+        },
+        {
+          "helper": "public-1.0.1-alpha",
+          "sha256": "9642f301bab53beba33a4ba68edfbd07221ffda02ec340798ec495ceadf2a552",
+          "pstate": 0,
+          "memory_clock": 5702,
+          "scopes": [
+            "fbpa0",
+            "fbpa1",
+            "fbpa2",
+            "fbpa3",
+            "fbpa4",
+            "fbpa5"
+          ],
+          "before": 24,
+          "requested": 25,
+          "preview_text": "1 field(s): FAW 24->25   [CONFIG3 0x2200314A->0x2200334A]\nRead-only preview calculated by Druta from nvtune fields and dump. Additional checks inside nvtune may still refuse Apply.",
+          "preview_unchanged": true,
+          "apply_text": "FAW: 24 \u2192 asked 25, reads 25   written and verified",
+          "only_requested_bits_changed": true,
+          "held_readbacks": 4,
+          "restored_exactly": true,
+          "passed": true,
+          "preview_flags": null,
+          "commit_flags": [],
+          "supports_force": false,
+          "preview_commands": [
+            [
+              "fields"
+            ],
+            [
+              "dump",
+              "-d",
+              "0000:01:00.0",
+              "--raw"
+            ]
+          ],
+          "actual_set_commands": [
+            {
+              "argv": [
+                "set",
+                "-d",
+                "0000:01:00.0",
+                "FAW=25"
+              ],
+              "returncode": 0,
+              "stdout": "0000:01:00.0  GP102 (Pascal)\n  [broadcast]\n  CONFIG3 @0x9A029C  0x2200314A -> 0x2200334A  [write]\n      FAW             24 -> 25    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.\n",
+              "stderr": ""
+            }
+          ],
+          "restore_commands": [
+            {
+              "command": "restore",
+              "target": "0000:01:00.0",
+              "commit_flag": false,
+              "returncode": 0
+            }
+          ]
+        },
+        {
+          "helper": "intermediate-native-preview",
+          "sha256": "9a42adda8b0cc5969cfd10b7ff798165c24ca8c93299e18d7d3f75e14840e519",
+          "pstate": 0,
+          "memory_clock": 5702,
+          "scopes": [
+            "fbpa0",
+            "fbpa1",
+            "fbpa2",
+            "fbpa3",
+            "fbpa4",
+            "fbpa5"
+          ],
+          "before": 24,
+          "requested": 25,
+          "preview_text": "1 field(s): FAW 24->25   [CONFIG3 0x2200314A->0x2200334A]",
+          "preview_unchanged": true,
+          "apply_text": "FAW: 24 \u2192 asked 25, reads 25   written and verified",
+          "only_requested_bits_changed": true,
+          "held_readbacks": 4,
+          "restored_exactly": true,
+          "passed": true,
+          "preview_flags": [],
+          "commit_flags": [
+            "--commit"
+          ],
+          "supports_force": true,
+          "preview_commands": [
+            [
+              "set",
+              "-d",
+              "0000:01:00.0",
+              "FAW=25"
+            ]
+          ],
+          "actual_set_commands": [
+            {
+              "argv": [
+                "set",
+                "-d",
+                "0000:01:00.0",
+                "FAW=25",
+                "--commit",
+                "--force"
+              ],
+              "returncode": 0,
+              "stdout": "0000:01:00.0  GP102 (Pascal)\n  [broadcast]\n  CONFIG3 @0x9A029C  0x2200314A -> 0x2200334A  [write]\n      FAW             24 -> 25    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.\n",
+              "stderr": ""
+            }
+          ],
+          "restore_commands": [
+            {
+              "command": "restore",
+              "target": "0000:01:00.0",
+              "commit_flag": true,
+              "returncode": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "stage": "47212-after",
+      "driver": "472.12",
+      "vbios": "86.02.3d.00.01",
+      "initial_registers": {
+        "broadcast": {
+          "CONFIG0": 373857594,
+          "CONFIG1": 824574867,
+          "CONFIG2": 1427638272,
+          "CONFIG3": 570437962,
+          "CONFIG4": 1837301810,
+          "CONFIG5": 1953657010,
+          "TIMING22": 7
+        },
+        "fbpa0": {
+          "CONFIG0": 373857594,
+          "CONFIG1": 824574867,
+          "CONFIG2": 1427638272,
+          "CONFIG3": 570437962,
+          "CONFIG4": 1837301810,
+          "CONFIG5": 1953657010,
+          "TIMING22": 7
+        },
+        "fbpa1": {
+          "CONFIG0": 373857594,
+          "CONFIG1": 824574867,
+          "CONFIG2": 1427638272,
+          "CONFIG3": 570437962,
+          "CONFIG4": 1837301810,
+          "CONFIG5": 1953657010,
+          "TIMING22": 7
+        },
+        "fbpa2": {
+          "CONFIG0": 373857594,
+          "CONFIG1": 824574867,
+          "CONFIG2": 1427638272,
+          "CONFIG3": 570437962,
+          "CONFIG4": 1837301810,
+          "CONFIG5": 1953657010,
+          "TIMING22": 7
+        },
+        "fbpa3": {
+          "CONFIG0": 373857594,
+          "CONFIG1": 824574867,
+          "CONFIG2": 1427638272,
+          "CONFIG3": 570437962,
+          "CONFIG4": 1837301810,
+          "CONFIG5": 1953657010,
+          "TIMING22": 7
+        },
+        "fbpa4": {
+          "CONFIG0": 373857594,
+          "CONFIG1": 824574867,
+          "CONFIG2": 1427638272,
+          "CONFIG3": 570437962,
+          "CONFIG4": 1837301810,
+          "CONFIG5": 1953657010,
+          "TIMING22": 7
+        },
+        "fbpa5": {
+          "CONFIG0": 373857594,
+          "CONFIG1": 824574867,
+          "CONFIG2": 1427638272,
+          "CONFIG3": 570437962,
+          "CONFIG4": 1837301810,
+          "CONFIG5": 1953657010,
+          "TIMING22": 7
+        }
+      },
+      "initial_vf_lock": [
+        null,
+        null
+      ],
+      "final_vf_lock": [
+        null,
+        null
+      ],
+      "fan_policy_preserved": true,
+      "runs": [
+        {
+          "helper": "public-1.0.0-alpha",
+          "sha256": "027c1e43ae30f7e080151ce8259aabcdbd19a3256d0e1b43531bbf55995cb4ce",
+          "pstate": 0,
+          "memory_clock": 5702,
+          "scopes": [
+            "fbpa0",
+            "fbpa1",
+            "fbpa2",
+            "fbpa3",
+            "fbpa4",
+            "fbpa5"
+          ],
+          "before": 24,
+          "requested": 25,
+          "preview_text": "1 field(s): FAW 24->25   [CONFIG3 0x2200314A->0x2200334A]\nRead-only preview calculated by Druta from nvtune fields and dump. Additional checks inside nvtune may still refuse Apply.",
+          "preview_unchanged": true,
+          "apply_text": "FAW: 24 \u2192 asked 25, reads 25   written and verified",
+          "only_requested_bits_changed": true,
+          "held_readbacks": 4,
+          "restored_exactly": true,
+          "passed": true,
+          "preview_flags": null,
+          "commit_flags": [],
+          "supports_force": true,
+          "preview_commands": [
+            [
+              "fields"
+            ],
+            [
+              "dump",
+              "-d",
+              "0000:01:00.0",
+              "--raw"
+            ]
+          ],
+          "actual_set_commands": [
+            {
+              "argv": [
+                "set",
+                "-d",
+                "0000:01:00.0",
+                "FAW=25",
+                "--force"
+              ],
+              "returncode": 0,
+              "stdout": "0000:01:00.0  GP102 (Pascal)\n  [broadcast]\n  CONFIG3 @0x9A029C  0x2200314A -> 0x2200334A  [write]\n      FAW             24 -> 25    \n  stock values saved to C:\\Users\\Administrator\\AppData\\Local\\Temp\\druta-pr24-live-47212-after\\isolated-appdata\\nvtune\\0000-01-00.0.stock.json\n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.\n",
+              "stderr": ""
+            }
+          ],
+          "restore_commands": [
+            {
+              "command": "restore",
+              "target": "0000:01:00.0",
+              "commit_flag": false,
+              "returncode": 0
+            }
+          ]
+        },
+        {
+          "helper": "public-1.0.1-alpha",
+          "sha256": "9642f301bab53beba33a4ba68edfbd07221ffda02ec340798ec495ceadf2a552",
+          "pstate": 0,
+          "memory_clock": 5702,
+          "scopes": [
+            "fbpa0",
+            "fbpa1",
+            "fbpa2",
+            "fbpa3",
+            "fbpa4",
+            "fbpa5"
+          ],
+          "before": 24,
+          "requested": 25,
+          "preview_text": "1 field(s): FAW 24->25   [CONFIG3 0x2200314A->0x2200334A]\nRead-only preview calculated by Druta from nvtune fields and dump. Additional checks inside nvtune may still refuse Apply.",
+          "preview_unchanged": true,
+          "apply_text": "FAW: 24 \u2192 asked 25, reads 25   written and verified",
+          "only_requested_bits_changed": true,
+          "held_readbacks": 4,
+          "restored_exactly": true,
+          "passed": true,
+          "preview_flags": null,
+          "commit_flags": [],
+          "supports_force": false,
+          "preview_commands": [
+            [
+              "fields"
+            ],
+            [
+              "dump",
+              "-d",
+              "0000:01:00.0",
+              "--raw"
+            ]
+          ],
+          "actual_set_commands": [
+            {
+              "argv": [
+                "set",
+                "-d",
+                "0000:01:00.0",
+                "FAW=25"
+              ],
+              "returncode": 0,
+              "stdout": "0000:01:00.0  GP102 (Pascal)\n  [broadcast]\n  CONFIG3 @0x9A029C  0x2200314A -> 0x2200334A  [write]\n      FAW             24 -> 25    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.\n",
+              "stderr": ""
+            }
+          ],
+          "restore_commands": [
+            {
+              "command": "restore",
+              "target": "0000:01:00.0",
+              "commit_flag": false,
+              "returncode": 0
+            }
+          ]
+        },
+        {
+          "helper": "intermediate-native-preview",
+          "sha256": "9a42adda8b0cc5969cfd10b7ff798165c24ca8c93299e18d7d3f75e14840e519",
+          "pstate": 0,
+          "memory_clock": 5702,
+          "scopes": [
+            "fbpa0",
+            "fbpa1",
+            "fbpa2",
+            "fbpa3",
+            "fbpa4",
+            "fbpa5"
+          ],
+          "before": 24,
+          "requested": 25,
+          "preview_text": "1 field(s): FAW 24->25   [CONFIG3 0x2200314A->0x2200334A]",
+          "preview_unchanged": true,
+          "apply_text": "FAW: 24 \u2192 asked 25, reads 25   written and verified",
+          "only_requested_bits_changed": true,
+          "held_readbacks": 4,
+          "restored_exactly": true,
+          "passed": true,
+          "preview_flags": [],
+          "commit_flags": [
+            "--commit"
+          ],
+          "supports_force": true,
+          "preview_commands": [
+            [
+              "set",
+              "-d",
+              "0000:01:00.0",
+              "FAW=25"
+            ]
+          ],
+          "actual_set_commands": [
+            {
+              "argv": [
+                "set",
+                "-d",
+                "0000:01:00.0",
+                "FAW=25",
+                "--commit",
+                "--force"
+              ],
+              "returncode": 0,
+              "stdout": "0000:01:00.0  GP102 (Pascal)\n  [broadcast]\n  CONFIG3 @0x9A029C  0x2200314A -> 0x2200334A  [write]\n      FAW             24 -> 25    \n      applied and verified\n  reminder: the driver reprograms these on p-state changes. Use 'nvtune daemon' to hold them.\n",
+              "stderr": ""
+            }
+          ],
+          "restore_commands": [
+            {
+              "command": "restore",
+              "target": "0000:01:00.0",
+              "commit_flag": true,
+              "returncode": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "capability_smoke": [
+    {
+      "driver": "472.12",
+      "passed": true,
+      "hardware_writes": [],
+      "read_errors": {},
+      "slider_ranges": {
+        "core": [
+          "Core clock offset (MHz)",
+          -200,
+          1200,
+          -200,
+          1200
+        ],
+        "mem": [
+          "Memory offset (MHz true)",
+          -250.0,
+          250.0,
+          -250.0,
+          250.0
+        ],
+        "xbar": [
+          "crossbar offset (MHz)",
+          -300,
+          300,
+          -200,
+          1200
+        ],
+        "sys": [
+          "control domain 3 offset (MHz)",
+          -300,
+          300,
+          -200,
+          1200
+        ],
+        "video": [
+          "control domain 5 offset (MHz)",
+          -300,
+          300,
+          -200,
+          1200
+        ],
+        "memdom": [
+          "Additional Memory Clock Offset (MHz)",
+          -250,
+          250,
+          -1426,
+          1426
+        ],
+        "pl": [
+          "Power limit (W)",
+          125.0,
+          300.0,
+          null,
+          null
+        ],
+        "current13": [
+          "Core current limit (A)",
+          1.0,
+          218.0,
+          1.0,
+          218.0
+        ],
+        "volt": [
+          "Core voltage boost (%)",
+          0,
+          100,
+          null,
+          null
+        ],
+        "fan": [
+          "Fan duty (%)",
+          23,
+          100,
+          null,
+          null
+        ],
+        "vlim_rel": [
+          "NVVDD reliability (~mV)",
+          650,
+          1200,
+          650,
+          1500
+        ],
+        "vlim_alt": [
+          "NVVDD alt-reliability (~mV)",
+          650,
+          1200,
+          650,
+          1500
+        ],
+        "vlim_ov": [
+          "NVVDD overvoltage (~mV)",
+          650,
+          1200,
+          650,
+          1500
+        ],
+        "vlim_lo": [
+          "NVVDD vmin (~mV)",
+          650,
+          1200,
+          650,
+          1500
+        ],
+        "rail": [
+          "NVVDD offset (mV)",
+          -100,
+          200,
+          -500,
+          500
+        ],
+        "msvdd": [
+          "MSVDD requested offset (mV)",
+          -500,
+          500,
+          -500,
+          500
+        ]
+      },
+      "current_policies": [
+        {
+          "policy": 13,
+          "label": "Core current",
+          "channel": 11,
+          "minimum_ma": 1000,
+          "maximum_ma": 218000,
+          "normal_maximum_ma": 218000,
+          "default_ma": 204700,
+          "limit_ma": 204700,
+          "requested_ma": 204700
+        }
+      ],
+      "clock_controls": [
+        0,
+        1,
+        2,
+        3,
+        5
+      ],
+      "rail_fields": {
+        "0": [
+          "reliability",
+          "alt_reliability",
+          "overvoltage",
+          "vmin"
+        ],
+        "1": []
+      },
+      "rail_offset_capabilities": {
+        "0": {
+          "available": true,
+          "domain": 0,
+          "value_mv": 0.0,
+          "experimental": false,
+          "reason": "request field readable; physical voltage response is unverified"
+        },
+        "1": {
+          "available": true,
+          "domain": 0,
+          "value_mv": 0.0,
+          "experimental": true,
+          "reason": "request field readable; physical voltage response is unverified"
+        }
+      },
+      "controllers": []
+    },
+    {
+      "driver": "580.97",
+      "passed": true,
+      "hardware_writes": [],
+      "read_errors": {},
+      "slider_ranges": {
+        "core": [
+          "Core clock offset (MHz)",
+          -200,
+          1200,
+          -200,
+          1200
+        ],
+        "mem": [
+          "Memory offset (MHz true)",
+          -250.0,
+          250.0,
+          -250.0,
+          250.0
+        ],
+        "xbar": [
+          "crossbar offset (MHz)",
+          -300,
+          300,
+          -200,
+          1200
+        ],
+        "sys": [
+          "control domain 3 offset (MHz)",
+          -300,
+          300,
+          -200,
+          1200
+        ],
+        "video": [
+          "control domain 5 offset (MHz)",
+          -300,
+          300,
+          -200,
+          1200
+        ],
+        "memdom": [
+          "Additional Memory Clock Offset (MHz)",
+          -250,
+          250,
+          -1426,
+          1426
+        ],
+        "pl": [
+          "Power limit (W)",
+          125.0,
+          300.0,
+          null,
+          null
+        ],
+        "current13": [
+          "Core current limit (A)",
+          1.0,
+          218.0,
+          1.0,
+          218.0
+        ],
+        "volt": [
+          "Core voltage boost (%)",
+          0,
+          100,
+          null,
+          null
+        ],
+        "fan": [
+          "Fan duty (%)",
+          23,
+          100,
+          null,
+          null
+        ],
+        "vlim_rel": [
+          "NVVDD reliability (~mV)",
+          650,
+          1200,
+          650,
+          1500
+        ],
+        "vlim_alt": [
+          "NVVDD alt-reliability (~mV)",
+          650,
+          1200,
+          650,
+          1500
+        ],
+        "vlim_ov": [
+          "NVVDD overvoltage (~mV)",
+          650,
+          1200,
+          650,
+          1500
+        ],
+        "vlim_lo": [
+          "NVVDD vmin (~mV)",
+          650,
+          1200,
+          650,
+          1500
+        ],
+        "rail": [
+          "NVVDD offset (mV)",
+          -100,
+          200,
+          -500,
+          500
+        ],
+        "msvdd": [
+          "MSVDD requested offset (mV)",
+          -500,
+          500,
+          -500,
+          500
+        ]
+      },
+      "current_policies": [
+        {
+          "policy": 13,
+          "label": "Core current",
+          "channel": 11,
+          "minimum_ma": 1000,
+          "maximum_ma": 218000,
+          "normal_maximum_ma": 218000,
+          "default_ma": 204700,
+          "limit_ma": 204700,
+          "requested_ma": 204700
+        }
+      ],
+      "clock_controls": [
+        0,
+        1,
+        2,
+        3,
+        5
+      ],
+      "rail_fields": {
+        "0": [
+          "reliability",
+          "alt_reliability",
+          "overvoltage",
+          "vmin"
+        ],
+        "1": []
+      },
+      "rail_offset_capabilities": {
+        "0": {
+          "available": true,
+          "domain": 0,
+          "value_mv": 0.0,
+          "experimental": false,
+          "reason": "request field readable; physical voltage response is unverified"
+        },
+        "1": {
+          "available": true,
+          "domain": 0,
+          "value_mv": 0.0,
+          "experimental": true,
+          "reason": "request field readable; physical voltage response is unverified"
+        }
+      },
+      "controllers": []
+    }
+  ],
+  "unit_tests": {
+    "472.12": {
+      "passed": 920,
+      "failed": 0
+    },
+    "580.97": {
+      "passed": 920,
+      "failed": 0
+    }
+  },
+  "packaged_exe": {
+    "tested_commit": "0e54e80af04a390930ef54fcf343459429c360d8",
+    "sha256": "d9ab61e71b6ace6f9c8735936e409c618c79a5eb078ed00f0fda4d50c71a7a3f",
+    "startup_responsive_on": [
+      "472.12",
+      "580.97"
+    ]
+  },
+  "unmodified_140_regression": [
+    {
+      "nvtune": "v1.0.0-alpha",
+      "preview_ok": false,
+      "error": "nvtune does not advertise a recognized preview contract; no set command sent"
+    },
+    {
+      "nvtune": "v1.0.1-alpha",
+      "preview_ok": false,
+      "error": "nvtune does not advertise a recognized preview contract; no set command sent"
+    }
+  ]
+}
