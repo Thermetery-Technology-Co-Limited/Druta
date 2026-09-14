@@ -2437,7 +2437,7 @@ class Druta:
         if key == "i2crail":
             if getattr(self.rail, "absolute_voltage", False):
                 # NCP4206 floors the requested voltage onto its VID grid.
-                from .ncp4206 import decode_vid, encode_vid
+                from .controllers.ncp4206 import decode_vid, encode_vid
                 return decode_vid(encode_vid(value))
             step = self.rail.p.lsb_mv
             if (isinstance(step, bool) or not isinstance(step, (int, float))

@@ -13,7 +13,7 @@ current resolution. No PAGE selection, writes, or vendor/device-ID gates.
 from copy import deepcopy
 from statistics import median
 
-from .railctl import Profile, Rail, _signed
+from ..railctl import Profile, Rail, _signed
 
 DISCOVERY_PORTS = tuple(range(8))
 DISCOVERY_ADDRESSES = (0x20,) + tuple(a for a in range(0x08, 0x78) if a != 0x20)

@@ -4,8 +4,8 @@
 import unittest
 from unittest.mock import Mock, patch
 
-from druta import ncp4206 as n
-from tests import test_ncp4206
+from druta.controllers import ncp4206 as n
+from tests.controllers import test_ncp4206
 
 
 class VerificationTests(unittest.TestCase):
@@ -19,7 +19,7 @@ class VerificationTests(unittest.TestCase):
         self.point = (0, 1000, 3000)
         self.voltage_reads = 0
         self.rail._verification_vmon = self.vmon
-        self.sleep = patch('druta.ncp4206.time.sleep').start()
+        self.sleep = patch('druta.controllers.ncp4206.time.sleep').start()
         self.addCleanup(patch.stopall)
 
     def vmon(self):

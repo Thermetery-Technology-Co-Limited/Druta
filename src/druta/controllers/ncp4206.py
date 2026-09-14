@@ -11,7 +11,7 @@ import statistics
 import threading
 import time
 from types import SimpleNamespace
-from .railctl import Rail, _linear11
+from ..railctl import Rail, _linear11
 
 NORMAL_MAX_MV = 1281
 XOC_MAX_MV = 2000

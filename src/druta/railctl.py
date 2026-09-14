@@ -1027,8 +1027,8 @@ def discover(nvapi, dev_id=None, subsys=None, log=None, *, architecture=None):
     Other TOML recipes retain their explicit board constraints. Return every
     candidate: a caller must never silently resolve an ambiguous bus map.
     """
-    from .ncp4206 import DISCOVERY_PORTS, DISCOVERY_ADDRESSES, NCP4206
-    from .mp2888 import discover as discover_mp2888
+    from .controllers.ncp4206 import DISCOVERY_PORTS, DISCOVERY_ADDRESSES, NCP4206
+    from .controllers.mp2888 import discover as discover_mp2888
     from .mp29816 import discover as discover_mp29816
     hits = []
     if getattr(nvapi, "ok", False):

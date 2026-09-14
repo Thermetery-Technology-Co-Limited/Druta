@@ -3,7 +3,7 @@
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock
-from druta import ncp4206 as n
+from druta.controllers import ncp4206 as n
 from druta import profiles
 from tests.test_tune_profiles import hardware
 

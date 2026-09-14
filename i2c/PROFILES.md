@@ -2,8 +2,8 @@
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution workflow. This
 reference describes the current interfaces in [railctl.py](../src/druta/railctl.py),
-[mp2888.py](../src/druta/mp2888.py), [mp29816.py](../src/druta/mp29816.py),
-and [ncp4206.py](../src/druta/ncp4206.py).
+[mp2888.py](../src/druta/controllers/mp2888.py), [mp29816.py](../src/druta/mp29816.py),
+and [ncp4206.py](../src/druta/controllers/ncp4206.py).
 
 An I2C recipe is TOML register data. A controller adapter supplies behavior that
 cannot be represented by the generic signed-offset writer. A saved **tuning

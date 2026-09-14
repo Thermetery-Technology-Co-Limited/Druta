@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from druta.druta import Druta
-from tests import test_ncp4206
+from tests.controllers import test_ncp4206
 
 
 class NcpAutoRecoveryTests(unittest.TestCase):

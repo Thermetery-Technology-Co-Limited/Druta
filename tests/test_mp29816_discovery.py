@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from druta import mp29816, profiles, railctl
-from tests.test_mp2888_discovery import Bus
+from tests.controllers.test_mp2888_discovery import Bus
 from tests.test_mp29816_profile import profile, RESPONSES
 
 

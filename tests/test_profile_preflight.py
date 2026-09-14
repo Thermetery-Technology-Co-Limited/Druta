@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 from druta import profiles
-from tests import test_mp2888_discovery as mp_discovery
+from tests.controllers import test_mp2888_discovery as mp_discovery
 from tests import test_tune_profiles as tune_profiles
 
 
