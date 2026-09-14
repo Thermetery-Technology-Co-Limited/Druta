@@ -196,7 +196,10 @@ class TimingWriteUiTests(FakeUiTest):
         # Existing field validation has its own tests. Exercise the UI's write
         # gate and the real plan/commit flow with a fake external transport.
         for name, replacement in (("check", Mock(return_value=[])),
-                                  ("ensure_backup", self.backup)):
+                                  ("ensure_backup", self.backup),
+                                  ("_helper", Mock(return_value=
+                                      timingwrite.HelperContract("fake-nvtune.exe", (),
+                                          ("--dry-run",), ("--commit",), True)))):
             patcher = patch.object(timingwrite, name, replacement)
             patcher.start()
             self.addCleanup(patcher.stop)

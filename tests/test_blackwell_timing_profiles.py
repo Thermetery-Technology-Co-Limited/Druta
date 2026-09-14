@@ -100,7 +100,10 @@ class BlackwellTimingTests(unittest.TestCase):
             for force in (False, True):
                 with self.subTest(status=status, suffix=suffix, force=force):
                     with patch.object(timingwrite, "_run", side_effect=[
-                            ("RC=45", 0), (DRY_RUN + suffix, status)]) as run:
+                            ("RC=45", 0), (DRY_RUN + suffix, status)]) as run, \
+                            patch.object(timingwrite, "_helper", return_value=
+                                timingwrite.HelperContract("fake-nvtune.exe", (),
+                                    ("--dry-run",), ("--commit",), True)):
                         plan, results = timingwrite.apply({"RC": 46}, SLOT, force=force)
                     self.assertFalse(plan.ok)
                     self.assertEqual(results[0].outcome, timingwrite.FAILED)

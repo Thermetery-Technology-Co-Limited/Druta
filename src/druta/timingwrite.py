@@ -36,8 +36,8 @@ produces a confident wrong conclusion. Our own Turing field sweep classified
 purely on read-back, discarded nvtune's return, and never passed --force - so
 every field whose value tripped nvtune's range check was recorded as a hardware
 rejection despite never reaching BAR0. Four of twenty-five. Here the two are
-different outcome constants and the dry run is ALWAYS executed first, precisely
-so the difference is observed rather than inferred.
+different outcome constants. A read-only preview always runs first, and actual
+process status and readback determine the outcome of the commit.
 
 MEASURED, and the reason the architecture note is not decoration:
   TU102 (Titan RTX)  every timing write rejected by the hardware
@@ -52,6 +52,7 @@ import hashlib
 import os
 import re
 import subprocess
+from dataclasses import dataclass
 
 from . import timings
 
@@ -87,19 +88,21 @@ class WriteError(RuntimeError):
 
 
 class Plan:
-    """What a proposed write would do, from nvtune's own dry run.
+    """A native dry run or a local preview calculated from read-only data.
 
-    `warnings` matters more than it looks: if it is non-empty, a commit without
-    --force will be REFUSED and nothing will reach the card. The UI has to say
-    that before the click, not discover it after."""
+    Druta requires force for preview warnings even when the helper itself
+    treats them as advisory. Local previews cannot reproduce hidden helper
+    policy, such as the typical ranges in older nvtune builds.
+    """
 
-    def __init__(self, assignments, ops, warnings, raw, ok=True, error=""):
+    def __init__(self, assignments, ops, warnings, raw, ok=True, error="", notes=""):
         self.assignments = dict(assignments)
         self.ops = ops              # [{reg, offset, old, new, changes:[...]}]
         self.warnings = warnings
         self.raw = raw
         self.ok = ok
         self.error = error
+        self.notes = notes
 
     @property
     def needs_force(self):
@@ -111,9 +114,10 @@ class Plan:
 
     def summary(self):
         if not self.ok:
-            return self.error or "the dry run failed"
+            return self.error or "the preview failed"
         if not self.ops:
-            return "nothing to write - every field already holds that value"
+            return "nothing to write - every field already holds that value" + (
+                f"\n{self.notes}" if self.notes else "")
         bits = []
         for op in self.ops:
             for c in op["changes"]:
@@ -125,6 +129,8 @@ class Plan:
             head += (f"\n{len(self.warnings)} warning(s) - a commit WITHOUT "
                      f"force will be refused and nothing will reach the card:"
                      + "".join(f"\n  - {w}" for w in self.warnings))
+        if self.notes:
+            head += "\n" + self.notes
         return head
 
 
@@ -149,7 +155,16 @@ class Result:
 
 
 # ---- the single choke point ------------------------------------------------ #
-_PREVIEW_CONTRACTS = {}
+@dataclass(frozen=True)
+class HelperContract:
+    exe: str
+    fingerprint: tuple
+    preview_flags: tuple | None
+    commit_flags: tuple | None
+    supports_force: bool
+
+
+_HELPER_CONTRACTS = {}
 
 
 def _exe_fingerprint(exe):
@@ -162,30 +177,55 @@ def _exe_fingerprint(exe):
             stat.st_mtime_ns, stat.st_ctime_ns, stat.st_ino, digest)
 
 
-def _preview_flags(exe):
-    """Learn preview syntax from read-only help, never from a trial set."""
+def _helper(override=None):
+    """Discover preview, commit and force separately, without a trial write."""
+    exe = timings.find_exe(override)
+    if not exe:
+        raise WriteError("nvtune.exe not found")
     key = _exe_fingerprint(exe)
-    if key in _PREVIEW_CONTRACTS:
-        return _PREVIEW_CONTRACTS[key]
+    if key in _HELPER_CONTRACTS:
+        return _HELPER_CONTRACTS[key]
     result = subprocess.run([exe, "--help"], capture_output=True, text=True,
                             timeout=20, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     if result.returncode != 0:
-        raise WriteError("cannot determine nvtune's preview contract: --help failed")
+        raise WriteError("cannot determine nvtune's command contract: --help failed")
     help_text = (result.stdout or "") + (result.stderr or "")
-    if re.search(r"^\s*(?:-\w,\s*)?--dry-run\b", help_text, re.M):
-        flags = ("--dry-run",)
-    elif ("Everything defaults to a dry run" in help_text
-          and "--commit is required to touch hardware" in help_text):
-        flags = ()
+
+    def option(name):
+        return bool(re.search(r"^\s*(?:-\w,\s*)?" + re.escape(name) + r"\b",
+                              help_text, re.M))
+
+    legacy = ("Everything defaults to a dry run" in help_text
+              and "--commit is required to touch hardware" in help_text)
+    # Both published upstream releases describe immediate writes this way.
+    # Recognize the command contract, not a version or a binary allowlist.
+    direct = ("nvtune - NVIDIA FBPA memory timing tool" in help_text
+              and re.search(r"^\s*set FIELD=VALUE\.\.\.\s+write fields\s*$", help_text, re.M)
+              and "A first write snapshots stock values" in help_text
+              and "--commit" not in help_text)
+    if option("--dry-run"):
+        preview_flags = ("--dry-run",)
+    elif legacy:
+        preview_flags = ()
+    elif direct:
+        preview_flags = None
     else:
-        raise WriteError("nvtune does not advertise a recognized preview contract; no set command sent")
+        raise WriteError("nvtune does not advertise a recognized command contract; no set command sent")
+    commit_flags = (("--commit",) if option("--commit") or legacy
+                    else () if direct else None)
     if _exe_fingerprint(exe) != key:
-        raise WriteError("nvtune changed while its preview contract was being checked")
-    _PREVIEW_CONTRACTS[key] = flags
-    return flags
+        raise WriteError("nvtune changed while its command contract was being checked")
+    helper = HelperContract(exe, key, preview_flags, commit_flags, option("--force"))
+    _HELPER_CONTRACTS[key] = helper
+    return helper
 
 
-def _run(args, override=None, timeout=90, slot=None):
+def _assert_helper(helper):
+    if _exe_fingerprint(helper.exe) != helper.fingerprint:
+        raise WriteError("nvtune changed during the operation; nothing further sent")
+
+
+def _run(args, override=None, timeout=90, slot=None, *, helper=None):
     """Spawn nvtune. This is the ONLY place in Druta that may build an argv
     containing a writing subcommand.
 
@@ -209,14 +249,31 @@ def _run(args, override=None, timeout=90, slot=None):
             "refused: no PCI slot given. nvtune's default target is every "
             "NVIDIA GPU in the machine, so a write without -d would reach "
             "cards the user never selected.")
-    exe = timings.find_exe(override)
+    exe = helper.exe if helper else timings.find_exe(override)
     if not exe:
         raise WriteError("nvtune.exe not found")
     args = list(args)
     if not args:
         raise WriteError("refused: empty nvtune argv")
-    if args[0] in ("set", "apply") and "--commit" not in args and "--dry-run" not in args:
-        args.extend(_preview_flags(exe))
+    if args[0] in ("set", "apply", "restore"):
+        helper = helper or _helper(exe)
+        if "--commit" in args:
+            if "--dry-run" in args:
+                raise WriteError("preview and commit cannot be combined")
+            if helper.commit_flags is None:
+                raise WriteError("nvtune does not advertise a recognized commit contract")
+            index = args.index("--commit")
+            # Internal intent; not every CLI accepts this token.
+            args[index:index + 1] = helper.commit_flags
+        else:
+            if args[0] == "restore" or helper.preview_flags is None:
+                raise WriteError("this nvtune has no native preview; no write command sent")
+            if "--dry-run" in args:
+                args.remove("--dry-run")
+            args.extend(helper.preview_flags)
+        if "--force" in args and not helper.supports_force:
+            args.remove("--force")
+        _assert_helper(helper)
     # -d goes AFTER the subcommand. nvtune parses argv[1] as the command name,
     # so `nvtune -d SLOT set ...` exits with "unknown command '-d'" - which,
     # being a non-zero exit with no ops parsed, would have surfaced as a plain
@@ -278,14 +335,19 @@ def read_fields(names, slot, override=None):
     return vals
 
 
-def plan(assignments, slot, override=None):
-    """Dry run. Writes NOTHING - no --commit is ever built here."""
+def plan(assignments, slot, override=None, *, helper=None):
+    """Read-only preview, including for helpers whose bare set writes."""
     if not assignments:
         return Plan({}, [], [], "", ok=True)
     args = ["set"] + [f"{k}={v}" for k, v in assignments.items()]
     try:
-        out, rc = _run(args, override, slot=slot)
-    except (OSError, subprocess.SubprocessError, WriteError) as e:
+        if not timings.nvbackend.parse_slot(slot):
+            raise WriteError("no valid PCI slot for the selected card")
+        helper = helper or _helper(override)
+        if helper.preview_flags is None:
+            return _local_plan(assignments, slot, helper)
+        out, rc = _run(args, helper.exe, slot=slot, helper=helper)
+    except (OSError, subprocess.SubprocessError, timings.TimingsError, WriteError) as e:
         return Plan(assignments, [], [], "", ok=False, error=str(e))
     ops, warnings = _parse(out)
     # A warning-only preview exits successfully. Any nonzero status remains
@@ -294,6 +356,104 @@ def plan(assignments, slot, override=None):
         return Plan(assignments, [], warnings, out, ok=False,
                     error=f"nvtune dry run exited {rc}: {out or 'no error text'}")
     return Plan(assignments, ops, warnings, out)
+
+
+_DUMP_DEVICE_RE = re.compile(r"^(\S+)\s+(\S+)\s+\([^\n]*\)\s*$")
+_DUMP_SCOPE_RE = re.compile(r"^\s*\[([^\]]+)\]\s+base\s+(0x[0-9a-fA-F]+)\s*$")
+_DUMP_REG_RE = re.compile(
+    r"^\s*(\w+)\s+@(0x[0-9a-fA-F]+)\s*=\s*(0x[0-9a-fA-F]+)"
+    r"(?:\s+\((\w+)\))?\s*$")
+
+
+def _local_plan(assignments, slot, helper):
+    """Use the helper's field geometry and actual broadcast words/addresses.
+
+    Only `fields` and selected-card `dump --raw` are dispatched. In particular,
+    trying `set` to discover whether it previews is never safe.
+    """
+    _assert_helper(helper)
+    r = timings._run(helper.exe, "fields")
+    if r.returncode != 0:
+        raise WriteError(f"nvtune fields exited {r.returncode}: {(r.stderr or r.stdout).strip()}")
+    ft = timings.parse_fields(r.stdout)
+    if any(type(value) is not int for value in assignments.values()):
+        raise WriteError("local preview refused: timing values must be integers")
+    problems = check(assignments, ft)
+    masks = {}
+    for name, value in assignments.items():
+        fields = [f for f in ft.fields if f.name == name]
+        if len(fields) != 1:
+            problems.append(f"{name}: missing or duplicate field definition")
+            continue
+        f = fields[0]
+        if not (0 <= f.lo <= f.hi < 32) or not f.width_consistent:
+            problems.append(f"{name}: invalid field bit geometry")
+            continue
+        mask = f.max_value << f.lo
+        if masks.get(f.register, 0) & mask:
+            problems.append(f"{name}: overlapping requested fields in {f.register}")
+        masks[f.register] = masks.get(f.register, 0) | mask
+    if problems:
+        raise WriteError("local preview refused: " + "; ".join(problems))
+
+    r = timings._run(helper.exe, "dump", ["--raw"], slot=slot)
+    if r.returncode != 0:
+        raise WriteError(f"nvtune dump exited {r.returncode}: {(r.stderr or r.stdout).strip()}")
+    words, device, broadcast = {}, False, False
+    for line in r.stdout.splitlines():
+        if not line.strip():
+            continue
+        m = _DUMP_DEVICE_RE.match(line)
+        if m and timings.nvbackend.parse_slot(m[1]):
+            if device or not timings.nvbackend.same_slot(m[1], slot):
+                raise WriteError("nvtune dump did not identify only the selected PCI slot")
+            if not timings.known_timing_layout(m[2]):
+                raise WriteError("nvtune has no confirmed timing layout for this chip")
+            device = True
+            continue
+        m = _DUMP_SCOPE_RE.match(line)
+        if m:
+            if not device or broadcast or m[1] != "broadcast":
+                raise WriteError("nvtune dump did not identify one broadcast scope")
+            broadcast = True
+            continue
+        m = _DUMP_REG_RE.match(line)
+        if not m or not broadcast:
+            raise WriteError("unrecognized nvtune dump output; local preview refused")
+        name, offset, word, confidence = m.groups()
+        if (name in words or int(word, 16) > 0xFFFFFFFF
+                or int(offset, 16) > 0xFFFFFFFF or int(offset, 16) % 4
+                or any(int(existing[0], 16) == int(offset, 16) for existing in words.values())):
+            raise WriteError("invalid or duplicate register in nvtune dump")
+        words[name] = (offset, int(word, 16), confidence)
+    if not device or not broadcast:
+        raise WriteError("nvtune dump is missing the selected card or broadcast scope")
+
+    ops, warnings = [], []
+    for register in ft.registers:
+        selected = [f for f in ft.fields if f.register == register and f.name in assignments]
+        if not selected:
+            continue
+        if register not in words:
+            raise WriteError(f"nvtune dump is missing {register}")
+        offset, old, confidence = words[register]
+        if confidence and confidence.upper() != "DOCUMENTED":
+            raise WriteError(f"{register}: unconfirmed register offset ({confidence})")
+        new, changes = old, []
+        for f in selected:
+            value, before = assignments[f.name], f.extract(old)
+            new = (new & ~(f.max_value << f.lo)) | (value << f.lo)
+            if before != value:
+                changes.append({"name": f.name, "old": before, "new": value})
+            if before and value * 2 < before:
+                warnings.append(f"{f.name} more than halved ({before} -> {value}); step in small increments instead.")
+        if changes:
+            ops.append({"reg": register, "offset": offset, "old": f"0x{old:08X}",
+                        "new": f"0x{new:08X}", "changes": changes})
+    _assert_helper(helper)
+    return Plan(assignments, ops, warnings, r.stdout, notes=(
+        "Read-only preview calculated by Druta from nvtune fields and dump. "
+        "Additional checks inside nvtune may still refuse Apply."))
 
 
 def check(assignments, field_table, snapshot=None):
@@ -329,10 +489,9 @@ def check(assignments, field_table, snapshot=None):
 def apply(assignments, slot, force=False, override=None, *, before_commit=None):
     """Commit, then classify each field by what ACTUALLY happened.
 
-    The dry run is executed first, always, so that a tool-side refusal is
-    OBSERVED rather than inferred from an unchanged read-back. That inference is
-    exactly the mistake that put four phantom hardware rejections into our
-    Turing results. An optional before_commit() guard returns (ok, reason) and
+    A read-only preview runs first. The helper is pinned throughout preparation
+    and commit, so changing the configured path cannot change its target or
+    command convention mid-operation. An optional before_commit() guard returns (ok, reason) and
     runs after preparation, immediately before the writing subprocess.
     """
     names = list(assignments)
@@ -349,7 +508,8 @@ def apply(assignments, slot, force=False, override=None, *, before_commit=None):
                           "because an un-targeted nvtune write reaches every "
                           "card in the machine") for n in names]
     try:
-        before = read_fields(names, slot, override)
+        helper = _helper(override)
+        before = read_fields(names, slot, helper.exe)
     except (OSError, subprocess.SubprocessError, WriteError) as e:
         error = f"pre-write read failed; nothing committed: {e}"
         return Plan(assignments, [], [], "", ok=False, error=error), [
@@ -360,14 +520,14 @@ def apply(assignments, slot, force=False, override=None, *, before_commit=None):
         return Plan(assignments, [], [], "", ok=False, error=error), [
             Result(n, before.get(n), assignments[n], None, FAILED, error) for n in names]
 
-    pre = plan(assignments, slot, override)
+    pre = plan(assignments, slot, helper.exe, helper=helper)
     if not pre.ok:
         return pre, [Result(n, before.get(n), assignments[n], before.get(n),
                             FAILED, pre.error) for n in names]
     if pre.needs_force and not force:
         return pre, [Result(n, before.get(n), assignments[n], before.get(n),
                             TOOL_REFUSED,
-                            "nvtune has warnings outstanding and force was not "
+                            "the preview has warnings outstanding and force was not "
                             "given, so nothing was sent to the card")
                      for n in names]
 
@@ -385,25 +545,27 @@ def apply(assignments, slot, force=False, override=None, *, before_commit=None):
                                 reason or "pre-commit guard refused; nothing committed")
                          for n in names]
     try:
-        out, rc = _run(args, override, slot=slot)
+        out, rc = _run(args, helper.exe, slot=slot, helper=helper)
     except (OSError, subprocess.SubprocessError, WriteError) as e:
         return pre, [Result(n, before[n], assignments[n], None, FAILED,
                             f"commit failed; current state is unconfirmed: {e}") for n in names]
 
-    if _REFUSE_RE.search(out):
-        return pre, [Result(n, before.get(n), assignments[n], before.get(n),
-                            TOOL_REFUSED, "nvtune refused the commit")
-                     for n in names]
-
     read_error = ""
     try:
-        after = read_fields(names, slot, override)
+        after = read_fields(names, slot, helper.exe)
     except (OSError, subprocess.SubprocessError, WriteError) as e:
         after, read_error = {}, str(e)
     # A process can fail before touching BAR0, or after only some writes. Keep
     # any actual read-back, but do not classify either case as hardware refusal
     # (or a successful write) merely because values happen to match.
-    if rc != 0:
+    # Older upstream helpers refuse warned registers individually and continue
+    # with the rest. Refusal text alone cannot prove the whole batch untouched.
+    refused = bool(_REFUSE_RE.search(out))
+    if (refused and not read_error and all(after.get(n) == before[n] for n in names)
+            and "applied and verified" not in out and "readback mismatch" not in out):
+        return pre, [Result(n, before[n], assignments[n], after[n], TOOL_REFUSED,
+                            "nvtune refused the commit; readback is unchanged") for n in names]
+    if rc != 0 or refused:
         detail = f"nvtune commit exited {rc}: {out or 'no error text'}"
         if read_error:
             detail += f"; read-back failed: {read_error}"
@@ -551,7 +713,7 @@ def restore(path, slot, override=None):
     if not os.path.exists(path):
         return False, f"no backup at {path}"
     try:
-        out, rc = _run(["restore", "-i", path], override, slot=slot)
+        out, rc = _run(["restore", "-i", path, "--commit"], override, slot=slot)
     except (OSError, subprocess.SubprocessError, WriteError) as e:
         return False, str(e)
     return rc == 0, out
