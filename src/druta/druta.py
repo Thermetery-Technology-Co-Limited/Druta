@@ -7511,7 +7511,7 @@ deliberately does not put behind a button."""
         """Refresh the staged-plan text and the Apply button's colour.
 
         Shows OUR refusals first - they are the ones the user can act on - then
-        nvtune's own dry run."""
+        a read-only preview of the requested write."""
         self.tw_button()
         if not self._tw_pending:
             dpg.set_value("tw_plan", "no edits - every cell matches the "
@@ -7524,9 +7524,9 @@ deliberately does not put behind a button."""
         try:
             p = timingwrite.plan(self._tw_pending, self.gpu.slot())
             body = p.summary()
-            colour = WARN if p.needs_force else GOOD
+            colour = BAD if not p.ok else WARN if p.needs_force else GOOD
         except Exception as e:                                  # noqa: BLE001
-            body, colour = f"dry run failed: {e}", BAD
+            body, colour = f"preview failed: {e}", BAD
         if problems:
             body = ("REFUSED before nvtune is consulted:\n  - "
                     + "\n  - ".join(problems) + "\n\n" + body)

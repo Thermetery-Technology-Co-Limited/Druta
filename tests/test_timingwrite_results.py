@@ -14,6 +14,13 @@ SLOT = "0000:02:00.0"
 
 
 class TimingWriteResultsTests(unittest.TestCase):
+    def setUp(self):
+        helper = tw.HelperContract("fake-nvtune.exe", (), ("--dry-run",),
+                                   ("--commit",), True)
+        patcher = patch.object(tw, "_helper", return_value=helper)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def apply(self, replies, assignments=None, **kwargs):
         with patch.object(tw, "_run", side_effect=replies) as run:
             result = tw.apply(assignments or {"RC": 46}, SLOT, **kwargs)
@@ -147,9 +154,26 @@ class TimingWriteResultsTests(unittest.TestCase):
 
     def test_explicit_tool_warning_refusal_remains_refused(self):
         (_, rows), run = self.apply([("RC=45", 0), (DRY_RUN, 0),
-                                    ("refusing to write with warnings", 1)])
+                                    ("refusing to write with warnings", 1),
+                                    ("RC=45", 0)])
         self.assertEqual(rows[0].outcome, tw.TOOL_REFUSED)
-        self.assertEqual(run.call_count, 3)
+        self.assertEqual(rows[0].after, 45)
+        self.assertEqual(run.call_count, 4)
+
+    def test_warning_refusal_cannot_hide_a_partial_write(self):
+        (_, rows), _ = self.apply([
+            ("RC=45 FAW=24", 0), (DRY_RUN, 0),
+            (COMMIT + "\nrefusing to write with warnings", 1),
+            ("RC=46 FAW=24", 0)], {"RC": 46, "FAW": 1})
+        self.assertEqual([r.outcome for r in rows], [tw.FAILED, tw.FAILED])
+        self.assertEqual([r.after for r in rows], [46, 24])
+
+    def test_warning_refusal_with_failed_readback_does_not_invent_unchanged_state(self):
+        (_, rows), _ = self.apply([
+            ("RC=45", 0), (DRY_RUN, 0),
+            ("refusing to write with warnings", 1), ("device lost", 9)])
+        self.assertEqual(rows[0].outcome, tw.FAILED)
+        self.assertIsNone(rows[0].after)
 
     def test_empty_request_spawns_nothing(self):
         with patch.object(tw, "_run") as run:
