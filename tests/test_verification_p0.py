@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 from druta import gpuload
 from druta.nvbackend import VF_LOCK_DOMAIN, VF_LOCK_MODE_POINT
 from tests.test_vf_lock_recovery import LockDriver
-from tests import test_mp_candidates_ui
+from tests.controllers import test_mp_candidates_ui
 
 
 class VerificationP0Tests(unittest.TestCase):
