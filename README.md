@@ -834,13 +834,20 @@ Timing writings are quaduply guarded:
    Druta does not allow you to write into structural fields (training and phase fragments that have no "looser" or "tigher" direction)
    and fields in a register whose offset is only *inferred* by nvtune. The `new value` column is completely empty for these fields. 
    The `force` checkbox defeats nvtune's *warning* refusal but does not add the buttons for these values.
-3. **A dry run always runs first**, so a tool-side refusal is **observed**
-   rather than inferred from an unchanged read-back. That inference is exactly
-   what recorded four of twenty-five fields as hardware rejections in an earlier
-   sweep when they had never reached BAR0.
-   Druta reads the helper's advertised command convention first: newer helpers
-   receive explicit `--dry-run`; legacy helpers must explicitly advertise that
-   writes require `--commit`. An unrecognized convention refuses the preview.
+3. **A read-only preview always runs first.** Druta checks the helper's advertised
+   command convention. Builds with a native preview receive `--dry-run`, or no
+   flag when they explicitly advertise dry runs by default. Sebastian's released
+   `v1.0.0-alpha` and `v1.0.1-alpha` instead write on bare `set` and reject
+   `--commit`. For these builds Druta calculates the preview from read-only
+   `fields` and the selected card's `dump --raw`, using the reported bit ranges,
+   register addresses and complete words. No `set` command runs during preview.
+   Additional internal helper checks, including older builds' typical-range
+   warnings, may still refuse Apply. The preview identifies that limitation.
+   Apply and Restore use the detected write convention; `--force` is passed only
+   when supported. Druta still requires its force checkbox for preview warnings.
+   Unknown command conventions refuse writes, and replacing the helper during
+   preparation prevents commit. Process errors remain errors even when readback
+   matches; a partly refused batch retains actual readbacks for every field.
 4. **A per-card stock backup**, keyed by the card's **UUID**, NOT by PCI
    slot or by model name. nvtune's own default is `<slot>.stock.json` with
    an existence-only check, so swapping cards in one slot silently skipped the
@@ -848,7 +855,13 @@ Timing writings are quaduply guarded:
 
 Outcomes are reported as four distinct states — **landed**, **dropped** (reached
 the hardware and was rejected), **refused** (nvtune declined; BAR0 never
-touched), **failed**.
+touched), **failed** (including partial batches with actual readback retained).
+
+**Compatibility regression in 1.4:** its native-preview requirement excluded
+both public nvtune releases. Druta 1.2 could appear to work because its supposed
+dry run sent bare `set` (which already wrote), then ignored the failed
+`set --commit`. The compatibility fix keeps previews read-only and sends the
+actual write only from Apply.
 
 
 ---
