@@ -120,16 +120,21 @@ class MP2888Candidate(Rail):
         return dict(self.discovery_telemetry)
 
 
-def discover(nvapi, profile, log=None):
+def discover(nvapi, profile, log=None, *, progress=None, cancelled=None):
     """Return every candidate on this GPU, with no writes or arbitrary choice."""
     if nvapi is None or not getattr(nvapi, 'ok', False):
         return []
     candidates = []
+    cancelled = cancelled or (lambda: False)
     # Preferred address on every port first; then the other unicast addresses.
     for addr7 in DISCOVERY_ADDRESSES:
         for port in DISCOVERY_PORTS:
+            if cancelled():
+                return candidates
             candidate = MP2888Candidate(profile, nvapi, port, addr7)
             if not candidate.present():
+                if progress:
+                    progress(f"MP2888A port {port}, 0x{addr7:02X}")
                 continue
             # These IDs are user-programmable, so diagnostics cannot gate
             # discovery on the datasheet's example/default values (25h/88h).
@@ -145,4 +150,6 @@ def discover(nvapi, profile, log=None):
                 log(f'{candidate.p.name}: read-only fingerprint passed; '
                     f'{t["vout_mv"]:.0f} mV, {t["iout_a"]:.2f} A, '
                     f'{t["vrm_temp_c"]:.1f} C. Verify required before Apply.', True)
+            if progress:
+                progress(f"MP2888A port {port}, 0x{addr7:02X}")
     return candidates

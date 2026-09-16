@@ -51,6 +51,12 @@ import threading
 import time
 from dataclasses import dataclass
 
+# Published diagnostic scripts also import this module directly from src/druta.
+if __package__:
+    from . import rail_transport
+else:
+    import rail_transport
+
 u8, u32, i32 = ctypes.c_uint8, ctypes.c_uint32, ctypes.c_int32
 u64, i64 = ctypes.c_uint64, ctypes.c_int64
 PTR = ctypes.c_void_p
@@ -144,6 +150,12 @@ class NvAPI:
         # makes a handle addressable as a slot instead of as an index.
         self.GetBusId = self._i(0x1BE0B8E5, PTR, ctypes.POINTER(u32))
         self.GetBusSlotId = self._i(0x2A0A350F, PTR, ctypes.POINTER(u32))
+        # Public identity APIs stay available independently of NVML enumeration.
+        self.GetArchInfo = self._i(0xD8265D24, PTR, PTR)
+        self.GetFullName = self._i(0xCEEE8E9F, PTR, ctypes.c_char_p)
+        self.GetVbiosVersionString = self._i(0xA561FD7D, PTR, ctypes.c_char_p)
+        self.GetDriverAndBranchVersion = self._i(
+            0x2926AAAD, ctypes.POINTER(u32), ctypes.c_char_p)
 
         # readers
         self.ThermalSettings = self._i(0xE3640A56, PTR, u32, PTR)
@@ -229,9 +241,16 @@ class NvAPI:
                        and self.GetBusSlotId is not None
                        and self.GetBusSlotId(handles[i],
                                              ctypes.byref(dev)) == 0)
+            name = ctypes.create_string_buffer(64)  # NvAPI_ShortString
+            try:
+                has_name = (self.GetFullName is not None
+                            and self.GetFullName(handles[i], name) == 0)
+            except Exception:
+                has_name = False
             self.gpus.append({
                 "handle": handles[i],
                 "enum_index": i,
+                "name": name.value.decode(errors="replace") if has_name else "",
                 "devid": did.value >> 16,
                 "subsys": sub.value,
                 # NVAPI exposes bus and device but no PCI domain, so the slot it
@@ -279,6 +298,14 @@ class NvAPI:
 
 
 # ---- NVAPI struct layouts (verified) ------------------------------------- #
+class _GpuArchInfo(ctypes.Structure):
+    # Public NV_GPU_ARCH_INFO_V1 and V2 share this 16-byte layout; V2 adds
+    # enum aliases in unions without changing the storage. NVIDIA SDK:
+    # https://github.com/NVIDIA/nvapi/blob/main/nvapi.h
+    _fields_ = [("version", u32), ("architecture", u32),
+                ("implementation", u32), ("revision", u32)]
+
+
 class _Sensor(ctypes.Structure):
     _fields_ = [("controller", u32), ("dmin", i32), ("dmax", i32),
                 ("cur", i32), ("target", u32)]
@@ -1511,7 +1538,8 @@ def enumerate_gpus():
         paired = [a for a in nvapi.gpus if same_slot(a["slot"], g["slot"])]
         out.append({
             "slot": g["slot"],
-            "name": g["name"] or "GPU",
+            "name": g["name"] or next((a.get("name") for a in paired
+                                       if a.get("name")), "GPU"),
             "uuid": g["uuid"],
             "devid": g["devid"],
             "subsys": g["subsys"],
@@ -1523,7 +1551,8 @@ def enumerate_gpus():
     for a in nvapi.gpus:
         if not any(same_slot(a["slot"], o["slot"]) for o in out):
             out.append({
-                "slot": a["slot"], "name": "GPU (NVML did not enumerate it)",
+                "slot": a["slot"],
+                "name": a.get("name") or "GPU (NVML did not enumerate it)",
                 "uuid": "", "devid": a["devid"], "subsys": a["subsys"],
                 "nvml_index": None, "has_nvapi": True,
             })
@@ -1637,22 +1666,16 @@ class GPU:
             s["uuid"] = self.nvml.selected.get("uuid", "")
         nv = self.nvml
         if nv.ok:
-            buf = ctypes.create_string_buffer(96)
-            try:
-                nv.dll.nvmlDeviceGetName(nv.dev, buf, 96)
-                s["name"] = buf.value.decode(errors="replace")
-            except Exception:
-                pass
-            try:
-                nv.dll.nvmlSystemGetDriverVersion(buf, 96)
-                s["driver"] = buf.value.decode(errors="replace")
-            except Exception:
-                pass
-            try:
-                nv.dll.nvmlDeviceGetVbiosVersion(nv.dev, buf, 96)
-                s["vbios"] = buf.value.decode(errors="replace")
-            except Exception:
-                pass
+            for key, function, args in (
+                    ("name", "nvmlDeviceGetName", (nv.dev,)),
+                    ("driver", "nvmlSystemGetDriverVersion", ()),
+                    ("vbios", "nvmlDeviceGetVbiosVersion", (nv.dev,))):
+                buf = ctypes.create_string_buffer(96)
+                try:
+                    if getattr(nv.dll, function)(*args, buf, 96) == 0 and buf.value:
+                        s[key] = buf.value.decode(errors="replace")
+                except Exception:
+                    pass
             # power-limit constraints (mW)
             try:
                 mn, mx = u32(0), u32(0)
@@ -1687,6 +1710,26 @@ class GPU:
                 pass
         # memory technology -> true-clock divisor (None = unknown, show raw)
         a = self.nvapi
+        if a.ok:
+            for key, function in (("name", "GetFullName"),
+                                  ("vbios", "GetVbiosVersionString")):
+                reader = getattr(a, function, None)
+                if s[key] not in ("GPU", "?") or reader is None:
+                    continue
+                buf = ctypes.create_string_buffer(64)  # NvAPI_ShortString
+                try:
+                    if reader(a.gpu, buf) == 0 and buf.value:
+                        s[key] = buf.value.decode(errors="replace")
+                except Exception:
+                    pass
+            driver = getattr(a, "GetDriverAndBranchVersion", None)
+            if s["driver"] == "?" and driver is not None:
+                version, branch = u32(0), ctypes.create_string_buffer(64)
+                try:
+                    if driver(ctypes.byref(version), branch) == 0 and version.value:
+                        s["driver"] = f"{version.value // 100}.{version.value % 100:02d}"
+                except Exception:
+                    pass
         s["mem_div"] = None
         s["mem_type"] = "unknown"
         if a.ok and a.RamType:
@@ -2494,19 +2537,62 @@ class GPU:
     ARCH_MAXWELL = 3
     ARCH_PASCAL = 4
     ARCH_TURING = 6
-    ARCH_NAMES = {2: "Kepler", 3: "Maxwell", 4: "Pascal", 5: "Volta",
+    ARCH_NAMES = {1: "Fermi", 2: "Kepler", 3: "Maxwell", 4: "Pascal", 5: "Volta",
                   6: "Turing", 7: "Ampere", 8: "Ada", 9: "Hopper",
                   10: "Blackwell"}
+    # Translation between two public NVIDIA architecture enums, independent
+    # of board names, device IDs, implementations and driver versions. Values
+    # are NV_GPU_ARCHITECTURE_ID from the SDK above. Unlisted IDs stay unknown.
+    _NVAPI_ARCH_TO_NVML = {
+        0xC0: 1, 0xD0: 1,                       # GF100 / GF110
+        0xE0: 2, 0xF0: 2, 0x100: 2,             # GK100 / GK110 / GK200
+        0x110: 3, 0x120: 3,                     # GM000 / GM200
+        0x130: 4, 0x140: 5, 0x150: 5,           # GP100 / GV100 / GV110
+        0x160: 6, 0x170: 7, 0x190: 8, 0x1B0: 10,  # TU / GA / AD / GB
+    }
 
     def arch(self):
-        """This card's architecture as NVML's enum, or ``None``."""
+        """Read this adapter's architecture via NVML or the public NVAPI API.
+
+        Return NVML's enum, or ``None`` when neither interface identifies it.
+        Cache only a recognized successful result: one transient failure must
+        not permanently hide generation-specific controls until app restart.
+        A GPU instance always represents the same paired adapter.
+        """
+        cached = getattr(self, "_arch_cache", None)
+        if cached is not None:
+            return cached
         nv = getattr(self, "nvml", None)
-        if not (nv and nv.ok and nv.has("nvmlDeviceGetArchitecture")):
-            return None
-        a = u32(0)
-        if nv.dll.nvmlDeviceGetArchitecture(nv.dev, ctypes.byref(a)) != 0:
-            return None
-        return a.value
+        if nv and nv.ok and nv.has("nvmlDeviceGetArchitecture"):
+            value = u32(0)
+            try:
+                st = nv.dll.nvmlDeviceGetArchitecture(nv.dev, ctypes.byref(value))
+                if st == 0 and value.value in self.ARCH_NAMES:
+                    self._arch_cache = value.value
+                    self._arch_source = "NVML"
+                    return value.value
+            except Exception:
+                pass
+        a = getattr(self, "nvapi", None)
+        reader = getattr(a, "GetArchInfo", None)
+        if a and a.ok and reader is not None:
+            for revision in (2, 1):
+                info = _GpuArchInfo()
+                info.version = NvAPI.ver(_GpuArchInfo, revision)
+                try:
+                    st = reader(a.gpu, ctypes.byref(info))
+                except Exception:
+                    break
+                if st == -9:  # NVAPI_INCOMPATIBLE_STRUCT_VERSION
+                    continue
+                architecture = self._NVAPI_ARCH_TO_NVML.get(info.architecture)
+                if st == 0 and info.version == NvAPI.ver(_GpuArchInfo, revision) \
+                        and architecture is not None:
+                    self._arch_cache = architecture
+                    self._arch_source = f"NVAPI V{revision}"
+                    return architecture
+                break
+        return None
 
     def arch_name(self):
         return self.ARCH_NAMES.get(self.arch() or -1)
@@ -4989,53 +5075,23 @@ class GPU:
     #     +0x00 type   +0x04 reliability  +0x08 alt_reliability
     #     +0x0C overvoltage  +0x10 vmin
     #
-    # The four limits are SIGNED MICROVOLT DELTAS from a fixed 1040 mV base,
-    # not absolute ceilings. Confirmed by reconstruction: with the card held at
-    # NVVDD 900/1150 and MSVDD 750/950, this block read NVVDD reliability +110
-    # / vmin +100 and MSVDD reliability -90 / vmin -50, and 1040+110, 800+100,
-    # 1040-90, 800-50 give back all four numbers exactly. NVVDD
-    # alt_reliability read +90 => 1060, precisely the ceiling measured on this
-    # card before the id was known.
+    # The four controls are signed microvolt deltas. Their reference values
+    # are properties of the current adapter and field, not constants for a
+    # GPU generation. Paired control/status reads below establish an explicitly
+    # estimated reference. Preserve the first exact raw controls for recovery;
+    # nonzero initial values can be factory state or prior tuning.
     #
-    # THE FACTORY STATE IS NOT ALL ZERO. On this GB203 the card powers up with
-    # NVVDD at 0 and MSVDD reliability at -50000, i.e. NVVDD capped at the full
-    # 1040 mV and MSVDD 50 mV lower at 990. Verified stable and identical
-    # across two independent PnP device restarts, so a caller must NOT treat a
-    # non-zero delta as evidence that something else has been writing.
+    # The public getter does not provide a setter for these four fields. The
+    # native GET packet supplies the selected adapter/client context and the
+    # record geometry for the understood RM SET schemas in rail_transport.py.
+    # Writes start from a successful native read, retain unknown record words,
+    # and are checked through independent public control readback. Neither a
+    # stored request nor quantized driver status proves physical rail voltage.
     #
-    # THE BLOCK IS VOLATILE DRIVER STATE. It is not in the adapter's registry
-    # key and nothing re-applies it at boot, but it also does NOT clear on the
-    # display-stack reset (Win+Ctrl+Shift+B). A PnP restart of the adapter
-    # returns it to the factory values above.
-    #
-    # NO NVAPI EXPORT WRITES THIS BLOCK, and that was searched exhaustively
-    # rather than assumed - which is why set_volt_rail_limits goes to RM
-    # directly instead. The rails RM commands GET_CONTROL/SET_CONTROL
-    # (0x2080B203 and 0x2080B204) do not occur anywhere in nvapi64.dll as
-    # immediates. The unified command 0x2080F214 has exactly three owning
-    # exports - 0x9C4BB8D0 (info), 0x2C73AFDC (status) and 0xA3070DB0 (this
-    # one) - and every one of them reads. 0x5D0634EE, which sits between them
-    # in the id table and accepts the same 2760-byte struct, also returns data
-    # when called, so it is a fourth getter and not the setter its position
-    # suggests: writes through it are accepted and applied nowhere, with a full
-    # sweep of the header dwords and of every unused dword in a record, as
-    # candidate "valid" masks, moving nothing. The vendor's published
-    # ctrl2080volt.h carries no commands or structs at all.
-    #
-    # 0x5D0634EE being "only a getter" turned out to undersell it badly. What
-    # it gets is the absolute, live rail state - see read_volt_rail_state.
-    # Being uninteresting as a setter is not the same as being uninteresting.
-    #
-    # "No export" is not "no write path", and conflating the two is what kept
-    # this read-only for longer than it needed to be.
-    # Rail slider eligibility is generation based. All four fields were
-    # independently changed and restored on Pascal, Turing and Blackwell;
-    # Accepted layout and independent rail identity establish control access.
-    # Absolute status is quantized driver telemetry, not an I2C VOUT sensor.
-    # Historical board measurements remain in VOLTAGE-RAILS-TITAN.md;
-    # current-adapter paired reads provide explicitly estimated references.
-    # These generations share understood control layouts. No voltage or
-    # factory-default values are inferred from architecture, PCI IDs or BIOS.
+    # All four fields have been independently changed and restored on Pascal,
+    # Turing and Blackwell. Architectural support does not supply board-specific
+    # voltages or factory defaults. Historical board measurements are recorded
+    # in VOLTAGE-RAILS-TITAN.md and VOLTAGE-RAILS-47212.md.
     _VOLT_RAIL_ARCHITECTURES = (ARCH_PASCAL, ARCH_TURING, 10)
 
     def _volt_rail_profile(self):
@@ -5064,6 +5120,9 @@ class GPU:
         # Retry discovery without redefining the session's restore target.
         self._volt_rail_masks_cache = {}
         self._volt_rail_read_versions = {}
+        self._volt_rail_retry_after = {}
+        self._volt_rail_getter_diagnostics = {}
+        self._volt_rail_write_error = None
 
     @classmethod
     def _valid_volt_rail_state(cls, rail, state):
@@ -5087,31 +5146,92 @@ class GPU:
         cache = getattr(self, "_volt_rail_masks_cache", None)
         if cache is None:
             cache = self._volt_rail_masks_cache = {}
-        candidates = cache.get(function, (0, 1))
+        retry = getattr(self, "_volt_rail_retry_after", None)
+        if retry is None:
+            retry = self._volt_rail_retry_after = {}
+        diagnostics = getattr(self, "_volt_rail_getter_diagnostics", None)
+        if diagnostics is None:
+            diagnostics = self._volt_rail_getter_diagnostics = {}
+        known = cache.get(function, ())
+        now = time.monotonic()
+        candidates = [r for r in (0, 1)
+                      if r in known or now >= retry.get((function, r), 0)]
         versions = getattr(self, "_volt_rail_read_versions", None)
         if versions is None:
             versions = self._volt_rail_read_versions = {}
         # R470 exposes the same NVAPI record fields at V1. Retry only after
         # INCOMPATIBLE_STRUCT_VERSION, not after an absent-rail error.
-        requested_versions = (versions[function],) if function in versions else (
-            (version, 0x00010AC8) if function == "VoltRailsCtlGet"
-            and version == 0x00020AC8 else (version,))
+        layouts = ((0x00020AC8, 0x00010AC8) if function == "VoltRailsCtlGet"
+                   else (version,))
+        preferred = versions.get(function, version)
+        requested_versions = (preferred, *(v for v in layouts if v != preferred))
         out = {}
         for rail in candidates:
             for candidate_version in requested_versions:
-                buf = (ctypes.c_ubyte * 8192)()
-                pu = ctypes.cast(buf, ctypes.POINTER(u32))
-                pu[0], pu[1] = candidate_version, 1 << rail
-                status = fn(a.gpu, ctypes.byref(buf))
-                if status == 0 and pu[0] == candidate_version:
+                # One immediate read-only retry handles transient startup
+                # failures. Missing rails are retried at a bounded cadence;
+                # a failed first read is never a permanent capability verdict.
+                for attempt in range(2):
+                    buf = (ctypes.c_ubyte * 8192)()
+                    pu = ctypes.cast(buf, ctypes.POINTER(u32))
+                    pu[0], pu[1] = candidate_version, 1 << rail
+                    error = None
+                    try:
+                        status = fn(a.gpu, ctypes.byref(buf))
+                    except Exception as exc:
+                        status, error = None, str(exc)
+                    valid = status == 0 and pu[0] == candidate_version and pu[1] == 1 << rail
+                    diagnostics.setdefault(function, {})[rail] = {
+                        "version": f"0x{candidate_version:08X}", "status": status,
+                        "valid": valid, "attempts": attempt + 1, "error": error}
+                    if valid or status == -9:
+                        break
+                if valid:
                     out[rail] = buf
                     versions[function] = candidate_version
+                    retry.pop((function, rail), None)
                     break
                 if status != -9:
                     break
-        if function not in cache:
-            cache[function] = tuple(out)
+            if rail not in out:
+                retry[(function, rail)] = now + 2.0
+        # Keep successful identities through a transient failure, but never
+        # fabricate fresh data from the cache. Every write still needs reads.
+        cache[function] = tuple(sorted(set(known) | set(out)))
         return out
+
+    def volt_rail_diagnostics(self):
+        """Read-only, current-adapter explanation suitable for UI/support."""
+        architecture = self.arch()
+        current = self.read_volt_rail_limits() or {}
+        state = self.read_volt_rail_state() or {}
+        rails = {}
+        for rail in sorted(set(current) | set(state) | {0}):
+            if architecture is None:
+                reason = "GPU architecture could not be detected. Retry detection."
+            elif architecture not in self._VOLT_RAIL_ARCHITECTURES:
+                reason = "Rail limit control is not yet understood for this GPU architecture."
+            elif rail not in current:
+                reason = "The driver did not return this rail's control settings. Retry detection."
+            elif not self._valid_volt_rail_state(rail, state.get(rail, {})):
+                reason = "The driver did not return a valid rail status. Retry detection."
+            elif not current[rail].get("_base_mv"):
+                reason = "Waiting for stable voltage readings to establish this rail's reference."
+            else:
+                reason = ""
+            rails[rail] = {"available": not reason, "reason": reason}
+        available = any(row["available"] for row in rails.values())
+        identity = getattr(self, "static", {})
+        return {"available": available,
+                "reason": "" if available else rails[0]["reason"],
+                "architecture": architecture, "rails": rails,
+                "architecture_source": getattr(self, "_arch_source", None),
+                "adapter": {"slot": identity.get("slot"),
+                            **{key: identity.get(key) for key in ("name", "driver", "vbios")}},
+                "getters": getattr(self, "_volt_rail_getter_diagnostics", {}),
+                "last_write_error": getattr(self, "_volt_rail_write_error", None),
+                "observed_packets": getattr(self, "_volt_rail_observed_packets", []),
+                "write_protocol": getattr(self, "_volt_rail_write_protocol", None)}
 
     def volt_rail_limits_supported(self, rail=None):
         """Each understood rail stands on its own current-adapter getters."""
@@ -5302,13 +5422,8 @@ class GPU:
     _ESC_B213, _ESC_F214 = 0x2080B213, 0x2080F214
     _ESC_REC0, _ESC_STRIDE = 20, 8
 
-    # The R470 layout was captured from a voltage-boost identity write.
-    # Tuple: packet/params sizes, commands, mask/boost words, record start,
-    # record stride/type, optional valid word. Every offset is in dwords.
-    _RAIL_WRITE_LAYOUTS = {
-        0x00020AC8: (1104, 1036, 0x2080B213, 0x2080F214, 18, 19, 20, 8, 5, 7),
-        0x00010AC8: (716, 648, 0x20803213, 0x20803214, 17, 18, 19, 5, 1, None),
-    }
+    # Known RM wire protocols live in rail_transport. The public getter
+    # version does NOT identify the private packet emitted by this driver.
     _RAIL_HOOK_LOCK = threading.RLock()
 
     class _Escape(ctypes.Structure):
@@ -5350,22 +5465,15 @@ class GPU:
     def _write_rail_records_locked(self, records):
         """Issue one rails-control WRITE. Returns (ok, RM status).
 
-        The hook is one-shot: it restores the original bytes before calling
-        through, so the real function is what runs and there is no trampoline
-        to build - which also means no instruction-length decoding and no
-        disassembler in the shipped bundle. The caller serializes installers;
-        a callback on another native thread restores and forwards the getter
-        without substituting a write to that thread's potentially different GPU.
+        Recognize the observed RM packet independently of the NVAPI getter
+        version. Forward unrelated calls unchanged and rearm only on the owner
+        thread while that synchronous getter is running. At most one write is
+        issued. No unknown packet layout or command is ever guessed.
         """
         if not self.volt_rail_limits_supported():
             return False, None
         profile = self._volt_rail_profile()
         control_version = profile.get("control_version", 0x00020AC8)
-        transport = self._RAIL_WRITE_LAYOUTS.get(control_version)
-        if transport is None:
-            return False, None
-        (packet_size, params_size, get_command, set_command, mask_word,
-         boost_word, record0, record_stride, record_type, valid_word) = transport
         if (not records or not set(records).issubset(profile["fields"])
                 or any(not self.volt_rail_limits_supported(r) for r in records)):
             return False, None
@@ -5387,52 +5495,80 @@ class GPU:
         owner_thread = k32.GetCurrentThreadId()
         orig = bytes((ctypes.c_ubyte * 14).from_address(addr))
         proto = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p)
-        state = {"status": None, "done": False}
+        state = {"status": None, "done": False, "aborted": False,
+                 "calls": 0, "active": True}
+        self._volt_rail_observed_packets = []
+        self._volt_rail_write_error = None
+        self._volt_rail_write_protocol = None
 
         def restore():
             ctypes.memmove(addr, orig, 14)
 
         def cb(pesc):
-            hit = None
+            matched = None
+            owner = k32.GetCurrentThreadId() == owner_thread
             try:
-                if (pesc and not state["done"]
-                        and k32.GetCurrentThreadId() == owner_thread):
+                state["calls"] += 1
+                if not owner:
+                    state["aborted"] = True
+                    self._volt_rail_write_error = "Another driver thread interrupted rail detection. Retry the write."
+                if pesc and owner and not state["done"] and not state["aborted"]:
                     e = GPU._Escape.from_address(pesc)
-                    if (e.pPrivateDriverData
-                            and e.PrivateDriverDataSize == packet_size):
-                        pu = ctypes.cast(e.pPrivateDriverData,
-                                         ctypes.POINTER(u32))
-                        pi = ctypes.cast(e.pPrivateDriverData,
-                                         ctypes.POINTER(i32))
-                        if (pu[14] == get_command and pu[15] == params_size
-                                and pu[mask_word] == rail_mask):
-                            pu[14] = set_command
-                            pu[mask_word] = rail_mask
-                            # This header field is the voltage boost percent.
-                            # Zeroing it during a rail write silently clears
-                            # the user's independent Core Voltage setting.
-                            pu[boost_word] = int(boost)
-                            for r, vals in records.items():
-                                b = record0 + r * record_stride
-                                pi[b] = record_type
-                                for k, v in enumerate(vals):
-                                    pi[b + 1 + k] = int(v)
-                                if valid_word is not None:
-                                    pi[b + valid_word] = 1
-                            hit = pu
-                            state["done"] = True
-            except Exception:
-                pass
+                    if e.pPrivateDriverData and 68 <= e.PrivateDriverDataSize <= 8192:
+                        payload = ctypes.string_at(e.pPrivateDriverData, e.PrivateDriverDataSize)
+                        summary = rail_transport.packet_summary(payload)
+                        if len(self._volt_rail_observed_packets) < 8:
+                            self._volt_rail_observed_packets.append(summary)
+                        layout = rail_transport.recognize_packet(payload, rail_mask)
+                        if layout is not None:
+                            matched = (e.pPrivateDriverData, e.PrivateDriverDataSize, payload, layout)
+            except Exception as exc:
+                state["aborted"] = True
+                self._volt_rail_write_error = f"Rail packet validation failed: {exc}"
             restore()                     # real bytes back before calling
             rc = proto(addr)(pesc)
-            if hit is not None:
-                state["status"] = hit[16]
+            if matched is not None:
+                # The input GET contains empty records. Read them first so a
+                # full-record SET preserves fields whose meaning is unknown.
+                # Keep the original request header: GET output includes a valid
+                # mask that the native SET constructor leaves zero.
+                try:
+                    data, size, original, layout = matched
+                    e = GPU._Escape.from_address(pesc)
+                    if e.pPrivateDriverData != data or e.PrivateDriverDataSize != size:
+                        raise ValueError("native GET changed the packet buffer or size")
+                    returned = ctypes.string_at(data, size)
+                    rm_status = struct.unpack_from("<I", returned, 16 * 4)[0]
+                    if rc != 0 or rm_status != 0:
+                        raise ValueError(f"native GET failed (NTSTATUS 0x{int(rc) & 0xFFFFFFFF:08X}, RM 0x{rm_status:08X})")
+                    if rail_transport.recognize_packet(returned, rail_mask) != layout:
+                        raise ValueError("native GET response does not match its request layout and mask")
+                    boundary = layout.record0 * 4
+                    current = original[:boundary] + returned[boundary:]
+                    prepared = rail_transport.prepare_write(current, rail_mask, records, boost)
+                    ctypes.memmove(data, prepared, len(prepared))
+                    state["done"] = True
+                    state["status"] = 0xFFFFFFFF  # not success until SET returns
+                    self._volt_rail_write_protocol = {
+                        "get_command": f"0x{layout.get_command:08X}",
+                        "set_command": f"0x{layout.set_command:08X}",
+                        "packet_size": layout.packet_size,
+                        "getter_version": f"0x{control_version:08X}"}
+                    rc = proto(addr)(pesc)
+                    hit = ctypes.cast(data, ctypes.POINTER(u32))
+                    state["status"] = hit[16] if rc == 0 else int(rc) & 0xFFFFFFFF
+                except Exception as exc:
+                    state["aborted"] = True
+                    self._volt_rail_write_error = f"Could not preserve the current native rail record: {exc}"
+            elif owner and state["active"] and not state["aborted"] and not state["done"] and state["calls"] < 16:
+                ctypes.memmove(addr, patch, 14)
             return rc
 
         keep = proto(cb)
         old = u32()
         if not k32.VirtualProtect(ctypes.c_void_p(addr), 14, 0x40,
                                   ctypes.byref(old)):
+            self._volt_rail_write_error = "Could not inspect the driver rail request. Nothing was written."
             return False, None
         patch = (b"\xFF\x25\x00\x00\x00\x00"
                  + struct.pack("<Q", ctypes.cast(keep, ctypes.c_void_p).value))
@@ -5442,8 +5578,13 @@ class GPU:
             ctypes.memset(buf, 0, 8192)
             p = ctypes.cast(buf, ctypes.POINTER(u32))
             p[0], p[1] = control_version, rail_mask
-            a.VoltRailsCtlGet(a.gpu, ctypes.byref(buf))
+            getter_status = a.VoltRailsCtlGet(a.gpu, ctypes.byref(buf))
+            if not state["done"] and not self._volt_rail_write_error:
+                self._volt_rail_write_error = (
+                    "The driver did not emit a recognized rail-control packet. Nothing was written. "
+                    f"Getter status: {getter_status}. Copy rail diagnostics for this driver.")
         finally:
+            state["active"] = False
             restore()
             k32.VirtualProtect(ctypes.c_void_p(addr), 14, old,
                                ctypes.byref(old))
@@ -5525,7 +5666,8 @@ class GPU:
                 (mv - cur[rail]["_base_mv"][key]) * 1000))
         ok, status = self._write_rail_records(recs)
         if not ok:
-            return False, "the rails request was not seen - nothing was written"
+            return False, (getattr(self, "_volt_rail_write_error", None)
+                           or "the rails request was not seen - nothing was written")
         if status:
             return False, f"driver refused the write (NV_STATUS 0x{status:X})"
         expected = {r: [round(row[k] * 1000) for k in self.VOLT_LIMIT_FIELDS]

@@ -97,6 +97,8 @@ class LegacyRailEscapeTests(unittest.TestCase):
             self.assertEqual(bytes(code), original_code)
             self.assertEqual(pesc, ctypes.addressof(escape))
             sent.append(bytes(payload))
+            if payload[14] == 0x20803213:
+                payload[16] = 0
             return 0
 
         def prototype(result_type, argument_type):
@@ -121,8 +123,9 @@ class LegacyRailEscapeTests(unittest.TestCase):
                patch("druta.nvbackend.ctypes.WINFUNCTYPE", new=prototype, create=True):
             result = GPU._write_rail_records_locked(gpu, records)
         self.assertEqual(bytes(code), original_code)
-        self.assertEqual(len(sent), 1)
-        return result, before, sent[0]
+        self.assertEqual(sent[0], before)
+        self.assertEqual(len(sent), 2 if result[0] else 1)
+        return result, before, sent[-1]
 
     def test_legacy_packet_preserves_all_unknown_fields_and_boost(self):
         for kind in ("turing", "pascal"):
