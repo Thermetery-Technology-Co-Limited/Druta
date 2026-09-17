@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Exact memory replay and unchanged domain requests with in-memory drivers."""
 import ctypes
+import threading
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock
@@ -211,6 +212,7 @@ class MemoryOffsetPrecision(unittest.TestCase):
 
 def domain_gpu(value=0, layout=n.CLKDOM_LAYOUT_TURING, polarity=1):
     gpu = n.GPU.__new__(n.GPU)
+    gpu._lock = threading.RLock()
     gpu.clkdom_ok = Mock(return_value=True)
     gpu.clkdom_layout = Mock(return_value=layout)
     gpu.clkdom_domains = Mock(return_value=[2])

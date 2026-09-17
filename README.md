@@ -1,6 +1,6 @@
 # Druta
 
-**Version 1.5.0a** — [release notes](RELEASE-NOTES-1.5.0a.md).
+**Version 1.5.1** — [release notes](RELEASE-NOTES-1.5.1.md).
 
 Package-refactor validation: [Maxwell/Pascal](MAXWELL-PASCAL-VALIDATION.md)
 and [RTX 5080 / Blackwell](BLACKWELL-VALIDATION.md), including controlled
@@ -98,7 +98,7 @@ python -m pip install -r requirements.txt
 ```
 
 The local build produces `dist\Druta\Druta.exe` and
-`dist\Druta-1.5.0a-win64.zip`. Distribute the
+`dist\Druta-1.5.1-win64.zip`. Distribute the
 whole `Druta` folder or ZIP: the EXE needs its adjacent `_internal` folder.
 
 `dist\Druta\source\` contains the matching working-tree source, including

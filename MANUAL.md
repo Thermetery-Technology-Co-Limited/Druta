@@ -88,7 +88,18 @@ That means you should just overclock the crap out of your core like everyone els
 
 ## 5. Shunt mod corrected power
 
-It currently lives under taskbar > Device > `Shunt mod corrected power`. Simply type in the new effective resistance value to correct the power reading. Planned in the next release is a better per rail calibration. 
+It currently lives under taskbar > Device > `Shunt mod corrected power`. Simply type in the new effective resistance value to correct the power reading. Planned in the next release is a better per rail calibration.
+
+## Clock controls after startup
+
+If the driver cannot answer a clock-control check at startup, Druta retries the
+failed checks twice in the background. Controls that recover appear automatically
+when you finish any active edit or operation. Existing controls and staged values
+are retained, and discovery does not change GPU settings or scan I2C.
+
+After those retries, use **Device > Refresh capabilities** to check again. A
+control is shown only after the current adapter returns a supported, validated
+response; retrying does not make an unsupported clock layout writable.
 
 # III. How to load `nvtune`?
 

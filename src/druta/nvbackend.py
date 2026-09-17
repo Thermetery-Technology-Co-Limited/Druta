@@ -1602,6 +1602,9 @@ class GPU:
         # False so a bad driver cannot make the UI repeatedly retry an
         # unverified write path on every refresh tick.
         self._clkdom_layout_cache = None
+        self._clkdom_retry_attempts = 0
+        self._clkdom_retry_due = None
+        self._clkdom_offset_read_pending = False
         self._volt_rail_masks_cache = {}
         self.msvdd_write_enabled = False
         self.volt_limits_write_enabled = False
@@ -2668,6 +2671,13 @@ class GPU:
         """
         return self.arch() == 10
 
+    def _clkdom_candidate(self, architecture):
+        if architecture == 10:
+            return CLKDOM_LAYOUT_BLACKWELL
+        if architecture in (self.ARCH_PASCAL, self.ARCH_TURING):
+            return CLKDOM_LAYOUT_TURING
+        return None
+
     def clkdom_layout(self):
         """Return the validated layout for this card, or ``None``.
 
@@ -2682,11 +2692,8 @@ class GPU:
         # GK104 and GM107 echo Turing-shaped zero records, which does not
         # establish their field meanings. Only measured generations proceed.
         architecture = self.arch()
-        if architecture == 10:
-            layout = CLKDOM_LAYOUT_BLACKWELL
-        elif architecture in (self.ARCH_PASCAL, self.ARCH_TURING):
-            layout = CLKDOM_LAYOUT_TURING
-        else:
+        layout = self._clkdom_candidate(architecture)
+        if layout is None:
             self._clkdom_layout_cache = False
             self._clkdom_capability_error = (
                 "unsupported_layout", f"clock-control field layout is unknown for architecture {architecture}")
@@ -3124,6 +3131,11 @@ class GPU:
             "physical_measurements_khz": {},
             "private_clock_domains": None,
             "private_clock_domains_error": None,
+            "capability_retry": {
+                "attempts": int(getattr(self, "_clkdom_retry_attempts", 0)),
+                "budget": 2,
+                "armed": getattr(self, "_clkdom_retry_due", None) is not None,
+            },
         }
         if not self.clkdom_ok():
             report["error"] = "0xF58938F5 is not available"
@@ -3222,6 +3234,147 @@ class GPU:
         words = ctypes.cast(buf, ctypes.POINTER(u32))
         return words[0] == layout.version and words[layout.mask_dword] == mask
 
+    _CLKDOM_RETRY_DELAYS = (1.0, 3.0)
+
+    def _clkdom_cached_ui_controls(self, architecture):
+        """Validated understood controls without triggering discovery."""
+        layout = getattr(self, "_clkdom_layout_cache", None)
+        if layout in (None, False):
+            return frozenset()
+        understood = (CLKDOM_BLACKWELL_CONTROLS if architecture == 10
+                      else CLKDOM_NAMES)
+        return frozenset(set(getattr(self, "_clkdom_valid", ()) or ())
+                         & set(understood))
+
+    def _clkdom_retry_needed(self, architecture):
+        if architecture is None:
+            return True
+        layout = self._clkdom_candidate(architecture)
+        if layout is None:
+            return False
+        if not self.clkdom_ok() or getattr(self, "_clkdom_layout_cache", None) in (None, False):
+            return True
+        if getattr(self, "_clkdom_offset_read_pending", False):
+            return True
+        understood = (CLKDOM_BLACKWELL_CONTROLS if architecture == 10
+                      else CLKDOM_NAMES)
+        accepted = set(getattr(self, "_clkdom_valid", ()) or ())
+        return bool(set(understood) - accepted)
+
+    @_synchronized
+    def retry_clock_capabilities(self, *, now=None):
+        """Perform at most two delayed, read-only retries of failed clocks.
+
+        The first call arms a one-second delay.  A failed or partial attempt
+        arms one final attempt three seconds later.  Successful singleton
+        masks are never discovery-probed again.  Manual ``refresh_capabilities``
+        resets this bounded budget.
+
+        Return ``True`` when validated controls or their previously unreadable
+        requests recover. No rail cache or setting ownership is touched.
+        """
+        current = time.monotonic() if now is None else float(now)
+        if not math.isfinite(current):
+            raise ValueError("clock capability retry time must be finite")
+        attempts = int(getattr(self, "_clkdom_retry_attempts", 0))
+        if attempts >= len(self._CLKDOM_RETRY_DELAYS):
+            return False
+
+        # Do not hammer even the public architecture getter while the GPU is
+        # waking up. Both identification and private probes follow this budget.
+        due = getattr(self, "_clkdom_retry_due", None)
+        if due is None:
+            self._clkdom_retry_due = current + self._CLKDOM_RETRY_DELAYS[attempts]
+            return False
+        if current < due:
+            return False
+
+        architecture = self.arch()
+        layout = self._clkdom_candidate(architecture)
+        if architecture is not None and layout is None:
+            # An identified, unmeasured generation must never be tested with a
+            # neighbouring architecture's private field layout.
+            self._clkdom_retry_attempts = len(self._CLKDOM_RETRY_DELAYS)
+            self._clkdom_retry_due = None
+            return False
+        if not self._clkdom_retry_needed(architecture):
+            self._clkdom_retry_attempts = len(self._CLKDOM_RETRY_DELAYS)
+            self._clkdom_retry_due = None
+            return False
+
+        before = self._clkdom_cached_ui_controls(architecture)
+        attempts += 1
+        self._clkdom_retry_attempts = attempts
+        self._clkdom_retry_due = None
+
+        if architecture is not None and layout is not None and self.clkdom_ok() \
+                and layout.header + CLKDOM_SLOTS * layout.stride == layout.size:
+            understood = (CLKDOM_BLACKWELL_CONTROLS if architecture == 10
+                          else CLKDOM_NAMES)
+            accepted = set(getattr(self, "_clkdom_valid", ()) or ())
+            errors = dict(getattr(self, "_clkdom_probe_errors", {}) or {})
+            valid_response = None
+            for domain in sorted(set(understood) - accepted):
+                mask = 1 << domain
+                try:
+                    status, response = self._clkdom_get(mask)
+                except Exception as exc:
+                    errors[domain] = f"read exception: {exc}"
+                    continue
+                if status == 0 and self._clkdom_valid_block(response, layout, mask):
+                    accepted.add(domain)
+                    errors.pop(domain, None)
+                    valid_response = (mask, response)
+                else:
+                    errors[domain] = (f"status {status}" if status else
+                                      "version/mask echo mismatch")
+            self._clkdom_valid = sorted(accepted)
+            self._clkdom_probe_errors = errors
+
+            # A previous validation failure caches False even when discovery
+            # found accepted domains.  A newly accepted exact response already
+            # performs the same validation without reprobing that singleton.
+            if getattr(self, "_clkdom_layout_cache", None) in (None, False):
+                if valid_response is None and accepted:
+                    mask = 1 << min(accepted)
+                    try:
+                        status, response = self._clkdom_get(mask)
+                    except Exception as exc:
+                        status, response = None, None
+                        self._clkdom_capability_error = (
+                            "read_failure", f"clock-control validation read failed: {exc}")
+                    if status == 0 and self._clkdom_valid_block(response, layout, mask):
+                        valid_response = (mask, response)
+                    elif status == 0:
+                        self._clkdom_capability_error = (
+                            "unsupported_response", "clock-control response did not echo the expected version and mask")
+                    elif status is not None:
+                        self._clkdom_capability_error = (
+                            "read_failure", f"clock-control validation read failed with status {status}")
+                if valid_response is not None:
+                    self._clkdom_layout_cache = layout
+                    self._clkdom_capability_error = None
+                elif not accepted:
+                    self._clkdom_layout_cache = False
+                    self._clkdom_capability_error = (
+                        "unavailable", "no clock-control domain answered; Refresh capabilities retries discovery")
+
+        requests_recovered = False
+        if getattr(self, "_clkdom_offset_read_pending", False) \
+                and getattr(self, "_clkdom_layout_cache", None) not in (None, False):
+            requests, error = self.read_clk_domain_offsets()
+            if requests and not error:
+                self._clkdom_offset_read_pending = False
+                requests_recovered = True
+        after = self._clkdom_cached_ui_controls(architecture)
+        # Keep the final round available: after newly discovered controls are
+        # published, the UI still needs a fresh request read to seed their rows.
+        # A failure of that read belongs to this same budget, not a new cycle.
+        if attempts < len(self._CLKDOM_RETRY_DELAYS):
+            self._clkdom_retry_due = current + self._CLKDOM_RETRY_DELAYS[attempts]
+        return before != after or requests_recovered
+
+    @_synchronized
     def refresh_capabilities(self):
         """Invalidate discovery results for one deliberate, read-only retry.
 
@@ -3236,6 +3389,9 @@ class GPU:
         self._clkdom_pair = None
         self._clkdom_probe_errors = {}
         self._clkdom_capability_error = None
+        self._clkdom_retry_attempts = 0
+        self._clkdom_retry_due = None
+        self._clkdom_offset_read_pending = False
         refresh_rails = getattr(self, "_refresh_volt_rail_capabilities", None)
         if callable(refresh_rails):
             refresh_rails()
@@ -3251,8 +3407,9 @@ class GPU:
         p[CLKDOM_MASK_DW] = mask
         return a.ClkDomCtlGet(a.gpu, ctypes.byref(buf)), buf
 
+    @_synchronized
     def clkdom_domains(self):
-        """Domains this card accepts, cached until explicit capability refresh.
+        """Accepted domains, extended by bounded retries until explicit refresh.
 
         Not a constant: the mask rejects the WHOLE call with -1 if any bit is
         invalid, so a hardcoded mask that is right on TU102 would break every
@@ -3317,8 +3474,14 @@ class GPU:
         self._clkdom_pair = pair
         return pair
 
+    @_synchronized
     def read_clk_domain_offsets(self):
-        """({domain: {mode, freq_khz, msvdd_uv}}, err)."""
+        """({domain: {mode, freq_khz, msvdd_uv}}, err).
+
+        A failed request read remains pending until the retry publisher reports
+        recovery or an explicit refresh resets discovery. A successful telemetry
+        read in between must not consume the notification needed by missing rows.
+        """
         if not self.clkdom_ok():
             return None, "per-domain clock control unavailable (0xF58938F5)"
         layout = self.clkdom_layout()
@@ -3330,11 +3493,17 @@ class GPU:
         mask = 0
         for d in doms:
             mask |= 1 << d
-        st, buf = self._clkdom_get(mask)
+        try:
+            st, buf = self._clkdom_get(mask)
+        except Exception as exc:
+            self._clkdom_offset_read_pending = True
+            return None, f"clock-domain read failed: {exc}"
         if st != 0:
+            self._clkdom_offset_read_pending = True
             return None, f"clock-domain read failed (status {st})"
         p = ctypes.cast(buf, ctypes.POINTER(i32))
         if not self._clkdom_valid_block(buf, layout, mask):
+            self._clkdom_offset_read_pending = True
             return None, "clock-domain block did not echo its version and requested mask"
         out = {}
         for d in doms:
@@ -3364,6 +3533,7 @@ class GPU:
             return None
         return rows[CLKDOM_XBAR]["freq_khz"] / 1000.0
 
+    @_synchronized
     def rail_offset_capability(self, rail=1, domain=None):
         """A readable request field, not evidence of a physical rail response.
 
@@ -3406,6 +3576,7 @@ class GPU:
                     "reason": "request field readable; physical voltage response is unverified"}
         return dict(unavailable, reason="no understood rail-offset control record answered")
 
+    @_synchronized
     def read_rail_offset_mv(self, domain=0, rail=0):
         """The selected rail's stored request in mV, not measured VOUT."""
         if rail != 0:
@@ -3420,6 +3591,7 @@ class GPU:
         dw = (layout.header + domain * layout.stride + layout.nvvdd_uv) // 4
         return ctypes.cast(buf, ctypes.POINTER(i32))[dw] / 1000.0
 
+    @_synchronized
     def set_rail_offset_mv(self, mv, domain=0, rail=0):
         """Offset the core rail by `mv` millivolts.
 
@@ -3507,6 +3679,7 @@ class GPU:
         """Explicitly clear a stored MSVDD request, including after XOC is off."""
         return self._set_msvdd_offset_mv(0, domain, reset=True)
 
+    @_synchronized
     def _set_msvdd_offset_mv(self, mv, domain, *, reset=False):
         if type(domain) is not int or not 0 <= domain < CLKDOM_SLOTS:
             return False, "clock-control index must be an integer from 0 to 31"
@@ -3567,6 +3740,7 @@ class GPU:
         return True, (f"MSVDD request stored at control {domain}: {requested_uv / 1000:+g} mV; "
                       "register readback matched, physical voltage response is unverified")
 
+    @_synchronized
     def set_clk_domain_offset(self, domain, mhz):
         """Read-modify-write exactly one dword of the control block.
 

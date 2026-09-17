@@ -25,6 +25,7 @@ class KeplerTests(unittest.TestCase):
 
     def test_other_architectures_still_require_runtime_vf_validation(self):
         gpu = GPU.__new__(GPU)
+        gpu._lock = threading.RLock()
         for arch in (None, 3, 4, 6, 10):
             gpu.arch = Mock(return_value=arch)
             self.assertTrue(gpu.vf_curve_applicable())
@@ -82,6 +83,7 @@ class KeplerTests(unittest.TestCase):
 
     def test_clock_grid_uses_upper_regime(self):
         gpu = GPU.__new__(GPU)
+        gpu._lock = threading.RLock()
         # Low divider regime followed by fractional 13 MHz boost bins.
         clocks = list(range(136, 406, 2)) + [round(419 + i * 13.05) for i in range(61)]
         gpu.lockable_clocks_by_mem = Mock(return_value=[(3505, clocks)])
@@ -90,12 +92,14 @@ class KeplerTests(unittest.TestCase):
     def test_uniform_pascal_and_turing_grids_are_preserved(self):
         for step in (12657, 15000):
             gpu = GPU.__new__(GPU)
+            gpu._lock = threading.RLock()
             clocks = [round(139 + i * step / 1000) for i in range(141)]
             gpu.lockable_clocks_by_mem = Mock(return_value=[(1000, clocks)])
             self.assertAlmostEqual(gpu.clock_step_khz(), step, delta=5)
 
     def test_kepler_zero_getter_cannot_enable_private_writes(self):
         gpu = GPU.__new__(GPU)
+        gpu._lock = threading.RLock()
         gpu.arch = Mock(return_value=2)
         gpu.nvapi = SimpleNamespace(ok=True, ClkDomCtlGet=Mock(), ClkDomCtlSet=Mock())
         gpu._clkdom_get = Mock()

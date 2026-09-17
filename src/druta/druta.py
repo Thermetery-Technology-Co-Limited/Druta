@@ -78,6 +78,7 @@ Safety model, carried over from the Tk version:
     checkbox that no tooltip can substitute for.
 """
 import ctypes
+import contextlib
 import json
 import math
 import os
@@ -97,7 +98,7 @@ from .nvbackend import (GPU, EVENT_REASONS, PERF_DECREASE_BITS, VF_STEP_KHZ, VF_
                         PRIV_N_DOMAINS, PRIV_PCIE_GEN, PRIV_UNNAMED,
                         PRIV_UNPOPULATED)
 
-__version__ = "1.5.0a"
+__version__ = "1.5.1"
 
 # ---- palette (ImGui takes 0-255 RGBA) ------------------------------------- #
 TEXT = (230, 232, 236)
@@ -259,6 +260,13 @@ class Druta:
         # the tab holding it does not exist would be writing to a dead tag.
         self._rebuilding = False
         self._dpg_ready = False
+        # The poll worker only records that a bounded backend retry learned a
+        # new, understood clock control. Adding widgets is deliberately a
+        # main-thread job, and the tuple prevents an old card (or a result that
+        # raced a manual refresh) from changing the current card's UI.
+        self._clock_capability_recovery = None
+        self._clock_capability_recovery_token = 0
+        self._clock_capability_recovery_logged = False
         self._drag_idx = None
         # THE record of what this app is holding the card with, and how:
         #   None, or {"kind": LOCK_NVML|LOCK_VF, ...per-mechanism fields}
@@ -526,6 +534,7 @@ class Druta:
         while not self._stop.is_set():
             with self._lock:
                 gen, gpu = self._gpu_gen, self.gpu
+                recovery_token = getattr(self, "_clock_capability_recovery_token", 0)
             try:
                 d = gpu.read()
                 with self._lock:
@@ -541,6 +550,23 @@ class Druta:
                     if (gen == self._gpu_gen and gpu is self.gpu
                             and not self._rebuilding):
                         self._snap_err = str(e)
+            # Startup capability probes can lose a transiently unavailable
+            # XBAR/SYS domain.  The backend bounds this to its scheduled,
+            # read-only retries; this worker merely publishes a successful
+            # change for the UI thread.  It must never use the manual refresh,
+            # which also rearms that bounded budget.
+            retry = getattr(gpu, "retry_clock_capabilities", None)
+            if retry is not None:
+                try:
+                    recovered = bool(retry())
+                except Exception:
+                    recovered = False
+                if recovered:
+                    with self._lock:
+                        if (gen == self._gpu_gen and gpu is self.gpu
+                                and recovery_token == getattr(
+                                    self, "_clock_capability_recovery_token", 0)):
+                            self._clock_capability_recovery = (gen, gpu, recovery_token)
             self._stop.wait(1.0)
 
     # ---- fonts ------------------------------------------------------------ #
@@ -2115,7 +2141,8 @@ class Druta:
                     with dpg.group(width=self.knob_col_width()):
                         with dpg.collapsing_header(label="Clock offsets", default_open=True):
                             with dpg.table(header_row=False, no_host_extendX=True,
-                                           policy=dpg.mvTable_SizingFixedFit):
+                                           policy=dpg.mvTable_SizingFixedFit,
+                                           tag="clock_offset_table"):
                                 self.knob_cols()
                                 core_lo, core_hi = -200, 300
                                 if st.get("core_off_range"):
@@ -2180,128 +2207,7 @@ class Druta:
                                 # MEMORY on this card. The row appears only where the
                                 # private control block answers, so a card without it shows
                                 # no dead knob.
-                                if self.gpu.clkdom_layout() is not None:
-                                    cur, _ = self.gpu.read_clk_domain_offsets()
-                                    cur = cur or {}
-                                    # via read(), not read_clock_domains(): the bare call
-                                    # names blind and would report every card as Turing
-                                    _live = self.gpu.read() or {}
-                                    drows = _live.get("clk_domains")
-                                    controls = set(self.gpu.clkdom_controls_for_ui(drows))
-                                    # The declared envelope, in the same
-                                    # effective-MHz units this knob writes: the
-                                    # per-domain delta measured 1:1 against the
-                                    # memory clock (+100 -> +100 MHz eff), so
-                                    # no second scale applies to it.
-                                    mem_lo, mem_hi = -1000, 3000
-                                    if st.get("mem_off_range"):
-                                        mem_lo = int(st["mem_off_range"][0] / mscale)
-                                        mem_hi = int(st["mem_off_range"][1] / mscale)
-                                    # Typo catcher, at a quarter of the memory
-                                    # clock. The first version of this used the
-                                    # WHOLE clock, which catches nothing worth
-                                    # catching: a slipped digit - 5000 for 500 -
-                                    # sails through a bound that permits
-                                    # doubling the memory speed. A quarter is
-                                    # far above any real memory overclock and
-                                    # still refuses an extra zero.
-                                    #
-                                    # Never narrower than what the card itself
-                                    # declares, so ticking XOC can only ever
-                                    # widen this knob, and floored so a card
-                                    # with a tiny declared range still gets the
-                                    # headroom that is the entire point here.
-                                    mem_typo = max(abs(mem_hi),
-                                                   int((_live.get("mem_p0max")
-                                                        or _live.get("mem")
-                                                        or 0) * 0.25),
-                                                   1000)
-                                    for kn in self.DOMAIN_KNOBS:
-                                        if kn.ctrl not in self.gpu.clkdom_domains():
-                                            continue
-                                        # On Turing, a knob is built only where a clock
-                                        # was observed to move: accepting and storing a
-                                        # write is not enough. Blackwell is different:
-                                        # its control indices and private getter indices
-                                        # are separate, so its accepted controls are
-                                        # gated by the architecture-specific layout and
-                                        # validated one-hot control mask above.
-                                        # An xoc_only knob is let through
-                                        # WITHOUT a measured pairing. That is a
-                                        # deliberate exception to the rule
-                                        # above, and it is narrow: the declared
-                                        # OC range is read-only, so an unchecked
-                                        # CONTROL delta is the only route past
-                                        # it on any generation, and refusing to
-                                        # show the knob on the cards that most
-                                        # need it guarantees nobody ever finds
-                                        # out whether it works there. It is
-                                        # XOC-gated and carries the note below.
-                                        paired = kn.ctrl in controls
-                                        if not paired and not kn.xoc_only:
-                                            continue
-                                        init = int(cur.get(kn.ctrl, {})
-                                                   .get("freq_khz", 0) / 1000)
-                                        lbl, col, _p = self.domain_knob_label(kn, drows)
-                                        # XOC: the core envelope above, because nothing
-                                        # else bounds this knob. -300..300 is a UI
-                                        # convention, not a driver fact -
-                                        # set_clk_domain_offset writes a raw signed-kHz
-                                        # field with no range check of any kind, so the
-                                        # only real limits are the driver's floor-to-bins
-                                        # and the silicon. Reusing the widest CLOCK offset
-                                        # this driver admits anywhere on this card is a
-                                        # measured number rather than an invented one, and
-                                        # it keeps one envelope for every clock knob on the
-                                        # tab instead of a second unrelated pair.
-                                        # On Blackwell these are control-domain REQUESTS and
-                                        # the driver may quantise what it applies, so the
-                                        # live column is what to read after a change rather
-                                        # than the number that was asked for. It quantises
-                                        # less than it might appear: measured on RTX 5080 /
-                                        # 580.97 the XBAR response is 0.93-1.00 of the
-                                        # request from +25 to +300 MHz, which is bin
-                                        # flooring rather than a ratio. Kept as a comment
-                                        # because per-slider subtext is no longer drawn.
-                                        # MEM is bounded differently from the
-                                        # rest. Not because it escapes a bound -
-                                        # measured, it does not - but because
-                                        # its own write is unvalidated, so the
-                                        # only bound between the slider and the
-                                        # driver is this one.
-                                        #
-                                        # Without XOC it gets the card's OWN
-                                        # declared delta range, so it can do
-                                        # nothing the ordinary memory slider
-                                        # could not already do - the escape is
-                                        # the thing being gated, not the knob.
-                                        #
-                                        # With XOC its ceiling is the memory
-                                        # clock itself. That is a TYPO CATCHER
-                                        # and is labelled as one: an offset
-                                        # larger than the clock it is added to
-                                        # would more than double the memory
-                                        # speed and is a slip, not a plan.
-                                        # Nothing here is a hardware limit -
-                                        # the write is unchecked all the way
-                                        # down - so Druta must not present its
-                                        # own number as though the card had
-                                        # supplied it.
-                                        if kn.xoc_only:
-                                            lo_d, hi_d = mem_lo, mem_hi
-                                            xlo, xhi = -mem_typo, mem_typo
-                                        else:
-                                            lo_d, hi_d = -300, 300
-                                            xlo, xhi = core_xlo, core_xhi
-                                        self.slider_row(
-                                            kn.key, lbl, lo_d, hi_d, init,
-                                            lambda v, _d=kn.ctrl, _k=kn.key:
-                                                self.apply_domain_offset(_d, _k, v),
-                                            note=kn.note, color=col,
-                                            xoc_lo=xlo, xoc_hi=xhi,
-                                            extra=("Stock", lambda _k=kn.key:
-                                                   self.stock_knob(_k)))
-
+                                self.build_domain_offset_rows(st, mscale, core_xlo, core_xhi)
                         # Voltage boost is grouped with the limits, not the offsets: it moves
                         # no clock at all, it raises a ceiling the arbiter is allowed to
                         # reach - the same shape of knob as the power limit.
@@ -2408,6 +2314,86 @@ class Druta:
             dpg.add_input_text(tag="log", multiline=True, readonly=True,
                                width=-1, height=self.s(150))
             self.bind("log", "mono")
+
+    def build_domain_offset_rows(self, st, mscale, core_xlo, core_xhi,
+                                 only_missing=False):
+        """Add validated private clock rows to the current clock-offset table.
+
+        This is used while creating the tab and, after a bounded retry, to add
+        only rows that did not exist when the initial probe was transiently
+        incomplete.  The reads are deliberately fresh: a recovered row must
+        show the request currently held by the driver, never an old default.
+        """
+        if self.gpu.clkdom_layout() is None:
+            return 0
+        cur, _ = self.gpu.read_clk_domain_offsets()
+        if not isinstance(cur, dict):
+            if only_missing:
+                self.log_once("clock-capability-current",
+                              "recovered clock controls could not read current requests; use Refresh capabilities")
+            return 0
+        try:
+            live = self.gpu.read() or {}
+        except Exception:
+            # The request read above is the authority for the new slider's
+            # value.  Telemetry only improves its label and typo ceiling.
+            live = {}
+        drows = live.get("clk_domains")
+        controls = set(self.gpu.clkdom_controls_for_ui(drows))
+        mem_lo, mem_hi = -1000, 3000
+        if st.get("mem_off_range"):
+            mem_lo = int(st["mem_off_range"][0] / mscale)
+            mem_hi = int(st["mem_off_range"][1] / mscale)
+        mem_typo = max(abs(mem_hi), int((live.get("mem_p0max")
+                                         or live.get("mem") or 0) * 0.25), 1000)
+        made = 0
+        missing_current = False
+        for kn in self.DOMAIN_KNOBS:
+            if kn.ctrl not in self.gpu.clkdom_domains():
+                continue
+            if only_missing and dpg.does_item_exist("sl_" + kn.key):
+                continue
+            if kn.ctrl not in controls and not kn.xoc_only:
+                continue
+            request = cur.get(kn.ctrl)
+            if not isinstance(request, dict) or "freq_khz" not in request:
+                missing_current = True
+                continue
+            init = int(request["freq_khz"] / 1000)
+            lbl, col, _paired = self.domain_knob_label(kn, drows)
+            if kn.xoc_only:
+                lo_d, hi_d = mem_lo, mem_hi
+                xlo, xhi = -mem_typo, mem_typo
+            else:
+                lo_d, hi_d = -300, 300
+                xlo, xhi = core_xlo, core_xhi
+            self.slider_row(
+                kn.key, lbl, lo_d, hi_d, init,
+                lambda value, _d=kn.ctrl, _k=kn.key:
+                    self.apply_domain_offset(_d, _k, value),
+                note=kn.note, color=col, xoc_lo=xlo, xoc_hi=xhi,
+                extra=("Stock", lambda _k=kn.key: self.stock_knob(_k)))
+            made += 1
+        if missing_current and only_missing:
+            self.log_once("clock-capability-current",
+                          "recovered clock controls could not read current requests; use Refresh capabilities")
+        return made
+
+    def insert_recovered_clock_controls(self):
+        """Insert just newly understood domain controls into the live table."""
+        if not dpg.does_item_exist("clock_offset_table"):
+            return 0
+        st = self.gpu.static
+        mscale, _unit = self.gpu.mem_offset_scale()
+        core_xlo, core_xhi = (-1000, 1000)
+        if st.get("core_off_range"):
+            core_xlo, core_xhi = st["core_off_range"][:2]
+        dpg.push_container_stack("clock_offset_table")
+        try:
+            return self.build_domain_offset_rows(st, mscale, core_xlo, core_xhi,
+                                                 only_missing=True)
+        finally:
+            dpg.pop_container_stack()
 
     def slider_row(self, key, label, lo, hi, init, cb, note=None, extra=None,
                    color=None, xoc_lo=None, xoc_hi=None, decimals=0):
@@ -9385,6 +9371,73 @@ deliberately does not put behind a button."""
             return None
         return "" if out == "NONE" else out
 
+    def _clock_capability_recovery_safe(self):
+        """Whether adding rows would interrupt an in-progress edit."""
+        if (getattr(self, "_closing", False) or getattr(self, "_rebuilding", False)
+                or getattr(self, "_i2c_busy", False)
+                or getattr(self, "_i2c_scan_busy", False)
+                or getattr(self, "_tim_busy", False)
+                or getattr(self, "_profile_pending", None)
+                or getattr(self, "_profile_applying", False)
+                or getattr(self, "_drag_idx", None) is not None):
+            return False
+        if (any(v != getattr(self, "vf_orig", {}).get(i)
+                for i, v in getattr(self, "vf_work", {}).items())
+                or getattr(self, "_tw_pending", {})):
+            return False
+        for key in getattr(self, "_slider_ranges", {}):
+            for tag in (f"sl_{key}", f"in_{key}"):
+                if (dpg.does_item_exist(tag)
+                        and (dpg.is_item_focused(tag) or dpg.is_item_active(tag))):
+                    return False
+        if self.typing():
+            return False
+        # Dear PyGui has no global "modal open" query.  Inspecting the item
+        # tree keeps this future-proof when a new modal is added.
+        try:
+            for item in dpg.get_all_items() or ():
+                config = dpg.get_item_configuration(item)
+                if config.get("modal") and dpg.is_item_shown(item):
+                    return False
+        except Exception:
+            pass
+        return True
+
+    def consume_clock_capability_recovery(self):
+        """Apply a worker-published recovery when the main UI is safe to redraw."""
+        with getattr(self, "_lock", contextlib.nullcontext()):
+            pending = getattr(self, "_clock_capability_recovery", None)
+            if pending is None:
+                return False
+            generation, gpu, token = pending
+            if (generation != self._gpu_gen or gpu is not self.gpu
+                    or token != getattr(self, "_clock_capability_recovery_token", 0)):
+                self._clock_capability_recovery = None
+                return False
+        if not self._clock_capability_recovery_safe():
+            return False
+        with getattr(self, "_lock", contextlib.nullcontext()):
+            # Consume before trying the UI insertion.  A bad DPG item cannot
+            # turn one bounded backend recovery into an every-frame retry.
+            if self._clock_capability_recovery != pending:
+                return False
+            self._clock_capability_recovery = None
+        try:
+            made = self.insert_recovered_clock_controls()
+        except Exception as exc:
+            self.log(f"automatic capability update failed: {exc}", False)
+            return False
+        if made:
+            # New rows start with DPG's enabled defaults.  Reapply both gates
+            # immediately so a locked or non-XOC session cannot use a newly
+            # discovered control before the next ordinary UI refresh.
+            self.sync_risk_ui()
+            self.sync_lock_ui()
+            if not getattr(self, "_clock_capability_recovery_logged", False):
+                self.log("recovered clock controls automatically", True)
+                self._clock_capability_recovery_logged = True
+        return bool(made)
+
     def refresh_capabilities(self, sender=None, app_data=None, user_data=None):
         """Deliberate read-only retry; retain ownership and staged slider values."""
         if (getattr(self, "_i2c_busy", False) or getattr(self, "_tim_busy", False)
@@ -9396,11 +9449,17 @@ deliberately does not put behind a button."""
                 or getattr(self, "_tw_pending", {})):
             self.log("apply or revert staged curve/timing edits before refreshing capabilities", False)
             return
+        # This is a new deliberate probe budget, so any earlier worker result
+        # no longer describes the capability state which will be displayed.
+        with getattr(self, "_lock", contextlib.nullcontext()):
+            self._clock_capability_recovery_token = (
+                getattr(self, "_clock_capability_recovery_token", 0) + 1)
+            self._clock_capability_recovery = None
         tags = ["unlock", "xoc_mode", "i2c_mode", "vlim_mode", "vlim_link",
                 "vcap", "rfloor"]
         tags += [prefix + key for key in getattr(self, "_slider_ranges", {})
                  for prefix in ("sl_", "in_")]
-        values = {t: dpg.get_value(t) for t in tags if dpg.does_item_exist(t)}
+        values = {tag: dpg.get_value(tag) for tag in tags if dpg.does_item_exist(tag)}
         self._rebuilding = True
         self._ui_gen = getattr(self, "_ui_gen", 0) + 1
         try:
@@ -9651,6 +9710,10 @@ deliberately does not put behind a button."""
                 self.dispatch_callbacks()
                 if not dpg.is_dearpygui_running():
                     break
+                # The polling worker may have learned a previously transient
+                # clock domain.  This is intentionally consumed here, on the
+                # UI thread, after callbacks and before normal panel drawing.
+                self.consume_clock_capability_recovery()
                 self.poll_i2c_discovery()
                 self.poll_profile_load()
                 now = time.perf_counter()

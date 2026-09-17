@@ -1,6 +1,7 @@
 # Copyright (C) 2026 Thermetery Technology Co Limited
 # SPDX-License-Identifier: GPL-3.0-or-later
 import unittest
+import threading
 from types import SimpleNamespace
 from unittest.mock import Mock
 from druta.nvbackend import GPU, MEM_TYPES
@@ -9,6 +10,7 @@ from tests.test_vfp_read import fake_gpu
 class MaxwellTests(unittest.TestCase):
  def card(self,device=0x1382):
   g=GPU.__new__(GPU);g.arch=Mock(return_value=GPU.ARCH_MAXWELL)
+  g._lock=threading.RLock()
   g.nvapi=SimpleNamespace(selected={'devid':device},ok=True,ClkDomCtlGet=Mock(),ClkDomCtlSet=Mock())
   return g
  def test_ddr3_clock_and_offset_units(self):
