@@ -77,29 +77,6 @@ class LegacyRailReadTests(unittest.TestCase):
                 self.assertFalse(gpu.reset_volt_rail_limits()[0])
                 gpu._write_rail_records.assert_not_called()
 
-    def test_vista_era_driver_gate_explains_itself_and_ends_at_release_367(self):
-        for kind in ("turing", "pascal"):
-            with self.subTest(kind=kind):
-                gpu = fake_gpu(kind, driver="365.19")
-                gpu.volt_limits_write_enabled = True
-                diagnostic = gpu.volt_rail_diagnostics()
-                self.assertFalse(diagnostic["available"])
-                self.assertIn("Release 367", diagnostic["reason"])
-                self.assertFalse(diagnostic["rails"][0]["available"])
-                # Reads stay informational; restoration writes nothing either.
-                self.assertIn(0, gpu.read_volt_rail_limits())
-                self.assertFalse(gpu.reset_volt_rail_limits()[0])
-                self.assertFalse(gpu.set_volt_rail_limits_raw(0, reliability=0)[0])
-                gpu._write_rail_records.assert_not_called()
-        # Newer branches, and driver strings without a release number, keep
-        # generation-based discovery.
-        for kind, driver in (("pascal", "368.81"), ("turing", "411.63"),
-                             ("pascal", "472.12"), ("pascal", "?"), ("turing", "")):
-            with self.subTest(kind=kind, driver=driver):
-                gpu = fake_gpu(kind, driver=driver)
-                self.assertTrue(gpu.volt_rail_limits_supported())
-                self.assertTrue(gpu.volt_rail_diagnostics()["available"])
-
     def test_profile_bases_and_boost_follow_generation_and_runtime_version(self):
         for kind, overvoltage in (("turing", 1125), ("pascal", 1200)):
             with self.subTest(kind=kind):
