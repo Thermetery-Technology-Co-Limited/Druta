@@ -1,14 +1,24 @@
 """Prevent reuse or mixing of the Win7 UCRT set that fails to load on Vista."""
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
 
-from druta.tools import collect_vista_redist as vista
+try:
+    from druta.tools import collect_vista_redist as vista
+except ModuleNotFoundError:
+    # pefile comes from requirements-win7.txt (or PyInstaller), not the dev extra.
+    if importlib.util.find_spec("pefile") is not None:
+        raise
+    vista = None
+
+needs_pefile = unittest.skipIf(vista is None, "requires pefile (requirements-win7.txt)")
 
 
+@needs_pefile
 class VistaCollectionTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()

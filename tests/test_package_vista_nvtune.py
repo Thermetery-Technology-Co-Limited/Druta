@@ -1,5 +1,6 @@
 """Fail closed before copying changed or incomplete optional driver packages."""
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import tempfile
@@ -8,9 +9,18 @@ import unittest
 from unittest.mock import MagicMock, patch
 import zipfile
 
-from druta.tools import package_vista_nvtune as packager
+try:
+    from druta.tools import package_vista_nvtune as packager
+except ModuleNotFoundError:
+    # pefile comes from requirements-win7.txt (or PyInstaller), not the dev extra.
+    if importlib.util.find_spec("pefile") is not None:
+        raise
+    packager = None
+
+needs_pefile = unittest.skipIf(packager is None, "requires pefile (requirements-win7.txt)")
 
 
+@needs_pefile
 class PackageTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()

@@ -1,4 +1,5 @@
 """Packaging regressions for incompatible or changed Vista native runtimes."""
+import importlib.util
 import json
 from pathlib import Path
 import tempfile
@@ -6,9 +7,18 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import MagicMock, patch
 
-from druta.tools import vista_runtime
+try:
+    from druta.tools import vista_runtime
+except ModuleNotFoundError:
+    # pefile comes from requirements-win7.txt (or PyInstaller), not the dev extra.
+    if importlib.util.find_spec("pefile") is not None:
+        raise
+    vista_runtime = None
+
+needs_pefile = unittest.skipIf(vista_runtime is None, "requires pefile (requirements-win7.txt)")
 
 
+@needs_pefile
 class NativeLoaderTests(unittest.TestCase):
     def native(self, machine=0x8664, version=(6, 0), imports=()):
         pe = MagicMock()
@@ -39,6 +49,7 @@ class NativeLoaderTests(unittest.TestCase):
             vista_runtime.inspect_native(Path("Druta.exe"))
 
 
+@needs_pefile
 class ManifestTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
