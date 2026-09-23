@@ -77,6 +77,24 @@ class LegacyRailReadTests(unittest.TestCase):
                 self.assertFalse(gpu.reset_volt_rail_limits()[0])
                 gpu._write_rail_records.assert_not_called()
 
+    def test_driver_version_does_not_decide_rail_limit_support(self):
+        # The same getter answers give the same result whatever version string
+        # the adapter reports, including Vista's last driver and no version.
+        for kind in ("turing", "pascal"):
+            for driver in ("365.19", "368.81", "472.12", "580.97", "?", ""):
+                with self.subTest(kind=kind, driver=driver):
+                    gpu = fake_gpu(kind, driver=driver)
+                    gpu.volt_limits_write_enabled = True
+                    self.assertTrue(gpu.volt_rail_diagnostics()["available"])
+                    self.assertTrue(gpu.set_volt_rail_limits(0, reliability=1125)[0])
+                    gpu._write_rail_records.assert_called_once()
+                    unresolved = fake_gpu(kind, driver=driver)
+                    unresolved.nvapi.VoltRailsCtlGet = None
+                    unresolved.volt_limits_write_enabled = True
+                    self.assertFalse(unresolved.volt_rail_limits_supported())
+                    self.assertFalse(unresolved.set_volt_rail_limits(0, reliability=1125)[0])
+                    unresolved._write_rail_records.assert_not_called()
+
     def test_profile_bases_and_boost_follow_generation_and_runtime_version(self):
         for kind, overvoltage in (("turing", 1125), ("pascal", 1200)):
             with self.subTest(kind=kind):
