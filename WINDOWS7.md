@@ -282,9 +282,12 @@ not contain NVIDIA DLLs. Available exports and successful reads select older
 clock, fan and telemetry paths; PCI enumeration can fall back to the older V2
 record without changing the selected physical slot.
 
-The TITAN private voltage-write profiles remain limited to the measured exact
-board, VBIOS and driver combinations (472.12 and 580.97). Porting them to Windows 7
-does not confirm a new driver or operating-system hardware combination. Ordinary
+Private voltage-rail writes follow the shared build: they are offered by GPU
+architecture, start from a recognized native packet and are checked by
+readback. No driver version is consulted. The TITAN measurements on 472.12 and
+580.97 remain recorded in `VOLTAGE-RAILS-TITAN.md` and `VOLTAGE-RAILS-47212.md`.
+Porting this to Windows 7 does not confirm a new driver or operating-system
+hardware combination. Ordinary
 API controls retain their capability checks. Zero RPM does not hide a functioning
 fan controller, including when an RTX is on a water loop.
 
