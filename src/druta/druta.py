@@ -2806,6 +2806,8 @@ class Druta:
         """Expose identified telemetry separately from a verified offset path."""
         if self.rail is None:
             return
+        if getattr(self.rail, "current_dac", False):
+            return
         try:
             if not self.rail.present():
                 return
@@ -2875,6 +2877,10 @@ class Druta:
         """Measured rail, and its disagreement with the GPU's own reading."""
         if self.rail is None or not dpg.does_item_exist("live_i2crail"):
             return None
+        # The NCT3933U is a current DAC.  It has no regulator VOUT telemetry,
+        # so never turn its output registers into an invented rail voltage.
+        if getattr(self.rail, "current_dac", False):
+            return None
         # The verifier owns the bus while it runs. Interleaving a refresh read
         # into its staircase would cost the measurement, and the measurement is
         # the only thing standing between this knob and an unproven write path.
@@ -2899,6 +2905,201 @@ class Druta:
         if not vc or self.rail.p.read_only or not self.i2c_verified():
             return f"{v:.9g} mV"
         return f"{v:.9g} mV  ({v - vc:+.9g} vs GPU)"
+
+    # ---- NCT3933U current-DAC controls ---------------------------------- #
+    def _current_dac(self):
+        """The selected current DAC, if the discovered controller is one."""
+        rail = getattr(self, "rail", None)
+        return rail if rail is not None and getattr(rail, "current_dac", False) else None
+
+    @staticmethod
+    def _current_dac_telemetry(telemetry):
+        """Validate the small native register report before putting it on screen."""
+        if not isinstance(telemetry, dict):
+            raise ValueError("controller did not return register telemetry")
+        currents = telemetry.get("currents_ua")
+        outputs = telemetry.get("outputs")
+        config = telemetry.get("configuration")
+        if (not isinstance(currents, list) or len(currents) != 3
+                or not all(type(value) is int for value in currents)):
+            raise ValueError("controller current readback is incomplete")
+        if (not isinstance(outputs, list) or len(outputs) != 3
+                or not all(type(value) is int and 0 <= value <= 0xFF for value in outputs)
+                or type(config) is not int or not 0 <= config <= 0xFF):
+            raise ValueError("controller register readback is invalid")
+        return currents, outputs, config
+
+    def build_current_dac_controls(self):
+        """Build native NCT3933U current controls without assigning rails or mV."""
+        rail = self._current_dac()
+        if rail is None:
+            return
+        profile = rail.p
+        addr7 = getattr(profile, "addr7", getattr(rail, "addr7", None))
+        bus = (f"port {profile.port}, 0x{addr7:02X}"
+               if type(addr7) is int else f"port {profile.port}")
+        dpg.add_text(f"{profile.regulator} — three native current-DAC outputs", color=ACCENT)
+        dpg.add_text(
+            f"{bus}. OUT1, OUT2, and OUT3 are controller output names; Druta does not "
+            "infer a board rail or a voltage from them.", color=DIM, wrap=self.s(sum(self.KNOB_COLS)))
+        dpg.add_text(
+            "Positive is SOURCE current and negative is SINK current, in nominal µA. "
+            "Register readback; physical voltage requires meter.",
+            tag="nct_current_note", color=WARN, wrap=self.s(sum(self.KNOB_COLS)))
+        for channel in range(1, 4):
+            with dpg.group(horizontal=True):
+                dpg.add_text(f"OUT{channel}")
+                dpg.add_spacer(width=self.s(18))
+                dpg.add_input_int(tag=f"nct_current_{channel}", default_value=0,
+                                  width=self.s(115), step=0)
+                dpg.add_text("µA", color=DIM)
+                dpg.add_text("register settings unread", tag=f"nct_range_{channel}", color=DIM)
+
+                def _apply(ch):
+                    return lambda: self.apply_current_dac(ch)
+
+                def _zero(ch):
+                    return lambda: self.apply_current_dac(ch, 0)
+
+                dpg.add_button(label="Apply", tag=f"nct_apply_{channel}",
+                               callback=_apply(channel), width=self.s(78))
+                dpg.add_button(label="Zero", tag=f"nct_zero_{channel}",
+                               callback=_zero(channel), width=self.s(65))
+                dpg.add_text("--", tag=f"nct_live_{channel}", color=DIM)
+        with dpg.group(horizontal=True):
+            dpg.add_button(label="Read settings", tag="nct_read_settings",
+                           callback=self.refresh_current_dac_settings, width=self.s(130))
+            dpg.add_button(label="Zero all outputs", tag="nct_zero_all",
+                           callback=self.zero_current_dac_outputs, width=self.s(150))
+            dpg.add_text("--", tag="nct_config", color=DIM)
+        dpg.add_text("", tag="nct_status", color=DIM, wrap=self.s(sum(self.KNOB_COLS)))
+        self._ctl_widgets = getattr(self, "_ctl_widgets", [])
+        self._ctl_widgets += [tag for channel in range(1, 4)
+                              for tag in (f"nct_current_{channel}", f"nct_apply_{channel}",
+                                          f"nct_zero_{channel}")]
+        self._ctl_widgets.append("nct_zero_all")
+        self.refresh_current_dac_settings(log_failure=False)
+
+    def refresh_current_dac_settings(self, sender=None, app_data=None, user_data=None,
+                                     *, log_failure=True, preserve_status=False):
+        """Refresh NCT3933U register state on demand; this never reads a voltage."""
+        rail = self._current_dac()
+        if rail is None:
+            return False
+        if getattr(self, "_i2c_busy", False):
+            if log_failure:
+                self.log("wait for I2C verification and restoration before reading DAC settings", False)
+            return False
+        try:
+            currents, outputs, config = self._current_dac_telemetry(rail.telemetry())
+        except Exception as exc:                                # noqa: BLE001
+            message = f"NCT3933U register readback failed: {exc}"
+            if dpg.does_item_exist("nct_status"):
+                dpg.set_value("nct_status", message)
+                dpg.configure_item("nct_status", color=BAD)
+            if log_failure:
+                self.log(message, False)
+            return False
+        for channel, (current, raw) in enumerate(zip(currents, outputs), start=1):
+            step = 20 if config & (1 << (2 * (channel - 1))) else 10
+            limit = 127 * step
+            if dpg.does_item_exist(f"nct_current_{channel}"):
+                # Bounds guide input but deliberately do not clamp.  A value
+                # being typed remains visible until Apply lets the controller
+                # reject an off-grid or out-of-range request explicitly.
+                dpg.configure_item(f"nct_current_{channel}", step=step,
+                                   min_value=-limit, max_value=limit,
+                                   min_clamped=False, max_clamped=False)
+                if not dpg.is_item_active(f"nct_current_{channel}"):
+                    dpg.set_value(f"nct_current_{channel}", current)
+            if dpg.does_item_exist(f"nct_live_{channel}"):
+                dpg.set_value(f"nct_live_{channel}", f"{current:+d} µA  raw 0x{raw:02X}")
+            if dpg.does_item_exist(f"nct_range_{channel}"):
+                dpg.set_value(f"nct_range_{channel}",
+                              f"{step} µA step, ±{limit} µA (127 counts)")
+        if dpg.does_item_exist("nct_config"):
+            dpg.set_value("nct_config", "configuration 0x"
+                          f"{config:02X}"
+                          + (" — outputs disabled by power saving" if config & 0x40 else ""))
+        message = ("Outputs disabled by power saving. Register readback; physical voltage requires meter."
+                   if config & 0x40 else "Register readback; physical voltage requires meter.")
+        if dpg.does_item_exist("nct_status") and not preserve_status:
+            dpg.set_value("nct_status", message)
+            dpg.configure_item("nct_status", color=BAD if config & 0x40 else WARN)
+        return True
+
+    def _capture_current_dac_control(self):
+        """Capture the exact bytes that profile autosave must be able to restore."""
+        rail = self._current_dac()
+        if rail is None:
+            raise ValueError("the selected controller is not a current DAC")
+        control = rail.capture_control()
+        rail.validate_control(control, xoc=None)
+        self._current_dac_control_before = control
+        return control
+
+    def _current_dac_failure(self, rail, result):
+        """Keep a failed post-write rollback visible and block clean shutdown claims."""
+        if result[0] or getattr(rail, "_verification_restore_ok", True):
+            return
+        detail = getattr(rail, "_verification_restore_error", "") or result[1]
+        self._i2c_restore_failed = True
+        self._i2c_restore_error = detail
+        message = "NCT3933U restore failed; output state is uncertain: " + detail
+        if dpg.does_item_exist("nct_status"):
+            dpg.set_value("nct_status", message)
+            dpg.configure_item("nct_status", color=BAD)
+
+    def apply_current_dac(self, channel, value=None):
+        """Set one NCT3933U output after the normal opt-in and write guards."""
+        if not self.guard():
+            return
+        ok, why = self.i2c_gate()
+        if not ok:
+            self.log("current DAC: " + why, False)
+            return
+        rail = self._current_dac()
+        if rail is None:
+            self.log("current DAC: selected controller does not provide native current outputs", False)
+            return
+        try:
+            requested = dpg.get_value(f"nct_current_{channel}") if value is None else value
+            if isinstance(requested, bool) or not isinstance(requested, int):
+                raise ValueError("current must be an integer number of µA")
+            expected = self._capture_current_dac_control()
+        except Exception as exc:                                # noqa: BLE001
+            self.log(f"NCT3933U OUT{channel}: {exc}", False)
+            return
+        # profiles.autosave captures the same controller format.  The explicit
+        # capture above makes a failed capture a refusal before any write.
+        self.autosave_before(f"i2c-current-dac-out{channel}")
+        result = rail.set_current_ua(channel, requested, acknowledged=True, expected=expected)
+        self.report(result)
+        self._current_dac_failure(rail, result)
+        self.refresh_current_dac_settings(log_failure=False, preserve_status=not result[0])
+
+    def zero_current_dac_outputs(self, sender=None, app_data=None, user_data=None):
+        """Set all three native outputs to zero; no voltage or rail is implied."""
+        if not self.guard():
+            return
+        ok, why = self.i2c_gate()
+        if not ok:
+            self.log("current DAC: " + why, False)
+            return
+        rail = self._current_dac()
+        if rail is None:
+            self.log("current DAC: selected controller does not provide native current outputs", False)
+            return
+        try:
+            expected = self._capture_current_dac_control()
+        except Exception as exc:                                # noqa: BLE001
+            self.log(f"NCT3933U: {exc}", False)
+            return
+        self.autosave_before("i2c-current-dac-zero-all")
+        result = rail.zero_outputs(acknowledged=True, expected=expected)
+        self.report(result)
+        self._current_dac_failure(rail, result)
+        self.refresh_current_dac_settings(log_failure=False, preserve_status=not result[0])
 
     # ---- the I2C rail: verify before you are allowed to drive it ----------- #
     def invalidate_i2c_verification(self):
@@ -3074,7 +3275,9 @@ class Druta:
         self.rail = candidates[0] if len(candidates) == 1 else None
         self._i2c_discovery_complete = True
         self.update_i2c_scan_ui(
-            "I2C detection complete: select a controller and Verify before applying an adjustment."
+            ("I2C detection complete: read the selected current DAC settings before applying an adjustment."
+             if self.rail is not None and getattr(self.rail, "current_dac", False)
+             else "I2C detection complete: select a controller and Verify before applying an adjustment.")
             if candidates else "I2C detection complete: no compatible controller responded.")
         self.log(f"I2C detection complete: {len(candidates)} candidate(s)", bool(candidates))
         self.refresh_i2c_candidates()
@@ -3112,13 +3315,18 @@ class Druta:
         if not getattr(self, "_i2c_discovery_complete", False):
             return
         if self.rail is None:
-            dpg.add_text("Select a controller, then Verify its voltage response." if candidates
+            current_only = candidates and all(getattr(r, "current_dac", False) for r in candidates)
+            dpg.add_text(("Select a current DAC, then Read settings."
+                          if current_only else "Select a controller, then Verify its voltage response.") if candidates
                          else "No compatible controller responded to the scan.", color=WARN)
             return
         dpg.add_text(self.rail.p.name, color=DIM)
         if not self.rail.present():
             self.invalidate_i2c_verification()
             dpg.add_text("Controller no longer responds; rescan I2C.", color=WARN)
+            return
+        if getattr(self.rail, "current_dac", False):
+            self.build_current_dac_controls()
             return
         with dpg.table(header_row=False, no_host_extendX=True,
                        policy=dpg.mvTable_SizingFixedFit):
@@ -3128,7 +3336,8 @@ class Druta:
     def refresh_i2c_candidates(self):
         if not dpg.does_item_exist("i2c_candidates"):
             return
-        self._ctl_widgets = [t for t in self._ctl_widgets if "i2crail" not in str(t)]
+        self._ctl_widgets = [t for t in self._ctl_widgets
+                             if "i2crail" not in str(t) and not str(t).startswith("nct_")]
         self._slider_ranges.pop("i2crail", None)
         self._knob_cb.pop("i2crail", None)
         getattr(self, "_carryover_hi", {}).pop("i2crail", None)
@@ -3156,7 +3365,9 @@ class Druta:
         self._i2c_recovery_for = None
         self.rail = chosen
         self.refresh_i2c_candidates()
-        self.log("I2C controller selected; press Verify before applying an adjustment", True)
+        self.log(("I2C current DAC selected; use Read settings before applying an adjustment"
+                  if getattr(chosen, "current_dac", False)
+                  else "I2C controller selected; press Verify before applying an adjustment"), True)
         return True
 
     def rescan_i2c(self):
@@ -3191,6 +3402,17 @@ class Druta:
             return False, "I2C detection has not completed; no reset write issued"
         if self.rail is None:
             return False, "no I2C controller has been detected; no reset write issued"
+        if getattr(self.rail, "current_dac", False):
+            ok, why = self.i2c_gate()
+            if not ok:
+                return False, why
+            try:
+                self._capture_current_dac_control()
+            except Exception as exc:                            # noqa: BLE001
+                return False, f"current DAC register capture failed: {exc}"
+            result = self.rail.reset()
+            self._current_dac_failure(self.rail, result)
+            return result
         if getattr(self.rail, "requires_verification", False):
             if not (self.i2c_verified()
                     or (getattr(self, "_i2c_recovery_for", None) is not None
@@ -3237,6 +3459,11 @@ class Druta:
                     "prof_name", "tw_apply", "tw_restore", "tim_read"):
             if dpg.does_item_exist(tag):
                 dpg.configure_item(tag, enabled=not busy)
+        # Reading DAC registers is harmless while locked, but it still must
+        # not interleave with a verification/restore transaction that owns
+        # this I2C controller.
+        if dpg.does_item_exist("nct_read_settings"):
+            dpg.configure_item("nct_read_settings", enabled=not busy)
 
     def shutdown_is_clean(self):
         worker = getattr(self, "_i2c_thread", None)
@@ -3296,6 +3523,17 @@ class Druta:
         ok, why = self.i2c_gate()
         if not ok:
             self.log("verify: " + why, False)
+            return
+        if getattr(self.rail, "current_dac", False):
+            # Its three registers describe current-source/sink requests, not
+            # VOUT.  A physical-voltage staircase would be a false test and
+            # could assign a made-up rail meaning to an output.
+            if self.refresh_current_dac_settings():
+                self._i2c_verified = True
+                self._i2c_verified_for = self.i2c_connection()
+                self.log("NCT3933U register readback complete; physical voltage requires meter", True)
+            else:
+                self.invalidate_i2c_verification()
             return
         avail, msg = ((True, "") if getattr(self.rail, "absolute_voltage", False)
                       else gpuload.available())
@@ -3406,6 +3644,9 @@ class Druta:
         # write on this path happened because a ceiling was reasoned about
         # instead of being asked for.
         if not self.guard():
+            return
+        if getattr(self.rail, "current_dac", False):
+            self.log("current DAC uses OUT1/OUT2/OUT3 native current controls, not a voltage offset", False)
             return
         ok, why = self.i2c_gate()
         if not ok:
@@ -4074,12 +4315,18 @@ class Druta:
         # thing on this tab a reboot will not undo, so it gets its own line
         # rather than being folded into the general success count - somebody
         # reading the log needs to see that this specific undo happened.
-        if self.rail is not None and dpg.does_item_exist("sl_i2crail"):
+        if (self.rail is not None
+                and (getattr(self.rail, "current_dac", False)
+                     or dpg.does_item_exist("sl_i2crail"))):
             ok, m = self.reset_i2c_rail()
-            self.log("VRM rail offset: " + m, ok)
+            self.log(("current DAC outputs: " if getattr(self.rail, "current_dac", False)
+                      else "VRM rail offset: ") + m, ok)
             failed += (0 if ok else 1)
             if ok:
-                if getattr(self.rail, "absolute_voltage", False):
+                if getattr(self.rail, "current_dac", False):
+                    self.refresh_current_dac_settings(
+                        preserve_status=bool(getattr(self, "_i2c_restore_failed", False)))
+                elif getattr(self.rail, "absolute_voltage", False):
                     self.sync_profile_rail_sliders()
                 else:
                     dpg.set_value("sl_i2crail", 0)
@@ -6615,7 +6862,14 @@ deliberately does not put behind a button."""
             self.sync_risk_ui()
         if state.get("i2c") and not self.i2c_verified():
             self.verify_i2c_rail()
-            if not self._i2c_busy and not self.i2c_verified():
+            # Current-DAC register readback is synchronous. It establishes
+            # controller identity/state but never claims a physical-voltage
+            # staircase, so restore immediately instead of queuing a fictional
+            # "under load" verification.
+            if self.i2c_verified():
+                self.finish_profile_load(name, state, automatic)
+                return
+            if not self._i2c_busy:
                 self.profile_failure("I2C verification could not start", automatic)
                 return
             self._profile_pending = (name, state, automatic)
@@ -6658,6 +6912,8 @@ deliberately does not put behind a button."""
             results = [(False, f"profile restore failed: {e}")]
         finally:
             self._profile_applying = False
+        if getattr(self.rail, "current_dac", False):
+            self._current_dac_failure(self.rail, (False, "profile current-DAC restore failed"))
         for ok, msg in results:
             self.log(msg, ok)
         if any(not ok for ok, _ in results):
@@ -6684,10 +6940,14 @@ deliberately does not put behind a button."""
                 if knob.ctrl in (domains or {}):
                     values[knob.key] = domains[knob.ctrl]["freq_khz"] / 1000
             if self.rail:
-                tel = self.rail.telemetry()
-                values["i2crail"] = ((tel.get("target_mv") or tel.get("vout_mv"))
-                                     if getattr(self.rail, "absolute_voltage", False)
-                                     else tel.get("offset_mv"))
+                if getattr(self.rail, "current_dac", False):
+                    self.refresh_current_dac_settings(
+                        preserve_status=bool(getattr(self, "_i2c_restore_failed", False)))
+                else:
+                    tel = self.rail.telemetry()
+                    values["i2crail"] = ((tel.get("target_mv") or tel.get("vout_mv"))
+                                         if getattr(self.rail, "absolute_voltage", False)
+                                         else tel.get("offset_mv"))
             for key, value in values.items():
                 if value is not None:
                     for prefix in ("sl_", "in_"):

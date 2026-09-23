@@ -1024,11 +1024,14 @@ def discover(nvapi, dev_id=None, subsys=None, log=None, *, architecture=None,
              progress=None, cancelled=None):
     """Read-only candidate discovery on the selected GPU's actual I2C buses.
 
-    NCP4206, MP2888A and MP29816 use controller evidence, without board-ID gates.
+    NCT3933U, NCP4206, MP2888A and MP29816 use controller evidence, without board-ID gates.
     Other TOML recipes retain their explicit board constraints. Return every
     candidate: a caller must never silently resolve an ambiguous bus map.
     """
     from .controllers.ncp4206 import DISCOVERY_PORTS, DISCOVERY_ADDRESSES, NCP4206
+    from .controllers.nct3933 import (DISCOVERY_PORTS as NCT3933_PORTS,
+                                     DISCOVERY_ADDRESSES as NCT3933_ADDRESSES,
+                                     NCT3933U)
     from .controllers.mp2888 import (DISCOVERY_ADDRESSES as MP2888_ADDRESSES,
                                      DISCOVERY_PORTS as MP2888_PORTS,
                                      discover as discover_mp2888)
@@ -1047,6 +1050,7 @@ def discover(nvapi, dev_id=None, subsys=None, log=None, *, architecture=None,
     if subsys is None:
         subsys = selected.get("subsys")
     total = (len(DISCOVERY_ADDRESSES) * len(DISCOVERY_PORTS)
+             + len(NCT3933_ADDRESSES) * len(NCT3933_PORTS)
              if getattr(nvapi, "ok", False) else 0)
     eligible = {}
     for p in profiles:
@@ -1071,6 +1075,20 @@ def discover(nvapi, dev_id=None, subsys=None, log=None, *, architecture=None,
         progress(0, total, "Preparing controller probes")
     hits = []
     if getattr(nvapi, "ok", False):
+        # This DAC has no voltage telemetry. Its two explicit identity bytes
+        # establish the register contract; channel wiring is board-specific.
+        for addr7 in NCT3933_ADDRESSES:
+            for port in NCT3933_PORTS:
+                if cancelled():
+                    return hits
+                try:
+                    dac = NCT3933U(nvapi, port=port, addr7=addr7)
+                    if dac.present():
+                        dac.discovery_telemetry = dac.telemetry()
+                        hits.append(dac)
+                except Exception:
+                    pass
+                advance(f"NCT3933U port {port}, 0x{addr7:02X}")
         for addr7 in DISCOVERY_ADDRESSES:
             for port in DISCOVERY_PORTS:
                 if cancelled():

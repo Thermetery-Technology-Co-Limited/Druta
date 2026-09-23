@@ -509,6 +509,14 @@ If you modify the rails with shunt resistors of different resistance, then the m
 rail need per-rail power, and the driver does not report it. Per-rail telemetry does exist on boards that carry an INA3221-class shunt
 monitor but is not yet implemented.
 
+## NCT3933U board offsets
+
+The next build adds automatic NCT3933U detection when **I2C rail** is enabled,
+three independent current-offset controls, exact register readback, zero-all,
+and profile/undo support. The controls use the chip's native microamp units;
+it has no live voltage sensor. See [NCT3933U controls and validation](i2c/NCT3933U.md)
+for board wiring, observed ASUS mappings, and the measured GPU response.
+
 ## Max it
 
 Had enough with boring sliders to the maximum? Click "max it". It does the V/F deflatten, maxes out the voltage boost, power limit, fan, and holds at 1093mv all in one click. You click it once, and the rest is the actual part of overclocking: changing the frequency. To do it as safely as possible, it does the following in order:
