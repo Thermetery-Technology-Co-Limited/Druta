@@ -2967,8 +2967,11 @@ class Druta:
                                callback=_zero(channel), width=self.s(65))
                 dpg.add_text("--", tag=f"nct_live_{channel}", color=DIM)
         with dpg.group(horizontal=True):
+            # DPG's manual dispatcher counts every signature parameter,
+            # including keyword-only options, as a positional callback arg.
+            # Keep the UI entry point separate from the refresh helper.
             dpg.add_button(label="Read settings", tag="nct_read_settings",
-                           callback=self.refresh_current_dac_settings, width=self.s(130))
+                           callback=lambda: self.refresh_current_dac_settings(), width=self.s(130))
             dpg.add_button(label="Zero all outputs", tag="nct_zero_all",
                            callback=self.zero_current_dac_outputs, width=self.s(150))
             dpg.add_text("--", tag="nct_config", color=DIM)
@@ -2980,8 +2983,7 @@ class Druta:
         self._ctl_widgets.append("nct_zero_all")
         self.refresh_current_dac_settings(log_failure=False)
 
-    def refresh_current_dac_settings(self, sender=None, app_data=None, user_data=None,
-                                     *, log_failure=True, preserve_status=False):
+    def refresh_current_dac_settings(self, *, log_failure=True, preserve_status=False):
         """Refresh NCT3933U register state on demand; this never reads a voltage."""
         rail = self._current_dac()
         if rail is None:
