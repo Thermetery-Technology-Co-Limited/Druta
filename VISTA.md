@@ -125,13 +125,17 @@ real-renderer layout test were not run. Every module the application uses
 imports under both 3.8 runtimes; the historical Tk interface and its Tk
 research probes need Tcl/Tk, which those runtimes do not include.
 
-The portable Vista package was rebuilt from an export of the committed source
-with the existing patched runtime, SDK 10240 UCRT set and optional nvtune
-package. Apart from `Druta.exe`, its native files are identical to the
-previous Vista package, and all 64 pass the Vista loader checks. Its frozen
-`Druta.exe --smoke-test` exited 0 on the host, parsed both bundled regulator
-profiles and rendered three frames. The Vista guest, the full-interface
-fixture and physical NVIDIA checks were not repeated for this update.
+The portable Vista package was rebuilt from an export of commit `9de852b`,
+the application source of this update, with the existing patched runtime,
+SDK 10240 UCRT set and optional nvtune package. It was built in that export
+directory rather than the working tree's `dist` folder; its `Druta.exe` has
+SHA-256 `884e667f98dfc8d91d334a3d88a3e9d526bda246d1a977c217fd1bd53a03110f`,
+also recorded in the package's `source/SOURCE-MANIFEST.json`. Apart from
+`Druta.exe`, its native files are identical to the previous Vista package,
+and all 64 pass the Vista loader checks. Its frozen `Druta.exe --smoke-test`
+exited 0 on the host, parsed both bundled regulator profiles and rendered
+three frames. The Vista guest, the full-interface fixture and physical NVIDIA
+checks were not repeated for this update.
 
 ## Required Windows components
 
