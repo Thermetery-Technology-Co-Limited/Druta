@@ -157,8 +157,10 @@ described under nvtune below. An NVML GPU whose PCI record
 cannot be read stays listed with a blank slot instead of being dropped. The
 export-based fallbacks for older NVML are unchanged. With these changes the
 source passed 1,209 tests with Python 3.8.10 (the same three skips) and 1,212
-with Python 3.14.4 on the build host. The frozen builds were not rebuilt for
-this follow-up.
+with Python 3.14.4 on the build host. The compact and portable Windows 7
+builds were then rebuilt from commit `8ff7fdd`. Each frozen
+`Druta.exe --smoke-test` exited 0, parsed both bundled regulator profiles and
+rendered three frames.
 
 ## Verification
 
