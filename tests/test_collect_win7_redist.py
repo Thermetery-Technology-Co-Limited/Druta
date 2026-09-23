@@ -6,9 +6,18 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
-from druta.tools import collect_win7_redist as collector
+try:
+    from druta.tools import collect_win7_redist as collector
+except ModuleNotFoundError as error:
+    # pefile comes from requirements-win7.txt (or PyInstaller), not the dev extra.
+    if error.name != "pefile":
+        raise
+    collector = None
+
+needs_pefile = unittest.skipIf(collector is None, "requires pefile (requirements-win7.txt)")
 
 
+@needs_pefile
 class CollectionTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
@@ -88,6 +97,7 @@ class CollectionTests(unittest.TestCase):
             collector._non_system_path(path)
 
 
+@needs_pefile
 class PeValidationTests(unittest.TestCase):
     def test_wrong_architecture_or_version_is_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
