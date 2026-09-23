@@ -49,9 +49,17 @@ The CUDA functions used by the load worker and NVAPI's query entry point
 exist in these files. Export presence does not prove a function works on a
 particular GPU. No NVIDIA driver binary is included in the Druta package.
 
-Per-rail voltage writes retain their measured card/VBIOS/driver profiles.
-The 365.19 driver has no validated rail-write profile, so unconfirmed TITAN
-rail writes remain disabled even when the write toggle is selected. Physical
+Per-rail voltage-limit writes follow the shared build on every driver. No
+driver version is consulted. They are offered by GPU architecture (Pascal,
+Turing and Blackwell) when the driver resolves and answers the rail-control
+and absolute-status getters, and stay off until the write toggle is
+selected. Each write also needs the current voltage-boost setting, starts
+from a native RM packet whose layout Druta recognizes exactly, and is
+checked by reading back every rail field and the voltage-boost setting. An
+unrecognized packet is never written. The static audit cannot show whether
+365.19 answers these getters or emits a recognized packet. Where its getters
+answer, Druta offers the writes on 365.19 as on any other driver; neither
+that nor a landed write has been verified on real 365.19 hardware. Physical
 NVIDIA monitoring, V/F operations, clock/fan fallbacks and timing access on
 Vista still require testing with a supported card and its installed driver.
 
@@ -111,9 +119,11 @@ CPython 3.8.10 runtime instead.
 
 Shared capability checks now follow the GPU generation and the current
 adapter's reported interfaces rather than exact developer boards and drivers.
-Rail-limit writes remain disabled on drivers older than Release 367, as
-described above. GPU recovery's PnP device restart requires Windows 10
-version 2004; on Vista it reports that requirement and restarts nothing.
+Rail-limit writes follow those checks on every driver, as described above.
+The package built for this update still carried a Release 367 driver gate on
+them, which the follow-up below removes. GPU recovery's PnP device restart
+requires Windows 10 version 2004; on Vista it reports that requirement and
+restarts nothing.
 
 On the Windows 10 build host, the merged source passed 1,224 tests with
 Python 3.14.4, and 1,221 with both the patched Vista Python 3.8.10 runtime and
