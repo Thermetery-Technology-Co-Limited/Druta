@@ -118,11 +118,12 @@ version 2004; on Vista it reports that requirement and restarts nothing.
 On the Windows 10 build host, the merged source passed 1,224 tests with
 Python 3.14.4, and 1,221 with both the patched Vista Python 3.8.10 runtime and
 stock CPython 3.8.10, where the three wheel and sdist tests skip. With Python
-3.13.14 and no pefile, 1,199 passed and the 15 Vista build-helper tests
-skipped. The hardware swap test and one real-renderer layout test were not
-run. Every module the application uses imports under both 3.8 runtimes; the
-historical Tk interface and its Tk research probes need Tcl/Tk, which those
-runtimes do not include.
+3.13.14 and no pefile, 1,199 passed and 25 skipped: the 22 Vista and Windows 7
+build-helper tests that need pefile, and the same three wheel and sdist tests.
+Each run selected the same 1,224 tests; the hardware swap test and one
+real-renderer layout test were not run. Every module the application uses
+imports under both 3.8 runtimes; the historical Tk interface and its Tk
+research probes need Tcl/Tk, which those runtimes do not include.
 
 The portable Vista package was rebuilt from an export of the committed source
 with the existing patched runtime, SDK 10240 UCRT set and optional nvtune
