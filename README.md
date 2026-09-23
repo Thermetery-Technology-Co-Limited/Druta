@@ -509,13 +509,24 @@ If you modify the rails with shunt resistors of different resistance, then the m
 rail need per-rail power, and the driver does not report it. Per-rail telemetry does exist on boards that carry an INA3221-class shunt
 monitor but is not yet implemented.
 
-## NCT3933U board offsets
+## NCT3933U current-DAC outputs
 
-The next build adds automatic NCT3933U detection when **I2C rail** is enabled,
-three independent current-offset controls, exact register readback, zero-all,
-and profile/undo support. The controls use the chip's native microamp units;
-it has no live voltage sensor. See [NCT3933U controls and validation](i2c/NCT3933U.md)
-for board wiring, observed ASUS mappings, and the measured GPU response.
+With **I2C rail** enabled, Druta can detect an NCT3933U, read its three output
+commands, write an explicitly selected output, zero all outputs, and preserve
+the exact raw control in profiles and undo snapshots. **Raw outputs (µA)** is
+the default: OUT1/OUT2/OUT3, signed source/sink current and raw bytes, with no
+assumption about board wiring or live rail voltage.
+
+After meter verification, a user can explicitly select **GPU / memory /
+PEX-PLL (mV)** for a matching local adapter/controller route. It shows an mV
+offset from the register command while retaining the raw current and hex byte;
+it is not an absolute or live-voltage reading. The selection is stored locally
+by adapter UUID, port and address (session-only when UUID is unavailable), not
+as a shipped board allowlist. The current ASUS CG611P / Strix-Poseidon route
+uses OUT3 GPU and OUT1 memory at 10 mV per normal negative 10 µA command, and
+OUT2 PEX/PLL at 66 mV; doubled commands are 20/20/132 mV. Positive current
+lowers these measured rails. Other boards remain raw until their owner verifies
+and selects a route. See [NCT3933U controls and validation](i2c/NCT3933U.md).
 
 ## Max it
 

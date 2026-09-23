@@ -91,7 +91,7 @@ import time
 import dearpygui.dearpygui as dpg
 
 from . import (gpuload, paths, profiles, startup, shuntmod, timings, timingwrite,
-               timingprofiles, devicerecovery)
+               timingprofiles, devicerecovery, nct3933_board)
 from .nvbackend import (GPU, EVENT_REASONS, PERF_DECREASE_BITS, VF_STEP_KHZ, VF_LOCK_DOMAIN,
                         VFP_POINTS, below_cap, enumerate_gpus, is_admin,
                         same_slot,
@@ -2929,8 +2929,47 @@ class Druta:
             raise ValueError("controller register readback is invalid")
         return currents, outputs, config
 
+    def _current_dac_display_mode(self):
+        """Load a user's board mapping independently of the raw controller recipe."""
+        gpu, rail = getattr(self, "gpu", None), self._current_dac()
+        context = (id(gpu), id(rail))
+        if getattr(self, "_nct_display_context", None) != context:
+            self._nct_display_context = context
+            self._nct_display_mode = nct3933_board.RAW_MODE
+            try:
+                self._nct_display_mode = nct3933_board.load_mode(gpu, rail)
+            except (OSError, ValueError) as exc:
+                self.log(f"Cannot load DAC output mapping; using raw current: {exc}", False)
+        return self._nct_display_mode
+
+    def select_current_dac_mapping(self, sender=None, app_data=None, user_data=None):
+        old_mode = self._current_dac_display_mode()
+        try:
+            if (getattr(self, "_i2c_busy", False)
+                    or getattr(self, "_profile_pending", None)
+                    or getattr(self, "_profile_applying", False)):
+                raise ValueError("wait for I2C/profile work before changing output units")
+            if app_data not in nct3933_board.MODES:
+                raise ValueError("unknown DAC output mapping")
+            rail = self._current_dac()
+            if rail is None:
+                raise ValueError("no current DAC selected")
+            # Read first: never relabel stale input numbers with different units.
+            currents, outputs, config = self._current_dac_telemetry(rail.telemetry())
+            persisted = nct3933_board.save_mode(getattr(self, "gpu", None), rail, app_data)
+        except Exception as exc:                                # noqa: BLE001
+            dpg.set_value("nct_mapping", old_mode)
+            self.log(f"DAC output mapping unchanged: {exc}", False)
+            return
+        self._nct_display_mode = app_data
+        # Discard Apply jobs queued while the same fields still used old units.
+        self._ui_gen = getattr(self, "_ui_gen", 0) + 1
+        self._show_current_dac_settings(currents, outputs, config, force_inputs=True)
+        self.log("DAC output mapping saved for this card and controller."
+                 if persisted else "DAC output mapping set for this session; GPU UUID unavailable.", True)
+
     def build_current_dac_controls(self):
-        """Build native NCT3933U current controls without assigning rails or mV."""
+        """Show raw current or the user's explicit board voltage-offset mapping."""
         rail = self._current_dac()
         if rail is None:
             return
@@ -2938,34 +2977,45 @@ class Druta:
         addr7 = getattr(profile, "addr7", getattr(rail, "addr7", None))
         bus = (f"port {profile.port}, 0x{addr7:02X}"
                if type(addr7) is int else f"port {profile.port}")
-        dpg.add_text(f"{profile.regulator} — three native current-DAC outputs", color=ACCENT)
+        mode = self._current_dac_display_mode()
+        mapped = mode == nct3933_board.VOLTAGE_MODE
+        dpg.add_text(f"{profile.regulator} — three output offsets", color=ACCENT)
         dpg.add_text(
-            f"{bus}. OUT1, OUT2, and OUT3 are controller output names; Druta does not "
-            "infer a board rail or a voltage from them.", color=DIM, wrap=self.s(sum(self.KNOB_COLS)))
+            f"{bus}. Output mapping is saved for this card and controller.",
+            color=DIM, wrap=self.s(sum(self.KNOB_COLS)))
+        dpg.add_combo(nct3933_board.MODES, label="Output mapping", tag="nct_mapping",
+                      default_value=mode, width=self.s(360), callback=self.select_current_dac_mapping)
+        with dpg.tooltip("nct_mapping"):
+            dpg.add_text("Use the mV mapping only for verified board wiring:\n"
+                         "OUT3 GPU, OUT1 memory, OUT2 PEX/PLL.\n"
+                         "-10 µA gives +10 mV GPU/memory or +66 mV PEX/PLL.")
         dpg.add_text(
-            "Positive is SOURCE current and negative is SINK current, in nominal µA. "
-            "Register readback; physical voltage requires meter.",
+            self._current_dac_units_note(mode),
             tag="nct_current_note", color=WARN, wrap=self.s(sum(self.KNOB_COLS)))
-        for channel in range(1, 4):
-            with dpg.group(horizontal=True):
-                dpg.add_text(f"OUT{channel}")
-                dpg.add_spacer(width=self.s(18))
-                dpg.add_input_int(tag=f"nct_current_{channel}", default_value=0,
-                                  width=self.s(115), step=0)
-                dpg.add_text("µA", color=DIM)
-                dpg.add_text("register settings unread", tag=f"nct_range_{channel}", color=DIM)
+        with dpg.table(header_row=False, policy=dpg.mvTable_SizingFixedFit):
+            dpg.add_table_column(width_fixed=True, init_width_or_weight=self.s(165))
+            for _ in range(6):
+                dpg.add_table_column(width_fixed=True)
+            for channel in nct3933_board.OUTPUT_ORDER:
+                with dpg.table_row():
+                    dpg.add_text(nct3933_board.output_label(channel, mode),
+                                 tag=f"nct_label_{channel}")
+                    dpg.add_input_int(tag=f"nct_current_{channel}", default_value=0,
+                                      width=self.s(115), step=0)
+                    dpg.add_text("mV" if mapped else "µA", tag=f"nct_unit_{channel}", color=DIM)
+                    dpg.add_text("register settings unread", tag=f"nct_range_{channel}", color=DIM)
 
-                def _apply(ch):
-                    return lambda: self.apply_current_dac(ch)
+                    def _apply(ch):
+                        return lambda: self.apply_current_dac(ch)
 
-                def _zero(ch):
-                    return lambda: self.apply_current_dac(ch, 0)
+                    def _zero(ch):
+                        return lambda: self.apply_current_dac(ch, 0)
 
-                dpg.add_button(label="Apply", tag=f"nct_apply_{channel}",
-                               callback=_apply(channel), width=self.s(78))
-                dpg.add_button(label="Zero", tag=f"nct_zero_{channel}",
-                               callback=_zero(channel), width=self.s(65))
-                dpg.add_text("--", tag=f"nct_live_{channel}", color=DIM)
+                    dpg.add_button(label="Apply", tag=f"nct_apply_{channel}",
+                                   callback=_apply(channel), width=self.s(78))
+                    dpg.add_button(label="Zero", tag=f"nct_zero_{channel}",
+                                   callback=_zero(channel), width=self.s(65))
+                    dpg.add_text("--", tag=f"nct_live_{channel}", color=DIM)
         with dpg.group(horizontal=True):
             # DPG's manual dispatcher counts every signature parameter,
             # including keyword-only options, as a positional callback arg.
@@ -2982,6 +3032,15 @@ class Druta:
                                           f"nct_zero_{channel}")]
         self._ctl_widgets.append("nct_zero_all")
         self.refresh_current_dac_settings(log_failure=False)
+
+    @staticmethod
+    def _current_dac_units_note(mode):
+        if mode == nct3933_board.VOLTAGE_MODE:
+            return ("Positive mV raises voltage; negative mV lowers it. "
+                    "GPU/memory: 10 mV per 10 µA; PEX/PLL: 66 mV per 10 µA, with reversed sign. "
+                    "Configured offsets, not live rail voltages.")
+        return ("Positive is SOURCE current and negative is SINK current, in nominal µA. "
+                "Register readback; physical voltage requires meter.")
 
     def refresh_current_dac_settings(self, *, log_failure=True, preserve_status=False):
         """Refresh NCT3933U register state on demand; this never reads a voltage."""
@@ -3002,23 +3061,39 @@ class Druta:
             if log_failure:
                 self.log(message, False)
             return False
+        self._show_current_dac_settings(currents, outputs, config, preserve_status=preserve_status)
+        return True
+
+    def _show_current_dac_settings(self, currents, outputs, config, *, preserve_status=False,
+                                   force_inputs=False):
+        mode = self._current_dac_display_mode()
+        mapped = mode == nct3933_board.VOLTAGE_MODE
+        unit = "mV" if mapped else "µA"
+        if dpg.does_item_exist("nct_current_note"):
+            dpg.set_value("nct_current_note", self._current_dac_units_note(mode))
         for channel, (current, raw) in enumerate(zip(currents, outputs), start=1):
-            step = 20 if config & (1 << (2 * (channel - 1))) else 10
+            step = nct3933_board.display_step(config, channel, mode)
             limit = 127 * step
+            value = nct3933_board.display_value(current, channel, mode)
+            if dpg.does_item_exist(f"nct_label_{channel}"):
+                dpg.set_value(f"nct_label_{channel}", nct3933_board.output_label(channel, mode))
+            if dpg.does_item_exist(f"nct_unit_{channel}"):
+                dpg.set_value(f"nct_unit_{channel}", unit)
             if dpg.does_item_exist(f"nct_current_{channel}"):
                 # Bounds guide input but deliberately do not clamp.  A value
                 # being typed remains visible until Apply lets the controller
                 # reject an off-grid or out-of-range request explicitly.
-                dpg.configure_item(f"nct_current_{channel}", step=step,
+                dpg.configure_item(f"nct_current_{channel}", step=step, step_fast=10 * step,
                                    min_value=-limit, max_value=limit,
                                    min_clamped=False, max_clamped=False)
-                if not dpg.is_item_active(f"nct_current_{channel}"):
-                    dpg.set_value(f"nct_current_{channel}", current)
+                if force_inputs or not dpg.is_item_active(f"nct_current_{channel}"):
+                    dpg.set_value(f"nct_current_{channel}", value)
             if dpg.does_item_exist(f"nct_live_{channel}"):
-                dpg.set_value(f"nct_live_{channel}", f"{current:+d} µA  raw 0x{raw:02X}")
+                detail = f"{current:+d} µA  raw 0x{raw:02X}"
+                dpg.set_value(f"nct_live_{channel}", f"{value:+d} mV  ({detail})" if mapped else detail)
             if dpg.does_item_exist(f"nct_range_{channel}"):
                 dpg.set_value(f"nct_range_{channel}",
-                              f"{step} µA step, ±{limit} µA (127 counts)")
+                              f"{step} {unit} step, ±{limit} {unit} (127 counts)")
         if dpg.does_item_exist("nct_config"):
             dpg.set_value("nct_config", "configuration 0x"
                           f"{config:02X}"
@@ -3028,7 +3103,6 @@ class Druta:
         if dpg.does_item_exist("nct_status") and not preserve_status:
             dpg.set_value("nct_status", message)
             dpg.configure_item("nct_status", color=BAD if config & 0x40 else WARN)
-        return True
 
     def _capture_current_dac_control(self):
         """Capture the exact bytes that profile autosave must be able to restore."""
@@ -3067,8 +3141,10 @@ class Druta:
         try:
             requested = dpg.get_value(f"nct_current_{channel}") if value is None else value
             if isinstance(requested, bool) or not isinstance(requested, int):
-                raise ValueError("current must be an integer number of µA")
+                raise ValueError("offset must be an integer number of the displayed units")
             expected = self._capture_current_dac_control()
+            requested = nct3933_board.native_current(
+                requested, channel, self._current_dac_display_mode(), expected["configuration"])
         except Exception as exc:                                # noqa: BLE001
             self.log(f"NCT3933U OUT{channel}: {exc}", False)
             return
