@@ -1,0 +1,99 @@
+{
+  "gpu": "NVIDIA TITAN RTX",
+  "driver": "472.12",
+  "offset_before": 0,
+  "logs": [
+    "stable baseline: {'vout_min_mv': 1063.0, 'vout_max_mv': 1063.0, 'reference_available': True, 'reference_min_mv': 1050.0, 'reference_max_mv': 1050.0, 'operating_point': (0, 1965, 7000)}",
+    "baseline rail-minus-NVAPI 13 mV, wander 0 mV (entry offset +0.00 mV)",
+    "   +6.25 mV  rail-minus-NVAPI 13 mV  delta +0 mV (need 12.0)  flat",
+    "  +12.50 mV  rail-minus-NVAPI 1 mV  delta -12 mV (need 7.0)  flat",
+    "  +25.00 mV  rail-minus-NVAPI 13 mV  delta +0 mV (need 12.5)  flat",
+    "  +50.00 mV  rail-minus-NVAPI 38 mV  delta +25 mV (need 25.0)  MOVED",
+    "restored to +0.00 mV"
+  ],
+  "warmup": {
+    "error": "",
+    "mem": 6801,
+    "pstate": 2,
+    "samples": [
+      [
+        0.05,
+        6801,
+        2
+      ],
+      [
+        0.48,
+        6801,
+        2
+      ],
+      [
+        0.92,
+        6801,
+        2
+      ]
+    ],
+    "stats": {
+      "slot": "0000:01:00.0",
+      "device_name": "NVIDIA TITAN RTX",
+      "copies": 248,
+      "bytes": 266287972352,
+      "seconds": 0.9751532999998744,
+      "buf_mib": 1024,
+      "free_mib": 23357,
+      "total_mib": 24576,
+      "gbps_traffic": 546.1458672232034,
+      "hit_deadline": false
+    },
+    "settled": true,
+    "result": 1050.0
+  },
+  "held_point": [
+    0,
+    1965,
+    7000
+  ],
+  "held_lock": {
+    "domain": 6,
+    "lockMode": 3,
+    "volt_uV": 1050000,
+    "volt_mv": 1050.0,
+    "count": 7
+  },
+  "result": [
+    true,
+    "WRITE PATH CONFIRMED at the tested operating point. First detected response at +50.00 mV: +25 mV against a 25.0 mV threshold. Restored to +0.00 mV. This verifies a response, not full-load behavior or a 1:1 voltage gain.",
+    [
+      {
+        "rung_mv": 6.25,
+        "rail_mv": 13.0,
+        "delta_mv": 0.0,
+        "threshold_mv": 12.0,
+        "moved": false
+      },
+      {
+        "rung_mv": 12.5,
+        "rail_mv": 1.0,
+        "delta_mv": -12.0,
+        "threshold_mv": 7.0,
+        "moved": false
+      },
+      {
+        "rung_mv": 25.0,
+        "rail_mv": 13.0,
+        "delta_mv": 0.0,
+        "threshold_mv": 12.5,
+        "moved": false
+      },
+      {
+        "rung_mv": 50.0,
+        "rail_mv": 38.0,
+        "delta_mv": 25.0,
+        "threshold_mv": 25.0,
+        "moved": true
+      }
+    ]
+  ],
+  "offset_after": 0,
+  "exact_lock_restored": true,
+  "lock_recovery_pending": false
+}

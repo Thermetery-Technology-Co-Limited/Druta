@@ -1,0 +1,113 @@
+{
+  "write_attempted": true,
+  "diagnostics": {
+    "build": "current-visibility-v1",
+    "driver": "472.12",
+    "vbios": "90.02.1e.00.02",
+    "generation": 6,
+    "expected_policies": {
+      "13": {
+        "label": "Core current",
+        "type": 11,
+        "channel": 19,
+        "normal_maximum_ma": 500000
+      }
+    },
+    "transport": {
+      "command": "0x20802612",
+      "packet_bytes": 3548,
+      "parameter_bytes": 3480
+    },
+    "error": "",
+    "policies": [
+      {
+        "policy": 13,
+        "label": "Core current",
+        "channel": 19,
+        "minimum_ma": 1000,
+        "maximum_ma": 390000,
+        "normal_maximum_ma": 390000,
+        "default_ma": 350780,
+        "limit_ma": 350780,
+        "requested_ma": 350780,
+        "value_ma": 9050
+      }
+    ]
+  },
+  "target_ma": 349780,
+  "idle_samples": [
+    {
+      "pstate": 8,
+      "util_gpu": 5,
+      "power_w": 2.716,
+      "temp_edge": 35
+    },
+    {
+      "pstate": 8,
+      "util_gpu": 5,
+      "power_w": 2.284,
+      "temp_edge": 35
+    },
+    {
+      "pstate": 8,
+      "util_gpu": 5,
+      "power_w": 2.078,
+      "temp_edge": 35
+    },
+    {
+      "pstate": 8,
+      "util_gpu": 5,
+      "power_w": 2.458,
+      "temp_edge": 35
+    },
+    {
+      "pstate": 8,
+      "util_gpu": 2,
+      "power_w": 2.389,
+      "temp_edge": 35
+    },
+    {
+      "pstate": 8,
+      "util_gpu": 2,
+      "power_w": 2.465,
+      "temp_edge": 35
+    }
+  ],
+  "apply": [
+    true,
+    "Core current set to 349.78 A; effective limit verified"
+  ],
+  "after_apply": [
+    {
+      "policy": 13,
+      "label": "Core current",
+      "channel": 19,
+      "minimum_ma": 1000,
+      "maximum_ma": 390000,
+      "normal_maximum_ma": 390000,
+      "default_ma": 350780,
+      "limit_ma": 349780,
+      "requested_ma": 349780,
+      "value_ma": 8815
+    }
+  ],
+  "restore": [
+    true,
+    "Core current set to 350.78 A; effective limit verified"
+  ],
+  "final": [
+    {
+      "policy": 13,
+      "label": "Core current",
+      "channel": 19,
+      "minimum_ma": 1000,
+      "maximum_ma": 390000,
+      "normal_maximum_ma": 390000,
+      "default_ma": 350780,
+      "limit_ma": 350780,
+      "requested_ma": 350780,
+      "value_ma": 8815
+    }
+  ],
+  "exact_control_restored": true
+}

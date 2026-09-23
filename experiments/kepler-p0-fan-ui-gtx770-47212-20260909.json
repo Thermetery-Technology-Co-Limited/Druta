@@ -1,0 +1,196 @@
+{
+  "gpu": {
+    "name": "NVIDIA GeForce GTX 770",
+    "driver": "472.12",
+    "vbios": "80.04.c3.00.01",
+    "admin": true,
+    "slot": "0000:01:00.0",
+    "uuid": "GPU-be025ef3-b767-50db-11e1-f0f941a9c93d",
+    "mem_clocks": [
+      324,
+      810,
+      3505
+    ],
+    "gfx_min": 136,
+    "gfx_max": 1202,
+    "mem_div": 2,
+    "mem_type": "GDDR5",
+    "mem_type_id": 8,
+    "core_off_range": [
+      -105,
+      1001,
+      0
+    ],
+    "mem_off_range": [
+      -5390,
+      7010,
+      0
+    ],
+    "fan_min": 26,
+    "fan_max": 100
+  },
+  "commit_before_test": "46a3d213fc4389db764ef4702a1a3ffbb0bcf020",
+  "fan_before": {
+    "source": "nvapi_cooler",
+    "fans": [
+      {
+        "id": 0,
+        "level": 26,
+        "policy": 16,
+        "default_policy": 16,
+        "manual": false,
+        "min": 26,
+        "max": 100,
+        "rpm": 1110
+      }
+    ]
+  },
+  "p0_owned_before": false,
+  "logs": [
+    {
+      "message": "undo point saved as 'autosave-lock-P0-and-max-fan-20260909-012356.950' - Profiles > Undo last write restores it",
+      "ok": null
+    },
+    {
+      "message": "P0 held; core 535 MHz, memory 3505 MHz (not a maximum-core lock)",
+      "ok": true
+    },
+    {
+      "message": "P0 + fan: fan 100% - fans set to manual 100%",
+      "ok": true
+    },
+    {
+      "message": "undo point saved as 'autosave-load-autosave-lock-P0-and-max-fan-202609-20260909-012357.397' - Profiles > Undo last write restores it",
+      "ok": null
+    },
+    {
+      "message": "restoring 'autosave-lock-P0-and-max-fan-20260909-012356.950' (2026-09-09 01:23:56): fan policy only (P0 hold unchanged)",
+      "ok": null
+    },
+    {
+      "message": "fan control state restored",
+      "ok": true
+    },
+    {
+      "message": "profile 'autosave-lock-P0-and-max-fan-20260909-012356.950' applied",
+      "ok": true
+    },
+    {
+      "message": "P0 request released; automatic performance states restored",
+      "ok": true
+    }
+  ],
+  "button_label": "Lock P0 and max fan",
+  "button_enabled": true,
+  "held": {
+    "ui_lock": {
+      "kind": "p0",
+      "verified": true
+    },
+    "owned": true,
+    "state": {
+      "pstate": 0,
+      "core": 535,
+      "mem": 3505,
+      "mem_p0max": 3505
+    },
+    "fan": {
+      "source": "nvapi_cooler",
+      "fans": [
+        {
+          "id": 0,
+          "level": 100,
+          "policy": 1,
+          "default_policy": 16,
+          "manual": true,
+          "min": 26,
+          "max": 100,
+          "rpm": 1080
+        }
+      ]
+    }
+  },
+  "undo_scope": "fan",
+  "after_undo": {
+    "fan": {
+      "source": "nvapi_cooler",
+      "fans": [
+        {
+          "id": 0,
+          "level": 100,
+          "policy": 16,
+          "default_policy": 16,
+          "manual": false,
+          "min": 26,
+          "max": 100,
+          "rpm": 1080
+        }
+      ]
+    },
+    "owned": true,
+    "ui_lock": {
+      "kind": "p0",
+      "verified": true
+    }
+  },
+  "release_button": {
+    "owned": false,
+    "ui_lock": null,
+    "fan": {
+      "source": "nvapi_cooler",
+      "fans": [
+        {
+          "id": 0,
+          "level": 100,
+          "policy": 16,
+          "default_policy": 16,
+          "manual": false,
+          "min": 26,
+          "max": 100,
+          "rpm": 1080
+        }
+      ]
+    }
+  },
+  "passed": true,
+  "fan_restore": [
+    true,
+    "fan control state restored"
+  ],
+  "fan_after": {
+    "source": "nvapi_cooler",
+    "fans": [
+      {
+        "id": 0,
+        "level": 100,
+        "policy": 16,
+        "default_policy": 16,
+        "manual": false,
+        "min": 26,
+        "max": 100,
+        "rpm": 1080
+      }
+    ]
+  },
+  "p0_owned_after": false,
+  "fan_followup": {
+    "source": "nvapi_cooler",
+    "fans": [
+      {
+        "id": 0,
+        "level": 26,
+        "policy": 16,
+        "default_policy": 16,
+        "manual": false,
+        "min": 26,
+        "max": 100,
+        "rpm": 1110
+      }
+    ]
+  },
+  "source_sha256": {
+    "src/druta/druta.py": "76e600e951663bcc4d0bb2a1c538a5196bb29bacc6d309ca565c402b5742e888",
+    "src/druta/nvbackend.py": "8f56038c2fcf60c3aca29e8c6e172dcad1a23c0e759490e84094d19935dbdf8a",
+    "src/druta/profiles.py": "84ef3c6d8c86ac6d2a1653f930f33943919b15ecd3eb146284036fdd8ca656fe"
+  }
+}

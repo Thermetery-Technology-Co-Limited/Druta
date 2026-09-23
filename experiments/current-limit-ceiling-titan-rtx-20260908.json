@@ -1,0 +1,184 @@
+{
+  "probe": "advertised maximum and maximum plus one mA",
+  "read_modify_write": true,
+  "cards": [
+    {
+      "identity": {
+        "name": "NVIDIA TITAN RTX",
+        "driver": "580.97",
+        "vbios": "90.02.1e.00.02",
+        "slot": "0000:01:00.0"
+      },
+      "architecture": "Turing",
+      "baseline": {
+        "mask": 60351,
+        "minimum_ma": 1000,
+        "default_ma": 350780,
+        "maximum_ma": 390000,
+        "stored_ma": 390000,
+        "effective_ma": 390000,
+        "measured_ma": 9648,
+        "control_sha256": "12b62ca0bff9fd93571597da8eb403da9d9ce19c4ab65818ad3b4f4d98277180"
+      },
+      "targets_ma": [
+        390000,
+        390001
+      ],
+      "trials": [
+        {
+          "label": "advertised_maximum",
+          "target_ma": 390000,
+          "before": {
+            "mask": 60351,
+            "minimum_ma": 1000,
+            "default_ma": 350780,
+            "maximum_ma": 390000,
+            "stored_ma": 390000,
+            "effective_ma": 390000,
+            "measured_ma": 10000,
+            "control_sha256": "12b62ca0bff9fd93571597da8eb403da9d9ce19c4ab65818ad3b4f4d98277180"
+          },
+          "telemetry_before": {
+            "pstate": 8,
+            "util_gpu": 1,
+            "util_fb": 14,
+            "power_w": 5.306,
+            "temp_edge": 36
+          },
+          "started": 1788908605.6022496,
+          "transport_accepted": true,
+          "active": {
+            "mask": 60351,
+            "minimum_ma": 1000,
+            "default_ma": 350780,
+            "maximum_ma": 390000,
+            "stored_ma": 390000,
+            "effective_ma": 390000,
+            "measured_ma": 10000,
+            "control_sha256": "12b62ca0bff9fd93571597da8eb403da9d9ce19c4ab65818ad3b4f4d98277180"
+          },
+          "changed_control_words": [],
+          "stored_and_effective_at_target": true,
+          "restored": {
+            "mask": 60351,
+            "minimum_ma": 1000,
+            "default_ma": 350780,
+            "maximum_ma": 390000,
+            "stored_ma": 390000,
+            "effective_ma": 390000,
+            "measured_ma": 10000,
+            "control_sha256": "12b62ca0bff9fd93571597da8eb403da9d9ce19c4ab65818ad3b4f4d98277180"
+          },
+          "full_control_restored": true,
+          "effective_limit_restored": true,
+          "duration_s": 0.030614137649536133
+        },
+        {
+          "label": "one_ma_above",
+          "target_ma": 390001,
+          "before": {
+            "mask": 60351,
+            "minimum_ma": 1000,
+            "default_ma": 350780,
+            "maximum_ma": 390000,
+            "stored_ma": 390000,
+            "effective_ma": 390000,
+            "measured_ma": 10000,
+            "control_sha256": "12b62ca0bff9fd93571597da8eb403da9d9ce19c4ab65818ad3b4f4d98277180"
+          },
+          "telemetry_before": {
+            "pstate": 8,
+            "util_gpu": 1,
+            "util_fb": 14,
+            "power_w": 6.034,
+            "temp_edge": 36
+          },
+          "started": 1788908605.6925604,
+          "transport_accepted": false,
+          "transport_error": "policy request failed (NTSTATUS 0, RM 0x1F)",
+          "active": {
+            "mask": 60351,
+            "minimum_ma": 1000,
+            "default_ma": 350780,
+            "maximum_ma": 390000,
+            "stored_ma": 390000,
+            "effective_ma": 390000,
+            "measured_ma": 10000,
+            "control_sha256": "12b62ca0bff9fd93571597da8eb403da9d9ce19c4ab65818ad3b4f4d98277180"
+          },
+          "changed_control_words": [],
+          "stored_and_effective_at_target": false,
+          "restored": {
+            "mask": 60351,
+            "minimum_ma": 1000,
+            "default_ma": 350780,
+            "maximum_ma": 390000,
+            "stored_ma": 390000,
+            "effective_ma": 390000,
+            "measured_ma": 10000,
+            "control_sha256": "12b62ca0bff9fd93571597da8eb403da9d9ce19c4ab65818ad3b4f4d98277180"
+          },
+          "full_control_restored": true,
+          "effective_limit_restored": true,
+          "duration_s": 0.02862262725830078
+        }
+      ],
+      "idle": [
+        {
+          "pstate": 8,
+          "util_gpu": 0,
+          "util_fb": 14,
+          "power_w": 4.622,
+          "temp_edge": 35
+        },
+        {
+          "pstate": 8,
+          "util_gpu": 0,
+          "util_fb": 14,
+          "power_w": 4.634,
+          "temp_edge": 36
+        },
+        {
+          "pstate": 8,
+          "util_gpu": 1,
+          "util_fb": 14,
+          "power_w": 4.031,
+          "temp_edge": 36
+        },
+        {
+          "pstate": 8,
+          "util_gpu": 1,
+          "util_fb": 14,
+          "power_w": 3.96,
+          "temp_edge": 36
+        },
+        {
+          "pstate": 8,
+          "util_gpu": 1,
+          "util_fb": 14,
+          "power_w": 3.888,
+          "temp_edge": 35
+        },
+        {
+          "pstate": 8,
+          "util_gpu": 1,
+          "util_fb": 14,
+          "power_w": 4.236,
+          "temp_edge": 35
+        }
+      ],
+      "final": {
+        "mask": 60351,
+        "minimum_ma": 1000,
+        "default_ma": 350780,
+        "maximum_ma": 390000,
+        "stored_ma": 390000,
+        "effective_ma": 390000,
+        "measured_ma": 10000,
+        "control_sha256": "12b62ca0bff9fd93571597da8eb403da9d9ce19c4ab65818ad3b4f4d98277180"
+      },
+      "passed": true
+    }
+  ],
+  "passed": true
+}

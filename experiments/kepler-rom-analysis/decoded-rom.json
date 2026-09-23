@@ -1,0 +1,423 @@
+{
+  "source": "GK104.rom (user-supplied; not distributed)",
+  "sha256": "7c4f19ed1bf85fa8e69f597460448eab59e9f5b5161e5b5ec37459f1b30d63a1",
+  "image_base": "0x600",
+  "read_only": true,
+  "shunt_mod_user_report": "5 mOhm stacked over existing 5 mOhm; effective 2.5 mOhm per modified shunt",
+  "sense": {
+    "file_offset": "0x84d5",
+    "rom_offset": "0x7ed5",
+    "version": 32,
+    "header_hex": "20041503",
+    "stride": 21,
+    "count": 3,
+    "records": [
+      {
+        "file_offset": "0x84d9",
+        "hex": "010100000005000500050007780000340000000000"
+      },
+      {
+        "file_offset": "0x84ee",
+        "hex": "000200000005006f0c004000010100000000000000"
+      },
+      {
+        "file_offset": "0x8503",
+        "hex": "000300000005006f0c004000101000000000000000"
+      }
+    ]
+  },
+  "budget": {
+    "file_offset": "0x85d2",
+    "rom_offset": "0x7fd2",
+    "version": 32,
+    "header_hex": "201f2209640001040607ffe803ffff00000000000000000000000000000000",
+    "stride": 34,
+    "count": 9,
+    "records": [
+      {
+        "file_offset": "0x85f1",
+        "hex": "0206a8610000a0fd0200a0fd0200ff07001001000000000000000000000000000000",
+        "kind_flags": 2,
+        "channel": 6,
+        "minimum_mw": 25000,
+        "default_mw": 196000,
+        "maximum_mw": 196000
+      },
+      {
+        "file_offset": "0x8613",
+        "hex": "030410270000905f0100905f0100cd0c000000000000000000000000000000000000",
+        "kind_flags": 3,
+        "channel": 4,
+        "minimum_mw": 10000,
+        "default_mw": 90000,
+        "maximum_mw": 90000
+      },
+      {
+        "file_offset": "0x8635",
+        "hex": "2206a8610000a0fd0200a0fd0200ff07001001000000000000000000000000000000",
+        "kind_flags": 34,
+        "channel": 6,
+        "minimum_mw": 25000,
+        "default_mw": 196000,
+        "maximum_mw": 196000
+      },
+      {
+        "file_offset": "0x8657",
+        "hex": "230410270000905f0100905f0100cd0c000000000000000000000000000000000000",
+        "kind_flags": 35,
+        "channel": 4,
+        "minimum_mw": 10000,
+        "default_mw": 90000,
+        "maximum_mw": 90000
+      },
+      {
+        "file_offset": "0x8679",
+        "hex": "040030750000d0010100a08601000000000000000000000000000000000000000000",
+        "kind_flags": 4,
+        "channel": 0,
+        "minimum_mw": 30000,
+        "default_mw": 66000,
+        "maximum_mw": 100000
+      },
+      {
+        "file_offset": "0x869b",
+        "hex": "040130750000d8530100a08601000101000000000000000000000000000000000000",
+        "kind_flags": 4,
+        "channel": 1,
+        "minimum_mw": 30000,
+        "default_mw": 87000,
+        "maximum_mw": 100000
+      },
+      {
+        "file_offset": "0x86bd",
+        "hex": "040230750000d078020020bf02000101000000000000000000000000000000000000",
+        "kind_flags": 4,
+        "channel": 2,
+        "minimum_mw": 30000,
+        "default_mw": 162000,
+        "maximum_mw": 180000
+      },
+      {
+        "file_offset": "0x86df",
+        "hex": "0103c0d40100a07a030038b503000203000088130000000000000000000000000000",
+        "kind_flags": 1,
+        "channel": 3,
+        "minimum_mw": 120000,
+        "default_mw": 228000,
+        "maximum_mw": 243000
+      },
+      {
+        "file_offset": "0x8701",
+        "hex": "0003c0d4010010980200e86e03000405000088130000000000000000000000000000",
+        "kind_flags": 0,
+        "channel": 3,
+        "minimum_mw": 120000,
+        "default_mw": 170000,
+        "maximum_mw": 225000
+      }
+    ],
+    "cap_entry": 7
+  },
+  "topology": {
+    "file_offset": "0x8518",
+    "rom_offset": "0x7f18",
+    "version": 16,
+    "header_hex": "100612080606",
+    "stride": 18,
+    "count": 8,
+    "records": [
+      {
+        "file_offset": "0x851e",
+        "hex": "01ff001bb700e00f000050fbffff00000000",
+        "kind": 1,
+        "domain_tag": "0xff",
+        "nominal_uv": 12000000,
+        "scale_q12": 4064,
+        "offset_mw": -1200,
+        "source_first": 0,
+        "source_last": 0
+      },
+      {
+        "file_offset": "0x8530",
+        "hex": "01fc001bb700e00f000050fbffff00010000",
+        "kind": 1,
+        "domain_tag": "0xfc",
+        "nominal_uv": 12000000,
+        "scale_q12": 4064,
+        "offset_mw": -1200,
+        "source_first": 0,
+        "source_last": 1
+      },
+      {
+        "file_offset": "0x8542",
+        "hex": "01fa001bb700e00f000050fbffff00020000",
+        "kind": 1,
+        "domain_tag": "0xfa",
+        "nominal_uv": 12000000,
+        "scale_q12": 4064,
+        "offset_mw": -1200,
+        "source_first": 0,
+        "source_last": 2
+      },
+      {
+        "file_offset": "0x8554",
+        "hex": "02f5001bb70000100000a00f000000020000",
+        "kind": 2,
+        "domain_tag": "0xf5",
+        "nominal_uv": 12000000,
+        "scale_q12": 4096,
+        "offset_mw": 4000,
+        "source_first": 0,
+        "source_last": 2
+      },
+      {
+        "file_offset": "0x8566",
+        "hex": "02f9001bb7000010000078ecffff00000000",
+        "kind": 2,
+        "domain_tag": "0xf9",
+        "nominal_uv": 12000000,
+        "scale_q12": 4096,
+        "offset_mw": -5000,
+        "source_first": 0,
+        "source_last": 0
+      },
+      {
+        "file_offset": "0x8578",
+        "hex": "02f6001bb700001000000000000001020000",
+        "kind": 2,
+        "domain_tag": "0xf6",
+        "nominal_uv": 12000000,
+        "scale_q12": 4096,
+        "offset_mw": 0,
+        "source_first": 1,
+        "source_last": 2
+      },
+      {
+        "file_offset": "0x858a",
+        "hex": "020140420f00001000000000000003030000",
+        "kind": 2,
+        "domain_tag": "0x1",
+        "nominal_uv": 1000000,
+        "scale_q12": 4096,
+        "offset_mw": 0,
+        "source_first": 3,
+        "source_last": 3
+      },
+      {
+        "file_offset": "0x859c",
+        "hex": "000000000000001000000000000000000000",
+        "kind": 0,
+        "domain_tag": "0x0",
+        "nominal_uv": 0,
+        "scale_q12": 4096,
+        "offset_mw": 0,
+        "source_first": 0,
+        "source_last": 0
+      }
+    ],
+    "relations": [
+      {
+        "file_offset": "0x85ae",
+        "kind": 1,
+        "channel": 0,
+        "scale_q12": 4096,
+        "hex": "010000100000"
+      },
+      {
+        "file_offset": "0x85b4",
+        "kind": 1,
+        "channel": 1,
+        "scale_q12": 4096,
+        "hex": "010100100000"
+      },
+      {
+        "file_offset": "0x85ba",
+        "kind": 1,
+        "channel": 2,
+        "scale_q12": 4096,
+        "hex": "010200100000"
+      },
+      {
+        "file_offset": "0x85c0",
+        "kind": 1,
+        "channel": 5,
+        "scale_q12": 3113,
+        "hex": "0105290c0000"
+      },
+      {
+        "file_offset": "0x85c6",
+        "kind": 0,
+        "channel": 0,
+        "scale_q12": 0,
+        "hex": "000000000000"
+      },
+      {
+        "file_offset": "0x85cc",
+        "kind": 0,
+        "channel": 0,
+        "scale_q12": 0,
+        "hex": "000000000000"
+      }
+    ]
+  },
+  "external_devices": [
+    {
+      "index": 0,
+      "file_offset": "0x5c07",
+      "hex": "ff000000",
+      "type": "0xff",
+      "address_7bit": "0x0",
+      "secondary_port": false
+    },
+    {
+      "index": 1,
+      "file_offset": "0x5c0b",
+      "hex": "4e804002",
+      "type": "0x4e",
+      "address_7bit": "0x40",
+      "secondary_port": false
+    },
+    {
+      "index": 2,
+      "file_offset": "0x5c0f",
+      "hex": "ff924002",
+      "type": "0xff",
+      "address_7bit": "0x49",
+      "secondary_port": false
+    },
+    {
+      "index": 3,
+      "file_offset": "0x5c13",
+      "hex": "ff944002",
+      "type": "0xff",
+      "address_7bit": "0x4a",
+      "secondary_port": false
+    },
+    {
+      "index": 4,
+      "file_offset": "0x5c17",
+      "hex": "ff000000",
+      "type": "0xff",
+      "address_7bit": "0x0",
+      "secondary_port": false
+    },
+    {
+      "index": 5,
+      "file_offset": "0x5c1b",
+      "hex": "ff000000",
+      "type": "0xff",
+      "address_7bit": "0x0",
+      "secondary_port": false
+    },
+    {
+      "index": 6,
+      "file_offset": "0x5c1f",
+      "hex": "ff000000",
+      "type": "0xff",
+      "address_7bit": "0x0",
+      "secondary_port": false
+    },
+    {
+      "index": 7,
+      "file_offset": "0x5c23",
+      "hex": "ff000000",
+      "type": "0xff",
+      "address_7bit": "0x0",
+      "secondary_port": false
+    },
+    {
+      "index": 8,
+      "file_offset": "0x5c27",
+      "hex": "ff000000",
+      "type": "0xff",
+      "address_7bit": "0x0",
+      "secondary_port": false
+    },
+    {
+      "index": 9,
+      "file_offset": "0x5c2b",
+      "hex": "ff000000",
+      "type": "0xff",
+      "address_7bit": "0x0",
+      "secondary_port": false
+    },
+    {
+      "index": 10,
+      "file_offset": "0x5c2f",
+      "hex": "ff000000",
+      "type": "0xff",
+      "address_7bit": "0x0",
+      "secondary_port": false
+    }
+  ],
+  "sensor": {
+    "type": "INA3221",
+    "extdev_index": 1,
+    "address_7bit": "0x40",
+    "shunts_mohm": [
+      5,
+      5,
+      5
+    ]
+  },
+  "first_eight_match_live_policies": true,
+  "topology_formula_checks": [
+    {
+      "channels_mw": [
+        3402,
+        0,
+        1017,
+        8419,
+        0,
+        1017,
+        773
+      ],
+      "predicted_channels_3_to_6_mw": [
+        8419,
+        0,
+        1017,
+        773
+      ]
+    },
+    {
+      "channels_mw": [
+        3498,
+        0,
+        1017,
+        8515,
+        0,
+        1017,
+        773
+      ],
+      "predicted_channels_3_to_6_mw": [
+        8515,
+        0,
+        1017,
+        773
+      ]
+    },
+    {
+      "channels_mw": [
+        3498,
+        0,
+        1017,
+        8515,
+        0,
+        1017,
+        773
+      ],
+      "predicted_channels_3_to_6_mw": [
+        8515,
+        0,
+        1017,
+        773
+      ]
+    }
+  ],
+  "interpretation_limits": [
+    "Connector names slot/6-pin/8-pin are inferred, not confirmed by PCB continuity.",
+    "76% relation verified at idle; no loaded correlation was performed.",
+    "Kind/flag semantics of duplicate and ninth budget records are not fully decoded.",
+    "Shunt correction applies to modified sensed channels before calibration and modeled sums."
+  ]
+}

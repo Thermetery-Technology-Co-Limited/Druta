@@ -1,0 +1,72 @@
+{
+  "selected": {
+    "enum_index": 0,
+    "devid": 11266,
+    "subsys": 2313031747,
+    "slot": "0000:01:00.0"
+  },
+  "calls": [
+    {
+      "command": "0xad",
+      "writing": false,
+      "status": 0,
+      "value": 44570116
+    },
+    {
+      "command": "0x99",
+      "writing": false,
+      "status": 0,
+      "value": 1297109763
+    },
+    {
+      "command": "0x0",
+      "writing": false,
+      "status": 0,
+      "value": 0
+    },
+    {
+      "command": "0x29",
+      "writing": false,
+      "status": 0,
+      "value": 1056
+    },
+    {
+      "command": "0x22",
+      "writing": false,
+      "status": 0,
+      "value": 0
+    },
+    {
+      "command": "0x22",
+      "writing": true,
+      "status": -1,
+      "value": 0
+    },
+    {
+      "command": "0x22",
+      "writing": false,
+      "status": 0,
+      "value": 0
+    },
+    {
+      "command": "0xad",
+      "writing": false,
+      "status": 0,
+      "value": 44570116
+    },
+    {
+      "command": "0x0",
+      "writing": false,
+      "status": 0,
+      "value": 0
+    },
+    {
+      "command": "0x29",
+      "writing": false,
+      "status": 0,
+      "value": 1056
+    }
+  ],
+  "public_summary": true,
+  "original_capture_sha256": "2f51614aa39205df8e60bf563cbc6128c64e727286fc79919f4ad09f1537fc58"
+}

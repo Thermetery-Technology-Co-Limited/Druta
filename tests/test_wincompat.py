@@ -3,14 +3,13 @@ import ctypes
 import importlib.util
 import json
 import os
-from pathlib import Path
 import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import MagicMock, Mock, patch
 
-import wincompat
+from druta import wincompat
 
 
 class DpiTests(unittest.TestCase):
@@ -75,8 +74,10 @@ class LegacyTomlTests(unittest.TestCase):
             import tomllib as parser
         except ImportError:
             import tomli as parser
-        source = Path(__file__).resolve().parents[1] / "railctl.py"
-        spec = importlib.util.spec_from_file_location("railctl_legacy", source)
+        from druta import railctl
+        # A fresh copy inside the package keeps railctl's relative imports.
+        spec = importlib.util.spec_from_file_location("druta._railctl_legacy",
+                                                      railctl.__file__)
         module = importlib.util.module_from_spec(spec)
         with patch.dict(sys.modules, {"tomllib": None, "tomli": parser}):
             spec.loader.exec_module(module)
@@ -88,7 +89,7 @@ class LegacyTomlTests(unittest.TestCase):
 
 class SmokeTests(unittest.TestCase):
     def setUp(self):
-        import druta
+        from druta import druta
         self.druta = druta
         self.dpg = MagicMock()
         self.dpg.get_dearpygui_version.return_value = "test-renderer"

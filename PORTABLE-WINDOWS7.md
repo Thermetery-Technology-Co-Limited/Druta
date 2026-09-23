@@ -56,7 +56,7 @@ Collect the tested redistributables from installed SDK redist directories:
 
 ```powershell
 $kits = 'C:\Program Files (x86)\Windows Kits\10'
-python tools\collect_win7_redist.py --ucrt-directory "$kits\Redist\10.0.19041.0\ucrt\DLLs\x64" --d3d-compiler "$kits\Redist\D3D\x64\d3dcompiler_47.dll" --sdk-license-directory "$kits\Licenses\10.0.19041.0" --sdk-license-directory "$kits\Licenses\10.0.28000.0" --output build\portable-redist
+python src\druta\tools\collect_win7_redist.py --ucrt-directory "$kits\Redist\10.0.19041.0\ucrt\DLLs\x64" --d3d-compiler "$kits\Redist\D3D\x64\d3dcompiler_47.dll" --sdk-license-directory "$kits\Licenses\10.0.19041.0" --sdk-license-directory "$kits\Licenses\10.0.28000.0" --output build\portable-redist
 .\build-win7.ps1 -Python C:\Python38\python.exe -CrtDirectory build\vc2019 -PortableRuntimeDirectory build\portable-redist
 ```
 
@@ -84,7 +84,7 @@ The tested compiler was MSVC 14.51.36231. The vendor build uses `/MT`; this
 stub imports only KERNEL32, USER32, SHELL32, OLE32 and OLEAUT32. Package it:
 
 ```powershell
-python tools\build_win7_sfx.py --bundle dist\Druta-Win7-Portable --seven-zip-directory C:\build-tools\7-Zip --sfx-module C:\build-tools\7z-x64.sfx --source-archive C:\build-tools\7z2603-src.tar.xz --output dist\Druta-dev-win7-x64-portable.exe
+python src\druta\tools\build_win7_sfx.py --bundle dist\Druta-Win7-Portable --seven-zip-directory C:\build-tools\7-Zip --sfx-module C:\build-tools\7z-x64.sfx --source-archive C:\build-tools\7z2603-src.tar.xz --output dist\Druta-dev-win7-x64-portable.exe
 ```
 
 The helper checks the stub's x64 architecture, PE minimum and DLL imports,

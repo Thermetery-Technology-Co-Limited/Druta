@@ -1,0 +1,338 @@
+{
+  "slot": "0000:01:00.0",
+  "name": "NVIDIA TITAN Xp",
+  "driver": "582.66",
+  "architecture": 4,
+  "entry": {
+    "0": {
+      "type": 0,
+      "reliability": 0.0,
+      "alt_reliability": 0.0,
+      "overvoltage": 0.0,
+      "vmin": 0.0,
+      "_base_mv": {
+        "reliability": 1068.75,
+        "alt_reliability": 1093.75,
+        "overvoltage": 1200.0,
+        "vmin": 650.0
+      },
+      "_headroom_mv": null,
+      "_boost_mv": 0.0,
+      "_effective_mv": 1068.75,
+      "_reference_kind": "first-read estimate (driver status is quantized)"
+    }
+  },
+  "boost": 0,
+  "before": {
+    "available": true,
+    "reason": "",
+    "architecture": 4,
+    "rails": {
+      "0": {
+        "available": true,
+        "reason": ""
+      }
+    },
+    "architecture_source": "NVML",
+    "adapter": {
+      "slot": "0000:01:00.0",
+      "name": "NVIDIA TITAN Xp",
+      "driver": "582.66",
+      "vbios": "86.02.3d.00.01"
+    },
+    "getters": {
+      "VoltRailsCtlGet": {
+        "0": {
+          "version": "0x00020AC8",
+          "status": 0,
+          "valid": true,
+          "attempts": 1,
+          "error": null
+        },
+        "1": {
+          "version": "0x00020AC8",
+          "status": -1,
+          "valid": false,
+          "attempts": 2,
+          "error": null
+        }
+      },
+      "VoltRailsAbs": {
+        "0": {
+          "version": "0x00010AC8",
+          "status": 0,
+          "valid": true,
+          "attempts": 1,
+          "error": null
+        },
+        "1": {
+          "version": "0x00010AC8",
+          "status": -1,
+          "valid": false,
+          "attempts": 2,
+          "error": null
+        }
+      }
+    },
+    "last_write_error": null,
+    "observed_packets": [],
+    "write_protocol": null
+  },
+  "writes_requested": true,
+  "checks": [
+    {
+      "field": "reliability",
+      "request_mv": 1062.5,
+      "ok": true,
+      "message": "core rail (NVVDD): reliability 1062 mV stored; floor 650, estimated cap at current boost 1062 mV; absolute requests are relative to this session's quantized first read",
+      "readback": {
+        "0": {
+          "type": 0,
+          "reliability": -6.25,
+          "alt_reliability": 0.0,
+          "overvoltage": 0.0,
+          "vmin": 0.0,
+          "_base_mv": {
+            "reliability": 1068.75,
+            "alt_reliability": 1093.75,
+            "overvoltage": 1200.0,
+            "vmin": 650.0
+          },
+          "_headroom_mv": null,
+          "_boost_mv": 0.0,
+          "_effective_mv": 1062.5,
+          "_reference_kind": "first-read estimate (driver status is quantized)"
+        }
+      },
+      "status": {
+        "0": {
+          "_boost_mv": 0.0,
+          "type": 1,
+          "live": 650.0,
+          "reliability": 1062.5,
+          "alt_reliability": 1093.75,
+          "overvoltage": 1200.0,
+          "effective": 1062.5,
+          "vmin": 650.0
+        }
+      },
+      "protocol": {
+        "get_command": "0x2080B213",
+        "set_command": "0x2080F214",
+        "packet_size": 1104,
+        "getter_version": "0x00020AC8"
+      },
+      "restored": true,
+      "restore_message": "core rail (NVVDD) reliability restored to first-read values (not factory defaults)"
+    },
+    {
+      "field": "alt_reliability",
+      "request_mv": 1087.5,
+      "ok": true,
+      "message": "core rail (NVVDD): alt_reliability 1088 mV stored; floor 650, estimated cap at current boost 1069 mV; absolute requests are relative to this session's quantized first read",
+      "readback": {
+        "0": {
+          "type": 0,
+          "reliability": 0.0,
+          "alt_reliability": -6.25,
+          "overvoltage": 0.0,
+          "vmin": 0.0,
+          "_base_mv": {
+            "reliability": 1068.75,
+            "alt_reliability": 1093.75,
+            "overvoltage": 1200.0,
+            "vmin": 650.0
+          },
+          "_headroom_mv": null,
+          "_boost_mv": 0.0,
+          "_effective_mv": 1068.75,
+          "_reference_kind": "first-read estimate (driver status is quantized)"
+        }
+      },
+      "status": {
+        "0": {
+          "_boost_mv": 0.0,
+          "type": 1,
+          "live": 650.0,
+          "reliability": 1068.75,
+          "alt_reliability": 1087.5,
+          "overvoltage": 1200.0,
+          "effective": 1068.75,
+          "vmin": 650.0
+        }
+      },
+      "protocol": {
+        "get_command": "0x2080B213",
+        "set_command": "0x2080F214",
+        "packet_size": 1104,
+        "getter_version": "0x00020AC8"
+      },
+      "restored": true,
+      "restore_message": "core rail (NVVDD) alt_reliability restored to first-read values (not factory defaults)"
+    },
+    {
+      "field": "overvoltage",
+      "request_mv": 1193.75,
+      "ok": true,
+      "message": "core rail (NVVDD): overvoltage 1194 mV stored; floor 650, estimated cap at current boost 1069 mV; absolute requests are relative to this session's quantized first read",
+      "readback": {
+        "0": {
+          "type": 0,
+          "reliability": 0.0,
+          "alt_reliability": 0.0,
+          "overvoltage": -6.25,
+          "vmin": 0.0,
+          "_base_mv": {
+            "reliability": 1068.75,
+            "alt_reliability": 1093.75,
+            "overvoltage": 1200.0,
+            "vmin": 650.0
+          },
+          "_headroom_mv": null,
+          "_boost_mv": 0.0,
+          "_effective_mv": 1068.75,
+          "_reference_kind": "first-read estimate (driver status is quantized)"
+        }
+      },
+      "status": {
+        "0": {
+          "_boost_mv": 0.0,
+          "type": 1,
+          "live": 650.0,
+          "reliability": 1068.75,
+          "alt_reliability": 1093.75,
+          "overvoltage": 1193.75,
+          "effective": 1068.75,
+          "vmin": 650.0
+        }
+      },
+      "protocol": {
+        "get_command": "0x2080B213",
+        "set_command": "0x2080F214",
+        "packet_size": 1104,
+        "getter_version": "0x00020AC8"
+      },
+      "restored": true,
+      "restore_message": "core rail (NVVDD) overvoltage restored to first-read values (not factory defaults)"
+    },
+    {
+      "field": "vmin",
+      "request_mv": 656.25,
+      "ok": true,
+      "message": "core rail (NVVDD): vmin 656 mV stored; floor 656, estimated cap at current boost 1069 mV; absolute requests are relative to this session's quantized first read; Pascal vmin was verified at idle; a V/F point lock or P2 can hold the live voltage below this floor",
+      "readback": {
+        "0": {
+          "type": 0,
+          "reliability": 0.0,
+          "alt_reliability": 0.0,
+          "overvoltage": 0.0,
+          "vmin": 6.25,
+          "_base_mv": {
+            "reliability": 1068.75,
+            "alt_reliability": 1093.75,
+            "overvoltage": 1200.0,
+            "vmin": 650.0
+          },
+          "_headroom_mv": null,
+          "_boost_mv": 0.0,
+          "_effective_mv": 1068.75,
+          "_reference_kind": "first-read estimate (driver status is quantized)"
+        }
+      },
+      "status": {
+        "0": {
+          "_boost_mv": 0.0,
+          "type": 1,
+          "live": 650.0,
+          "reliability": 1068.75,
+          "alt_reliability": 1093.75,
+          "overvoltage": 1200.0,
+          "effective": 1068.75,
+          "vmin": 656.25
+        }
+      },
+      "protocol": {
+        "get_command": "0x2080B213",
+        "set_command": "0x2080F214",
+        "packet_size": 1104,
+        "getter_version": "0x00020AC8"
+      },
+      "restored": true,
+      "restore_message": "core rail (NVVDD) vmin restored to first-read values (not factory defaults)"
+    }
+  ],
+  "nvapi_only": {
+    "architecture": 4,
+    "source": "NVAPI V2",
+    "rail_available": true
+  },
+  "restoration": {
+    "dispatched": true,
+    "status": 0,
+    "verified": true,
+    "error": null
+  },
+  "after": {
+    "available": true,
+    "reason": "",
+    "architecture": 4,
+    "rails": {
+      "0": {
+        "available": true,
+        "reason": ""
+      }
+    },
+    "architecture_source": "NVML",
+    "adapter": {
+      "slot": "0000:01:00.0",
+      "name": "NVIDIA TITAN Xp",
+      "driver": "582.66",
+      "vbios": "86.02.3d.00.01"
+    },
+    "getters": {
+      "VoltRailsCtlGet": {
+        "0": {
+          "version": "0x00020AC8",
+          "status": 0,
+          "valid": true,
+          "attempts": 1,
+          "error": null
+        },
+        "1": {
+          "version": "0x00020AC8",
+          "status": -1,
+          "valid": false,
+          "attempts": 2,
+          "error": null
+        }
+      },
+      "VoltRailsAbs": {
+        "0": {
+          "version": "0x00010AC8",
+          "status": 0,
+          "valid": true,
+          "attempts": 1,
+          "error": null
+        },
+        "1": {
+          "version": "0x00010AC8",
+          "status": -1,
+          "valid": false,
+          "attempts": 2,
+          "error": null
+        }
+      }
+    },
+    "last_write_error": null,
+    "observed_packets": [
+      "rail packet size=1104 command=0x2080B213 params=1036 status=0x00000000 layout=1104/1036 operation=get mask=0x1"
+    ],
+    "write_protocol": {
+      "get_command": "0x2080B213",
+      "set_command": "0x2080F214",
+      "packet_size": 1104,
+      "getter_version": "0x00020AC8"
+    }
+  },
+  "passed": true
+}

@@ -2,11 +2,12 @@
 import hashlib
 import json
 from pathlib import Path
+import re
 import tempfile
 import unittest
 from unittest.mock import patch
 
-from tools import package_source
+from druta.tools import package_source
 
 
 class SourcePackageTests(unittest.TestCase):
@@ -49,6 +50,31 @@ class SourcePackageTests(unittest.TestCase):
         package_source.package(self.root, before, self.bundle)
         self.assertFalse((self.bundle / 'source' / 'private.txt').exists())
         self.assertFalse((self.bundle / 'source' / 'profiles').exists())
+
+    def test_package_modules_and_test_helpers_are_collected_recursively(self):
+        for relative in ('src/druta/__init__.py', 'src/druta/tools/helper.py',
+                         'tests/__init__.py', 'tests/fixture_data.py',
+                         'tests/controllers/test_nested.py'):
+            path = self.root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('# fixture\n')
+        (self.root / 'src' / 'druta' / 'notes.txt').write_text('not source')
+        paths = [entry['path'] for entry in package_source.snapshot(self.root)]
+        self.assertEqual(paths, ['druta.py', 'src/druta/__init__.py',
+                                 'src/druta/tools/helper.py', 'tests/__init__.py',
+                                 'tests/controllers/test_nested.py', 'tests/fixture_data.py'])
+
+
+class ModernBuildParityTests(unittest.TestCase):
+    """The Windows 7 bundles must carry the same public source as build.ps1's."""
+
+    def test_explicit_file_list_matches_the_modern_build(self):
+        script = (Path(__file__).resolve().parents[1] / 'build.ps1').read_text(encoding='utf-8')
+        block = script[script.index('$paths = @('):]
+        block = block[:block.index('\n    )')]
+        self.assertEqual(sorted(set(re.findall(r"'([^']+)'", block))),
+                         sorted(package_source.FILES))
+        self.assertIn("@('src/druta', 'tests')", script)
 
 
 if __name__ == '__main__':

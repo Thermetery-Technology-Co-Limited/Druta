@@ -65,7 +65,7 @@ extracts only the required DLLs and license without installing the runtime:
 ```powershell
 New-Item -ItemType Directory -Path build -Force
 Invoke-WebRequest https://aka.ms/vs/16/release/vc_redist.x64.exe -OutFile build\vc_redist.x64.exe
-& C:\Python38\python.exe tools\extract_win7_crt.py build\vc_redist.x64.exe build\vc2019
+& C:\Python38\python.exe src\druta\tools\extract_win7_crt.py build\vc_redist.x64.exe build\vc2019
 ```
 
 Keep them together in a build-only folder. The build recipe also verifies the
@@ -150,7 +150,7 @@ tabs with NVIDIA interfaces unavailable, controls locked, and callbacks,
 workers and subprocesses disabled. From a source checkout:
 
 ```powershell
-python tools\smoke_full_ui.py --output full-ui.json --hold-seconds 3
+python src\druta\tools\smoke_full_ui.py --output full-ui.json --hold-seconds 3
 ```
 
 The optional hold allows screenshots of each tab; the fixture is visibly
@@ -197,12 +197,17 @@ The driver must be installed and running under the signing requirements in
 [nvtune's Windows 7 guide](https://github.com/sebastianmarrufo/nvtune/blob/codex/windows-7-support/WINDOWS7.md).
 Druta does not install the driver or change test-signing settings.
 
-Timing previews require an nvtune build supporting **`set --dry-run`** and
-**`--commit`**. Older upstream builds write on a bare `set`; Druta now always
-passes `--dry-run` for previews, checks the successful completion marker,
-and refuses an incompatible or incomplete response without retrying a bare
-`set`. Approved writes pass `--commit`. Failed commands and missing readback
-values are reported as failures rather than hardware rejection.
+Druta learns the helper's command contract from `nvtune --help` and never
+tries a `set` to find out. A build that advertises **`--dry-run`** previews
+with it; the preview must exit 0, end with nvtune's completion marker and
+contain only recognized register rows, or it is refused without retrying a
+bare `set`. A build whose help says everything defaults to a dry run
+previews with a bare `set` under the same row checks. The public upstream
+releases write on a bare `set`, so Druta calculates their read-only preview
+from `fields` and `dump --raw` instead. Approved writes use the helper's
+advertised commit convention (`--commit` where it exists). Failed commands
+and missing readback values are reported as failures rather than hardware
+rejection.
 
 The tested static mingw-w64 nvtune executable imports only `ADVAPI32.dll`,
 `KERNEL32.dll`, `msvcrt.dll` and `SETUPAPI.dll`; it needs no extra GCC or MSVC
@@ -216,6 +221,8 @@ driver loaded and passed read-only IOCTL and administrator ACL checks.
 All 17 nvtune CLI regression cases pass on the guest using an in-memory
 backend. This covers the integration contract and Windows 7 execution;
 real NVIDIA timing-register reads, writes and restore remain unverified.
+These guest results predate the help-based contract discovery above, which
+has host regression coverage only.
 
 ## Compatibility changes
 

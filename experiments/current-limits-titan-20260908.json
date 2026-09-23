@@ -1,0 +1,603 @@
+{
+  "read_modify_write": true,
+  "step_ma": 5000,
+  "cards": [
+    {
+      "identity": {
+        "name": "NVIDIA TITAN RTX",
+        "driver": "580.97",
+        "vbios": "90.02.1e.00.02",
+        "slot": "0000:01:00.0"
+      },
+      "architecture": "Turing",
+      "baseline": {
+        "telemetry": {
+          "pstate": 8,
+          "util_gpu": 2,
+          "util_fb": 14,
+          "power_w": 3.839,
+          "temp_edge": 26,
+          "core": 300,
+          "mem": 405
+        },
+        "current_limits": [
+          {
+            "policy": 13,
+            "label": "Core current",
+            "minimum_ma": 1000,
+            "maximum_ma": 390000,
+            "normal_maximum_ma": 390000,
+            "default_ma": 350780,
+            "limit_ma": 350780,
+            "requested_ma": 350780,
+            "value_ma": 7933
+          }
+        ],
+        "control_sha256": "cbfca0482a00d1149d353d8ddfab5c0c30aa2533a7bf034a9a31f63b96f72316"
+      },
+      "idle": [
+        {
+          "pstate": 8,
+          "util_gpu": 2,
+          "util_fb": 14,
+          "power_w": 3.839,
+          "temp_edge": 26,
+          "core": 300,
+          "mem": 405
+        },
+        {
+          "pstate": 8,
+          "util_gpu": 2,
+          "util_fb": 14,
+          "power_w": 3.66,
+          "temp_edge": 26,
+          "core": 300,
+          "mem": 405
+        },
+        {
+          "pstate": 8,
+          "util_gpu": 2,
+          "util_fb": 14,
+          "power_w": 3.908,
+          "temp_edge": 26,
+          "core": 300,
+          "mem": 405
+        },
+        {
+          "pstate": 8,
+          "util_gpu": 2,
+          "util_fb": 14,
+          "power_w": 3.47,
+          "temp_edge": 26,
+          "core": 300,
+          "mem": 405
+        },
+        {
+          "pstate": 8,
+          "util_gpu": 2,
+          "util_fb": 14,
+          "power_w": 3.685,
+          "temp_edge": 26,
+          "core": 300,
+          "mem": 405
+        },
+        {
+          "pstate": 8,
+          "util_gpu": 2,
+          "util_fb": 14,
+          "power_w": 4.249,
+          "temp_edge": 26,
+          "core": 300,
+          "mem": 405
+        }
+      ],
+      "trials": [
+        {
+          "direction": "down",
+          "target_ma": 345780,
+          "before": {
+            "telemetry": {
+              "pstate": 8,
+              "util_gpu": 2,
+              "util_fb": 14,
+              "power_w": 3.553,
+              "temp_edge": 26,
+              "core": 300,
+              "mem": 405
+            },
+            "current_limits": [
+              {
+                "policy": 13,
+                "label": "Core current",
+                "minimum_ma": 1000,
+                "maximum_ma": 390000,
+                "normal_maximum_ma": 390000,
+                "default_ma": 350780,
+                "limit_ma": 350780,
+                "requested_ma": 350780,
+                "value_ma": 7938
+              }
+            ],
+            "control_sha256": "cbfca0482a00d1149d353d8ddfab5c0c30aa2533a7bf034a9a31f63b96f72316"
+          },
+          "started": 1788876799.8466008,
+          "set": [
+            true,
+            "Core current set to 345.78 A; effective limit verified"
+          ],
+          "active": {
+            "telemetry": {
+              "pstate": 8,
+              "util_gpu": 2,
+              "util_fb": 14,
+              "power_w": 5.059,
+              "temp_edge": 26,
+              "core": 300,
+              "mem": 405
+            },
+            "current_limits": [
+              {
+                "policy": 13,
+                "label": "Core current",
+                "minimum_ma": 1000,
+                "maximum_ma": 390000,
+                "normal_maximum_ma": 390000,
+                "default_ma": 350780,
+                "limit_ma": 345780,
+                "requested_ma": 345780,
+                "value_ma": 7898
+              }
+            ],
+            "control_sha256": "180329cca018174952fee1a20b2ba9fd08015f23ea59513f33a4eeea7449fe17"
+          },
+          "restore": [
+            true,
+            "Core current set to 350.78 A; effective limit verified"
+          ],
+          "restored": {
+            "telemetry": {
+              "pstate": 8,
+              "util_gpu": 2,
+              "util_fb": 14,
+              "power_w": 4.794,
+              "temp_edge": 26,
+              "core": 300,
+              "mem": 405
+            },
+            "current_limits": [
+              {
+                "policy": 13,
+                "label": "Core current",
+                "minimum_ma": 1000,
+                "maximum_ma": 390000,
+                "normal_maximum_ma": 390000,
+                "default_ma": 350780,
+                "limit_ma": 350780,
+                "requested_ma": 350780,
+                "value_ma": 7898
+              }
+            ],
+            "control_sha256": "cbfca0482a00d1149d353d8ddfab5c0c30aa2533a7bf034a9a31f63b96f72316"
+          },
+          "duration_s": 0.1777048110961914,
+          "full_control_restored": true
+        },
+        {
+          "direction": "up",
+          "target_ma": 355780,
+          "before": {
+            "telemetry": {
+              "pstate": 8,
+              "util_gpu": 2,
+              "util_fb": 14,
+              "power_w": 4.544,
+              "temp_edge": 26,
+              "core": 300,
+              "mem": 405
+            },
+            "current_limits": [
+              {
+                "policy": 13,
+                "label": "Core current",
+                "minimum_ma": 1000,
+                "maximum_ma": 390000,
+                "normal_maximum_ma": 390000,
+                "default_ma": 350780,
+                "limit_ma": 350780,
+                "requested_ma": 350780,
+                "value_ma": 1504
+              }
+            ],
+            "control_sha256": "cbfca0482a00d1149d353d8ddfab5c0c30aa2533a7bf034a9a31f63b96f72316"
+          },
+          "started": 1788876800.0944803,
+          "set": [
+            true,
+            "Core current set to 355.78 A; effective limit verified"
+          ],
+          "active": {
+            "telemetry": {
+              "pstate": 8,
+              "util_gpu": 2,
+              "util_fb": 14,
+              "power_w": 4.21,
+              "temp_edge": 26,
+              "core": 300,
+              "mem": 405
+            },
+            "current_limits": [
+              {
+                "policy": 13,
+                "label": "Core current",
+                "minimum_ma": 1000,
+                "maximum_ma": 390000,
+                "normal_maximum_ma": 390000,
+                "default_ma": 350780,
+                "limit_ma": 355780,
+                "requested_ma": 355780,
+                "value_ma": 1405
+              }
+            ],
+            "control_sha256": "9955c67078af22bf4ac9bf2b6097c1d3378f061ddccf0cb7ae695ff9ab219f3e"
+          },
+          "restore": [
+            true,
+            "Core current set to 350.78 A; effective limit verified"
+          ],
+          "restored": {
+            "telemetry": {
+              "pstate": 8,
+              "util_gpu": 2,
+              "util_fb": 14,
+              "power_w": 5.922,
+              "temp_edge": 27,
+              "core": 300,
+              "mem": 405
+            },
+            "current_limits": [
+              {
+                "policy": 13,
+                "label": "Core current",
+                "minimum_ma": 1000,
+                "maximum_ma": 390000,
+                "normal_maximum_ma": 390000,
+                "default_ma": 350780,
+                "limit_ma": 350780,
+                "requested_ma": 350780,
+                "value_ma": 1405
+              }
+            ],
+            "control_sha256": "cbfca0482a00d1149d353d8ddfab5c0c30aa2533a7bf034a9a31f63b96f72316"
+          },
+          "duration_s": 0.17687010765075684,
+          "full_control_restored": true
+        }
+      ],
+      "final": {
+        "telemetry": {
+          "pstate": 8,
+          "util_gpu": 2,
+          "util_fb": 14,
+          "power_w": 5.922,
+          "temp_edge": 26,
+          "core": 300,
+          "mem": 405
+        },
+        "current_limits": [
+          {
+            "policy": 13,
+            "label": "Core current",
+            "minimum_ma": 1000,
+            "maximum_ma": 390000,
+            "normal_maximum_ma": 390000,
+            "default_ma": 350780,
+            "limit_ma": 350780,
+            "requested_ma": 350780,
+            "value_ma": 1405
+          }
+        ],
+        "control_sha256": "cbfca0482a00d1149d353d8ddfab5c0c30aa2533a7bf034a9a31f63b96f72316"
+      },
+      "passed": true
+    },
+    {
+      "identity": {
+        "name": "NVIDIA TITAN Xp",
+        "driver": "580.97",
+        "vbios": "86.02.3d.00.01",
+        "slot": "0000:02:00.0"
+      },
+      "architecture": "Pascal",
+      "baseline": {
+        "telemetry": {
+          "pstate": 8,
+          "util_gpu": 0,
+          "util_fb": 0,
+          "power_w": 9.912,
+          "temp_edge": 22,
+          "core": 139,
+          "mem": 405
+        },
+        "current_limits": [
+          {
+            "policy": 13,
+            "label": "Core current",
+            "minimum_ma": 1000,
+            "maximum_ma": 218000,
+            "normal_maximum_ma": 218000,
+            "default_ma": 204700,
+            "limit_ma": 204700,
+            "requested_ma": 204700,
+            "value_ma": 3309
+          }
+        ],
+        "control_sha256": "55ebd08f8613574615c29a4a4279aa5a5b105dea8ae9c1d8fdf27caf0b88ecda"
+      },
+      "idle": [
+        {
+          "pstate": 8,
+          "util_gpu": 0,
+          "util_fb": 0,
+          "power_w": 9.912,
+          "temp_edge": 22,
+          "core": 139,
+          "mem": 405
+        },
+        {
+          "pstate": 8,
+          "util_gpu": 0,
+          "util_fb": 0,
+          "power_w": 8.746,
+          "temp_edge": 22,
+          "core": 139,
+          "mem": 405
+        },
+        {
+          "pstate": 8,
+          "util_gpu": 0,
+          "util_fb": 0,
+          "power_w": 9.133,
+          "temp_edge": 22,
+          "core": 139,
+          "mem": 405
+        },
+        {
+          "pstate": 8,
+          "util_gpu": 0,
+          "util_fb": 0,
+          "power_w": 9.135,
+          "temp_edge": 22,
+          "core": 139,
+          "mem": 405
+        },
+        {
+          "pstate": 8,
+          "util_gpu": 0,
+          "util_fb": 0,
+          "power_w": 10.396,
+          "temp_edge": 22,
+          "core": 139,
+          "mem": 405
+        },
+        {
+          "pstate": 8,
+          "util_gpu": 0,
+          "util_fb": 0,
+          "power_w": 8.843,
+          "temp_edge": 22,
+          "core": 139,
+          "mem": 405
+        }
+      ],
+      "trials": [
+        {
+          "direction": "down",
+          "target_ma": 199700,
+          "before": {
+            "telemetry": {
+              "pstate": 8,
+              "util_gpu": 0,
+              "util_fb": 0,
+              "power_w": 8.746,
+              "temp_edge": 22,
+              "core": 139,
+              "mem": 405
+            },
+            "current_limits": [
+              {
+                "policy": 13,
+                "label": "Core current",
+                "minimum_ma": 1000,
+                "maximum_ma": 218000,
+                "normal_maximum_ma": 218000,
+                "default_ma": 204700,
+                "limit_ma": 204700,
+                "requested_ma": 204700,
+                "value_ma": 3320
+              }
+            ],
+            "control_sha256": "55ebd08f8613574615c29a4a4279aa5a5b105dea8ae9c1d8fdf27caf0b88ecda"
+          },
+          "started": 1788876802.6113937,
+          "set": [
+            true,
+            "Core current set to 199.7 A; effective limit verified"
+          ],
+          "active": {
+            "telemetry": {
+              "pstate": 8,
+              "util_gpu": 0,
+              "util_fb": 0,
+              "power_w": 11.94,
+              "temp_edge": 22,
+              "core": 139,
+              "mem": 405
+            },
+            "current_limits": [
+              {
+                "policy": 13,
+                "label": "Core current",
+                "minimum_ma": 1000,
+                "maximum_ma": 218000,
+                "normal_maximum_ma": 218000,
+                "default_ma": 204700,
+                "limit_ma": 199700,
+                "requested_ma": 199700,
+                "value_ma": 3320
+              }
+            ],
+            "control_sha256": "b3ecd4f6ec47b8ad5cdf969db0e898d3631d01ccedb1840cf397e30a9603a336"
+          },
+          "restore": [
+            true,
+            "Core current set to 204.7 A; effective limit verified"
+          ],
+          "restored": {
+            "telemetry": {
+              "pstate": 8,
+              "util_gpu": 0,
+              "util_fb": 0,
+              "power_w": 11.939,
+              "temp_edge": 22,
+              "core": 139,
+              "mem": 405
+            },
+            "current_limits": [
+              {
+                "policy": 13,
+                "label": "Core current",
+                "minimum_ma": 1000,
+                "maximum_ma": 218000,
+                "normal_maximum_ma": 218000,
+                "default_ma": 204700,
+                "limit_ma": 204700,
+                "requested_ma": 204700,
+                "value_ma": 3320
+              }
+            ],
+            "control_sha256": "55ebd08f8613574615c29a4a4279aa5a5b105dea8ae9c1d8fdf27caf0b88ecda"
+          },
+          "duration_s": 0.08423614501953125,
+          "full_control_restored": true
+        },
+        {
+          "direction": "up",
+          "target_ma": 209700,
+          "before": {
+            "telemetry": {
+              "pstate": 8,
+              "util_gpu": 0,
+              "util_fb": 0,
+              "power_w": 11.939,
+              "temp_edge": 22,
+              "core": 139,
+              "mem": 405
+            },
+            "current_limits": [
+              {
+                "policy": 13,
+                "label": "Core current",
+                "minimum_ma": 1000,
+                "maximum_ma": 218000,
+                "normal_maximum_ma": 218000,
+                "default_ma": 204700,
+                "limit_ma": 204700,
+                "requested_ma": 204700,
+                "value_ma": 3320
+              }
+            ],
+            "control_sha256": "55ebd08f8613574615c29a4a4279aa5a5b105dea8ae9c1d8fdf27caf0b88ecda"
+          },
+          "started": 1788876802.7184873,
+          "set": [
+            true,
+            "Core current set to 209.7 A; effective limit verified"
+          ],
+          "active": {
+            "telemetry": {
+              "pstate": 8,
+              "util_gpu": 0,
+              "util_fb": 0,
+              "power_w": 12.227,
+              "temp_edge": 22,
+              "core": 139,
+              "mem": 405
+            },
+            "current_limits": [
+              {
+                "policy": 13,
+                "label": "Core current",
+                "minimum_ma": 1000,
+                "maximum_ma": 218000,
+                "normal_maximum_ma": 218000,
+                "default_ma": 204700,
+                "limit_ma": 209700,
+                "requested_ma": 209700,
+                "value_ma": 3320
+              }
+            ],
+            "control_sha256": "2c6eeb612c26b83b772c166fb09f7de9e36d37191c338271e51a5689d8f8f533"
+          },
+          "restore": [
+            true,
+            "Core current set to 204.7 A; effective limit verified"
+          ],
+          "restored": {
+            "telemetry": {
+              "pstate": 8,
+              "util_gpu": 0,
+              "util_fb": 0,
+              "power_w": 11.553,
+              "temp_edge": 22,
+              "core": 139,
+              "mem": 405
+            },
+            "current_limits": [
+              {
+                "policy": 13,
+                "label": "Core current",
+                "minimum_ma": 1000,
+                "maximum_ma": 218000,
+                "normal_maximum_ma": 218000,
+                "default_ma": 204700,
+                "limit_ma": 204700,
+                "requested_ma": 204700,
+                "value_ma": 3320
+              }
+            ],
+            "control_sha256": "55ebd08f8613574615c29a4a4279aa5a5b105dea8ae9c1d8fdf27caf0b88ecda"
+          },
+          "duration_s": 0.08566641807556152,
+          "full_control_restored": true
+        }
+      ],
+      "final": {
+        "telemetry": {
+          "pstate": 8,
+          "util_gpu": 0,
+          "util_fb": 0,
+          "power_w": 12.036,
+          "temp_edge": 22,
+          "core": 139,
+          "mem": 405
+        },
+        "current_limits": [
+          {
+            "policy": 13,
+            "label": "Core current",
+            "minimum_ma": 1000,
+            "maximum_ma": 218000,
+            "normal_maximum_ma": 218000,
+            "default_ma": 204700,
+            "limit_ma": 204700,
+            "requested_ma": 204700,
+            "value_ma": 3320
+          }
+        ],
+        "control_sha256": "55ebd08f8613574615c29a4a4279aa5a5b105dea8ae9c1d8fdf27caf0b88ecda"
+      },
+      "passed": true
+    }
+  ],
+  "passed": true
+}

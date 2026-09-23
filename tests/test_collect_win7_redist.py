@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
-from tools import collect_win7_redist as collector
+from druta.tools import collect_win7_redist as collector
 
 
 class CollectionTests(unittest.TestCase):

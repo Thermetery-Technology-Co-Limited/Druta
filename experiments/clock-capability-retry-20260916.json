@@ -1,0 +1,243 @@
+{
+  "date": "2026-09-16",
+  "build": "1.5.0a+clockretry",
+  "adapter": "NVIDIA TITAN RTX",
+  "driver": "580.97",
+  "vbios": "90.02.1e.00.02",
+  "scope": "Read-only fault injection into clock GET responses, followed by the real driver GET and real Dear PyGui UI. No naturally occurring driver failure is claimed.",
+  "retry_delays_seconds": [
+    1,
+    3
+  ],
+  "unit_tests_passed": 1010,
+  "cases": {
+    "partial": {
+      "injected_failures": 2,
+      "scan_calls": 0,
+      "writes": 0,
+      "checks": {
+        "initial_missing": true,
+        "recovery_path_correct": true,
+        "recovered": true,
+        "values_preserved": true,
+        "live_requests_loaded": true,
+        "settings_preserved": true,
+        "no_writes": true,
+        "no_i2c": true
+      },
+      "initial_rows": {
+        "sl_xbar": false,
+        "in_xbar": false,
+        "sl_sys": false,
+        "in_sys": false
+      },
+      "recovered_after_seconds": 1.4185855000005176,
+      "recovered_rows": {
+        "sl_xbar": true,
+        "in_xbar": true,
+        "sl_sys": true,
+        "in_sys": true
+      },
+      "recovered_values": {
+        "sl_mem": 12.5,
+        "in_mem": 12.5,
+        "rfloor": 975.0,
+        "in_xbar": 15,
+        "in_sys": 30
+      },
+      "differences": {},
+      "passed": true
+    },
+    "empty": {
+      "injected_failures": 32,
+      "scan_calls": 0,
+      "writes": 0,
+      "checks": {
+        "initial_missing": true,
+        "recovery_path_correct": true,
+        "recovered": true,
+        "values_preserved": true,
+        "live_requests_loaded": true,
+        "settings_preserved": true,
+        "no_writes": true,
+        "no_i2c": true
+      },
+      "initial_rows": {
+        "sl_xbar": false,
+        "in_xbar": false,
+        "sl_sys": false,
+        "in_sys": false
+      },
+      "recovered_after_seconds": 1.3456194999998843,
+      "recovered_rows": {
+        "sl_xbar": true,
+        "in_xbar": true,
+        "sl_sys": true,
+        "in_sys": true
+      },
+      "recovered_values": {
+        "sl_mem": 12.5,
+        "in_mem": 12.5,
+        "rfloor": 975.0,
+        "in_xbar": 15,
+        "in_sys": 30
+      },
+      "differences": {},
+      "passed": true
+    },
+    "staged": {
+      "injected_failures": 2,
+      "scan_calls": 0,
+      "writes": 0,
+      "checks": {
+        "initial_missing": true,
+        "deferred_for_curve": true,
+        "curve_edit_preserved": true,
+        "recovery_path_correct": true,
+        "recovered": true,
+        "values_preserved": true,
+        "live_requests_loaded": true,
+        "settings_preserved": true,
+        "no_writes": true,
+        "no_i2c": true
+      },
+      "initial_rows": {
+        "sl_xbar": false,
+        "in_xbar": false,
+        "sl_sys": false,
+        "in_sys": false
+      },
+      "recovered_after_seconds": 6.083470099999431,
+      "recovered_rows": {
+        "sl_xbar": true,
+        "in_xbar": true,
+        "sl_sys": true,
+        "in_sys": true
+      },
+      "recovered_values": {
+        "sl_mem": 12.5,
+        "in_mem": 12.5,
+        "rfloor": 975.0,
+        "in_xbar": 15,
+        "in_sys": 30
+      },
+      "differences": {},
+      "passed": true
+    },
+    "persistent": {
+      "injected_failures": 6,
+      "scan_calls": 0,
+      "writes": 0,
+      "checks": {
+        "initial_missing": true,
+        "persistent_failure_hidden": true,
+        "retry_budget_bounded": true,
+        "recovery_path_correct": true,
+        "recovered": true,
+        "values_preserved": true,
+        "live_requests_loaded": true,
+        "settings_preserved": true,
+        "no_writes": true,
+        "no_i2c": true
+      },
+      "initial_rows": {
+        "sl_xbar": false,
+        "in_xbar": false,
+        "sl_sys": false,
+        "in_sys": false
+      },
+      "recovered_after_seconds": 8.505994899999678,
+      "recovered_rows": {
+        "sl_xbar": true,
+        "in_xbar": true,
+        "sl_sys": true,
+        "in_sys": true
+      },
+      "recovered_values": {
+        "sl_mem": 12.5,
+        "in_mem": 12.5,
+        "rfloor": 975.0,
+        "in_xbar": 15,
+        "in_sys": 30
+      },
+      "exhausted_count": 6,
+      "manual_refresh_used": true,
+      "differences": {},
+      "passed": true
+    },
+    "request": {
+      "injected_failures": 1,
+      "scan_calls": 0,
+      "writes": 0,
+      "checks": {
+        "initial_missing": true,
+        "recovery_path_correct": true,
+        "recovered": true,
+        "values_preserved": true,
+        "live_requests_loaded": true,
+        "settings_preserved": true,
+        "no_writes": true,
+        "no_i2c": true
+      },
+      "initial_rows": {
+        "sl_xbar": false,
+        "in_xbar": false,
+        "sl_sys": false,
+        "in_sys": false
+      },
+      "recovered_after_seconds": 1.357100399999581,
+      "recovered_rows": {
+        "sl_xbar": true,
+        "in_xbar": true,
+        "sl_sys": true,
+        "in_sys": true
+      },
+      "recovered_values": {
+        "sl_mem": 12.5,
+        "in_mem": 12.5,
+        "rfloor": 975.0,
+        "in_xbar": 15,
+        "in_sys": 30
+      },
+      "differences": {},
+      "passed": true
+    },
+    "late_request": {
+      "injected_failures": 3,
+      "scan_calls": 0,
+      "writes": 0,
+      "checks": {
+        "initial_missing": true,
+        "recovery_path_correct": true,
+        "recovered": true,
+        "values_preserved": true,
+        "live_requests_loaded": true,
+        "settings_preserved": true,
+        "no_writes": true,
+        "no_i2c": true
+      },
+      "initial_rows": {
+        "sl_xbar": false,
+        "in_xbar": false,
+        "sl_sys": false,
+        "in_sys": false
+      },
+      "recovered_after_seconds": 4.582294000000729,
+      "recovered_rows": {
+        "sl_xbar": true,
+        "in_xbar": true,
+        "sl_sys": true,
+        "in_sys": true
+      },
+      "recovered_values": {
+        "sl_mem": 12.5,
+        "in_mem": 12.5,
+        "rfloor": 975.0,
+        "in_xbar": 15,
+        "in_sys": 30
+      },
+      "differences": {},
+      "passed": true
+    }
+  }
+}

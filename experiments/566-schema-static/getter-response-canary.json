@@ -1,0 +1,38 @@
+{
+  "experiment": "change only completed GET response in process memory, no hardware write",
+  "status": 0,
+  "native": [
+    {
+      "original_record": [
+        2,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "canaries_at_native_record_offsets_1_to_6": [
+    1001,
+    2002,
+    3003,
+    4004,
+    5005,
+    6006
+  ],
+  "nvapi_record_words": [
+    0,
+    1001,
+    2002,
+    3003,
+    4004,
+    5005,
+    6006,
+    0,
+    0,
+    0
+  ],
+  "hardware_controls_unchanged": true
+}

@@ -68,7 +68,8 @@ for package in ('dearpygui', 'tomli', 'pyinstaller'):
         if Path(str(file)).name.upper().startswith(('LICENSE', 'COPYING')):
             datas.append((str(dist.locate_file(file)), 'licenses/' + package))
 
-a = Analysis(['druta.py'], pathex=[], binaries=binaries, datas=datas,
+# Same frozen entry point as Druta.spec: the package lives under src/.
+a = Analysis(['src/run_druta.py'], pathex=['src'], binaries=binaries, datas=datas,
              hiddenimports=hiddenimports, hookspath=[], hooksconfig={},
              # Druta has no TLS/network feature. CPython 3.8's OpenSSL 1.1.1
              # uses different terms than the modern build's OpenSSL 3; omit
