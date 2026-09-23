@@ -149,6 +149,16 @@ exited 0, parsed both bundled regulator profiles and rendered three frames.
 The full-interface fixture, the Windows 7 guest and the physical-GPU checks
 recorded below were not repeated for this update.
 
+A follow-up makes three behaviors match the shared build. An `nvtune fields`
+run that exits nonzero but still prints a table is parsed. A native nvtune
+preview that exits 0 is accepted without the completion marker or the extra
+row checks, as described under nvtune below. An NVML GPU whose PCI record
+cannot be read stays listed with a blank slot instead of being dropped. The
+export-based fallbacks for older NVML are unchanged. With these changes the
+source passed 1,208 tests with Python 3.8.10 (the same three skips) and 1,211
+with Python 3.14.4 on the build host. The frozen builds were not rebuilt for
+this follow-up.
+
 ## Verification
 
 Run this on the target Windows 7 installation:
@@ -225,10 +235,11 @@ Druta does not install the driver or change test-signing settings.
 
 Druta learns the helper's command contract from `nvtune --help` and never
 tries a `set` to find out. A build that advertises **`--dry-run`** previews
-with it; the preview must exit 0, end with nvtune's completion marker and
-contain only recognized register rows, or it is refused without retrying a
-bare `set`. A build whose help says everything defaults to a dry run
-previews with a bare `set` under the same row checks. The public upstream
+with it, and a build whose help says everything defaults to a dry run
+previews with a bare `set`. As in the shared build, a preview that exits
+nonzero fails and is not retried as a bare `set`. A preview that exits 0 is
+the plan, with or without nvtune's completion marker; unrecognized lines after
+a register row are listed as warnings, so a commit needs Force. The public upstream
 releases write on a bare `set`, so Druta calculates their read-only preview
 from `fields` and `dump --raw` instead. Approved writes use the helper's
 advertised commit convention (`--commit` where it exists). Failed commands
