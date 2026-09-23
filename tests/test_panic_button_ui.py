@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, Mock, call, patch
 from druta import druta
 
 
-LABEL = "Panic Button (PnP Reset, Deeper than Shift+Ctrl+B)"
+LABEL = "Panic Button\n(PnP Reset, Deeper than Shift+Ctrl+B)"
 
 
 class PanicButtonUiTests(unittest.TestCase):
@@ -30,16 +30,19 @@ class PanicButtonUiTests(unittest.TestCase):
         self.patcher.start()
         self.addCleanup(self.patcher.stop)
 
-    def test_panic_button_is_full_width_directly_under_the_shared_header(self):
+    def test_panic_button_is_in_the_right_column_of_the_shared_header(self):
         self.app.build_shared_header()
-        self.assertIn(call(tag="panic_row", parent="root", width=-1), self.ui.group.call_args_list)
+        self.assertEqual(self.ui.table.call_args.kwargs["tag"], "hdr_row")
+        self.assertEqual(self.ui.table.call_args.kwargs["parent"], "root")
+        self.assertIn(call(tag="hdr_panic_column", width_fixed=True,
+                          init_width_or_weight=360), self.ui.add_table_column.call_args_list)
         button = next(
             item for item in self.ui.add_button.call_args_list
             if item.kwargs.get("tag") == "panic_pnp_reset"
         )
         self.assertEqual(button.kwargs["label"], LABEL)
         self.assertEqual(button.kwargs["width"], -1)
-        self.assertEqual(button.kwargs["height"], 42)
+        self.assertEqual(button.kwargs["height"], 52)
         self.assertIs(button.kwargs["callback"], self.app.open_device_restart)
         self.ui.bind_item_theme.assert_called_once_with("panic_pnp_reset", unittest.mock.ANY)
 
@@ -54,25 +57,9 @@ class PanicButtonUiTests(unittest.TestCase):
         self.app.build_monitor.assert_called_once_with()
         self.app.build_timings.assert_called_once_with()
         self.ui.child_window.assert_called_once_with(
-            tag="tab_content", parent="root", width=-1, height=480, border=False
+            tag="tab_content", parent="root", width=-1, height=-1, border=False
         )
         self.ui.tab_bar.assert_called_once_with(tag="tabs")
-
-    def test_root_header_measurements_define_the_tab_viewport_height(self):
-        positions = {
-            "root": ([0, 0], [1418, 944]),
-            "menu_pad": ([0, 0], [1418, 36]),
-            "hdr_row": ([8, 36], [1402, 35]),
-            "panic_row": ([8, 71], [1402, 42]),
-            "tab_content": ([8, 113], [1402, 480]),
-        }
-        self.ui.does_item_exist.side_effect = lambda tag: tag in positions
-        self.ui.get_item_rect_min.side_effect = lambda tag: positions[tag][0]
-        self.ui.get_item_rect_size.side_effect = lambda tag: positions[tag][1]
-        self.app.layout_tab_content(944)
-        # The 36px menu pad is included in the measured fixed region. The tab
-        # child gets every remaining pixel after the actual panic-row bottom.
-        self.ui.configure_item.assert_called_once_with("tab_content", height=823, width=-1)
 
     def test_card_rebuild_removes_the_fixed_row_and_tab_viewport_together(self):
         self.app._orphans = []
@@ -88,7 +75,7 @@ class PanicButtonUiTests(unittest.TestCase):
         self.ui.get_all_items.return_value = []
         self.app.build_ui(rebuild=True)
         deleted = self.ui.delete_item.call_args_list
-        self.assertIn(call("panic_row"), deleted)
+        self.assertIn(call("hdr_row"), deleted)
         self.assertIn(call("tab_content"), deleted)
         self.app.build_body.assert_called_once_with()
 

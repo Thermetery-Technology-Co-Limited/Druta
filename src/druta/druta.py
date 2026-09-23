@@ -376,7 +376,6 @@ class Druta:
         self._tw_btn = None        # Apply button's colour band and staged count
         self._tim_profile_dialog = False
         self._tim_profile_result = None
-        self._device_restart_target = None
         self._recovery_result = None
 
     # ---- helpers ---------------------------------------------------------- #
@@ -928,7 +927,7 @@ class Druta:
             return
         if W < 100 or H < 100:
             return
-        self.layout_tab_content(H)
+        self.layout_shared_header(W)
         mh = self.menu_h()
         if dpg.does_item_exist("menu_pad"):
             dpg.configure_item("menu_pad", height=mh)
@@ -1014,31 +1013,28 @@ class Druta:
                     dpg.configure_item(tag, height=h)
         self.size_plan_banner()
 
-    def layout_tab_content(self, viewport_height):
-        """Keep the root header fixed and give all tab pages the remaining height.
-
-        The menu spacer, card header, and panic row are measured in their
-        rendered positions rather than assigned a page-height allowance.  The
-        tab child therefore owns vertical overflow while the recovery button
-        remains reachable at the top of the root window.
-        """
-        if not dpg.does_item_exist("tab_content"):
+    def layout_shared_header(self, viewport_width):
+        """Reserve the right column for recovery; wrap card details on the left."""
+        if not dpg.does_item_exist("hdr_identity"):
             return
-        try:
-            root_top = dpg.get_item_rect_min("root")[1]
-
-            def bottom(tag):
-                if not dpg.does_item_exist(tag):
-                    return root_top
-                pos = dpg.get_item_rect_min(tag)
-                size = dpg.get_item_rect_size(tag)
-                return pos[1] + size[1]
-
-            fixed_bottom = max(bottom(tag) for tag in ("menu_pad", "hdr_row", "panic_row"))
-        except Exception:
-            return
-        remaining = int(root_top + viewport_height - fixed_bottom - self.s(8))
-        dpg.configure_item("tab_content", height=max(self.s(80), remaining), width=-1)
+        label = dpg.get_item_configuration("panic_pnp_reset")["label"]
+        button_text = dpg.get_text_size(label, font=self._fonts.get("ui", 0))
+        title = dpg.get_text_size(dpg.get_value("hdr"), font=self._fonts.get("big", 0))
+        card_label = dpg.get_text_size("card", font=self._fonts.get("sel", 0))
+        if not button_text or not title or not card_label:
+            return  # Font measurements become available after the first frame.
+        button_width = int(button_text[0] + self.s(28))
+        left_width = max(self.s(80), viewport_width - button_width - self.s(32))
+        inline = left_width >= title[0] + card_label[0] + self.s(460)
+        dpg.configure_item("hdr_panic_column", width_fixed=True, init_width_or_weight=button_width)
+        dpg.configure_item("hdr_identity", horizontal=inline)
+        dpg.configure_item("hdr", wrap=left_width)
+        combo_space = left_width - card_label[0] - self.s(12)
+        if inline:
+            combo_space -= title[0] + self.s(12)
+        dpg.configure_item("hdr_card", width=min(self.s(420), max(self.s(80), int(combo_space))))
+        dpg.configure_item("hdr_details", wrap=left_width)
+        dpg.configure_item("stale", wrap=left_width)
 
     def tw_block_h(self, wrap):
         """Vertical cost of the always-visible timing-write block.
@@ -7055,25 +7051,6 @@ deliberately does not put behind a button."""
         # wide on purpose: the report's longest lines (the offset ranges, the
         # per-mem-clock lockable table) are what a bug report needs, and a
         # readonly multiline box clips them rather than wrapping
-        with dpg.window(label="Restart GPU device", tag="win_device_restart",
-                        modal=True, show=False, width=self.s(600),
-                        pos=[self.s(140), self.s(140)], autosize=True):
-            dpg.add_text("", tag="device_restart_target", wrap=self.s(560))
-            dpg.add_text(
-                "The display may go blank and GPU applications may lose their "
-                "device. Close other GPU workloads first. Unsaved edits in this "
-                "window will be discarded.\n\n"
-                "Druta closes, Windows restarts the selected GPU, then Druta "
-                "reopens without applying a profile. This can recover a driver "
-                "or timing failure, but is not a guarantee of stock settings "
-                "or recovery from a hardware hang.\n\n"
-                "This will not reboot the computer. If Windows requires a "
-                "reboot, the result will say so.", wrap=self.s(560), color=WARN)
-            with dpg.group(horizontal=True):
-                dpg.add_button(label="Restart selected GPU",
-                               callback=self.confirm_device_restart)
-                dpg.add_button(label="Cancel", callback=lambda: dpg.configure_item(
-                    "win_device_restart", show=False))
         with dpg.window(label="Device report", tag="win_device", show=False,
                         width=self.s(1000), height=self.s(600),
                         pos=[self.s(70), self.s(70)]):
@@ -8281,40 +8258,28 @@ deliberately does not put behind a button."""
 
     # ---- selected-device recovery ----------------------------------------- #
     def open_device_restart(self, sender=None, app_data=None, user_data=None):
+        """Start the bounded selected-GPU recovery helper without a modal step."""
         from . import devicereset
+        if getattr(self, "_closing", False):
+            return
         if not is_admin():
             self.log("GPU device restart requires Druta to run as administrator", False)
-            return
-        try:
-            target = devicereset.resolve_target(self.gpu.slot())
-        except Exception as exc:
-            self.log(f"cannot identify the GPU for restart: {exc}", False)
-            return
-        self._device_restart_target = (self.gpu, target)
-        dpg.set_value("device_restart_target", f"{target.name}\n{target.slot}\n"
-                      f"{target.instance_id}")
-        dpg.configure_item("win_device_restart", show=True)
-        dpg.focus_item("win_device_restart")
-
-    def confirm_device_restart(self, sender=None, app_data=None, user_data=None):
-        pending = getattr(self, "_device_restart_target", None)
-        if not pending or pending[0] is not self.gpu or pending[1].slot != self.gpu.slot():
-            self.log("selected GPU changed; open the restart dialog again", False)
             return
         if (getattr(self, "_i2c_busy", False)
                 or getattr(self, "_profile_pending", None)
                 or getattr(self, "_profile_applying", False)):
             self.log("wait for I2C verification/profile restoration before restarting", False)
             return
-        if not is_admin():
-            self.log("GPU device restart requires administrator rights", False)
+        try:
+            target = devicereset.resolve_target(self.gpu.slot())
+        except Exception as exc:
+            self.log(f"cannot identify the GPU for restart: {exc}", False)
             return
         try:
-            devicerecovery.launch_helper(pending[1])
+            devicerecovery.launch_helper(target)
         except (OSError, RuntimeError) as exc:
             self.log(f"could not start GPU recovery helper: {exc}", False)
             return
-        self._device_restart_target = None
         self._closing = True
         self._stop.set()
         # Normal exit releases our locks and tears down DPG. The helper waits
@@ -9785,10 +9750,10 @@ deliberately does not put behind a button."""
             self._current_limits = {}
             self._knob_cb = {}
             self._xoc_bounds = False
-            for tag in ("hdr_row", "panic_row", "tab_content", "tabs", "menubar", "win_device", "win_save",
+            for tag in ("hdr_row", "tab_content", "tabs", "menubar", "win_device", "win_save",
                         "win_profiles", "win_keys", "win_about",
                         "win_licence", "win_testsign", "win_ts_done",
-                        "win_shunt", "win_device_restart"):
+                        "win_shunt"):
                 if dpg.does_item_exist(tag):
                     dpg.delete_item(tag)
         before = set(dpg.get_all_items())
@@ -9828,8 +9793,11 @@ deliberately does not put behind a button."""
         # The root window must never become the page scroller: scrolling it
         # hides the selected-GPU header and recovery action. Each tab keeps its
         # own existing panels, while this child owns any whole-page overflow.
+        # Negative height uses ImGui's remaining content region on every frame,
+        # including after a resize or header wrap. Windows expose `pos`, not
+        # `rect_min`: manually querying the latter left this child at 480px.
         with dpg.child_window(tag="tab_content", parent="root", width=-1,
-                              height=self.s(480), border=False):
+                              height=-1, border=False):
             with dpg.tab_bar(tag="tabs"):
                 # Control first: it is what the app is opened to do. Monitor
                 # second. Timings last and labelled, because it is the only tab
@@ -9839,67 +9807,42 @@ deliberately does not put behind a button."""
                 self.build_timings()
 
     def build_shared_header(self):
-        """Build the card header and the recovery action shared by every tab.
-
-        The PnP recovery action occupies its own full-width row instead of
-        competing with the card selector.  That keeps its complete label
-        visible at the application's smallest supported viewport and leaves it
-        present while a tab's child panels scroll.
-        """
+        """Keep card identity on the left and immediate recovery at upper right."""
         st = self.gpu.static
-        with dpg.group(horizontal=True, tag="hdr_row", parent="root"):
-            dpg.add_text(f"Thermetery Druta {__version__}", tag="hdr", color=ACCENT)
-            self.bind("hdr", "big")
-            dpg.add_text(f"   {st.get('name')}  •  driver "
-                         f"{st.get('driver')}  •  vbios "
-                         f"{st.get('vbios')}"
-                         + (f"  •  {st.get('slot')}"
-                            if len(self.gpu_list) > 1 else ""), color=DIM)
-            dpg.add_text("   admin" if st.get("admin")
-                         else "   NOT admin (lock/fan/PL need admin)",
-                         color=GOOD if st.get("admin") else WARN)
-            dpg.add_text("", tag="stale", color=BAD)
-            # THE CARD SELECTOR, in the header rather than three levels into a
-            # menu. Every control in this window is pointed at exactly one GPU
-            # and means different numbers on a different one, so which card is
-            # selected is a permanent question, not an occasional one - and a
-            # menu is where you put things people look for, not things they
-            # need to see. Large, because it is the label for the whole window.
-            dpg.add_spacer(width=self.s(24))
-            # Same font as the combo it labels. At the body size it read as a
-            # caption on a control three times its height, which made the pair
-            # look like an afterthought rather than the header's main control.
-            dpg.add_text("card", tag="hdr_card_lbl", color=DIM)
-            self.bind("hdr_card_lbl", "sel")
-            dpg.add_combo(self.card_labels(), tag="hdr_card",
-                          default_value=self.card_label(self.gpu.slot()),
-                          width=self.s(420), callback=self.on_pick_card)
-            self.bind("hdr_card", "sel")
-            with dpg.tooltip("hdr_card"):
-                dpg.add_text(
-                    "Which GPU this window drives. Switching rebuilds every\n"
-                    "control from the new card's own measurements.\n\n"
-                    "Refused while this window is holding the card with a\n"
-                    "clock or V/F point lock. Staged edits ask once, then\n"
-                    "go through on a second pick.\n\n"
-                    "Device > Open a second window on... watches both at once.")
-        # A driver recovery needs to remain available when a timing edit or a
-        # long Monitor/Control panel has scrolled away. It opens the existing
-        # confirmation dialog; it does not reset controls or issue PnP itself.
-        with dpg.group(tag="panic_row", parent="root", width=-1):
-            dpg.add_button(
-                label="Panic Button (PnP Reset, Deeper than Shift+Ctrl+B)",
-                tag="panic_pnp_reset",
-                width=-1,
-                height=self.s(42),
-                callback=self.open_device_restart,
-            )
-            with dpg.tooltip("panic_pnp_reset"):
-                dpg.add_text(
-                    "Opens a confirmation for a Windows Plug and Play restart "
-                    "of the selected GPU. This closes Druta before restarting "
-                    "the device; it does not reset tuning controls or reboot Windows.",
-                    wrap=self.s(560),
+        with dpg.table(tag="hdr_row", parent="root", header_row=False,
+                       policy=dpg.mvTable_SizingStretchProp, width=-1):
+            dpg.add_table_column(width_stretch=True)
+            dpg.add_table_column(tag="hdr_panic_column", width_fixed=True,
+                                 init_width_or_weight=self.s(360))
+            with dpg.table_row():
+                with dpg.group():
+                    with dpg.group(tag="hdr_identity", horizontal=True):
+                        dpg.add_text(f"Thermetery Druta {__version__}", tag="hdr", color=ACCENT)
+                        self.bind("hdr", "big")
+                        with dpg.group(horizontal=True):
+                            dpg.add_text("card", tag="hdr_card_lbl", color=DIM)
+                            self.bind("hdr_card_lbl", "sel")
+                            dpg.add_combo(self.card_labels(), tag="hdr_card",
+                                          default_value=self.card_label(self.gpu.slot()),
+                                          width=self.s(420), callback=self.on_pick_card)
+                            self.bind("hdr_card", "sel")
+                            with dpg.tooltip("hdr_card"):
+                                dpg.add_text(
+                                    "Which GPU this window drives. Switching rebuilds every\n"
+                                    "control from the new card's own measurements.\n\n"
+                                    "Refused while this window is holding the card with a\n"
+                                    "clock or V/F point lock. Staged edits ask once, then\n"
+                                    "go through on a second pick.\n\n"
+                                    "Device > Open a second window on... watches both at once.")
+                    dpg.add_text(f"{st.get('name')}  •  driver {st.get('driver')}  •  "
+                                 f"vbios {st.get('vbios')}"
+                                 + ("  •  admin" if st.get("admin") else "  •  NOT admin"),
+                                 tag="hdr_details", color=DIM if st.get("admin") else WARN)
+                    dpg.add_text("", tag="stale", color=BAD)
+                dpg.add_button(
+                    label="Panic Button\n(PnP Reset, Deeper than Shift+Ctrl+B)",
+                    tag="panic_pnp_reset", width=-1, height=self.s(52),
+                    callback=self.open_device_restart,
                 )
         with dpg.theme() as panic_theme:
             with dpg.theme_component(dpg.mvAll):

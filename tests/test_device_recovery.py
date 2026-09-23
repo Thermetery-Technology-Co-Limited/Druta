@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 import unittest
 
-from druta import devicerecovery, druta
+from druta import devicerecovery, devicereset, druta
 from tests.test_arch_ui_regressions import FakeUiTest
 
 
@@ -110,13 +110,15 @@ class DeviceRestartUiTests(FakeUiTest):
         super().setUp()
         self.app.gpu = SimpleNamespace(slot=lambda: "0000:03:00.0")
         self.target = SimpleNamespace(slot="0000:03:00.0", instance_id="PCI\\EXACT", name="GPU")
-        self.app._device_restart_target = (self.app.gpu, self.target)
         self.app._stop = Mock()
+        self.app._closing = False
 
-    def test_confirm_launches_helper_before_closing_without_applying_profile(self):
+    def test_action_launches_helper_immediately_before_closing_without_applying_profile(self):
         with patch.object(druta, "is_admin", return_value=True), \
+                patch.object(devicereset, "resolve_target", return_value=self.target) as resolve, \
                 patch.object(devicerecovery, "launch_helper") as helper:
-            self.app.confirm_device_restart()
+            self.app.open_device_restart()
+        resolve.assert_called_once_with(self.target.slot)
         helper.assert_called_once_with(self.target)
         self.ui.stop_dearpygui.assert_called_once()
         self.assertTrue(self.app._closing)
@@ -124,29 +126,46 @@ class DeviceRestartUiTests(FakeUiTest):
 
     def test_failed_helper_launch_keeps_window_open(self):
         with patch.object(druta, "is_admin", return_value=True), \
+                patch.object(devicereset, "resolve_target", return_value=self.target), \
                 patch.object(devicerecovery, "launch_helper", side_effect=OSError("launch failed")):
-            self.app.confirm_device_restart()
+            self.app.open_device_restart()
         self.ui.stop_dearpygui.assert_not_called()
         self.app._stop.set.assert_not_called()
+        self.assertFalse(self.app._closing)
 
-    def test_switch_or_active_writer_or_missing_admin_refuses_restart(self):
+    def test_active_writer_missing_admin_or_closing_refuses_restart(self):
         with patch.object(druta, "is_admin", return_value=True), \
+                patch.object(devicereset, "resolve_target") as resolve, \
                 patch.object(devicerecovery, "launch_helper") as helper:
-            self.app._device_restart_target = (object(), self.target)
-            self.app.confirm_device_restart()
-            self.app._device_restart_target = (self.app.gpu, self.target)
             self.app._i2c_busy = True
-            self.app.confirm_device_restart()
+            self.app.open_device_restart()
             self.app._i2c_busy = False
             self.app._profile_pending = {"profile": 1}
-            self.app.confirm_device_restart()
+            self.app.open_device_restart()
+            self.app._profile_pending = None
+            self.app._profile_applying = True
+            self.app.open_device_restart()
+            self.app._profile_applying = False
+            self.app._closing = True
+            self.app.open_device_restart()
             helper.assert_not_called()
-        self.app._profile_pending = None
+            resolve.assert_not_called()
+        self.app._closing = False
         with patch.object(druta, "is_admin", return_value=False), \
+                patch.object(devicereset, "resolve_target") as resolve, \
                 patch.object(devicerecovery, "launch_helper") as helper:
-            self.app.confirm_device_restart()
+            self.app.open_device_restart()
             helper.assert_not_called()
+            resolve.assert_not_called()
         self.ui.stop_dearpygui.assert_not_called()
+
+    def test_resolve_failure_never_starts_helper_and_no_confirm_entrypoint_remains(self):
+        with patch.object(druta, "is_admin", return_value=True), \
+                patch.object(devicereset, "resolve_target", side_effect=RuntimeError("missing target")), \
+                patch.object(devicerecovery, "launch_helper") as helper:
+            self.app.open_device_restart()
+        helper.assert_not_called()
+        self.assertFalse(hasattr(druta.Druta, "confirm_device_restart"))
 
     def test_cli_recovery_dispatches_before_gpu_or_startup_initialization(self):
         with patch.object(devicerecovery, "cli", return_value=0) as cli, \

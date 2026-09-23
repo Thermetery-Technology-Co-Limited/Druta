@@ -818,11 +818,12 @@ The CUDA memcpy load is the fallback when the hold cannot be taken, such as in c
 
 ### Upcoming GPU device restart
 
-The red **Panic Button (PnP Reset, Deeper than Shift+Ctrl+B)** stays above every
-tab, including while the page scrolls. It opens the same confirmation as
-**Device > Restart GPU device (PnP)...** to restart the selected NVIDIA display
-device through Windows PnP. Druta identifies its exact PCI location and device
-instance, closes its window, waits for the process to exit, runs Windows
+The red **Panic Button (PnP Reset, Deeper than Shift+Ctrl+B)** stays in the
+upper-right shared header, including while the tab page scrolls. It and
+**Device > Restart GPU device (PnP)...** immediately start a restart of the
+selected NVIDIA display device through Windows PnP; there is no confirmation.
+Druta identifies its exact PCI location and device instance, closes its window,
+waits for the process to exit, runs Windows
 `pnputil /restart-device`, and reopens with fresh driver handles. It does not
 automatically apply any tuning profile or reboot the computer. A failed restart
 or a Windows requirement to reboot is reported and saved under

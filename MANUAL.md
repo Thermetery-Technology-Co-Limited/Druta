@@ -138,12 +138,12 @@ Unrecognized command conventions refuse the preview.
 
 ### Upcoming GPU recovery
 
-Use the red **Panic Button (PnP Reset, Deeper than Shift+Ctrl+B)** above any tab
-to attempt recovery from a driver or timing failure. It remains visible while
-the page scrolls; **Device > Restart GPU device (PnP)...** opens the same
-confirmation. Review the named card and PCI slot, then choose **Restart
-selected GPU**. The display may go blank and other GPU applications may lose
-their device. Close other workloads and save staged edits first.
+Use the red **Panic Button (PnP Reset, Deeper than Shift+Ctrl+B)** in the
+upper-right shared header to attempt recovery from a driver or timing failure.
+It remains visible while the tab page scrolls; **Device > Restart GPU device
+(PnP)...** starts the same recovery immediately, without a confirmation. The
+display may go blank and other GPU applications may lose their device. Close
+other workloads and save staged edits first.
 
 Druta closes, restarts that exact Windows device, and opens a fresh window. It
 does not reapply a profile or reboot Windows. The result appears in the log and
