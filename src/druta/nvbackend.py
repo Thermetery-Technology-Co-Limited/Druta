@@ -5325,6 +5325,19 @@ class GPU:
     # voltages or factory defaults. Historical board measurements are recorded
     # in VOLTAGE-RAILS-TITAN.md and VOLTAGE-RAILS-47212.md.
     _VOLT_RAIL_ARCHITECTURES = (ARCH_PASCAL, ARCH_TURING, 10)
+    # NVIDIA's Vista-capable drivers end with 365.19: Vista support was
+    # deprecated in Release 367 (VISTA.md). No rail-limit read, write or
+    # restoration has been observed on those driver branches, and the Vista
+    # package keeps these writes disabled even with the write toggle selected.
+    # This is the installed driver's release branch, not a tested-board list;
+    # R367 and newer keep the per-adapter discovery below.
+    _VOLT_RAIL_FIRST_POST_VISTA_DRIVER = 367
+
+    def _volt_rail_vista_era_driver(self):
+        """True when the installed NVIDIA driver predates Release 367."""
+        driver = str(getattr(self, "static", {}).get("driver") or "")
+        major = driver.split(".", 1)[0]
+        return major.isdigit() and int(major) < self._VOLT_RAIL_FIRST_POST_VISTA_DRIVER
 
     def _volt_rail_profile(self):
         """Current-adapter references, not a generation's factory defaults.
@@ -5443,6 +5456,9 @@ class GPU:
                 reason = "GPU architecture could not be detected. Retry detection."
             elif architecture not in self._VOLT_RAIL_ARCHITECTURES:
                 reason = "Rail limit control is not yet understood for this GPU architecture."
+            elif self._volt_rail_vista_era_driver():
+                reason = ("Rail limit writes are not validated on NVIDIA drivers older than "
+                          "Release 367, including the Vista 365.19 driver.")
             elif rail not in current:
                 reason = "The driver did not return this rail's control settings. Retry detection."
             elif not self._valid_volt_rail_state(rail, state.get(rail, {})):
@@ -5467,7 +5483,7 @@ class GPU:
 
     def volt_rail_limits_supported(self, rail=None):
         """Each understood rail stands on its own current-adapter getters."""
-        if self._volt_rail_profile() is None:
+        if self._volt_rail_vista_era_driver() or self._volt_rail_profile() is None:
             return False
         current = self.read_volt_rail_limits() or {}
         state = self.read_volt_rail_state() or {}

@@ -47,11 +47,13 @@ The CUDA functions used by the load worker and NVAPI's query entry point
 exist in these files. Export presence does not prove a function works on a
 particular GPU. No NVIDIA driver binary is included in the Druta package.
 
-Per-rail voltage writes retain their measured card/VBIOS/driver profiles.
-The 365.19 driver has no validated rail-write profile, so unconfirmed TITAN
-rail writes remain disabled even when the write toggle is selected. Physical
-NVIDIA monitoring, V/F operations, clock/fan fallbacks and timing access on
-Vista still require testing with a supported card and its installed driver.
+Per-rail voltage limits otherwise follow the shared per-adapter discovery.
+NVIDIA drivers older than Release 367, including 365.19, have no validated
+rail-limit writes, so these writes and their restoration remain disabled
+even when the write toggle is selected; the rail-limit status names that
+reason. Physical NVIDIA monitoring, V/F operations, clock/fan fallbacks and
+timing access on Vista still require testing with a supported card and its
+installed driver.
 
 Earlier port validation passed 158 application tests and 54 compatibility/package tests
 under the patched Python 3.8.10 runtime on the modern build host. Its source
