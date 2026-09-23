@@ -816,6 +816,29 @@ The CUDA memcpy load is the fallback when the hold cannot be taken, such as in c
 
 **`Re-read timings`** — a sanity check after you applied the settings, not a way to get a reading. Might be deprecated soon. 
 
+### Upcoming GPU device restart
+
+The red **Panic Button (PnP Reset, Deeper than Shift+Ctrl+B)** stays above every
+tab, including while the page scrolls. It opens the same confirmation as
+**Device > Restart GPU device (PnP)...** to restart the selected NVIDIA display
+device through Windows PnP. Druta identifies its exact PCI location and device
+instance, closes its window, waits for the process to exit, runs Windows
+`pnputil /restart-device`, and reopens with fresh driver handles. It does not
+automatically apply any tuning profile or reboot the computer. A failed restart
+or a Windows requirement to reboot is reported and saved under
+`%LOCALAPPDATA%\Druta\device-recovery`.
+
+Use this as a recovery attempt after a driver/timing failure. The display can go
+blank and other GPU applications can lose their device; close other workloads
+first. Unsaved edits in Druta are discarded. This does not guarantee recovery
+from a hardware hang or restoration of every setting to stock. It requires
+administrator rights and Windows 10 version 2004 or later. Ambiguous device
+locations and nonzero PCI segments are refused.
+
+If the GUI is unusable, the same recovery path can be launched from an elevated
+shell: `Druta.exe --restart-gpu 0000:01:00.0`, substituting the selected card's
+slot from `Druta.exe --list-gpus`. Close existing Druta windows first.
+
 ### Upcoming timing profiles
 
 The next unreleased build adds **Save timing profile...** and **Load timing profile...** on the

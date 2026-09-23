@@ -136,6 +136,26 @@ text before previewing a change: newer helpers require explicit `--dry-run`,
 while the recognized legacy convention requires `--commit` for writes.
 Unrecognized command conventions refuse the preview.
 
+### Upcoming GPU recovery
+
+Use the red **Panic Button (PnP Reset, Deeper than Shift+Ctrl+B)** above any tab
+to attempt recovery from a driver or timing failure. It remains visible while
+the page scrolls; **Device > Restart GPU device (PnP)...** opens the same
+confirmation. Review the named card and PCI slot, then choose **Restart
+selected GPU**. The display may go blank and other GPU applications may lose
+their device. Close other workloads and save staged edits first.
+
+Druta closes, restarts that exact Windows device, and opens a fresh window. It
+does not reapply a profile or reboot Windows. The result appears in the log and
+is saved in `%LOCALAPPDATA%\Druta\device-recovery`. If Windows needs a reboot,
+Druta reports that requirement. This is not a guarantee of recovery from a
+hardware hang or of stock settings. Administrator rights and Windows 10 version
+2004 or later are required.
+
+From an elevated shell, after closing existing Druta windows, the same operation
+is available as `Druta.exe --restart-gpu 0000:01:00.0`; replace the PCI slot with
+the card shown by `Druta.exe --list-gpus`.
+
 ### Upcoming timing profiles
 
 The next unreleased build adds **Save timing profile...** and **Load timing profile...** to the

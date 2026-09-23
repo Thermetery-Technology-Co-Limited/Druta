@@ -90,7 +90,8 @@ import time
 
 import dearpygui.dearpygui as dpg
 
-from . import gpuload, paths, profiles, startup, shuntmod, timings, timingwrite, timingprofiles
+from . import (gpuload, paths, profiles, startup, shuntmod, timings, timingwrite,
+               timingprofiles, devicerecovery)
 from .nvbackend import (GPU, EVENT_REASONS, PERF_DECREASE_BITS, VF_STEP_KHZ, VF_LOCK_DOMAIN,
                         VFP_POINTS, below_cap, enumerate_gpus, is_admin,
                         same_slot,
@@ -372,9 +373,11 @@ class Druta:
         self._tw_pending = {}      # staged timing writes, field -> new value
         self._tw_base = {}         # field -> cycle count actually in the reg
         self._tw_themes = {}       # cached text-colour themes for the cells
-        self._tw_btn = None        # colour band the Apply button is wearing
+        self._tw_btn = None        # Apply button's colour band and staged count
         self._tim_profile_dialog = False
         self._tim_profile_result = None
+        self._device_restart_target = None
+        self._recovery_result = None
 
     # ---- helpers ---------------------------------------------------------- #
     def s(self, n):
@@ -925,6 +928,7 @@ class Druta:
             return
         if W < 100 or H < 100:
             return
+        self.layout_tab_content(H)
         mh = self.menu_h()
         if dpg.does_item_exist("menu_pad"):
             dpg.configure_item("menu_pad", height=mh)
@@ -1009,6 +1013,32 @@ class Druta:
                 if h and dpg.does_item_exist(tag):
                     dpg.configure_item(tag, height=h)
         self.size_plan_banner()
+
+    def layout_tab_content(self, viewport_height):
+        """Keep the root header fixed and give all tab pages the remaining height.
+
+        The menu spacer, card header, and panic row are measured in their
+        rendered positions rather than assigned a page-height allowance.  The
+        tab child therefore owns vertical overflow while the recovery button
+        remains reachable at the top of the root window.
+        """
+        if not dpg.does_item_exist("tab_content"):
+            return
+        try:
+            root_top = dpg.get_item_rect_min("root")[1]
+
+            def bottom(tag):
+                if not dpg.does_item_exist(tag):
+                    return root_top
+                pos = dpg.get_item_rect_min(tag)
+                size = dpg.get_item_rect_size(tag)
+                return pos[1] + size[1]
+
+            fixed_bottom = max(bottom(tag) for tag in ("menu_pad", "hdr_row", "panic_row"))
+        except Exception:
+            return
+        remaining = int(root_top + viewport_height - fixed_bottom - self.s(8))
+        dpg.configure_item("tab_content", height=max(self.s(80), remaining), width=-1)
 
     def tw_block_h(self, wrap):
         """Vertical cost of the always-visible timing-write block.
@@ -6822,6 +6852,8 @@ deliberately does not put behind a button."""
                                   callback=self.copy_device_report)
                 dpg.add_menu_item(label="Refresh capabilities",
                                   callback=self.refresh_capabilities)
+                dpg.add_menu_item(label="Restart GPU device (PnP)...",
+                                  callback=self.open_device_restart)
                 dpg.add_separator()
                 # nvtune is NOT shipped with Druta, so the Timings tab needs to
                 # be pointed at it once. This is that once.
@@ -7023,6 +7055,25 @@ deliberately does not put behind a button."""
         # wide on purpose: the report's longest lines (the offset ranges, the
         # per-mem-clock lockable table) are what a bug report needs, and a
         # readonly multiline box clips them rather than wrapping
+        with dpg.window(label="Restart GPU device", tag="win_device_restart",
+                        modal=True, show=False, width=self.s(600),
+                        pos=[self.s(140), self.s(140)], autosize=True):
+            dpg.add_text("", tag="device_restart_target", wrap=self.s(560))
+            dpg.add_text(
+                "The display may go blank and GPU applications may lose their "
+                "device. Close other GPU workloads first. Unsaved edits in this "
+                "window will be discarded.\n\n"
+                "Druta closes, Windows restarts the selected GPU, then Druta "
+                "reopens without applying a profile. This can recover a driver "
+                "or timing failure, but is not a guarantee of stock settings "
+                "or recovery from a hardware hang.\n\n"
+                "This will not reboot the computer. If Windows requires a "
+                "reboot, the result will say so.", wrap=self.s(560), color=WARN)
+            with dpg.group(horizontal=True):
+                dpg.add_button(label="Restart selected GPU",
+                               callback=self.confirm_device_restart)
+                dpg.add_button(label="Cancel", callback=lambda: dpg.configure_item(
+                    "win_device_restart", show=False))
         with dpg.window(label="Device report", tag="win_device", show=False,
                         width=self.s(1000), height=self.s(600),
                         pos=[self.s(70), self.s(70)]):
@@ -7936,15 +7987,48 @@ deliberately does not put behind a button."""
         dpg.set_value("tw_plan", body)
         dpg.configure_item("tw_plan", color=colour)
 
+    def tw_reconcile_capture(self, snap, field_table):
+        """Retire only edits confirmed by a fresh read of this card's top band.
+
+        A failed or idle capture cannot say whether a write landed. Check the
+        decoded broadcast value against the raw word and every active FBPA
+        partition before treating an assignment as resolved.
+        """
+        if (snap is None or not snap.ok or not snap.mem_stable
+                or snap.perf_band is not True or not snap.scopes
+                or field_table is None or not same_slot(snap.slot, self.gpu.slot())):
+            return
+        broadcast = snap.registers.get("broadcast")
+        if not isinstance(broadcast, dict):
+            return
+        for name, requested in tuple(self._tw_pending.items()):
+            field = field_table.by_name(name)
+            reading = snap.by_name(name)
+            if (field is None or reading is None or reading.field != field
+                    or field.structural or field.inferred or not field.width_consistent
+                    or type(requested) is not int or type(reading.cycles) is not int
+                    or reading.cycles != requested):
+                continue
+            word = broadcast.get(field.register)
+            if type(word) is not int or field.extract(word) != requested:
+                continue
+            if any(type((snap.registers.get(scope) or {}).get(field.register)) is not int
+                   or field.extract(snap.registers[scope][field.register]) != requested
+                   for scope in snap.scopes):
+                continue
+            self._tw_pending.pop(name, None)
+
     def tw_button(self):
         """Apply goes red exactly when clicking it would write to the memory
         controller, and sits neutral when it would do nothing. The button and
         the red cells are the same signal said twice, which is the point: the
         control that does the dangerous thing should look like it."""
-        band = "armed" if self._tw_pending else "idle"
-        if self._tw_btn == band or not dpg.does_item_exist("tw_apply"):
+        count = len(self._tw_pending)
+        band = "armed" if count else "idle"
+        button_state = (band, count)
+        if self._tw_btn == button_state or not dpg.does_item_exist("tw_apply"):
             return
-        self._tw_btn = band
+        self._tw_btn = button_state
         if band == "idle":
             dpg.bind_item_theme("tw_apply", 0)
             dpg.configure_item("tw_apply", label="Apply to memory controller")
@@ -7963,7 +8047,7 @@ deliberately does not put behind a button."""
         dpg.bind_item_theme("tw_apply", th)
         dpg.configure_item(
             "tw_apply",
-            label=f"Apply {len(self._tw_pending)} change(s) to the memory "
+            label=f"Apply {count} change(s) to the memory "
                   f"controller")
 
     def tw_apply(self, sender=None, app_data=None, user_data=None):
@@ -8194,6 +8278,49 @@ deliberately does not put behind a button."""
                       "to abort." if ok else
                       f"Could not schedule the reboot: {msg}")
         dpg.configure_item("tsd_head", color=WARN if ok else BAD)
+
+    # ---- selected-device recovery ----------------------------------------- #
+    def open_device_restart(self, sender=None, app_data=None, user_data=None):
+        from . import devicereset
+        if not is_admin():
+            self.log("GPU device restart requires Druta to run as administrator", False)
+            return
+        try:
+            target = devicereset.resolve_target(self.gpu.slot())
+        except Exception as exc:
+            self.log(f"cannot identify the GPU for restart: {exc}", False)
+            return
+        self._device_restart_target = (self.gpu, target)
+        dpg.set_value("device_restart_target", f"{target.name}\n{target.slot}\n"
+                      f"{target.instance_id}")
+        dpg.configure_item("win_device_restart", show=True)
+        dpg.focus_item("win_device_restart")
+
+    def confirm_device_restart(self, sender=None, app_data=None, user_data=None):
+        pending = getattr(self, "_device_restart_target", None)
+        if not pending or pending[0] is not self.gpu or pending[1].slot != self.gpu.slot():
+            self.log("selected GPU changed; open the restart dialog again", False)
+            return
+        if (getattr(self, "_i2c_busy", False)
+                or getattr(self, "_profile_pending", None)
+                or getattr(self, "_profile_applying", False)):
+            self.log("wait for I2C verification/profile restoration before restarting", False)
+            return
+        if not is_admin():
+            self.log("GPU device restart requires administrator rights", False)
+            return
+        try:
+            devicerecovery.launch_helper(pending[1])
+        except (OSError, RuntimeError) as exc:
+            self.log(f"could not start GPU recovery helper: {exc}", False)
+            return
+        self._device_restart_target = None
+        self._closing = True
+        self._stop.set()
+        # Normal exit releases our locks and tears down DPG. The helper waits
+        # for process exit, so neither old driver handles nor this D3D device
+        # survive into the restart. It never resumes an opted-in profile.
+        dpg.stop_dearpygui()
 
     # ---- switching cards --------------------------------------------------- #
     def reset_card_state(self):
@@ -9010,6 +9137,14 @@ deliberately does not put behind a button."""
             dpg.set_value("tim_words", "")
             dpg.delete_item("tim_table", children_only=True)
             self.tim_columns()
+            self.tw_button()
+            if self._tw_pending:
+                dpg.set_value("tw_plan", "Timing readback unavailable; staged edits "
+                              "are preserved. Capture again before Apply.")
+                dpg.configure_item("tw_plan", color=WARN)
+            else:
+                dpg.set_value("tw_plan", "no edits staged")
+                dpg.configure_item("tw_plan", color=TEXT)
             # the captures still have to be redrawn: this path is reached
             # whenever the most recent snapshot failed, and a comparison left
             # standing over captures that no longer exist is a lie
@@ -9047,6 +9182,7 @@ deliberately does not put behind a button."""
             self._tim_ft = timings.field_table()
         except Exception:                                       # noqa: BLE001
             self._tim_ft = None
+        self.tw_reconcile_capture(snap, self._tim_ft)
 
         # ---- header ------------------------------------------------------- #
         dpg.set_value("tim_ident",
@@ -9099,6 +9235,7 @@ deliberately does not put behind a button."""
                 desc = f.description + (" [structural]" if f.structural else "")
                 dpg.add_text(desc, color=DIM if f.structural else TEXT,
                              wrap=self.s(self.TIM_COLS[-1][1] - 14))
+        self.tw_plan()
         self.draw_comparison(caps)
         self.draw_divergence(snap)
 
@@ -9648,10 +9785,10 @@ deliberately does not put behind a button."""
             self._current_limits = {}
             self._knob_cb = {}
             self._xoc_bounds = False
-            for tag in ("hdr_row", "tabs", "menubar", "win_device", "win_save",
+            for tag in ("hdr_row", "panic_row", "tab_content", "tabs", "menubar", "win_device", "win_save",
                         "win_profiles", "win_keys", "win_about",
                         "win_licence", "win_testsign", "win_ts_done",
-                        "win_shunt"):
+                        "win_shunt", "win_device_restart"):
                 if dpg.does_item_exist(tag):
                     dpg.delete_item(tag)
         before = set(dpg.get_all_items())
@@ -9687,6 +9824,28 @@ deliberately does not put behind a button."""
         keeps in step with the menu bar, has nothing per-card about it, and
         leaving it in place keeps these two rebuilt in the right order after
         root's other children."""
+        self.build_shared_header()
+        # The root window must never become the page scroller: scrolling it
+        # hides the selected-GPU header and recovery action. Each tab keeps its
+        # own existing panels, while this child owns any whole-page overflow.
+        with dpg.child_window(tag="tab_content", parent="root", width=-1,
+                              height=self.s(480), border=False):
+            with dpg.tab_bar(tag="tabs"):
+                # Control first: it is what the app is opened to do. Monitor
+                # second. Timings last and labelled, because it is the only tab
+                # that needs a separate tool installed to do anything at all.
+                self.build_control()      # the V/F editor lives inside this tab
+                self.build_monitor()
+                self.build_timings()
+
+    def build_shared_header(self):
+        """Build the card header and the recovery action shared by every tab.
+
+        The PnP recovery action occupies its own full-width row instead of
+        competing with the card selector.  That keeps its complete label
+        visible at the application's smallest supported viewport and leaves it
+        present while a tab's child panels scroll.
+        """
         st = self.gpu.static
         with dpg.group(horizontal=True, tag="hdr_row", parent="root"):
             dpg.add_text(f"Thermetery Druta {__version__}", tag="hdr", color=ACCENT)
@@ -9724,13 +9883,32 @@ deliberately does not put behind a button."""
                     "clock or V/F point lock. Staged edits ask once, then\n"
                     "go through on a second pick.\n\n"
                     "Device > Open a second window on... watches both at once.")
-        with dpg.tab_bar(tag="tabs", parent="root"):
-            # Control first: it is what the app is opened to do. Monitor
-            # second. Timings last and labelled, because it is the only tab
-            # that needs a separate tool installed to do anything at all.
-            self.build_control()          # the V/F editor lives inside this tab
-            self.build_monitor()
-            self.build_timings()
+        # A driver recovery needs to remain available when a timing edit or a
+        # long Monitor/Control panel has scrolled away. It opens the existing
+        # confirmation dialog; it does not reset controls or issue PnP itself.
+        with dpg.group(tag="panic_row", parent="root", width=-1):
+            dpg.add_button(
+                label="Panic Button (PnP Reset, Deeper than Shift+Ctrl+B)",
+                tag="panic_pnp_reset",
+                width=-1,
+                height=self.s(42),
+                callback=self.open_device_restart,
+            )
+            with dpg.tooltip("panic_pnp_reset"):
+                dpg.add_text(
+                    "Opens a confirmation for a Windows Plug and Play restart "
+                    "of the selected GPU. This closes Druta before restarting "
+                    "the device; it does not reset tuning controls or reboot Windows.",
+                    wrap=self.s(560),
+                )
+        with dpg.theme() as panic_theme:
+            with dpg.theme_component(dpg.mvAll):
+                dpg.add_theme_color(dpg.mvThemeCol_Button, (150, 28, 32))
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (190, 43, 48))
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (222, 58, 63))
+                dpg.add_theme_color(dpg.mvThemeCol_Text, (255, 236, 236))
+                dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, self.s(4))
+        dpg.bind_item_theme("panic_pnp_reset", panic_theme)
 
     def dispatch_callbacks(self):
         """Discard outgoing-card jobs when a callback rebuilds the widget tree."""
@@ -9815,6 +9993,10 @@ deliberately does not put behind a button."""
                          name="Druta-poll").start()
         self.sync_lock_ui()          # the gate must LOOK like whatever it is
         self.log(f"backend: {self.gpu.status_line()}")
+        if getattr(self, "_recovery_result", None):
+            result = self._recovery_result
+            self.log("Device recovery: " + result["message"],
+                     result["ok"] and not result["reboot_required"])
         self.vf_read()
         # One read-only timing capture at startup, on its own thread, so the
         # Timings tab has something in it the first time it is opened instead
@@ -9948,8 +10130,11 @@ def main(argv=None):
     The slot spelling is nvtune's and NVML's, so the three tools can be pointed
     at one card with one copied string."""
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "--restart-gpu":
+        return devicerecovery.cli(argv[1:], _tell)
     slot = None
     automatic = False
+    recovery_path = None
     while argv:
         a = argv.pop(0)
         if a in ("--version", "-V"):
@@ -9967,6 +10152,11 @@ def main(argv=None):
             return 0
         if a == "--startup-profile":
             automatic = True
+        elif a == "--recovery-result":
+            if not argv:
+                _tell("--recovery-result needs a receipt path")
+                return 2
+            recovery_path = argv.pop(0)
         elif a in ("--gpu", "-d"):
             if not argv:
                 _tell("--gpu needs a PCI slot, e.g. --gpu 0000:01:00.0")
@@ -9977,6 +10167,8 @@ def main(argv=None):
                   "  --gpu SLOT   open on that card, e.g. 0000:02:00.0\n"
                   "  --list-gpus  print the slot and name of every card\n\n"
                   "  --version    print the Druta version\n\n"
+                  "  --restart-gpu SLOT  restart that GPU through Windows PnP, then reopen\n"
+                  "                      requires admin; never reboots the computer\n\n"
                   "  --startup-profile  apply the opted-in sign-in profile after shutdown checks\n\n"
                   "With no --gpu, Druta opens on the lowest PCI slot.\n"
                   "Device > Card switches cards in a running window.")
@@ -9985,6 +10177,10 @@ def main(argv=None):
             _tell(f"unknown argument {a!r} (try --help)")
             return 2
     manager = startup.Startup()
+    # A recovery relaunch must never reapply the profile that may have caused
+    # the failure, including if both flags are supplied by a caller.
+    if recovery_path:
+        automatic = False
     request = manager.begin(automatic=automatic)
     clean = False
     try:
@@ -9997,6 +10193,12 @@ def main(argv=None):
             else:
                 slot = request["profile"]["device"].get("slot")
         app = Druta(slot)
+        if recovery_path:
+            try:
+                app._recovery_result = devicerecovery.read_result(recovery_path, app.gpu.slot())
+            except (OSError, ValueError) as exc:
+                app._recovery_result = {"ok": False, "reboot_required": False,
+                                        "message": f"cannot read recovery result: {exc}"}
         app._startup_manager, app._startup_request = manager, request
         try:
             manager.watch_shutdown(app.shutdown_is_clean)
@@ -10005,6 +10207,8 @@ def main(argv=None):
             app._startup_request = None
         if not app.gpu.available():
             _tell("No GPU backend: " + app.gpu.status_line()
+                  + ("\n\nDevice recovery: " + app._recovery_result["message"]
+                     if app._recovery_result else "")
                   + ("\n\ncards present:\n" + "\n".join(
                       f"  {g['slot']}  {g['name']}" for g in app.gpu_list)
                      if app.gpu_list else ""))
