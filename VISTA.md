@@ -147,6 +147,19 @@ exited 0 on the host, parsed both bundled regulator profiles and rendered
 three frames. The Vista guest, the full-interface fixture and physical NVIDIA
 checks were not repeated for this update.
 
+A follow-up merges the Windows 7 changes that make three behaviors match the
+shared build. An `nvtune fields` run that exits nonzero but still prints a
+table is parsed. A native nvtune preview that exits 0 is accepted without the
+completion marker or the extra row checks, and its warnings are classified as
+in the shared build. An NVML GPU whose PCI record cannot be read stays listed
+with a blank slot instead of being dropped. The export-based fallbacks for
+older NVML are unchanged. The follow-up also reverts the Release 367 gate, so
+the rail-limit checks described above apply on every driver, including
+365.19. With these changes the source passed 1,230 tests with Python 3.14.4,
+and 1,227 with both the patched Vista Python 3.8.10 runtime and stock CPython
+3.8.10, where the same three wheel and sdist tests skip. The Vista package
+was not rebuilt for this follow-up.
+
 ## Required Windows components
 
 - Windows Vista **Service Pack 2, x64**.
