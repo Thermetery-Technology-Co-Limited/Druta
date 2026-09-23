@@ -123,6 +123,32 @@ These checks do not repeat the Windows 7 guest or physical-GPU validation
 recorded below. GPU measurements in `DRIVER-COMPATIBILITY.md` are scoped to
 the Windows 10 hardware runs; they are not Windows 7 hardware claims.
 
+## Shared feature update (2026-09-23)
+
+The draft now carries the shared Druta 1.6.0 source, including its
+generation-aware current controls, NCT3933U and MP29816 rail support,
+per-adapter I2C discovery and scans, memory timing profiles, GPU recovery and
+the public nvtune release support described below. Application modules live in
+`src\druta` and tests in `tests`; `python druta.py` still launches a source
+checkout. The Windows 7 build helpers are under `src\druta\tools`. The
+pip-installable package declares Python 3.11 or newer; the Windows 7 build
+packages the same source with CPython 3.8.10 and PyInstaller instead.
+
+Python 3.8 again imports every module the application uses: annotations that
+3.8 cannot evaluate are deferred, the nvtune fingerprint falls back from
+`hashlib.file_digest` to an equivalent chunked SHA-256, and regulator profiles
+keep the Tomli fallback. Newer Python versions keep their existing behavior.
+
+On the Windows 10 build host, the merged source passed 1,204 tests with Python
+3.8.10; the three wheel and sdist tests skip below Python 3.11. It passed 1,207
+tests with Python 3.14.4, and 1,200 with Python 3.11.5 without pefile, where
+the seven runtime-collector tests skip. One real-renderer layout test was not
+run on this host. The current, compact Windows 7 and portable Windows 7 builds
+were rebuilt from the committed source. Each frozen `Druta.exe --smoke-test`
+exited 0, parsed both bundled regulator profiles and rendered three frames.
+The full-interface fixture, the Windows 7 guest and the physical-GPU checks
+recorded below were not repeated for this update.
+
 ## Verification
 
 Run this on the target Windows 7 installation:
