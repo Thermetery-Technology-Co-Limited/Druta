@@ -88,7 +88,18 @@ That means you should just overclock the crap out of your core like everyone els
 
 ## 5. Shunt mod corrected power
 
-It currently lives under taskbar > Device > `Shunt mod corrected power`. Simply type in the new effective resistance value to correct the power reading. Planned in the next release is a better per rail calibration. 
+It currently lives under taskbar > Device > `Shunt mod corrected power`. Simply type in the new effective resistance value to correct the power reading. Planned in the next release is a better per rail calibration.
+
+## Clock controls after startup
+
+If the driver cannot answer a clock-control check at startup, Druta retries the
+failed checks twice in the background. Controls that recover appear automatically
+when you finish any active edit or operation. Existing controls and staged values
+are retained, and discovery does not change GPU settings or scan I2C.
+
+After those retries, use **Device > Refresh capabilities** to check again. A
+control is shown only after the current adapter returns a supported, validated
+response; retrying does not make an unsupported clock layout writable.
 
 # III. How to load `nvtune`?
 
@@ -102,7 +113,10 @@ can retain. Other cards keep their existing offset precision. This board's
 memory command-clock divisor remains unknown; no timing-nanosecond conversion
 is inferred from its reported memory clock.
 
-`nvtune` is shipped by Seby. You must enable test signing for it to work on your machine. Druta can hunt for it on your desktop and will load it automatically. Druta is an offline tool. It does not download or upload anything.  
+`nvtune` is an external tool distributed by Seby; Druta does not bundle it. You
+must enable test signing for it to work on your machine. Druta can locate an
+existing copy, but does not download tools or install updates. Druta is an
+offline tool. It does not download or upload anything.
 
 You should almost always use `Read memory timings (will hold P0)` (blue) because changing P states can change timings, and reading/changing memory timing when the card is idling at P16 is useless for your endeavors. `read timing` is for sanity checks after you have applied your changes. 
 
@@ -122,16 +136,61 @@ text before previewing a change: newer helpers require explicit `--dry-run`,
 while the recognized legacy convention requires `--commit` for writes.
 Unrecognized command conventions refuse the preview.
 
+### Upcoming GPU recovery
+
+Use the red **Panic Button (PnP Reset, Deeper than Shift+Ctrl+B)** in the
+upper-right shared header to attempt recovery from a driver or timing failure.
+It remains visible while the tab page scrolls; **Device > Restart GPU device
+(PnP)...** starts the same recovery immediately, without a confirmation. The
+display may go blank and other GPU applications may lose their device. Close
+other workloads and save staged edits first.
+
+Druta closes, restarts that exact Windows device, and opens a fresh window. It
+does not reapply a profile or reboot Windows. The result appears in the log and
+is saved in `%LOCALAPPDATA%\Druta\device-recovery`. If Windows needs a reboot,
+Druta reports that requirement. This is not a guarantee of recovery from a
+hardware hang or of stock settings. Administrator rights and Windows 10 version
+2004 or later are required.
+
+From an elevated shell, after closing existing Druta windows, the same operation
+is available as `Druta.exe --restart-gpu 0000:01:00.0`; replace the PCI slot with
+the card shown by `Druta.exe --list-gpus`.
+
+### Upcoming timing profiles
+
+Druta 1.6.0 adds **Save timing profile...** and **Load timing profile...** to the
+Timings tab. Save records the current decoded broadcast timing fields together
+with any red, staged edits. It only exports a capture taken in the top memory
+band whose active framebuffer partitions agree; raw registers, inferred fields,
+and structural training fields are never profile values.
+
+Load accepts Druta timing profiles and nvtune-compatible `fields` profiles. It
+replaces the staged timing edits only: it never writes the GPU. Review the
+normal preview and use **Apply to memory controller** to make a write; the
+existing fresh-band and write checks still apply. A raw `nvtune save -o`
+register backup is for nvtune restore, not a timing profile, and Druta refuses
+to turn it into broadcast writes. Upstream nvtune `save --profile` is fixed in
+[v1.0.2-alpha](https://github.com/sebastianmarrufo/nvtune/releases/tag/v1.0.2-alpha);
+use its emitted profile with that version or newer installed.
+
 Once `nvtune` EXE is loaded, these buttons move up to the `Device` menus on the taskbar. 
 
 ## I2C controller selection
 
-MP2888A is discovered automatically by scanning the selected GPU's I2C ports
-and addresses. Open I2C regulator to see each candidate's port, address and
-scan-time telemetry. Choose a candidate when several respond, enable I2C rail,
-and press Verify before Apply. Rescan I2C refreshes discovery and clears the
-verification result; it preserves staged curve edits. Verification is repeated
-after changing GPUs or controllers, and cannot pass if restoration fails.
+Check **I2C rail** to reveal discovery controls; checking it does not scan.
+The **IC to scan** dropdown defaults to **Unknown -- Full Scan**. Select a
+known controller to limit discovery to that IC, then press **Connect / Scan**.
+Druta first checks a compatible remembered route using fresh identity and
+settings reads; if that fails, it scans the selected scope. **Full scan**
+always searches all supported controllers, bypassing the remembered route.
+
+Open I2C regulator to see each candidate's port, address and scan-time
+telemetry. Choose a candidate when several respond. For voltage controllers
+such as MP2888A, press Verify before Apply. Scanning clears verification but
+preserves staged curve edits. Verification is repeated after changing GPUs or
+controllers, and cannot pass if restoration fails. NCT3933U current-DAC controls
+instead use **Read settings** and register readback; they cannot measure rail
+voltage. See [NCT3933U.md](i2c/NCT3933U.md).
 
 While Verify is running, the selected controller and risk modes stay fixed.
 Closing Druta cancels verification and waits for the original control state's

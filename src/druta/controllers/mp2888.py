@@ -13,7 +13,7 @@ current resolution. No PAGE selection, writes, or vendor/device-ID gates.
 from copy import deepcopy
 from statistics import median
 
-from ..railctl import Profile, Rail, _signed
+from ..railctl import Profile, Rail, _normalize_routes, _signed
 
 DISCOVERY_PORTS = tuple(range(8))
 DISCOVERY_ADDRESSES = (0x20,) + tuple(a for a in range(0x08, 0x78) if a != 0x20)
@@ -120,16 +120,24 @@ class MP2888Candidate(Rail):
         return dict(self.discovery_telemetry)
 
 
-def discover(nvapi, profile, log=None):
+def discover(nvapi, profile, log=None, *, progress=None, cancelled=None, routes=None):
     """Return every candidate on this GPU, with no writes or arbitrary choice."""
+    selected_routes = _normalize_routes(routes)
     if nvapi is None or not getattr(nvapi, 'ok', False):
         return []
     candidates = []
+    cancelled = cancelled or (lambda: False)
     # Preferred address on every port first; then the other unicast addresses.
     for addr7 in DISCOVERY_ADDRESSES:
         for port in DISCOVERY_PORTS:
+            if selected_routes is not None and (port, addr7) not in selected_routes:
+                continue
+            if cancelled():
+                return candidates
             candidate = MP2888Candidate(profile, nvapi, port, addr7)
             if not candidate.present():
+                if progress:
+                    progress(f"MP2888A port {port}, 0x{addr7:02X}")
                 continue
             # These IDs are user-programmable, so diagnostics cannot gate
             # discovery on the datasheet's example/default values (25h/88h).
@@ -145,4 +153,6 @@ def discover(nvapi, profile, log=None):
                 log(f'{candidate.p.name}: read-only fingerprint passed; '
                     f'{t["vout_mv"]:.0f} mV, {t["iout_a"]:.2f} A, '
                     f'{t["vrm_temp_c"]:.1f} C. Verify required before Apply.', True)
+            if progress:
+                progress(f"MP2888A port {port}, 0x{addr7:02X}")
     return candidates

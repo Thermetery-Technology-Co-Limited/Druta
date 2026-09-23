@@ -43,6 +43,7 @@ class VoltagePrecisionUiTests(FakeUiTest):
         self.app._knob_sync = False
         self.app._xoc_bounds = False
         self.app._carryover_hi = {}
+        self.app._rail_writable = {0, 1}
         self.app.rail = None
         for key, value, lo, hi in (("rail", 12.5, -100, 200),
                                    ("i2crail", 18.75, -100, 100),

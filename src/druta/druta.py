@@ -78,6 +78,7 @@ Safety model, carried over from the Tk version:
     checkbox that no tooltip can substitute for.
 """
 import ctypes
+import contextlib
 import json
 import math
 import os
@@ -89,7 +90,8 @@ import time
 
 import dearpygui.dearpygui as dpg
 
-from . import gpuload, paths, profiles, startup, shuntmod, timings, timingwrite
+from . import (gpuload, paths, profiles, startup, shuntmod, timings, timingwrite,
+               timingprofiles, devicerecovery, nct3933_board, i2c_cache)
 from .nvbackend import (GPU, EVENT_REASONS, PERF_DECREASE_BITS, VF_STEP_KHZ, VF_LOCK_DOMAIN,
                         VFP_POINTS, below_cap, enumerate_gpus, is_admin,
                         same_slot,
@@ -97,7 +99,7 @@ from .nvbackend import (GPU, EVENT_REASONS, PERF_DECREASE_BITS, VF_STEP_KHZ, VF_
                         PRIV_N_DOMAINS, PRIV_PCIE_GEN, PRIV_UNNAMED,
                         PRIV_UNPOPULATED)
 
-__version__ = "1.3.0"
+__version__ = "1.6.0"
 
 # ---- palette (ImGui takes 0-255 RGBA) ------------------------------------- #
 TEXT = (230, 232, 236)
@@ -156,10 +158,9 @@ RISK_FEATURE_TEXT = {
         "RAIL LIMITS: the driver-held per-rail voltage ceilings are being "
         "written directly. EXPERIMENTAL."),
     "i2c": (
-        "I2C: writes go straight to the regulator over PMBus, bypassing the "
-        "driver and the GPU firmware entirely. The GPU cannot see this "
-        "voltage and will not compensate for it, and it does not clear on "
-        "reboot."),
+        "I2C: direct board-controller writes bypass the GPU's voltage "
+        "request limits. Register readback is not a physical rail-voltage "
+        "measurement; changes may persist through a reboot."),
 }
 
 
@@ -259,6 +260,13 @@ class Druta:
         # the tab holding it does not exist would be writing to a dead tag.
         self._rebuilding = False
         self._dpg_ready = False
+        # The poll worker only records that a bounded backend retry learned a
+        # new, understood clock control. Adding widgets is deliberately a
+        # main-thread job, and the tuple prevents an old card (or a result that
+        # raced a manual refresh) from changing the current card's UI.
+        self._clock_capability_recovery = None
+        self._clock_capability_recovery_token = 0
+        self._clock_capability_recovery_logged = False
         self._drag_idx = None
         # THE record of what this app is holding the card with, and how:
         #   None, or {"kind": LOCK_NVML|LOCK_VF, ...per-mechanism fields}
@@ -309,6 +317,20 @@ class Druta:
         self._i2c_busy = False
         self._i2c_thread = None
         self._i2c_cancel = threading.Event()
+        # Discovery checks a remembered route or the manually selected scope.
+        # Only a scan button starts it. It never writes a controller, and a
+        # late result is tied to the GPU that requested it.
+        self._i2c_scan_busy = False
+        self._i2c_scan_thread = None
+        self._i2c_scan_cancel = threading.Event()
+        self._i2c_scan_token = 0
+        self._i2c_scan_result = None
+        self._i2c_scan_started = 0.0
+        self._i2c_scan_status = ""
+        self._i2c_scan_work = (0, 0, "")
+        self._i2c_controller_choice = "Unknown -- Full Scan"
+        self._i2c_scan_scope = None
+        self._i2c_discovery_complete = False
         self._i2c_modes = {}
         self._i2c_ui_pending = False
         self._i2c_restore_failed = False
@@ -317,7 +339,7 @@ class Druta:
         # identity read on the bus rather than by card name, so it is a
         # property of the board in the slot and must be re-found on a swap.
         self.rail = None
-        self.find_rail()
+        self._rail_candidates = []
         self._bar_band = {}
         self._dom_band = {}        # per-domain A-vs-B divergence colour band
         self._dom_name = {}        # per-domain (label, grade) actually drawn
@@ -352,7 +374,10 @@ class Druta:
         self._tw_pending = {}      # staged timing writes, field -> new value
         self._tw_base = {}         # field -> cycle count actually in the reg
         self._tw_themes = {}       # cached text-colour themes for the cells
-        self._tw_btn = None        # colour band the Apply button is wearing
+        self._tw_btn = None        # Apply button's colour band and staged count
+        self._tim_profile_dialog = False
+        self._tim_profile_result = None
+        self._recovery_result = None
 
     # ---- helpers ---------------------------------------------------------- #
     def s(self, n):
@@ -514,6 +539,7 @@ class Druta:
         while not self._stop.is_set():
             with self._lock:
                 gen, gpu = self._gpu_gen, self.gpu
+                recovery_token = getattr(self, "_clock_capability_recovery_token", 0)
             try:
                 d = gpu.read()
                 with self._lock:
@@ -529,6 +555,23 @@ class Druta:
                     if (gen == self._gpu_gen and gpu is self.gpu
                             and not self._rebuilding):
                         self._snap_err = str(e)
+            # Startup capability probes can lose a transiently unavailable
+            # XBAR/SYS domain.  The backend bounds this to its scheduled,
+            # read-only retries; this worker merely publishes a successful
+            # change for the UI thread.  It must never use the manual refresh,
+            # which also rearms that bounded budget.
+            retry = getattr(gpu, "retry_clock_capabilities", None)
+            if retry is not None:
+                try:
+                    recovered = bool(retry())
+                except Exception:
+                    recovered = False
+                if recovered:
+                    with self._lock:
+                        if (gen == self._gpu_gen and gpu is self.gpu
+                                and recovery_token == getattr(
+                                    self, "_clock_capability_recovery_token", 0)):
+                            self._clock_capability_recovery = (gen, gpu, recovery_token)
             self._stop.wait(1.0)
 
     # ---- fonts ------------------------------------------------------------ #
@@ -885,6 +928,7 @@ class Druta:
             return
         if W < 100 or H < 100:
             return
+        self.layout_shared_header(W)
         mh = self.menu_h()
         if dpg.does_item_exist("menu_pad"):
             dpg.configure_item("menu_pad", height=mh)
@@ -969,6 +1013,29 @@ class Druta:
                 if h and dpg.does_item_exist(tag):
                     dpg.configure_item(tag, height=h)
         self.size_plan_banner()
+
+    def layout_shared_header(self, viewport_width):
+        """Reserve the right column for recovery; wrap card details on the left."""
+        if not dpg.does_item_exist("hdr_identity"):
+            return
+        label = dpg.get_item_configuration("panic_pnp_reset")["label"]
+        button_text = dpg.get_text_size(label, font=self._fonts.get("ui", 0))
+        title = dpg.get_text_size(dpg.get_value("hdr"), font=self._fonts.get("big", 0))
+        card_label = dpg.get_text_size("card", font=self._fonts.get("sel", 0))
+        if not button_text or not title or not card_label:
+            return  # Font measurements become available after the first frame.
+        button_width = int(button_text[0] + self.s(28))
+        left_width = max(self.s(80), viewport_width - button_width - self.s(32))
+        inline = left_width >= title[0] + card_label[0] + self.s(460)
+        dpg.configure_item("hdr_panic_column", width_fixed=True, init_width_or_weight=button_width)
+        dpg.configure_item("hdr_identity", horizontal=inline)
+        dpg.configure_item("hdr", wrap=left_width)
+        combo_space = left_width - card_label[0] - self.s(12)
+        if inline:
+            combo_space -= title[0] + self.s(12)
+        dpg.configure_item("hdr_card", width=min(self.s(420), max(self.s(80), int(combo_space))))
+        dpg.configure_item("hdr_details", wrap=left_width)
+        dpg.configure_item("stale", wrap=left_width)
 
     def tw_block_h(self, wrap):
         """Vertical cost of the always-visible timing-write block.
@@ -1275,6 +1342,91 @@ class Druta:
     # floor and shares nothing with either ceiling.
     VLIM_LINKED = ("reliability", "alt_reliability")
 
+    def rail_limit_diagnostics(self):
+        """Return the backend's current rail verdict, failing closed on errors."""
+        getter = getattr(self.gpu, "volt_rail_diagnostics", None)
+        if not callable(getter):
+            return {"available": False,
+                    "reason": "This GPU backend does not provide rail diagnostics.",
+                    "rails": {}}
+        try:
+            result = getter()
+        except Exception as exc:                               # noqa: BLE001
+            return {"available": False,
+                    "reason": f"Rail detection could not be completed ({exc}). Retry detection.",
+                    "rails": {}}
+        if not isinstance(result, dict) or not isinstance(result.get("rails"), dict):
+            return {"available": False,
+                    "reason": "Rail detection did not return a usable result. Retry detection.",
+                    "rails": {}}
+        return result
+
+    def rail_limit_support(self, limits, diagnostic):
+        """Find writable rails from the current control block and diagnosis."""
+        reported = diagnostic.get("rails", {}) if isinstance(diagnostic, dict) else {}
+        verdicts = {}
+        for rail in (0, 1):
+            row = reported.get(rail, reported.get(str(rail), {}))
+            verdicts[rail] = isinstance(row, dict) and bool(row.get("available"))
+
+        # A successful diagnosis cannot authorize a widget whose fresh control
+        # data is absent.  The slider would otherwise carry an old request into
+        # a later write after a transient getter failure.
+        for rail in verdicts:
+            control = (limits or {}).get(rail)
+            verdicts[rail] = bool(verdicts[rail] and isinstance(control, dict)
+                                  and control.get("_base_mv"))
+        return verdicts
+
+    @staticmethod
+    def rail_limit_status(diagnostic, support):
+        """Turn backend details into a brief, nontechnical UI explanation."""
+        write_error = (diagnostic or {}).get("last_write_error")
+        ready = ["NVVDD" if rail == 0 else "MSVDD"
+                 for rail, available in support.items() if available]
+        if ready:
+            missing = []
+            reported = (diagnostic or {}).get("rails", {})
+            for rail, available in support.items():
+                if available:
+                    continue
+                row = reported.get(rail, reported.get(str(rail), {}))
+                reason = row.get("reason") if isinstance(row, dict) else None
+                missing.append(("NVVDD" if rail == 0 else "MSVDD")
+                               + (f": {reason}" if reason else " unavailable"))
+            message = (f"Rail limits ready for {', '.join(ready)}."
+                       + (" " + " ".join(missing) if missing else ""))
+            if write_error:
+                message += f" The last rail-limit write was not confirmed: {write_error}"
+            return message, True
+        reason = (diagnostic or {}).get("reason") or (
+            "The driver did not provide current rail controls.")
+        return f"Rail limits are unavailable: {reason}", False
+
+    def update_rail_limit_diagnostic_ui(self, diagnostic, support):
+        """Synchronize the header gate after an explicit diagnostic read."""
+        self._rail_writable = {rail for rail, available in support.items() if available}
+        message, available = self.rail_limit_status(diagnostic, support)
+        self._rail_limits_available = available
+        if dpg.does_item_exist("vlim_mode"):
+            dpg.configure_item("vlim_mode", enabled=available)
+        if dpg.does_item_exist("vlim_status"):
+            dpg.set_value("vlim_status", message)
+            dpg.configure_item("vlim_status", color=GOOD if available else WARN)
+
+    def rail_limits_available(self):
+        """Whether this built UI currently has a fresh writable rail."""
+        return bool(getattr(self, "_rail_writable", set()))
+
+    def copy_rail_limit_diagnostics(self):
+        """Copy raw detection details for support without changing the GPU."""
+        diagnostic = self.rail_limit_diagnostics()
+        try:
+            dpg.set_clipboard_text(json.dumps(diagnostic, indent=2, default=str))
+            self.log("rail detection details copied to clipboard", True)
+        except Exception as exc:                               # noqa: BLE001
+            self.log(f"clipboard unavailable: {exc}", False)
+
     def apply_vlim(self, rail=0, **limits):
         """Write one rail's limits and report what the card actually took.
 
@@ -1290,6 +1442,9 @@ class Druta:
         consequence of asking for one number, so the log line reports what was
         written and what it reaches, and the readout keeps showing both fields.
         """
+        if rail not in getattr(self, "_rail_writable", set()):
+            self.log("rail controls are unavailable; use Retry detection before writing", False)
+            return
         if not self.guard():
             return
         try:
@@ -1414,21 +1569,21 @@ class Druta:
         is what a fresh read gives back.
         """
         raw = self.gpu.read_volt_rail_limits()
-        supported = self.gpu.volt_rail_limits_supported()
         # The card's own absolute view, read fresh alongside the deltas. It is
         # allowed to be None - it is a newer call than the limit block and a
         # card that lacks it must still show its limits - so every use of it
         # below falls back rather than assuming.
         state = self.gpu.read_volt_rail_state()
+        diagnostic = self.rail_limit_diagnostics()
+        support = self.rail_limit_support(raw, diagnostic)
+        self.update_rail_limit_diagnostic_ui(diagnostic, support)
         # Before the readout, so the cap and the ceiling can never be shown
         # disagreeing for a frame.
-        if supported:
+        if support.get(0):
             self.ov_carryover(raw)
             self.sync_vcap_to_ceiling(raw)
         for r in (0, 1):
-            cells = self.volt_limits_cells(raw, r, state,
-                                          supported and bool((raw or {}).get(r, {}).get("_base_mv"))
-                                          and GPU._valid_volt_rail_state(r, (state or {}).get(r, {})))
+            cells = self.volt_limits_cells(raw, r, state, support.get(r, False))
             if not cells:
                 continue
             if dpg.does_item_exist(f"vlim_txt{r}"):
@@ -1450,7 +1605,8 @@ class Druta:
                            ("vlim1_ov", "overvoltage"),
                            ("vlim1_lo", "vmin")):
             fields = (raw or {}).get(1 if key.startswith("vlim1") else 0)
-            if not (supported and fields):
+            rail = 1 if key.startswith("vlim1") else 0
+            if not (support.get(rail) and fields):
                 continue
             val = GPU.abs_limit_mv(fields, field)
             for pre in ("sl_", "in_"):
@@ -1612,11 +1768,12 @@ class Druta:
         """Build readouts and confirmed controls for the rails on this card."""
         lim = self.gpu.read_volt_rail_limits()
         state = self.gpu.read_volt_rail_state()
-        supported = self.gpu.volt_rail_limits_supported()
+        diagnostic = self.rail_limit_diagnostics()
+        support = self.rail_limit_support(lim, diagnostic)
+        self.update_rail_limit_diagnostic_ui(diagnostic, support)
         self._rail_readonly = set()
         for rail in (0, 1):
-            rail_supported = (supported and bool((lim or {}).get(rail, {}).get("_base_mv"))
-                              and GPU._valid_volt_rail_state(rail, (state or {}).get(rail, {})))
+            rail_supported = support.get(rail, False)
             cells = self.volt_limits_cells(lim, rail, state, rail_supported)
             if not cells:
                 continue
@@ -1629,7 +1786,7 @@ class Druta:
                 dpg.add_text(cells[2], tag=f"vlim_reach{rail}", color=DIM)
                 dpg.add_text(cells[3], tag=f"vlim_live{rail}", color=GOOD)
                 dpg.add_text(cells[4], tag=f"vlim_eff{rail}", color=DIM)
-        if not (supported and lim):
+        if not self._rail_writable:
             return
 
         lo_mv = int(self.gpu.VOLT_LIMIT_MIN_MV)
@@ -1704,9 +1861,10 @@ class Druta:
         """Which guardrail-removing features are actually live right now.
 
         Keyed on what a write would DO, not on which boxes are ticked: the I2C
-        state only counts when the module is present AND a regulator was
-        identified on this board, because a ticked box on a card without the
-        links fitted changes nothing and must not claim otherwise.
+        state only counts when a writable controller has been identified and
+        selected. Do not probe the bus to choose a colour: a transient failed
+        read must not make an enabled direct-controller path look safer. The
+        write gates still check the live target and identity before dispatch.
 
         The same rule applies to "volt_limits": it counts only where the block
         is actually writable, so on a card whose limits cannot be read the box
@@ -1717,10 +1875,10 @@ class Druta:
             live.add("xoc")
         if (self.rail is not None and not self.rail.p.read_only
                 and dpg.does_item_exist("i2c_mode")
-                and dpg.get_value("i2c_mode") and self.rail.present()):
+                and dpg.get_value("i2c_mode")):
             live.add("i2c")
         if (dpg.does_item_exist("vlim_mode") and dpg.get_value("vlim_mode")
-                and self.gpu.volt_rail_limits_supported()):
+                and self.rail_limits_available()):
             live.add("volt_limits")
         return live
 
@@ -1738,17 +1896,6 @@ class Druta:
         live = self.risk_features()
         score = sum(RISK_WEIGHT[f] for f in live)
         band = risk_band(score)
-
-        # Ticking I2C on a board with no regulator reachable is a no-op, and
-        # saying so is better than tinting the tab red over nothing.
-        if (dpg.does_item_exist("i2c_mode") and dpg.get_value("i2c_mode")
-                and "i2c" not in live):
-            dpg.set_value("i2c_mode", False)
-            self.log("this regulator profile supports telemetry only" if
-                     self.rail is not None and self.rail.p.read_only else
-                     "no voltage regulator identified on this card's I2C bus "
-                     "- rail control needs a matching profile in i2c/ and, on "
-                     "most boards, the links fitted", False)
 
         # XOC is per-Rail state, not a module global: two cards in one rig must
         # not share an unlocked envelope.
@@ -1769,10 +1916,12 @@ class Druta:
         self.gpu.volt_limits_write_enabled = "volt_limits" in live
         for k in ("vlim_rel", "vlim_alt", "vlim_ov", "vlim_lo",
                   "vlim1_rel", "vlim1_alt", "vlim1_ov", "vlim1_lo"):
+            rail = 1 if k.startswith("vlim1") else 0
             for pre in ("sl_", "in_", "go_"):
                 if dpg.does_item_exist(pre + k):
                     dpg.configure_item(pre + k,
-                                       enabled="volt_limits" in live)
+                                       enabled=("volt_limits" in live
+                                                and rail in getattr(self, "_rail_writable", set())))
         # The eight per-row Stock buttons are deliberately NOT in that list.
         # reset_volt_rail_limits is documented as ungated on purpose - putting
         # a rail back to its power-on value is the one write that is safe
@@ -1856,12 +2005,12 @@ class Druta:
                                  default_value=False,
                                  show=(railctl is not None and
                                        (self.rail is None or not self.rail.p.read_only)),
-                                 callback=lambda s, a, u: self.sync_risk_ui())
+                                 callback=self.on_i2c_mode)
                 # A readable block alone does not establish working writes or
                 # the bases needed to translate its deltas into millivolts.
                 dpg.add_checkbox(label="Rail limits", tag="vlim_mode",
                                  default_value=False,
-                                 show=self.gpu.volt_rail_limits_supported(),
+                                 enabled=False,
                                  callback=lambda s, a, u: self.sync_risk_ui())
                 dpg.add_spacer(width=self.s(16))
                 # sits with the gate, not inside a knob group: it undoes every
@@ -1953,6 +2102,14 @@ class Druta:
                                    callback=self.release_p0,
                                    width=self.s(110), height=self.s(28))
                     self._ctl_widgets.append("go_p0release")
+            with dpg.group(horizontal=True):
+                dpg.add_text("Checking whether this GPU can safely use rail limits…",
+                             tag="vlim_status", color=DIM,
+                             wrap=self.s(360))
+                dpg.add_button(label="Retry detection", tag="vlim_retry",
+                               callback=self.refresh_capabilities)
+                dpg.add_button(label="Copy info", tag="vlim_copy",
+                               callback=self.copy_rail_limit_diagnostics)
             dpg.add_text("writes ENABLED - untick for read-only. "
                          "I2C changes can persist through reboot; use Reset or power off",
                          tag="unlock_note", color=DIM)
@@ -2014,7 +2171,8 @@ class Druta:
                     with dpg.group(width=self.knob_col_width()):
                         with dpg.collapsing_header(label="Clock offsets", default_open=True):
                             with dpg.table(header_row=False, no_host_extendX=True,
-                                           policy=dpg.mvTable_SizingFixedFit):
+                                           policy=dpg.mvTable_SizingFixedFit,
+                                           tag="clock_offset_table"):
                                 self.knob_cols()
                                 core_lo, core_hi = -200, 300
                                 if st.get("core_off_range"):
@@ -2079,128 +2237,7 @@ class Druta:
                                 # MEMORY on this card. The row appears only where the
                                 # private control block answers, so a card without it shows
                                 # no dead knob.
-                                if self.gpu.clkdom_layout() is not None:
-                                    cur, _ = self.gpu.read_clk_domain_offsets()
-                                    cur = cur or {}
-                                    # via read(), not read_clock_domains(): the bare call
-                                    # names blind and would report every card as Turing
-                                    _live = self.gpu.read() or {}
-                                    drows = _live.get("clk_domains")
-                                    controls = set(self.gpu.clkdom_controls_for_ui(drows))
-                                    # The declared envelope, in the same
-                                    # effective-MHz units this knob writes: the
-                                    # per-domain delta measured 1:1 against the
-                                    # memory clock (+100 -> +100 MHz eff), so
-                                    # no second scale applies to it.
-                                    mem_lo, mem_hi = -1000, 3000
-                                    if st.get("mem_off_range"):
-                                        mem_lo = int(st["mem_off_range"][0] / mscale)
-                                        mem_hi = int(st["mem_off_range"][1] / mscale)
-                                    # Typo catcher, at a quarter of the memory
-                                    # clock. The first version of this used the
-                                    # WHOLE clock, which catches nothing worth
-                                    # catching: a slipped digit - 5000 for 500 -
-                                    # sails through a bound that permits
-                                    # doubling the memory speed. A quarter is
-                                    # far above any real memory overclock and
-                                    # still refuses an extra zero.
-                                    #
-                                    # Never narrower than what the card itself
-                                    # declares, so ticking XOC can only ever
-                                    # widen this knob, and floored so a card
-                                    # with a tiny declared range still gets the
-                                    # headroom that is the entire point here.
-                                    mem_typo = max(abs(mem_hi),
-                                                   int((_live.get("mem_p0max")
-                                                        or _live.get("mem")
-                                                        or 0) * 0.25),
-                                                   1000)
-                                    for kn in self.DOMAIN_KNOBS:
-                                        if kn.ctrl not in self.gpu.clkdom_domains():
-                                            continue
-                                        # On Turing, a knob is built only where a clock
-                                        # was observed to move: accepting and storing a
-                                        # write is not enough. Blackwell is different:
-                                        # its control indices and private getter indices
-                                        # are separate, so its accepted controls are
-                                        # gated by the architecture-specific layout and
-                                        # validated one-hot control mask above.
-                                        # An xoc_only knob is let through
-                                        # WITHOUT a measured pairing. That is a
-                                        # deliberate exception to the rule
-                                        # above, and it is narrow: the declared
-                                        # OC range is read-only, so an unchecked
-                                        # CONTROL delta is the only route past
-                                        # it on any generation, and refusing to
-                                        # show the knob on the cards that most
-                                        # need it guarantees nobody ever finds
-                                        # out whether it works there. It is
-                                        # XOC-gated and carries the note below.
-                                        paired = kn.ctrl in controls
-                                        if not paired and not kn.xoc_only:
-                                            continue
-                                        init = int(cur.get(kn.ctrl, {})
-                                                   .get("freq_khz", 0) / 1000)
-                                        lbl, col, _p = self.domain_knob_label(kn, drows)
-                                        # XOC: the core envelope above, because nothing
-                                        # else bounds this knob. -300..300 is a UI
-                                        # convention, not a driver fact -
-                                        # set_clk_domain_offset writes a raw signed-kHz
-                                        # field with no range check of any kind, so the
-                                        # only real limits are the driver's floor-to-bins
-                                        # and the silicon. Reusing the widest CLOCK offset
-                                        # this driver admits anywhere on this card is a
-                                        # measured number rather than an invented one, and
-                                        # it keeps one envelope for every clock knob on the
-                                        # tab instead of a second unrelated pair.
-                                        # On Blackwell these are control-domain REQUESTS and
-                                        # the driver may quantise what it applies, so the
-                                        # live column is what to read after a change rather
-                                        # than the number that was asked for. It quantises
-                                        # less than it might appear: measured on RTX 5080 /
-                                        # 580.97 the XBAR response is 0.93-1.00 of the
-                                        # request from +25 to +300 MHz, which is bin
-                                        # flooring rather than a ratio. Kept as a comment
-                                        # because per-slider subtext is no longer drawn.
-                                        # MEM is bounded differently from the
-                                        # rest. Not because it escapes a bound -
-                                        # measured, it does not - but because
-                                        # its own write is unvalidated, so the
-                                        # only bound between the slider and the
-                                        # driver is this one.
-                                        #
-                                        # Without XOC it gets the card's OWN
-                                        # declared delta range, so it can do
-                                        # nothing the ordinary memory slider
-                                        # could not already do - the escape is
-                                        # the thing being gated, not the knob.
-                                        #
-                                        # With XOC its ceiling is the memory
-                                        # clock itself. That is a TYPO CATCHER
-                                        # and is labelled as one: an offset
-                                        # larger than the clock it is added to
-                                        # would more than double the memory
-                                        # speed and is a slip, not a plan.
-                                        # Nothing here is a hardware limit -
-                                        # the write is unchecked all the way
-                                        # down - so Druta must not present its
-                                        # own number as though the card had
-                                        # supplied it.
-                                        if kn.xoc_only:
-                                            lo_d, hi_d = mem_lo, mem_hi
-                                            xlo, xhi = -mem_typo, mem_typo
-                                        else:
-                                            lo_d, hi_d = -300, 300
-                                            xlo, xhi = core_xlo, core_xhi
-                                        self.slider_row(
-                                            kn.key, lbl, lo_d, hi_d, init,
-                                            lambda v, _d=kn.ctrl, _k=kn.key:
-                                                self.apply_domain_offset(_d, _k, v),
-                                            note=kn.note, color=col,
-                                            xoc_lo=xlo, xoc_hi=xhi,
-                                            extra=("Stock", lambda _k=kn.key:
-                                                   self.stock_knob(_k)))
-
+                                self.build_domain_offset_rows(st, mscale, core_xlo, core_xhi)
                         # Voltage boost is grouped with the limits, not the offsets: it moves
                         # no clock at all, it raises a ceiling the arbiter is allowed to
                         # reach - the same shape of knob as the power limit.
@@ -2292,7 +2329,7 @@ class Druta:
                                             "5080/580.97 does not establish behavior on your board.",
                                             wrap=self.s(400))
             if railctl is not None:
-                with dpg.collapsing_header(label="I2C regulator",
+                with dpg.collapsing_header(label="I2C regulator", tag="i2c_regulator_header",
                                            default_open=bool(getattr(self, "_rail_candidates", []))):
                     with dpg.group(tag="i2c_candidates"):
                         self.build_i2c_candidates()
@@ -2307,6 +2344,86 @@ class Druta:
             dpg.add_input_text(tag="log", multiline=True, readonly=True,
                                width=-1, height=self.s(150))
             self.bind("log", "mono")
+
+    def build_domain_offset_rows(self, st, mscale, core_xlo, core_xhi,
+                                 only_missing=False):
+        """Add validated private clock rows to the current clock-offset table.
+
+        This is used while creating the tab and, after a bounded retry, to add
+        only rows that did not exist when the initial probe was transiently
+        incomplete.  The reads are deliberately fresh: a recovered row must
+        show the request currently held by the driver, never an old default.
+        """
+        if self.gpu.clkdom_layout() is None:
+            return 0
+        cur, _ = self.gpu.read_clk_domain_offsets()
+        if not isinstance(cur, dict):
+            if only_missing:
+                self.log_once("clock-capability-current",
+                              "recovered clock controls could not read current requests; use Refresh capabilities")
+            return 0
+        try:
+            live = self.gpu.read() or {}
+        except Exception:
+            # The request read above is the authority for the new slider's
+            # value.  Telemetry only improves its label and typo ceiling.
+            live = {}
+        drows = live.get("clk_domains")
+        controls = set(self.gpu.clkdom_controls_for_ui(drows))
+        mem_lo, mem_hi = -1000, 3000
+        if st.get("mem_off_range"):
+            mem_lo = int(st["mem_off_range"][0] / mscale)
+            mem_hi = int(st["mem_off_range"][1] / mscale)
+        mem_typo = max(abs(mem_hi), int((live.get("mem_p0max")
+                                         or live.get("mem") or 0) * 0.25), 1000)
+        made = 0
+        missing_current = False
+        for kn in self.DOMAIN_KNOBS:
+            if kn.ctrl not in self.gpu.clkdom_domains():
+                continue
+            if only_missing and dpg.does_item_exist("sl_" + kn.key):
+                continue
+            if kn.ctrl not in controls and not kn.xoc_only:
+                continue
+            request = cur.get(kn.ctrl)
+            if not isinstance(request, dict) or "freq_khz" not in request:
+                missing_current = True
+                continue
+            init = int(request["freq_khz"] / 1000)
+            lbl, col, _paired = self.domain_knob_label(kn, drows)
+            if kn.xoc_only:
+                lo_d, hi_d = mem_lo, mem_hi
+                xlo, xhi = -mem_typo, mem_typo
+            else:
+                lo_d, hi_d = -300, 300
+                xlo, xhi = core_xlo, core_xhi
+            self.slider_row(
+                kn.key, lbl, lo_d, hi_d, init,
+                lambda value, _d=kn.ctrl, _k=kn.key:
+                    self.apply_domain_offset(_d, _k, value),
+                note=kn.note, color=col, xoc_lo=xlo, xoc_hi=xhi,
+                extra=("Stock", lambda _k=kn.key: self.stock_knob(_k)))
+            made += 1
+        if missing_current and only_missing:
+            self.log_once("clock-capability-current",
+                          "recovered clock controls could not read current requests; use Refresh capabilities")
+        return made
+
+    def insert_recovered_clock_controls(self):
+        """Insert just newly understood domain controls into the live table."""
+        if not dpg.does_item_exist("clock_offset_table"):
+            return 0
+        st = self.gpu.static
+        mscale, _unit = self.gpu.mem_offset_scale()
+        core_xlo, core_xhi = (-1000, 1000)
+        if st.get("core_off_range"):
+            core_xlo, core_xhi = st["core_off_range"][:2]
+        dpg.push_container_stack("clock_offset_table")
+        try:
+            return self.build_domain_offset_rows(st, mscale, core_xlo, core_xhi,
+                                                 only_missing=True)
+        finally:
+            dpg.pop_container_stack()
 
     def slider_row(self, key, label, lo, hi, init, cb, note=None, extra=None,
                    color=None, xoc_lo=None, xoc_hi=None, decimals=0):
@@ -2451,12 +2568,9 @@ class Druta:
     def knob_bounds(self, key):
         """The bounds one knob is under RIGHT NOW.
 
-        Off the flag sync_slider_ranges last acted on, NOT off risk_features():
-        this runs on every keystroke in a text box, and risk_features() probes
-        the I2C bus for a regulator whenever the I2C box is ticked. It also
-        guarantees the typed value is bounded by exactly what the slider beside
-        it was configured with, rather than by a second opinion computed a
-        different way."""
+        Use the flag sync_slider_ranges last acted on so the typed value is
+        bounded by exactly what the slider beside it was configured with,
+        rather than by a second opinion computed a different way."""
         r = self._slider_ranges.get(key)
         if r is None:
             return None
@@ -2691,6 +2805,8 @@ class Druta:
         """Expose identified telemetry separately from a verified offset path."""
         if self.rail is None:
             return
+        if getattr(self.rail, "current_dac", False):
+            return
         try:
             if not self.rail.present():
                 return
@@ -2760,6 +2876,10 @@ class Druta:
         """Measured rail, and its disagreement with the GPU's own reading."""
         if self.rail is None or not dpg.does_item_exist("live_i2crail"):
             return None
+        # The NCT3933U is a current DAC.  It has no regulator VOUT telemetry,
+        # so never turn its output registers into an invented rail voltage.
+        if getattr(self.rail, "current_dac", False):
+            return None
         # The verifier owns the bus while it runs. Interleaving a refresh read
         # into its staircase would cost the measurement, and the measurement is
         # the only thing standing between this knob and an unproven write path.
@@ -2785,6 +2905,279 @@ class Druta:
             return f"{v:.9g} mV"
         return f"{v:.9g} mV  ({v - vc:+.9g} vs GPU)"
 
+    # ---- NCT3933U current-DAC controls ---------------------------------- #
+    def _current_dac(self):
+        """The selected current DAC, if the discovered controller is one."""
+        rail = getattr(self, "rail", None)
+        return rail if rail is not None and getattr(rail, "current_dac", False) else None
+
+    @staticmethod
+    def _current_dac_telemetry(telemetry):
+        """Validate the small native register report before putting it on screen."""
+        if not isinstance(telemetry, dict):
+            raise ValueError("controller did not return register telemetry")
+        currents = telemetry.get("currents_ua")
+        outputs = telemetry.get("outputs")
+        config = telemetry.get("configuration")
+        if (not isinstance(currents, list) or len(currents) != 3
+                or not all(type(value) is int for value in currents)):
+            raise ValueError("controller current readback is incomplete")
+        if (not isinstance(outputs, list) or len(outputs) != 3
+                or not all(type(value) is int and 0 <= value <= 0xFF for value in outputs)
+                or type(config) is not int or not 0 <= config <= 0xFF):
+            raise ValueError("controller register readback is invalid")
+        return currents, outputs, config
+
+    def _current_dac_display_mode(self):
+        """Load a user's board mapping independently of the raw controller recipe."""
+        gpu, rail = getattr(self, "gpu", None), self._current_dac()
+        context = (id(gpu), id(rail))
+        if getattr(self, "_nct_display_context", None) != context:
+            self._nct_display_context = context
+            self._nct_display_mode = nct3933_board.RAW_MODE
+            try:
+                self._nct_display_mode = nct3933_board.load_mode(gpu, rail)
+            except (OSError, ValueError) as exc:
+                self.log(f"Cannot load DAC output mapping; using raw current: {exc}", False)
+        return self._nct_display_mode
+
+    def select_current_dac_mapping(self, sender=None, app_data=None, user_data=None):
+        old_mode = self._current_dac_display_mode()
+        try:
+            if (getattr(self, "_i2c_busy", False)
+                    or getattr(self, "_profile_pending", None)
+                    or getattr(self, "_profile_applying", False)):
+                raise ValueError("wait for I2C/profile work before changing output units")
+            if app_data not in nct3933_board.MODES:
+                raise ValueError("unknown DAC output mapping")
+            rail = self._current_dac()
+            if rail is None:
+                raise ValueError("no current DAC selected")
+            # Read first: never relabel stale input numbers with different units.
+            currents, outputs, config = self._current_dac_telemetry(rail.telemetry())
+            persisted = nct3933_board.save_mode(getattr(self, "gpu", None), rail, app_data)
+        except Exception as exc:                                # noqa: BLE001
+            dpg.set_value("nct_mapping", old_mode)
+            self.log(f"DAC output mapping unchanged: {exc}", False)
+            return
+        self._nct_display_mode = app_data
+        # Discard Apply jobs queued while the same fields still used old units.
+        self._ui_gen = getattr(self, "_ui_gen", 0) + 1
+        self._show_current_dac_settings(currents, outputs, config, force_inputs=True)
+        self.log("DAC output mapping saved for this card and controller."
+                 if persisted else "DAC output mapping set for this session; GPU UUID unavailable.", True)
+
+    def build_current_dac_controls(self):
+        """Show raw current or the user's explicit board voltage-offset mapping."""
+        rail = self._current_dac()
+        if rail is None:
+            return
+        profile = rail.p
+        addr7 = getattr(profile, "addr7", getattr(rail, "addr7", None))
+        bus = (f"port {profile.port}, 0x{addr7:02X}"
+               if type(addr7) is int else f"port {profile.port}")
+        mode = self._current_dac_display_mode()
+        mapped = mode == nct3933_board.VOLTAGE_MODE
+        dpg.add_text(f"{profile.regulator} — three output offsets", color=ACCENT)
+        dpg.add_text(
+            f"{bus}. Output mapping is saved for this card and controller.",
+            color=DIM, wrap=self.s(sum(self.KNOB_COLS)))
+        dpg.add_combo(nct3933_board.MODES, label="Output mapping", tag="nct_mapping",
+                      default_value=mode, width=self.s(360), callback=self.select_current_dac_mapping)
+        with dpg.tooltip("nct_mapping"):
+            dpg.add_text("Use the mV mapping only for verified board wiring:\n"
+                         "OUT3 GPU, OUT1 memory, OUT2 PEX/PLL.\n"
+                         "-10 µA gives +10 mV GPU/memory or +66 mV PEX/PLL.")
+        dpg.add_text(
+            self._current_dac_units_note(mode),
+            tag="nct_current_note", color=WARN, wrap=self.s(sum(self.KNOB_COLS)))
+        with dpg.table(header_row=False, policy=dpg.mvTable_SizingFixedFit):
+            dpg.add_table_column(width_fixed=True, init_width_or_weight=self.s(165))
+            for _ in range(6):
+                dpg.add_table_column(width_fixed=True)
+            for channel in nct3933_board.OUTPUT_ORDER:
+                with dpg.table_row():
+                    dpg.add_text(nct3933_board.output_label(channel, mode),
+                                 tag=f"nct_label_{channel}")
+                    dpg.add_input_int(tag=f"nct_current_{channel}", default_value=0,
+                                      width=self.s(115), step=0)
+                    dpg.add_text("mV" if mapped else "µA", tag=f"nct_unit_{channel}", color=DIM)
+                    dpg.add_text("register settings unread", tag=f"nct_range_{channel}", color=DIM)
+
+                    def _apply(ch):
+                        return lambda: self.apply_current_dac(ch)
+
+                    def _zero(ch):
+                        return lambda: self.apply_current_dac(ch, 0)
+
+                    dpg.add_button(label="Apply", tag=f"nct_apply_{channel}",
+                                   callback=_apply(channel), width=self.s(78))
+                    dpg.add_button(label="Zero", tag=f"nct_zero_{channel}",
+                                   callback=_zero(channel), width=self.s(65))
+                    dpg.add_text("--", tag=f"nct_live_{channel}", color=DIM)
+        with dpg.group(horizontal=True):
+            # DPG's manual dispatcher counts every signature parameter,
+            # including keyword-only options, as a positional callback arg.
+            # Keep the UI entry point separate from the refresh helper.
+            dpg.add_button(label="Read settings", tag="nct_read_settings",
+                           callback=lambda: self.refresh_current_dac_settings(), width=self.s(130))
+            dpg.add_button(label="Zero all outputs", tag="nct_zero_all",
+                           callback=self.zero_current_dac_outputs, width=self.s(150))
+            dpg.add_text("--", tag="nct_config", color=DIM)
+        dpg.add_text("", tag="nct_status", color=DIM, wrap=self.s(sum(self.KNOB_COLS)))
+        self._ctl_widgets = getattr(self, "_ctl_widgets", [])
+        self._ctl_widgets += [tag for channel in range(1, 4)
+                              for tag in (f"nct_current_{channel}", f"nct_apply_{channel}",
+                                          f"nct_zero_{channel}")]
+        self._ctl_widgets.append("nct_zero_all")
+        self.refresh_current_dac_settings(log_failure=False)
+
+    @staticmethod
+    def _current_dac_units_note(mode):
+        if mode == nct3933_board.VOLTAGE_MODE:
+            return ("Positive mV raises voltage; negative mV lowers it. "
+                    "GPU/memory: 10 mV per 10 µA; PEX/PLL: 66 mV per 10 µA, with reversed sign. "
+                    "Configured offsets, not live rail voltages.")
+        return ("Positive is SOURCE current and negative is SINK current, in nominal µA. "
+                "Register readback; physical voltage requires meter.")
+
+    def refresh_current_dac_settings(self, *, log_failure=True, preserve_status=False):
+        """Refresh NCT3933U register state on demand; this never reads a voltage."""
+        rail = self._current_dac()
+        if rail is None:
+            return False
+        if getattr(self, "_i2c_busy", False):
+            if log_failure:
+                self.log("wait for I2C verification and restoration before reading DAC settings", False)
+            return False
+        try:
+            currents, outputs, config = self._current_dac_telemetry(rail.telemetry())
+        except Exception as exc:                                # noqa: BLE001
+            message = f"NCT3933U register readback failed: {exc}"
+            if dpg.does_item_exist("nct_status"):
+                dpg.set_value("nct_status", message)
+                dpg.configure_item("nct_status", color=BAD)
+            if log_failure:
+                self.log(message, False)
+            return False
+        self._show_current_dac_settings(currents, outputs, config, preserve_status=preserve_status)
+        return True
+
+    def _show_current_dac_settings(self, currents, outputs, config, *, preserve_status=False,
+                                   force_inputs=False):
+        mode = self._current_dac_display_mode()
+        mapped = mode == nct3933_board.VOLTAGE_MODE
+        unit = "mV" if mapped else "µA"
+        if dpg.does_item_exist("nct_current_note"):
+            dpg.set_value("nct_current_note", self._current_dac_units_note(mode))
+        for channel, (current, raw) in enumerate(zip(currents, outputs), start=1):
+            step = nct3933_board.display_step(config, channel, mode)
+            limit = 127 * step
+            value = nct3933_board.display_value(current, channel, mode)
+            if dpg.does_item_exist(f"nct_label_{channel}"):
+                dpg.set_value(f"nct_label_{channel}", nct3933_board.output_label(channel, mode))
+            if dpg.does_item_exist(f"nct_unit_{channel}"):
+                dpg.set_value(f"nct_unit_{channel}", unit)
+            if dpg.does_item_exist(f"nct_current_{channel}"):
+                # Bounds guide input but deliberately do not clamp.  A value
+                # being typed remains visible until Apply lets the controller
+                # reject an off-grid or out-of-range request explicitly.
+                dpg.configure_item(f"nct_current_{channel}", step=step, step_fast=10 * step,
+                                   min_value=-limit, max_value=limit,
+                                   min_clamped=False, max_clamped=False)
+                if force_inputs or not dpg.is_item_active(f"nct_current_{channel}"):
+                    dpg.set_value(f"nct_current_{channel}", value)
+            if dpg.does_item_exist(f"nct_live_{channel}"):
+                detail = f"{current:+d} µA  raw 0x{raw:02X}"
+                dpg.set_value(f"nct_live_{channel}", f"{value:+d} mV  ({detail})" if mapped else detail)
+            if dpg.does_item_exist(f"nct_range_{channel}"):
+                dpg.set_value(f"nct_range_{channel}",
+                              f"{step} {unit} step, ±{limit} {unit} (127 counts)")
+        if dpg.does_item_exist("nct_config"):
+            dpg.set_value("nct_config", "configuration 0x"
+                          f"{config:02X}"
+                          + (" — outputs disabled by power saving" if config & 0x40 else ""))
+        message = ("Outputs disabled by power saving. Register readback; physical voltage requires meter."
+                   if config & 0x40 else "Register readback; physical voltage requires meter.")
+        if dpg.does_item_exist("nct_status") and not preserve_status:
+            dpg.set_value("nct_status", message)
+            dpg.configure_item("nct_status", color=BAD if config & 0x40 else WARN)
+
+    def _capture_current_dac_control(self):
+        """Capture the exact bytes that profile autosave must be able to restore."""
+        rail = self._current_dac()
+        if rail is None:
+            raise ValueError("the selected controller is not a current DAC")
+        control = rail.capture_control()
+        rail.validate_control(control, xoc=None)
+        self._current_dac_control_before = control
+        return control
+
+    def _current_dac_failure(self, rail, result):
+        """Keep a failed post-write rollback visible and block clean shutdown claims."""
+        if result[0] or getattr(rail, "_verification_restore_ok", True):
+            return
+        detail = getattr(rail, "_verification_restore_error", "") or result[1]
+        self._i2c_restore_failed = True
+        self._i2c_restore_error = detail
+        message = "NCT3933U restore failed; output state is uncertain: " + detail
+        if dpg.does_item_exist("nct_status"):
+            dpg.set_value("nct_status", message)
+            dpg.configure_item("nct_status", color=BAD)
+
+    def apply_current_dac(self, channel, value=None):
+        """Set one NCT3933U output after the normal opt-in and write guards."""
+        if not self.guard():
+            return
+        ok, why = self.i2c_gate()
+        if not ok:
+            self.log("current DAC: " + why, False)
+            return
+        rail = self._current_dac()
+        if rail is None:
+            self.log("current DAC: selected controller does not provide native current outputs", False)
+            return
+        try:
+            requested = dpg.get_value(f"nct_current_{channel}") if value is None else value
+            if isinstance(requested, bool) or not isinstance(requested, int):
+                raise ValueError("offset must be an integer number of the displayed units")
+            expected = self._capture_current_dac_control()
+            requested = nct3933_board.native_current(
+                requested, channel, self._current_dac_display_mode(), expected["configuration"])
+        except Exception as exc:                                # noqa: BLE001
+            self.log(f"NCT3933U OUT{channel}: {exc}", False)
+            return
+        # profiles.autosave captures the same controller format.  The explicit
+        # capture above makes a failed capture a refusal before any write.
+        self.autosave_before(f"i2c-current-dac-out{channel}")
+        result = rail.set_current_ua(channel, requested, acknowledged=True, expected=expected)
+        self.report(result)
+        self._current_dac_failure(rail, result)
+        self.refresh_current_dac_settings(log_failure=False, preserve_status=not result[0])
+
+    def zero_current_dac_outputs(self, sender=None, app_data=None, user_data=None):
+        """Set all three native outputs to zero; no voltage or rail is implied."""
+        if not self.guard():
+            return
+        ok, why = self.i2c_gate()
+        if not ok:
+            self.log("current DAC: " + why, False)
+            return
+        rail = self._current_dac()
+        if rail is None:
+            self.log("current DAC: selected controller does not provide native current outputs", False)
+            return
+        try:
+            expected = self._capture_current_dac_control()
+        except Exception as exc:                                # noqa: BLE001
+            self.log(f"NCT3933U: {exc}", False)
+            return
+        self.autosave_before("i2c-current-dac-zero-all")
+        result = rail.zero_outputs(acknowledged=True, expected=expected)
+        self.report(result)
+        self._current_dac_failure(rail, result)
+        self.refresh_current_dac_settings(log_failure=False, preserve_status=not result[0])
+
     # ---- the I2C rail: verify before you are allowed to drive it ----------- #
     def invalidate_i2c_verification(self):
         self._i2c_verified = False
@@ -2803,20 +3196,225 @@ class Druta:
                 and self._i2c_verified_for == self.i2c_connection())
 
     def find_rail(self):
-        """Discover all controllers; only auto-select an unambiguous result."""
-        self.rail = None
-        self._i2c_recovery_for = None
-        self._rail_candidates = []
-        self.invalidate_i2c_verification()
+        """Compatibility synchronous scan for callers outside the interactive UI."""
+        self.clear_i2c_discovery()
         if railctl is None:
             return
         try:
             self._rail_candidates = railctl.discover(
                 self.gpu.nvapi, log=self.log, architecture=self.gpu.arch())
-            if len(self._rail_candidates) == 1:
-                self.rail = self._rail_candidates[0]
-        except Exception as e:
-            self.log(f"i2c scan failed: {type(e).__name__}: {e}", False)
+            self.rail = self._rail_candidates[0] if len(self._rail_candidates) == 1 else None
+            self._i2c_discovery_complete = True
+        except Exception as exc:                                # noqa: BLE001
+            self.log(f"i2c scan failed: {type(exc).__name__}: {exc}", False)
+
+    def clear_i2c_discovery(self):
+        """Discard a scan result; it never belongs to a different GPU or mode."""
+        self.rail = None
+        self._i2c_recovery_for = None
+        self._rail_candidates = []
+        self._i2c_scan_status = ""
+        self._i2c_scan_work = (0, 0, "")
+        self._i2c_discovery_complete = False
+        self.invalidate_i2c_verification()
+
+    def cancel_i2c_discovery(self, *, clear=False):
+        """Cancel publication of a read-only scan without waiting for its bus reads."""
+        cancel = getattr(self, "_i2c_scan_cancel", None)
+        active = bool(getattr(self, "_i2c_scan_busy", False))
+        if active and cancel is not None:
+            cancel.set()
+        elif not active:
+            self._i2c_scan_token = getattr(self, "_i2c_scan_token", 0) + 1
+            self._i2c_scan_result = None
+            self._i2c_scan_thread = None
+        if clear:
+            self.clear_i2c_discovery()
+        if active and cancel is not None:
+            self._i2c_scan_status = "Cancelling I2C detection after the current probe…"
+
+    def update_i2c_scan_ui(self, status=None):
+        """Render scan state on the UI thread; the scan worker never touches DPG."""
+        busy = bool(getattr(self, "_i2c_scan_busy", False))
+        if status is not None:
+            self._i2c_scan_status = status
+        elif busy:
+            prior = getattr(self, "_i2c_scan_status", "")
+            if prior.startswith("Cancelling I2C detection"):
+                status = prior
+            else:
+                complete, total, label = getattr(self, "_i2c_scan_work", (0, 0, ""))
+                status = (f"Scanning I2C: {label} ({complete}/{total} probe units). Untick I2C rail to cancel."
+                          if total else "Preparing I2C controller probes…")
+        else:
+            status = (getattr(self, "_i2c_scan_status", "")
+                      or "Enable I2C rail, choose an IC, then press Connect / Scan.")
+        if dpg.does_item_exist("i2c_scan_status"):
+            dpg.set_value("i2c_scan_status", status)
+            dpg.configure_item("i2c_scan_status", color=DIM if busy else WARN)
+        if dpg.does_item_exist("i2c_scan_progress"):
+            complete, total, label = getattr(self, "_i2c_scan_work", (0, 0, ""))
+            value = complete / total if total else 0.0
+            dpg.set_value("i2c_scan_progress", value)
+            dpg.configure_item("i2c_scan_progress", show=busy,
+                               overlay=(f"{complete}/{total} {label}" if total else
+                                        "Preparing probes…") if busy else "")
+        if dpg.does_item_exist("i2c_scan_spinner"):
+            dpg.configure_item("i2c_scan_spinner", show=busy)
+        checked = dpg.does_item_exist("i2c_mode") and dpg.get_value("i2c_mode")
+        other_work = (getattr(self, "_i2c_busy", False)
+                      or getattr(self, "_profile_pending", None)
+                      or getattr(self, "_profile_applying", False))
+        for tag in ("i2c_rescan", "i2c_full_scan", "i2c_controller"):
+            if dpg.does_item_exist(tag):
+                dpg.configure_item(tag, enabled=bool(checked and not busy and not other_work))
+        if dpg.does_item_exist("i2c_candidate"):
+            dpg.configure_item("i2c_candidate", enabled=bool(checked and not busy and not other_work))
+
+    def start_i2c_discovery(self, *, controller=None, prefer_saved=True):
+        """Start opt-in controller detection against the currently selected GPU."""
+        if railctl is None:
+            self.update_i2c_scan_ui("I2C regulator support is not installed in this build.")
+            return False
+        worker = getattr(self, "_i2c_scan_thread", None)
+        if getattr(self, "_i2c_scan_busy", False) or (worker is not None and worker.is_alive()):
+            self.log("I2C detection is already running or cancelling; wait for it to finish", False)
+            return False
+        if (getattr(self, "_i2c_busy", False)
+                or getattr(self, "_profile_pending", None)
+                or getattr(self, "_profile_applying", False)):
+            self.log("wait for I2C/profile work to finish before scanning", False)
+            return False
+        if not (dpg.does_item_exist("i2c_mode") and dpg.get_value("i2c_mode")):
+            self.log("tick I2C rail before scanning this GPU's regulator buses", False)
+            return False
+        self.clear_i2c_discovery()
+        self._i2c_scan_scope = controller
+        self._i2c_scan_busy = True
+        self._i2c_scan_started = time.monotonic()
+        self._i2c_scan_cancel = threading.Event()
+        self._i2c_scan_token = getattr(self, "_i2c_scan_token", 0) + 1
+        self._i2c_scan_work = (0, 0, "")
+        token, generation, gpu = self._i2c_scan_token, self._gpu_gen, self.gpu
+        try:
+            worker = threading.Thread(
+                target=self._i2c_discovery_worker, daemon=True, name="i2c-discovery",
+                args=(token, generation, gpu, gpu.nvapi, gpu.arch(), self._i2c_scan_cancel,
+                      controller, prefer_saved))
+            self._i2c_scan_thread = worker
+            self.update_i2c_scan_ui()
+            worker.start()
+        except Exception as exc:
+            self._i2c_scan_busy = False
+            self._i2c_scan_thread = None
+            self.update_i2c_scan_ui(f"I2C detection could not start: {exc}")
+            self.log(f"I2C detection could not start: {exc}", False)
+            return False
+        return True
+
+    def _i2c_discovery_worker(self, token, generation, gpu, nvapi, architecture, cancel,
+                              controller=None, prefer_saved=True):
+        """Run slow, read-only bus detection and publish only its bound result."""
+        candidates, error = [], None
+        origin, notes = "scan", []
+        def progress(complete, total, label):
+            with self._lock:
+                if token == getattr(self, "_i2c_scan_token", None) and not cancel.is_set():
+                    self._i2c_scan_work = (complete, total, label)
+        try:
+            if prefer_saved and not cancel.is_set():
+                try:
+                    route = i2c_cache.load_route(gpu)
+                    if route is not None and (controller is None or route["controller"] == controller):
+                        progress(0, 1, "Checking saved controller identity and settings")
+                        candidates = i2c_cache.reconnect(
+                            gpu, route, controller=controller, progress=progress, cancelled=cancel.is_set)
+                        if candidates:
+                            origin = "saved"
+                        elif not cancel.is_set():
+                            notes.append("Saved I2C route could not be verified; scanned the selected scope.")
+                except Exception as exc:                        # noqa: BLE001
+                    notes.append(f"Saved I2C route unavailable ({exc}); scanned the selected scope.")
+            if not candidates and not cancel.is_set():
+                candidates = railctl.discover(nvapi, architecture=architecture,
+                                              controller=controller, progress=progress, cancelled=cancel.is_set)
+        except Exception as exc:                                # noqa: BLE001
+            error = f"{type(exc).__name__}: {exc}"
+        with self._lock:
+            if token == getattr(self, "_i2c_scan_token", None):
+                self._i2c_scan_result = (token, generation, gpu, cancel.is_set(),
+                                         candidates, error, origin, notes)
+
+    def poll_i2c_discovery(self):
+        """Publish a completed scan only while its opt-in and GPU are current."""
+        # Some headless test harnesses exercise the render loop without the
+        # interactive constructor. They have no I2C discovery state or DPG
+        # context to update.
+        if not hasattr(self, "_i2c_scan_token"):
+            return
+        self.update_i2c_scan_ui()
+        with self._lock:
+            result, self._i2c_scan_result = self._i2c_scan_result, None
+        if result is None:
+            return
+        token, generation, gpu, cancelled, candidates, error, origin, notes = result
+        if token != getattr(self, "_i2c_scan_token", None):
+            return
+        self._i2c_scan_busy = False
+        self._i2c_scan_thread = None
+        checked = dpg.does_item_exist("i2c_mode") and dpg.get_value("i2c_mode")
+        if (cancelled or generation != self._gpu_gen or gpu is not self.gpu
+                or self._closing or not checked):
+            self.clear_i2c_discovery()
+            self.update_i2c_scan_ui("I2C detection cancelled.")
+            return
+        for note in notes:
+            self.log(note, False)
+        if error:
+            self.clear_i2c_discovery()
+            self.update_i2c_scan_ui(f"I2C detection failed: {error}")
+            self.log(f"I2C detection failed: {error}", False)
+            self.refresh_i2c_candidates()
+            return
+        self._rail_candidates = list(candidates)
+        self.rail = candidates[0] if len(candidates) == 1 else None
+        self._i2c_discovery_complete = True
+        elapsed = max(0.0, time.monotonic() - getattr(self, "_i2c_scan_started", time.monotonic()))
+        scope = getattr(self, "_i2c_scan_scope", None) or "Full scan"
+        summary = (f"Saved {self.rail.p.regulator} reconnected and checked in {elapsed:.2f}s. "
+                   "Other controllers were not scanned. "
+                   if origin == "saved" and self.rail is not None
+                   else f"{scope} complete in {elapsed:.2f}s: {len(candidates)} candidate(s). ")
+        self.update_i2c_scan_ui(
+            summary + ("Read the current DAC settings before applying an adjustment."
+             if self.rail is not None and getattr(self.rail, "current_dac", False)
+             else "Select a controller and Verify before applying an adjustment.")
+            if candidates else summary + "No compatible controller responded.")
+        self.log(summary, bool(candidates))
+        if self.rail is not None:
+            self.remember_i2c_route()
+        self.refresh_i2c_candidates()
+
+    def remember_i2c_route(self):
+        """Save only a selected, published route; never settings or verification."""
+        try:
+            if self.rail is not None:
+                i2c_cache.remember(self.gpu, self.rail)
+        except Exception as exc:                                # noqa: BLE001
+            self.log(f"I2C route could not be saved: {exc}", False)
+
+    def select_i2c_controller(self, sender=None, app_data=None, user_data=None):
+        old_choice = getattr(self, "_i2c_controller_choice", "Unknown -- Full Scan")
+        if (getattr(self, "_i2c_scan_busy", False) or getattr(self, "_i2c_busy", False)
+                or getattr(self, "_profile_pending", None) or getattr(self, "_profile_applying", False)):
+            dpg.set_value("i2c_controller", old_choice)
+            self.log("wait for I2C/profile work before changing scan scope", False)
+            return
+        choices = ["Unknown -- Full Scan"] + (railctl.controller_names() if railctl else [])
+        if app_data not in choices:
+            dpg.set_value("i2c_controller", old_choice)
+            return
+        self._i2c_controller_choice = app_data
 
     def i2c_candidate_label(self, rail):
         candidates = getattr(self, "_rail_candidates", [])
@@ -2826,12 +3424,32 @@ class Druta:
 
     def build_i2c_candidates(self):
         """Only rebuild the regulator controls, preserving other staged edits."""
+        dpg.add_text("", tag="i2c_scan_status", color=DIM,
+                     wrap=self.s(sum(self.KNOB_COLS)))
+        dpg.add_progress_bar(tag="i2c_scan_progress", default_value=0.0,
+                             overlay="Scanning I2C buses…", show=False, width=-1)
+        dpg.add_loading_indicator(tag="i2c_scan_spinner", show=False)
+        choices = ["Unknown -- Full Scan"] + (railctl.controller_names() if railctl else [])
+        choice = getattr(self, "_i2c_controller_choice", "Unknown -- Full Scan")
+        if choice not in choices:
+            choice = self._i2c_controller_choice = "Unknown -- Full Scan"
+        with dpg.group(horizontal=True):
+            dpg.add_combo(choices, label="IC to scan", default_value=choice,
+                          tag="i2c_controller", width=self.s(260), callback=self.select_i2c_controller)
+            dpg.add_button(label="Connect / Scan", tag="i2c_rescan", callback=self.rescan_i2c)
+            dpg.add_button(label="Full scan", tag="i2c_full_scan", callback=self.full_scan_i2c)
+        with dpg.tooltip("i2c_rescan"):
+            dpg.add_text("Check the saved controller first, if it matches the selected IC.\n"
+                         "If it cannot be verified, scan the selected IC's supported routes.\n"
+                         "Unknown scans all supported controllers when reconnect is unavailable.")
+        with dpg.tooltip("i2c_full_scan"):
+            dpg.add_text("Scan all supported controllers and routes, bypassing the saved route and IC filter.")
         candidates = getattr(self, "_rail_candidates", [])
         labels = [self.i2c_candidate_label(r) for r in candidates]
         selected = self.i2c_candidate_label(self.rail) if self.rail else "Select controller"
         dpg.add_combo(labels, default_value=selected, width=-1,
                       tag="i2c_candidate", callback=self.select_i2c_candidate)
-        dpg.add_button(label="Rescan I2C", callback=self.rescan_i2c)
+        self.update_i2c_scan_ui()
         for r in candidates:
             tel = getattr(r, "discovery_telemetry", {})
             details = []
@@ -2841,14 +3459,21 @@ class Druta:
                     details.append(f"{value:.1f} {unit}")
             if details:
                 dpg.add_text(self.i2c_candidate_label(r) + " - " + ", ".join(details), color=DIM)
+        if not getattr(self, "_i2c_discovery_complete", False):
+            return
         if self.rail is None:
-            dpg.add_text("Select a controller, then Verify its voltage response." if candidates
+            current_only = candidates and all(getattr(r, "current_dac", False) for r in candidates)
+            dpg.add_text(("Select a current DAC, then Read settings."
+                          if current_only else "Select a controller, then Verify its voltage response.") if candidates
                          else "No compatible controller responded to the scan.", color=WARN)
             return
         dpg.add_text(self.rail.p.name, color=DIM)
         if not self.rail.present():
             self.invalidate_i2c_verification()
             dpg.add_text("Controller no longer responds; rescan I2C.", color=WARN)
+            return
+        if getattr(self.rail, "current_dac", False):
+            self.build_current_dac_controls()
             return
         with dpg.table(header_row=False, no_host_extendX=True,
                        policy=dpg.mvTable_SizingFixedFit):
@@ -2858,7 +3483,8 @@ class Druta:
     def refresh_i2c_candidates(self):
         if not dpg.does_item_exist("i2c_candidates"):
             return
-        self._ctl_widgets = [t for t in self._ctl_widgets if "i2crail" not in str(t)]
+        self._ctl_widgets = [t for t in self._ctl_widgets
+                             if "i2crail" not in str(t) and not str(t).startswith("nct_")]
         self._slider_ranges.pop("i2crail", None)
         self._knob_cb.pop("i2crail", None)
         getattr(self, "_carryover_hi", {}).pop("i2crail", None)
@@ -2870,7 +3496,7 @@ class Druta:
         self.relayout()
 
     def select_i2c_candidate(self, sender=None, app_data=None, user_data=None):
-        if (getattr(self, "_i2c_busy", False)
+        if (getattr(self, "_i2c_busy", False) or getattr(self, "_i2c_scan_busy", False)
                 or getattr(self, "_profile_pending", None)
                 or getattr(self, "_profile_applying", False)):
             self.log("wait for I2C/profile work to finish before selecting a controller", False)
@@ -2885,8 +3511,11 @@ class Druta:
         self.invalidate_i2c_verification()
         self._i2c_recovery_for = None
         self.rail = chosen
+        self.remember_i2c_route()
         self.refresh_i2c_candidates()
-        self.log("I2C controller selected; press Verify before applying an adjustment", True)
+        self.log(("I2C current DAC selected; use Read settings before applying an adjustment"
+                  if getattr(chosen, "current_dac", False)
+                  else "I2C controller selected; press Verify before applying an adjustment"), True)
         return True
 
     def rescan_i2c(self):
@@ -2895,14 +3524,48 @@ class Druta:
                 or getattr(self, "_profile_applying", False)):
             self.log("wait for I2C/profile work to finish before rescanning", False)
             return False
-        self.find_rail()
-        self.refresh_i2c_candidates()
-        return True
+        if not (dpg.does_item_exist("i2c_mode") and dpg.get_value("i2c_mode")):
+            self.log("tick I2C rail before scanning this GPU's regulator buses", False)
+            return False
+        choice = getattr(self, "_i2c_controller_choice", "Unknown -- Full Scan")
+        return self.start_i2c_discovery(
+            controller=None if choice == "Unknown -- Full Scan" else choice, prefer_saved=True)
+
+    def full_scan_i2c(self):
+        return self.start_i2c_discovery(controller=None, prefer_saved=False)
+
+    def on_i2c_mode(self, sender=None, app_data=None, user_data=None):
+        """Reveal manual scan controls; checking this never accesses the bus."""
+        enabled = bool(app_data) if app_data is not None else bool(dpg.get_value("i2c_mode"))
+        self.sync_risk_ui()
+        if enabled:
+            if dpg.does_item_exist("i2c_regulator_header"):
+                dpg.configure_item("i2c_regulator_header", default_open=True)
+            self.update_i2c_scan_ui()
+        else:
+            self.cancel_i2c_discovery(clear=True)
+            self.refresh_i2c_candidates()
 
     def reset_i2c_rail(self):
         """Allow recovery of a tried connection, never probe an untouched one."""
         if getattr(self, "_i2c_busy", False):
             return False, "wait for verification and restoration to finish"
+        if (hasattr(self, "_i2c_discovery_complete")
+                and not self._i2c_discovery_complete):
+            return False, "I2C detection has not completed; no reset write issued"
+        if self.rail is None:
+            return False, "no I2C controller has been detected; no reset write issued"
+        if getattr(self.rail, "current_dac", False):
+            ok, why = self.i2c_gate()
+            if not ok:
+                return False, why
+            try:
+                self._capture_current_dac_control()
+            except Exception as exc:                            # noqa: BLE001
+                return False, f"current DAC register capture failed: {exc}"
+            result = self.rail.reset()
+            self._current_dac_failure(self.rail, result)
+            return result
         if getattr(self.rail, "requires_verification", False):
             if not (self.i2c_verified()
                     or (getattr(self, "_i2c_recovery_for", None) is not None
@@ -2914,6 +3577,11 @@ class Druta:
         """(ok, why) for touching the regulator at all."""
         if railctl is None:
             return False, "the railctl module is not present in this build"
+        if getattr(self, "_i2c_scan_busy", False):
+            return False, "I2C detection is still running; wait for it to finish"
+        if (hasattr(self, "_i2c_discovery_complete")
+                and not self._i2c_discovery_complete):
+            return False, "I2C detection has not completed; enable I2C rail and use Connect / Scan"
         if self.rail is None:
             return False, ("no i2c profile identifies a regulator on this "
                            "card - see i2c/PROFILES.md to write one")
@@ -2944,6 +3612,11 @@ class Druta:
                     "prof_name", "tw_apply", "tw_restore", "tim_read"):
             if dpg.does_item_exist(tag):
                 dpg.configure_item(tag, enabled=not busy)
+        # Reading DAC registers is harmless while locked, but it still must
+        # not interleave with a verification/restore transaction that owns
+        # this I2C controller.
+        if dpg.does_item_exist("nct_read_settings"):
+            dpg.configure_item("nct_read_settings", enabled=not busy)
 
     def shutdown_is_clean(self):
         worker = getattr(self, "_i2c_thread", None)
@@ -2959,6 +3632,7 @@ class Druta:
     def stop_i2c_verification(self):
         """Cancel, then wait for restoration while UI and logging still exist."""
         self._closing = True
+        self.cancel_i2c_discovery()
         worker = getattr(self, "_i2c_thread", None)
         if worker is not None and worker.is_alive():
             self._i2c_cancel.set()
@@ -3002,6 +3676,17 @@ class Druta:
         ok, why = self.i2c_gate()
         if not ok:
             self.log("verify: " + why, False)
+            return
+        if getattr(self.rail, "current_dac", False):
+            # Its three registers describe current-source/sink requests, not
+            # VOUT.  A physical-voltage staircase would be a false test and
+            # could assign a made-up rail meaning to an output.
+            if self.refresh_current_dac_settings():
+                self._i2c_verified = True
+                self._i2c_verified_for = self.i2c_connection()
+                self.log("NCT3933U register readback complete; physical voltage requires meter", True)
+            else:
+                self.invalidate_i2c_verification()
             return
         avail, msg = ((True, "") if getattr(self.rail, "absolute_voltage", False)
                       else gpuload.available())
@@ -3112,6 +3797,9 @@ class Druta:
         # write on this path happened because a ceiling was reasoned about
         # instead of being asked for.
         if not self.guard():
+            return
+        if getattr(self.rail, "current_dac", False):
+            self.log("current DAC uses OUT1/OUT2/OUT3 native current controls, not a voltage offset", False)
             return
         ok, why = self.i2c_gate()
         if not ok:
@@ -3780,12 +4468,18 @@ class Druta:
         # thing on this tab a reboot will not undo, so it gets its own line
         # rather than being folded into the general success count - somebody
         # reading the log needs to see that this specific undo happened.
-        if self.rail is not None and dpg.does_item_exist("sl_i2crail"):
+        if (self.rail is not None
+                and (getattr(self.rail, "current_dac", False)
+                     or dpg.does_item_exist("sl_i2crail"))):
             ok, m = self.reset_i2c_rail()
-            self.log("VRM rail offset: " + m, ok)
+            self.log(("current DAC outputs: " if getattr(self.rail, "current_dac", False)
+                      else "VRM rail offset: ") + m, ok)
             failed += (0 if ok else 1)
             if ok:
-                if getattr(self.rail, "absolute_voltage", False):
+                if getattr(self.rail, "current_dac", False):
+                    self.refresh_current_dac_settings(
+                        preserve_status=bool(getattr(self, "_i2c_restore_failed", False)))
+                elif getattr(self.rail, "absolute_voltage", False):
                     self.sync_profile_rail_sliders()
                 else:
                     dpg.set_value("sl_i2crail", 0)
@@ -6261,6 +6955,11 @@ deliberately does not put behind a button."""
         except Exception as e:
             self.log(f"load '{name}': {e}", False)
             return
+        if (state.get("i2c") and hasattr(self, "_i2c_discovery_complete")
+                and not self._i2c_discovery_complete):
+            self.profile_failure(
+                "I2C controller detection has not completed; tick I2C rail, wait for detection, then load again")
+            return
         error = profiles.preflight(self.gpu, state, self.rail_for_profile(state))
         if error:
             self.profile_failure(error)
@@ -6277,6 +6976,12 @@ deliberately does not put behind a button."""
     def begin_profile_load(self, name, state, automatic=False):
         if not self.guard() or self._i2c_busy:
             self.profile_failure("profile load blocked by another operation or locked controls", automatic)
+            return
+        if (state.get("i2c") and hasattr(self, "_i2c_discovery_complete")
+                and not self._i2c_discovery_complete):
+            self.profile_failure(
+                "I2C controller detection has not completed; tick I2C rail, wait for detection, then load again",
+                automatic)
             return
         error = profiles.preflight(self.gpu, state, self.rail_for_profile(state))
         if automatic:
@@ -6310,7 +7015,14 @@ deliberately does not put behind a button."""
             self.sync_risk_ui()
         if state.get("i2c") and not self.i2c_verified():
             self.verify_i2c_rail()
-            if not self._i2c_busy and not self.i2c_verified():
+            # Current-DAC register readback is synchronous. It establishes
+            # controller identity/state but never claims a physical-voltage
+            # staircase, so restore immediately instead of queuing a fictional
+            # "under load" verification.
+            if self.i2c_verified():
+                self.finish_profile_load(name, state, automatic)
+                return
+            if not self._i2c_busy:
                 self.profile_failure("I2C verification could not start", automatic)
                 return
             self._profile_pending = (name, state, automatic)
@@ -6353,6 +7065,8 @@ deliberately does not put behind a button."""
             results = [(False, f"profile restore failed: {e}")]
         finally:
             self._profile_applying = False
+        if getattr(self.rail, "current_dac", False):
+            self._current_dac_failure(self.rail, (False, "profile current-DAC restore failed"))
         for ok, msg in results:
             self.log(msg, ok)
         if any(not ok for ok, _ in results):
@@ -6379,10 +7093,14 @@ deliberately does not put behind a button."""
                 if knob.ctrl in (domains or {}):
                     values[knob.key] = domains[knob.ctrl]["freq_khz"] / 1000
             if self.rail:
-                tel = self.rail.telemetry()
-                values["i2crail"] = ((tel.get("target_mv") or tel.get("vout_mv"))
-                                     if getattr(self.rail, "absolute_voltage", False)
-                                     else tel.get("offset_mv"))
+                if getattr(self.rail, "current_dac", False):
+                    self.refresh_current_dac_settings(
+                        preserve_status=bool(getattr(self, "_i2c_restore_failed", False)))
+                else:
+                    tel = self.rail.telemetry()
+                    values["i2crail"] = ((tel.get("target_mv") or tel.get("vout_mv"))
+                                         if getattr(self.rail, "absolute_voltage", False)
+                                         else tel.get("offset_mv"))
             for key, value in values.items():
                 if value is not None:
                     for prefix in ("sl_", "in_"):
@@ -6543,6 +7261,8 @@ deliberately does not put behind a button."""
                                   callback=self.copy_device_report)
                 dpg.add_menu_item(label="Refresh capabilities",
                                   callback=self.refresh_capabilities)
+                dpg.add_menu_item(label="Restart GPU device (PnP)...",
+                                  callback=self.open_device_restart)
                 dpg.add_separator()
                 # nvtune is NOT shipped with Druta, so the Timings tab needs to
                 # be pointed at it once. This is that once.
@@ -7302,6 +8022,15 @@ deliberately does not put behind a button."""
                     dpg.add_spacer(width=self.s(10))
                     dpg.add_button(label="Restore stock", tag="tw_restore",
                                    width=self.s(150), callback=self.tw_restore)
+                with dpg.group(horizontal=True):
+                    dpg.add_button(label="Save timing profile...",
+                                   tag="tw_save_profile", callback=self.tw_save_profile)
+                    dpg.add_button(label="Load timing profile...",
+                                   tag="tw_load_profile", callback=self.tw_load_profile)
+                dpg.add_text("Save includes the captured values and your edits. "
+                             "Load replaces staged edits; review and Apply to write.",
+                             color=DIM, wrap=self.s(1100))
+                dpg.add_text("", tag="tw_profile_status", color=TEXT, wrap=self.s(1100))
                 dpg.add_spacer(height=self.s(6))
                 dpg.add_separator()
                 dpg.add_spacer(height=self.s(6))
@@ -7489,6 +8218,120 @@ deliberately does not put behind a button."""
                                                    BAD if changed else GOOD))
         self.tw_plan()
 
+    # ---- timing profile files (never commit) ------------------------------ #
+    def tw_profile_status(self, message, ok=True):
+        dpg.set_value("tw_profile_status", message)
+        dpg.configure_item("tw_profile_status", color=TEXT if ok else BAD)
+
+    def tw_save_profile(self, sender=None, app_data=None, user_data=None):
+        self.open_timing_profile(save=True)
+
+    def tw_load_profile(self, sender=None, app_data=None, user_data=None):
+        self.open_timing_profile(save=False)
+
+    def open_timing_profile(self, *, save):
+        if getattr(self, "_tim_profile_dialog", False):
+            return
+        if getattr(self, "_tim_busy", False) or getattr(self, "_closing", False):
+            self.tw_profile_status("Wait for the timing capture to finish.", False)
+            return
+        ft, snap = self._tim_ft, self._tim
+        if ft is None or snap is None or not snap.ok:
+            self.tw_profile_status("Read memory timings before saving or loading a profile.", False)
+            return
+        # Freeze what Save means at the click. The picker runs off-thread and
+        # neither a new capture nor later edits may silently change that file.
+        try:
+            document = timingprofiles.make_profile(snap, ft, self._tw_pending) if save else None
+        except ValueError as exc:
+            self.tw_profile_status(str(exc), False)
+            return
+        generation, gpu = self._gpu_gen, self.gpu
+        pending = dict(self._tw_pending)
+        folder = paths.profile_dir() / "timings"
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            self.tw_profile_status(f"Cannot open the timing profile folder: {exc}", False)
+            return
+        self._tim_profile_dialog = True
+        self.tw_profile_status("Choose a timing profile file...")
+
+        def worker():
+            try:
+                loaded = None
+                path, error = self.pick_file_native(
+                    "Save timing profile" if save else "Load timing profile",
+                    str(folder), "timings.json" if save else "",
+                    (("Timing profiles (*.json)", "*.json"),), save=save)
+                if path and not error:
+                    if save:
+                        startup.atomic_json(path, document)
+                    else:
+                        loaded = timingprofiles.read_profile(path, ft)
+                self._tim_profile_result = (generation, gpu, pending, save, path,
+                                            error, loaded)
+            except Exception as exc:
+                self._tim_profile_result = (generation, gpu, pending, save, "",
+                                            str(exc), None)
+
+        threading.Thread(target=worker, daemon=True, name="Druta-timing-profile").start()
+
+    def poll_timing_profile(self):
+        result = getattr(self, "_tim_profile_result", None)
+        if result is None:
+            return
+        self._tim_profile_result = None
+        self._tim_profile_dialog = False
+        generation, gpu, pending, save, path, error, document = result
+        if generation != self._gpu_gen or gpu is not self.gpu:
+            self.log("Timing profile dialog belonged to the previous card; nothing loaded.", None)
+            return
+        if error:
+            self.tw_profile_status(error, False)
+        elif not path:
+            self.tw_profile_status("File selection cancelled.")
+        elif save:
+            self.tw_profile_status(f"Saved timing profile: {path}")
+        elif pending != self._tw_pending:
+            self.tw_profile_status("Edits changed while the file picker was open; load again to replace them.", False)
+        else:
+            self.stage_timing_profile(document, path)
+
+    def stage_timing_profile(self, document, path=""):
+        # Revalidate on the UI thread against the current helper table before
+        # replacing any edits. No setting is sent to hardware by this method.
+        try:
+            saved_slot = document.get("slot")
+            if saved_slot and saved_slot != self.gpu.slot():
+                raise ValueError(f"Profile belongs to {saved_slot}; select that GPU before loading.")
+            assignments = timingprofiles.validate_fields(document["fields"], self._tim_ft)
+            missing = set(assignments) - self._tw_base.keys()
+            if missing:
+                raise ValueError("Capture these fields before loading: " + ", ".join(sorted(missing)))
+        except (ValueError, KeyError) as exc:
+            self.tw_profile_status(str(exc), False)
+            return
+        self._tw_pending = {name: value for name, value in assignments.items()
+                            if value != self._tw_base[name]}
+        for name, base in self._tw_base.items():
+            tag = f"twv_{name}"
+            if dpg.does_item_exist(tag):
+                dpg.set_value(tag, self._tw_pending.get(name, base))
+                changed = name in self._tw_pending
+                dpg.bind_item_theme(tag, self.tw_theme("chg" if changed else "ok",
+                                                      BAD if changed else GOOD))
+        self.tw_plan()
+        capture = document.get("capture") or {}
+        card, band = capture.get("gpu"), capture.get("band")
+        source = " Source GPU and clock band were not recorded."
+        if isinstance(card, dict) and isinstance(band, dict):
+            source = (f" Captured on {card.get('codename', '?')} at "
+                      f"{band.get('memory_mhz_reported', '?')} MHz reported memory clock "
+                      f"(P{band.get('pstate', '?')}).")
+        self.tw_profile_status(f"Loaded {len(assignments)} fields; {len(self._tw_pending)} changes staged. "
+                               f"Review the preview before Apply. {path}" + source)
+
     # ---- the write panel -------------------------------------------------- #
     # These run INLINE rather than on the capture worker's thread. A write is
     # four short subprocess spawns (dry run, commit, two reads) and finishes in
@@ -7534,15 +8377,48 @@ deliberately does not put behind a button."""
         dpg.set_value("tw_plan", body)
         dpg.configure_item("tw_plan", color=colour)
 
+    def tw_reconcile_capture(self, snap, field_table):
+        """Retire only edits confirmed by a fresh read of this card's top band.
+
+        A failed or idle capture cannot say whether a write landed. Check the
+        decoded broadcast value against the raw word and every active FBPA
+        partition before treating an assignment as resolved.
+        """
+        if (snap is None or not snap.ok or not snap.mem_stable
+                or snap.perf_band is not True or not snap.scopes
+                or field_table is None or not same_slot(snap.slot, self.gpu.slot())):
+            return
+        broadcast = snap.registers.get("broadcast")
+        if not isinstance(broadcast, dict):
+            return
+        for name, requested in tuple(self._tw_pending.items()):
+            field = field_table.by_name(name)
+            reading = snap.by_name(name)
+            if (field is None or reading is None or reading.field != field
+                    or field.structural or field.inferred or not field.width_consistent
+                    or type(requested) is not int or type(reading.cycles) is not int
+                    or reading.cycles != requested):
+                continue
+            word = broadcast.get(field.register)
+            if type(word) is not int or field.extract(word) != requested:
+                continue
+            if any(type((snap.registers.get(scope) or {}).get(field.register)) is not int
+                   or field.extract(snap.registers[scope][field.register]) != requested
+                   for scope in snap.scopes):
+                continue
+            self._tw_pending.pop(name, None)
+
     def tw_button(self):
         """Apply goes red exactly when clicking it would write to the memory
         controller, and sits neutral when it would do nothing. The button and
         the red cells are the same signal said twice, which is the point: the
         control that does the dangerous thing should look like it."""
-        band = "armed" if self._tw_pending else "idle"
-        if self._tw_btn == band or not dpg.does_item_exist("tw_apply"):
+        count = len(self._tw_pending)
+        band = "armed" if count else "idle"
+        button_state = (band, count)
+        if self._tw_btn == button_state or not dpg.does_item_exist("tw_apply"):
             return
-        self._tw_btn = band
+        self._tw_btn = button_state
         if band == "idle":
             dpg.bind_item_theme("tw_apply", 0)
             dpg.configure_item("tw_apply", label="Apply to memory controller")
@@ -7561,7 +8437,7 @@ deliberately does not put behind a button."""
         dpg.bind_item_theme("tw_apply", th)
         dpg.configure_item(
             "tw_apply",
-            label=f"Apply {len(self._tw_pending)} change(s) to the memory "
+            label=f"Apply {count} change(s) to the memory "
                   f"controller")
 
     def tw_apply(self, sender=None, app_data=None, user_data=None):
@@ -7793,6 +8669,37 @@ deliberately does not put behind a button."""
                       f"Could not schedule the reboot: {msg}")
         dpg.configure_item("tsd_head", color=WARN if ok else BAD)
 
+    # ---- selected-device recovery ----------------------------------------- #
+    def open_device_restart(self, sender=None, app_data=None, user_data=None):
+        """Start the bounded selected-GPU recovery helper without a modal step."""
+        from . import devicereset
+        if getattr(self, "_closing", False):
+            return
+        if not is_admin():
+            self.log("GPU device restart requires Druta to run as administrator", False)
+            return
+        if (getattr(self, "_i2c_busy", False)
+                or getattr(self, "_profile_pending", None)
+                or getattr(self, "_profile_applying", False)):
+            self.log("wait for I2C verification/profile restoration before restarting", False)
+            return
+        try:
+            target = devicereset.resolve_target(self.gpu.slot())
+        except Exception as exc:
+            self.log(f"cannot identify the GPU for restart: {exc}", False)
+            return
+        try:
+            devicerecovery.launch_helper(target)
+        except (OSError, RuntimeError) as exc:
+            self.log(f"could not start GPU recovery helper: {exc}", False)
+            return
+        self._closing = True
+        self._stop.set()
+        # Normal exit releases our locks and tears down DPG. The helper waits
+        # for process exit, so neither old driver handles nor this D3D device
+        # survive into the restart. It never resumes an opted-in profile.
+        dpg.stop_dearpygui()
+
     # ---- switching cards --------------------------------------------------- #
     def reset_card_state(self):
         """Drop everything measured on, or staged against, the outgoing card.
@@ -7890,17 +8797,17 @@ deliberately does not put behind a button."""
         # Synchronize invalidation with the telemetry worker's publication.
         # Driver reads stay outside this lock so switching remains responsive.
         with self._lock:
+            self.cancel_i2c_discovery(clear=True)
             self._gpu_gen += 1
             self._rebuilding = True
         try:
             self.reset_card_state()
             self.gpu = fresh
             self.gpu_list = enumerate_gpus()
-            # Before build_ui: the rail row is only built where a profile
-            # identifies, so the new card's regulator has to be known by the
-            # time the Control tab is constructed. A stale Rail here would
-            # point every write at the PREVIOUS card's bus.
-            self.find_rail()
+            # Detection is opt-in. A stale result may never cross this card
+            # boundary; the new card starts read-only until it is requested.
+            self.clear_i2c_discovery()
+            self._i2c_controller_choice = "Unknown -- Full Scan"
             self._i2c_verified = False
             self.build_ui(rebuild=True)
         finally:
@@ -8027,7 +8934,7 @@ deliberately does not put behind a button."""
 
     # ---- locating nvtune, which this build does not ship ------------------ #
     @staticmethod
-    def pick_file_native(title, initial_dir="", filename="", spec=()):
+    def pick_file_native(title, initial_dir="", filename="", spec=(), *, save=False):
         """The WINDOWS file picker, through comdlg32.GetOpenFileNameW.
 
         Dear PyGui's own file dialog is not usable for this. It renders drives
@@ -8088,9 +8995,17 @@ deliberately does not put behind a button."""
             # PATHMUSTEXIST make it reject a typo rather than hand back a path
             # to nothing; NOCHANGEDIR stops it moving OUR working directory,
             # which would quietly break every relative path in the process.
-            ofn.Flags = 0x00080000 | 0x00001000 | 0x00000800 | 0x00000008
-            if ctypes.windll.comdlg32.GetOpenFileNameW(ctypes.byref(ofn)):
+            ofn.Flags = 0x00080000 | 0x00000800 | 0x00000008
+            ofn.Flags |= 0x00000002 if save else 0x00001000  # OVERWRITEPROMPT / FILEMUSTEXIST
+            if save:
+                ofn.lpstrDefExt = "json"
+            picker = (ctypes.windll.comdlg32.GetSaveFileNameW if save
+                      else ctypes.windll.comdlg32.GetOpenFileNameW)
+            if picker(ctypes.byref(ofn)):
                 return buf.value, ""
+            error = ctypes.windll.comdlg32.CommDlgExtendedError()
+            if error:
+                return "", f"Windows file picker error 0x{error:04X}"
         except Exception as e:                                  # noqa: BLE001
             return "", f"{type(e).__name__}: {e}"
         return "", ""
@@ -8601,6 +9516,14 @@ deliberately does not put behind a button."""
             dpg.set_value("tim_words", "")
             dpg.delete_item("tim_table", children_only=True)
             self.tim_columns()
+            self.tw_button()
+            if self._tw_pending:
+                dpg.set_value("tw_plan", "Timing readback unavailable; staged edits "
+                              "are preserved. Capture again before Apply.")
+                dpg.configure_item("tw_plan", color=WARN)
+            else:
+                dpg.set_value("tw_plan", "no edits staged")
+                dpg.configure_item("tw_plan", color=TEXT)
             # the captures still have to be redrawn: this path is reached
             # whenever the most recent snapshot failed, and a comparison left
             # standing over captures that no longer exist is a lie
@@ -8638,6 +9561,7 @@ deliberately does not put behind a button."""
             self._tim_ft = timings.field_table()
         except Exception:                                       # noqa: BLE001
             self._tim_ft = None
+        self.tw_reconcile_capture(snap, self._tim_ft)
 
         # ---- header ------------------------------------------------------- #
         dpg.set_value("tim_ident",
@@ -8690,6 +9614,7 @@ deliberately does not put behind a button."""
                 desc = f.description + (" [structural]" if f.structural else "")
                 dpg.add_text(desc, color=DIM if f.structural else TEXT,
                              wrap=self.s(self.TIM_COLS[-1][1] - 14))
+        self.tw_plan()
         self.draw_comparison(caps)
         self.draw_divergence(snap)
 
@@ -9095,6 +10020,73 @@ deliberately does not put behind a button."""
             return None
         return "" if out == "NONE" else out
 
+    def _clock_capability_recovery_safe(self):
+        """Whether adding rows would interrupt an in-progress edit."""
+        if (getattr(self, "_closing", False) or getattr(self, "_rebuilding", False)
+                or getattr(self, "_i2c_busy", False)
+                or getattr(self, "_i2c_scan_busy", False)
+                or getattr(self, "_tim_busy", False)
+                or getattr(self, "_profile_pending", None)
+                or getattr(self, "_profile_applying", False)
+                or getattr(self, "_drag_idx", None) is not None):
+            return False
+        if (any(v != getattr(self, "vf_orig", {}).get(i)
+                for i, v in getattr(self, "vf_work", {}).items())
+                or getattr(self, "_tw_pending", {})):
+            return False
+        for key in getattr(self, "_slider_ranges", {}):
+            for tag in (f"sl_{key}", f"in_{key}"):
+                if (dpg.does_item_exist(tag)
+                        and (dpg.is_item_focused(tag) or dpg.is_item_active(tag))):
+                    return False
+        if self.typing():
+            return False
+        # Dear PyGui has no global "modal open" query.  Inspecting the item
+        # tree keeps this future-proof when a new modal is added.
+        try:
+            for item in dpg.get_all_items() or ():
+                config = dpg.get_item_configuration(item)
+                if config.get("modal") and dpg.is_item_shown(item):
+                    return False
+        except Exception:
+            pass
+        return True
+
+    def consume_clock_capability_recovery(self):
+        """Apply a worker-published recovery when the main UI is safe to redraw."""
+        with getattr(self, "_lock", contextlib.nullcontext()):
+            pending = getattr(self, "_clock_capability_recovery", None)
+            if pending is None:
+                return False
+            generation, gpu, token = pending
+            if (generation != self._gpu_gen or gpu is not self.gpu
+                    or token != getattr(self, "_clock_capability_recovery_token", 0)):
+                self._clock_capability_recovery = None
+                return False
+        if not self._clock_capability_recovery_safe():
+            return False
+        with getattr(self, "_lock", contextlib.nullcontext()):
+            # Consume before trying the UI insertion.  A bad DPG item cannot
+            # turn one bounded backend recovery into an every-frame retry.
+            if self._clock_capability_recovery != pending:
+                return False
+            self._clock_capability_recovery = None
+        try:
+            made = self.insert_recovered_clock_controls()
+        except Exception as exc:
+            self.log(f"automatic capability update failed: {exc}", False)
+            return False
+        if made:
+            # New rows start with DPG's enabled defaults.  Reapply both gates
+            # immediately so a locked or non-XOC session cannot use a newly
+            # discovered control before the next ordinary UI refresh.
+            self.sync_risk_ui()
+            self.sync_lock_ui()
+            if not getattr(self, "_clock_capability_recovery_logged", False):
+                self.log("recovered clock controls automatically", True)
+                self._clock_capability_recovery_logged = True
+        return bool(made)
+
     def refresh_capabilities(self, sender=None, app_data=None, user_data=None):
         """Deliberate read-only retry; retain ownership and staged slider values."""
         if (getattr(self, "_i2c_busy", False) or getattr(self, "_tim_busy", False)
@@ -9106,11 +10098,17 @@ deliberately does not put behind a button."""
                 or getattr(self, "_tw_pending", {})):
             self.log("apply or revert staged curve/timing edits before refreshing capabilities", False)
             return
+        # This is a new deliberate probe budget, so any earlier worker result
+        # no longer describes the capability state which will be displayed.
+        with getattr(self, "_lock", contextlib.nullcontext()):
+            self._clock_capability_recovery_token = (
+                getattr(self, "_clock_capability_recovery_token", 0) + 1)
+            self._clock_capability_recovery = None
         tags = ["unlock", "xoc_mode", "i2c_mode", "vlim_mode", "vlim_link",
                 "vcap", "rfloor"]
         tags += [prefix + key for key in getattr(self, "_slider_ranges", {})
                  for prefix in ("sl_", "in_")]
-        values = {t: dpg.get_value(t) for t in tags if dpg.does_item_exist(t)}
+        values = {tag: dpg.get_value(tag) for tag in tags if dpg.does_item_exist(tag)}
         self._rebuilding = True
         self._ui_gen = getattr(self, "_ui_gen", 0) + 1
         try:
@@ -9166,7 +10164,7 @@ deliberately does not put behind a button."""
             self._current_limits = {}
             self._knob_cb = {}
             self._xoc_bounds = False
-            for tag in ("hdr_row", "tabs", "menubar", "win_device", "win_save",
+            for tag in ("hdr_row", "tab_content", "tabs", "menubar", "win_device", "win_save",
                         "win_profiles", "win_keys", "win_about",
                         "win_licence", "win_testsign", "win_ts_done",
                         "win_shunt"):
@@ -9205,50 +10203,69 @@ deliberately does not put behind a button."""
         keeps in step with the menu bar, has nothing per-card about it, and
         leaving it in place keeps these two rebuilt in the right order after
         root's other children."""
+        self.build_shared_header()
+        # The root window must never become the page scroller: scrolling it
+        # hides the selected-GPU header and recovery action. Each tab keeps its
+        # own existing panels, while this child owns any whole-page overflow.
+        # Negative height uses ImGui's remaining content region on every frame,
+        # including after a resize or header wrap. Windows expose `pos`, not
+        # `rect_min`: manually querying the latter left this child at 480px.
+        with dpg.child_window(tag="tab_content", parent="root", width=-1,
+                              height=-1, border=False):
+            with dpg.tab_bar(tag="tabs"):
+                # Control first: it is what the app is opened to do. Monitor
+                # second. Timings last and labelled, because it is the only tab
+                # that needs a separate tool installed to do anything at all.
+                self.build_control()      # the V/F editor lives inside this tab
+                self.build_monitor()
+                self.build_timings()
+
+    def build_shared_header(self):
+        """Keep card identity on the left and immediate recovery at upper right."""
         st = self.gpu.static
-        with dpg.group(horizontal=True, tag="hdr_row", parent="root"):
-            dpg.add_text(f"Thermetery Druta {__version__}", tag="hdr", color=ACCENT)
-            self.bind("hdr", "big")
-            dpg.add_text(f"   {st.get('name')}  •  driver "
-                         f"{st.get('driver')}  •  vbios "
-                         f"{st.get('vbios')}"
-                         + (f"  •  {st.get('slot')}"
-                            if len(self.gpu_list) > 1 else ""), color=DIM)
-            dpg.add_text("   admin" if st.get("admin")
-                         else "   NOT admin (lock/fan/PL need admin)",
-                         color=GOOD if st.get("admin") else WARN)
-            dpg.add_text("", tag="stale", color=BAD)
-            # THE CARD SELECTOR, in the header rather than three levels into a
-            # menu. Every control in this window is pointed at exactly one GPU
-            # and means different numbers on a different one, so which card is
-            # selected is a permanent question, not an occasional one - and a
-            # menu is where you put things people look for, not things they
-            # need to see. Large, because it is the label for the whole window.
-            dpg.add_spacer(width=self.s(24))
-            # Same font as the combo it labels. At the body size it read as a
-            # caption on a control three times its height, which made the pair
-            # look like an afterthought rather than the header's main control.
-            dpg.add_text("card", tag="hdr_card_lbl", color=DIM)
-            self.bind("hdr_card_lbl", "sel")
-            dpg.add_combo(self.card_labels(), tag="hdr_card",
-                          default_value=self.card_label(self.gpu.slot()),
-                          width=self.s(420), callback=self.on_pick_card)
-            self.bind("hdr_card", "sel")
-            with dpg.tooltip("hdr_card"):
-                dpg.add_text(
-                    "Which GPU this window drives. Switching rebuilds every\n"
-                    "control from the new card's own measurements.\n\n"
-                    "Refused while this window is holding the card with a\n"
-                    "clock or V/F point lock. Staged edits ask once, then\n"
-                    "go through on a second pick.\n\n"
-                    "Device > Open a second window on... watches both at once.")
-        with dpg.tab_bar(tag="tabs", parent="root"):
-            # Control first: it is what the app is opened to do. Monitor
-            # second. Timings last and labelled, because it is the only tab
-            # that needs a separate tool installed to do anything at all.
-            self.build_control()          # the V/F editor lives inside this tab
-            self.build_monitor()
-            self.build_timings()
+        with dpg.table(tag="hdr_row", parent="root", header_row=False,
+                       policy=dpg.mvTable_SizingStretchProp, width=-1):
+            dpg.add_table_column(width_stretch=True)
+            dpg.add_table_column(tag="hdr_panic_column", width_fixed=True,
+                                 init_width_or_weight=self.s(360))
+            with dpg.table_row():
+                with dpg.group():
+                    with dpg.group(tag="hdr_identity", horizontal=True):
+                        dpg.add_text(f"Thermetery Druta {__version__}", tag="hdr", color=ACCENT)
+                        self.bind("hdr", "big")
+                        with dpg.group(horizontal=True):
+                            dpg.add_text("card", tag="hdr_card_lbl", color=DIM)
+                            self.bind("hdr_card_lbl", "sel")
+                            dpg.add_combo(self.card_labels(), tag="hdr_card",
+                                          default_value=self.card_label(self.gpu.slot()),
+                                          width=self.s(420), callback=self.on_pick_card)
+                            self.bind("hdr_card", "sel")
+                            with dpg.tooltip("hdr_card"):
+                                dpg.add_text(
+                                    "Which GPU this window drives. Switching rebuilds every\n"
+                                    "control from the new card's own measurements.\n\n"
+                                    "Refused while this window is holding the card with a\n"
+                                    "clock or V/F point lock. Staged edits ask once, then\n"
+                                    "go through on a second pick.\n\n"
+                                    "Device > Open a second window on... watches both at once.")
+                    dpg.add_text(f"{st.get('name')}  •  driver {st.get('driver')}  •  "
+                                 f"vbios {st.get('vbios')}"
+                                 + ("  •  admin" if st.get("admin") else "  •  NOT admin"),
+                                 tag="hdr_details", color=DIM if st.get("admin") else WARN)
+                    dpg.add_text("", tag="stale", color=BAD)
+                dpg.add_button(
+                    label="Panic Button\n(PnP Reset, Deeper than Shift+Ctrl+B)",
+                    tag="panic_pnp_reset", width=-1, height=self.s(52),
+                    callback=self.open_device_restart,
+                )
+        with dpg.theme() as panic_theme:
+            with dpg.theme_component(dpg.mvAll):
+                dpg.add_theme_color(dpg.mvThemeCol_Button, (150, 28, 32))
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (190, 43, 48))
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (222, 58, 63))
+                dpg.add_theme_color(dpg.mvThemeCol_Text, (255, 236, 236))
+                dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, self.s(4))
+        dpg.bind_item_theme("panic_pnp_reset", panic_theme)
 
     def dispatch_callbacks(self):
         """Discard outgoing-card jobs when a callback rebuilds the widget tree."""
@@ -9333,6 +10350,10 @@ deliberately does not put behind a button."""
                          name="Druta-poll").start()
         self.sync_lock_ui()          # the gate must LOOK like whatever it is
         self.log(f"backend: {self.gpu.status_line()}")
+        if getattr(self, "_recovery_result", None):
+            result = self._recovery_result
+            self.log("Device recovery: " + result["message"],
+                     result["ok"] and not result["reboot_required"])
         self.vf_read()
         # One read-only timing capture at startup, on its own thread, so the
         # Timings tab has something in it the first time it is opened instead
@@ -9361,7 +10382,13 @@ deliberately does not put behind a button."""
                 self.dispatch_callbacks()
                 if not dpg.is_dearpygui_running():
                     break
+                # The polling worker may have learned a previously transient
+                # clock domain.  This is intentionally consumed here, on the
+                # UI thread, after callbacks and before normal panel drawing.
+                self.consume_clock_capability_recovery()
+                self.poll_i2c_discovery()
                 self.poll_profile_load()
+                self.poll_timing_profile()
                 now = time.perf_counter()
                 if now - last >= 0.25:
                     last = now
@@ -9460,8 +10487,11 @@ def main(argv=None):
     The slot spelling is nvtune's and NVML's, so the three tools can be pointed
     at one card with one copied string."""
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "--restart-gpu":
+        return devicerecovery.cli(argv[1:], _tell)
     slot = None
     automatic = False
+    recovery_path = None
     while argv:
         a = argv.pop(0)
         if a in ("--version", "-V"):
@@ -9479,6 +10509,11 @@ def main(argv=None):
             return 0
         if a == "--startup-profile":
             automatic = True
+        elif a == "--recovery-result":
+            if not argv:
+                _tell("--recovery-result needs a receipt path")
+                return 2
+            recovery_path = argv.pop(0)
         elif a in ("--gpu", "-d"):
             if not argv:
                 _tell("--gpu needs a PCI slot, e.g. --gpu 0000:01:00.0")
@@ -9489,6 +10524,8 @@ def main(argv=None):
                   "  --gpu SLOT   open on that card, e.g. 0000:02:00.0\n"
                   "  --list-gpus  print the slot and name of every card\n\n"
                   "  --version    print the Druta version\n\n"
+                  "  --restart-gpu SLOT  restart that GPU through Windows PnP, then reopen\n"
+                  "                      requires admin; never reboots the computer\n\n"
                   "  --startup-profile  apply the opted-in sign-in profile after shutdown checks\n\n"
                   "With no --gpu, Druta opens on the lowest PCI slot.\n"
                   "Device > Card switches cards in a running window.")
@@ -9497,6 +10534,10 @@ def main(argv=None):
             _tell(f"unknown argument {a!r} (try --help)")
             return 2
     manager = startup.Startup()
+    # A recovery relaunch must never reapply the profile that may have caused
+    # the failure, including if both flags are supplied by a caller.
+    if recovery_path:
+        automatic = False
     request = manager.begin(automatic=automatic)
     clean = False
     try:
@@ -9509,6 +10550,12 @@ def main(argv=None):
             else:
                 slot = request["profile"]["device"].get("slot")
         app = Druta(slot)
+        if recovery_path:
+            try:
+                app._recovery_result = devicerecovery.read_result(recovery_path, app.gpu.slot())
+            except (OSError, ValueError) as exc:
+                app._recovery_result = {"ok": False, "reboot_required": False,
+                                        "message": f"cannot read recovery result: {exc}"}
         app._startup_manager, app._startup_request = manager, request
         try:
             manager.watch_shutdown(app.shutdown_is_clean)
@@ -9517,6 +10564,8 @@ def main(argv=None):
             app._startup_request = None
         if not app.gpu.available():
             _tell("No GPU backend: " + app.gpu.status_line()
+                  + ("\n\nDevice recovery: " + app._recovery_result["message"]
+                     if app._recovery_result else "")
                   + ("\n\ncards present:\n" + "\n".join(
                       f"  {g['slot']}  {g['name']}" for g in app.gpu_list)
                      if app.gpu_list else ""))

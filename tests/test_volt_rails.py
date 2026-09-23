@@ -498,6 +498,9 @@ class RailEscapeTests(unittest.TestCase):
                              "restore the original hook bytes before call-through")
             self.assertEqual(pesc, ctypes.addressof(escape))
             sent.append(bytes(payload))
+            if payload[14] == GPU._ESC_B213:
+                payload[16] = 0
+                payload[17] = 0xFF
             return 0
 
         def fake_prototype(result_type, argument_type):
@@ -531,8 +534,9 @@ class RailEscapeTests(unittest.TestCase):
             result = GPU._write_rail_records(gpu, records)
         self.assertEqual(bytes(code_buffer), original_code)
         self.assertEqual(getter_masks, [mask])
-        self.assertEqual(len(sent), 1)
-        return result, original_payload, sent[0], records
+        self.assertEqual(sent[0], original_payload)
+        self.assertEqual(len(sent), 2 if result[0] else 1)
+        return result, original_payload, sent[-1], records
 
     def test_escape_preserves_boost_and_all_unselected_packet_fields(self):
         for kind in ("turing", "pascal", "blackwell"):

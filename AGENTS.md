@@ -1,8 +1,31 @@
+# Coding strategy
+
+Trace the existing path before editing it. Fix the underlying cause using
+actual API or protocol evidence, rather than assumptions drawn from one local
+configuration. Keep changes focused and reuse the project's existing
+abstractions where they fit.
+
+Preserve fields and state whose meaning is unknown or outside the requested
+change. Treat a transient read failure differently from an unsupported
+capability: use bounded read-only recovery for the former and preserve controls
+whose current valid state has already been established. Add meaningful tests
+for observable behavior and failure cases, rather than tests that merely mirror
+the implementation.
+
 # Agent collaboration
 
-Subagents are always authorized. Use them for concrete, independent subtasks
-when useful, without asking for additional permission. Coordinate shared-file
-edits and hardware access; only one agent may write to a GPU at a time.
+The root agent supervises the work. Subagents are authorized for concrete,
+independent tasks when useful; prefer Sol or Terra for easy, bounded
+implementation, documentation, or test work when that is the user's stated
+model preference. Give each task explicit paths, scope, and acceptance
+criteria. Assign one owner per file, or coordinate clear non-overlapping
+boundaries before editing shared files.
+
+Agents must share relevant findings and blockers promptly. Coordinate hardware
+access; only one agent may write to a GPU at a time. The root agent reviews
+diffs and validation evidence and integrates the result; it must not accept
+subagent work blindly. Follow the current user model instructions for any
+adversarial review.
 
 # Hardware capability and evidence
 
@@ -38,3 +61,11 @@ partial capabilities and transient failures beyond the local hardware profile.
 # Process management
 
 You can always terminate a working process if it's necessary for review, updates, or changes. Even `sudo kill -9` or an elevated `taskkill /f` are authorized.
+
+# End-of-arc handback and Git
+
+When handing a completed work arc back for human review, leave the freshly
+built application EXE running on the desktop. Do not push to `main`, a
+production branch, or force-push without explicit authorization. Ask before
+opening a pull request. Explicit authorization to publish a release permits
+the release tag and release, but does not by itself permit a push to `main`.

@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Controller selection and verification ownership, using no driver or GUI."""
 from contextlib import nullcontext
+import threading
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
@@ -36,6 +37,14 @@ class CandidateUi(unittest.TestCase):
         self.app._i2c_verified = True
         self.app._i2c_verified_for = self.app.i2c_connection()
         self.app._i2c_recovery_for = None
+        self.app._i2c_discovery_complete = True
+        self.app._i2c_scan_busy = False
+        self.app._i2c_scan_thread = None
+        self.app._i2c_scan_cancel = threading.Event()
+        self.app._i2c_scan_token = 0
+        self.app._i2c_scan_result = None
+        self.app._i2c_scan_status = ""
+        self.app._i2c_scan_work = (0, 0, "")
         self.app.log = Mock()
         self.app.refresh_i2c_candidates = Mock()
 
@@ -149,11 +158,16 @@ class CandidateUi(unittest.TestCase):
 
     def test_rescan_clears_recovery_even_when_it_returns_the_same_controller(self):
         self.app._i2c_recovery_for = self.app.i2c_connection()
-        with patch("druta.railctl.discover", return_value=[self.first]):
+        self.app.start_i2c_discovery = Mock(
+            side_effect=lambda **kwargs: (self.app.clear_i2c_discovery() or True))
+        with patch("druta.druta.dpg.does_item_exist", return_value=True), \
+                patch("druta.druta.dpg.get_value", return_value=True):
             self.assertTrue(self.app.rescan_i2c())
         self.assertIsNone(self.app._i2c_recovery_for)
         self.assertFalse(self.app.reset_i2c_rail()[0])
         self.first.reset.assert_not_called()
+        self.app.start_i2c_discovery.assert_called_once_with(
+            controller=None, prefer_saved=True)
 
     def test_worker_success_requires_same_connection_and_clean_load(self):
         for change, error, expected in ((False, "", True), (True, "", False),

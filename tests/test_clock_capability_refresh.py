@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Private request capabilities independent of board telemetry and retry history."""
 import ctypes
+import threading
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -12,6 +13,7 @@ from druta.nvbackend import GPU, CLKDOM_LAYOUT_TURING, CLKDOM_LAYOUT_BLACKWELL, 
 
 def clock_gpu(architecture=6, domains=(0, 1, 2, 3, 4, 5, 9)):
     gpu = GPU.__new__(GPU)
+    gpu._lock = threading.RLock()
     gpu.arch = lambda: architecture
     gpu.static = {"name": "Different PCB", "uuid": "GPU-other", "slot": "0000:02:00.0",
                   "vbios": "different", "driver": "other"}
@@ -181,6 +183,215 @@ class ClockCapabilityTests(unittest.TestCase):
             gpu.msvdd_write_enabled = True
             self.assertFalse(gpu.set_rail_offset_mv(invalid, rail=1)[0])
             self.assertEqual(state["writes"], [])
+
+
+class ClockCapabilityAutomaticRetryTests(unittest.TestCase):
+    def test_current_request_read_recovers_within_remaining_discovery_budget(self):
+        gpu, state, _ = clock_gpu(domains=(0, 1, 2, 3, 5, 9))
+        state["accept"] = {0, 2, 3, 5, 9}
+        gpu.clkdom_controls_for_ui()
+        gpu.retry_clock_capabilities(now=0)
+        state["accept"].add(1)
+        self.assertTrue(gpu.retry_clock_capabilities(now=1))
+
+        # The fresh UI request read fails after discovery itself recovered.
+        state["status"] = -1
+        self.assertIsNone(gpu.read_clk_domain_offsets()[0])
+        state["status"] = 0
+        before = len(state["gets"])
+        self.assertFalse(gpu.retry_clock_capabilities(now=3.9))
+        self.assertTrue(gpu.retry_clock_capabilities(now=4))
+        self.assertEqual(state["gets"][before:], [sum(1 << d for d in state["accept"])])
+        self.assertFalse(gpu._clkdom_offset_read_pending)
+        self.assertEqual(state["writes"], [])
+        self.assertFalse(gpu.retry_clock_capabilities(now=100))
+
+    def test_persistent_current_request_read_failure_is_bounded(self):
+        gpu, state, _ = clock_gpu(domains=(0, 1, 2, 3, 5, 9))
+        gpu.clkdom_controls_for_ui()
+        gpu._clkdom_get = Mock(side_effect=RuntimeError("request read unavailable"))
+        self.assertIsNone(gpu.read_clk_domain_offsets()[0])
+        for now in (0, 1, 4, 100):
+            self.assertFalse(gpu.retry_clock_capabilities(now=now))
+        self.assertEqual(gpu._clkdom_get.call_count, 3)
+        self.assertTrue(gpu._clkdom_offset_read_pending)
+        self.assertEqual(state["writes"], [])
+
+    def test_retry_uses_each_supported_architectures_validated_layout(self):
+        for architecture in (GPU.ARCH_PASCAL, GPU.ARCH_TURING, 10):
+            with self.subTest(architecture=architecture):
+                gpu, state, layout = clock_gpu(architecture, domains=(1, 3))
+                state["accept"] = {1}
+                self.assertEqual(gpu.clkdom_controls_for_ui(), [1])
+                gpu.retry_clock_capabilities(now=0)
+                state["accept"].add(3)
+                self.assertTrue(gpu.retry_clock_capabilities(now=1))
+                self.assertEqual(gpu.clkdom_controls_for_ui(), [1, 3])
+                self.assertIs(gpu.clkdom_layout(), layout)
+                self.assertEqual(state["writes"], [])
+
+    def test_architecture_reads_follow_retry_budget_too(self):
+        gpu, state, _ = clock_gpu()
+        gpu.arch = Mock(return_value=None)
+        for now in (0, 0.25, 0.75):
+            self.assertFalse(gpu.retry_clock_capabilities(now=now))
+        gpu.arch.assert_not_called()
+        self.assertFalse(gpu.retry_clock_capabilities(now=1))
+        self.assertEqual(gpu.arch.call_count, 1)
+        for now in (1.1, 2, 3.9):
+            self.assertFalse(gpu.retry_clock_capabilities(now=now))
+        self.assertEqual(gpu.arch.call_count, 1)
+        self.assertFalse(gpu.retry_clock_capabilities(now=4))
+        self.assertFalse(gpu.retry_clock_capabilities(now=100))
+        self.assertEqual(gpu.arch.call_count, 2)
+        self.assertEqual(state["gets"], [])
+
+    def test_layout_validation_alone_recovers_only_after_exact_version_echo(self):
+        gpu, state, layout = clock_gpu(domains=(0, 1, 2, 3, 5, 9))
+        gpu._clkdom_valid = [0, 1, 2, 3, 5, 9]
+        gpu._clkdom_layout_cache = False
+        words = ctypes.cast(state["wire"], ctypes.POINTER(u32))
+        words[0] = 0
+        self.assertFalse(gpu.retry_clock_capabilities(now=0))
+        self.assertFalse(gpu.retry_clock_capabilities(now=1))
+        self.assertEqual(gpu._clkdom_capability_error[0], "unsupported_response")
+        self.assertEqual(gpu.clkdom_controls_for_ui(), [])
+        words[0] = layout.version
+        self.assertTrue(gpu.retry_clock_capabilities(now=4))
+        self.assertIs(gpu.clkdom_layout(), layout)
+        self.assertEqual(state["gets"], [1, 1])
+        self.assertEqual(state["writes"], [])
+
+    def test_partial_discovery_retries_only_missing_understood_masks_after_delay(self):
+        gpu, state, _ = clock_gpu(domains=(0, 1, 2, 3, 5, 9))
+        state["accept"] = {0}
+        self.assertEqual(gpu.clkdom_controls_for_ui(), [0])
+        initial_reads = len(state["gets"])
+        rail_reference = {0: object()}
+        initial_uv = {0: object()}
+        gpu._volt_rail_reference = rail_reference
+        gpu._volt_rail_initial_uv = initial_uv
+        gpu._refresh_volt_rail_capabilities = Mock()
+        gpu._legacy_p0_owned = True
+
+        self.assertFalse(gpu.retry_clock_capabilities(now=10))
+        self.assertFalse(gpu.retry_clock_capabilities(now=10.999))
+        self.assertEqual(len(state["gets"]), initial_reads)
+        state["accept"] = {0, 1, 2, 3, 5, 9}
+        self.assertTrue(gpu.retry_clock_capabilities(now=11))
+        self.assertEqual(state["gets"][initial_reads:], [2, 4, 8, 32, 512])
+        self.assertEqual(gpu.clkdom_controls_for_ui(), [0, 1, 2, 3, 5, 9])
+        self.assertEqual(state["writes"], [])
+        self.assertIs(gpu._volt_rail_reference, rail_reference)
+        self.assertIs(gpu._volt_rail_initial_uv, initial_uv)
+        self.assertTrue(gpu._legacy_p0_owned)
+        gpu._refresh_volt_rail_capabilities.assert_not_called()
+
+    def test_empty_discovery_gets_two_delayed_rounds_then_stops(self):
+        gpu, state, _ = clock_gpu(domains=(0, 1, 2, 3, 5, 9))
+        state["status"] = -1
+        self.assertIsNone(gpu.clkdom_layout())
+        initial_reads = len(state["gets"])
+
+        self.assertFalse(gpu.retry_clock_capabilities(now=0))
+        self.assertFalse(gpu.retry_clock_capabilities(now=1))
+        first_round = len(state["gets"])
+        self.assertEqual(first_round - initial_reads, 6)
+        self.assertFalse(gpu.retry_clock_capabilities(now=3.999))
+        self.assertEqual(len(state["gets"]), first_round)
+        self.assertFalse(gpu.retry_clock_capabilities(now=4))
+        exhausted_reads = len(state["gets"])
+        self.assertEqual(exhausted_reads - first_round, 6)
+        self.assertFalse(gpu.retry_clock_capabilities(now=100))
+        self.assertEqual(len(state["gets"]), exhausted_reads)
+
+        gpu._refresh_volt_rail_capabilities = Mock()
+        gpu.refresh_capabilities()
+        self.assertEqual(gpu._clkdom_retry_attempts, 0)
+        self.assertIsNone(gpu._clkdom_retry_due)
+        self.assertFalse(gpu.retry_clock_capabilities(now=100))
+        self.assertFalse(gpu.retry_clock_capabilities(now=100.999))
+        self.assertEqual(len(state["gets"]), exhausted_reads)
+
+    def test_second_round_can_recover_getter_after_first_round_failure(self):
+        gpu, state, _ = clock_gpu(domains=(0, 1, 2, 3, 5, 9))
+        state["status"] = -1
+        self.assertIsNone(gpu.clkdom_layout())
+        self.assertFalse(gpu.retry_clock_capabilities(now=20))
+        self.assertFalse(gpu.retry_clock_capabilities(now=21))
+        state["status"] = 0
+        self.assertFalse(gpu.retry_clock_capabilities(now=23.999))
+        self.assertTrue(gpu.retry_clock_capabilities(now=24))
+        self.assertEqual(gpu.clkdom_controls_for_ui(), [0, 1, 2, 3, 5, 9])
+
+    def test_unknown_architecture_recovers_without_probing_wrong_layout(self):
+        gpu, state, _ = clock_gpu(domains=(0, 1, 2, 3, 5, 9))
+        live = {"architecture": None}
+        gpu.arch = lambda: live["architecture"]
+        self.assertIsNone(gpu.clkdom_layout())
+        self.assertEqual(state["gets"], [])
+        self.assertFalse(gpu.retry_clock_capabilities(now=0))
+        self.assertFalse(gpu.retry_clock_capabilities(now=1))
+        self.assertEqual(state["gets"], [])
+        live["architecture"] = GPU.ARCH_TURING
+        self.assertTrue(gpu.retry_clock_capabilities(now=4))
+        self.assertEqual(gpu.clkdom_controls_for_ui(), [0, 1, 2, 3, 5, 9])
+
+    def test_known_unsupported_architecture_never_probes_neighbouring_layout(self):
+        gpu, state, _ = clock_gpu(architecture=GPU.ARCH_MAXWELL)
+        self.assertIsNone(gpu.clkdom_layout())
+        self.assertFalse(gpu.retry_clock_capabilities(now=0))
+        self.assertFalse(gpu.retry_clock_capabilities(now=100))
+        self.assertEqual(state["gets"], [])
+        self.assertEqual(gpu._clkdom_retry_attempts, 2)
+
+    def test_failed_layout_validation_uses_new_singleton_response(self):
+        gpu, state, layout = clock_gpu(domains=(0, 1, 2, 3, 5, 9))
+        gpu._clkdom_valid = [0, 2, 3, 5, 9]
+        gpu._clkdom_probe_errors = {1: "status -1"}
+        gpu._clkdom_layout_cache = False
+        gpu._clkdom_capability_error = ("read_failure", "temporary")
+        state["gets"].clear()
+        self.assertFalse(gpu.retry_clock_capabilities(now=0))
+        self.assertTrue(gpu.retry_clock_capabilities(now=1))
+        self.assertEqual(state["gets"], [2])
+        self.assertIs(gpu._clkdom_layout_cache, layout)
+        self.assertIsNone(gpu._clkdom_capability_error)
+
+    def test_bad_echo_and_short_response_never_add_domains(self):
+        gpu, state, layout = clock_gpu(domains=(0,))
+        self.assertEqual(gpu.clkdom_controls_for_ui(), [0])
+        state["gets"].clear()
+        ordinary_get = gpu._clkdom_get
+
+        def malformed(mask):
+            if mask == 2:
+                status, block = ordinary_get(1)
+                ctypes.cast(block, ctypes.POINTER(u32))[2] = 0
+                return status, block
+            if mask == 4:
+                return 0, (ctypes.c_ubyte * 4)()
+            return ordinary_get(mask)
+
+        gpu._clkdom_get = malformed
+        self.assertFalse(gpu.retry_clock_capabilities(now=0))
+        self.assertFalse(gpu.retry_clock_capabilities(now=1))
+        self.assertEqual(gpu._clkdom_valid, [0])
+        self.assertEqual(gpu.clkdom_controls_for_ui(), [0])
+        self.assertEqual(gpu._clkdom_layout_cache, layout)
+        self.assertEqual(state["writes"], [])
+
+    def test_temporarily_unavailable_getter_can_recover_on_second_round(self):
+        gpu, state, _ = clock_gpu(domains=(0, 1, 2, 3, 5, 9))
+        getter = gpu.nvapi.ClkDomCtlGet
+        gpu.nvapi.ClkDomCtlGet = None
+        self.assertIsNone(gpu.clkdom_layout())
+        self.assertFalse(gpu.retry_clock_capabilities(now=0))
+        self.assertFalse(gpu.retry_clock_capabilities(now=1))
+        self.assertEqual(state["gets"], [])
+        gpu.nvapi.ClkDomCtlGet = getter
+        self.assertTrue(gpu.retry_clock_capabilities(now=4))
+        self.assertEqual(gpu.clkdom_controls_for_ui(), [0, 1, 2, 3, 5, 9])
 
 
 class MsvddProfileTests(unittest.TestCase):

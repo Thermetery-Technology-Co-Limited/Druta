@@ -51,6 +51,7 @@ KEEP_AUTOSAVES = 20
 # what capture() could not read. A list, not a flag, so the reason travels with
 # the snapshot into the log line the user actually sees.
 INCOMPLETE_KEY = "incomplete"
+CURRENT_DAC_FORMAT = "i2c.current_dac_control"
 
 
 def vf_applicable(gpu):
@@ -345,7 +346,13 @@ def capture_rails(gpu, state, rail):
             missing.append(f"MSVDD requests NOT captured ({e})")
     if rail is not None and not rail.p.read_only:
         try:
-            if getattr(rail, "absolute_voltage", False):
+            if getattr(rail, "current_dac", False):
+                control = rail.capture_control()
+                rail.validate_control(control, xoc=None)
+                state["i2c"] = dict(rail_identity(rail), format=CURRENT_DAC_FORMAT,
+                                    current_dac_control=control,
+                                    display_name=rail.p.name)
+            elif getattr(rail, "absolute_voltage", False):
                 control = rail.capture_control()
                 state["i2c"] = dict(rail_identity(rail), control=control,
                                     display_name=rail.p.name)
@@ -356,7 +363,9 @@ def capture_rails(gpu, state, rail):
                 state["i2c"] = dict(rail_identity(rail), offset_mv=offset,
                                     display_name=rail.p.name)
         except Exception as e:
-            missing.append(f"I2C offset NOT captured ({e})")
+            label = ("I2C current DAC control" if getattr(rail, "current_dac", False)
+                     else "I2C offset")
+            missing.append(f"{label} NOT captured ({e})")
     # Unticking XOC does not undo above-normal values already in the card.
     # Replaying that carryover after reboot still needs the wider envelope.
     required = any(value > getattr(gpu, "VOLT_LIMIT_MAX_MV", 1200)
@@ -366,7 +375,11 @@ def capture_rails(gpu, state, rail):
     required = required or bool(state["clock_domain_offsets_mhz"].get("2"))
     required = required or any(state["msvdd_offsets_mv"].values())
     if state["i2c"]:
-        if "control" in state["i2c"]:
+        if state["i2c"].get("format") == CURRENT_DAC_FORMAT:
+            # These bytes have no established universal voltage conversion.
+            # Configuration is captured for identity/scaling checks, not replay.
+            pass
+        elif "control" in state["i2c"]:
             try:
                 rail.validate_control(state["i2c"]["control"], xoc=False)
             except ValueError:
@@ -428,6 +441,15 @@ def _validate_saved_fields(gpu, state):
     for key in ("device", "rail_limits_mv", "rail_limits_uv", "clock_domain_offsets_mhz", "msvdd_offsets_mv", "i2c"):
         if state.get(key) is not None and not isinstance(state[key], dict):
             raise ValueError(f"{key} must be a mapping")
+    i2c = state.get("i2c")
+    if i2c and (i2c.get("format") == CURRENT_DAC_FORMAT
+                or "current_dac_control" in i2c):
+        if (i2c.get("format") != CURRENT_DAC_FORMAT
+                or "current_dac_control" not in i2c
+                or "control" in i2c or "offset_mv" in i2c):
+            raise ValueError("current DAC profile has conflicting or missing control data")
+    elif i2c and i2c.get("format") is not None:
+        raise ValueError("unknown I2C profile format")
     if "rail_limits_uv" in state and not isinstance(state["rail_limits_uv"], dict):
         raise ValueError("rail_limits_uv must be a mapping")
     for key in ("rail_limits_mv", "rail_limits_uv"):
@@ -571,7 +593,15 @@ def preflight(gpu, state, rail=None, *, apply_curve=True):
                 raise ValueError("saved I2C regulator is not available")
             if any(i2c.get(k) != v for k, v in rail_identity(rail).items()):
                 raise ValueError("I2C regulator/profile/limits changed; save a fresh profile")
-            if getattr(rail, "absolute_voltage", False):
+            if i2c.get("format") == CURRENT_DAC_FORMAT:
+                if not getattr(rail, "current_dac", False):
+                    raise ValueError("saved current DAC controller is not available")
+                if not rail.present():
+                    raise ValueError("saved I2C regulator is not available")
+                rail.validate_control(i2c["current_dac_control"], xoc=None)
+            elif getattr(rail, "current_dac", False):
+                raise ValueError("current DAC cannot load another I2C control format")
+            elif getattr(rail, "absolute_voltage", False):
                 if "offset_mv" in i2c:
                     raise ValueError("absolute I2C voltage cannot load an offset")
                 rail.validate_control(i2c.get("control"), xoc=bool(state.get("xoc")))
@@ -581,7 +611,7 @@ def preflight(gpu, state, rail=None, *, apply_curve=True):
                 ok, message = rail.validate_offset_mv(i2c.get("offset_mv"), xoc=bool(state.get("xoc")))
                 if not ok:
                     raise ValueError(message)
-            if not rail.present():
+            if i2c.get("format") != CURRENT_DAC_FORMAT and not rail.present():
                 raise ValueError("saved I2C regulator is not available")
         if limits:
             if raw_limits and not callable(getattr(gpu, "set_volt_rail_limits_raw", None)):
@@ -815,7 +845,11 @@ def _restore_validated(gpu, state, apply_curve, rail, results):
         if not step(f"MSVDD request at control {key}", restore_msvdd):
             return results + [(False, "profile stopped after MSVDD request failure")]
     if state.get("i2c"):
-        if "control" in state["i2c"]:
+        if state["i2c"].get("format") == CURRENT_DAC_FORMAT:
+            if not step("I2C current DAC outputs",
+                        lambda: rail.restore_control(state["i2c"]["current_dac_control"])):
+                return results
+        elif "control" in state["i2c"]:
             if not step("I2C voltage/mode", lambda: rail.restore_control(state["i2c"]["control"])):
                 return results
         else:
@@ -940,7 +974,22 @@ def summarize(state):
         bits.append(f"MSVDD request {key} {value:+g} mV (experimental)")
     i2c = state.get("i2c")
     if i2c:
-        if "control" in i2c:
+        if i2c.get("format") == CURRENT_DAC_FORMAT:
+            control = i2c.get("current_dac_control")
+            control = control if isinstance(control, dict) else {}
+            outputs = control.get("outputs")
+            config = control.get("configuration")
+            if (isinstance(outputs, list) and len(outputs) == 3
+                    and all(type(value) is int and 0 <= value <= 255
+                            for value in outputs)
+                    and type(config) is int and 0 <= config <= 255):
+                label = i2c.get("display_name") or i2c.get("profile", "current DAC")
+                values = "/".join(f"0x{value:02X}" for value in outputs)
+                bits.append(f"I2C {i2c.get('rail', 'rail')} current DAC raw {values}, "
+                            f"config 0x{config:02X} ({label})")
+            else:
+                bits.append("I2C current DAC control is invalid")
+        elif "control" in i2c:
             from .controllers.ncp4206 import decode_vid
             control = i2c["control"]
             target = (f"{decode_vid(control['command']):g} mV" if control['enabled'] else 'Auto (GPU VID)')

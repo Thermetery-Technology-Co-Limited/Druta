@@ -11,6 +11,7 @@ not something a Windows CI runner can infer from Python alone.
 """
 
 import ctypes
+import threading
 import unittest
 
 from druta.nvbackend import (
@@ -28,6 +29,7 @@ class ClkDomUnitTests(unittest.TestCase):
     @staticmethod
     def gpu_arch(architecture, name="GPU"):
         gpu = GPU.__new__(GPU)
+        gpu._lock = threading.RLock()
         gpu.static = {"name": name}
         gpu.arch = lambda: architecture
         return gpu

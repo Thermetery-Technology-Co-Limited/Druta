@@ -139,7 +139,11 @@ class ReadOnlyI2cUiTests(unittest.TestCase):
         self.app.gpu = SimpleNamespace(
             read_volt_rail_limits=Mock(return_value=raw),
             read_volt_rail_state=Mock(return_value=state),
-            volt_rail_limits_supported=Mock(return_value=True),
+            volt_rail_diagnostics=Mock(return_value={
+                "available": True, "reason": "",
+                "rails": {0: {"available": True, "reason": ""},
+                          1: {"available": False, "reason": ""}},
+            }),
             volt_rail_limit_fields=Mock(side_effect=lambda rail:
                 GPU.VOLT_LIMIT_FIELDS if rail == 0 else ()),
             VOLT_LIMIT_MIN_MV=650, VOLT_LIMIT_MAX_MV=1200,
@@ -165,6 +169,7 @@ class ReadOnlyI2cUiTests(unittest.TestCase):
     def test_link_applies_one_value_to_both_ceiling_fields_atomically(self):
         with dpg.window():
             dpg.add_checkbox(tag="vlim_link", default_value=True)
+        self.app._rail_writable = {0}
         self.app.gpu.set_volt_rail_limits = Mock(return_value=(True, "stored"))
         self.app.refresh_volt_limits = Mock()
 

@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Request-field callbacks and capability refresh through the real UI methods."""
 import ctypes
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 from druta.druta import KnobRange
@@ -94,6 +95,7 @@ class CapabilityRefreshUiTests(FakeUiTest):
         self.app.sync_lock_ui = Mock()
         self.app.relayout = Mock()
         self.app.vf_redraw = Mock()
+        self.app.insert_recovered_clock_controls = Mock(return_value=1)
         self.app._slider_ranges = {"msvdd": KnobRange("MSVDD request", -500, 500, -500, 500)}
         self.values.update(xoc_mode=True, sl_msvdd=25.001, in_msvdd=25.001, rfloor=1068.75)
         self.app.build_ui = Mock(side_effect=lambda **_: self.values.update(
@@ -132,6 +134,79 @@ class CapabilityRefreshUiTests(FakeUiTest):
                 self.app.build_ui.assert_not_called()
                 self.assertEqual(self.transport["writes"], [])
                 setattr(self.app, attribute, old)
+
+    def test_automatic_recovery_inserts_once_and_keeps_visible_requests(self):
+        self.app._clock_capability_recovery = (self.app._gpu_gen, self.app.gpu, 0)
+        self.app._clock_capability_recovery_token = 0
+        self.app._clock_capability_recovery_logged = False
+        self.assertTrue(self.app.consume_clock_capability_recovery())
+        self.app.insert_recovered_clock_controls.assert_called_once_with()
+        self.app.build_ui.assert_not_called()
+        self.app.sync_risk_ui.assert_called_once_with()
+        self.app.sync_lock_ui.assert_called_once_with()
+        self.assertEqual(self.values["sl_msvdd"], 25.001)
+        self.assertEqual(self.values["in_msvdd"], 25.001)
+        self.assertEqual(self.values["rfloor"], 1068.75)
+        self.assertTrue(self.values["xoc_mode"])
+        self.assertIsNone(self.app._clock_capability_recovery)
+        self.assertEqual(self.transport["writes"], [])
+        self.assertFalse(self.app.consume_clock_capability_recovery())
+        self.assertEqual(self.app.insert_recovered_clock_controls.call_count, 1)
+
+    def test_targeted_insertion_uses_fresh_domain_rows_without_manual_refresh(self):
+        self.values["clock_offset_table"] = object()
+        self.app.gpu.refresh_capabilities = Mock()
+        self.app.gpu.static["core_off_range"] = (-1000, 1000, 0)
+        self.app.insert_recovered_clock_controls = (
+            type(self.app).insert_recovered_clock_controls.__get__(self.app))
+        self.app.build_domain_offset_rows = Mock(return_value=2)
+        self.assertEqual(self.app.insert_recovered_clock_controls(), 2)
+        self.ui.push_container_stack.assert_called_once_with("clock_offset_table")
+        self.ui.pop_container_stack.assert_called_once_with()
+        self.app.build_domain_offset_rows.assert_called_once_with(
+            self.app.gpu.static, 2, -1000, 1000, only_missing=True)
+        self.app.gpu.refresh_capabilities.assert_not_called()
+
+    def test_domain_row_builder_uses_validated_current_request_when_telemetry_fails(self):
+        knob = self.app.DOMAIN_KNOBS[0]
+        self.app.gpu = SimpleNamespace(
+            clkdom_layout=lambda: object(),
+            read_clk_domain_offsets=lambda: ({knob.ctrl: {"freq_khz": 125000}}, ""),
+            read=lambda: (_ for _ in ()).throw(RuntimeError("telemetry")),
+            clkdom_controls_for_ui=lambda _rows: [knob.ctrl],
+            clkdom_domains=lambda: [knob.ctrl])
+        self.app.domain_knob_label = Mock(return_value=("Recovered XBAR", (1, 2, 3), True))
+        self.app.slider_row = Mock()
+        self.assertEqual(self.app.build_domain_offset_rows(
+            {"core_off_range": (-1000, 1000, 0)}, 1, -1000, 1000,
+            only_missing=True), 1)
+        self.assertEqual(self.app.slider_row.call_args.args[0], knob.key)
+        self.assertEqual(self.app.slider_row.call_args.args[4], 125)
+
+    def test_domain_row_builder_skips_unreadable_current_request_and_logs_once(self):
+        knob = self.app.DOMAIN_KNOBS[0]
+        self.app.gpu = SimpleNamespace(
+            clkdom_layout=lambda: object(),
+            read_clk_domain_offsets=lambda: (None, "unreadable"))
+        self.app.log_once = Mock()
+        self.app.slider_row = Mock()
+        self.assertEqual(self.app.build_domain_offset_rows({}, 1, -1000, 1000,
+                                                           only_missing=True), 0)
+        self.app.slider_row.assert_not_called()
+        self.app.log_once.assert_called_once()
+
+    def test_automatic_recovery_waits_for_edits_and_discards_stale_result(self):
+        self.app._clock_capability_recovery = (self.app._gpu_gen, self.app.gpu, 0)
+        self.app._clock_capability_recovery_token = 0
+        self.app.vf_work = {1: 25}
+        self.app.vf_orig = {1: 0}
+        self.assertFalse(self.app.consume_clock_capability_recovery())
+        self.app.build_ui.assert_not_called()
+        self.assertIsNotNone(self.app._clock_capability_recovery)
+        self.app.vf_work = self.app.vf_orig = {}
+        self.app._clock_capability_recovery = (self.app._gpu_gen - 1, self.app.gpu, 0)
+        self.assertFalse(self.app.consume_clock_capability_recovery())
+        self.assertIsNone(self.app._clock_capability_recovery)
 
 
 class MsvddResetAllTests(FakeUiTest):

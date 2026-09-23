@@ -10,7 +10,7 @@ which physical GPU rail a board connects to either output.
 from copy import deepcopy
 from types import SimpleNamespace
 
-from .railctl import Profile, Rail
+from .railctl import Profile, Rail, _normalize_routes
 
 DISCOVERY_PORTS = tuple(range(8))
 DISCOVERY_ADDRESSES = (0x30,) + tuple(a for a in range(0x08, 0x78) if a != 0x30)
@@ -81,27 +81,39 @@ class MP29816(Rail):
             return False
 
 
-def discover(nvapi, profile, log=None):
+def discover(nvapi, profile, log=None, *, progress=None, cancelled=None, routes=None):
     """Read model ID on all routes; return every stable PAGE-bound output."""
+    selected_routes = _normalize_routes(routes)
     if not getattr(nvapi, 'ok', False):
         return []
     hits = []
+    cancelled = cancelled or (lambda: False)
     for addr7 in DISCOVERY_ADDRESSES:
         for port in DISCOVERY_PORTS:
+            if selected_routes is not None and (port, addr7) not in selected_routes:
+                continue
+            if cancelled():
+                return hits
             probe = Rail(profile, nvapi, addr7)
             # Transport only needs p.port; never mutate the shared TOML recipe.
             probe.p = SimpleNamespace(port=port)
             try:
                 if probe.read(0xAD, 5) != DEVICE_ID:
+                    if progress:
+                        progress(f"MP29816 port {port}, 0x{addr7:02X}")
                     continue
                 page, scale = probe.read(0, 1), probe.read(0x29, 2)
                 if page not in (0, 1) or type(scale) is not int or not 0 <= scale <= 0xFFFF:
                     if log:
                         log(f'MP29816 at port {port}/0x{addr7:02X}: PAGE/scaling unavailable '
                             'or unsupported; no page-selection write attempted.', False)
+                    if progress:
+                        progress(f"MP29816 port {port}, 0x{addr7:02X}")
                     continue
                 rail = MP29816(profile, nvapi, port, addr7, page, (scale >> 10) & 7)
                 if not rail.present():
+                    if progress:
+                        progress(f"MP29816 port {port}, 0x{addr7:02X}")
                     continue
                 # These board-observed strings/revisions are useful evidence,
                 # but the source-backed 0xAD model ID is the identity gate.
@@ -114,11 +126,15 @@ def discover(nvapi, profile, log=None):
                         rail.discovery_diagnostics[key] = None
                 rail.discovery_telemetry = rail.telemetry()
                 if not rail.present():
+                    if progress:
+                        progress(f"MP29816 port {port}, 0x{addr7:02X}")
                     continue
                 hits.append(rail)
                 if log:
                     log(f'{rail.p.name}; {VOUT_SCALES_MV[rail.scale_selector]:g} mV/LSB.', True)
             except Exception:
                 # A failed route must not prevent discovering other ports.
-                continue
+                pass
+            if progress:
+                progress(f"MP29816 port {port}, 0x{addr7:02X}")
     return hits

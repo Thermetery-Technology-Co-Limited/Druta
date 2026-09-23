@@ -1,4 +1,45 @@
-# Driver compatibility: 472.12 and 580.97
+# Driver compatibility: runtime rail detection and legacy controls
+
+## 1.5.0a voltage-rail matrix
+
+The 1.5.0a rail path recognizes native packets by observed geometry, never by
+driver string, GPU ID, or VBIOS. The reviewed shapes are **716/648**,
+**976/908**, and **1104/1036** bytes (whole packet/parameter block). A fresh
+native GET precedes each SET. Druta copies native fields it does not edit and
+keeps the original SET input header: the valid mask returned by GET is response
+output, not an input copied into SET. Only selected records and the four
+exposed fields are changed.
+
+| Local adapter | Driver | Four independent fields | Readback and restore | Other checks |
+|---|---:|---|---|---|
+| TITAN Xp | 472.12 | Passed | Exact driver readback and restoration | Boost preserved; NVAPI-only architecture path passed |
+| TITAN Xp | 566.36 | Passed | Exact driver readback and restoration | Boost preserved; NVAPI-only architecture path passed |
+| TITAN Xp | 580.97 | Passed | Exact driver readback and restoration | Boost preserved; NVAPI-only architecture path passed |
+| TITAN Xp | 582.66 | Passed | Exact driver readback and restoration | Boost preserved; NVAPI-only architecture path passed |
+
+The fields are reliability, alternate reliability, overvoltage, and minimum
+voltage. These checks establish driver-held field storage and driver telemetry
+on the named adapter sessions. They do not establish physical regulator output,
+load stability, safe voltage limits, or behavior on another board. GTX 1060
+was not directly tested.
+
+Runtime evidence is retained in
+[`runtime-rails-47212.json`](experiments/runtime-rails-47212.json),
+[`runtime-rails-56636.json`](experiments/runtime-rails-56636.json),
+[`runtime-rails-58097.json`](experiments/runtime-rails-58097.json), and
+[`runtime-rails-58266.json`](experiments/runtime-rails-58266.json). The
+static 566.36 schema note and its getter-response canary are in
+[`experiments/566-schema-static`](experiments/566-schema-static/README.md).
+Raw identity traces, disassembly outputs, and raw buffers are deliberately not
+part of the published source snapshot.
+
+I2C discovery is read-only and starts only when **I2C rail** is checked. It
+reports actual completed/total controller probe units, stops at the next bounded
+probe after cancellation, and keeps a cancelling worker serialized before a
+new scan. It does not run at launch or GPU switch. Discovery alone does not
+authorize a regulator write.
+
+# Legacy compatibility: 472.12 and 580.97
 
 This matrix tracks the local TITAN RTX (TU102, VBIOS 90.02.1E.00.02),
 TITAN Xp (GP102, VBIOS 86.02.3D.00.01), and GTX 770 (GK104, VBIOS
@@ -296,6 +337,20 @@ Public API references: [NVIDIA's Pstates20 declarations](https://github.com/NVID
 and [NVML API version history](https://docs.nvidia.com/deploy/nvml-api/change-log.html).
 
 ## Frequency locks and voltage rails
+
+Runtime rail discovery now has an NVML-independent NVAPI architecture fallback.
+It negotiates the rail-control getter as V2 then V1. Absolute-voltage status is
+decoded only through the understood V1 schema: the observed V2 response has a
+different record discriminator and remains unsupported rather than being
+inferred. Transient reads receive a bounded retry, while the values captured by
+the first successful read remain the immutable restoration target.
+
+For writes, the captured native packet itself must exactly select a known wire
+schema; the public getter version does not select the protocol, and there is no
+driver- or device-version database. An unknown packet is never written. **Copy
+info** includes only bounded packet-header summaries for diagnosis. This still
+requires an understood protocol schema: Druta does not perform arbitrary voltage
+sweeps or guess a write layout. GTX 1060 was not directly tested.
 
 The R472 NVML frequency setter does not populate the NVAPI BoostLock table.
 Druta reads RM command `0x20802077` instead: two 328-byte records identify

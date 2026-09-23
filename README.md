@@ -1,13 +1,14 @@
 # Druta
 
-**Version 1.3.0** — [release notes](RELEASE-NOTES-1.3.0.md).
+**Version 1.6.0** — [release notes](RELEASE-NOTES-1.6.0.md).
 
 Package-refactor validation: [Maxwell/Pascal](MAXWELL-PASCAL-VALIDATION.md)
 and [RTX 5080 / Blackwell](BLACKWELL-VALIDATION.md), including controlled
 writes, readbacks, restoration and the limits of the tested coverage.
 
-A monitor and tuner for Pascal/Turing/Blackwell NVIDIA cards, driven through NVAPI/NVML private
-interfaces. It edits the V/F curve
+A monitor and tuner for Kepler, Maxwell, Pascal, Turing and Blackwell NVIDIA cards,
+driven through NVAPI/NVML private interfaces. Available controls depend on the
+generation and the current adapter's runtime capabilities. It edits supported V/F curves
 with planners built around how the boost arbiter actually behaves, and reads and
 writes the framebuffer-partition memory timing registers.
 
@@ -34,7 +35,7 @@ ASUS AND STRIX ARE TRADEMARKS OF ASUSTEK COMPUTER INC. AFTERBURNER IS A
 TRADEMARK OF MICRO-STAR INTERNATIONAL CO., LTD. THESE NAMES APPEAR HERE SOLELY
 TO IDENTIFY HARDWARE AND SOFTWARE THAT DRUTA WORKS WITH OR IS COMPARABLE TO.**
 
-Developed against two cards:
+Initial development boards (measurements describe these configurations, not universal defaults):
 
 | | die | arch | memory | board |
 |---|---|---|---|---|
@@ -97,7 +98,7 @@ python -m pip install -r requirements.txt
 ```
 
 The local build produces `dist\Druta\Druta.exe` and
-`dist\Druta-1.3.0-win64.zip`. Distribute the
+`dist\Druta-1.6.0-win64.zip`. Distribute the
 whole `Druta` folder or ZIP: the EXE needs its adjacent `_internal` folder.
 
 `dist\Druta\source\` contains the matching working-tree source, including
@@ -329,7 +330,7 @@ entry(d)       = 0x124 + d * 0x304
     +0x000  mode/type      reads 8, 9 or 2 per domain
     +0x10C  frequency delta, signed kHz
     +0x110  NVVDD delta, signed microvolts   — the rail slider writes this
-    +0x114  MSVDD delta, also signed microvolts — never written by this app
+    +0x114  MSVDD delta, signed microvolts — experimental request when layout validates
 ```
 
 This block does not naively use the clock getter's domain numbering, because that numbering was off and would throw silent errors if you just ship the rest of the code using that. The mapping below was established by writing `+45 MHz` with my Titan RTX to each control index. We did that while using the Ctrl+H "HOLD" function that pinned the clock, we then recorded WHICH CLOCK ACTUALLY MOVED. XBAR was also doubly corroborated against GPUZ's reading. 
@@ -508,6 +509,33 @@ If you modify the rails with shunt resistors of different resistance, then the m
 rail need per-rail power, and the driver does not report it. Per-rail telemetry does exist on boards that carry an INA3221-class shunt
 monitor but is not yet implemented.
 
+## NCT3933U current-DAC outputs
+
+Checking **I2C rail** reveals manual discovery controls without scanning or
+reconnecting. Choose **Unknown -- Full Scan** or a known controller, then use
+**Connect / Scan**: it first tries a compatible remembered route and otherwise
+scans only the selected scope. **Full scan** bypasses route memory and scope.
+Launch, checking the box, and changing cards never start I2C discovery. Cached
+routes are read/verify hints only; a miss, failure, or corrupt cache falls back
+to the selected scan and never authorizes a write.
+
+After discovery, Druta can read NCT3933U output commands, write an explicitly
+selected output, zero all outputs, and preserve exact raw control in profiles
+and undo snapshots. **Raw outputs (µA)** is the default: OUT1/OUT2/OUT3,
+signed source/sink current and raw bytes, with no assumption about board wiring
+or live rail voltage.
+
+After meter verification, a user can explicitly select **GPU / memory /
+PEX-PLL (mV)** for a matching local adapter/controller route. It shows an mV
+offset from the register command while retaining the raw current and hex byte;
+it is not an absolute or live-voltage reading. The selection is stored locally
+by adapter UUID, port and address (session-only when UUID is unavailable), not
+as a shipped board allowlist. The current ASUS CG611P / Strix-Poseidon route
+uses OUT3 GPU and OUT1 memory at 10 mV per normal negative 10 µA command, and
+OUT2 PEX/PLL at 66 mV; doubled commands are 20/20/132 mV. Positive current
+lowers these measured rails. Other boards remain raw until their owner verifies
+and selects a route. See [NCT3933U controls and validation](i2c/NCT3933U.md).
+
 ## Max it
 
 Had enough with boring sliders to the maximum? Click "max it". It does the V/F deflatten, maxes out the voltage boost, power limit, fan, and holds at 1093mv all in one click. You click it once, and the rest is the actual part of overclocking: changing the frequency. To do it as safely as possible, it does the following in order:
@@ -638,7 +666,9 @@ this cap could not be raised was disproved by that measurement. See
 Start with the [I2C contribution workflow](i2c/CONTRIBUTING.md),
 [recipe and adapter reference](i2c/PROFILES.md), and
 [I2C PR template](.github/PULL_REQUEST_TEMPLATE/i2c_profile.md).
-Kepler NCP4206 and MP2888A discovery scan actual buses without board-ID filters.
+NCP4206, MP2888A and MP29816 discovery scan actual buses without GPU board-ID filters.
+The scan starts only when **I2C rail** is checked, with probe progress and cancellation;
+it does not run at launch. I2C-bearing profiles require that manual scan first.
 Another board with one of these controllers usually needs discovery and
 Verify/restore evidence, rather than a duplicate TOML profile. Druta lists
 matching candidates by port/address; an ambiguous scan requires selection.
@@ -650,12 +680,15 @@ Named profiles snapshot both offsets, the power limit, the voltage boost, the
 fan **policy** (not just its duty — auto-at-0% and manual-at-0% read identically,
 and handing a captured duty back as a manual duty would be a thermal change) and
 every V/F delta, as readable JSON in `profiles/`. New profiles also capture
-the confirmed **NVVDD/MSVDD limit fields in absolute mV**, the NVVDD voltage
-offset, per-domain clock requests (including **Additional Memory Clock
-Offset**), the identified I2C regulator's offset and XOC mode. The profile
-list names these values, and loading reports each control's result. Rails
-that Druta has not confirmed writable remain unavailable; MSVDD's unconfirmed
-voltage-offset field is not replayed.
+the **NVVDD/MSVDD limit fields as exact signed microvolt deltas**, estimated
+absolute values for display, the NVVDD voltage offset, experimental MSVDD
+requests, per-domain clock requests (including **Additional Memory Clock
+Offset**), the identified I2C regulator's controls and XOC mode. The profile
+list names these values, and loading reports each control's result. Each rail
+requires its own understood runtime interface. MSVDD requests retain their
+experimental XOC requirement; stored readback is not proof of physical VOUT.
+**Initial** restores first-read rail controls, which may contain prior tuning,
+rather than claiming another board's factory defaults.
 
 I2C tuning profiles save the controller state (MP2888A offset or NCP4206
 absolute target/Auto), its port/address, and a fingerprint of the bound register
@@ -809,6 +842,47 @@ The CUDA memcpy load is the fallback when the hold cannot be taken, such as in c
 **down** to P2. This works because timings are selected per clock band, not per p-state. On Titan Xp, P2 (mem 5508) and P0 (mem 5702) are bit-identical across all 49 registers.
 
 **`Re-read timings`** — a sanity check after you applied the settings, not a way to get a reading. Might be deprecated soon. 
+
+### Upcoming GPU device restart
+
+The red **Panic Button (PnP Reset, Deeper than Shift+Ctrl+B)** stays in the
+upper-right shared header, including while the tab page scrolls. It and
+**Device > Restart GPU device (PnP)...** immediately start a restart of the
+selected NVIDIA display device through Windows PnP; there is no confirmation.
+Druta identifies its exact PCI location and device instance, closes its window,
+waits for the process to exit, runs Windows
+`pnputil /restart-device`, and reopens with fresh driver handles. It does not
+automatically apply any tuning profile or reboot the computer. A failed restart
+or a Windows requirement to reboot is reported and saved under
+`%LOCALAPPDATA%\Druta\device-recovery`.
+
+Use this as a recovery attempt after a driver/timing failure. The display can go
+blank and other GPU applications can lose their device; close other workloads
+first. Unsaved edits in Druta are discarded. This does not guarantee recovery
+from a hardware hang or restoration of every setting to stock. It requires
+administrator rights and Windows 10 version 2004 or later. Ambiguous device
+locations and nonzero PCI segments are refused.
+
+If the GUI is unusable, the same recovery path can be launched from an elevated
+shell: `Druta.exe --restart-gpu 0000:01:00.0`, substituting the selected card's
+slot from `Druta.exe --list-gpus`. Close existing Druta windows first.
+
+### Upcoming timing profiles
+
+Druta 1.6.0 adds **Save timing profile...** and **Load timing profile...** on the
+Timings tab. Save combines the decoded broadcast capture with red, staged
+edits. It requires a top-band capture and matching active framebuffer
+partitions, and stores timing fields only: it excludes raw registers, inferred
+fields, and structural training fields.
+
+Load accepts Druta timing profiles and nvtune-compatible `fields` files. It
+only replaces the editor's staged edits, so it sends no GPU write. Review the
+usual preview and choose **Apply to memory controller** to commit; all existing
+fresh-band and write checks remain in force. A raw `nvtune save -o` backup is a
+nvtune restore file, not an apply profile, and Druta will not broadcast it.
+Upstream nvtune `save --profile` is fixed in
+[v1.0.2-alpha](https://github.com/sebastianmarrufo/nvtune/releases/tag/v1.0.2-alpha).
+Druta does not bundle, download, or automatically update nvtune.
 
 ## Writing
 
