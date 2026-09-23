@@ -1,0 +1,166 @@
+{
+  "schema": 1,
+  "date": "2026-09-16",
+  "release": "1.5.0a",
+  "commit": "23d40976ba06f322d6583e71558755dd301f9e75",
+  "released_exe_sha256": "88696332730594b48da45766bd15f6b5a42054798930eb5c5041caeb832fd22f",
+  "released_exe_launch_pid_observed": 13996,
+  "adapter": {
+    "name": "NVIDIA TITAN RTX",
+    "vbios": "90.02.1e.00.02",
+    "architecture": 6,
+    "uuid_omitted": true
+  },
+  "driver_switches": {
+    "versions": ["566.36", "580.97"],
+    "reboot_used": false,
+    "final_driver": "580.97"
+  },
+  "read_only_discovery": {
+    "566.36": {
+      "architecture_source": "NVML",
+      "nvapi": {"ok": true, "clkdom_get": true, "clkdom_set": true, "clk_measure": true},
+      "accepted_domains": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+      "controls_for_ui": [0, 1, 2, 3, 5, 9],
+      "layout": {"name": "turing", "version": "0x000261A4", "size": "0x61A4", "header": "0x124", "stride": "0x304", "freq_khz": "0x10C"},
+      "getter_status": 0,
+      "version_echo": "0x000261A4",
+      "capability_error": null,
+      "offsets_error": null
+    },
+    "580.97": {
+      "architecture_source": "NVML",
+      "nvapi": {"ok": true, "clkdom_get": true, "clkdom_set": true, "clk_measure": true},
+      "accepted_domains": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+      "controls_for_ui": [0, 1, 2, 3, 5, 9],
+      "layout": {"name": "turing", "version": "0x000261A4", "size": "0x61A4", "header": "0x124", "stride": "0x304", "freq_khz": "0x10C"},
+      "getter_status": 0,
+      "version_echo": "0x000261A4",
+      "capability_error": null,
+      "offsets_error": null
+    }
+  },
+  "ui": {
+    "surface": "real Dear PyGui framebuffer against the live GPU",
+    "566.36": {
+      "normal": {"architecture_source": "NVML", "controls": [0, 1, 2, 3, 5, 9], "xbar_widgets_visible": true, "sys_widgets_visible": true, "i2c_checked": false, "scan_calls": 0, "passed": true},
+      "nvml_load_failure": {"simulated_nvml_unavailable": true, "architecture_source": "NVAPI V2", "controls": [0, 1, 2, 3, 5, 9], "xbar_widgets_visible": true, "sys_widgets_visible": true, "i2c_checked": false, "scan_calls": 0, "passed": true}
+    },
+    "580.97": {
+      "normal": {"architecture_source": "NVML", "controls": [0, 1, 2, 3, 5, 9], "xbar_widgets_visible": true, "sys_widgets_visible": true, "i2c_checked": false, "scan_calls": 0, "passed": true},
+      "nvml_load_failure": {"simulated_nvml_unavailable": true, "architecture_source": "NVAPI V2", "controls": [0, 1, 2, 3, 5, 9], "xbar_widgets_visible": true, "sys_widgets_visible": true, "i2c_checked": false, "scan_calls": 0, "passed": true}
+    }
+  },
+  "loaded_control_checks": {
+    "units": "kHz",
+    "sample_order": ["GPC private domain 0", "XBAR private domain 1", "SYS private domain 2"],
+    "566.36": {
+      "XBAR_control_1": {
+        "request_mhz": 30,
+        "stored_request_khz": 30000,
+        "write_ok": true,
+        "restore_ok": true,
+        "restored_decoded_control_fields_exact": true,
+        "baseline": {
+          "gpc": {"programmed": 1500000, "measured": [1500507, 1500507, 1500507, 1500260, 1500260], "range": [1500260, 1500507]},
+          "xbar": {"programmed": 1440000, "measured": [1439998, 1439998, 1439998, 1439999, 1439999], "range": [1439998, 1439999]},
+          "sys": {"programmed": 1500000, "measured": [1499997, 1499997, 1499997, 1500001, 1500001], "range": [1499997, 1500001]}
+        },
+        "changed": {
+          "gpc": {"programmed": 1500000, "measured": [1496396, 1496396, 1500538, 1500538, 1500712], "range": [1496396, 1500712]},
+          "xbar": {"programmed": 1470000, "measured": [1468156, 1468156, 1469999, 1469999, 1469999], "range": [1468156, 1469999]},
+          "sys": {"programmed": 1500000, "measured": [1498156, 1498156, 1500000, 1500000, 1499997], "range": [1498156, 1500000]}
+        },
+        "restored": {
+          "gpc": {"programmed": 1500000, "measured": [1500243, 1500243, 1500243, 1500226, 1500226], "range": [1500226, 1500243]},
+          "xbar": {"programmed": 1440000, "measured": [1439999, 1439999, 1439999, 1439999, 1439999], "range": [1439999, 1439999]},
+          "sys": {"programmed": 1500000, "measured": [1500001, 1500001, 1500001, 1499999, 1499999], "range": [1499999, 1500001]}
+        }
+      },
+      "SYS_control_3": {
+        "request_mhz": 30,
+        "stored_request_khz": 30000,
+        "write_ok": true,
+        "restore_ok": true,
+        "restored_decoded_control_fields_exact": true,
+        "baseline": {
+          "gpc": {"programmed": 1500000, "measured": [1499979, 1499979, 1500120, 1500120, 1500259], "range": [1499979, 1500259]},
+          "xbar": {"programmed": 1440000, "measured": [1439999, 1439999, 1439999, 1439999, 1439999], "range": [1439999, 1439999]},
+          "sys": {"programmed": 1500000, "measured": [1499998, 1499998, 1500000, 1500000, 1500000], "range": [1499998, 1500000]}
+        },
+        "changed": {
+          "gpc": {"programmed": 1500000, "measured": [1500626, 1500626, 1500626, 1500354, 1500354], "range": [1500354, 1500626]},
+          "xbar": {"programmed": 1440000, "measured": [1439999, 1439999, 1439999, 1439999, 1439999], "range": [1439999, 1439999]},
+          "sys": {"programmed": 1530000, "measured": [1529998, 1529998, 1529998, 1530000, 1530000], "range": [1529998, 1530000]}
+        },
+        "restored": {
+          "gpc": {"programmed": 1500000, "measured": [1499991, 1500221, 1500221, 1500221, 1500433], "range": [1499991, 1500433]},
+          "xbar": {"programmed": 1440000, "measured": [1439999, 1439999, 1439999, 1439999, 1439999], "range": [1439999, 1439999]},
+          "sys": {"programmed": 1500000, "measured": [1500002, 1499997, 1499997, 1499997, 1500002], "range": [1499997, 1500002]}
+        }
+      }
+    },
+    "580.97": {
+      "XBAR_control_1": {
+        "request_mhz": 30,
+        "stored_request_khz": 30000,
+        "write_ok": true,
+        "restore_ok": true,
+        "restored_decoded_control_fields_exact": true,
+        "baseline": {
+          "gpc": {"programmed": 1500000, "measured": [1500468, 1500891, 1500891, 1501189, 1501189], "range": [1500468, 1501189]},
+          "xbar": {"programmed": 1440000, "measured": [1439999, 1439999, 1439999, 1439999, 1439999], "range": [1439999, 1439999]},
+          "sys": {"programmed": 1500000, "measured": [1500002, 1500000, 1500000, 1499998, 1499998], "range": [1499998, 1500002]}
+        },
+        "changed": {
+          "gpc": {"programmed": 1500000, "measured": [1496443, 1496443, 1500629, 1500629, 1500629], "range": [1496443, 1500629]},
+          "xbar": {"programmed": 1470000, "measured": [1468146, 1468146, 1469999, 1469999, 1469999], "range": [1468146, 1469999]},
+          "sys": {"programmed": 1500000, "measured": [1498145, 1498145, 1500000, 1500000, 1500000], "range": [1498145, 1500000]}
+        },
+        "restored": {
+          "gpc": {"programmed": 1500000, "measured": [1501238, 1501022, 1501022, 1501014, 1501014], "range": [1501014, 1501238]},
+          "xbar": {"programmed": 1440000, "measured": [1439999, 1439999, 1439999, 1439999, 1439999], "range": [1439999, 1439999]},
+          "sys": {"programmed": 1500000, "measured": [1500000, 1500001, 1500001, 1499998, 1499998], "range": [1499998, 1500001]}
+        }
+      },
+      "SYS_control_3": {
+        "request_mhz": 30,
+        "stored_request_khz": 30000,
+        "write_ok": true,
+        "restore_ok": true,
+        "restored_decoded_control_fields_exact": true,
+        "baseline": {
+          "gpc": {"programmed": 1500000, "measured": [1500298, 1500298, 1500661, 1500661, 1500661], "range": [1500298, 1500661]},
+          "xbar": {"programmed": 1440000, "measured": [1439999, 1439999, 1439999, 1439999, 1439999], "range": [1439999, 1439999]},
+          "sys": {"programmed": 1500000, "measured": [1500000, 1500000, 1499999, 1499999, 1499999], "range": [1499999, 1500000]}
+        },
+        "changed": {
+          "gpc": {"programmed": 1500000, "measured": [1500529, 1500484, 1500484, 1500442, 1500442], "range": [1500442, 1500529]},
+          "xbar": {"programmed": 1440000, "measured": [1439998, 1439999, 1439999, 1439999, 1439999], "range": [1439998, 1439999]},
+          "sys": {"programmed": 1530000, "measured": [1529996, 1530002, 1530002, 1529998, 1529998], "range": [1529996, 1530002]}
+        },
+        "restored": {
+          "gpc": {"programmed": 1500000, "measured": [1500380, 1500380, 1500521, 1500521, 1500645], "range": [1500380, 1500645]},
+          "xbar": {"programmed": 1440000, "measured": [1439999, 1439999, 1439999, 1439999, 1439999], "range": [1439999, 1439999]},
+          "sys": {"programmed": 1500000, "measured": [1499999, 1499999, 1500000, 1500000, 1499998], "range": [1499998, 1500000]}
+        }
+      }
+    }
+  },
+  "restoration": {
+    "returned_to_driver": "580.97",
+    "authoritative_profile_differences": {},
+    "vf_lock": null,
+    "clock_lock": null,
+    "fresh_process_confirmation": {"driver": "580.97", "authoritative_profile_differences": {}, "vf_lock": null, "clock_lock": null, "passed": true},
+    "capture_timestamps_ignored": true,
+    "estimated_absolute_rail_values_excluded": "session quantization makes them unsuitable for cross-session equality"
+  },
+  "unit_tests": {"relevant_existing_tests_passed": 74},
+  "limitations": [
+    "The clock-domain discovery cache retains an empty or partial first scan until manual Refresh capabilities; 1.5.0a does not add an automatic clock getter retry.",
+    "NVAPI architecture fallback covers NVML architecture-loading failure only; it does not negotiate or change the private clock-control wire layout.",
+    "Results apply to this TITAN RTX, VBIOS, release commit, and the two named driver sessions; they are not a guarantee for the 566 driver family or other boards."
+  ],
+  "privacy": {"local_paths_omitted": true, "uuid_omitted": true, "full_tune_snapshots_omitted": true}
+}

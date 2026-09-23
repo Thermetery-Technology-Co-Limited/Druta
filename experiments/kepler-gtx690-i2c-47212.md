@@ -98,4 +98,3 @@ Read-only survey. This tool issues no I2C writes.
 ### What to do with this
 
 Identifying the part is YOUR step and it needs a datasheet. Match the bytes above against candidate parts, then copy `i2c/TEMPLATE.toml` and fill it in with page citations. If nothing above names a part, say so in the issue rather than guessing - a profile built on a guessed identity is worse than no profile, because it will be trusted.
-

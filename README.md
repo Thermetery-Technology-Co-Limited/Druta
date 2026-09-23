@@ -1,9 +1,14 @@
 # Druta
 
-**Version 1.3.0** — [release notes](RELEASE-NOTES-1.3.0.md).
+**Version 1.6.0** — [release notes](RELEASE-NOTES-1.6.0.md).
 
-A monitor and tuner for Pascal/Turing/Blackwell NVIDIA cards, driven through NVAPI/NVML private
-interfaces. It edits the V/F curve
+Package-refactor validation: [Maxwell/Pascal](MAXWELL-PASCAL-VALIDATION.md)
+and [RTX 5080 / Blackwell](BLACKWELL-VALIDATION.md), including controlled
+writes, readbacks, restoration and the limits of the tested coverage.
+
+A monitor and tuner for Kepler, Maxwell, Pascal, Turing and Blackwell NVIDIA cards,
+driven through NVAPI/NVML private interfaces. Available controls depend on the
+generation and the current adapter's runtime capabilities. It edits supported V/F curves
 with planners built around how the boost arbiter actually behaves, and reads and
 writes the framebuffer-partition memory timing registers.
 
@@ -30,7 +35,7 @@ ASUS AND STRIX ARE TRADEMARKS OF ASUSTEK COMPUTER INC. AFTERBURNER IS A
 TRADEMARK OF MICRO-STAR INTERNATIONAL CO., LTD. THESE NAMES APPEAR HERE SOLELY
 TO IDENTIFY HARDWARE AND SOFTWARE THAT DRUTA WORKS WITH OR IS COMPARABLE TO.**
 
-Developed against two cards:
+Initial development boards (measurements describe these configurations, not universal defaults):
 
 | | die | arch | memory | board |
 |---|---|---|---|---|
@@ -40,8 +45,23 @@ Developed against two cards:
 **Per-rail voltage update, 2026-09-06:** both TITANs passed repeated tests
 above their default 1093.75 mV NVVDD cap. With the ceiling raised to 1125 mV
 and the V/F curve requesting it, both reported **1112.5 mV**. Druta now exposes
-the confirmed NVVDD limit controls for these board/VBIOS/driver combinations;
-MSVDD remains unavailable on both. See [measurements and reproduction](VOLTAGE-RAILS-TITAN.md).
+NVVDD limit controls by GPU generation plus runtime layout validation; no
+non-I2C slider is gated by device ID or VBIOS. MSVDD remains unavailable on
+both tested TITANs. See [measurements and reproduction](VOLTAGE-RAILS-TITAN.md).
+
+**Current limits:** the Control tab exposes the runtime-validated core-current
+policy on Pascal, Turing and Blackwell. The tested TITAN Xp and TITAN RTX allow
+**218 A** and **390 A** respectively. Blackwell also exposes its other-rail
+policy; normal mode caps those two controls at **500 A / 200 A**, while XOC
+permits the advertised API maximum (**5,001 A** on the tested Astral). Apply,
+Stock, live readback, profiles and Reset all use these limits. See
+[controls and validation](CURRENT-LIMITS-RTX5080.md).
+
+**RTX 5080 Astral I2C:** the MP29816 profile exposes measured NVVDD voltage at
+port 2 / 7-bit address 0x30 and an experimental 5 mV-step offset function.
+Identity, PAGE and scaling are checked around transactions. The tested driver
+rejects offset writes; Apply requires successful loaded verification each session.
+See [supported profiles](i2c/PROFILES.md) and [bench results](experiments/power-5080-20260908/MP29816-VALIDATION.md).
 
 ---
 
@@ -80,7 +100,7 @@ python -m pip install -r requirements.txt
 ```
 
 The local build produces `dist\Druta\Druta.exe` and
-`dist\Druta-1.3.0-win64.zip`. Distribute the
+`dist\Druta-1.6.0-win64.zip`. Distribute the
 whole `Druta` folder or ZIP: the EXE needs its adjacent `_internal` folder.
 
 `dist\Druta\source\` contains the matching working-tree source, including
@@ -102,11 +122,54 @@ graphics components, source patches and validation limits.
 
 ---
 
+# Development
+
+Use Python 3.11 or newer. Release builds use the interpreter and dependency
+versions recorded in `requirements.txt`.
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e ".[dev]"
+python -m druta
+```
+
+Run the hardware-free regression suite:
+
+```powershell
+python -m pytest
+```
+
+Lint and type-check:
+
+```powershell
+ruff check src/ tests/
+pyright
+```
+
+Application modules live in `src/druta/`; regression tests live in `tests/`.
+The root `druta.py` remains a small compatibility launcher so existing source
+commands and registered sign-in tasks keep working after the move.
+The diagnostic commands below use package modules and require the editable
+installation above. For example, `python -m druta.tools.i2c_discover --help`
+shows the survey options without accessing a GPU.
+
+Existing source profiles and undo snapshots remain in the checkout's
+`profiles/` directory, and editable regulator recipes remain in `i2c/`.
+Bundled applications retain their existing `_internal/profiles/` storage and
+beside-executable `i2c/` overrides. A regular wheel installation stores tuning
+profiles under `%LOCALAPPDATA%\Thermetery\Druta\profiles` and includes its
+regulator recipes and license documents as package data.
+
+---
+
 
 # Run
 
 - `dist\Druta\Druta.exe` — bundled application, no Python needed.
-- or `python druta.py` from source.
+- `python druta.py` — launch a source checkout after installing
+  `requirements.txt`; no editable installation is required.
+- `python -m druta` — launch an editable or regular installed package.
 - **Run as administrator** for every write path: clock lock, fan, power limit,
   V/F curve, memory timings.
 ---
@@ -277,7 +340,7 @@ entry(d)       = 0x124 + d * 0x304
     +0x000  mode/type      reads 8, 9 or 2 per domain
     +0x10C  frequency delta, signed kHz
     +0x110  NVVDD delta, signed microvolts   — the rail slider writes this
-    +0x114  MSVDD delta, also signed microvolts — never written by this app
+    +0x114  MSVDD delta, signed microvolts — experimental request when layout validates
 ```
 
 This block does not naively use the clock getter's domain numbering, because that numbering was off and would throw silent errors if you just ship the rest of the code using that. The mapping below was established by writing `+45 MHz` with my Titan RTX to each control index. We did that while using the Ctrl+H "HOLD" function that pinned the clock, we then recorded WHICH CLOCK ACTUALLY MOVED. XBAR was also doubly corroborated against GPUZ's reading. 
@@ -292,9 +355,9 @@ This block does not naively use the clock getter's domain numbering, because tha
 | 9 | LTC | coarser step — `+45` requested moved it `+30` |
 | 4, 6, 7, 8 | nothing | accept a write, store it, move no clock — left unnamed |
 
-### RTX 50-series / Blackwell diagnostic path
+### Blackwell diagnostic path
 
-The Turing mapping above is not reused for Blackwell.  RTX 50-series cards
+The Turing mapping above is not reused for Blackwell. Blackwell-generation GPUs
 use the same `0xF58938F5` / `0xD14B69CF` interface, but the Windows control
 block's frequency and MSVDD fields are at different offsets in the public
 Blackwell [implementation notes](https://github.com/SHANAjam/rtx5090-xbar-control/blob/main/docs/TECHNICAL_NOTES.md).  Druta therefore selects a separate candidate
@@ -304,23 +367,23 @@ one-hot domain probe and version echo succeed.  On the validated RTX 5080 /
 the XBAR request with the same sign selected by the user; this was confirmed
 by an end-to-end test after the first build exposed a reversed XBAR slider.
 
-Before testing a new RTX 50-series card or driver, collect a read-only report:
+Before testing a new Blackwell card or driver, collect a read-only report:
 
 ```powershell
-python nvbackend.py --clkdom-debug --json > clkdom-debug.json
+python -m druta.nvbackend --clkdom-debug --json > clkdom-debug.json
 ```
 
 For an administrator-only, temporary mapping check, use the explicit probe:
 
 ```powershell
-python nvbackend.py --clkdom-map-probe --confirm > clkdom-map.json
+python -m druta.nvbackend --clkdom-map-probe --confirm > clkdom-map.json
 ```
 
 If the mapping probe reports accepted writes but no settled clock movement,
 compare the two frequency-field candidates with the field-only probe:
 
 ```powershell
-python nvbackend.py --clkdom-field-probe --confirm > clkdom-fields.json
+python -m druta.nvbackend --clkdom-field-probe --confirm > clkdom-fields.json
 ```
 
 This tests only `+0x10C` and `+0x114`; it never writes the neighbouring NVVDD
@@ -334,7 +397,7 @@ If the field probe accepts the writes but controls 1/3/4 all remain inert,
 scan the other non-core/non-memory control indices:
 
 ```powershell
-python nvbackend.py --clkdom-control-probe --delta 25 --confirm > clkdom-controls.json
+python -m druta.nvbackend --clkdom-control-probe --delta 25 --confirm > clkdom-controls.json
 ```
 
 The scan deliberately excludes controls 0 and 2 because another driver branch
@@ -343,15 +406,15 @@ repeat with `--include-core-memory`; the probe still restores the complete GET
 buffer after every individual write:
 
 ```powershell
-python nvbackend.py --clkdom-control-probe --include-core-memory --delta 25 --confirm > clkdom-controls-all.json
+python -m druta.nvbackend --clkdom-control-probe --include-core-memory --delta 25 --confirm > clkdom-controls-all.json
 ```
 
 For a driver that stores a small request but shows no physical response, the
 explicit diagnostic also accepts a larger temporary delta up to `±200 MHz`:
 
 ```powershell
-python nvbackend.py --clkdom-field-probe --delta 200 --confirm > clkdom-fields-plus200.json
-python nvbackend.py --clkdom-field-probe --delta -200 --confirm > clkdom-fields-minus200.json
+python -m druta.nvbackend --clkdom-field-probe --delta 200 --confirm > clkdom-fields-plus200.json
+python -m druta.nvbackend --clkdom-field-probe --delta -200 --confirm > clkdom-fields-minus200.json
 ```
 
 Use this only with a stable test point and workload. The larger limit applies
@@ -363,7 +426,7 @@ complete buffer in a `finally` block.  For a conclusive result, first use a
 fixed GPU-clock/V/F hold or a steady workload; otherwise a P-state transition
 is reported as unstable rather than as a mapping.  It is not run automatically
 by the UI.  Include the GPU model, driver, VBIOS and both JSON reports when
-reporting a driver-specific failure.  Do not use the probe on a non-RTX-50 card
+reporting a driver-specific failure. Do not use the probe on a non-Blackwell GPU
 or with an untrusted driver build.  GPC is retained as an operating-point
 diagnostic, but only the direct XBAR/SYS/memory/VIDEO observations can make the
 mapping verdict.  Large requests scale the minimum effect threshold (up to
@@ -455,6 +518,33 @@ domain.
 If you modify the rails with shunt resistors of different resistance, then the multipliers per
 rail need per-rail power, and the driver does not report it. Per-rail telemetry does exist on boards that carry an INA3221-class shunt
 monitor but is not yet implemented.
+
+## NCT3933U current-DAC outputs
+
+Checking **I2C rail** reveals manual discovery controls without scanning or
+reconnecting. Choose **Unknown -- Full Scan** or a known controller, then use
+**Connect / Scan**: it first tries a compatible remembered route and otherwise
+scans only the selected scope. **Full scan** bypasses route memory and scope.
+Launch, checking the box, and changing cards never start I2C discovery. Cached
+routes are read/verify hints only; a miss, failure, or corrupt cache falls back
+to the selected scan and never authorizes a write.
+
+After discovery, Druta can read NCT3933U output commands, write an explicitly
+selected output, zero all outputs, and preserve exact raw control in profiles
+and undo snapshots. **Raw outputs (µA)** is the default: OUT1/OUT2/OUT3,
+signed source/sink current and raw bytes, with no assumption about board wiring
+or live rail voltage.
+
+After meter verification, a user can explicitly select **GPU / memory /
+PEX-PLL (mV)** for a matching local adapter/controller route. It shows an mV
+offset from the register command while retaining the raw current and hex byte;
+it is not an absolute or live-voltage reading. The selection is stored locally
+by adapter UUID, port and address (session-only when UUID is unavailable), not
+as a shipped board allowlist. The current ASUS CG611P / Strix-Poseidon route
+uses OUT3 GPU and OUT1 memory at 10 mV per normal negative 10 µA command, and
+OUT2 PEX/PLL at 66 mV; doubled commands are 20/20/132 mV. Positive current
+lowers these measured rails. Other boards remain raw until their owner verifies
+and selects a route. See [NCT3933U controls and validation](i2c/NCT3933U.md).
 
 ## Max it
 
@@ -586,7 +676,9 @@ this cap could not be raised was disproved by that measurement. See
 Start with the [I2C contribution workflow](i2c/CONTRIBUTING.md),
 [recipe and adapter reference](i2c/PROFILES.md), and
 [I2C PR template](.github/PULL_REQUEST_TEMPLATE/i2c_profile.md).
-Kepler NCP4206 and MP2888A discovery scan actual buses without board-ID filters.
+NCP4206, MP2888A and MP29816 discovery scan actual buses without GPU board-ID filters.
+The scan starts only when **I2C rail** is checked, with probe progress and cancellation;
+it does not run at launch. I2C-bearing profiles require that manual scan first.
 Another board with one of these controllers usually needs discovery and
 Verify/restore evidence, rather than a duplicate TOML profile. Druta lists
 matching candidates by port/address; an ambiguous scan requires selection.
@@ -598,12 +690,15 @@ Named profiles snapshot both offsets, the power limit, the voltage boost, the
 fan **policy** (not just its duty — auto-at-0% and manual-at-0% read identically,
 and handing a captured duty back as a manual duty would be a thermal change) and
 every V/F delta, as readable JSON in `profiles/`. New profiles also capture
-the confirmed **NVVDD/MSVDD limit fields in absolute mV**, the NVVDD voltage
-offset, per-domain clock requests (including **Additional Memory Clock
-Offset**), the identified I2C regulator's offset and XOC mode. The profile
-list names these values, and loading reports each control's result. Rails
-that Druta has not confirmed writable remain unavailable; MSVDD's unconfirmed
-voltage-offset field is not replayed.
+the **NVVDD/MSVDD limit fields as exact signed microvolt deltas**, estimated
+absolute values for display, the NVVDD voltage offset, experimental MSVDD
+requests, per-domain clock requests (including **Additional Memory Clock
+Offset**), the identified I2C regulator's controls and XOC mode. The profile
+list names these values, and loading reports each control's result. Each rail
+requires its own understood runtime interface. MSVDD requests retain their
+experimental XOC requirement; stored readback is not proof of physical VOUT.
+**Initial** restores first-read rail controls, which may contain prior tuning,
+rather than claiming another board's factory defaults.
 
 I2C tuning profiles save the controller state (MP2888A offset or NCP4206
 absolute target/Auto), its port/address, and a fingerprint of the bound register
@@ -767,6 +862,47 @@ The CUDA memcpy load is the fallback when the hold cannot be taken, such as in c
 
 **`Re-read timings`** — a sanity check after you applied the settings, not a way to get a reading. Might be deprecated soon. 
 
+### Upcoming GPU device restart
+
+The red **Panic Button (PnP Reset, Deeper than Shift+Ctrl+B)** stays in the
+upper-right shared header, including while the tab page scrolls. It and
+**Device > Restart GPU device (PnP)...** immediately start a restart of the
+selected NVIDIA display device through Windows PnP; there is no confirmation.
+Druta identifies its exact PCI location and device instance, closes its window,
+waits for the process to exit, runs Windows
+`pnputil /restart-device`, and reopens with fresh driver handles. It does not
+automatically apply any tuning profile or reboot the computer. A failed restart
+or a Windows requirement to reboot is reported and saved under
+`%LOCALAPPDATA%\Druta\device-recovery`.
+
+Use this as a recovery attempt after a driver/timing failure. The display can go
+blank and other GPU applications can lose their device; close other workloads
+first. Unsaved edits in Druta are discarded. This does not guarantee recovery
+from a hardware hang or restoration of every setting to stock. It requires
+administrator rights and Windows 10 version 2004 or later. Ambiguous device
+locations and nonzero PCI segments are refused.
+
+If the GUI is unusable, the same recovery path can be launched from an elevated
+shell: `Druta.exe --restart-gpu 0000:01:00.0`, substituting the selected card's
+slot from `Druta.exe --list-gpus`. Close existing Druta windows first.
+
+### Upcoming timing profiles
+
+Druta 1.6.0 adds **Save timing profile...** and **Load timing profile...** on the
+Timings tab. Save combines the decoded broadcast capture with red, staged
+edits. It requires a top-band capture and matching active framebuffer
+partitions, and stores timing fields only: it excludes raw registers, inferred
+fields, and structural training fields.
+
+Load accepts Druta timing profiles and nvtune-compatible `fields` files. It
+only replaces the editor's staged edits, so it sends no GPU write. Review the
+usual preview and choose **Apply to memory controller** to commit; all existing
+fresh-band and write checks remain in force. A raw `nvtune save -o` backup is a
+nvtune restore file, not an apply profile, and Druta will not broadcast it.
+Upstream nvtune `save --profile` is fixed in
+[v1.0.2-alpha](https://github.com/sebastianmarrufo/nvtune/releases/tag/v1.0.2-alpha).
+Druta does not bundle, download, or automatically update nvtune.
+
 ## Writing
 
 
@@ -779,16 +915,32 @@ The CUDA memcpy load is the fallback when the hold cannot be taken, such as in c
 
 Timing writings are quaduply guarded:
 
-1. **The card must be in its top memory band.** Timings are per band, so a write
-   in any other state will be writing into garbage and will be auto-rejected.
+1. **Controls must be unlocked and the current card must be in its top memory
+   band.** Apply checks a fresh P0/P2 memory-clock reading both before preparing
+   the write and immediately before commit. The applied memory offset is removed
+   before comparing against the nominal band. Unknown readings refuse the write;
+   an earlier performance capture cannot authorize a later idle-state write.
+   The nearby GP102/TU102 P2/P0 clock pairs are supported from measured register
+   equivalence. Other chips use their highest enumerated clock; the GTX 745's
+   idle 405 MHz state does not qualify against its 900 MHz top band.
 2. **Range and structural refusals before nvtune.**
    Druta does not allow you to write into structural fields (training and phase fragments that have no "looser" or "tigher" direction)
    and fields in a register whose offset is only *inferred* by nvtune. The `new value` column is completely empty for these fields. 
    The `force` checkbox defeats nvtune's *warning* refusal but does not add the buttons for these values.
-3. **A dry run always runs first**, so a tool-side refusal is **observed**
-   rather than inferred from an unchanged read-back. That inference is exactly
-   what recorded four of twenty-five fields as hardware rejections in an earlier
-   sweep when they had never reached BAR0.
+3. **A read-only preview always runs first.** Druta checks the helper's advertised
+   command convention. Builds with a native preview receive `--dry-run`, or no
+   flag when they explicitly advertise dry runs by default. Sebastian's released
+   `v1.0.0-alpha` and `v1.0.1-alpha` instead write on bare `set` and reject
+   `--commit`. For these builds Druta calculates the preview from read-only
+   `fields` and the selected card's `dump --raw`, using the reported bit ranges,
+   register addresses and complete words. No `set` command runs during preview.
+   Additional internal helper checks, including older builds' typical-range
+   warnings, may still refuse Apply. The preview identifies that limitation.
+   Apply and Restore use the detected write convention; `--force` is passed only
+   when supported. Druta still requires its force checkbox for preview warnings.
+   Unknown command conventions refuse writes, and replacing the helper during
+   preparation prevents commit. Process errors remain errors even when readback
+   matches; a partly refused batch retains actual readbacks for every field.
 4. **A per-card stock backup**, keyed by the card's **UUID**, NOT by PCI
    slot or by model name. nvtune's own default is `<slot>.stock.json` with
    an existence-only check, so swapping cards in one slot silently skipped the
@@ -796,7 +948,13 @@ Timing writings are quaduply guarded:
 
 Outcomes are reported as four distinct states — **landed**, **dropped** (reached
 the hardware and was rejected), **refused** (nvtune declined; BAR0 never
-touched), **failed**.
+touched), **failed** (including partial batches with actual readback retained).
+
+**Compatibility regression in 1.4:** its native-preview requirement excluded
+both public nvtune releases. Druta 1.2 could appear to work because its supposed
+dry run sent bare `set` (which already wrote), then ignored the failed
+`set --commit`. The compatibility fix keeps previews read-only and sends the
+actual write only from Apply.
 
 
 ---

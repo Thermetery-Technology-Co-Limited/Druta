@@ -11,7 +11,7 @@ import pefile
 
 vista = globals().get('VISTA_BUILD', False)
 if vista:
-    sys.path.insert(0, str(Path('tools').resolve()))
+    sys.path.insert(0, str(Path('src/druta/tools').resolve()))
     from vista_runtime import validate_runtime
     validate_runtime(sys.base_prefix)
 
@@ -71,7 +71,7 @@ if portable_redist:
     datas += [('PORTABLE-WINDOWS7.md', '.')] + portable_licenses + [
         (str(portable_redist / 'manifest.json'), 'licenses/Microsoft-Windows-SDK')]
 if vista:
-    datas += [('VISTA.md', '.'), ('tools/vista', 'licenses/Vista-runtime-changes'),
+    datas += [('VISTA.md', '.'), ('src/druta/tools/vista', 'licenses/Vista-runtime-changes'),
               (str(Path(sys.base_prefix) / 'druta-vista-runtime.json'), 'licenses/Vista-runtime-changes')]
 if (crt / 'VC2019-LICENSE.rtf').is_file():
     datas.append((str(crt / 'VC2019-LICENSE.rtf'), 'licenses/Microsoft-VC2019'))
@@ -83,7 +83,8 @@ for package in ('dearpygui', 'tomli', 'pyinstaller'):
         if Path(str(file)).name.upper().startswith(('LICENSE', 'COPYING')):
             datas.append((str(dist.locate_file(file)), 'licenses/' + package))
 
-a = Analysis(['druta.py'], pathex=[], binaries=binaries, datas=datas,
+# Same frozen entry point as Druta.spec: the package lives under src/.
+a = Analysis(['src/run_druta.py'], pathex=['src'], binaries=binaries, datas=datas,
              hiddenimports=hiddenimports, hookspath=[], hooksconfig={},
              # Druta has no TLS/network feature. CPython 3.8's OpenSSL 1.1.1
              # uses different terms than the modern build's OpenSSL 3; omit

@@ -19,7 +19,7 @@
        beside-exe i2c/) into dist/Druta-<version>-win64.zip.
 
     Version comes from a VERSION / __version__-style constant grepped out of
-    druta.py at build time. This script does not own druta.py and will not
+    src/druta/druta.py at build time. This script does not own druta.py and will not
     add one: if no such constant is found, the zip is named with "dev"
     instead of an invented version number.
 
@@ -44,7 +44,7 @@ $exePath   = Join-Path $bundleDir 'Druta.exe'
 $specPath  = Join-Path $root 'Druta.spec'
 $i2cSrc    = Join-Path $root 'i2c'
 $i2cDst    = Join-Path $bundleDir 'i2c'
-$drutaPy   = Join-Path $root 'druta.py'
+$drutaPy   = Join-Path $root 'src/druta/druta.py'
 $sourceDir = Join-Path $bundleDir 'source'
 
 # Keep this explicit: a working tree also contains private research, session
@@ -53,19 +53,79 @@ $sourceDir = Join-Path $bundleDir 'source'
 # of HEAD (which may describe a different executable).
 function Get-SourceSnapshot {
     $paths = @(
-        'app.py', 'druta.py', 'nvbackend.py', 'gpuload.py', 'profiles.py', 'startup.py',
-        'railctl.py', 'ncp4206.py', 'mp2888.py', 'shuntmod.py', 'timings.py', 'timingwrite.py',
+        'druta.py', 'src/run_druta.py', 'src/druta/__init__.py', 'src/druta/__main__.py',
         'Druta.spec', 'build.ps1', 'requirements.txt',
-        'wincompat.py', 'Druta-win7.spec', 'build-win7.ps1', 'requirements-win7.txt',
+        'pyproject.toml', 'setup.py', 'MANIFEST.in',
+        'Druta-win7.spec', 'build-win7.ps1', 'requirements-win7.txt',
         'WINDOWS7.md', 'PORTABLE-WINDOWS7.md',
-        'tools/package_source.py', 'tools/smoke_full_ui.py',
-        'tools/extract_win7_crt.py', 'tools/collect_win7_redist.py', 'tools/build_win7_sfx.py',
+        'Druta-vista.spec', 'build-vista.ps1', 'requirements-vista.txt', 'VISTA.md',
         '.github/PULL_REQUEST_TEMPLATE/i2c_profile.md',
         'AGENTS.md', 'COPYING', 'THIRD-PARTY-NOTICES.md', 'README.md', 'MANUAL.md',
         'TECHNICALDOCUMENTATION.md', 'DEBUG-SUMMARY-RTX5080.md',
         'VOLTAGE-RAILS-TITAN.md', 'VOLTAGE-RAILS-47212.md', 'DRIVER-COMPATIBILITY.md',
-        'RELEASE-NOTES-1.3.0.md',
+        'RELEASE-NOTES-1.3.0.md', 'RELEASE-NOTES-1.5.0a.md', 'RELEASE-NOTES-1.5.1.md',
+        'RELEASE-NOTES-1.6.0.md',
+        'MAXWELL-PASCAL-VALIDATION.md', 'BLACKWELL-VALIDATION.md',
+        'CURRENT-LIMITS-RTX5080.md', 'COMPATIBILITY-GATING-AUDIT.md',
+        'CURRENT-LIMITS-KEPLER-MAXWELL.md',
+        'experiments/current-limits-titan-20260908.json',
+        'experiments/current-limits-titan-61088-20260908.json',
+        'experiments/current-limits-titan-47212-20260908.json',
+        'experiments/I2C-VOUT-VALIDATION.md',
+        'experiments/kepler-p0-fan-ui-gtx770-47212-20260909.json',
+        'experiments/gating-refresh-gtx770-47212-20260909.json',
+        'experiments/i2c-direct-vmon-worker-gtx770-47212-20260909.json',
+        'experiments/i2c-vmon-command-trace-gtx770-47212-20260909.json',
+        'experiments/i2c-direct-vout-worker-titan-47212-20260909.json',
+        'experiments/current-limit-ceiling-titan-rtx-20260908.json',
+        'experiments/current-limit-ceiling-titan-xp-20260908.json',
+        'experiments/probe_titan_current_ceiling.py',
+        'experiments/validate_titan_current_limits_production.py',
+        'experiments/probe_kepler_maxwell_current.py',
+        'experiments/probe_5080_policy13_write.py',
+        'experiments/probe_5080_policy13_max.py',
+        'experiments/probe_5080_policy14_write.py',
+        'experiments/probe_5080_policy14_max.py',
+        'experiments/probe_5080_policy_series.py',
+        'experiments/probe_5080_power_channels.py',
+        'experiments/validate_5080_current_limits_production.py',
+        'experiments/correlate_mp29816.py',
+        'experiments/kepler-rom-analysis/decode_rom.py',
+        'experiments/kepler-rom-analysis/read_channels.py',
+        'experiments/kepler-rom-analysis/FINDINGS.md',
+        'experiments/kepler-rom-analysis/decoded-rom.json',
+        'experiments/kepler-rom-analysis/channel-readbacks.json',
+        'experiments/current-limits-kepler-maxwell-20260908.json',
+        'experiments/current-limits-kepler-maxwell-modern-get-20260908.json',
+        'experiments/power-5080-20260908/policy13-write/execution.json',
+        'experiments/power-5080-20260908/policy13-maximum/execution.json',
+        'experiments/power-5080-20260908/policy14-write/execution.json',
+        'experiments/power-5080-20260908/policy14-maximum/execution.json',
+        'experiments/power-5080-20260908/production-current-limits.json',
+        'experiments/power-5080-20260908/mp29816-correlation.json',
+        'experiments/power-5080-20260908/mp29816-production-writer.json',
+        'experiments/power-5080-20260908/mp29816-post-reboot-minimal.json',
+        'experiments/power-5080-20260908/mp29816-nv40-i2c-read-matrix.json',
+        'experiments/power-5080-20260908/mp29816-nv40-i2c-post-reboot-100khz-smbus-same-value.json',
+        'experiments/power-5080-20260908/mp29816-nv40-i2c-post-reboot-100khz-buffer-same-value.json',
+        'experiments/power-5080-20260908/POLICY13-WRITE-RESULT.md',
+        'experiments/power-5080-20260908/POLICY13-MAXIMUM-RESULT.md',
+        'experiments/power-5080-20260908/POLICY14-WRITE-RESULT.md',
+        'experiments/power-5080-20260908/POLICY14-MAXIMUM-RESULT.md',
+        'experiments/power-5080-20260908/MP29816-VALIDATION.md',
         'experiments/voltage-rails-20260906.json',
+        'experiments/vista-driver-36519-exports.json',
+        'experiments/vista-port-validation-20260906.json',
+        'experiments/runtime-rails-47212.json',
+        'experiments/runtime-rails-56636.json',
+        'experiments/runtime-i2c-ui-58097.json',
+        'experiments/runtime-rails-58097.json',
+        'experiments/runtime-rails-58266.json',
+        'experiments/clock-capability-retry-20260916.json',
+        'experiments/titan-rtx-clock-sanity-56636-58097-20260916.json',
+        'experiments/titan-rtx-clock-sanity-56636-58097-20260916.md',
+        'experiments/566-schema-static/README.md',
+        'experiments/566-schema-static/getter-response-canary.json',
         'experiments/legacy-offsets-47212-0000-01-00.0.json',
         'experiments/legacy-offsets-47212-0000-02-00.0.json',
         'experiments/legacy-frequency-production-47212.json',
@@ -90,15 +150,20 @@ function Get-SourceSnapshot {
         'experiments/kepler-timing-writes-47212.json',
         'experiments/kepler-timing-sweep-47212.json',
         'experiments/kepler-ncp4206-identity-47212.json',
-        'experiments/kepler-ncp4206-control-47212.json',
-        'tools/i2c_discover.py', 'tools/probe_volt_rails.py',
-        'tools/decode_kepler_clocks.py'
+        'experiments/kepler-ncp4206-control-47212.json'
     )
     # Only the explicitly public measurement files above are included
     # from experiments/. Other research/session captures remain excluded.
-    # Include regression tests and the public regulator profiles, including
-    # newly added files. No recursive wildcard can wander into docs/ or drv/.
-    foreach ($pattern in @('test_*.py', 'tests/test_*.py', 'i2c/*.toml', 'i2c/*.md')) {
+    # Include the complete package and regression suite, including package
+    # initializers and test helpers. Restrict recursion to these source trees;
+    # private docs/, drv/, profiles/, and other experiments remain excluded.
+    foreach ($directory in @('src/druta', 'tests')) {
+        $paths += @(Get-ChildItem -LiteralPath (Join-Path $root $directory) -Filter '*.py' -File -Recurse |
+            ForEach-Object { $_.FullName.Substring($root.Length + 1).Replace('\', '/') })
+    }
+    # The Vista runtime's source patches, notes and pinned UCRT identities.
+    foreach ($pattern in @('i2c/*.toml', 'i2c/*.md', 'src/druta/tools/vista/*.md',
+                           'src/druta/tools/vista/*.json', 'src/druta/tools/vista/*.patch')) {
         $paths += @(Get-ChildItem -Path (Join-Path $root $pattern) -File -ErrorAction SilentlyContinue |
             ForEach-Object { $_.FullName.Substring($root.Length + 1).Replace('\', '/') })
     }

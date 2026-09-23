@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 import zipfile
 
-from tools import package_vista_nvtune as packager
+from druta.tools import package_vista_nvtune as packager
 
 
 class PackageTests(unittest.TestCase):

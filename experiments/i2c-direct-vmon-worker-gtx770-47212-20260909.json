@@ -1,0 +1,821 @@
+{
+  "initial_rejection": {
+    "timestamp_utc": "2026-09-09T07:59:02.167990+00:00",
+    "commit": "6546c5cff3ea610d10c2fd725e2b31d1f046e9a1",
+    "gpu": {
+      "name": "NVIDIA GeForce GTX 770",
+      "driver": "472.12",
+      "vbios": "80.04.c3.00.01",
+      "admin": true,
+      "slot": "0000:01:00.0",
+      "uuid": "GPU-be025ef3-b767-50db-11e1-f0f941a9c93d",
+      "mem_clocks": [
+        324,
+        810,
+        3505
+      ],
+      "gfx_min": 136,
+      "gfx_max": 1202,
+      "mem_div": 2,
+      "mem_type": "GDDR5",
+      "mem_type_id": 8,
+      "core_off_range": [
+        -105,
+        1001,
+        0
+      ],
+      "mem_off_range": [
+        -5390,
+        7010,
+        0
+      ],
+      "fan_min": 26,
+      "fan_max": 100
+    },
+    "path": "Druta._i2c_verify_worker -> gpuload.verify_in_p0 -> NCP4206.verify",
+    "port": 2,
+    "address": 32,
+    "trials": [
+      {
+        "before": {
+          "state": {
+            "pstate": 0,
+            "core": 836,
+            "mem": 3505,
+            "temp_edge": 37,
+            "util_gpu": 77
+          },
+          "control": {
+            "kind": "absolute_vid",
+            "enabled": false,
+            "command": 0
+          },
+          "vmon_mv": 953.125,
+          "registers": {
+            "0x21": 0,
+            "0xd2": 114,
+            "0xd3": 114,
+            "0xdd": 3
+          },
+          "p0_owned": false
+        },
+        "logs": [
+          {
+            "message": "verify: acquiring a temporary hold and waiting for confirmed P0",
+            "ok": null
+          },
+          {
+            "message": "  NCP4206 I2C VMON 951.17 -> 988.28 mV; target 975.00 mV; change 37.11 mV; noise 9.77 mV; quantum 1.9531 mV",
+            "ok": null
+          },
+          {
+            "message": "verify: NCP4206 INCONCLUSIVE - VMON exceeded the command plus measured noise/quantization allowance; original control restored",
+            "ok": false
+          }
+        ],
+        "operating_points": [
+          [
+            0,
+            535,
+            3505
+          ]
+        ],
+        "verdict": false,
+        "message": "NCP4206 INCONCLUSIVE - VMON exceeded the command plus measured noise/quantization allowance; original control restored",
+        "ladder": [
+          {
+            "baseline_mv": 951.171875,
+            "baseline_samples_mv": [
+              953.125,
+              953.125,
+              953.125,
+              951.171875,
+              953.125,
+              949.21875,
+              945.3125,
+              953.125,
+              953.125,
+              949.21875,
+              951.171875,
+              949.21875,
+              949.21875,
+              951.171875,
+              949.21875,
+              951.171875,
+              953.125,
+              951.171875,
+              951.171875,
+              955.078125,
+              953.125,
+              951.171875,
+              955.078125,
+              949.21875,
+              951.171875
+            ],
+            "baseline_quantum_mv": 1.953125,
+            "target_mv": 975.0,
+            "moved": false,
+            "samples_mv": [
+              986.328125,
+              988.28125,
+              988.28125,
+              988.28125,
+              988.28125,
+              988.28125,
+              992.1875,
+              988.28125,
+              992.1875,
+              990.234375,
+              986.328125,
+              990.234375,
+              984.375,
+              986.328125,
+              990.234375,
+              990.234375,
+              988.28125,
+              988.28125,
+              990.234375,
+              988.28125,
+              990.234375,
+              988.28125,
+              988.28125,
+              986.328125,
+              990.234375
+            ],
+            "median_mv": 988.28125,
+            "noise_mv": 7.8125,
+            "quantum_mv": 1.953125,
+            "delta_mv": 37.109375,
+            "threshold_mv": 9.765625,
+            "response_noise_mv": 9.765625,
+            "overshoot": true,
+            "overshoot_allowance_mv": 9.765625
+          }
+        ],
+        "worker_pass": false,
+        "after": {
+          "state": {
+            "pstate": 0,
+            "core": 836,
+            "mem": 3505,
+            "temp_edge": 39,
+            "util_gpu": 4
+          },
+          "control": {
+            "kind": "absolute_vid",
+            "enabled": false,
+            "command": 0
+          },
+          "vmon_mv": 958.984375,
+          "registers": {
+            "0x21": 0,
+            "0xd2": 114,
+            "0xd3": 114,
+            "0xdd": 3
+          },
+          "p0_owned": false
+        },
+        "registers_restored": true,
+        "shutdown_clean": true
+      }
+    ]
+  },
+  "corrected_worker_runs": [
+    {
+      "timestamp_utc": "2026-09-09T08:01:24.088216+00:00",
+      "commit": "6546c5cff3ea610d10c2fd725e2b31d1f046e9a1",
+      "gpu": {
+        "name": "NVIDIA GeForce GTX 770",
+        "driver": "472.12",
+        "vbios": "80.04.c3.00.01",
+        "admin": true,
+        "slot": "0000:01:00.0",
+        "uuid": "GPU-be025ef3-b767-50db-11e1-f0f941a9c93d",
+        "mem_clocks": [
+          324,
+          810,
+          3505
+        ],
+        "gfx_min": 136,
+        "gfx_max": 1202,
+        "mem_div": 2,
+        "mem_type": "GDDR5",
+        "mem_type_id": 8,
+        "core_off_range": [
+          -105,
+          1001,
+          0
+        ],
+        "mem_off_range": [
+          -5390,
+          7010,
+          0
+        ],
+        "fan_min": 26,
+        "fan_max": 100
+      },
+      "path": "Druta._i2c_verify_worker -> gpuload.verify_in_p0 -> NCP4206.verify",
+      "port": 2,
+      "address": 32,
+      "trials": [
+        {
+          "before": {
+            "state": {
+              "pstate": 8,
+              "core": 135,
+              "mem": 324,
+              "temp_edge": 40,
+              "util_gpu": 7
+            },
+            "control": {
+              "kind": "absolute_vid",
+              "enabled": false,
+              "command": 0
+            },
+            "vmon_mv": 953.125,
+            "registers": {
+              "0x21": 0,
+              "0xd2": 114,
+              "0xd3": 114,
+              "0xdd": 3
+            },
+            "p0_owned": false
+          },
+          "logs": [
+            {
+              "message": "verify: acquiring a temporary hold and waiting for confirmed P0",
+              "ok": null
+            },
+            {
+              "message": "  NCP4206 I2C VMON 953.12 -> 988.28 mV; target 975.00 mV; change 35.16 mV; noise 5.86 mV; quantum 1.9531 mV",
+              "ok": null
+            },
+            {
+              "message": "verify: NCP4206 WRITE PATH CONFIRMED at the tested operating point. I2C VMON rose 35.16 mV and returned to 951.17 mV after exact command/mode restoration. This verifies a response, not full-load behavior or a 1:1 voltage gain.",
+              "ok": true
+            }
+          ],
+          "operating_points": [
+            [
+              0,
+              535,
+              3505
+            ]
+          ],
+          "verdict": true,
+          "message": "NCP4206 WRITE PATH CONFIRMED at the tested operating point. I2C VMON rose 35.16 mV and returned to 951.17 mV after exact command/mode restoration. This verifies a response, not full-load behavior or a 1:1 voltage gain.",
+          "ladder": [
+            {
+              "baseline_mv": 953.125,
+              "baseline_samples_mv": [
+                955.078125,
+                949.21875,
+                953.125,
+                953.125,
+                951.171875,
+                951.171875,
+                953.125,
+                953.125,
+                953.125,
+                949.21875,
+                951.171875,
+                951.171875,
+                951.171875,
+                955.078125,
+                953.125,
+                955.078125,
+                951.171875,
+                953.125,
+                949.21875,
+                955.078125,
+                953.125,
+                951.171875,
+                953.125,
+                953.125,
+                951.171875
+              ],
+              "baseline_quantum_mv": 1.953125,
+              "target_mv": 975.0,
+              "voltage_ceiling_mv": 1281,
+              "moved": true,
+              "samples_mv": [
+                986.328125,
+                992.1875,
+                988.28125,
+                988.28125,
+                988.28125,
+                992.1875,
+                992.1875,
+                988.28125,
+                988.28125,
+                990.234375,
+                990.234375,
+                988.28125,
+                986.328125,
+                992.1875,
+                990.234375,
+                992.1875,
+                988.28125,
+                986.328125,
+                986.328125,
+                986.328125,
+                988.28125,
+                986.328125,
+                990.234375,
+                988.28125,
+                990.234375
+              ],
+              "median_mv": 988.28125,
+              "noise_mv": 5.859375,
+              "quantum_mv": 1.953125,
+              "delta_mv": 35.15625,
+              "threshold_mv": 6.25,
+              "response_noise_mv": 5.859375,
+              "restored_vout_mv": 951.171875,
+              "restored_samples_mv": [
+                953.125,
+                949.21875,
+                953.125,
+                949.21875,
+                947.265625,
+                949.21875,
+                955.078125,
+                953.125,
+                951.171875,
+                951.171875,
+                949.21875,
+                953.125,
+                953.125,
+                947.265625,
+                951.171875,
+                953.125,
+                951.171875,
+                953.125,
+                953.125,
+                951.171875,
+                955.078125,
+                951.171875,
+                953.125,
+                953.125,
+                951.171875
+              ],
+              "restored_quantum_mv": 1.953125,
+              "reversal_mv": 37.109375
+            }
+          ],
+          "worker_pass": true,
+          "after": {
+            "state": {
+              "pstate": 0,
+              "core": 836,
+              "mem": 3505,
+              "temp_edge": 43,
+              "util_gpu": 3
+            },
+            "control": {
+              "kind": "absolute_vid",
+              "enabled": false,
+              "command": 0
+            },
+            "vmon_mv": 951.171875,
+            "registers": {
+              "0x21": 0,
+              "0xd2": 114,
+              "0xd3": 114,
+              "0xdd": 3
+            },
+            "p0_owned": false
+          },
+          "registers_restored": true,
+          "shutdown_clean": true
+        }
+      ],
+      "ncp4206_sha256": "13b1c9bcafadb17393be27205881a2783881168b114a4400a6ec2ed0c7f38cca",
+      "working_tree_fix": true
+    },
+    {
+      "timestamp_utc": "2026-09-09T08:01:29.171324+00:00",
+      "commit": "6546c5cff3ea610d10c2fd725e2b31d1f046e9a1",
+      "gpu": {
+        "name": "NVIDIA GeForce GTX 770",
+        "driver": "472.12",
+        "vbios": "80.04.c3.00.01",
+        "admin": true,
+        "slot": "0000:01:00.0",
+        "uuid": "GPU-be025ef3-b767-50db-11e1-f0f941a9c93d",
+        "mem_clocks": [
+          324,
+          810,
+          3505
+        ],
+        "gfx_min": 136,
+        "gfx_max": 1202,
+        "mem_div": 2,
+        "mem_type": "GDDR5",
+        "mem_type_id": 8,
+        "core_off_range": [
+          -105,
+          1001,
+          0
+        ],
+        "mem_off_range": [
+          -5390,
+          7010,
+          0
+        ],
+        "fan_min": 26,
+        "fan_max": 100
+      },
+      "path": "Druta._i2c_verify_worker -> gpuload.verify_in_p0 -> NCP4206.verify",
+      "port": 2,
+      "address": 32,
+      "trials": [
+        {
+          "before": {
+            "state": {
+              "pstate": 0,
+              "core": 836,
+              "mem": 3505,
+              "temp_edge": 43,
+              "util_gpu": 1
+            },
+            "control": {
+              "kind": "absolute_vid",
+              "enabled": false,
+              "command": 0
+            },
+            "vmon_mv": 949.21875,
+            "registers": {
+              "0x21": 0,
+              "0xd2": 114,
+              "0xd3": 114,
+              "0xdd": 3
+            },
+            "p0_owned": false
+          },
+          "logs": [
+            {
+              "message": "verify: acquiring a temporary hold and waiting for confirmed P0",
+              "ok": null
+            },
+            {
+              "message": "  NCP4206 I2C VMON 953.12 -> 990.23 mV; target 975.00 mV; change 37.11 mV; noise 5.86 mV; quantum 1.9531 mV",
+              "ok": null
+            },
+            {
+              "message": "verify: NCP4206 WRITE PATH CONFIRMED at the tested operating point. I2C VMON rose 37.11 mV and returned to 951.17 mV after exact command/mode restoration. This verifies a response, not full-load behavior or a 1:1 voltage gain.",
+              "ok": true
+            }
+          ],
+          "operating_points": [
+            [
+              0,
+              535,
+              3505
+            ]
+          ],
+          "verdict": true,
+          "message": "NCP4206 WRITE PATH CONFIRMED at the tested operating point. I2C VMON rose 37.11 mV and returned to 951.17 mV after exact command/mode restoration. This verifies a response, not full-load behavior or a 1:1 voltage gain.",
+          "ladder": [
+            {
+              "baseline_mv": 953.125,
+              "baseline_samples_mv": [
+                953.125,
+                951.171875,
+                951.171875,
+                953.125,
+                951.171875,
+                951.171875,
+                953.125,
+                953.125,
+                953.125,
+                953.125,
+                953.125,
+                953.125,
+                951.171875,
+                951.171875,
+                951.171875,
+                953.125,
+                951.171875,
+                953.125,
+                953.125,
+                949.21875,
+                953.125,
+                951.171875,
+                953.125,
+                955.078125,
+                953.125
+              ],
+              "baseline_quantum_mv": 1.953125,
+              "target_mv": 975.0,
+              "voltage_ceiling_mv": 1281,
+              "moved": true,
+              "samples_mv": [
+                990.234375,
+                988.28125,
+                990.234375,
+                984.375,
+                986.328125,
+                988.28125,
+                990.234375,
+                990.234375,
+                990.234375,
+                990.234375,
+                988.28125,
+                990.234375,
+                988.28125,
+                990.234375,
+                988.28125,
+                990.234375,
+                988.28125,
+                990.234375,
+                988.28125,
+                988.28125,
+                988.28125,
+                990.234375,
+                990.234375,
+                986.328125,
+                990.234375
+              ],
+              "median_mv": 990.234375,
+              "noise_mv": 5.859375,
+              "quantum_mv": 1.953125,
+              "delta_mv": 37.109375,
+              "threshold_mv": 6.25,
+              "response_noise_mv": 5.859375,
+              "restored_vout_mv": 951.171875,
+              "restored_samples_mv": [
+                951.171875,
+                951.171875,
+                949.21875,
+                951.171875,
+                953.125,
+                953.125,
+                949.21875,
+                955.078125,
+                947.265625,
+                949.21875,
+                953.125,
+                951.171875,
+                955.078125,
+                949.21875,
+                951.171875,
+                953.125,
+                947.265625,
+                951.171875,
+                951.171875,
+                951.171875,
+                949.21875,
+                951.171875,
+                949.21875,
+                953.125,
+                955.078125
+              ],
+              "restored_quantum_mv": 1.953125,
+              "reversal_mv": 39.0625
+            }
+          ],
+          "worker_pass": true,
+          "after": {
+            "state": {
+              "pstate": 0,
+              "core": 836,
+              "mem": 3505,
+              "temp_edge": 43,
+              "util_gpu": 0
+            },
+            "control": {
+              "kind": "absolute_vid",
+              "enabled": false,
+              "command": 0
+            },
+            "vmon_mv": 949.21875,
+            "registers": {
+              "0x21": 0,
+              "0xd2": 114,
+              "0xd3": 114,
+              "0xdd": 3
+            },
+            "p0_owned": false
+          },
+          "registers_restored": true,
+          "shutdown_clean": true
+        }
+      ],
+      "ncp4206_sha256": "13b1c9bcafadb17393be27205881a2783881168b114a4400a6ec2ed0c7f38cca",
+      "working_tree_fix": true
+    },
+    {
+      "timestamp_utc": "2026-09-09T08:01:34.205437+00:00",
+      "commit": "6546c5cff3ea610d10c2fd725e2b31d1f046e9a1",
+      "gpu": {
+        "name": "NVIDIA GeForce GTX 770",
+        "driver": "472.12",
+        "vbios": "80.04.c3.00.01",
+        "admin": true,
+        "slot": "0000:01:00.0",
+        "uuid": "GPU-be025ef3-b767-50db-11e1-f0f941a9c93d",
+        "mem_clocks": [
+          324,
+          810,
+          3505
+        ],
+        "gfx_min": 136,
+        "gfx_max": 1202,
+        "mem_div": 2,
+        "mem_type": "GDDR5",
+        "mem_type_id": 8,
+        "core_off_range": [
+          -105,
+          1001,
+          0
+        ],
+        "mem_off_range": [
+          -5390,
+          7010,
+          0
+        ],
+        "fan_min": 26,
+        "fan_max": 100
+      },
+      "path": "Druta._i2c_verify_worker -> gpuload.verify_in_p0 -> NCP4206.verify",
+      "port": 2,
+      "address": 32,
+      "trials": [
+        {
+          "before": {
+            "state": {
+              "pstate": 0,
+              "core": 836,
+              "mem": 3505,
+              "temp_edge": 43,
+              "util_gpu": 0
+            },
+            "control": {
+              "kind": "absolute_vid",
+              "enabled": false,
+              "command": 0
+            },
+            "vmon_mv": 947.265625,
+            "registers": {
+              "0x21": 0,
+              "0xd2": 114,
+              "0xd3": 114,
+              "0xdd": 3
+            },
+            "p0_owned": false
+          },
+          "logs": [
+            {
+              "message": "verify: acquiring a temporary hold and waiting for confirmed P0",
+              "ok": null
+            },
+            {
+              "message": "  NCP4206 I2C VMON 953.12 -> 988.28 mV; target 975.00 mV; change 35.16 mV; noise 7.81 mV; quantum 1.9531 mV",
+              "ok": null
+            },
+            {
+              "message": "verify: NCP4206 WRITE PATH CONFIRMED at the tested operating point. I2C VMON rose 35.16 mV and returned to 951.17 mV after exact command/mode restoration. This verifies a response, not full-load behavior or a 1:1 voltage gain.",
+              "ok": true
+            }
+          ],
+          "operating_points": [
+            [
+              0,
+              535,
+              3505
+            ]
+          ],
+          "verdict": true,
+          "message": "NCP4206 WRITE PATH CONFIRMED at the tested operating point. I2C VMON rose 35.16 mV and returned to 951.17 mV after exact command/mode restoration. This verifies a response, not full-load behavior or a 1:1 voltage gain.",
+          "ladder": [
+            {
+              "baseline_mv": 953.125,
+              "baseline_samples_mv": [
+                955.078125,
+                953.125,
+                947.265625,
+                951.171875,
+                951.171875,
+                955.078125,
+                955.078125,
+                955.078125,
+                953.125,
+                949.21875,
+                949.21875,
+                949.21875,
+                951.171875,
+                953.125,
+                951.171875,
+                953.125,
+                953.125,
+                953.125,
+                953.125,
+                953.125,
+                953.125,
+                953.125,
+                951.171875,
+                953.125,
+                953.125
+              ],
+              "baseline_quantum_mv": 1.953125,
+              "target_mv": 975.0,
+              "voltage_ceiling_mv": 1281,
+              "moved": true,
+              "samples_mv": [
+                988.28125,
+                990.234375,
+                990.234375,
+                992.1875,
+                988.28125,
+                986.328125,
+                988.28125,
+                988.28125,
+                990.234375,
+                990.234375,
+                988.28125,
+                990.234375,
+                986.328125,
+                988.28125,
+                988.28125,
+                990.234375,
+                986.328125,
+                988.28125,
+                988.28125,
+                988.28125,
+                992.1875,
+                990.234375,
+                988.28125,
+                986.328125,
+                988.28125
+              ],
+              "median_mv": 988.28125,
+              "noise_mv": 5.859375,
+              "quantum_mv": 1.953125,
+              "delta_mv": 35.15625,
+              "threshold_mv": 7.8125,
+              "response_noise_mv": 7.8125,
+              "restored_vout_mv": 951.171875,
+              "restored_samples_mv": [
+                951.171875,
+                949.21875,
+                951.171875,
+                953.125,
+                953.125,
+                951.171875,
+                955.078125,
+                953.125,
+                951.171875,
+                951.171875,
+                951.171875,
+                949.21875,
+                953.125,
+                953.125,
+                953.125,
+                949.21875,
+                951.171875,
+                953.125,
+                951.171875,
+                951.171875,
+                951.171875,
+                955.078125,
+                951.171875,
+                949.21875,
+                953.125
+              ],
+              "restored_quantum_mv": 1.953125,
+              "reversal_mv": 37.109375
+            }
+          ],
+          "worker_pass": true,
+          "after": {
+            "state": {
+              "pstate": 0,
+              "core": 1045,
+              "mem": 3505,
+              "temp_edge": 44,
+              "util_gpu": 1
+            },
+            "control": {
+              "kind": "absolute_vid",
+              "enabled": false,
+              "command": 0
+            },
+            "vmon_mv": 951.171875,
+            "registers": {
+              "0x21": 0,
+              "0xd2": 114,
+              "0xd3": 114,
+              "0xdd": 3
+            },
+            "p0_owned": false
+          },
+          "registers_restored": true,
+          "shutdown_clean": true
+        }
+      ],
+      "ncp4206_sha256": "13b1c9bcafadb17393be27205881a2783881168b114a4400a6ec2ed0c7f38cca",
+      "working_tree_fix": true
+    }
+  ]
+}

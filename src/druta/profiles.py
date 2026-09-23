@@ -1,0 +1,1017 @@
+# Druta - a monitor and tuner for NVIDIA GPUs.
+# Copyright (C) 2026 Thermetery Technology Co Limited
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+"""
+Named tune profiles, and automatic pre-write undo snapshots.
+
+Why this is not the baseline snapshot an earlier review rejected: that one was
+IMPLICIT - captured on first read and labelled "stock" - so whatever OC happened
+to be live at launch became the restore target. A profile here is only ever
+written when someone asks for it, and it says on its face what it is and when it
+was taken. It never claims to be factory state; "Reset all to stock" remains the
+only thing that does.
+
+Files are plain JSON in the existing source/bundle profiles/ directory, or in
+per-user storage for an installed package, so they can be hand-edited.
+
+ORDERING NOTE, and it matters: the core clock offset and the V/F delta table are
+the SAME table in the driver. Whichever is written last wins, so restore
+writes the delta table LAST and treats it as authoritative; the stored core
+offset is applied first only so the slider reads back sensibly.
+"""
+import glob
+import hashlib
+import json
+import math
+import os
+import re
+import time
+from .startup import atomic_json
+from .paths import profile_dir
+
+SCHEMA = 2
+DIR = str(profile_dir())
+AUTOSAVE_PREFIX = "autosave-"
+KEEP_AUTOSAVES = 20
+# what capture() could not read. A list, not a flag, so the reason travels with
+# the snapshot into the log line the user actually sees.
+INCOMPLETE_KEY = "incomplete"
+CURRENT_DAC_FORMAT = "i2c.current_dac_control"
+
+
+def vf_applicable(gpu):
+    return getattr(gpu, "vf_curve_applicable", lambda: True)()
+
+
+def incomplete(state):
+    """What this snapshot is MISSING, as human-readable strings (empty = it is
+    whole). A profile written before this field existed reports nothing missing
+    unless its V/F table is absent, which is the case that matters."""
+    miss = list(state.get(INCOMPLETE_KEY) or [])
+    if state.get("scope") is not None:
+        try:
+            _validate_fan_scope(state)
+        except ValueError as exc:
+            if str(exc) not in miss:
+                miss.append(str(exc))
+        return miss
+    if not miss and not state.get("vf_deltas") and state.get("vf_applicable") is not False:
+        miss.append("V/F delta table NOT captured")
+    return miss
+
+
+def _slug(name):
+    s = re.sub(r"[^A-Za-z0-9._-]+", "-", str(name)).strip("-")
+    return s or "unnamed"
+
+
+def path_for(name):
+    return os.path.join(DIR, _slug(name) + ".json")
+
+
+def _fan_is_manual(gpu):
+    """Read the common NVML/NVAPI policy; None for unknown or mixed modes."""
+    import ctypes
+    try:
+        reader = getattr(gpu, "read_fan_manual", None)
+        if callable(reader):
+            return reader()
+        nv = gpu.nvml
+        if not (nv.ok and nv.has("nvmlDeviceGetFanControlPolicy_v2")):
+            return None
+        pol = ctypes.c_uint32(0)
+        if nv.dll.nvmlDeviceGetFanControlPolicy_v2(
+                nv.dev, 0, ctypes.byref(pol)) != 0:
+            return None
+        return pol.value == 1
+    except Exception:
+        return None
+
+
+def capture(gpu, rail=None):
+    """Snapshot every knob this tool can write. Values are stored in the units
+    the corresponding setter expects, so restore is a straight hand-back.
+
+    A knob that could not be READ is recorded in state[INCOMPLETE_KEY] rather
+    than left as a silent None. That matters for exactly one field: the V/F
+    delta table is the whole reason an undo point is taken before a curve
+    write, and a snapshot missing it can restore everything EXCEPT the thing it
+    existed to protect. The caller has to be able to see that before it tells
+    anyone their state can be put back (see incomplete())."""
+    d = gpu.read()
+    scale = 1
+    try:
+        scale = gpu.mem_offset_scale()[0] or 1
+    except Exception:
+        pass
+    mem_units = d.get("mem_off")
+    power_reader = getattr(gpu, "read_power_limit_mw", None)
+    power_error = ""
+    if callable(power_reader):
+        try:
+            power_limit = power_reader()
+        except Exception as exc:
+            power_limit, power_error = None, str(exc)
+    else:
+        # Compatibility for older adapters without the configured-limit getter.
+        power_limit = d.get("pl_requested_mw", d.get("pl_now_mw"))
+    now = time.time()
+    state = {
+        "schema": SCHEMA,
+        "saved_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)),
+        # the SORT key, and why it is stored as well as the readable string:
+        # saved_at has one-second resolution, so two autosaves in the same
+        # second tie and the tiebreak (the action label, alphabetically) can
+        # hand back the OLDER state - reachable by double-clicking Apply.
+        "saved_ts": now,
+        "device": {
+            "name": gpu.static.get("name"),
+            "vbios": gpu.static.get("vbios"),
+            "driver": gpu.static.get("driver"),
+            # The only two that separate two IDENTICAL cards in one machine,
+            # which name and vbios cannot: the UUID is the card, the slot is
+            # where it was sitting. Both are recorded, and device_mismatch
+            # judges on the UUID - a card moved to another slot is still the
+            # card its V/F deltas were measured on.
+            "uuid": gpu.static.get("uuid"),
+            "slot": gpu.static.get("slot"),
+        },
+        "core_off_mhz": d.get("core_off"),
+        # stored both ways: units is what the driver holds, true MHz is what
+        # set_clock_offset(2, ...) takes for a known GDDR type
+        "mem_off_units": mem_units,
+        "mem_off_true_mhz": (mem_units / scale) if mem_units is not None else None,
+        "mem_off_scale": scale,
+        # The enforced ceiling can lag/quantize; replay the configured request.
+        "power_limit_mw": power_limit,
+        "current_limits_ma": {},
+        "volt_boost_pct": None,
+        # Duty alone is not restorable state. A card idling at 0% on the auto
+        # curve and a card pinned to 0% manually read identically, and handing
+        # a captured duty back as a MANUAL duty would pin the fans - a thermal
+        # behaviour change, not a restore. So record the policy too.
+        "fan_pct": (d.get("fans") or [(None, None)])[0][0],
+        "fan_manual": None,
+        "fan_control_state": None,
+        "vf_deltas": None,
+        "vf_applicable": vf_applicable(gpu),
+        INCOMPLETE_KEY: [],
+    }
+    if (callable(power_reader) and power_limit is None
+            and gpu.static.get("pl_min_mw") is not None
+            and gpu.static.get("pl_max_mw") is not None):
+        state[INCOMPLETE_KEY].append("requested power limit NOT captured"
+                                     + (f" ({power_error})" if power_error else ""))
+    # Store exact driver units; XOC authorization is deliberately not a
+    # profile setting. Restore uses the same bounded setters as the controls.
+    reader = getattr(gpu, "get_current_limits", None)
+    if callable(reader):
+        try:
+            policies = getattr(gpu, "_current_limit_generation_policies", None)
+            # An unsupported generation has no current-limit knob to save.
+            # Check generation alone: API failure on an applicable card must
+            # still make the snapshot incomplete instead of hiding lost state.
+            if not callable(policies) or policies():
+                rows = reader()
+                state["current_limits_ma"] = {
+                    str(row["policy"]): row.get("requested_ma", row["limit_ma"])
+                    for row in rows}
+                if getattr(gpu, "_current_limit_error", ""):
+                    raise RuntimeError(gpu._current_limit_error)
+        except Exception as exc:
+            state[INCOMPLETE_KEY].append(f"Current limits NOT captured ({exc})")
+    # Modern NVML and the legacy NVAPI fallbacks expose requested per-fan
+    # levels. The measured duty above can still be ramping toward that request.
+    try:
+        reader = getattr(gpu, "read_fan_control_state", None)
+        fan_state = reader() if callable(reader) else None
+        if isinstance(fan_state, dict) and fan_state.get("fans"):
+            state["fan_control_state"] = fan_state
+            state["fan_pct"] = fan_state["fans"][0]["level"]
+            modes = {fan["manual"] for fan in fan_state["fans"]}
+            state["fan_manual"] = modes.pop() if len(modes) == 1 else None
+    except Exception:
+        pass
+    if state["fan_control_state"] is None:
+        state["fan_manual"] = _fan_is_manual(gpu)
+    try:
+        state["volt_boost_pct"] = gpu.read_voltage_boost()
+    except Exception:
+        pass
+    try:
+        pts, err = gpu.read_vf_curve() if state["vf_applicable"] else (None, None)
+        if pts:
+            state["vf_deltas"] = {str(p["idx"]): int(p["delta_khz"])
+                                  for p in pts}
+        elif state["vf_applicable"]:
+            state[INCOMPLETE_KEY].append(
+                f"V/F delta table NOT captured ({err or 'no points returned'})")
+    except Exception as e:
+        state[INCOMPLETE_KEY].append(f"V/F delta table NOT captured ({e})")
+    capture_rails(gpu, state, rail)
+    return state
+
+
+def capture_fan(gpu):
+    """Capture only the fan policy that a P0/max-fan action can overwrite.
+
+    The P0 hold has its own explicit Release action. Missing curve, voltage or
+    current readers cannot make this fan undo point incomplete.
+    """
+    now = time.time()
+    state = {
+        "schema": SCHEMA, "scope": "fan",
+        "saved_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)),
+        "saved_ts": now,
+        "device": {key: gpu.static.get(key)
+                   for key in ("name", "vbios", "driver", "uuid", "slot")},
+        "fan_control_state": None, INCOMPLETE_KEY: [],
+    }
+    try:
+        reader = getattr(gpu, "read_fan_control_state", None)
+        if not callable(reader):
+            raise ValueError("fan control state reader unavailable")
+        state["fan_control_state"] = reader()
+        _validate_fan_scope(state)
+        if not callable(getattr(gpu, "restore_fan_control_state", None)):
+            raise ValueError("fan control state restore unavailable")
+        error = strict_device_error(state, gpu)
+        if error:
+            raise ValueError(error)
+    except Exception as exc:
+        state[INCOMPLETE_KEY].append(f"Fan policy NOT captured ({exc})")
+    return state
+
+
+def rail_identity(rail):
+    """Pin bus addressing AND the complete, locally validated regulator recipe."""
+    encoded = json.dumps(rail.p.src, sort_keys=True, default=str).encode("utf-8")
+    return {"profile": getattr(rail.p, "profile_name", rail.p.name),
+            "sha256": hashlib.sha256(encoded).hexdigest(),
+            "port": rail.p.port, "addr7": rail.addr7,
+            "rail": getattr(rail.p, "profile_rail", rail.p.rail)}
+
+
+def clock_controls(gpu):
+    controls = set(gpu.clkdom_controls_for_ui()) - {0}
+    # Additional Memory Clock Offset is deliberately independent of the
+    # private-getter pairing. Pascal R470 has no pairing but this knob works.
+    if (hasattr(gpu, "clkdom_domains") and 2 in gpu.clkdom_domains()
+            and gpu.clkdom_delta_inert(2) is False):
+        controls.add(2)
+    return controls
+
+
+def capture_rails(gpu, state, rail):
+    state.update(rail_limits_mv={}, rail_limits_uv={}, nvvdd_offset_mv=None, msvdd_offsets_mv={},
+                 clock_domain_offsets_mhz={}, i2c=None,
+                 xoc=bool(getattr(gpu, "voltage_xoc_enabled", False)))
+    missing = state[INCOMPLETE_KEY]
+    try:
+        reader = getattr(gpu, "read_volt_rail_limits", None)
+        records = reader() if reader else None
+        for index, record in (records or {}).items():
+            fields = gpu.volt_rail_limit_fields(index)
+            if fields:
+                raw = {}
+                for key in fields:
+                    value = _number(record[key], f"rail {index} {key}") * 1000
+                    units = round(value)
+                    if (abs(value - units) > 0.000001
+                            or not -(1 << 31) <= units < (1 << 31)):
+                        raise ValueError(f"rail {index} {key} is not a signed microvolt control")
+                    raw[key] = units
+                # Exact signed controls are authoritative when replayed. The
+                # absolute values are estimates retained for human display.
+                state["rail_limits_uv"][str(index)] = raw
+                state["rail_limits_mv"][str(index)] = {
+                    key: gpu.abs_limit_mv(record, key) for key in fields}
+        # One readable rail does not prove a complete capture on a two-rail
+        # board. Name each known writer whose state this undo point is missing.
+        if reader:
+            for index in (0, 1):
+                if (gpu.volt_rail_limit_fields(index)
+                        and str(index) not in state["rail_limits_uv"]):
+                    missing.append(f"per-rail limits NOT captured (rail {index})")
+    except Exception as e:
+        missing.append(f"per-rail limits NOT captured ({e})")
+    try:
+        reader = getattr(gpu, "read_rail_offset_mv", None)
+        if reader:
+            state["nvvdd_offset_mv"] = reader(0)
+            layout = gpu.clkdom_layout()
+            if layout and layout.nvvdd_uv is not None and state["nvvdd_offset_mv"] is None:
+                missing.append("NVVDD offset NOT captured")
+        reader = getattr(gpu, "read_clk_domain_offsets", None)
+        if reader:
+            controls = clock_controls(gpu)
+            records, error = reader()
+            for index in controls:
+                if index not in (records or {}):
+                    missing.append(f"clock control {index} NOT captured ({error})")
+                else:
+                    state["clock_domain_offsets_mhz"][str(index)] = records[index]["freq_khz"] / 1000
+    except Exception as e:
+        missing.append(f"voltage/clock offsets NOT captured ({e})")
+    capability_reader = getattr(gpu, "rail_offset_capability", None)
+    if callable(capability_reader):
+        try:
+            capability = capability_reader(rail=1)
+            domains = set(getattr(gpu, "_msvdd_offset_domains_written", ()))
+            domains.update(getattr(gpu, "_msvdd_offset_domains_seen", ()))
+            if capability["available"]:
+                domains.add(capability["domain"])
+            for domain in sorted(domains):
+                current = capability_reader(rail=1, domain=domain)
+                if not current["available"]:
+                    missing.append(f"MSVDD request at control {domain} NOT captured")
+                else:
+                    state["msvdd_offsets_mv"][str(domain)] = current["value_mv"]
+        except Exception as e:
+            missing.append(f"MSVDD requests NOT captured ({e})")
+    if rail is not None and not rail.p.read_only:
+        try:
+            if getattr(rail, "current_dac", False):
+                control = rail.capture_control()
+                rail.validate_control(control, xoc=None)
+                state["i2c"] = dict(rail_identity(rail), format=CURRENT_DAC_FORMAT,
+                                    current_dac_control=control,
+                                    display_name=rail.p.name)
+            elif getattr(rail, "absolute_voltage", False):
+                control = rail.capture_control()
+                state["i2c"] = dict(rail_identity(rail), control=control,
+                                    display_name=rail.p.name)
+            else:
+                offset = rail.telemetry().get("offset_mv")
+                if offset is None:
+                    raise ValueError("offset read failed")
+                state["i2c"] = dict(rail_identity(rail), offset_mv=offset,
+                                    display_name=rail.p.name)
+        except Exception as e:
+            label = ("I2C current DAC control" if getattr(rail, "current_dac", False)
+                     else "I2C offset")
+            missing.append(f"{label} NOT captured ({e})")
+    # Unticking XOC does not undo above-normal values already in the card.
+    # Replaying that carryover after reboot still needs the wider envelope.
+    required = any(value > getattr(gpu, "VOLT_LIMIT_MAX_MV", 1200)
+                   for fields in state["rail_limits_mv"].values() for value in fields.values())
+    offset = state["nvvdd_offset_mv"]
+    required = required or (offset is not None and not -100 <= offset <= 200)
+    required = required or bool(state["clock_domain_offsets_mhz"].get("2"))
+    required = required or any(state["msvdd_offsets_mv"].values())
+    if state["i2c"]:
+        if state["i2c"].get("format") == CURRENT_DAC_FORMAT:
+            # These bytes have no established universal voltage conversion.
+            # Configuration is captured for identity/scaling checks, not replay.
+            pass
+        elif "control" in state["i2c"]:
+            try:
+                rail.validate_control(state["i2c"]["control"], xoc=False)
+            except ValueError:
+                required = True
+        else:
+            offset = state["i2c"]["offset_mv"]
+            required = required or not (getattr(rail.p, "env_min", -200) <= offset
+                                       <= getattr(rail.p, "env_max", 100))
+    state["xoc"] = state["xoc"] or required
+
+
+def strict_device_error(state, gpu):
+    """Private controls and unattended loads require the same silicon and firmware."""
+    old, live = state.get("device") or {}, gpu.static
+    identity = "uuid" if old.get("uuid") and live.get("uuid") else "slot"
+    for key in (identity, "name", "vbios", "driver"):
+        if not old.get(key) or not live.get(key) or old[key] != live[key]:
+            return f"profile {key} does not match this GPU/driver; save a fresh profile on this card"
+    return None
+
+
+def _number(value, label, *, integer=False):
+    if (isinstance(value, bool) or not isinstance(value, (int, float))
+            or not math.isfinite(value)):
+        raise ValueError(f"{label}: non-finite or non-numeric setting")
+    if integer and value != int(value):
+        raise ValueError(f"{label} must be an integer")
+    return value
+
+
+def _vf_deltas(state):
+    """Decode only the serialized indices/values, without truncating bad input."""
+    saved = state.get("vf_deltas")
+    if saved is None:
+        return {}
+    if not isinstance(saved, dict):
+        raise ValueError("V/F deltas must be an index-to-delta mapping")
+    deltas = {}
+    for key, value in saved.items():
+        if isinstance(key, bool) or not isinstance(key, (str, int)):
+            raise ValueError(f"invalid V/F point index {key!r}")
+        try:
+            index = int(key)
+        except (ValueError, OverflowError):
+            raise ValueError(f"invalid V/F point index {key!r}") from None
+        if index < 0 or str(index) != str(key) or index in deltas:
+            raise ValueError(f"invalid or duplicate V/F point index {key!r}")
+        _number(value, f"V/F point {index} delta", integer=True)
+        deltas[index] = int(value)
+    return deltas
+
+
+def _validate_saved_fields(gpu, state):
+    """Reject deterministic payload errors before any setting is changed.
+
+    Missing fields still mean "not captured" for both supported schemas. GPU
+    availability and live read-back checks remain with the individual setters.
+    """
+    for key in ("device", "rail_limits_mv", "rail_limits_uv", "clock_domain_offsets_mhz", "msvdd_offsets_mv", "i2c"):
+        if state.get(key) is not None and not isinstance(state[key], dict):
+            raise ValueError(f"{key} must be a mapping")
+    i2c = state.get("i2c")
+    if i2c and (i2c.get("format") == CURRENT_DAC_FORMAT
+                or "current_dac_control" in i2c):
+        if (i2c.get("format") != CURRENT_DAC_FORMAT
+                or "current_dac_control" not in i2c
+                or "control" in i2c or "offset_mv" in i2c):
+            raise ValueError("current DAC profile has conflicting or missing control data")
+    elif i2c and i2c.get("format") is not None:
+        raise ValueError("unknown I2C profile format")
+    if "rail_limits_uv" in state and not isinstance(state["rail_limits_uv"], dict):
+        raise ValueError("rail_limits_uv must be a mapping")
+    for key in ("rail_limits_mv", "rail_limits_uv"):
+        for rail, fields in (state.get(key) or {}).items():
+            if rail not in ("0", "1") or not isinstance(fields, dict) or not fields:
+                raise ValueError(f"{key}: invalid voltage rail")
+            for field, value in fields.items():
+                if field not in ("reliability", "alt_reliability", "overvoltage", "vmin"):
+                    raise ValueError(f"unconfirmed limit field on rail {rail}")
+                _number(value, f"rail {rail} {field}")
+                if key == "rail_limits_uv" and (type(value) is not int
+                        or not -(1 << 31) <= value < (1 << 31)):
+                    raise ValueError(f"rail {rail} {field} must be a signed 32-bit microvolt integer")
+    for key in ("xoc", "fan_manual", "vf_applicable"):
+        if state.get(key) is not None and not isinstance(state[key], bool):
+            raise ValueError(f"{key} must be a boolean")
+    for key in ("core_off_mhz", "mem_off_true_mhz", "power_limit_mw",
+                "volt_boost_pct", "fan_pct", "nvvdd_offset_mv"):
+        if state.get(key) is not None:
+            _number(state[key], key)
+    for key, value in (state.get("msvdd_offsets_mv") or {}).items():
+        if not isinstance(key, str) or not key.isdigit() or str(int(key)) != key or not 0 <= int(key) < 32:
+            raise ValueError("invalid MSVDD clock-control index")
+        _number(value, f"MSVDD request at control {key}")
+        uv = value * 1000
+        if not -(1 << 31) <= uv < (1 << 31) or abs(uv - round(uv)) > 0.000001:
+            raise ValueError("MSVDD offset is not representable in signed microvolts")
+    core = state.get("core_off_mhz")
+    if core is not None and not -(1 << 31) <= core < (1 << 31):
+        raise ValueError("core offset is outside the driver's representation")
+    memory = state.get("mem_off_true_mhz")
+    if memory is not None:
+        scale = gpu.mem_offset_scale()[0]
+        _number(scale, "memory offset scale")
+        if not 0 < scale < (1 << 31):
+            raise ValueError("memory offset scale is invalid")
+        units = memory * scale
+        if not math.isfinite(units) or not -(1 << 31) <= units < (1 << 31):
+            raise ValueError("memory offset is outside the driver's representation")
+        if units != int(units):
+            raise ValueError("memory offset is not representable in driver units")
+        step = getattr(gpu, "memory_offset_step_units", lambda: 1)()
+        _number(step, "memory offset step", integer=True)
+        if step <= 0 or units % step:
+            raise ValueError("memory offset is not representable on this GPU/driver's offset grid")
+    power = state.get("power_limit_mw")
+    if power is not None:
+        _number(power, "power limit", integer=True)
+    if power:
+        low = gpu.static.get("pl_min_mw", 50000)
+        high = gpu.static.get("pl_max_mw", 400000)
+        if not low <= power <= high:
+            raise ValueError(f"power limit is outside [{low}..{high}] mW")
+    for key in ("volt_boost_pct", "fan_pct"):
+        value = state.get(key)
+        if value is not None and not 0 <= value <= 100:
+            raise ValueError(f"{key} is outside [0..100]%")
+    fans = state.get("fan_control_state")
+    if fans is not None:
+        if (not isinstance(fans, dict) or fans.get("source") not in
+                ("nvml", "nvapi_cooler", "nvapi_client")):
+            raise ValueError("fan snapshot has an unknown control source")
+        rows = fans.get("fans")
+        if not isinstance(rows, list) or not rows:
+            raise ValueError("fan snapshot has no fan list")
+        for row in rows:
+            if not isinstance(row, dict) or not isinstance(row.get("manual"), bool):
+                raise ValueError("fan snapshot has an unknown policy")
+            level = _number(row.get("level"), "fan requested level", integer=True)
+            if not 0 <= level <= 100:
+                raise ValueError("fan requested level is outside [0..100]%")
+    deltas = _vf_deltas(state)
+    maximum = getattr(gpu, "MAX_ABS_DELTA_KHZ", 1_000_000)
+    for index, delta in deltas.items():
+        if abs(delta) > maximum:
+            raise ValueError(f"V/F point {index} delta is outside +/-{maximum} kHz")
+    return deltas
+
+
+def _validate_fan_scope(state):
+    """A scope marker cannot conceal tune fields from their usual validation."""
+    if state.get("scope") != "fan" or state.get("schema") != SCHEMA:
+        raise ValueError("unsupported profile scope")
+    allowed = {"schema", "scope", "saved_at", "saved_ts", "device",
+               "fan_control_state", INCOMPLETE_KEY}
+    if set(state) - allowed:
+        raise ValueError("fan-only snapshot contains unrelated profile fields")
+    if state.get("fan_control_state") is None:
+        raise ValueError("fan-only snapshot has no captured fan policy")
+    missing = state.get(INCOMPLETE_KEY, [])
+    if not isinstance(missing, list) or any(not isinstance(item, str) for item in missing):
+        raise ValueError("fan-only snapshot has invalid completeness metadata")
+    # Only whitelisted fan/metadata fields reach this validator, so it cannot
+    # invoke clock-layout readers or validate an unrelated tune setting.
+    _validate_saved_fields(None, state)
+
+
+def preflight(gpu, state, rail=None, *, apply_curve=True):
+    """Validate saved private controls before ANY write, including I2C verification.
+
+    Old profiles omit these fields and retain their existing restore behaviour.
+    No live-voltage telemetry or arbitrary register image is ever replayed.
+    """
+    if (not isinstance(state, dict) or isinstance(state.get("schema"), bool)
+            or state.get("schema", 1) not in (1, SCHEMA)):
+        return "unsupported profile format"
+    try:
+        if state.get("scope") is not None:
+            _validate_fan_scope(state)
+            if state.get(INCOMPLETE_KEY):
+                raise ValueError("fan-only snapshot is incomplete")
+            return strict_device_error(state, gpu)
+        deltas = _validate_saved_fields(gpu, state)
+        applicable = vf_applicable(gpu)
+        if state.get("vf_applicable") is False and applicable:
+            raise ValueError("this GPU requires a V/F snapshot; save a fresh profile on this card")
+        if deltas and not applicable:
+            raise ValueError("V/F curve profiles cannot be applied to this GPU")
+        if deltas and apply_curve:
+            reader = getattr(gpu, "vfp_layout", None)
+            if callable(reader):
+                layout = reader()
+                if layout is None:
+                    raise ValueError("could not determine this card's V/F table layout")
+                invalid = set(deltas) - set(layout.gpu_idx)
+                if invalid:
+                    raise ValueError(f"V/F point indices {sorted(invalid)} are not GPU points on this card")
+        raw_limits = "rail_limits_uv" in state
+        limits = state.get("rail_limits_uv" if raw_limits else "rail_limits_mv") or {}
+        offsets = state.get("clock_domain_offsets_mhz") or {}
+        i2c = state.get("i2c")
+        nvvdd = state.get("nvvdd_offset_mv")
+        msvdd = state.get("msvdd_offsets_mv") or {}
+        if not (limits or offsets or i2c or msvdd or nvvdd is not None):
+            return None
+        error = strict_device_error(state, gpu)
+        if error:
+            return error
+        if i2c:
+            if rail is None or rail.p.read_only:
+                raise ValueError("saved I2C regulator is not available")
+            if any(i2c.get(k) != v for k, v in rail_identity(rail).items()):
+                raise ValueError("I2C regulator/profile/limits changed; save a fresh profile")
+            if i2c.get("format") == CURRENT_DAC_FORMAT:
+                if not getattr(rail, "current_dac", False):
+                    raise ValueError("saved current DAC controller is not available")
+                if not rail.present():
+                    raise ValueError("saved I2C regulator is not available")
+                rail.validate_control(i2c["current_dac_control"], xoc=None)
+            elif getattr(rail, "current_dac", False):
+                raise ValueError("current DAC cannot load another I2C control format")
+            elif getattr(rail, "absolute_voltage", False):
+                if "offset_mv" in i2c:
+                    raise ValueError("absolute I2C voltage cannot load an offset")
+                rail.validate_control(i2c.get("control"), xoc=bool(state.get("xoc")))
+            else:
+                if "control" in i2c:
+                    raise ValueError("offset I2C regulator cannot load absolute voltage")
+                ok, message = rail.validate_offset_mv(i2c.get("offset_mv"), xoc=bool(state.get("xoc")))
+                if not ok:
+                    raise ValueError(message)
+            if i2c.get("format") != CURRENT_DAC_FORMAT and not rail.present():
+                raise ValueError("saved I2C regulator is not available")
+        if limits:
+            if raw_limits and not callable(getattr(gpu, "set_volt_rail_limits_raw", None)):
+                raise ValueError("exact per-rail control replay is unavailable")
+            if not gpu.volt_rail_limits_supported():
+                raise ValueError("per-rail limits are not supported on this GPU/driver")
+            current = gpu.read_volt_rail_limits()
+            maximum = (getattr(gpu, "VOLT_LIMIT_XOC_MAX_MV", 1500) if state.get("xoc")
+                       else getattr(gpu, "VOLT_LIMIT_MAX_MV", 1200))
+            for key, values in limits.items():
+                if key not in ("0", "1") or not isinstance(values, dict) or not values:
+                    raise ValueError("invalid voltage rail")
+                if set(values) - set(gpu.volt_rail_limit_fields(int(key))):
+                    raise ValueError(f"unconfirmed limit field on rail {key}")
+                if int(key) not in (current or {}):
+                    raise ValueError(f"voltage rail {key} is not readable")
+                for field, value in values.items():
+                    _number(value, f"rail {key} {field}")
+                    current_value = gpu.abs_limit_mv(current[int(key)], field)
+                    if not math.isfinite(current_value):
+                        raise ValueError(f"voltage rail {key} has no readable reference")
+                    wanted = (current_value - current[int(key)][field] + value / 1000
+                              if raw_limits else value)
+                    bound = max(maximum, current_value)
+                    minimum = min(getattr(gpu, "VOLT_LIMIT_MIN_MV", 300), current_value)
+                    initial_reader = getattr(gpu, "stock_limit_mv", None)
+                    initial = initial_reader(int(key), field) if callable(initial_reader) else None
+                    if type(initial) in (int, float) and math.isfinite(initial):
+                        minimum = min(minimum, initial)
+                    if not minimum <= wanted <= bound:
+                        raise ValueError(f"rail {key} {field} is outside the saved mode's voltage bounds")
+        if nvvdd is not None:
+            current = gpu.read_rail_offset_mv(0)
+            if current is None:
+                raise ValueError("NVVDD offset is not readable on this GPU/driver")
+            lower, upper = (-500, 500) if state.get("xoc") else (-100, 200)
+            if not min(lower, current) <= nvvdd <= max(upper, current):
+                raise ValueError("NVVDD offset is outside the saved mode's voltage bounds")
+        if msvdd:
+            reader = getattr(gpu, "rail_offset_capability", None)
+            if not callable(reader):
+                raise ValueError("MSVDD request fields are unavailable")
+            for key, value in msvdd.items():
+                capability = reader(rail=1, domain=int(key))
+                if not capability["available"]:
+                    raise ValueError(f"MSVDD request at control {key} is unavailable")
+                current = capability["value_mv"]
+                if value != 0 and not state.get("xoc"):
+                    raise ValueError("MSVDD offset requires the saved experimental XOC opt-in")
+                upper = getattr(gpu, "RAIL_OFFSET_XOC_MAX_MV", 500)
+                if not min(-500, current) <= value <= max(upper, current):
+                    raise ValueError("MSVDD offset is outside the request bounds")
+        if offsets:
+            controls = clock_controls(gpu)
+            for key, value in offsets.items():
+                if str(int(key)) != key or int(key) not in controls:
+                    raise ValueError(f"unconfirmed clock control {key}")
+                _number(value, f"clock control {key}")
+                if (not -(1 << 31) <= value * 1000 < (1 << 31)
+                        or not -(1 << 31) <= round(value) * 1000 < (1 << 31)):
+                    raise ValueError(f"clock control {key} is outside the driver's representation")
+    except Exception as e:
+        return str(e)
+    return None
+
+
+def save(name, state):
+    p = path_for(name)
+    atomic_json(p, state)
+    return p
+
+
+def load(name):
+    with open(path_for(name), encoding="utf-8") as f:
+        return json.load(f)
+
+
+def list_profiles():
+    """[(display_name, path, saved_at, is_autosave)] newest first.
+
+    Ordered on saved_ts - a float - and NOT on the human-readable saved_at,
+    which has one-second resolution: two autosaves in the same second tied
+    there, and the tiebreak fell to the action label alphabetically, so 'Undo
+    last write' could hand back the OLDER of the two states (double-click
+    Apply and it does). A profile written before saved_ts existed falls back to
+    the file's mtime, which is also sub-second, rather than to 0 - that would
+    park every old profile at the bottom of the list regardless of its age."""
+    out = []
+    for p in glob.glob(os.path.join(DIR, "*.json")):
+        base = os.path.splitext(os.path.basename(p))[0]
+        when, ts = "", None
+        try:
+            with open(p, encoding="utf-8") as f:
+                st = json.load(f)
+            when = st.get("saved_at", "")
+            ts = st.get("saved_ts")
+        except Exception:
+            pass
+        if not isinstance(ts, (int, float)):
+            try:
+                ts = os.path.getmtime(p)
+            except OSError:
+                ts = 0.0
+        out.append((base, p, when, base.startswith(AUTOSAVE_PREFIX), ts))
+    out.sort(key=lambda r: (r[4], r[2], r[0]), reverse=True)
+    return [r[:4] for r in out]
+
+
+def autosave(gpu, action, rail=None, *, scope=None):
+    """Undo point taken immediately before a destructive write. Distinct from a
+    named profile: it is not a tune you chose to keep, it is the state you are
+    about to leave. Old ones are pruned so the directory stays readable.
+
+    Returns (name, path, missing) - `missing` being incomplete(), so the caller
+    can refuse to call this a usable undo point when the snapshot did not get
+    everything (see capture()).
+
+    The filename carries MILLISECONDS as well as seconds. Two undo points taken
+    in the same second for the same action produced the same name, and the
+    second one silently overwrote the first - losing the earlier state, which
+    is the one 'undo twice' needs."""
+    t = time.time()
+    stamp = (time.strftime("%Y%m%d-%H%M%S", time.localtime(t))
+             + f".{int((t % 1) * 1000):03d}")
+    name = f"{AUTOSAVE_PREFIX}{_slug(action)}-{stamp}"
+    if scope is None:
+        state = capture(gpu, rail)
+    elif scope == "fan":
+        state = capture_fan(gpu)
+    else:
+        raise ValueError("unsupported autosave scope")
+    p = save(name, state)
+    autos = [r for r in list_profiles() if r[3]]
+    for _n, old, _w, _a in autos[KEEP_AUTOSAVES:]:
+        try:
+            os.remove(old)
+        except OSError:
+            pass
+    return name, p, incomplete(state)
+
+
+def device_mismatch(state, gpu):
+    """Profiles are per-card by nature - the V/F table is the points of THIS
+    silicon. Returns a warning string, or None when it is the same card.
+
+    The UUID is checked FIRST and, when both sides have one, it is the whole
+    answer: it is the only field that distinguishes two cards of the same model
+    and VBIOS sitting in one machine, where name and vbios match by
+    construction and every per-point delta is still measured on different
+    silicon. Profiles written before the UUID was recorded have none, and those
+    fall back to the name/vbios comparison rather than being called a
+    mismatch."""
+    dev = state.get("device") or {}
+    live_uuid = gpu.static.get("uuid")
+    if dev.get("uuid") and live_uuid:
+        if dev["uuid"] == live_uuid:
+            return None
+        return (f"profile was saved on {dev.get('name')} "
+                f"({dev.get('uuid')}, slot {dev.get('slot') or '?'}), this is "
+                f"a DIFFERENT card: {gpu.static.get('name')} ({live_uuid}, "
+                f"slot {gpu.static.get('slot') or '?'})")
+    for key, live in (("name", gpu.static.get("name")),
+                      ("vbios", gpu.static.get("vbios"))):
+        if dev.get(key) and live and dev[key] != live:
+            return (f"profile was saved on {dev.get('name')} / vbios "
+                    f"{dev.get('vbios')}, this card is {gpu.static.get('name')} "
+                    f"/ vbios {gpu.static.get('vbios')}")
+    return None
+
+
+def restore(gpu, state, apply_curve=True, *, rail=None, i2c_verified=False):
+    """Write a profile back. Returns [(ok, message)] per knob, in write order.
+    Voltage failures stop before clocks; other knob failures are reported.
+    The caller enables the profile's displayed rail/XOC modes before calling.
+    """
+    error = preflight(gpu, state, rail, apply_curve=apply_curve)
+    if error:
+        return [(False, f"profile not applied: {error}")]
+    if state.get("i2c") and not i2c_verified:
+        return [(False, "profile not applied: I2C must be verified in this session first")]
+    results = []
+    try:
+        return _restore_validated(gpu, state, apply_curve, rail, results)
+    except Exception as e:
+        # An unexpected failure between steps must not erase the record of
+        # settings already changed. Stop here; the caller can show every result.
+        results.append((False, f"profile stopped after an unexpected error: {e}"))
+        return results
+
+
+def _restore_validated(gpu, state, apply_curve, rail, results):
+    deltas = _vf_deltas(state)
+
+    def step(label, fn):
+        try:
+            ok, msg = fn()
+        except Exception as e:
+            ok, msg = False, f"{label}: {e}"
+        results.append((ok, msg))
+        return ok
+
+    if state.get("scope") == "fan":
+        step("fan", lambda: gpu.restore_fan_control_state(state["fan_control_state"]))
+        return results
+
+    # Voltage requests precede clocks. If any voltage operation fails, do not
+    # apply a curve that may depend on it. Individual setters preserve their
+    # normal whitelist, bounds and read-back checks.
+    raw_limits = "rail_limits_uv" in state
+    limits = state.get("rail_limits_uv" if raw_limits else "rail_limits_mv") or {}
+    for key, values in limits.items():
+        writer = gpu.set_volt_rail_limits_raw if raw_limits else gpu.set_volt_rail_limits
+        if not step(f"rail {key} limits", lambda: writer(int(key), **values)):
+            results.append((False, "profile stopped after a rail failure; remaining settings were not applied"))
+            return results
+    offset = state.get("nvvdd_offset_mv")
+    if offset is not None:
+        def restore_offset():
+            ok, msg = gpu.set_rail_offset_mv(offset, 0)
+            back = gpu.read_rail_offset_mv(0) if ok else None
+            if ok and (back is None or abs(back - offset) > 0.0005):
+                return False, f"NVVDD offset read-back mismatch: requested {offset}, got {back} mV"
+            return ok, msg
+        if not step("NVVDD offset", restore_offset):
+            return results + [(False, "profile stopped after NVVDD offset failure")]
+    for key, value in (state.get("msvdd_offsets_mv") or {}).items():
+        def restore_msvdd(domain=int(key), target=value):
+            if target == 0:
+                return gpu.reset_msvdd_offset_mv(domain)
+            return gpu.set_rail_offset_mv(target, domain, rail=1)
+        if not step(f"MSVDD request at control {key}", restore_msvdd):
+            return results + [(False, "profile stopped after MSVDD request failure")]
+    if state.get("i2c"):
+        if state["i2c"].get("format") == CURRENT_DAC_FORMAT:
+            if not step("I2C current DAC outputs",
+                        lambda: rail.restore_control(state["i2c"]["current_dac_control"])):
+                return results
+        elif "control" in state["i2c"]:
+            if not step("I2C voltage/mode", lambda: rail.restore_control(state["i2c"]["control"])):
+                return results
+        else:
+            offset = state["i2c"]["offset_mv"]
+            if not step("I2C dry run", lambda: rail.plan(offset)):
+                return results
+            if not step("I2C offset", lambda: rail.set_offset_mv(offset, acknowledged=True)):
+                return results
+
+    mw = state.get("power_limit_mw")
+    if mw:
+        step("power limit", lambda: gpu.set_power_limit_mw(int(mw)))
+
+    current_limits = state.get("current_limits_ma") or {}
+    if not isinstance(current_limits, dict):
+        results.append((False, "current limits: invalid profile data"))
+    else:
+        for policy, ma in current_limits.items():
+            # Leave value validation and normal/XOC enforcement to the
+            # backend; a profile must not silently truncate a malformed value.
+            step(f"current policy {policy}",
+                 lambda policy=policy, ma=ma: gpu.set_current_limit_ma(int(policy), ma))
+
+    vb = state.get("volt_boost_pct")
+    if vb is not None:
+        step("voltage boost", lambda: gpu.set_voltage_boost(int(vb)))
+
+    mm = state.get("mem_off_true_mhz")
+    if mm is not None:
+        step("mem offset", lambda: gpu.set_clock_offset(2, mm))
+
+    co = state.get("core_off_mhz")
+    if co is not None:
+        step("core offset", lambda: gpu.set_clock_offset(0, int(co)))
+
+    for key, mhz in (state.get("clock_domain_offsets_mhz") or {}).items():
+        step(f"clock control {key}", lambda: gpu.set_clk_domain_offset(int(key), mhz))
+
+    # Only ever pin the fans if the profile recorded them as manual. When the
+    # policy was the temperature curve - or is simply unknown - hand control
+    # back to the driver rather than freezing a captured duty.
+    manual, fan = state.get("fan_manual"), state.get("fan_pct")
+    fan_min = (getattr(gpu, "static", {}) or {}).get("fan_min")
+    fan_state = state.get("fan_control_state")
+    if fan_state is not None:
+        restore_fans = getattr(gpu, "restore_fan_control_state", None)
+        if callable(restore_fans):
+            step("fan", lambda: restore_fans(fan_state))
+        else:
+            results.append((False, "fan: this backend cannot restore per-fan control state"))
+    elif manual and fan is not None and fan_min is not None and fan < fan_min:
+        # A captured duty BELOW the hardware minimum is the zero-RPM idle
+        # curve, which the driver reports as "manual" at 0%. set_fan refuses it
+        # ("0% below hardware minimum 41%") and the fans would then be left
+        # wherever the write that is being undone had put them - at 100% after
+        # a 'Max it'. Auto IS what 0% meant, so hand control back.
+        step(f"fan (captured {fan}% is the zero-RPM curve)", gpu.reset_fan)
+    elif manual and fan is not None:
+        step("fan", lambda: gpu.set_fan(int(fan)))
+    elif manual is False:
+        step("fan", gpu.reset_fan)
+    elif fan is not None:
+        # manual is None: the driver would not say whether the fan was under
+        # manual control when this was captured, so there is nothing safe to
+        # put back. SAY SO. Silence here reads as "fan restored" in a results
+        # list where every other knob reports - and it matters more now that
+        # 'Max it' pins both fans to 100% manual on every press.
+        results.append((False, "fan: the control policy was not readable when "
+                               "this snapshot was taken, so the fan was NOT "
+                               "restored - use Auto or Reset all to stock"))
+
+    # LAST, and authoritative: the delta table subsumes the core offset above.
+    if apply_curve and vf_applicable(gpu):
+        if deltas:
+            step("v/f curve", lambda: gpu.apply_vf_deltas(deltas))
+        else:
+            # NOT silence. Skipping the one table an undo point exists to
+            # protect, while every other knob reports success, makes a restore
+            # that did not restore the curve look clean.
+            results.append((False, "v/f curve: this snapshot has no delta "
+                                   "table - the curve was NOT restored"))
+
+    return results
+
+
+def summarize(state):
+    """One-line description for a menu row or a confirmation banner."""
+    bits = []
+    if state.get("scope") == "fan":
+        bits.append("fan policy only (P0 hold unchanged)")
+    co = state.get("core_off_mhz")
+    if isinstance(co, int):
+        bits.append(f"core {co:+d} MHz")
+    mm = state.get("mem_off_true_mhz")
+    if isinstance(mm, (int, float)):
+        bits.append(f"mem {mm:+g} MHz")
+    mw = state.get("power_limit_mw")
+    if mw:
+        bits.append(f"PL {mw / 1000:g} W")
+    currents = state.get("current_limits_ma") or {}
+    if isinstance(currents, dict):
+        for policy, label in (("13", "core limit"), ("14", "other limit")):
+            value = currents.get(policy)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                amps = f"{value / 1000:.3f}".rstrip("0").rstrip(".")
+                bits.append(f"{label} {amps} A")
+    vb = state.get("volt_boost_pct")
+    if vb is not None:
+        bits.append(f"vboost {vb}%")
+    for key, fields in (state.get("rail_limits_mv") or {}).items():
+        name = "NVVDD" if key == "0" else "MSVDD"
+        values = "/".join(f"{k} {v:g}" for k, v in fields.items())
+        bits.append(f"{name} limits ~{values} mV")
+    if state.get("rail_limits_uv"):
+        bits.append("rail replay uses exact saved controls")
+    elif state.get("rail_limits_mv") and "rail_limits_uv" not in state:
+        bits.append("legacy absolute rail limits use this session's estimated reference")
+    offset = state.get("nvvdd_offset_mv")
+    if offset is not None:
+        bits.append(f"NVVDD offset {offset:+g} mV")
+    for key, value in (state.get("msvdd_offsets_mv") or {}).items():
+        bits.append(f"MSVDD request {key} {value:+g} mV (experimental)")
+    i2c = state.get("i2c")
+    if i2c:
+        if i2c.get("format") == CURRENT_DAC_FORMAT:
+            control = i2c.get("current_dac_control")
+            control = control if isinstance(control, dict) else {}
+            outputs = control.get("outputs")
+            config = control.get("configuration")
+            if (isinstance(outputs, list) and len(outputs) == 3
+                    and all(type(value) is int and 0 <= value <= 255
+                            for value in outputs)
+                    and type(config) is int and 0 <= config <= 255):
+                label = i2c.get("display_name") or i2c.get("profile", "current DAC")
+                values = "/".join(f"0x{value:02X}" for value in outputs)
+                bits.append(f"I2C {i2c.get('rail', 'rail')} current DAC raw {values}, "
+                            f"config 0x{config:02X} ({label})")
+            else:
+                bits.append("I2C current DAC control is invalid")
+        elif "control" in i2c:
+            from .controllers.ncp4206 import decode_vid
+            control = i2c["control"]
+            target = (f"{decode_vid(control['command']):g} mV" if control['enabled'] else 'Auto (GPU VID)')
+            label = i2c.get("display_name") or i2c['profile']
+            bits.append(f"I2C {i2c['rail']} {target} ({label})")
+        else:
+            bits.append(f"I2C {i2c['rail']} {i2c['offset_mv']:+g} mV ({i2c['profile']})")
+    for key, value in (state.get("clock_domain_offsets_mhz") or {}).items():
+        label = "Additional Memory Clock Offset" if key == "2" else f"clock control {key}"
+        bits.append(f"{label} {value:+g} MHz")
+    if state.get("xoc"):
+        bits.append("XOC")
+    if state.get("schema", 1) < 2:
+        bits.append("legacy profile: I2C and per-rail settings not saved")
+    d = state.get("vf_deltas") or {}
+    nz = sum(1 for v in d.values() if v)
+    if d:
+        bits.append(f"{nz}/{len(d)} VF deltas set")
+    # last, and unabbreviated: this row is how one snapshot is told from
+    # another in the Profiles list, and "it cannot restore your curve" is the
+    # single most important thing it can say about one
+    miss = incomplete(state)
+    if miss:
+        bits.append("INCOMPLETE - " + "; ".join(miss))
+    return "   ".join(bits) or "empty profile"

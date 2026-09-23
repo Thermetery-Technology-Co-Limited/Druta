@@ -33,7 +33,7 @@ Developed against two cards:
 
 ## Run
 
-- `dist\Druta.exe` — standalone, no Python needed.
+- `dist\Druta\Druta.exe` — bundled application, no Python needed.
 - or `python druta.py` from source.
 - **Run as administrator** for every write path: clock lock, fan, power limit,
   V/F curve, memory timings.
@@ -73,7 +73,7 @@ it was placed on, while the Release button in front of you would now be aimed at
 a different GPU. Staged-but-unwritten V/F or timing edits only ask for a
 confirming second click, since losing those costs nothing but the typing.
 
-Two things that are not obvious and are both tested in `test_swap.py`:
+Two things that are not obvious and are both tested in `tests/test_swap.py`:
 
 - A capture or an induced load can be several seconds — up to 25 — inside a call
   that started on the *previous* card. Each worker stamps a generation counter on
@@ -85,18 +85,18 @@ Two things that are not obvious and are both tested in `test_swap.py`:
   and, worse than the memory, a second live handler registry, which made one
   press of `W` nudge the point twice and one `Ctrl+Z` walk back two edits.
 
-`app.py` (the old Tk UI) is kept only as a parity reference for the Dear PyGui
+`src/druta/app.py` (the old Tk UI) is kept only as a parity reference for the Dear PyGui
 port. It has no build target and should not be edited. See
 [Why Dear PyGui](#why-dear-pygui).
 
 ## Build
 
 ```
-pip install dearpygui
-python -m PyInstaller --onefile --noconsole --name Druta --collect-all dearpygui druta.py
+python -m pip install -r requirements.txt
+.\build.ps1
 ```
 
-Output lands in `dist\Druta.exe`.
+Output lands in `dist\Druta\Druta.exe` and the matching ZIP. Distribute the whole bundle, including `_internal` and `source`.
 
 ---
 
@@ -319,7 +319,7 @@ header dword 2 = DOMAIN BITMASK (bit d selects domain d; any bit the card
 entry(d)       = 0x124 + d * 0x304
     +0x000  mode/type      reads 8, 9 or 2 per domain
     +0x10C  frequency delta, signed kHz
-    +0x114  MSVDD delta, signed microvolts   — never written by this app
+    +0x114  MSVDD request delta, signed microvolts
 ```
 
 **This block does not use the clock getter's domain numbering.** Assuming it did
@@ -506,7 +506,7 @@ Detect that signature through `GPU.read()`, never a bare
 the unpopulated check, names a dead domain 0 "GPC", and reports every card as
 Turing.
 
-### Blackwell / RTX 50-series adaptation
+### Blackwell adaptation
 
 The Turing measurements above must not be applied to Blackwell by changing only
 `CLKDOM_PAIR_TURING`. There are two independent namespaces: the control index
@@ -523,8 +523,8 @@ frequency delta = entry + 0x114
 MSVDD delta     = entry + 0x11C
 ```
 
-Those field offsets are a candidate until they have been checked against the
-exact GPU, VBIOS and driver. The version echo and one-hot accepted-domain probe
+Those field offsets are selected only for the Blackwell generation, then checked
+against the live runtime ABI. The version echo and one-hot accepted-domain probe
 are read-only gates. The UI uses the accepted control indices for Blackwell and
 displays the requested offsets; it does not label those values with a Turing
 private-getter domain.  On the validated RTX 5080 / 610.88 path, the tested
@@ -536,15 +536,15 @@ be reused as the UI sign without repeating that test.
 For hardware validation, run:
 
 ```powershell
-python nvbackend.py --clkdom-debug --json > clkdom-debug.json
-python nvbackend.py --clkdom-map-probe --confirm > clkdom-map.json
+python -m druta.nvbackend --clkdom-debug --json > clkdom-debug.json
+python -m druta.nvbackend --clkdom-map-probe --confirm > clkdom-map.json
 ```
 
 When the candidate `+0x114` is accepted but produces no settled movement, use
 the frequency-only comparison probe:
 
 ```powershell
-python nvbackend.py --clkdom-field-probe --confirm > clkdom-fields.json
+python -m druta.nvbackend --clkdom-field-probe --confirm > clkdom-fields.json
 ```
 
 It compares `+0x10C` with `+0x114` for controls 1, 3 and 4. It deliberately
@@ -559,7 +559,7 @@ settled physical effect, scan the remaining non-core/non-memory control
 indices:
 
 ```powershell
-python nvbackend.py --clkdom-control-probe --delta 25 --confirm > clkdom-controls.json
+python -m druta.nvbackend --clkdom-control-probe --delta 25 --confirm > clkdom-controls.json
 ```
 
 This intentionally omits control indices 0 and 2 because they may be GPC and
@@ -567,7 +567,7 @@ memory on a different driver branch.  To include those two potentially
 high-impact paths on a test-only machine, pass the explicit opt-in:
 
 ```powershell
-python nvbackend.py --clkdom-control-probe --include-core-memory --delta 25 --confirm > clkdom-controls-all.json
+python -m druta.nvbackend --clkdom-control-probe --include-core-memory --delta 25 --confirm > clkdom-controls-all.json
 ```
 
 The scan is still one-field-at-a-time, checks the complete returned block
@@ -605,9 +605,9 @@ frequency delta, compares median/range windows of physical XBAR/SYS/VIDEO
 observations, verifies the original requested frequency after restoration, and
 restores the complete GET buffer even if sampling fails. Use a fixed GPU-clock
 or V/F hold, or a steady workload, while running it; an unstable P-state is
-reported as inconclusive. It is deliberately not called by the UI. A new
-driver or VBIOS should not be added to a validated profile until both the field
-location and the measured control effect are confirmed.
+reported as inconclusive. It is deliberately not called by the UI. A changed runtime layout must not be treated as validated until both the field
+location and the measured control effect are confirmed. No device/VBIOS allowlist
+participates in slider eligibility.
 
 The voltage fields are a **rail array**, not one value — probing every dword
 from `+0x100` to `+0x140` found exactly three consecutive refused slots on every
@@ -617,10 +617,12 @@ like. Aligned against the frequency field, rail 0 is at `+0x110`:
 - **Rail 0 is NVVDD** and it works. `+50 mV` requested moves vcore exactly
   `+50 mV`, measured with the core clock pinned at 1500 MHz. Shipped as
   *NVVDD offset (mV)*.
-- **Rail 1 is MSVDD and is not reachable here.** Refused on every control domain
-  that does anything, and accepted only on domain 6 — which stores frequency
-  offsets it never applies either, so its acceptance means "nothing validates
-  this", not "this rail exists". Read and displayed, never written.
+- **The tested MSVDD request was ineffective on this board.** It was refused
+  on the measured active domains and accepted on domain 6 without establishing
+  a voltage response. This experiment does not suppress other boards' controls.
+  The current UI exposes readable MSVDD request fields in understood layouts
+  as an XOC experiment. It validates stored-field readback, explicitly reports
+  physical voltage response as unverified, and provides Zero after leaving XOC.
 
 **Measure a rail with the FREQUENCY lock, never the V/F point lock.** A held
 V/F point pins the voltage, so a rail offset applies and nothing moves — which
@@ -816,6 +818,13 @@ Two things it does not do: the fans stay at **100% manual** until `Auto` or
 *below* the voltage cap in the V/F editor's cap box, so that box bounds what
 "max" means. The log names the cap it used.
 
+
+On Pascal, Turing and Blackwell, the Control tab exposes current policies only
+after the generation descriptor agrees with the live masks, record types,
+channels and mA unit. Pascal/Turing expose the validated core current; Blackwell
+also exposes its other rail. Blackwell normal caps are 500 A / 200 A and XOC
+follows the API maxima. Limits participate in profiles and Reset all. See
+[current-limit ABI and validation](CURRENT-LIMITS-RTX5080.md).
 
 Core and memory clock offsets, power limit, voltage boost, fan duty (with an
 Auto button that restores the curve), and the GPU clock lock. All writes sit
@@ -1095,9 +1104,20 @@ to stock` still takes two, because it drops every knob at once.
 ## I2C discovery and contribution interfaces
 
 `railctl.discover()` returns all controller candidates on the selected GPU.
-NCP4206 uses a Kepler port scan and an absolute-VID adapter; MP2888A scans
-ports/addresses, checks a repeated register fingerprint and binds an offset
-recipe to the discovered connection. These scanners do not use board-ID gates;
+An optional `controller` name limits discovery to that family; optional
+`routes` restrict it to exact `(port, addr7)` pairs within the family's
+supported routes. `controller_names()` includes built-in controllers and
+loaded TOML recipe regulator names. The GUI starts discovery only on an
+explicit scan-button click. Its UUID-bound route cache stores the selected
+controller and recipe identity, never settings or write verification. Reconnect
+performs fresh identity and settings reads through the same scoped scanner,
+falling back to the selected scope if the hint cannot be verified.
+
+NCP4206 uses controller-model discovery and an absolute-VID adapter; MP2888A
+checks a repeated register fingerprint; MP29816 checks its source-backed model
+ID and binds its already-selected PAGE/scaling. All scan ports and unicast
+addresses independently of GPU generation or board IDs, and identify the
+controller output without assuming its physical rail. These scanners do not use board-ID gates;
 other generic TOML recipes retain optional PCI matching and fixed bus settings.
 
 Candidate selection and Verify are separate steps. Verify makes bounded writes
@@ -1224,8 +1244,14 @@ the load is skipped entirely: opening a CUDA context on a P0 card pulls it
 
 Four guards sit in front of every write:
 
-1. **The card must be in its top memory band.** Timings are per band, so a write
-   in any other state edits a band you are not tuning.
+1. **Controls must be unlocked and the current card must be in its top memory
+   band.** Apply checks fresh P0/P2 and offset-normalized memory-clock readings
+   before preparation and again immediately before commit. Missing state, clock
+   or offset refuses the write. Both reads bracketing a capture must qualify.
+   Only the measured GP102/TU102 nearby P2/P0 clock pairs share a band; other
+   chips use their highest enumerated clock. The GTX 745's [405, 900] clock list
+   therefore has a 900 MHz floor, with the same 5 MHz quantization allowance used
+   for matching reported clocks to enumerated states.
 2. **Range and structural refusals happen here, before nvtune is consulted.**
    Structural fields (training and phase fragments, with no "looser" direction)
    and fields in a register whose offset is only *inferred* get no input at all.
@@ -1246,6 +1272,12 @@ Outcomes are reported as four distinct states — **landed**, **dropped** (reach
 the hardware and was rejected), **refused** (nvtune declined; BAR0 never
 touched), **failed** — because conflating the middle two produces a confident
 wrong conclusion.
+
+A nonzero helper exit, timeout, missing pre-write value or missing post-write
+readback is **failed**, with the diagnostic retained. A partial commit can have
+actual readback values and still be failed. Missing readback is never proof of a
+hardware rejection. `force` only overrides nvtune's warning refusal; it does not
+override the current-state or Unlock checks.
 
 > **Measured: GP102 accepts these writes; TU102 rejects every one of them at the
 > hardware.** Same tool, same driver, same slot. `FAW 24→25` on GP102 applied,

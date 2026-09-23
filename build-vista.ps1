@@ -4,7 +4,7 @@ Builds the portable Vista SP2 x64 distribution from its patched runtime.
 .DESCRIPTION
 Build the three small native source changes described in VISTA.md first.
 The matched VC2019 and exact SDK 10240 app-local UCRT set collected by
-tools/collect_vista_redist.py are mandatory for this build.
+src/druta/tools/collect_vista_redist.py are mandatory for this build.
 #>
 [CmdletBinding()]
 param(
@@ -26,7 +26,7 @@ try {
     $env:DRUTA_WIN7_CRT = $crtPath
     $env:DRUTA_WIN7_PORTABLE_REDIST = $portablePath
     $sourceSnapshot = Join-Path $PSScriptRoot 'build\vista\source-before-build.json'
-    & $Python tools\package_source.py snapshot --root $PSScriptRoot --snapshot $sourceSnapshot
+    & $Python src/druta/tools/package_source.py snapshot --root $PSScriptRoot --snapshot $sourceSnapshot
     if ($LASTEXITCODE -ne 0) { throw 'Could not snapshot the public build source.' }
     & $Python -m PyInstaller --noconfirm --clean --workpath build\pyinstaller-vista Druta-vista.spec
     if ($LASTEXITCODE -ne 0) { throw "Vista build failed ($LASTEXITCODE)." }
@@ -35,10 +35,10 @@ try {
     & $Python -m pip freeze | Set-Content -LiteralPath (Join-Path $bundle 'BUILD-DEPENDENCIES.txt') -Encoding UTF8
     if ($LASTEXITCODE -ne 0) { throw 'Could not record build dependencies.' }
     if ($nvtunePath) {
-        & $Python tools\package_vista_nvtune.py --source $nvtunePath --bundle $bundle
+        & $Python src/druta/tools/package_vista_nvtune.py --source $nvtunePath --bundle $bundle
         if ($LASTEXITCODE -ne 0) { throw 'The optional nvtune package failed validation.' }
     }
-    & $Python tools\package_source.py package --root $PSScriptRoot --snapshot $sourceSnapshot --bundle $bundle
+    & $Python src/druta/tools/package_source.py package --root $PSScriptRoot --snapshot $sourceSnapshot --bundle $bundle
     if ($LASTEXITCODE -ne 0) { throw 'Source changed during the build or source packaging failed.' }
     $archive = Join-Path $PSScriptRoot 'dist\Druta-dev-vista-x64-portable.zip'
     Compress-Archive -LiteralPath $bundle -DestinationPath $archive -Force

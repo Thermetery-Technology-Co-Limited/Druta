@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import MagicMock, patch
 
-from tools import vista_runtime
+from druta.tools import vista_runtime
 
 
 class NativeLoaderTests(unittest.TestCase):

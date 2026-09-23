@@ -1,0 +1,78 @@
+{
+  "version": "1.5.0a",
+  "adapter": "NVIDIA TITAN Xp",
+  "driver": "580.97",
+  "method": "Real Druta.run render loop and application callbacks with actual read-only I2C discovery; Dear PyGui framebuffer images inspected because Windows screenshot helper was unavailable.",
+  "scan_calls": 2,
+  "checks": {
+    "no_startup_scan": true,
+    "progress_shown": true,
+    "opt_in_retained": true,
+    "real_progress": true,
+    "cancelled": true,
+    "completed": true
+  },
+  "passed": true,
+  "phases": {
+    "startup": {
+      "elapsed": 0.7878039000001991,
+      "scan_calls": 0,
+      "busy": false,
+      "complete": false,
+      "progress": [
+        0,
+        0,
+        ""
+      ],
+      "header_visible": true,
+      "bar_shown": false,
+      "status": "Enable I2C rail to scan this GPU's regulator buses.",
+      "rail_status": "Rail limits ready for NVVDD. MSVDD unavailable"
+    },
+    "scan-progress": {
+      "elapsed": 1.221161800000118,
+      "scan_calls": 1,
+      "busy": true,
+      "complete": false,
+      "progress": [
+        22,
+        2688,
+        "NCP4206 port 5, 0x09"
+      ],
+      "header_visible": true,
+      "bar_shown": true,
+      "status": "Scanning I2C: NCP4206 port 6, 0x08 (15/2688 probe units). Untick I2C rail to cancel.",
+      "rail_status": "Rail limits ready for NVVDD. MSVDD unavailable"
+    },
+    "cancelled": {
+      "elapsed": 1.615977500000099,
+      "scan_calls": 1,
+      "busy": false,
+      "complete": false,
+      "progress": [
+        0,
+        0,
+        ""
+      ],
+      "header_visible": true,
+      "bar_shown": false,
+      "status": "I2C detection cancelled.",
+      "rail_status": "Rail limits ready for NVVDD. MSVDD unavailable"
+    },
+    "complete": {
+      "elapsed": 16.95621029999984,
+      "scan_calls": 2,
+      "busy": false,
+      "complete": true,
+      "progress": [
+        2688,
+        2688,
+        "MP2888A port 7, 0x77"
+      ],
+      "header_visible": true,
+      "bar_shown": false,
+      "status": "I2C detection complete: no compatible controller responded.",
+      "rail_status": "Rail limits ready for NVVDD. MSVDD unavailable"
+    }
+  }
+}

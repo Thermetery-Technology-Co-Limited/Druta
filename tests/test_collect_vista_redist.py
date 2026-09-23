@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from tools import collect_vista_redist as vista
+from druta.tools import collect_vista_redist as vista
 
 
 class VistaCollectionTests(unittest.TestCase):
