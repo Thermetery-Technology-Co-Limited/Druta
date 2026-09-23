@@ -135,11 +135,32 @@ class WriterContractTests(HelperFixture, unittest.TestCase):
                 self.assertEqual(plan.ops, [])
                 self.assertFalse(plan.needs_force)
 
-    def test_unchanged_rows_and_completion_are_not_warnings(self):
-        self.respond(response(PREVIEW + UNCHANGED + COMPLETE))
-        plan = timingwrite.plan({"FAW": 13, "RC": 1}, SLOT)
-        self.assertTrue(plan.ok, plan.error)
-        self.assertFalse(plan.needs_force)
+    def test_unchanged_row_after_an_op_is_a_warning_that_needs_force(self):
+        # As on main, an `unchanged` row is not a recognized line, so under an
+        # op it is a warning, and so is every later line except the marker.
+        for output, warnings in (
+                (PREVIEW + UNCHANGED + COMPLETE, [UNCHANGED.strip()]),
+                (PREVIEW + UNCHANGED + "      ! RC exceeds guide\n" + COMPLETE,
+                 [UNCHANGED.strip(), "! RC exceeds guide"]),
+                (PREVIEW + UNCHANGED + COMPLETE + "\nerror: interrupted",
+                 [UNCHANGED.strip(), "error: interrupted"])):
+            with self.subTest(output=output):
+                self.respond(response(output))
+                plan = timingwrite.plan({"FAW": 13, "RC": 1}, SLOT)
+                self.assertTrue(plan.ok, plan.error)
+                self.assertEqual(plan.touches, ["FAW"])
+                self.assertEqual(plan.warnings, warnings)
+                self.assertTrue(plan.needs_force)
+
+    def test_unchanged_row_after_an_op_blocks_commit_without_force(self):
+        self.respond(response(SLOT + "  FAW=12 RC=1"),
+                     response(PREVIEW + UNCHANGED + COMPLETE))
+        plan, results = timingwrite.apply({"FAW": 13, "RC": 1}, SLOT)
+        self.assertTrue(plan.needs_force)
+        self.assertEqual([r.outcome for r in results],
+                         [timingwrite.TOOL_REFUSED, timingwrite.TOOL_REFUSED])
+        self.assertEqual(len(self.argv()), 2)
+        self.assertTrue(all("--commit" not in argv for argv in self.argv()))
 
     def test_warning_requires_force_before_commit(self):
         self.apply_responses(preview=response(PREVIEW + "      ! FAW exceeds guide\n" + COMPLETE))
@@ -261,7 +282,7 @@ class DefaultPreviewContractTests(HelperFixture, unittest.TestCase):
             "Everything defaults to a dry run; --commit is required to touch hardware.\n")
 
     def test_bare_preview_targets_one_card_without_a_marker(self):
-        self.respond(response(PREVIEW + UNCHANGED))
+        self.respond(response(PREVIEW))
         plan = timingwrite.plan({"FAW": 13, "RC": 1}, SLOT)
         self.assertTrue(plan.ok, plan.error)
         self.assertEqual(plan.touches, ["FAW"])
@@ -269,8 +290,11 @@ class DefaultPreviewContractTests(HelperFixture, unittest.TestCase):
         self.assertEqual(self.argv(), [[self.exe, "set", "-d", SLOT, "FAW=13", "RC=1"]])
 
     def test_unrecognized_rows_become_warnings_that_need_force(self):
+        # The fork's print_ops() also prints `unchanged` rows; as on main,
+        # one that follows an op is a warning.
         for output in (PREVIEW.replace("FAW             12 -> 13", "FAW 12 -> unknown"),
-                       PREVIEW + "CONFIG0 @bad  unchanged (0x1)\n"):
+                       PREVIEW + "CONFIG0 @bad  unchanged (0x1)\n",
+                       PREVIEW + UNCHANGED):
             with self.subTest(output=output):
                 self.respond(response(output))
                 plan = timingwrite.plan({"FAW": 13}, SLOT)

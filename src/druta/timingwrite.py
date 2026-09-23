@@ -82,12 +82,6 @@ _OP_RE = re.compile(
     r"^\s*(?P<reg>\w+)\s+@(?P<off>0x[0-9A-Fa-f]+)\s+"
     r"(?P<old>0x[0-9A-Fa-f]+)\s*->\s*(?P<new>0x[0-9A-Fa-f]+)\s*"
     r"\[(?P<mode>would write|write)\]")
-# nvtune's print_ops() lists a register whose requested fields already hold
-# their values as `REG @0x...  unchanged (0x...)` and prints no warnings under
-# it. Such a row is neither a warning for the op above it nor an op of its own.
-_UNCHANGED_RE = re.compile(
-    r"^\s*\w+\s+@0x[0-9A-Fa-f]+\s+unchanged\s+"
-    r"\(0x[0-9A-Fa-f]+\)\s*$")
 _CHG_RE = re.compile(r"^\s+(?P<name>\w+)\s+(?P<old>\d+)\s*->\s*(?P<new>\d+)\s*$")
 _REFUSE_RE = re.compile(r"refusing to write with warnings", re.I)
 
@@ -315,9 +309,6 @@ def _parse(out):
                    "old": m.group("old"), "new": m.group("new"),
                    "changes": []}
             ops.append(cur)
-            continue
-        if _UNCHANGED_RE.match(line):
-            cur = None
             continue
         m = _CHG_RE.match(line)
         if m and cur is not None:
