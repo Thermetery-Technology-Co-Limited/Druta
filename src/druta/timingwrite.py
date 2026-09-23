@@ -81,13 +81,9 @@ STRUCTURAL_BLOCKED = ("structural - a training/phase fragment, not a delay. "
 _OP_RE = re.compile(
     r"^\s*(?P<reg>\w+)\s+@(?P<off>0x[0-9A-Fa-f]+)\s+"
     r"(?P<old>0x[0-9A-Fa-f]+)\s*->\s*(?P<new>0x[0-9A-Fa-f]+)\s*"
-    r"\[(?P<mode>would write|write)\]\s*$")
-_UNCHANGED_RE = re.compile(
-    r"^\s*\w+\s+@0x[0-9A-Fa-f]+\s+unchanged\s+"
-    r"\(0x[0-9A-Fa-f]+\)\s*$")
+    r"\[(?P<mode>would write|write)\]")
 _CHG_RE = re.compile(r"^\s+(?P<name>\w+)\s+(?P<old>\d+)\s*->\s*(?P<new>\d+)\s*$")
 _REFUSE_RE = re.compile(r"refusing to write with warnings", re.I)
-_DRY_RUN_COMPLETE = "dry run complete: no registers written"
 
 
 class WriteError(RuntimeError):
@@ -250,10 +246,9 @@ def _run(args, override=None, timeout=90, slot=None, *, helper=None):
     `slot` is MANDATORY here, and missing it raises rather than defaulting.
     nvtune's `-d` defaults to "all NVIDIA GPUs", so on a two-card host the
     argv this function builds without a slot does not write the card the user
-    was looking at - it writes EVERY card. An un-targeted preview can plan
-    different changes on each card:
+    was looking at - it writes EVERY card. Verified on the two-card rig:
 
-        nvtune set --dry-run FAW=13        (dry run, no -d)
+        nvtune set FAW=13        (dry run, no -d)
         0000:01:00.0  TU102 (Turing)   CONFIG3 0x2200104C -> 0x22001A4C  FAW  8 -> 13
         0000:02:00.0  GP102 (Pascal)   CONFIG3 0x2200194A -> 0x22001B4A  FAW 12 -> 13
 
@@ -312,11 +307,8 @@ def _parse(out):
         if m:
             cur = {"reg": m.group("reg"), "offset": m.group("off"),
                    "old": m.group("old"), "new": m.group("new"),
-                   "mode": m.group("mode"), "changes": []}
+                   "changes": []}
             ops.append(cur)
-            continue
-        if _UNCHANGED_RE.match(line):
-            cur = None
             continue
         m = _CHG_RE.match(line)
         if m and cur is not None:
@@ -331,37 +323,10 @@ def _parse(out):
                 and "applied and verified" not in s
                 and not s.startswith("reminder:")
                 and not _OP_RE.match(line) and not s.startswith("0000:")
-                and s != _DRY_RUN_COMPLETE
+                and s != "dry run complete: no registers written"
                 and "stock values saved" not in s):
             warnings.append(s)
     return ops, warnings
-
-
-def _incomplete_preview(out, ops, helper):
-    """Why a successful native preview is still not a trustworthy plan, or "".
-
-    An explicit --dry-run build acknowledges preview mode with its completion
-    marker, also when every register is unchanged. Helpers whose bare `set`
-    previews by default print no marker, so they get only the row checks. A
-    partial, unrecognized or writing response is never a plan.
-    """
-    lines = [line.strip() for line in out.splitlines() if line.strip()]
-    registers = [line for line in lines
-                 if "@" in line and not line.startswith("!")]
-    marker_required = "--dry-run" in helper.preview_flags
-    if (not lines or not registers
-            or (marker_required and lines[-1] != _DRY_RUN_COMPLETE)
-            or "[write]" in out
-            or any(not (_OP_RE.match(line) or _UNCHANGED_RE.match(line))
-                   for line in registers)
-            or any("->" in line and not line.lstrip().startswith("!")
-                   and not (_OP_RE.match(line) or _CHG_RE.match(line))
-                   for line in out.splitlines())
-            or any(op["mode"] != "would write" or not op["changes"]
-                   for op in ops)):
-        return ("nvtune did not return a complete, recognized dry run; "
-                "nothing was committed")
-    return ""
 
 
 def read_fields(names, slot, override=None):
@@ -385,14 +350,10 @@ def read_fields(names, slot, override=None):
 
 
 def plan(assignments, slot, override=None, *, helper=None):
-    """Read-only preview, including for helpers whose bare set writes.
-
-    Older builds reject --dry-run before opening a GPU; never fall back to a
-    bare `set`, which writes on those builds. Their preview is calculated
-    locally instead, and a native preview must be complete and parseable."""
+    """Read-only preview, including for helpers whose bare set writes."""
     if not assignments:
         return Plan({}, [], [], "", ok=True)
-    args = ["set", "--dry-run"] + [f"{k}={v}" for k, v in assignments.items()]
+    args = ["set"] + [f"{k}={v}" for k, v in assignments.items()]
     try:
         if not timings.nvbackend.parse_slot(slot):
             raise WriteError("no valid PCI slot for the selected card")
@@ -408,9 +369,6 @@ def plan(assignments, slot, override=None, *, helper=None):
     if rc != 0:
         return Plan(assignments, [], warnings, out, ok=False,
                     error=f"nvtune dry run exited {rc}: {out or 'no error text'}")
-    problem = _incomplete_preview(out, ops, helper)
-    if problem:
-        return Plan(assignments, ops, warnings, out, ok=False, error=problem)
     return Plan(assignments, ops, warnings, out)
 
 

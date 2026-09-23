@@ -99,30 +99,68 @@ class WriterContractTests(HelperFixture, unittest.TestCase):
         self.respond(response(PREVIEW + COMPLETE, status=1))
         self.assertFalse(timingwrite.plan({"FAW": 13}, SLOT).ok)
 
-    def test_successful_status_requires_complete_parseable_preview(self):
-        outputs = ["", PREVIEW, COMPLETE,
-                   PREVIEW.replace("[would write]", "[write]") + COMPLETE,
-                   PREVIEW.replace("FAW             12 -> 13", "FAW 12 -> unknown") + COMPLETE,
-                   PREVIEW + "CONFIG0 @bad  unchanged (0x1)\n" + COMPLETE,
-                   PREVIEW + COMPLETE + "\nerror: interrupted"]
-        for output in outputs:
+    def test_successful_preview_is_a_plan_without_a_completion_marker(self):
+        # As on main, a zero exit is a plan. The completion marker is not
+        # required, and an op row is parsed whatever its mode tag says.
+        for output, touches in (("", []), (COMPLETE, []), (PREVIEW, ["FAW"]),
+                                (PREVIEW.replace("[would write]", "[write]") + COMPLETE,
+                                 ["FAW"])):
             with self.subTest(output=output):
                 self.respond(response(output))
-                self.assertFalse(timingwrite.plan({"FAW": 13}, SLOT).ok)
+                plan = timingwrite.plan({"FAW": 13}, SLOT)
+                self.assertTrue(plan.ok, plan.error)
+                self.assertEqual(plan.touches, touches)
+                self.assertFalse(plan.needs_force)
 
-    def test_unchanged_only_preview_requires_mode_acknowledgement(self):
-        self.respond(response(UNCHANGED + COMPLETE))
-        plan = timingwrite.plan({"RC": 1}, SLOT)
-        self.assertTrue(plan.ok, plan.error)
-        self.assertEqual(plan.ops, [])
-        self.respond(response(UNCHANGED))
-        self.assertFalse(timingwrite.plan({"RC": 1}, SLOT).ok)
+    def test_unrecognized_preview_lines_are_warnings_that_need_force(self):
+        for output, warning in (
+                (PREVIEW.replace("FAW             12 -> 13", "FAW 12 -> unknown") + COMPLETE,
+                 "FAW 12 -> unknown"),
+                (PREVIEW + "CONFIG0 @bad  unchanged (0x1)\n" + COMPLETE,
+                 "CONFIG0 @bad  unchanged (0x1)"),
+                (PREVIEW + COMPLETE + "\nerror: interrupted", "error: interrupted")):
+            with self.subTest(output=output):
+                self.respond(response(output))
+                plan = timingwrite.plan({"FAW": 13}, SLOT)
+                self.assertTrue(plan.ok, plan.error)
+                self.assertEqual(plan.warnings, [warning])
+                self.assertTrue(plan.needs_force)
 
-    def test_unchanged_rows_and_completion_are_not_warnings(self):
-        self.respond(response(PREVIEW + UNCHANGED + COMPLETE))
-        plan = timingwrite.plan({"FAW": 13, "RC": 1}, SLOT)
-        self.assertTrue(plan.ok, plan.error)
-        self.assertFalse(plan.needs_force)
+    def test_unchanged_only_preview_is_nothing_to_write(self):
+        for output in (UNCHANGED + COMPLETE, UNCHANGED):
+            with self.subTest(output=output):
+                self.respond(response(output))
+                plan = timingwrite.plan({"RC": 1}, SLOT)
+                self.assertTrue(plan.ok, plan.error)
+                self.assertEqual(plan.ops, [])
+                self.assertFalse(plan.needs_force)
+
+    def test_unchanged_row_after_an_op_is_a_warning_that_needs_force(self):
+        # As on main, an `unchanged` row is not a recognized line, so under an
+        # op it is a warning, and so is every later line except the marker.
+        for output, warnings in (
+                (PREVIEW + UNCHANGED + COMPLETE, [UNCHANGED.strip()]),
+                (PREVIEW + UNCHANGED + "      ! RC exceeds guide\n" + COMPLETE,
+                 [UNCHANGED.strip(), "! RC exceeds guide"]),
+                (PREVIEW + UNCHANGED + COMPLETE + "\nerror: interrupted",
+                 [UNCHANGED.strip(), "error: interrupted"])):
+            with self.subTest(output=output):
+                self.respond(response(output))
+                plan = timingwrite.plan({"FAW": 13, "RC": 1}, SLOT)
+                self.assertTrue(plan.ok, plan.error)
+                self.assertEqual(plan.touches, ["FAW"])
+                self.assertEqual(plan.warnings, warnings)
+                self.assertTrue(plan.needs_force)
+
+    def test_unchanged_row_after_an_op_blocks_commit_without_force(self):
+        self.respond(response(SLOT + "  FAW=12 RC=1"),
+                     response(PREVIEW + UNCHANGED + COMPLETE))
+        plan, results = timingwrite.apply({"FAW": 13, "RC": 1}, SLOT)
+        self.assertTrue(plan.needs_force)
+        self.assertEqual([r.outcome for r in results],
+                         [timingwrite.TOOL_REFUSED, timingwrite.TOOL_REFUSED])
+        self.assertEqual(len(self.argv()), 2)
+        self.assertTrue(all("--commit" not in argv for argv in self.argv()))
 
     def test_warning_requires_force_before_commit(self):
         self.apply_responses(preview=response(PREVIEW + "      ! FAW exceeds guide\n" + COMPLETE))
@@ -165,13 +203,15 @@ class WriterContractTests(HelperFixture, unittest.TestCase):
         self.assertEqual(results[0].outcome, timingwrite.FAILED)
         self.assertEqual(len(self.argv()), 2)
 
-    def test_incomplete_preview_prevents_commit_even_with_force(self):
+    def test_preview_without_completion_marker_proceeds_to_commit(self):
+        # Readback after the commit, not the preview's last line, decides the
+        # outcome.
         self.apply_responses(preview=response(PREVIEW))
-        plan, results = timingwrite.apply({"FAW": 13}, SLOT, force=True)
-        self.assertFalse(plan.ok)
-        self.assertEqual(results[0].outcome, timingwrite.FAILED)
-        self.assertEqual(len(self.argv()), 2)
-        self.assertTrue(all("--commit" not in argv for argv in self.argv()))
+        plan, results = timingwrite.apply({"FAW": 13}, SLOT)
+        self.assertTrue(plan.ok, plan.error)
+        self.assertEqual(results[0].outcome, timingwrite.LANDED)
+        self.assertEqual(self.argv()[2], [self.exe, "set", "-d", SLOT,
+                                          "FAW=13", "--commit"])
 
     def test_failed_commit_is_not_a_hardware_rejection(self):
         self.apply_responses(commit=response(status=2, stderr="error: unsupported option"),
@@ -235,37 +275,61 @@ class WriterContractTests(HelperFixture, unittest.TestCase):
 
 class DefaultPreviewContractTests(HelperFixture, unittest.TestCase):
     """A helper whose bare set previews (help text of the nvtune fork's
-    tool/src/core/cli.cpp) prints no completion marker; rows are still checked."""
+    tool/src/core/cli.cpp) prints no completion marker; its preview is parsed
+    like any other."""
     HELP = ("  set FIELD=VALUE...        write fields (dry run unless --commit)\n"
             "      --commit          actually write (set/apply)\n"
             "Everything defaults to a dry run; --commit is required to touch hardware.\n")
 
     def test_bare_preview_targets_one_card_without_a_marker(self):
-        self.respond(response(PREVIEW + UNCHANGED))
+        self.respond(response(PREVIEW))
         plan = timingwrite.plan({"FAW": 13, "RC": 1}, SLOT)
         self.assertTrue(plan.ok, plan.error)
         self.assertEqual(plan.touches, ["FAW"])
         self.assertFalse(plan.needs_force)
         self.assertEqual(self.argv(), [[self.exe, "set", "-d", SLOT, "FAW=13", "RC=1"]])
 
-    def test_writing_or_unparseable_rows_are_still_not_a_plan(self):
-        for output in ["", PREVIEW.replace("[would write]", "[write]"),
-                       PREVIEW.replace("FAW             12 -> 13", "FAW 12 -> unknown"),
-                       PREVIEW + "CONFIG0 @bad  unchanged (0x1)\n"]:
+    def test_unrecognized_rows_become_warnings_that_need_force(self):
+        # The fork's print_ops() also prints `unchanged` rows; as on main,
+        # one that follows an op is a warning.
+        for output in (PREVIEW.replace("FAW             12 -> 13", "FAW 12 -> unknown"),
+                       PREVIEW + "CONFIG0 @bad  unchanged (0x1)\n",
+                       PREVIEW + UNCHANGED):
             with self.subTest(output=output):
                 self.respond(response(output))
-                self.assertFalse(timingwrite.plan({"FAW": 13}, SLOT).ok)
+                plan = timingwrite.plan({"FAW": 13}, SLOT)
+                self.assertTrue(plan.ok, plan.error)
+                self.assertTrue(plan.needs_force)
+                self.assertEqual(self.argv()[-1], [self.exe, "set", "-d", SLOT, "FAW=13"])
 
 
 class ReaderContractTests(unittest.TestCase):
-    def test_failed_fields_output_is_never_cached_as_valid(self):
+    def test_nonzero_fields_exit_with_usable_stdout_is_parsed_and_cached(self):
         exe = r"C:\nvtune\nvtune.exe"
-        with patch.object(timings, "find_exe", return_value=exe), \
-                patch.object(timings, "_run", return_value=response("partial field table", status=1)), \
+        table = SimpleNamespace(fields=[])
+        with patch.dict(timings._FT_CACHE, clear=True), \
+                patch.object(timings, "find_exe", return_value=exe), \
+                patch.object(timings, "_run", return_value=response("partial field table", status=1)) as run, \
+                patch.object(timings, "parse_fields", return_value=table) as parse:
+            self.assertIs(timings.field_table(refresh=True), table)
+            parse.assert_called_once_with("partial field table")
+            # The parsed table is cached like any other; no second `fields` run.
+            self.assertIs(timings.field_table(), table)
+            self.assertEqual(run.call_count, 1)
+
+    def test_nonzero_fields_exit_without_stdout_raises_and_is_not_cached(self):
+        exe = r"C:\nvtune\nvtune.exe"
+        with patch.dict(timings._FT_CACHE, clear=True), \
+                patch.object(timings, "find_exe", return_value=exe), \
+                patch.object(timings, "_run", return_value=response("  \n", status=1,
+                                                                   stderr="cannot open driver")), \
                 patch.object(timings, "parse_fields") as parse:
-            with self.assertRaises(timings.TimingsError):
+            with self.assertRaises(timings.TimingsError) as raised:
                 timings.field_table(refresh=True)
+            self.assertIn("exit 1", str(raised.exception))
+            self.assertIn("cannot open driver", str(raised.exception))
             parse.assert_not_called()
+            self.assertNotIn(exe, timings._FT_CACHE)
 
     def test_failed_save_is_rejected_even_if_it_left_a_valid_file(self):
         exe = r"C:\nvtune\nvtune.exe"

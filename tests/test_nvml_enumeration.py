@@ -61,21 +61,50 @@ class NvmlEnumerationTests(unittest.TestCase):
         self.assertTrue(initialize(dll).ok)
         self.assertEqual(dll.nvmlDeviceGetPciInfo_v2.call_count, 2)
 
-    def test_real_v3_error_is_not_hidden_by_v2(self):
+    def assert_blank_identity(self, nv):
+        self.assertEqual([(g['slot'], g['devid'], g['subsys']) for g in nv.gpus],
+                         [('', None, None)] * 2)
+
+    def test_failed_v3_read_keeps_the_gpu_with_blank_identity(self):
         dll = make_library()
         dll.nvmlDeviceGetPciInfo_v3 = Mock(return_value=15)  # GPU lost.
         nv = initialize(dll)
-        self.assertFalse(nv.ok)
-        self.assertEqual(nv.gpus, [])
+        # A real V3 error is not retried through V2.
         dll.nvmlDeviceGetPciInfo_v2.assert_not_called()
+        self.assert_blank_identity(nv)
+        self.assertTrue(nv.ok)
+        self.assertEqual(nv.selected['nvml_index'], 0)
 
-    def test_unidentified_handles_never_fall_back_to_card_zero(self):
-        for reader in (None, Mock(return_value=0)):
-            dll = make_library()
-            del dll.nvmlDeviceGetPciInfo_v2
-            if reader is not None:
-                dll.nvmlDeviceGetPciInfo_v2 = reader  # Zero identity payload.
-            self.assertFalse(initialize(dll).ok)
+    def test_gpus_without_a_pci_reader_are_kept_with_blank_identity(self):
+        dll = make_library()
+        del dll.nvmlDeviceGetPciInfo_v2
+        nv = initialize(dll)
+        self.assert_blank_identity(nv)
+        self.assertTrue(nv.ok)
+        self.assertEqual(nv.selected['nvml_index'], 0)
+        # A named slot still never matches an unidentified GPU.
+        nv = initialize(dll, '0000:01:00.0')
+        self.assertFalse(nv.ok)
+        self.assertIn('NVML sees: ?, ?', nv.err_detail)
+
+    def test_failed_read_on_one_gpu_leaves_the_other_selectable(self):
+        dll = make_library(pci_version=3)
+        pci = dll.nvmlDeviceGetPciInfo_v3.side_effect
+        dll.nvmlDeviceGetPciInfo_v3.side_effect = (
+            lambda dev, ptr: 15 if dev.value == 1 else pci(dev, ptr))
+        nv = initialize(dll)
+        self.assertEqual([g['slot'] for g in nv.gpus], ['', '0000:01:00.0'])
+        # The identified GPU sorts ahead of the blank one by default.
+        self.assertEqual(nv.selected['nvml_index'], 1)
+        self.assertEqual(initialize(dll, '0000:01:00.0').selected['nvml_index'], 1)
+
+    def test_successful_pci_read_is_taken_as_reported(self):
+        # No vendor or bus/device range filter second-guesses a status of 0.
+        dll = make_library()
+        dll.nvmlDeviceGetPciInfo_v2 = Mock(return_value=0)  # Zero payload.
+        nv = initialize(dll)
+        self.assertEqual([(g['slot'], g['devid'], g['subsys']) for g in nv.gpus],
+                         [('0000:00:00.0', 0, 0)] * 2)
 
     def test_missing_mandatory_initialization_is_nonfatal(self):
         nv = initialize(SimpleNamespace())

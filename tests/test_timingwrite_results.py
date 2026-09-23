@@ -8,10 +8,7 @@ from unittest.mock import Mock, patch
 from druta import timingwrite as tw
 
 
-# A --dry-run helper ends a successful preview with nvtune's completion marker.
-DRY_RUN_OPS = "CONFIG0 @0x10F290 0x0000002D -> 0x0000002E [would write]\n  RC 45 -> 46"
-DRY_RUN = DRY_RUN_OPS + "\ndry run complete: no registers written"
-WARNED_DRY_RUN = DRY_RUN_OPS + "\n  range warning\ndry run complete: no registers written"
+DRY_RUN = "CONFIG0 @0x10F290 0x0000002D -> 0x0000002E [would write]\n  RC 45 -> 46"
 COMMIT = "CONFIG0 @0x10F290 0x0000002D -> 0x0000002E [write]\n  RC 45 -> 46"
 SLOT = "0000:02:00.0"
 
@@ -141,7 +138,7 @@ class TimingWriteResultsTests(unittest.TestCase):
 
     def test_outstanding_warnings_refuse_without_force(self):
         guard = Mock()
-        (_, rows), run = self.apply([("RC=45", 0), (WARNED_DRY_RUN, 0)],
+        (_, rows), run = self.apply([("RC=45", 0), (DRY_RUN + "\n  range warning", 0)],
                                    before_commit=guard)
         self.assertEqual(rows[0].outcome, tw.TOOL_REFUSED)
         self.assertEqual(run.call_count, 2)
@@ -149,7 +146,7 @@ class TimingWriteResultsTests(unittest.TestCase):
 
     def test_force_keeps_the_precommit_guard(self):
         guard = Mock(return_value=(False, "controls locked"))
-        (_, rows), run = self.apply([("RC=45", 0), (WARNED_DRY_RUN, 0)],
+        (_, rows), run = self.apply([("RC=45", 0), (DRY_RUN + "\n  range warning", 0)],
                                    force=True, before_commit=guard)
         guard.assert_called_once_with()
         self.assertEqual(rows[0].outcome, tw.TOOL_REFUSED)

@@ -149,6 +149,17 @@ exited 0, parsed both bundled regulator profiles and rendered three frames.
 The full-interface fixture, the Windows 7 guest and the physical-GPU checks
 recorded below were not repeated for this update.
 
+A follow-up makes three behaviors match the shared build. An `nvtune fields`
+run that exits nonzero but still prints a table is parsed. A native nvtune
+preview that exits 0 is accepted without the completion marker or the extra
+row checks, and its warnings are classified as in the shared build, as
+described under nvtune below. An NVML GPU whose PCI record
+cannot be read stays listed with a blank slot instead of being dropped. The
+export-based fallbacks for older NVML are unchanged. With these changes the
+source passed 1,209 tests with Python 3.8.10 (the same three skips) and 1,212
+with Python 3.14.4 on the build host. The frozen builds were not rebuilt for
+this follow-up.
+
 ## Verification
 
 Run this on the target Windows 7 installation:
@@ -225,10 +236,13 @@ Druta does not install the driver or change test-signing settings.
 
 Druta learns the helper's command contract from `nvtune --help` and never
 tries a `set` to find out. A build that advertises **`--dry-run`** previews
-with it; the preview must exit 0, end with nvtune's completion marker and
-contain only recognized register rows, or it is refused without retrying a
-bare `set`. A build whose help says everything defaults to a dry run
-previews with a bare `set` under the same row checks. The public upstream
+with it, and a build whose help says everything defaults to a dry run
+previews with a bare `set`. As in the shared build, a preview that exits
+nonzero fails and is not retried as a bare `set`. A preview that exits 0 is
+the plan, with or without nvtune's completion marker. Once a changed register
+row has been printed, every later line Druta does not recognize is listed as a
+warning, so a commit needs Force. That includes nvtune's `unchanged` row for a
+register whose requested fields already hold their values. The public upstream
 releases write on a bare `set`, so Druta calculates their read-only preview
 from `fields` and `dump --raw` instead. Approved writes use the helper's
 advertised commit convention (`--commit` where it exists). Failed commands
@@ -261,8 +275,9 @@ from either System32 (DCH drivers) or the Standard driver's
 ## Legacy-driver update
 
 The current shared Druta fixes have been ported to this branch while retaining
-CPython 3.8.10, Tomli, Windows 7 DPI handling, the pinned native runtime and the
-explicit nvtune preview/commit contract.
+CPython 3.8.10, Tomli, Windows 7 DPI handling and the pinned native runtime.
+nvtune previews and commits follow the shared build's help-based contract
+described under nvtune above.
 
 DLL selection is automatic: Druta resolves the actual Windows system and Program
 Files directories through Windows APIs, then tries only those installed-driver
@@ -271,9 +286,12 @@ not contain NVIDIA DLLs. Available exports and successful reads select older
 clock, fan and telemetry paths; PCI enumeration can fall back to the older V2
 record without changing the selected physical slot.
 
-The TITAN private voltage-write profiles remain limited to the measured exact
-board, VBIOS and driver combinations (472.12 and 580.97). Porting them to Windows 7
-does not confirm a new driver or operating-system hardware combination. Ordinary
+Private voltage-rail writes follow the shared build: they are offered by GPU
+architecture, start from a recognized native packet and are checked by
+readback. No driver version is consulted. The TITAN measurements on 472.12 and
+580.97 remain recorded in `VOLTAGE-RAILS-TITAN.md` and `VOLTAGE-RAILS-47212.md`.
+Porting this to Windows 7 does not confirm a new driver or operating-system
+hardware combination. Ordinary
 API controls retain their capability checks. Zero RPM does not hide a functioning
 fan controller, including when an RTX is on a water loop.
 
