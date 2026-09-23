@@ -47,6 +47,9 @@ MEASURED, and the reason the architecture note is not decoration:
 Same tool, same driver, same slot. So this module reports what happened; it does
 not promise a write will land.
 """
+# Keep annotations unevaluated: the Windows 7 build runs CPython 3.8.
+from __future__ import annotations
+
 import json
 import hashlib
 import os
@@ -171,12 +174,23 @@ class HelperContract:
 _HELPER_CONTRACTS = {}
 
 
+def _sha256_file(handle):
+    """hashlib.file_digest where available (3.11+), else the same digest by chunks."""
+    file_digest = getattr(hashlib, "file_digest", None)
+    if file_digest is not None:
+        return file_digest(handle, "sha256").hexdigest()
+    digest = hashlib.sha256()
+    for block in iter(lambda: handle.read(1 << 20), b""):
+        digest.update(block)
+    return digest.hexdigest()
+
+
 def _exe_fingerprint(exe):
     stat = os.stat(exe)
     # Windows ctime is creation time. A same-size copy preserving mtime can
     # replace a legacy helper without changing any of the stat fields.
     with open(exe, "rb") as handle:
-        digest = hashlib.file_digest(handle, "sha256").hexdigest()
+        digest = _sha256_file(handle)
     return (os.path.normcase(os.path.realpath(exe)), stat.st_size,
             stat.st_mtime_ns, stat.st_ctime_ns, stat.st_ino, digest)
 

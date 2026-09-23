@@ -1511,7 +1511,7 @@ class Druta:
                 self.sync_profile_rail_sliders()
             return
         if key.startswith("current"):
-            policy = int(key.removeprefix("current"))
+            policy = int(key[len("current"):])  # str.removeprefix is 3.9+
             rows = self.read_current_limit_rows()
             row = next((r for r in rows if r["policy"] == policy), None)
             if row is None:
