@@ -99,24 +99,41 @@ class WriterContractTests(HelperFixture, unittest.TestCase):
         self.respond(response(PREVIEW + COMPLETE, status=1))
         self.assertFalse(timingwrite.plan({"FAW": 13}, SLOT).ok)
 
-    def test_successful_status_requires_complete_parseable_preview(self):
-        outputs = ["", PREVIEW, COMPLETE,
-                   PREVIEW.replace("[would write]", "[write]") + COMPLETE,
-                   PREVIEW.replace("FAW             12 -> 13", "FAW 12 -> unknown") + COMPLETE,
-                   PREVIEW + "CONFIG0 @bad  unchanged (0x1)\n" + COMPLETE,
-                   PREVIEW + COMPLETE + "\nerror: interrupted"]
-        for output in outputs:
+    def test_successful_preview_is_a_plan_without_a_completion_marker(self):
+        # As on main, a zero exit is a plan. The completion marker is not
+        # required, and an op row is parsed whatever its mode tag says.
+        for output, touches in (("", []), (COMPLETE, []), (PREVIEW, ["FAW"]),
+                                (PREVIEW.replace("[would write]", "[write]") + COMPLETE,
+                                 ["FAW"])):
             with self.subTest(output=output):
                 self.respond(response(output))
-                self.assertFalse(timingwrite.plan({"FAW": 13}, SLOT).ok)
+                plan = timingwrite.plan({"FAW": 13}, SLOT)
+                self.assertTrue(plan.ok, plan.error)
+                self.assertEqual(plan.touches, touches)
+                self.assertFalse(plan.needs_force)
 
-    def test_unchanged_only_preview_requires_mode_acknowledgement(self):
-        self.respond(response(UNCHANGED + COMPLETE))
-        plan = timingwrite.plan({"RC": 1}, SLOT)
-        self.assertTrue(plan.ok, plan.error)
-        self.assertEqual(plan.ops, [])
-        self.respond(response(UNCHANGED))
-        self.assertFalse(timingwrite.plan({"RC": 1}, SLOT).ok)
+    def test_unrecognized_preview_lines_are_warnings_that_need_force(self):
+        for output, warning in (
+                (PREVIEW.replace("FAW             12 -> 13", "FAW 12 -> unknown") + COMPLETE,
+                 "FAW 12 -> unknown"),
+                (PREVIEW + "CONFIG0 @bad  unchanged (0x1)\n" + COMPLETE,
+                 "CONFIG0 @bad  unchanged (0x1)"),
+                (PREVIEW + COMPLETE + "\nerror: interrupted", "error: interrupted")):
+            with self.subTest(output=output):
+                self.respond(response(output))
+                plan = timingwrite.plan({"FAW": 13}, SLOT)
+                self.assertTrue(plan.ok, plan.error)
+                self.assertEqual(plan.warnings, [warning])
+                self.assertTrue(plan.needs_force)
+
+    def test_unchanged_only_preview_is_nothing_to_write(self):
+        for output in (UNCHANGED + COMPLETE, UNCHANGED):
+            with self.subTest(output=output):
+                self.respond(response(output))
+                plan = timingwrite.plan({"RC": 1}, SLOT)
+                self.assertTrue(plan.ok, plan.error)
+                self.assertEqual(plan.ops, [])
+                self.assertFalse(plan.needs_force)
 
     def test_unchanged_rows_and_completion_are_not_warnings(self):
         self.respond(response(PREVIEW + UNCHANGED + COMPLETE))
@@ -165,13 +182,15 @@ class WriterContractTests(HelperFixture, unittest.TestCase):
         self.assertEqual(results[0].outcome, timingwrite.FAILED)
         self.assertEqual(len(self.argv()), 2)
 
-    def test_incomplete_preview_prevents_commit_even_with_force(self):
+    def test_preview_without_completion_marker_proceeds_to_commit(self):
+        # Readback after the commit, not the preview's last line, decides the
+        # outcome.
         self.apply_responses(preview=response(PREVIEW))
-        plan, results = timingwrite.apply({"FAW": 13}, SLOT, force=True)
-        self.assertFalse(plan.ok)
-        self.assertEqual(results[0].outcome, timingwrite.FAILED)
-        self.assertEqual(len(self.argv()), 2)
-        self.assertTrue(all("--commit" not in argv for argv in self.argv()))
+        plan, results = timingwrite.apply({"FAW": 13}, SLOT)
+        self.assertTrue(plan.ok, plan.error)
+        self.assertEqual(results[0].outcome, timingwrite.LANDED)
+        self.assertEqual(self.argv()[2], [self.exe, "set", "-d", SLOT,
+                                          "FAW=13", "--commit"])
 
     def test_failed_commit_is_not_a_hardware_rejection(self):
         self.apply_responses(commit=response(status=2, stderr="error: unsupported option"),
@@ -235,7 +254,8 @@ class WriterContractTests(HelperFixture, unittest.TestCase):
 
 class DefaultPreviewContractTests(HelperFixture, unittest.TestCase):
     """A helper whose bare set previews (help text of the nvtune fork's
-    tool/src/core/cli.cpp) prints no completion marker; rows are still checked."""
+    tool/src/core/cli.cpp) prints no completion marker; its preview is parsed
+    like any other."""
     HELP = ("  set FIELD=VALUE...        write fields (dry run unless --commit)\n"
             "      --commit          actually write (set/apply)\n"
             "Everything defaults to a dry run; --commit is required to touch hardware.\n")
@@ -248,13 +268,15 @@ class DefaultPreviewContractTests(HelperFixture, unittest.TestCase):
         self.assertFalse(plan.needs_force)
         self.assertEqual(self.argv(), [[self.exe, "set", "-d", SLOT, "FAW=13", "RC=1"]])
 
-    def test_writing_or_unparseable_rows_are_still_not_a_plan(self):
-        for output in ["", PREVIEW.replace("[would write]", "[write]"),
-                       PREVIEW.replace("FAW             12 -> 13", "FAW 12 -> unknown"),
-                       PREVIEW + "CONFIG0 @bad  unchanged (0x1)\n"]:
+    def test_unrecognized_rows_become_warnings_that_need_force(self):
+        for output in (PREVIEW.replace("FAW             12 -> 13", "FAW 12 -> unknown"),
+                       PREVIEW + "CONFIG0 @bad  unchanged (0x1)\n"):
             with self.subTest(output=output):
                 self.respond(response(output))
-                self.assertFalse(timingwrite.plan({"FAW": 13}, SLOT).ok)
+                plan = timingwrite.plan({"FAW": 13}, SLOT)
+                self.assertTrue(plan.ok, plan.error)
+                self.assertTrue(plan.needs_force)
+                self.assertEqual(self.argv()[-1], [self.exe, "set", "-d", SLOT, "FAW=13"])
 
 
 class ReaderContractTests(unittest.TestCase):
