@@ -120,10 +120,10 @@ CPython 3.8.10 runtime instead.
 Shared capability checks now follow the GPU generation and the current
 adapter's reported interfaces rather than exact developer boards and drivers.
 Rail-limit writes follow those checks on every driver, as described above.
-The package built for this update still carried a Release 367 driver gate on
-them, which the follow-up below removes. GPU recovery's PnP device restart
-requires Windows 10 version 2004; on Vista it reports that requirement and
-restarts nothing.
+The package first built for this update still carried a Release 367 driver
+gate on them; the follow-up below removes it and replaces that package. GPU
+recovery's PnP device restart requires Windows 10 version 2004; on Vista it
+reports that requirement and restarts nothing.
 
 On the Windows 10 build host, the merged source passed 1,224 tests with
 Python 3.14.4, and 1,221 with both the patched Vista Python 3.8.10 runtime and
@@ -135,17 +135,12 @@ real-renderer layout test were not run. Every module the application uses
 imports under both 3.8 runtimes; the historical Tk interface and its Tk
 research probes need Tcl/Tk, which those runtimes do not include.
 
-The portable Vista package was rebuilt from an export of commit `9de852b`,
-the application source of this update, with the existing patched runtime,
-SDK 10240 UCRT set and optional nvtune package. It was built in that export
-directory rather than the working tree's `dist` folder; its `Druta.exe` has
-SHA-256 `884e667f98dfc8d91d334a3d88a3e9d526bda246d1a977c217fd1bd53a03110f`,
-also recorded in the package's `source/SOURCE-MANIFEST.json`. Apart from
-`Druta.exe`, its native files are identical to the previous Vista package,
-and all 64 pass the Vista loader checks. Its frozen `Druta.exe --smoke-test`
-exited 0 on the host, parsed both bundled regulator profiles and rendered
-three frames. The Vista guest, the full-interface fixture and physical NVIDIA
-checks were not repeated for this update.
+A portable Vista package was first rebuilt from an export of commit
+`9de852b`, the application source of this update. Its `Druta.exe` has
+SHA-256 `884e667f98dfc8d91d334a3d88a3e9d526bda246d1a977c217fd1bd53a03110f`.
+That package still carries the Release 367 gate and the three behaviors
+changed by the follow-up below, and is superseded by the package described
+there. Do not use it to test this branch.
 
 A follow-up merges the Windows 7 changes that make three behaviors match the
 shared build. An `nvtune fields` run that exits nonzero but still prints a
@@ -157,8 +152,21 @@ older NVML are unchanged. The follow-up also reverts the Release 367 gate, so
 the rail-limit checks described above apply on every driver, including
 365.19. With these changes the source passed 1,230 tests with Python 3.14.4,
 and 1,227 with both the patched Vista Python 3.8.10 runtime and stock CPython
-3.8.10, where the same three wheel and sdist tests skip. The Vista package
-was not rebuilt for this follow-up.
+3.8.10, where the same three wheel and sdist tests skip.
+
+The portable Vista package was then rebuilt from an export of commit
+`63d1043`, the application source of this follow-up, with the existing
+patched runtime, SDK 10240 UCRT set and optional nvtune package. It was built
+in that export directory rather than the working tree's `dist` folder; its
+`Druta.exe` has SHA-256
+`2886532a4ccfa363d9a959b8a77968a1ee905e3d29faf30b897a9f9c66283141`, also
+recorded in the package's `source/SOURCE-MANIFEST.json`, whose files match
+that commit. Apart from `Druta.exe`, its native files are identical to the
+`9de852b` package, and all 64 pass the Vista loader checks. Its frozen
+`Druta.exe --smoke-test`, run from the extracted ZIP, exited 0 on the host,
+parsed both bundled regulator profiles and rendered three frames. The Vista
+guest, the full-interface fixture and physical NVIDIA checks were not
+repeated for this follow-up.
 
 ## Required Windows components
 
