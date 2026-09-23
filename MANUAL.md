@@ -113,7 +113,10 @@ can retain. Other cards keep their existing offset precision. This board's
 memory command-clock divisor remains unknown; no timing-nanosecond conversion
 is inferred from its reported memory clock.
 
-`nvtune` is shipped by Seby. You must enable test signing for it to work on your machine. Druta can hunt for it on your desktop and will load it automatically. Druta is an offline tool. It does not download or upload anything.  
+`nvtune` is an external tool distributed by Seby; Druta does not bundle it. You
+must enable test signing for it to work on your machine. Druta can locate an
+existing copy, but does not download tools or install updates. Druta is an
+offline tool. It does not download or upload anything.
 
 You should almost always use `Read memory timings (will hold P0)` (blue) because changing P states can change timings, and reading/changing memory timing when the card is idling at P16 is useless for your endeavors. `read timing` is for sanity checks after you have applied your changes. 
 
@@ -132,6 +135,23 @@ captures and disables decoded timing Apply and Restore. RTX 5080 reported
 text before previewing a change: newer helpers require explicit `--dry-run`,
 while the recognized legacy convention requires `--commit` for writes.
 Unrecognized command conventions refuse the preview.
+
+### Upcoming timing profiles
+
+The next unreleased build adds **Save timing profile...** and **Load timing profile...** to the
+Timings tab. Save records the current decoded broadcast timing fields together
+with any red, staged edits. It only exports a capture taken in the top memory
+band whose active framebuffer partitions agree; raw registers, inferred fields,
+and structural training fields are never profile values.
+
+Load accepts Druta timing profiles and nvtune-compatible `fields` profiles. It
+replaces the staged timing edits only: it never writes the GPU. Review the
+normal preview and use **Apply to memory controller** to make a write; the
+existing fresh-band and write checks still apply. A raw `nvtune save -o`
+register backup is for nvtune restore, not a timing profile, and Druta refuses
+to turn it into broadcast writes. Upstream nvtune `save --profile` support is
+in [PR #3](https://github.com/sebastianmarrufo/nvtune/pull/3); use its emitted
+profile with that fix installed.
 
 Once `nvtune` EXE is loaded, these buttons move up to the `Device` menus on the taskbar. 
 

@@ -816,6 +816,22 @@ The CUDA memcpy load is the fallback when the hold cannot be taken, such as in c
 
 **`Re-read timings`** — a sanity check after you applied the settings, not a way to get a reading. Might be deprecated soon. 
 
+### Upcoming timing profiles
+
+The next unreleased build adds **Save timing profile...** and **Load timing profile...** on the
+Timings tab. Save combines the decoded broadcast capture with red, staged
+edits. It requires a top-band capture and matching active framebuffer
+partitions, and stores timing fields only: it excludes raw registers, inferred
+fields, and structural training fields.
+
+Load accepts Druta timing profiles and nvtune-compatible `fields` files. It
+only replaces the editor's staged edits, so it sends no GPU write. Review the
+usual preview and choose **Apply to memory controller** to commit; all existing
+fresh-band and write checks remain in force. A raw `nvtune save -o` backup is a
+nvtune restore file, not an apply profile, and Druta will not broadcast it.
+Upstream nvtune `save --profile` support is in [PR #3](https://github.com/sebastianmarrufo/nvtune/pull/3). Druta does
+not bundle, download, or automatically update nvtune.
+
 ## Writing
 
 

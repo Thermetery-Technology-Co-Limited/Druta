@@ -90,7 +90,7 @@ import time
 
 import dearpygui.dearpygui as dpg
 
-from . import gpuload, paths, profiles, startup, shuntmod, timings, timingwrite
+from . import gpuload, paths, profiles, startup, shuntmod, timings, timingwrite, timingprofiles
 from .nvbackend import (GPU, EVENT_REASONS, PERF_DECREASE_BITS, VF_STEP_KHZ, VF_LOCK_DOMAIN,
                         VFP_POINTS, below_cap, enumerate_gpus, is_admin,
                         same_slot,
@@ -98,7 +98,7 @@ from .nvbackend import (GPU, EVENT_REASONS, PERF_DECREASE_BITS, VF_STEP_KHZ, VF_
                         PRIV_N_DOMAINS, PRIV_PCIE_GEN, PRIV_UNNAMED,
                         PRIV_UNPOPULATED)
 
-__version__ = "1.5.1"
+__version__ = "1.5.2.dev0"
 
 # ---- palette (ImGui takes 0-255 RGBA) ------------------------------------- #
 TEXT = (230, 232, 236)
@@ -373,6 +373,8 @@ class Druta:
         self._tw_base = {}         # field -> cycle count actually in the reg
         self._tw_themes = {}       # cached text-colour themes for the cells
         self._tw_btn = None        # colour band the Apply button is wearing
+        self._tim_profile_dialog = False
+        self._tim_profile_result = None
 
     # ---- helpers ---------------------------------------------------------- #
     def s(self, n):
@@ -7579,6 +7581,15 @@ deliberately does not put behind a button."""
                     dpg.add_spacer(width=self.s(10))
                     dpg.add_button(label="Restore stock", tag="tw_restore",
                                    width=self.s(150), callback=self.tw_restore)
+                with dpg.group(horizontal=True):
+                    dpg.add_button(label="Save timing profile...",
+                                   tag="tw_save_profile", callback=self.tw_save_profile)
+                    dpg.add_button(label="Load timing profile...",
+                                   tag="tw_load_profile", callback=self.tw_load_profile)
+                dpg.add_text("Save includes the captured values and your edits. "
+                             "Load replaces staged edits; review and Apply to write.",
+                             color=DIM, wrap=self.s(1100))
+                dpg.add_text("", tag="tw_profile_status", color=TEXT, wrap=self.s(1100))
                 dpg.add_spacer(height=self.s(6))
                 dpg.add_separator()
                 dpg.add_spacer(height=self.s(6))
@@ -7765,6 +7776,120 @@ deliberately does not put behind a button."""
             dpg.bind_item_theme(tag, self.tw_theme("chg" if changed else "ok",
                                                    BAD if changed else GOOD))
         self.tw_plan()
+
+    # ---- timing profile files (never commit) ------------------------------ #
+    def tw_profile_status(self, message, ok=True):
+        dpg.set_value("tw_profile_status", message)
+        dpg.configure_item("tw_profile_status", color=TEXT if ok else BAD)
+
+    def tw_save_profile(self, sender=None, app_data=None, user_data=None):
+        self.open_timing_profile(save=True)
+
+    def tw_load_profile(self, sender=None, app_data=None, user_data=None):
+        self.open_timing_profile(save=False)
+
+    def open_timing_profile(self, *, save):
+        if getattr(self, "_tim_profile_dialog", False):
+            return
+        if getattr(self, "_tim_busy", False) or getattr(self, "_closing", False):
+            self.tw_profile_status("Wait for the timing capture to finish.", False)
+            return
+        ft, snap = self._tim_ft, self._tim
+        if ft is None or snap is None or not snap.ok:
+            self.tw_profile_status("Read memory timings before saving or loading a profile.", False)
+            return
+        # Freeze what Save means at the click. The picker runs off-thread and
+        # neither a new capture nor later edits may silently change that file.
+        try:
+            document = timingprofiles.make_profile(snap, ft, self._tw_pending) if save else None
+        except ValueError as exc:
+            self.tw_profile_status(str(exc), False)
+            return
+        generation, gpu = self._gpu_gen, self.gpu
+        pending = dict(self._tw_pending)
+        folder = paths.profile_dir() / "timings"
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            self.tw_profile_status(f"Cannot open the timing profile folder: {exc}", False)
+            return
+        self._tim_profile_dialog = True
+        self.tw_profile_status("Choose a timing profile file...")
+
+        def worker():
+            try:
+                loaded = None
+                path, error = self.pick_file_native(
+                    "Save timing profile" if save else "Load timing profile",
+                    str(folder), "timings.json" if save else "",
+                    (("Timing profiles (*.json)", "*.json"),), save=save)
+                if path and not error:
+                    if save:
+                        startup.atomic_json(path, document)
+                    else:
+                        loaded = timingprofiles.read_profile(path, ft)
+                self._tim_profile_result = (generation, gpu, pending, save, path,
+                                            error, loaded)
+            except Exception as exc:
+                self._tim_profile_result = (generation, gpu, pending, save, "",
+                                            str(exc), None)
+
+        threading.Thread(target=worker, daemon=True, name="Druta-timing-profile").start()
+
+    def poll_timing_profile(self):
+        result = getattr(self, "_tim_profile_result", None)
+        if result is None:
+            return
+        self._tim_profile_result = None
+        self._tim_profile_dialog = False
+        generation, gpu, pending, save, path, error, document = result
+        if generation != self._gpu_gen or gpu is not self.gpu:
+            self.log("Timing profile dialog belonged to the previous card; nothing loaded.", None)
+            return
+        if error:
+            self.tw_profile_status(error, False)
+        elif not path:
+            self.tw_profile_status("File selection cancelled.")
+        elif save:
+            self.tw_profile_status(f"Saved timing profile: {path}")
+        elif pending != self._tw_pending:
+            self.tw_profile_status("Edits changed while the file picker was open; load again to replace them.", False)
+        else:
+            self.stage_timing_profile(document, path)
+
+    def stage_timing_profile(self, document, path=""):
+        # Revalidate on the UI thread against the current helper table before
+        # replacing any edits. No setting is sent to hardware by this method.
+        try:
+            saved_slot = document.get("slot")
+            if saved_slot and saved_slot != self.gpu.slot():
+                raise ValueError(f"Profile belongs to {saved_slot}; select that GPU before loading.")
+            assignments = timingprofiles.validate_fields(document["fields"], self._tim_ft)
+            missing = set(assignments) - self._tw_base.keys()
+            if missing:
+                raise ValueError("Capture these fields before loading: " + ", ".join(sorted(missing)))
+        except (ValueError, KeyError) as exc:
+            self.tw_profile_status(str(exc), False)
+            return
+        self._tw_pending = {name: value for name, value in assignments.items()
+                            if value != self._tw_base[name]}
+        for name, base in self._tw_base.items():
+            tag = f"twv_{name}"
+            if dpg.does_item_exist(tag):
+                dpg.set_value(tag, self._tw_pending.get(name, base))
+                changed = name in self._tw_pending
+                dpg.bind_item_theme(tag, self.tw_theme("chg" if changed else "ok",
+                                                      BAD if changed else GOOD))
+        self.tw_plan()
+        capture = document.get("capture") or {}
+        card, band = capture.get("gpu"), capture.get("band")
+        source = " Source GPU and clock band were not recorded."
+        if isinstance(card, dict) and isinstance(band, dict):
+            source = (f" Captured on {card.get('codename', '?')} at "
+                      f"{band.get('memory_mhz_reported', '?')} MHz reported memory clock "
+                      f"(P{band.get('pstate', '?')}).")
+        self.tw_profile_status(f"Loaded {len(assignments)} fields; {len(self._tw_pending)} changes staged. "
+                               f"Review the preview before Apply. {path}" + source)
 
     # ---- the write panel -------------------------------------------------- #
     # These run INLINE rather than on the capture worker's thread. A write is
@@ -8303,7 +8428,7 @@ deliberately does not put behind a button."""
 
     # ---- locating nvtune, which this build does not ship ------------------ #
     @staticmethod
-    def pick_file_native(title, initial_dir="", filename="", spec=()):
+    def pick_file_native(title, initial_dir="", filename="", spec=(), *, save=False):
         """The WINDOWS file picker, through comdlg32.GetOpenFileNameW.
 
         Dear PyGui's own file dialog is not usable for this. It renders drives
@@ -8364,9 +8489,17 @@ deliberately does not put behind a button."""
             # PATHMUSTEXIST make it reject a typo rather than hand back a path
             # to nothing; NOCHANGEDIR stops it moving OUR working directory,
             # which would quietly break every relative path in the process.
-            ofn.Flags = 0x00080000 | 0x00001000 | 0x00000800 | 0x00000008
-            if ctypes.windll.comdlg32.GetOpenFileNameW(ctypes.byref(ofn)):
+            ofn.Flags = 0x00080000 | 0x00000800 | 0x00000008
+            ofn.Flags |= 0x00000002 if save else 0x00001000  # OVERWRITEPROMPT / FILEMUSTEXIST
+            if save:
+                ofn.lpstrDefExt = "json"
+            picker = (ctypes.windll.comdlg32.GetSaveFileNameW if save
+                      else ctypes.windll.comdlg32.GetOpenFileNameW)
+            if picker(ctypes.byref(ofn)):
                 return buf.value, ""
+            error = ctypes.windll.comdlg32.CommDlgExtendedError()
+            if error:
+                return "", f"Windows file picker error 0x{error:04X}"
         except Exception as e:                                  # noqa: BLE001
             return "", f"{type(e).__name__}: {e}"
         return "", ""
@@ -9716,6 +9849,7 @@ deliberately does not put behind a button."""
                 self.consume_clock_capability_recovery()
                 self.poll_i2c_discovery()
                 self.poll_profile_load()
+                self.poll_timing_profile()
                 now = time.perf_counter()
                 if now - last >= 0.25:
                     last = now
