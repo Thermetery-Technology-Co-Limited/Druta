@@ -97,6 +97,41 @@ preserved. These refreshed application sources have not been rerun in the
 Vista guest or on physical Vista NVIDIA hardware; earlier guest results below
 remain historical evidence.
 
+## Shared feature update (2026-09-23)
+
+The draft now carries the shared Druta 1.6.0 source through the Windows 7
+update, including generation-aware current controls, NCT3933U and MP29816 rail
+support, per-adapter I2C discovery and scans, memory timing profiles, GPU
+recovery and public nvtune release support. Application modules live in
+`src\druta` and tests in `tests`. The Vista build helpers are under
+`src\druta\tools`, and their source patches, notes and pinned UCRT identities
+under `src\druta\tools\vista`. The pip-installable package declares Python
+3.11 or newer; the Vista build packages the same source with the patched
+CPython 3.8.10 runtime instead.
+
+Shared capability checks now follow the GPU generation and the current
+adapter's reported interfaces rather than exact developer boards and drivers.
+Rail-limit writes remain disabled on drivers older than Release 367, as
+described above. GPU recovery's PnP device restart requires Windows 10
+version 2004; on Vista it reports that requirement and restarts nothing.
+
+On the Windows 10 build host, the merged source passed 1,224 tests with
+Python 3.14.4, and 1,221 with both the patched Vista Python 3.8.10 runtime and
+stock CPython 3.8.10, where the three wheel and sdist tests skip. With Python
+3.13.14 and no pefile, 1,199 passed and the 15 Vista build-helper tests
+skipped. The hardware swap test and one real-renderer layout test were not
+run. Every module the application uses imports under both 3.8 runtimes; the
+historical Tk interface and its Tk research probes need Tcl/Tk, which those
+runtimes do not include.
+
+The portable Vista package was rebuilt from an export of the committed source
+with the existing patched runtime, SDK 10240 UCRT set and optional nvtune
+package. Apart from `Druta.exe`, its native files are identical to the
+previous Vista package, and all 64 pass the Vista loader checks. Its frozen
+`Druta.exe --smoke-test` exited 0 on the host, parsed both bundled regulator
+profiles and rendered three frames. The Vista guest, the full-interface
+fixture and physical NVIDIA checks were not repeated for this update.
+
 ## Required Windows components
 
 - Windows Vista **Service Pack 2, x64**.
