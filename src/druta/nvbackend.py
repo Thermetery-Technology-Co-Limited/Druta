@@ -1448,16 +1448,13 @@ class Nvml:
             dev = PTR()
             if getattr(self.dll, handle_name)(i, ctypes.byref(dev)) != 0:
                 continue
-            pci = self._read_pci(dev)
-            # An unidentified handle cannot safely be paired with NVAPI or
-            # selected by the default ordinal. Skip it rather than guessing.
-            if pci is None:
-                continue
             entry = {"dev": dev, "nvml_index": i, "slot": "",
                      "devid": None, "subsys": None, "name": "", "uuid": ""}
-            entry["slot"] = format_slot(pci.domain, pci.bus, pci.device)
-            entry["devid"] = pci.pciDeviceId >> 16
-            entry["subsys"] = pci.pciSubSystemId
+            pci = self._read_pci(dev)
+            if pci is not None:
+                entry["slot"] = format_slot(pci.domain, pci.bus, pci.device)
+                entry["devid"] = pci.pciDeviceId >> 16
+                entry["subsys"] = pci.pciSubSystemId
             buf = ctypes.create_string_buffer(96)
             if (self.has("nvmlDeviceGetName")
                     and self.dll.nvmlDeviceGetName(dev, buf, 96) == 0):
@@ -1476,7 +1473,7 @@ class Nvml:
         return next((name for name in names if self.has(name)), None)
 
     def _read_pci(self, dev):
-        """Use the newest exported PCI reader, retaining the same identity.
+        """PCI identity from the newest exported reader, or None.
 
         V2 predates the longer V3 bus-ID tail. Both use the same leading
         16-byte bus ID and five uint32 identity fields. The V3-sized buffer
@@ -1484,6 +1481,9 @@ class Nvml:
         consumed. An unversioned pre-R285 record lacks subsystem identity and
         is deliberately not used for pairing or private write profiles.
         NVIDIA version history: https://docs.nvidia.com/deploy/archive/R470/nvml-api/change-log.html
+
+        On None the GPU is still listed, with a blank slot, device ID and
+        subsystem.
         """
         for name in ("nvmlDeviceGetPciInfo_v3", "nvmlDeviceGetPciInfo_v2"):
             if not self.has(name):
@@ -1492,10 +1492,7 @@ class Nvml:
             status = getattr(self.dll, name)(dev, ctypes.byref(pci))
             if status == 13:  # NVML_ERROR_FUNCTION_NOT_FOUND: exported stub.
                 continue
-            if (status != 0 or pci.bus > 0xFF or pci.device > 31
-                    or (pci.pciDeviceId & 0xFFFF) != 0x10DE):
-                return None
-            return pci
+            return pci if status == 0 else None
         return None
 
     def _select(self, slot):
