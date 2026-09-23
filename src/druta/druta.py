@@ -99,7 +99,7 @@ from .nvbackend import (GPU, EVENT_REASONS, PERF_DECREASE_BITS, VF_STEP_KHZ, VF_
                         PRIV_N_DOMAINS, PRIV_PCIE_GEN, PRIV_UNNAMED,
                         PRIV_UNPOPULATED)
 
-__version__ = "1.5.2.dev0"
+__version__ = "1.6.0"
 
 # ---- palette (ImGui takes 0-255 RGBA) ------------------------------------- #
 TEXT = (230, 232, 236)
@@ -158,10 +158,9 @@ RISK_FEATURE_TEXT = {
         "RAIL LIMITS: the driver-held per-rail voltage ceilings are being "
         "written directly. EXPERIMENTAL."),
     "i2c": (
-        "I2C: writes go straight to the regulator over PMBus, bypassing the "
-        "driver and the GPU firmware entirely. The GPU cannot see this "
-        "voltage and will not compensate for it, and it does not clear on "
-        "reboot."),
+        "I2C: direct board-controller writes bypass the GPU's voltage "
+        "request limits. Register readback is not a physical rail-voltage "
+        "measurement; changes may persist through a reboot."),
 }
 
 
@@ -1862,9 +1861,10 @@ class Druta:
         """Which guardrail-removing features are actually live right now.
 
         Keyed on what a write would DO, not on which boxes are ticked: the I2C
-        state only counts when the module is present AND a regulator was
-        identified on this board, because a ticked box on a card without the
-        links fitted changes nothing and must not claim otherwise.
+        state only counts when a writable controller has been identified and
+        selected. Do not probe the bus to choose a colour: a transient failed
+        read must not make an enabled direct-controller path look safer. The
+        write gates still check the live target and identity before dispatch.
 
         The same rule applies to "volt_limits": it counts only where the block
         is actually writable, so on a card whose limits cannot be read the box
@@ -1875,7 +1875,7 @@ class Druta:
             live.add("xoc")
         if (self.rail is not None and not self.rail.p.read_only
                 and dpg.does_item_exist("i2c_mode")
-                and dpg.get_value("i2c_mode") and self.rail.present()):
+                and dpg.get_value("i2c_mode")):
             live.add("i2c")
         if (dpg.does_item_exist("vlim_mode") and dpg.get_value("vlim_mode")
                 and self.rail_limits_available()):
@@ -2568,12 +2568,9 @@ class Druta:
     def knob_bounds(self, key):
         """The bounds one knob is under RIGHT NOW.
 
-        Off the flag sync_slider_ranges last acted on, NOT off risk_features():
-        this runs on every keystroke in a text box, and risk_features() probes
-        the I2C bus for a regulator whenever the I2C box is ticked. It also
-        guarantees the typed value is bounded by exactly what the slider beside
-        it was configured with, rather than by a second opinion computed a
-        different way."""
+        Use the flag sync_slider_ranges last acted on so the typed value is
+        bounded by exactly what the slider beside it was configured with,
+        rather than by a second opinion computed a different way."""
         r = self._slider_ranges.get(key)
         if r is None:
             return None
@@ -3584,7 +3581,7 @@ class Druta:
             return False, "I2C detection is still running; wait for it to finish"
         if (hasattr(self, "_i2c_discovery_complete")
                 and not self._i2c_discovery_complete):
-            return False, "I2C detection has not completed; tick I2C rail and wait for the scan"
+            return False, "I2C detection has not completed; enable I2C rail and use Connect / Scan"
         if self.rail is None:
             return False, ("no i2c profile identifies a regulator on this "
                            "card - see i2c/PROFILES.md to write one")

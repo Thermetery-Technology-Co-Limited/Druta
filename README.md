@@ -1,6 +1,6 @@
 # Druta
 
-**Version 1.5.1** — [release notes](RELEASE-NOTES-1.5.1.md).
+**Version 1.6.0** — [release notes](RELEASE-NOTES-1.6.0.md).
 
 Package-refactor validation: [Maxwell/Pascal](MAXWELL-PASCAL-VALIDATION.md)
 and [RTX 5080 / Blackwell](BLACKWELL-VALIDATION.md), including controlled
@@ -98,7 +98,7 @@ python -m pip install -r requirements.txt
 ```
 
 The local build produces `dist\Druta\Druta.exe` and
-`dist\Druta-1.5.1-win64.zip`. Distribute the
+`dist\Druta-1.6.0-win64.zip`. Distribute the
 whole `Druta` folder or ZIP: the EXE needs its adjacent `_internal` folder.
 
 `dist\Druta\source\` contains the matching working-tree source, including
@@ -869,7 +869,7 @@ slot from `Druta.exe --list-gpus`. Close existing Druta windows first.
 
 ### Upcoming timing profiles
 
-The next unreleased build adds **Save timing profile...** and **Load timing profile...** on the
+Druta 1.6.0 adds **Save timing profile...** and **Load timing profile...** on the
 Timings tab. Save combines the decoded broadcast capture with red, staged
 edits. It requires a top-band capture and matching active framebuffer
 partitions, and stores timing fields only: it excludes raw registers, inferred
@@ -880,8 +880,9 @@ only replaces the editor's staged edits, so it sends no GPU write. Review the
 usual preview and choose **Apply to memory controller** to commit; all existing
 fresh-band and write checks remain in force. A raw `nvtune save -o` backup is a
 nvtune restore file, not an apply profile, and Druta will not broadcast it.
-Upstream nvtune `save --profile` support is in [PR #3](https://github.com/sebastianmarrufo/nvtune/pull/3). Druta does
-not bundle, download, or automatically update nvtune.
+Upstream nvtune `save --profile` is fixed in
+[v1.0.2-alpha](https://github.com/sebastianmarrufo/nvtune/releases/tag/v1.0.2-alpha).
+Druta does not bundle, download, or automatically update nvtune.
 
 ## Writing
 
