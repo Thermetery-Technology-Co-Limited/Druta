@@ -26,8 +26,9 @@ This branch includes the current driver compatibility fixes: trusted NVML
 locations, optional older NVML exports, PCI-addressed GPU pairing and CUDA
 loads, clock/fan fallbacks, V/F curve validation and GPU switching, whole-bin
 ramp staging, profile restoration, and the **Additional Memory Clock Offset**
-label. The Vista-specific runtime, file dialogs and explicit nvtune
-`--dry-run` / `--commit` safeguards remain in place.
+label. The Vista-specific runtime and file dialogs remain in place. nvtune
+previews and commits follow the shared build's help-based contract, as
+described in [nvtune on Windows 7](WINDOWS7.md#nvtune-on-windows-7).
 
 NVIDIA states that [Vista support was deprecated in Release 367.xx](https://nvidia.custhelp.com/app/answers/detail/a_id/4373/kw/applications).
 Its [365.19 WHQL driver](https://www.nvidia.com/en-us/drivers/details/102379/)
@@ -43,6 +44,7 @@ NVML, NVAPI and CUDA are x64 PE files with minimum subsystem 6.0.
 NVML has 130 exports and exposes PCI-info V2, but not V3, indexed fan APIs,
 clock-offset APIs or GPU frequency-lock APIs. Druta uses the compatible
 PCI record and guards missing functions; unavailable readings stay unknown.
+A GPU whose PCI record cannot be read stays listed with a blank slot.
 The CUDA functions used by the load worker and NVAPI's query entry point
 exist in these files. Export presence does not prove a function works on a
 particular GPU. No NVIDIA driver binary is included in the Druta package.
