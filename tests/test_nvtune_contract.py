@@ -258,14 +258,32 @@ class DefaultPreviewContractTests(HelperFixture, unittest.TestCase):
 
 
 class ReaderContractTests(unittest.TestCase):
-    def test_failed_fields_output_is_never_cached_as_valid(self):
+    def test_nonzero_fields_exit_with_usable_stdout_is_parsed_and_cached(self):
         exe = r"C:\nvtune\nvtune.exe"
-        with patch.object(timings, "find_exe", return_value=exe), \
-                patch.object(timings, "_run", return_value=response("partial field table", status=1)), \
+        table = SimpleNamespace(fields=[])
+        with patch.dict(timings._FT_CACHE, clear=True), \
+                patch.object(timings, "find_exe", return_value=exe), \
+                patch.object(timings, "_run", return_value=response("partial field table", status=1)) as run, \
+                patch.object(timings, "parse_fields", return_value=table) as parse:
+            self.assertIs(timings.field_table(refresh=True), table)
+            parse.assert_called_once_with("partial field table")
+            # The parsed table is cached like any other; no second `fields` run.
+            self.assertIs(timings.field_table(), table)
+            self.assertEqual(run.call_count, 1)
+
+    def test_nonzero_fields_exit_without_stdout_raises_and_is_not_cached(self):
+        exe = r"C:\nvtune\nvtune.exe"
+        with patch.dict(timings._FT_CACHE, clear=True), \
+                patch.object(timings, "find_exe", return_value=exe), \
+                patch.object(timings, "_run", return_value=response("  \n", status=1,
+                                                                   stderr="cannot open driver")), \
                 patch.object(timings, "parse_fields") as parse:
-            with self.assertRaises(timings.TimingsError):
+            with self.assertRaises(timings.TimingsError) as raised:
                 timings.field_table(refresh=True)
+            self.assertIn("exit 1", str(raised.exception))
+            self.assertIn("cannot open driver", str(raised.exception))
             parse.assert_not_called()
+            self.assertNotIn(exe, timings._FT_CACHE)
 
     def test_failed_save_is_rejected_even_if_it_left_a_valid_file(self):
         exe = r"C:\nvtune\nvtune.exe"
