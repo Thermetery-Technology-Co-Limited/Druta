@@ -1104,6 +1104,15 @@ to stock` still takes two, because it drops every knob at once.
 ## I2C discovery and contribution interfaces
 
 `railctl.discover()` returns all controller candidates on the selected GPU.
+An optional `controller` name limits discovery to that family; optional
+`routes` restrict it to exact `(port, addr7)` pairs within the family's
+supported routes. `controller_names()` includes built-in controllers and
+loaded TOML recipe regulator names. The GUI starts discovery only on an
+explicit scan-button click. Its UUID-bound route cache stores the selected
+controller and recipe identity, never settings or write verification. Reconnect
+performs fresh identity and settings reads through the same scoped scanner,
+falling back to the selected scope if the hint cannot be verified.
+
 NCP4206 uses controller-model discovery and an absolute-VID adapter; MP2888A
 checks a repeated register fingerprint; MP29816 checks its source-backed model
 ID and binds its already-selected PAGE/scaling. All scan ports and unicast

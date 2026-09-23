@@ -16,6 +16,9 @@ class RailIdentityTests(unittest.TestCase):
         self.profile.pci_subsys = {"0x12a310de"}
         self.profile.addrs = [0x20]
         self.profile.name = "measured board"
+        # Profile.__init__ always defines this scanner identity; the compact
+        # fixture bypasses it with __new__.
+        self.profile.regulator = "measured controller"
         self.nvapi = SimpleNamespace(selected={
             "devid": 0x1E02, "subsys": 0x12A310DE})
         for target, name in (("druta.railctl.load_profiles", "profiles"),

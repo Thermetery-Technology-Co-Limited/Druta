@@ -1020,8 +1020,42 @@ class Rail:
         ), ladder
 
 
+def controller_names(log=None):
+    """Controller families offered for an explicit, read-only scoped scan."""
+    names = ["Nuvoton NCT3933U", "NCP4206"]
+    for profile in load_profiles(log=log):
+        if profile.regulator not in names:
+            names.append(profile.regulator)
+    return names
+
+
+def _normalize_routes(routes):
+    """Validate exact bus pairs before a scoped scan touches the GPU."""
+    if routes is None:
+        return None
+    if isinstance(routes, (str, bytes)):
+        raise ValueError("I2C routes must be (port, addr7) pairs")
+    try:
+        values = list(routes)
+    except TypeError as exc:
+        raise ValueError("I2C routes must be iterable") from exc
+    selected = set()
+    for pair in values:
+        if (type(pair) is not tuple or len(pair) != 2
+                or type(pair[0]) is not int or not 0 <= pair[0] <= 7
+                or type(pair[1]) is not int or not 0x08 <= pair[1] <= 0x77):
+            raise ValueError("I2C routes require (port 0..7, unicast addr7 0x08..0x77)")
+        selected.add(pair)
+    return selected
+
+
+def _route_pairs(addresses, ports, selected):
+    return [(port, addr7) for addr7 in addresses for port in ports
+            if selected is None or (port, addr7) in selected]
+
+
 def discover(nvapi, dev_id=None, subsys=None, log=None, *, architecture=None,
-             progress=None, cancelled=None):
+             progress=None, cancelled=None, controller=None, routes=None):
     """Read-only candidate discovery on the selected GPU's actual I2C buses.
 
     NCT3933U, NCP4206, MP2888A and MP29816 use controller evidence, without board-ID gates.
@@ -1038,9 +1072,24 @@ def discover(nvapi, dev_id=None, subsys=None, log=None, *, architecture=None,
     from .mp29816 import (DISCOVERY_ADDRESSES as MP29816_ADDRESSES,
                           DISCOVERY_PORTS as MP29816_PORTS,
                           discover as discover_mp29816)
+    selected_routes = _normalize_routes(routes)
     cooperative = progress is not None or cancelled is not None
     cancelled = cancelled or (lambda: False)
     profiles = load_profiles(log=log)
+    names = ["Nuvoton NCT3933U", "NCP4206"]
+    for p in profiles:
+        if p.regulator not in names:
+            names.append(p.regulator)
+    if controller is not None and (type(controller) is not str or controller not in names):
+        raise ValueError("unknown I2C controller scan scope")
+    nct_routes = _route_pairs(NCT3933_ADDRESSES, NCT3933_PORTS, selected_routes)
+    ncp_routes = _route_pairs(DISCOVERY_ADDRESSES, DISCOVERY_PORTS, selected_routes)
+    mp2888_routes = _route_pairs(MP2888_ADDRESSES, MP2888_PORTS, selected_routes)
+    mp29816_routes = _route_pairs(MP29816_ADDRESSES, MP29816_PORTS, selected_routes)
+    if controller != "Nuvoton NCT3933U" and controller is not None:
+        nct_routes = []
+    if controller != "NCP4206" and controller is not None:
+        ncp_routes = []
     selected = getattr(nvapi, "selected", None) or {}
     conflict = any(supplied is not None and selected.get(key) is not None
                    and supplied != selected[key]
@@ -1049,20 +1098,21 @@ def discover(nvapi, dev_id=None, subsys=None, log=None, *, architecture=None,
         dev_id = selected.get("devid")
     if subsys is None:
         subsys = selected.get("subsys")
-    total = (len(DISCOVERY_ADDRESSES) * len(DISCOVERY_PORTS)
-             + len(NCT3933_ADDRESSES) * len(NCT3933_PORTS)
+    total = (len(ncp_routes) + len(nct_routes)
              if getattr(nvapi, "ok", False) else 0)
     eligible = {}
     for p in profiles:
         regulator = getattr(p, "regulator", "").upper()
+        if controller is not None and p.regulator != controller:
+            continue
         if regulator == "MPS MP2888A":
-            total += len(MP2888_ADDRESSES) * len(MP2888_PORTS)
+            total += len(mp2888_routes) if getattr(nvapi, "ok", False) else 0
         elif regulator == "MPS MP29816":
-            total += len(MP29816_ADDRESSES) * len(MP29816_PORTS)
+            total += len(mp29816_routes) if getattr(nvapi, "ok", False) else 0
         elif not conflict:
             eligible[id(p)] = p.candidate_for(dev_id, subsys)
             if eligible[id(p)]:
-                total += len(p.addrs)
+                total += sum((p.port, a) in selected_routes for a in p.addrs) if selected_routes is not None else len(p.addrs)
     complete = 0
 
     def advance(label):
@@ -1077,45 +1127,49 @@ def discover(nvapi, dev_id=None, subsys=None, log=None, *, architecture=None,
     if getattr(nvapi, "ok", False):
         # This DAC has no voltage telemetry. Its two explicit identity bytes
         # establish the register contract; channel wiring is board-specific.
-        for addr7 in NCT3933_ADDRESSES:
-            for port in NCT3933_PORTS:
-                if cancelled():
-                    return hits
-                try:
-                    dac = NCT3933U(nvapi, port=port, addr7=addr7)
-                    if dac.present():
-                        dac.discovery_telemetry = dac.telemetry()
-                        hits.append(dac)
-                except Exception:
-                    pass
-                advance(f"NCT3933U port {port}, 0x{addr7:02X}")
-        for addr7 in DISCOVERY_ADDRESSES:
-            for port in DISCOVERY_PORTS:
-                if cancelled():
-                    return hits
-                try:
-                    ncp = NCP4206(nvapi, architecture=architecture, port=port, addr7=addr7)
-                    if ncp.present():
-                        hits.append(ncp)
-                    elif log and ncp.discovery_diagnostics.get('model') is not None:
-                        log(f'onsemi candidate at port {port}/0x{addr7:02X}: '
-                            f'{ncp.discovery_diagnostics}; no understood NCP4206 layout.', False)
-                except Exception:
-                    pass
-                advance(f"NCP4206 port {port}, 0x{addr7:02X}")
+        for port, addr7 in nct_routes:
+            if cancelled():
+                return hits
+            try:
+                dac = NCT3933U(nvapi, port=port, addr7=addr7)
+                if dac.present():
+                    dac.discovery_telemetry = dac.telemetry()
+                    hits.append(dac)
+            except Exception:
+                pass
+            advance(f"NCT3933U port {port}, 0x{addr7:02X}")
+        for port, addr7 in ncp_routes:
+            if cancelled():
+                return hits
+            try:
+                ncp = NCP4206(nvapi, architecture=architecture, port=port, addr7=addr7)
+                if ncp.present():
+                    hits.append(ncp)
+                elif log and ncp.discovery_diagnostics.get('model') is not None:
+                    log(f'onsemi candidate at port {port}/0x{addr7:02X}: '
+                        f'{ncp.discovery_diagnostics}; no understood NCP4206 layout.', False)
+            except Exception:
+                pass
+            advance(f"NCP4206 port {port}, 0x{addr7:02X}")
     for p in profiles:
         if cancelled():
             return hits
+        if controller is not None and p.regulator != controller:
+            continue
         if getattr(p, "regulator", "").upper() == "MPS MP2888A":
             kwargs = {"log": log}
             if cooperative:
                 kwargs.update(progress=advance, cancelled=cancelled)
+            if selected_routes is not None:
+                kwargs["routes"] = selected_routes
             hits.extend(discover_mp2888(nvapi, p, **kwargs))
             continue
         if getattr(p, "regulator", "").upper() == "MPS MP29816":
             kwargs = {"log": log}
             if cooperative:
                 kwargs.update(progress=advance, cancelled=cancelled)
+            if selected_routes is not None:
+                kwargs["routes"] = selected_routes
             hits.extend(discover_mp29816(nvapi, p, **kwargs))
             continue
         if conflict or not eligible.get(id(p), False):
@@ -1123,6 +1177,8 @@ def discover(nvapi, dev_id=None, subsys=None, log=None, *, architecture=None,
         for a in p.addrs:
             if cancelled():
                 return hits
+            if selected_routes is not None and (p.port, a) not in selected_routes:
+                continue
             r = Rail(p, nvapi, addr7=a)
             if r.present():
                 hits.append(r)

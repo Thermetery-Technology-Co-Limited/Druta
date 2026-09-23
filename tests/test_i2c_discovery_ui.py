@@ -32,6 +32,8 @@ class I2cDiscoveryUiTests(FakeUiTest):
         self.app._i2c_scan_started = 0.0
         self.app._i2c_scan_status = ""
         self.app._i2c_scan_work = (0, 0, "")
+        self.app._i2c_scan_scope = None
+        self.app._i2c_controller_choice = "Unknown -- Full Scan"
         self.app._i2c_discovery_complete = False
         self.app._profile_pending = None
         self.app._profile_applying = False
@@ -47,7 +49,7 @@ class I2cDiscoveryUiTests(FakeUiTest):
         self.assertIsNone(app.rail)
         self.assertFalse(app._i2c_discovery_complete)
 
-    def test_checking_i2c_requests_scan_and_unchecking_cancels_it(self):
+    def test_checking_i2c_reveals_controls_without_scanning_and_unchecking_cancels(self):
         self.values["i2c_regulator_header"] = False
         self.values["i2c_mode"] = True
         self.values["risk_banner"] = ""
@@ -58,8 +60,10 @@ class I2cDiscoveryUiTests(FakeUiTest):
         self.app.refresh_current_limits = Mock()
         self.app.sync_slider_ranges = Mock()
         self.app.start_i2c_discovery = Mock(return_value=True)
+        self.app.update_i2c_scan_ui = Mock()
         self.app.on_i2c_mode(app_data=True)
-        self.app.start_i2c_discovery.assert_called_once_with()
+        self.app.start_i2c_discovery.assert_not_called()
+        self.app.update_i2c_scan_ui.assert_called_once_with()
         self.ui.configure_item.assert_any_call("i2c_regulator_header", default_open=True)
         self.assertTrue(self.values["i2c_mode"])
         self.assertEqual(self.app.risk_features(), set())
@@ -78,25 +82,29 @@ class I2cDiscoveryUiTests(FakeUiTest):
         self.app._i2c_scan_busy = True
         self.app._i2c_scan_token = 7
         self.values["i2c_mode"] = True
-        with patch.object(druta.railctl, "discover", return_value=[candidate]) as discover:
+        with patch.object(druta.i2c_cache, "load_route", return_value=None), \
+                patch.object(druta.railctl, "discover", return_value=[candidate]) as discover, \
+                patch.object(druta.i2c_cache, "remember", return_value=True) as remember:
             self.app._i2c_discovery_worker(7, 3, self.gpu, self.nvapi, 10,
                                             threading.Event())
-        discover.assert_called_once()
-        progress = discover.call_args.kwargs["progress"]
-        progress(2, 5, "NCP4206 port 2, 0x20")
-        self.assertEqual(self.app._i2c_scan_work, (2, 5, "NCP4206 port 2, 0x20"))
-        self.app.poll_i2c_discovery()
-        self.assertTrue(self.app._i2c_discovery_complete)
-        self.assertIs(self.app.rail, candidate)
-        self.assertEqual(self.app._rail_candidates, [candidate])
-        self.assertFalse(self.app._i2c_scan_busy)
+            discover.assert_called_once()
+            progress = discover.call_args.kwargs["progress"]
+            progress(2, 5, "NCP4206 port 2, 0x20")
+            self.assertEqual(self.app._i2c_scan_work, (2, 5, "NCP4206 port 2, 0x20"))
+            self.app.poll_i2c_discovery()
+            self.assertTrue(self.app._i2c_discovery_complete)
+            self.assertIs(self.app.rail, candidate)
+            self.assertEqual(self.app._rail_candidates, [candidate])
+            self.assertFalse(self.app._i2c_scan_busy)
+            remember.assert_called_once_with(self.gpu, candidate)
         self.app.refresh_i2c_candidates.assert_called_once_with()
 
     def test_scan_error_and_stale_gpu_result_are_not_published(self):
         self.values["i2c_mode"] = True
         self.app._i2c_scan_busy = True
         self.app._i2c_scan_token = 8
-        with patch.object(druta.railctl, "discover", side_effect=RuntimeError("bus lost")):
+        with patch.object(druta.i2c_cache, "load_route", return_value=None), \
+                patch.object(druta.railctl, "discover", side_effect=RuntimeError("bus lost")):
             self.app._i2c_discovery_worker(8, 3, self.gpu, self.nvapi, 10,
                                             threading.Event())
         self.app.poll_i2c_discovery()
@@ -107,9 +115,12 @@ class I2cDiscoveryUiTests(FakeUiTest):
         old = SimpleNamespace()
         self.app._i2c_scan_busy = True
         self.app._i2c_scan_token = 9
-        self.app._i2c_scan_result = (9, 3, old, False, [SimpleNamespace()], None)
+        self.app._i2c_scan_result = (9, 3, old, False, [SimpleNamespace()], None,
+                                     "scan", [])
         self.app._gpu_gen = 4
-        self.app.poll_i2c_discovery()
+        with patch.object(druta.i2c_cache, "remember") as remember:
+            self.app.poll_i2c_discovery()
+        remember.assert_not_called()
         self.assertFalse(self.app._i2c_discovery_complete)
         self.assertIsNone(self.app.rail)
 
@@ -125,8 +136,10 @@ class I2cDiscoveryUiTests(FakeUiTest):
         self.assertIs(self.app._i2c_scan_thread, worker)
         self.assertFalse(self.app.start_i2c_discovery())
 
-        self.app._i2c_scan_result = (11, 3, self.gpu, True, [], None)
-        self.app.poll_i2c_discovery()
+        self.app._i2c_scan_result = (11, 3, self.gpu, True, [], None, "scan", [])
+        with patch.object(druta.i2c_cache, "remember") as remember:
+            self.app.poll_i2c_discovery()
+        remember.assert_not_called()
         self.assertFalse(self.app._i2c_scan_busy)
         self.assertIsNone(self.app._i2c_scan_thread)
 

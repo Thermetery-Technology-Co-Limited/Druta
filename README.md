@@ -511,11 +511,19 @@ monitor but is not yet implemented.
 
 ## NCT3933U current-DAC outputs
 
-With **I2C rail** enabled, Druta can detect an NCT3933U, read its three output
-commands, write an explicitly selected output, zero all outputs, and preserve
-the exact raw control in profiles and undo snapshots. **Raw outputs (µA)** is
-the default: OUT1/OUT2/OUT3, signed source/sink current and raw bytes, with no
-assumption about board wiring or live rail voltage.
+Checking **I2C rail** reveals manual discovery controls without scanning or
+reconnecting. Choose **Unknown -- Full Scan** or a known controller, then use
+**Connect / Scan**: it first tries a compatible remembered route and otherwise
+scans only the selected scope. **Full scan** bypasses route memory and scope.
+Launch, checking the box, and changing cards never start I2C discovery. Cached
+routes are read/verify hints only; a miss, failure, or corrupt cache falls back
+to the selected scan and never authorizes a write.
+
+After discovery, Druta can read NCT3933U output commands, write an explicitly
+selected output, zero all outputs, and preserve exact raw control in profiles
+and undo snapshots. **Raw outputs (µA)** is the default: OUT1/OUT2/OUT3,
+signed source/sink current and raw bytes, with no assumption about board wiring
+or live rail voltage.
 
 After meter verification, a user can explicitly select **GPU / memory /
 PEX-PLL (mV)** for a matching local adapter/controller route. It shows an mV

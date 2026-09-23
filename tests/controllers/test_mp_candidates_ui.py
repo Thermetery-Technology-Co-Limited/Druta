@@ -159,14 +159,15 @@ class CandidateUi(unittest.TestCase):
     def test_rescan_clears_recovery_even_when_it_returns_the_same_controller(self):
         self.app._i2c_recovery_for = self.app.i2c_connection()
         self.app.start_i2c_discovery = Mock(
-            side_effect=lambda: (self.app.clear_i2c_discovery() or True))
+            side_effect=lambda **kwargs: (self.app.clear_i2c_discovery() or True))
         with patch("druta.druta.dpg.does_item_exist", return_value=True), \
                 patch("druta.druta.dpg.get_value", return_value=True):
             self.assertTrue(self.app.rescan_i2c())
         self.assertIsNone(self.app._i2c_recovery_for)
         self.assertFalse(self.app.reset_i2c_rail()[0])
         self.first.reset.assert_not_called()
-        self.app.start_i2c_discovery.assert_called_once_with()
+        self.app.start_i2c_discovery.assert_called_once_with(
+            controller=None, prefer_saved=True)
 
     def test_worker_success_requires_same_connection_and_clean_load(self):
         for change, error, expected in ((False, "", True), (True, "", False),

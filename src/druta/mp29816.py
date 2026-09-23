@@ -10,7 +10,7 @@ which physical GPU rail a board connects to either output.
 from copy import deepcopy
 from types import SimpleNamespace
 
-from .railctl import Profile, Rail
+from .railctl import Profile, Rail, _normalize_routes
 
 DISCOVERY_PORTS = tuple(range(8))
 DISCOVERY_ADDRESSES = (0x30,) + tuple(a for a in range(0x08, 0x78) if a != 0x30)
@@ -81,14 +81,17 @@ class MP29816(Rail):
             return False
 
 
-def discover(nvapi, profile, log=None, *, progress=None, cancelled=None):
+def discover(nvapi, profile, log=None, *, progress=None, cancelled=None, routes=None):
     """Read model ID on all routes; return every stable PAGE-bound output."""
+    selected_routes = _normalize_routes(routes)
     if not getattr(nvapi, 'ok', False):
         return []
     hits = []
     cancelled = cancelled or (lambda: False)
     for addr7 in DISCOVERY_ADDRESSES:
         for port in DISCOVERY_PORTS:
+            if selected_routes is not None and (port, addr7) not in selected_routes:
+                continue
             if cancelled():
                 return hits
             probe = Rail(profile, nvapi, addr7)

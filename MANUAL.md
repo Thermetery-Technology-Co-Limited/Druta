@@ -177,12 +177,20 @@ Once `nvtune` EXE is loaded, these buttons move up to the `Device` menus on the 
 
 ## I2C controller selection
 
-MP2888A is discovered automatically by scanning the selected GPU's I2C ports
-and addresses. Open I2C regulator to see each candidate's port, address and
-scan-time telemetry. Choose a candidate when several respond, enable I2C rail,
-and press Verify before Apply. Rescan I2C refreshes discovery and clears the
-verification result; it preserves staged curve edits. Verification is repeated
-after changing GPUs or controllers, and cannot pass if restoration fails.
+Check **I2C rail** to reveal discovery controls; checking it does not scan.
+The **IC to scan** dropdown defaults to **Unknown -- Full Scan**. Select a
+known controller to limit discovery to that IC, then press **Connect / Scan**.
+Druta first checks a compatible remembered route using fresh identity and
+settings reads; if that fails, it scans the selected scope. **Full scan**
+always searches all supported controllers, bypassing the remembered route.
+
+Open I2C regulator to see each candidate's port, address and scan-time
+telemetry. Choose a candidate when several respond. For voltage controllers
+such as MP2888A, press Verify before Apply. Scanning clears verification but
+preserves staged curve edits. Verification is repeated after changing GPUs or
+controllers, and cannot pass if restoration fails. NCT3933U current-DAC controls
+instead use **Read settings** and register readback; they cannot measure rail
+voltage. See [NCT3933U.md](i2c/NCT3933U.md).
 
 While Verify is running, the selected controller and risk modes stay fixed.
 Closing Druta cancels verification and waits for the original control state's

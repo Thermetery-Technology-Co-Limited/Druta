@@ -91,7 +91,7 @@ import time
 import dearpygui.dearpygui as dpg
 
 from . import (gpuload, paths, profiles, startup, shuntmod, timings, timingwrite,
-               timingprofiles, devicerecovery, nct3933_board)
+               timingprofiles, devicerecovery, nct3933_board, i2c_cache)
 from .nvbackend import (GPU, EVENT_REASONS, PERF_DECREASE_BITS, VF_STEP_KHZ, VF_LOCK_DOMAIN,
                         VFP_POINTS, below_cap, enumerate_gpus, is_admin,
                         same_slot,
@@ -318,9 +318,9 @@ class Druta:
         self._i2c_busy = False
         self._i2c_thread = None
         self._i2c_cancel = threading.Event()
-        # Discovery reads every candidate bus and can take several seconds.
-        # It is opt-in and independent from verification: it never writes a
-        # controller, and a late result is tied to the GPU that requested it.
+        # Discovery checks a remembered route or the manually selected scope.
+        # Only a scan button starts it. It never writes a controller, and a
+        # late result is tied to the GPU that requested it.
         self._i2c_scan_busy = False
         self._i2c_scan_thread = None
         self._i2c_scan_cancel = threading.Event()
@@ -329,6 +329,8 @@ class Druta:
         self._i2c_scan_started = 0.0
         self._i2c_scan_status = ""
         self._i2c_scan_work = (0, 0, "")
+        self._i2c_controller_choice = "Unknown -- Full Scan"
+        self._i2c_scan_scope = None
         self._i2c_discovery_complete = False
         self._i2c_modes = {}
         self._i2c_ui_pending = False
@@ -3249,7 +3251,7 @@ class Druta:
                           if total else "Preparing I2C controller probes…")
         else:
             status = (getattr(self, "_i2c_scan_status", "")
-                      or "Enable I2C rail to scan this GPU's regulator buses.")
+                      or "Enable I2C rail, choose an IC, then press Connect / Scan.")
         if dpg.does_item_exist("i2c_scan_status"):
             dpg.set_value("i2c_scan_status", status)
             dpg.configure_item("i2c_scan_status", color=DIM if busy else WARN)
@@ -3262,11 +3264,17 @@ class Druta:
                                         "Preparing probes…") if busy else "")
         if dpg.does_item_exist("i2c_scan_spinner"):
             dpg.configure_item("i2c_scan_spinner", show=busy)
-        if dpg.does_item_exist("i2c_rescan"):
-            checked = dpg.does_item_exist("i2c_mode") and dpg.get_value("i2c_mode")
-            dpg.configure_item("i2c_rescan", enabled=bool(checked and not busy))
+        checked = dpg.does_item_exist("i2c_mode") and dpg.get_value("i2c_mode")
+        other_work = (getattr(self, "_i2c_busy", False)
+                      or getattr(self, "_profile_pending", None)
+                      or getattr(self, "_profile_applying", False))
+        for tag in ("i2c_rescan", "i2c_full_scan", "i2c_controller"):
+            if dpg.does_item_exist(tag):
+                dpg.configure_item(tag, enabled=bool(checked and not busy and not other_work))
+        if dpg.does_item_exist("i2c_candidate"):
+            dpg.configure_item("i2c_candidate", enabled=bool(checked and not busy and not other_work))
 
-    def start_i2c_discovery(self):
+    def start_i2c_discovery(self, *, controller=None, prefer_saved=True):
         """Start opt-in controller detection against the currently selected GPU."""
         if railctl is None:
             self.update_i2c_scan_ui("I2C regulator support is not installed in this build.")
@@ -3280,7 +3288,11 @@ class Druta:
                 or getattr(self, "_profile_applying", False)):
             self.log("wait for I2C/profile work to finish before scanning", False)
             return False
+        if not (dpg.does_item_exist("i2c_mode") and dpg.get_value("i2c_mode")):
+            self.log("tick I2C rail before scanning this GPU's regulator buses", False)
+            return False
         self.clear_i2c_discovery()
+        self._i2c_scan_scope = controller
         self._i2c_scan_busy = True
         self._i2c_scan_started = time.monotonic()
         self._i2c_scan_cancel = threading.Event()
@@ -3290,7 +3302,8 @@ class Druta:
         try:
             worker = threading.Thread(
                 target=self._i2c_discovery_worker, daemon=True, name="i2c-discovery",
-                args=(token, generation, gpu, gpu.nvapi, gpu.arch(), self._i2c_scan_cancel))
+                args=(token, generation, gpu, gpu.nvapi, gpu.arch(), self._i2c_scan_cancel,
+                      controller, prefer_saved))
             self._i2c_scan_thread = worker
             self.update_i2c_scan_ui()
             worker.start()
@@ -3302,23 +3315,38 @@ class Druta:
             return False
         return True
 
-    def _i2c_discovery_worker(self, token, generation, gpu, nvapi, architecture, cancel):
+    def _i2c_discovery_worker(self, token, generation, gpu, nvapi, architecture, cancel,
+                              controller=None, prefer_saved=True):
         """Run slow, read-only bus detection and publish only its bound result."""
         candidates, error = [], None
+        origin, notes = "scan", []
         def progress(complete, total, label):
             with self._lock:
                 if token == getattr(self, "_i2c_scan_token", None) and not cancel.is_set():
                     self._i2c_scan_work = (complete, total, label)
         try:
-            if not cancel.is_set():
+            if prefer_saved and not cancel.is_set():
+                try:
+                    route = i2c_cache.load_route(gpu)
+                    if route is not None and (controller is None or route["controller"] == controller):
+                        progress(0, 1, "Checking saved controller identity and settings")
+                        candidates = i2c_cache.reconnect(
+                            gpu, route, controller=controller, progress=progress, cancelled=cancel.is_set)
+                        if candidates:
+                            origin = "saved"
+                        elif not cancel.is_set():
+                            notes.append("Saved I2C route could not be verified; scanned the selected scope.")
+                except Exception as exc:                        # noqa: BLE001
+                    notes.append(f"Saved I2C route unavailable ({exc}); scanned the selected scope.")
+            if not candidates and not cancel.is_set():
                 candidates = railctl.discover(nvapi, architecture=architecture,
-                                              progress=progress, cancelled=cancel.is_set)
+                                              controller=controller, progress=progress, cancelled=cancel.is_set)
         except Exception as exc:                                # noqa: BLE001
             error = f"{type(exc).__name__}: {exc}"
         with self._lock:
             if token == getattr(self, "_i2c_scan_token", None):
                 self._i2c_scan_result = (token, generation, gpu, cancel.is_set(),
-                                         candidates, error)
+                                         candidates, error, origin, notes)
 
     def poll_i2c_discovery(self):
         """Publish a completed scan only while its opt-in and GPU are current."""
@@ -3332,7 +3360,7 @@ class Druta:
             result, self._i2c_scan_result = self._i2c_scan_result, None
         if result is None:
             return
-        token, generation, gpu, cancelled, candidates, error = result
+        token, generation, gpu, cancelled, candidates, error, origin, notes = result
         if token != getattr(self, "_i2c_scan_token", None):
             return
         self._i2c_scan_busy = False
@@ -3343,6 +3371,8 @@ class Druta:
             self.clear_i2c_discovery()
             self.update_i2c_scan_ui("I2C detection cancelled.")
             return
+        for note in notes:
+            self.log(note, False)
         if error:
             self.clear_i2c_discovery()
             self.update_i2c_scan_ui(f"I2C detection failed: {error}")
@@ -3352,13 +3382,42 @@ class Druta:
         self._rail_candidates = list(candidates)
         self.rail = candidates[0] if len(candidates) == 1 else None
         self._i2c_discovery_complete = True
+        elapsed = max(0.0, time.monotonic() - getattr(self, "_i2c_scan_started", time.monotonic()))
+        scope = getattr(self, "_i2c_scan_scope", None) or "Full scan"
+        summary = (f"Saved {self.rail.p.regulator} reconnected and checked in {elapsed:.2f}s. "
+                   "Other controllers were not scanned. "
+                   if origin == "saved" and self.rail is not None
+                   else f"{scope} complete in {elapsed:.2f}s: {len(candidates)} candidate(s). ")
         self.update_i2c_scan_ui(
-            ("I2C detection complete: read the selected current DAC settings before applying an adjustment."
+            summary + ("Read the current DAC settings before applying an adjustment."
              if self.rail is not None and getattr(self.rail, "current_dac", False)
-             else "I2C detection complete: select a controller and Verify before applying an adjustment.")
-            if candidates else "I2C detection complete: no compatible controller responded.")
-        self.log(f"I2C detection complete: {len(candidates)} candidate(s)", bool(candidates))
+             else "Select a controller and Verify before applying an adjustment.")
+            if candidates else summary + "No compatible controller responded.")
+        self.log(summary, bool(candidates))
+        if self.rail is not None:
+            self.remember_i2c_route()
         self.refresh_i2c_candidates()
+
+    def remember_i2c_route(self):
+        """Save only a selected, published route; never settings or verification."""
+        try:
+            if self.rail is not None:
+                i2c_cache.remember(self.gpu, self.rail)
+        except Exception as exc:                                # noqa: BLE001
+            self.log(f"I2C route could not be saved: {exc}", False)
+
+    def select_i2c_controller(self, sender=None, app_data=None, user_data=None):
+        old_choice = getattr(self, "_i2c_controller_choice", "Unknown -- Full Scan")
+        if (getattr(self, "_i2c_scan_busy", False) or getattr(self, "_i2c_busy", False)
+                or getattr(self, "_profile_pending", None) or getattr(self, "_profile_applying", False)):
+            dpg.set_value("i2c_controller", old_choice)
+            self.log("wait for I2C/profile work before changing scan scope", False)
+            return
+        choices = ["Unknown -- Full Scan"] + (railctl.controller_names() if railctl else [])
+        if app_data not in choices:
+            dpg.set_value("i2c_controller", old_choice)
+            return
+        self._i2c_controller_choice = app_data
 
     def i2c_candidate_label(self, rail):
         candidates = getattr(self, "_rail_candidates", [])
@@ -3373,14 +3432,27 @@ class Druta:
         dpg.add_progress_bar(tag="i2c_scan_progress", default_value=0.0,
                              overlay="Scanning I2C buses…", show=False, width=-1)
         dpg.add_loading_indicator(tag="i2c_scan_spinner", show=False)
-        self.update_i2c_scan_ui()
+        choices = ["Unknown -- Full Scan"] + (railctl.controller_names() if railctl else [])
+        choice = getattr(self, "_i2c_controller_choice", "Unknown -- Full Scan")
+        if choice not in choices:
+            choice = self._i2c_controller_choice = "Unknown -- Full Scan"
+        with dpg.group(horizontal=True):
+            dpg.add_combo(choices, label="IC to scan", default_value=choice,
+                          tag="i2c_controller", width=self.s(260), callback=self.select_i2c_controller)
+            dpg.add_button(label="Connect / Scan", tag="i2c_rescan", callback=self.rescan_i2c)
+            dpg.add_button(label="Full scan", tag="i2c_full_scan", callback=self.full_scan_i2c)
+        with dpg.tooltip("i2c_rescan"):
+            dpg.add_text("Check the saved controller first, if it matches the selected IC.\n"
+                         "If it cannot be verified, scan the selected IC's supported routes.\n"
+                         "Unknown scans all supported controllers when reconnect is unavailable.")
+        with dpg.tooltip("i2c_full_scan"):
+            dpg.add_text("Scan all supported controllers and routes, bypassing the saved route and IC filter.")
         candidates = getattr(self, "_rail_candidates", [])
         labels = [self.i2c_candidate_label(r) for r in candidates]
         selected = self.i2c_candidate_label(self.rail) if self.rail else "Select controller"
         dpg.add_combo(labels, default_value=selected, width=-1,
                       tag="i2c_candidate", callback=self.select_i2c_candidate)
-        dpg.add_button(label="Rescan I2C", tag="i2c_rescan", callback=self.rescan_i2c,
-                       enabled=not getattr(self, "_i2c_scan_busy", False))
+        self.update_i2c_scan_ui()
         for r in candidates:
             tel = getattr(r, "discovery_telemetry", {})
             details = []
@@ -3427,7 +3499,7 @@ class Druta:
         self.relayout()
 
     def select_i2c_candidate(self, sender=None, app_data=None, user_data=None):
-        if (getattr(self, "_i2c_busy", False)
+        if (getattr(self, "_i2c_busy", False) or getattr(self, "_i2c_scan_busy", False)
                 or getattr(self, "_profile_pending", None)
                 or getattr(self, "_profile_applying", False)):
             self.log("wait for I2C/profile work to finish before selecting a controller", False)
@@ -3442,6 +3514,7 @@ class Druta:
         self.invalidate_i2c_verification()
         self._i2c_recovery_for = None
         self.rail = chosen
+        self.remember_i2c_route()
         self.refresh_i2c_candidates()
         self.log(("I2C current DAC selected; use Read settings before applying an adjustment"
                   if getattr(chosen, "current_dac", False)
@@ -3457,16 +3530,21 @@ class Druta:
         if not (dpg.does_item_exist("i2c_mode") and dpg.get_value("i2c_mode")):
             self.log("tick I2C rail before scanning this GPU's regulator buses", False)
             return False
-        return self.start_i2c_discovery()
+        choice = getattr(self, "_i2c_controller_choice", "Unknown -- Full Scan")
+        return self.start_i2c_discovery(
+            controller=None if choice == "Unknown -- Full Scan" else choice, prefer_saved=True)
+
+    def full_scan_i2c(self):
+        return self.start_i2c_discovery(controller=None, prefer_saved=False)
 
     def on_i2c_mode(self, sender=None, app_data=None, user_data=None):
-        """I2C detection is a deliberate opt-in, never a startup side effect."""
+        """Reveal manual scan controls; checking this never accesses the bus."""
         enabled = bool(app_data) if app_data is not None else bool(dpg.get_value("i2c_mode"))
         self.sync_risk_ui()
         if enabled:
             if dpg.does_item_exist("i2c_regulator_header"):
                 dpg.configure_item("i2c_regulator_header", default_open=True)
-            self.start_i2c_discovery()
+            self.update_i2c_scan_ui()
         else:
             self.cancel_i2c_discovery(clear=True)
             self.refresh_i2c_candidates()
@@ -8732,6 +8810,7 @@ deliberately does not put behind a button."""
             # Detection is opt-in. A stale result may never cross this card
             # boundary; the new card starts read-only until it is requested.
             self.clear_i2c_discovery()
+            self._i2c_controller_choice = "Unknown -- Full Scan"
             self._i2c_verified = False
             self.build_ui(rebuild=True)
         finally:
