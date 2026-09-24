@@ -95,7 +95,7 @@ def load_tests(gpu, report, save, params):
             print("offset", add_mv, [s["telemetry"]["vcore_mv"] for s in trial["samples"]], flush=True)
             save()
         if run["frequency_lock"][0]:
-            require(gpu.reset_gpu_clocks())
+            run["frequency_unlock"] = require(gpu.reset_gpu_clocks())
         points, err = gpu.read_vf_curve()
         if err:
             raise RuntimeError(err)
@@ -126,8 +126,14 @@ def load_tests(gpu, report, save, params):
             print("ceiling", raised, [s["telemetry"]["vcore_mv"] for s in trial["samples"]], flush=True)
             save()
     finally:
-        load.stop()
-        load.join(3)
+        try:
+            # The NVML core-clock lock is not part of the NVAPI state main()
+            # restores; release it here if an abort skipped the release above.
+            if run.get("frequency_lock", (False,))[0] and "frequency_unlock" not in run:
+                run["frequency_unlock"] = gpu.reset_gpu_clocks()
+        finally:
+            load.stop()
+            load.join(3)
 
 
 def live_field_tests(gpu, report, save, params, include_idle=True):
@@ -250,6 +256,16 @@ def main():
         raise RuntimeError("Pairing unavailable")
     before = snap(gpu)
     baseline = rm_call(gpu, control_version=CONTROL_VERSION)
+    report = {"static": gpu.static, "before": before, "baseline_rm": baseline}
+    path = Path(args.output)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    def save():
+        path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+
+    # Save the GET and the NVAPI reading before judging them, so a refusal
+    # leaves the evidence it was based on.
+    save()
     if not transport_ok(baseline):
         raise RuntimeError("Legacy rail getter failed")
     error = legacy_baseline_error(baseline, before)
@@ -267,16 +283,9 @@ def main():
     status, domains = gpu._clkdom_get(1)
     if lock is None or status != 0:
         raise RuntimeError("Cannot preserve locks and domain controls")
-    report = {"static": gpu.static, "before": before, "baseline_rm": baseline,
-              "original_table_hex": bytes(table).hex(),
-              "original_lock_hex": bytes(lock).hex(),
-              "original_domain_hex": bytes(domains).hex(), "trials": []}
-    path = Path(args.output)
-    path.parent.mkdir(parents=True, exist_ok=True)
-
-    def save():
-        path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-
+    report.update({"original_table_hex": bytes(table).hex(),
+                   "original_lock_hex": bytes(lock).hex(),
+                   "original_domain_hex": bytes(domains).hex(), "trials": []})
     save()
     try:
         report["identity"] = write(gpu, params)
@@ -326,7 +335,10 @@ def main():
         elif args.live_clamps:
             live_field_tests(gpu, report, save, params, include_idle=False)
     finally:
-        report["restore"] = write(gpu, params)
+        # Issue every restore before judging any: a failed rail SET must not
+        # leave the clock domains, V/F table or lock unrestored.
+        report["restore"] = rm_call(gpu, params, CONTROL_VERSION)
+        report["rail_restore_ok"] = transport_ok(report["restore"])
         report["domain_restore_status"] = a.ClkDomCtlSet(a.gpu, ctypes.byref(domains))
         report["table_restore_status"] = a.BoostTableSet(a.gpu, ctypes.byref(table))
         report["lock_restore_status"] = a.VfLockSet(a.gpu, ctypes.byref(lock))
@@ -335,13 +347,16 @@ def main():
         n._set_point_masks(readback, layout.n_entries)
         report["table_restored"] = (a.BoostTableGet(a.gpu, ctypes.byref(readback)) == 0
                                     and bytes(readback) == bytes(table))
-        report["locks_restored"] = bytes(gpu._vf_lock_read_raw()) == bytes(lock)
+        lock_after = gpu._vf_lock_read_raw()
+        report["locks_restored"] = lock_after is not None and bytes(lock_after) == bytes(lock)
         ds, db = gpu._clkdom_get(1)
         report["domains_restored"] = ds == 0 and bytes(db) == bytes(domains)
         report["rails_restored"] = stable_fields(report["after"]) == stable_fields(before)
         save()
-        if not all(report[k] for k in ("table_restored", "locks_restored", "domains_restored", "rails_restored")):
-            raise RuntimeError("Restoration mismatch; inspect saved evidence")
+        failed = [k for k in ("rail_restore_ok", "table_restored", "locks_restored",
+                              "domains_restored", "rails_restored") if not report[k]]
+        if failed:
+            raise RuntimeError(f"Restoration mismatch ({', '.join(failed)}); inspect saved evidence")
     print(path, "all restored", flush=True)
 
 

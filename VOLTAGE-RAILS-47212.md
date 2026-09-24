@@ -102,8 +102,15 @@ available separately.
 boards. It does not check the driver version. Before any write it requires the
 716-byte `0x20803213` GET described above, with mask 1, a type-1 record, a
 boost word matching the NVAPI voltage boost and a valid absolute NVVDD record.
-Live clamp targets are computed from fresh absolute readings. Each reading must
-pass the same absolute-record check before its target is written.
+Every 472.12 GET under `docs/rail-probes/` was captured at 0% boost and
+returned boost word 0. No GET was captured at another boost. A GET whose boost
+word differs from the NVAPI boost is refused before any write. The probe saves
+the GET and the NVAPI reading before these checks, so a refusal leaves them on
+disk. Live clamp targets are computed from fresh absolute readings. Each
+reading must pass the same absolute-record check before its target is written.
+Final restoration issues the rail, clock-domain, V/F table and lock restores
+before verifying any of them. An aborted load test also releases its NVML
+core-clock lock.
 
 `test_volt_rails.py` and `test_volt_rails_legacy.py` cover the transports,
 identity gates, conversion bases, absent rails, packet preservation, thread

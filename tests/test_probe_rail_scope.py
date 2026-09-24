@@ -12,6 +12,7 @@ escape hook, NVAPI and GPU objects are replaced with Python fakes.
 import copy
 import ctypes
 import io
+import json
 import sys
 import tempfile
 import unittest
@@ -127,11 +128,16 @@ def gpu_class(instance):
 
 
 class RmCalls:
-    """Stand-in for rm_call(); a replacement means a SET would be issued."""
+    """Stand-in for rm_call(); a replacement means a SET would be issued.
 
-    def __init__(self, baseline):
+    SETs whose 0-based index is in *failed_writes* return an RM failure.
+    """
+
+    def __init__(self, baseline, failed_writes=()):
         self.baseline = baseline
+        self.failed_writes = set(failed_writes)
         self.calls = []
+        self.report = None
 
     def __call__(self, gpu, replacement=None, control_version=0x20AC8,
                  invoke=None, capture_multiple=False):
@@ -139,7 +145,9 @@ class RmCalls:
                            control_version))
         if replacement is None:
             return copy.deepcopy(self.baseline)
-        return {"intercepted": True, "escape_status": 0, "rm_status": 0,
+        failed = len(self.writes) - 1 in self.failed_writes
+        return {"intercepted": True, "escape_status": 0,
+                "rm_status": 0x1F if failed else 0,
                 "input_params": list(replacement)}
 
     @property
@@ -147,8 +155,9 @@ class RmCalls:
         return [params for params, _version in self.calls if params is not None]
 
 
-def run_main(module, gpu, baseline, before, *flags):
-    rm = RmCalls(baseline)
+def run_main(module, gpu, baseline, before, *flags, failed_writes=()):
+    """Run *module*.main(); rm.report is the report it last saved, if any."""
+    rm = RmCalls(baseline, failed_writes)
     snapshot = Mock(side_effect=lambda *args, **kwargs: copy.deepcopy(before))
     if module is legacy:
         target = patch.object(legacy, "n", SimpleNamespace(
@@ -165,10 +174,13 @@ def run_main(module, gpu, baseline, before, *flags):
                                        "--output", str(Path(folder) / "out.json"),
                                        *flags]), \
             redirect_stdout(io.StringIO()):
+        output = Path(folder) / "out.json"
         try:
             module.main()
         except RuntimeError as exc:
             error = exc
+        if output.exists():
+            rm.report = json.loads(output.read_text(encoding="utf-8"))
     return rm, error
 
 
@@ -256,11 +268,11 @@ class ModernProbeScopeTests(unittest.TestCase):
 
 
 class LegacyProbeScopeTests(unittest.TestCase):
-    def run_probe(self, board, driver, baseline=None, before=None):
+    def run_probe(self, board, driver, baseline=None, before=None, failed_writes=()):
         gpu = fake_gpu(board, driver)
         baseline = baseline or get_result(LEGACY_SIZE, LEGACY_GET, legacy_params())
         before = before or snapshot_result(0)
-        rm, error = run_main(legacy, gpu, baseline, before)
+        rm, error = run_main(legacy, gpu, baseline, before, failed_writes=failed_writes)
         return gpu, rm, error
 
     def test_measured_titan_on_any_driver_string_runs_identity_and_restore(self):
@@ -325,6 +337,119 @@ class LegacyProbeScopeTests(unittest.TestCase):
                 self.assertIsInstance(error, RuntimeError)
                 self.assertEqual(rm.writes, [])
                 assert_no_other_writes(self, gpu)
+                # The refused GET and the NVAPI reading it was judged
+                # against are on disk.
+                self.assertIsNotNone(rm.report)
+                self.assertEqual(rm.report["baseline_rm"]["output_params"],
+                                 baseline["output_params"])
+                self.assertEqual(rm.report["before"]["boost_pct"],
+                                 (before or snapshot_result(0))["boost_pct"])
+
+    def test_boost_refusal_names_both_values(self):
+        native = legacy_params()
+        native[1] = 100
+        _gpu, _rm, error = self.run_probe(
+            TITAN_XP, "472.12", get_result(LEGACY_SIZE, LEGACY_GET, native),
+            snapshot_result(0))
+        self.assertIn("boost word 100", str(error))
+        self.assertIn("voltage boost 0", str(error))
+
+    def test_failed_rail_restore_still_restores_table_lock_and_domains(self):
+        params = legacy_params()
+        # Write 0 is the identity SET, write 1 the final rail restore. With
+        # every SET failing, the identity failure also reaches the restore.
+        for label, failed in (("final restore", {1}), ("every SET", {0, 1})):
+            with self.subTest(label):
+                gpu, rm, error = self.run_probe(TITAN_RTX, "472.12", failed_writes=failed)
+                self.assertIsInstance(error, RuntimeError)
+                self.assertIn("rail_restore_ok", str(error))
+                self.assertEqual(rm.writes, [params, params])
+                gpu.nvapi.ClkDomCtlSet.assert_called_once()
+                gpu.nvapi.BoostTableSet.assert_called_once()
+                gpu.nvapi.VfLockSet.assert_called_once()
+                report = rm.report
+                self.assertFalse(report["rail_restore_ok"])
+                self.assertEqual(report["restore"]["rm_status"], 0x1F)
+                for key in ("domain_restore_status", "table_restore_status",
+                            "lock_restore_status"):
+                    self.assertEqual(report[key], 0)
+                for key in ("table_restored", "locks_restored",
+                            "domains_restored", "rails_restored"):
+                    self.assertTrue(report[key])
+
+    def test_unreadable_lock_after_restore_is_reported_not_raised_over(self):
+        gpu = fake_gpu(TITAN_RTX, "472.12")
+        lock = gpu._vf_lock_read_raw.return_value
+        gpu._vf_lock_read_raw.side_effect = [lock, None]
+        rm, error = run_main(legacy, gpu,
+                             get_result(LEGACY_SIZE, LEGACY_GET, legacy_params()),
+                             snapshot_result(0))
+        self.assertIn("locks_restored", str(error))
+        self.assertFalse(rm.report["locks_restored"])
+        self.assertTrue(rm.report["domains_restored"])
+
+
+class LegacyLoadTestClockLockTests(unittest.TestCase):
+    """The NVML core-clock lock taken for the offset trials is always released."""
+
+    def run_load_tests(self, board=TITAN_RTX, lock=(True, "locked"), **configure):
+        gpu = fake_gpu(board, "472.12")
+        gpu.lock_gpu_clocks.return_value = lock
+        gpu.reset_gpu_clocks.return_value = (True, "released")
+        gpu.read_rail_offset_mv.return_value = 0.0
+        gpu.set_rail_offset_mv.return_value = (True, "offset set")
+        gpu.read.return_value = {"core": 1500, "vcore_mv": 781.25, "power_w": 100.0,
+                                 "temp_edge": 40, "pstate": 0}
+        gpu.read_vf_curve.return_value = ([], "curve read failed")
+        gpu.configure_mock(**configure)
+        load = Mock(device_name=gpu.static["name"])
+        load.wait_started.return_value = True
+        report = {}
+        rm = RmCalls(None)
+        with patch.object(gpuload, "BandwidthLoad", return_value=load), \
+                patch.object(legacy, "snapshot", Mock(side_effect=lambda *a, **k: snapshot_result(0))), \
+                patch.object(legacy, "rm_call", rm), \
+                patch.object(legacy.time, "sleep"), \
+                redirect_stdout(io.StringIO()):
+            with self.assertRaises(RuntimeError) as raised:
+                legacy.load_tests(gpu, report, Mock(), legacy_params())
+        load.stop.assert_called_once()
+        self.assertEqual(rm.writes, [])
+        return gpu, report["load_tests"], raised.exception
+
+    def test_abort_during_offset_trials_releases_the_lock(self):
+        aborts = {
+            "offset write refused": {"set_rail_offset_mv.return_value": (False, "offset refused")},
+            "temperature stop": {"read.return_value": {"temp_edge": 85}},
+            "offset unreadable": {"read_rail_offset_mv.return_value": None},
+        }
+        for label, configure in aborts.items():
+            with self.subTest(label):
+                gpu, run, _error = self.run_load_tests(**configure)
+                gpu.reset_gpu_clocks.assert_called_once_with()
+                self.assertEqual(run["frequency_unlock"], (True, "released"))
+
+    def test_release_after_the_offset_trials_is_not_repeated(self):
+        gpu, run, error = self.run_load_tests()
+        self.assertIn("curve read failed", str(error))
+        self.assertEqual(len(run["offset_trials"]), 5)
+        gpu.reset_gpu_clocks.assert_called_once_with()
+        self.assertEqual(run["frequency_unlock"], (True, "released"))
+
+    def test_failed_release_is_retried_and_recorded(self):
+        gpu, run, error = self.run_load_tests(
+            **{"reset_gpu_clocks.side_effect": [(False, "busy"), (False, "still busy")]})
+        self.assertIn("busy", str(error))
+        self.assertEqual(gpu.reset_gpu_clocks.call_count, 2)
+        self.assertEqual(run["frequency_unlock"], (False, "still busy"))
+
+    def test_lock_that_was_not_taken_is_not_released(self):
+        # TITAN Xp continues without the lock when NVML refuses it.
+        gpu, run, _error = self.run_load_tests(
+            board=TITAN_XP, lock=(False, "SetGpuLockedClocks not available"),
+            **{"set_rail_offset_mv.return_value": (False, "offset refused")})
+        gpu.reset_gpu_clocks.assert_not_called()
+        self.assertNotIn("frequency_unlock", run)
 
 
 class LegacyLiveClampTargetTests(unittest.TestCase):

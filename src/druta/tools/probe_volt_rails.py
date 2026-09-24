@@ -109,8 +109,12 @@ def baseline_error(result, before, packet_size):
             or len(params) != layout.params_size // 4):
         return "the captured parameters do not match the returned packet"
     boost = params[layout.boost_word - ESCAPE_HEADER_WORDS]
-    if boost != before.get("boost_pct") or not 0 <= boost <= 100:
-        return "the native boost word does not match the NVAPI voltage boost"
+    nvapi_boost = before.get("boost_pct")
+    if not 0 <= boost <= 100:
+        return f"the native boost word {boost} is outside 0-100"
+    if boost != nvapi_boost:
+        return (f"the native boost word {boost} does not match the NVAPI "
+                f"voltage boost {nvapi_boost}")
     return absolute_record_error(before)
 
 
