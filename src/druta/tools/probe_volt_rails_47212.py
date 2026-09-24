@@ -1,8 +1,12 @@
-"""Bounded, reversible rail tests on the two named TITAN boards / R470.
+"""Bounded, reversible rail tests on the two measured TITAN boards.
 
-Legacy RM command/geometry were captured from the existing NVAPI voltage-boost
-setter: 0x20803213 GET and 0x20803214 SET, 648-byte parameters, mask/boost then
-32 records of type plus four deltas. Never reuse Blackwell's type-5 packet.
+Legacy RM command/geometry were captured on driver 472.12 from the existing
+NVAPI voltage-boost setter: 0x20803213 GET and 0x20803214 SET, 648-byte
+parameters, mask/boost then 32 records of type plus four deltas. Never reuse
+Blackwell's type-5 packet. The driver version is not checked. Before any write
+the baseline GET must be that exact 716-byte packet with mask 1, a type-1
+record and a boost word equal to the NVAPI voltage boost, and the absolute
+NVVDD record must be valid.
 """
 import argparse
 import ctypes
@@ -13,9 +17,28 @@ import time
 
 # When run as module, parent package is accessible
 from .. import nvbackend as n
-from .probe_volt_rails import rm_call, snapshot, stable_fields, transport_ok
+from .probe_volt_rails import (absolute_record_error, baseline_error,
+                               measured_board, rm_call, snapshot,
+                               stable_fields, transport_ok)
 
 CONTROL_VERSION = 0x10AC8
+LEGACY_PACKET_SIZE = 716
+
+
+def legacy_baseline_error(baseline, before):
+    """Explain why the baseline GET is not the understood legacy layout.
+
+    Returns None when it is. The 648-byte parameters are the mask, the
+    boost, then 32 records of type plus four deltas (5 words each). Every
+    write copies these parameters, so record 0 must already be type 1.
+    """
+    error = baseline_error(baseline, before, LEGACY_PACKET_SIZE)
+    if error:
+        return error
+    params = baseline["output_params"]
+    if len(params) != 2 + 32 * 5 or params[0] != 1 or params[2] != 1:
+        return "the parameters are not mask 1 with a type-1 record 0"
+    return None
 
 
 def snap(gpu):
@@ -140,6 +163,11 @@ def live_field_tests(gpu, report, save, params, include_idle=True):
                 ("reliability", 3, 20), ("alt_reliability", 4, 21),
                 ("overvoltage", 5, 22)):
             before = snap(gpu)
+            # The request is computed from this absolute reading; a failed or
+            # undecodable read would turn it into an arbitrary delta.
+            error = absolute_record_error(before)
+            if error:
+                raise RuntimeError(f"Cannot compute the {field} clamp: {error}")
             trial = {"field": field, "target_mv": 875,
                      "baseline_samples": samples()}
             trials.append(trial)
@@ -180,6 +208,9 @@ def live_field_tests(gpu, report, save, params, include_idle=True):
                  "baseline_samples": samples()}
         trials.append(trial)
         before = snap(gpu)
+        error = absolute_record_error(before)
+        if error:
+            raise RuntimeError(f"Cannot compute the vmin floor: {error}")
         changed = params.copy()
         changed[6] = (changed[6] + 875000 - before["VoltRailsAbs"][1]["words"][24]) & 0xffffffff
         try:
@@ -213,20 +244,18 @@ def main():
     args = ap.parse_args()
     gpu = n.GPU(args.gpu)
     a = gpu.nvapi
-    board = (a.selected["devid"], a.selected["subsys"], gpu.static["vbios"].lower())
-    if gpu.static["driver"] != "472.12" or board not in (
-            (0x1E02, 312676574, "90.02.1e.00.02"),
-            (0x1B02, 299831518, "86.02.3d.00.01")):
-        raise RuntimeError("Unvalidated driver/board for this probe")
+    if not measured_board(gpu):
+        raise RuntimeError("This probe is scoped to the two measured TITAN boards")
     if not a.ok or not gpu.nvml.ok or gpu.pairing_error:
         raise RuntimeError("Pairing unavailable")
     before = snap(gpu)
     baseline = rm_call(gpu, control_version=CONTROL_VERSION)
     if not transport_ok(baseline):
         raise RuntimeError("Legacy rail getter failed")
+    error = legacy_baseline_error(baseline, before)
+    if error:
+        raise RuntimeError(f"Unexpected legacy rail layout: {error}")
     params = baseline["output_params"]
-    if len(params) != 162 or params[0] != 1 or params[2] != 1:
-        raise RuntimeError("Unexpected legacy rail layout")
     table = n._BoostTable(version=a.ver(n._BoostTable, 1))
     layout = gpu.vfp_layout()
     if layout is None:

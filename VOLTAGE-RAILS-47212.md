@@ -98,6 +98,15 @@ data before writing and restore in `finally`. Tests that failed to establish
 a low idle baseline also restored all saved state; their captures remain
 available separately.
 
+`src/druta/tools/probe_volt_rails_47212.py` runs only on the two measured
+boards. It does not check the driver version. Before any write it requires the
+716-byte `0x20803213` GET described above, with mask 1, a type-1 record, a
+boost word matching the NVAPI voltage boost and a valid absolute NVVDD record.
+Live clamp targets are computed from fresh absolute readings. Each reading must
+pass the same absolute-record check before its target is written.
+
 `test_volt_rails.py` and `test_volt_rails_legacy.py` cover the transports,
 identity gates, conversion bases, absent rails, packet preservation, thread
 ownership, installer serialization, and verified floor re-send without a GPU.
+`test_probe_rail_scope.py` covers the probes' board scope and their pre-write
+packet and absolute-record checks.

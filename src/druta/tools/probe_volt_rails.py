@@ -3,7 +3,11 @@
 Default operation is read-only. --identity tests F214 with unchanged records;
 --test-limits tests small reversible field changes. --raise-ceiling also
 temporarily de-flattens the V/F curve and holds a point under CUDA load.
-Writes are scoped to the two measured TITAN boards on driver 580.97.
+Writes are limited to the two measured TITAN boards. The driver version is
+not checked. Before any write the native GET must be the understood 1104-byte
+0x2080B213 packet with a type-2, zero-delta NVVDD record and a boost word
+equal to the NVAPI voltage boost, and the absolute NVVDD record must be valid.
+The measurements behind these steps were made on driver 580.97.
 
 Copyright (C) 2026 Thermetery Technology Co Limited
 SPDX-License-Identifier: GPL-3.0-or-later
@@ -17,8 +21,19 @@ import sys
 import time
 
 # When run as module, parent package is accessible
-from .. import nvbackend
+from .. import nvbackend, rail_transport
 from ..nvbackend import GPU, u32
+
+# The fixed steps, targets and expected caps in these research probes were
+# measured on these two boards only. This limits the experiments; it is not a
+# compatibility list, and no driver version is part of it. Packet geometry,
+# record type, boost and absolute-status checks govern every write.
+MEASURED_BOARDS = (
+    (0x1E02, 312676574, "90.02.1e.00.02"),  # TITAN RTX / TU102
+    (0x1B02, 299831518, "86.02.3d.00.01"),  # TITAN Xp / GP102
+)
+ESCAPE_HEADER_WORDS = 17
+MODERN_PACKET_SIZE = 1104
 
 
 def transport_ok(result):
@@ -27,6 +42,95 @@ def transport_ok(result):
     return (result.get("intercepted") is True
             and result.get("escape_status") == 0
             and result.get("rm_status") == 0)
+
+
+def measured_board(gpu):
+    """Whether *gpu* is one of the two measured TITAN boards."""
+    selected = gpu.nvapi.selected
+    return (selected["devid"], selected["subsys"],
+            gpu.static["vbios"].lower()) in MEASURED_BOARDS
+
+
+def returned_layout(result):
+    """Return the rail_transport layout of the GET the driver returned.
+
+    rm_call() only intercepts a request with the exact size, GET command,
+    parameter size and mask. The production writer also re-checks the
+    returned packet; do the same so a changed header or size is refused.
+    """
+    header = result.get("escape_header_after")
+    params = result.get("escape_output_params")
+    if (not transport_ok(result) or not isinstance(header, list)
+            or len(header) != ESCAPE_HEADER_WORDS
+            or not isinstance(params, list)):
+        return None
+    try:
+        packet = struct.pack(f"<{len(header) + len(params)}I", *header, *params)
+    except struct.error:
+        return None
+    return rail_transport.recognize_packet(packet, 1)
+
+
+def absolute_record_error(snap):
+    """Explain why rail 0's V1 absolute-status record cannot be used.
+
+    Experiments decode live voltage and absolute limits from fixed words of
+    this record (18 type, 19 live, 20-22 ceilings, 24 vmin), and some write
+    values are computed from them. Apply the production reader's checks.
+    Returns None for a usable record.
+    """
+    block = snap["VoltRailsAbs"][1]
+    words = block.get("words") or []
+    base = GPU.LIVE_RAIL_BASE // 4
+    if (block.get("status") != 0
+            or len(words) < base + len(GPU.LIVE_RAIL_FIELDS)
+            or words[:2] != [GPU.LIVE_RAIL_VER, 1]):
+        return "absolute rail getter did not return its V1 rail-0 block"
+    state = {key: words[base + n] if key == "type" else words[base + n] / 1000
+             for n, key in enumerate(GPU.LIVE_RAIL_FIELDS)}
+    if not GPU._valid_volt_rail_state(0, state):
+        return "absolute rail-0 record is not a type-1 NVVDD record with limits"
+    return None
+
+
+def baseline_error(result, before, packet_size):
+    """Explain why a captured GET cannot be the basis for writes.
+
+    The returned packet must be the exact understood layout the caller
+    addresses by index. Its boost word must equal the NVAPI boost percentage
+    that the writes send back, and the absolute record the experiments
+    decode must be valid. Returns None when all of these hold.
+    """
+    layout = returned_layout(result)
+    if layout is None or layout.packet_size != packet_size:
+        return f"the driver did not return the understood {packet_size}-byte rail GET"
+    params = result.get("output_params")
+    if (not isinstance(params, list)
+            or len(params) != layout.params_size // 4):
+        return "the captured parameters do not match the returned packet"
+    boost = params[layout.boost_word - ESCAPE_HEADER_WORDS]
+    if boost != before.get("boost_pct") or not 0 <= boost <= 100:
+        return "the native boost word does not match the NVAPI voltage boost"
+    return absolute_record_error(before)
+
+
+def native_record_error(report):
+    """Explain why --identity/--test-limits/--raise-ceiling must not write.
+
+    Returns None when they may write. The 1104-byte layout places record 0
+    at parameter 3 (type, four deltas, two unowned words, valid flag). The
+    experiments start from a native type-2 record with zero deltas and write
+    the understood type-5 form of that record.
+    """
+    error = baseline_error(report["rm_read"], report["before"], MODERN_PACKET_SIZE)
+    if error:
+        return error
+    native = report["rm_read"]["output_params"]
+    if native[3:11] != [2, 0, 0, 0, 0, 0, 0, 0]:
+        return "record 0 is not the native type-2 record with zero deltas"
+    if report["before"]["VoltRailsCtlGet"][1]["status"] != 0:
+        return "the NVAPI rail-control getter failed"
+    return None
 
 
 def read_block(gpu, name, version, mask):
@@ -291,17 +395,12 @@ def main():
 
     save()
     if args.identity or args.test_limits or args.raise_ceiling:
-        board = (gpu.nvapi.selected["devid"], gpu.nvapi.selected["subsys"],
-                 gpu.static["vbios"].lower())
-        if (gpu.static["driver"] != "580.97" or board not in (
-                (0x1E02, 312676574, "90.02.1e.00.02"),
-                (0x1B02, 299831518, "86.02.3d.00.01"))):
-            raise RuntimeError("Identity experiment is scoped to the two validated TITANs")
-        native = report["rm_read"].get("output_params")
-        if (not native or report["rm_read"].get("rm_status") != 0
-                or native[3:11] != [2, 0, 0, 0, 0, 0, 0, 0]
-                or report["before"]["VoltRailsCtlGet"][1]["status"] != 0):
-            raise RuntimeError("Unexpected native record; refusing experiment")
+        if not measured_board(gpu):
+            raise RuntimeError("Identity experiment is scoped to the two measured TITAN boards")
+        error = native_record_error(report)
+        if error:
+            raise RuntimeError(f"Unexpected native record ({error}); refusing experiment")
+        native = report["rm_read"]["output_params"]
         blackwell = native.copy()
         blackwell[3], blackwell[10] = 5, 1
         for label, params in (("native_type2", native),
