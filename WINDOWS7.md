@@ -243,8 +243,11 @@ previews with a bare `set`. As in the shared build, a preview that exits
 nonzero fails and is not retried as a bare `set`. A preview that exits 0 is
 the plan, with or without nvtune's completion marker. Once a changed register
 row has been printed, every later line Druta does not recognize is listed as a
-warning, so a commit needs Force. That includes nvtune's `unchanged` row for a
-register whose requested fields already hold their values. The public upstream
+warning, so a commit needs Force. The exception is nvtune's exact `unchanged`
+row for a register whose requested fields already hold their values: it is
+listed as a note, not a warning. That comes from the fix in PR #27, merged here
+ahead of the shared build because nvtune's Windows 7 and Vista builds preview
+with `--dry-run`. The public upstream
 releases write on a bare `set`, so Druta calculates their read-only preview
 from `fields` and `dump --raw` instead. Approved writes use the helper's
 advertised commit convention (`--commit` where it exists). Failed commands

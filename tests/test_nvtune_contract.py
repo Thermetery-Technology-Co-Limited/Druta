@@ -135,32 +135,35 @@ class WriterContractTests(HelperFixture, unittest.TestCase):
                 self.assertEqual(plan.ops, [])
                 self.assertFalse(plan.needs_force)
 
-    def test_unchanged_row_after_an_op_is_a_warning_that_needs_force(self):
-        # As on main, an `unchanged` row is not a recognized line, so under an
-        # op it is a warning, and so is every later line except the marker.
+    def test_unchanged_row_after_an_op_is_a_note_not_a_warning(self):
+        # As in #27: nvtune's exact `unchanged` row is reported as a note. Real
+        # warnings and any later unrecognized line still need Force.
         for output, warnings in (
-                (PREVIEW + UNCHANGED + COMPLETE, [UNCHANGED.strip()]),
+                (PREVIEW + UNCHANGED + COMPLETE, []),
                 (PREVIEW + UNCHANGED + "      ! RC exceeds guide\n" + COMPLETE,
-                 [UNCHANGED.strip(), "! RC exceeds guide"]),
+                 ["! RC exceeds guide"]),
                 (PREVIEW + UNCHANGED + COMPLETE + "\nerror: interrupted",
-                 [UNCHANGED.strip(), "error: interrupted"])):
+                 ["error: interrupted"])):
             with self.subTest(output=output):
                 self.respond(response(output))
                 plan = timingwrite.plan({"FAW": 13, "RC": 1}, SLOT)
                 self.assertTrue(plan.ok, plan.error)
                 self.assertEqual(plan.touches, ["FAW"])
                 self.assertEqual(plan.warnings, warnings)
-                self.assertTrue(plan.needs_force)
+                self.assertEqual(plan.needs_force, bool(warnings))
+                self.assertIn("CONFIG0 @0x100220 unchanged (0x00000001)", plan.notes)
 
-    def test_unchanged_row_after_an_op_blocks_commit_without_force(self):
+    def test_unchanged_row_after_an_op_does_not_block_the_commit(self):
         self.respond(response(SLOT + "  FAW=12 RC=1"),
-                     response(PREVIEW + UNCHANGED + COMPLETE))
+                     response(PREVIEW + UNCHANGED + COMPLETE),
+                     response("applied and verified"),
+                     response(SLOT + "  FAW=13 RC=1"))
         plan, results = timingwrite.apply({"FAW": 13, "RC": 1}, SLOT)
-        self.assertTrue(plan.needs_force)
+        self.assertFalse(plan.needs_force)
         self.assertEqual([r.outcome for r in results],
-                         [timingwrite.TOOL_REFUSED, timingwrite.TOOL_REFUSED])
-        self.assertEqual(len(self.argv()), 2)
-        self.assertTrue(all("--commit" not in argv for argv in self.argv()))
+                         [timingwrite.LANDED, timingwrite.LANDED])
+        self.assertEqual([argv for argv in self.argv() if "--commit" in argv],
+                         [[self.exe, "set", "-d", SLOT, "FAW=13", "RC=1", "--commit"]])
 
     def test_warning_requires_force_before_commit(self):
         self.apply_responses(preview=response(PREVIEW + "      ! FAW exceeds guide\n" + COMPLETE))
@@ -290,17 +293,23 @@ class DefaultPreviewContractTests(HelperFixture, unittest.TestCase):
         self.assertEqual(self.argv(), [[self.exe, "set", "-d", SLOT, "FAW=13", "RC=1"]])
 
     def test_unrecognized_rows_become_warnings_that_need_force(self):
-        # The fork's print_ops() also prints `unchanged` rows; as on main,
-        # one that follows an op is a warning.
         for output in (PREVIEW.replace("FAW             12 -> 13", "FAW 12 -> unknown"),
-                       PREVIEW + "CONFIG0 @bad  unchanged (0x1)\n",
-                       PREVIEW + UNCHANGED):
+                       PREVIEW + "CONFIG0 @bad  unchanged (0x1)\n"):
             with self.subTest(output=output):
                 self.respond(response(output))
                 plan = timingwrite.plan({"FAW": 13}, SLOT)
                 self.assertTrue(plan.ok, plan.error)
                 self.assertTrue(plan.needs_force)
                 self.assertEqual(self.argv()[-1], [self.exe, "set", "-d", SLOT, "FAW=13"])
+
+    def test_unchanged_row_after_an_op_is_a_note(self):
+        # The fork's print_ops() prints the same exact `unchanged` row (#27).
+        self.respond(response(PREVIEW + UNCHANGED))
+        plan = timingwrite.plan({"FAW": 13, "RC": 1}, SLOT)
+        self.assertTrue(plan.ok, plan.error)
+        self.assertEqual(plan.warnings, [])
+        self.assertFalse(plan.needs_force)
+        self.assertIn("CONFIG0 @0x100220 unchanged (0x00000001)", plan.notes)
 
 
 class ReaderContractTests(unittest.TestCase):
