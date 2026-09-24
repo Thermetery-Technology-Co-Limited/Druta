@@ -80,6 +80,13 @@ _OP_RE = re.compile(
     r"(?P<old>0x[0-9A-Fa-f]+)\s*->\s*(?P<new>0x[0-9A-Fa-f]+)\s*"
     r"\[(?P<mode>would write|write)\]")
 _CHG_RE = re.compile(r"^\s+(?P<name>\w+)\s+(?P<old>\d+)\s*->\s*(?P<new>\d+)\s*$")
+# nvtune's print_ops() (tool/src/cli.cpp) prints a register whose requested
+# fields already hold their values as exactly
+#   "  " NAME " @" hex(offset, 6) "  unchanged (" hex(old_word, 8) ")"
+# where hex(v, w) is "0x" plus uppercase digits zero-padded to w, and prints
+# nothing else for that op. The row is neither a write nor a warning. Only
+# this exact row is skipped; a near miss is still classified below as before.
+_UNCHANGED_RE = re.compile(r"  [A-Za-z0-9_]+ @0x[0-9A-F]{6,8}  unchanged \(0x[0-9A-F]{8}\)")
 _REFUSE_RE = re.compile(r"refusing to write with warnings", re.I)
 
 
@@ -301,6 +308,8 @@ def _parse(out):
             cur["changes"].append({"name": m.group("name"),
                                    "old": int(m.group("old")),
                                    "new": int(m.group("new"))})
+            continue
+        if _UNCHANGED_RE.fullmatch(line):
             continue
         s = line.strip()
         # nvtune prints warnings as bare indented lines under an op; anything

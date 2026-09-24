@@ -188,5 +188,152 @@ class TimingWriteResultsTests(unittest.TestCase):
                 tw.read_fields(["RC"], SLOT)
 
 
+# Rows as nvtune's print_ops() in tool/src/cli.cpp writes them: two-space
+# indents, hex(offset, 6) and hex(word, 8) as "0x" plus uppercase digits, and
+# change rows padded by setw(12), setw(6) and setw(6). The --dry-run builds
+# print "[would write]" and commits print "[write]". Register words are
+# derived from GP102 words in nvtune's own capture transcript
+# (tool/tests/manual/profile-roundtrip-20260923); no GPU was accessed.
+def op_row(reg, offset, old, new, mode):
+    return f"  {reg} @0x{offset:06X}  0x{old:08X} -> 0x{new:08X}  [{mode}]"
+
+
+def change_row(name, old, new):
+    return f"      {name:<12}{old:>6} -> {new:<6}"
+
+
+def unchanged_row(reg, offset, word):
+    return f"  {reg} @0x{offset:06X}  unchanged (0x{word:08X})"
+
+
+def warning_row(text):
+    return f"      ! {text}"
+
+
+def nvtune_output(rows, footer="dry run complete: no registers written"):
+    return "\n".join([f"{SLOT}  GP102 (Pascal)", "  [broadcast]"] + list(rows) + [footer])
+
+
+MODES = ("would write", "write")
+HALVED = "FAW more than halved (24 -> 12); step in small increments instead."
+
+
+def rfc_write(mode):
+    return [op_row("CONFIG0", 0x9A0290, 0x16489D3A, 0x16489E3A, mode),
+            change_row("RFC", 157, 158)]
+
+
+def faw_halved_write(mode):
+    return [op_row("CONFIG3", 0x9A029C, 0x2200314A, 0x2200194A, mode),
+            change_row("FAW", 24, 12), warning_row(HALVED)]
+
+
+FAW_ALREADY_25 = unchanged_row("CONFIG3", 0x9A029C, 0x2200334A)
+
+
+class UnchangedRegisterRowTests(unittest.TestCase):
+    """A register that already holds the request is not a preview warning."""
+
+    def setUp(self):
+        helper = tw.HelperContract("fake-nvtune.exe", (), ("--dry-run",),
+                                   ("--commit",), True)
+        patcher = patch.object(tw, "_helper", return_value=helper)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def preview(self, rows, assignments):
+        with patch.object(tw, "_run", return_value=(nvtune_output(rows), 0)):
+            plan = tw.plan(assignments, SLOT)
+        self.assertTrue(plan.ok, plan.error)
+        return plan
+
+    def test_unchanged_row_after_a_write_is_not_a_warning(self):
+        for mode in MODES:
+            with self.subTest(mode=mode):
+                plan = self.preview(rfc_write(mode) + [FAW_ALREADY_25],
+                                    {"RFC": 158, "FAW": 25})
+                self.assertEqual(plan.warnings, [])
+                self.assertFalse(plan.needs_force)
+                self.assertEqual([op["reg"] for op in plan.ops], ["CONFIG0"])
+                self.assertEqual(plan.touches, ["RFC"])
+
+    def test_commit_with_an_unchanged_register_is_sent_without_force(self):
+        commit = nvtune_output(
+            rfc_write("write") + [FAW_ALREADY_25],
+            footer="      applied and verified\n  reminder: the driver reprograms "
+                   "these on p-state changes. Use 'nvtune daemon' to hold them.")
+        with patch.object(tw, "_run", side_effect=[
+                (f"{SLOT}  RFC=157  FAW=25  ", 0),
+                (nvtune_output(rfc_write("would write") + [FAW_ALREADY_25]), 0),
+                (commit, 0), (f"{SLOT}  RFC=158  FAW=25  ", 0)]) as run:
+            plan, rows = tw.apply({"RFC": 158, "FAW": 25}, SLOT)
+        self.assertFalse(plan.needs_force)
+        self.assertEqual([r.outcome for r in rows], [tw.LANDED, tw.LANDED])
+        sent = [c.args[0] for c in run.call_args_list]
+        self.assertEqual([args for args in sent if "--commit" in args],
+                         [["set", "RFC=158", "FAW=25", "--commit"]])
+
+    def test_warning_after_an_unchanged_row_still_requires_force(self):
+        rfc_already_158 = unchanged_row("CONFIG0", 0x9A0290, 0x16489E3A)
+        cl_already_19 = unchanged_row("CONFIG1", 0x9A0294, 0x31260393)
+        for mode in MODES:
+            cases = (
+                ("unchanged first", [rfc_already_158] + faw_halved_write(mode),
+                 {"RFC": 158, "FAW": 12}, ["FAW"]),
+                ("between writes", rfc_write(mode) + [cl_already_19] + faw_halved_write(mode),
+                 {"RFC": 158, "CL": 19, "FAW": 12}, ["RFC", "FAW"]),
+            )
+            for label, rows, assignments, touches in cases:
+                with self.subTest(mode=mode, order=label):
+                    plan = self.preview(rows, assignments)
+                    self.assertEqual(plan.warnings, ["! " + HALVED])
+                    self.assertTrue(plan.needs_force)
+                    self.assertEqual(plan.touches, touches)
+
+    def test_real_warning_beside_an_unchanged_register_still_refuses_commit(self):
+        rows = rfc_write("would write") + [
+            unchanged_row("CONFIG1", 0x9A0294, 0x31260393)] + faw_halved_write("would write")
+        with patch.object(tw, "_run", side_effect=[
+                (f"{SLOT}  RFC=157  CL=19  FAW=24  ", 0), (nvtune_output(rows), 0)]) as run:
+            _, results = tw.apply({"RFC": 158, "CL": 19, "FAW": 12}, SLOT)
+        self.assertEqual({r.outcome for r in results}, {tw.TOOL_REFUSED})
+        self.assertTrue(all("--commit" not in c.args[0] for c in run.call_args_list))
+
+    def test_stray_line_after_an_unchanged_row_is_still_a_warning(self):
+        for mode in MODES:
+            for stray in ("      unexpected helper output",
+                          "stderr text appended after the report"):
+                with self.subTest(mode=mode, stray=stray):
+                    plan = self.preview(rfc_write(mode) + [FAW_ALREADY_25, stray],
+                                        {"RFC": 158, "FAW": 25})
+                    self.assertEqual(plan.warnings, [stray.strip()])
+                    self.assertTrue(plan.needs_force)
+
+    def test_preview_with_only_unchanged_registers_is_the_existing_no_op(self):
+        plan = self.preview([unchanged_row("CONFIG0", 0x9A0290, 0x16489E3A), FAW_ALREADY_25],
+                            {"RFC": 158, "FAW": 25})
+        self.assertEqual((plan.ops, plan.warnings, plan.touches), ([], [], []))
+        self.assertFalse(plan.needs_force)
+        self.assertTrue(plan.summary().startswith("nothing to write"))
+
+    def test_text_resembling_the_unchanged_row_is_still_a_warning(self):
+        near_misses = (
+            FAW_ALREADY_25 + " - the driver reprogrammed it",
+            "    " + FAW_ALREADY_25,
+            FAW_ALREADY_25.replace("0x9A029C", "0x9a029c").replace("0x2200334A", "0x2200334a"),
+            FAW_ALREADY_25.replace("  unchanged", " unchanged"),
+            "  CONFIG3 @0x9A029C  unchanged",
+            "  CONFIG3 @0x9A029C  unchanged (0x2200334)",
+            "      FAW left unchanged by the driver; verify before writing",
+            warning_row("CONFIG3 unchanged (0x2200334A) but its readback differs"),
+        )
+        for mode in MODES:
+            for line in near_misses:
+                with self.subTest(mode=mode, line=line):
+                    plan = self.preview(rfc_write(mode) + [line], {"RFC": 158, "FAW": 25})
+                    self.assertEqual(plan.warnings, [line.strip()])
+                    self.assertTrue(plan.needs_force)
+
+
 if __name__ == "__main__":
     unittest.main()
