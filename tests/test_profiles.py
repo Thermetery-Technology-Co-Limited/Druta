@@ -12,7 +12,7 @@ import glob
 import os
 try:
     import tomllib
-except ImportError:
+except ModuleNotFoundError:
     import tomli as tomllib
 import unittest
 

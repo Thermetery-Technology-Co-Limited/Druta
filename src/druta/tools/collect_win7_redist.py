@@ -110,7 +110,9 @@ def _dll_metadata(path, expected_version):
                   "version": list(version), "source": str(path)}
 
 
-def collect(ucrt_directory, d3d_compiler, sdk_license_directories, output):
+def collect(ucrt_directory, d3d_compiler, sdk_license_directories, output, *,
+            ucrt_version=UCRT_VERSION, ucrt_names=UCRT_NAMES,
+            ucrt_hashes=None, target=None):
     ucrt = _non_system_path(ucrt_directory)
     compiler = _non_system_path(d3d_compiler)
     licenses = [_non_system_path(path) for path in sdk_license_directories]
@@ -124,19 +126,26 @@ def collect(ucrt_directory, d3d_compiler, sdk_license_directories, output):
 
     dlls = [path for path in ucrt.iterdir() if path.suffix.lower() == ".dll"]
     found = {path.name.lower() for path in dlls}
-    if found != UCRT_NAMES or len(dlls) != len(UCRT_NAMES):
-        raise ValueError("Expected the complete 42-DLL SDK 19041 x64 UCRT set. "
+    if found != ucrt_names or len(dlls) != len(ucrt_names):
+        raise ValueError("Expected the complete {}-DLL SDK {} x64 UCRT set. ".format(
+                             len(ucrt_names), ucrt_version[2]) +
                          "Missing: {}; unexpected: {}".format(
-                             ", ".join(sorted(UCRT_NAMES - found)) or "none",
-                             ", ".join(sorted(found - UCRT_NAMES)) or "none"))
+                             ", ".join(sorted(ucrt_names - found)) or "none",
+                             ", ".join(sorted(found - ucrt_names)) or "none"))
+    if ucrt_hashes is not None and set(ucrt_hashes) != set(ucrt_names):
+        raise ValueError("Incomplete pinned UCRT hash set")
 
     manifest = {"format": 1, "files": [], "licenses": []}
+    if target:
+        manifest["target"] = target
     payload = {}
     for path in sorted(dlls, key=lambda item: item.name.lower()):
         source = _non_system_path(path)
         if source.parent != ucrt:
             raise ValueError("All UCRT DLLs must come from one SDK directory: " + str(path))
-        data, record = _dll_metadata(source, UCRT_VERSION)
+        data, record = _dll_metadata(source, ucrt_version)
+        if ucrt_hashes is not None and record['sha256'] != ucrt_hashes[record['name']]:
+            raise ValueError("UCRT SHA256 differs from the tested SDK redist: " + record['name'])
         manifest["files"].append(record)
         payload[record["name"]] = data
 

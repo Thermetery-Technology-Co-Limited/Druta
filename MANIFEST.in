@@ -1,7 +1,10 @@
 # The sdist can rebuild the wheel and the distributable Windows bundles,
-# including the separate Windows 7 build.
+# including the separate Windows 7 and Vista builds.
 include druta.py src/run_druta.py Druta.spec build.ps1 requirements.txt pyproject.toml setup.py MANIFEST.in
 include Druta-win7.spec build-win7.ps1 requirements-win7.txt WINDOWS7.md PORTABLE-WINDOWS7.md
+include Druta-vista.spec build-vista.ps1 requirements-vista.txt VISTA.md
+# The Vista runtime's source patches, notes and pinned UCRT identities.
+recursive-include src/druta/tools/vista *.md *.json *.patch
 include AGENTS.md COPYING THIRD-PARTY-NOTICES.md README.md MANUAL.md
 include TECHNICALDOCUMENTATION.md DEBUG-SUMMARY-RTX5080.md
 include VOLTAGE-RAILS-TITAN.md VOLTAGE-RAILS-47212.md DRIVER-COMPATIBILITY.md
@@ -15,6 +18,8 @@ include i2c/*.toml i2c/*.md
 
 # Only these public measurements belong in a distribution.
 include experiments/voltage-rails-20260906.json
+include experiments/vista-driver-36519-exports.json
+include experiments/vista-port-validation-20260906.json
 include experiments/legacy-offsets-47212-0000-01-00.0.json
 include experiments/legacy-offsets-47212-0000-02-00.0.json
 include experiments/legacy-frequency-production-47212.json

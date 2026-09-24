@@ -58,6 +58,7 @@ function Get-SourceSnapshot {
         'pyproject.toml', 'setup.py', 'MANIFEST.in',
         'Druta-win7.spec', 'build-win7.ps1', 'requirements-win7.txt',
         'WINDOWS7.md', 'PORTABLE-WINDOWS7.md',
+        'Druta-vista.spec', 'build-vista.ps1', 'requirements-vista.txt', 'VISTA.md',
         '.github/PULL_REQUEST_TEMPLATE/i2c_profile.md',
         'AGENTS.md', 'COPYING', 'THIRD-PARTY-NOTICES.md', 'README.md', 'MANUAL.md',
         'TECHNICALDOCUMENTATION.md', 'DEBUG-SUMMARY-RTX5080.md',
@@ -113,6 +114,8 @@ function Get-SourceSnapshot {
         'experiments/power-5080-20260908/POLICY14-MAXIMUM-RESULT.md',
         'experiments/power-5080-20260908/MP29816-VALIDATION.md',
         'experiments/voltage-rails-20260906.json',
+        'experiments/vista-driver-36519-exports.json',
+        'experiments/vista-port-validation-20260906.json',
         'experiments/runtime-rails-47212.json',
         'experiments/runtime-rails-56636.json',
         'experiments/runtime-i2c-ui-58097.json',
@@ -158,7 +161,9 @@ function Get-SourceSnapshot {
         $paths += @(Get-ChildItem -LiteralPath (Join-Path $root $directory) -Filter '*.py' -File -Recurse |
             ForEach-Object { $_.FullName.Substring($root.Length + 1).Replace('\', '/') })
     }
-    foreach ($pattern in @('i2c/*.toml', 'i2c/*.md')) {
+    # The Vista runtime's source patches, notes and pinned UCRT identities.
+    foreach ($pattern in @('i2c/*.toml', 'i2c/*.md', 'src/druta/tools/vista/*.md',
+                           'src/druta/tools/vista/*.json', 'src/druta/tools/vista/*.patch')) {
         $paths += @(Get-ChildItem -Path (Join-Path $root $pattern) -File -ErrorAction SilentlyContinue |
             ForEach-Object { $_.FullName.Substring($root.Length + 1).Replace('\', '/') })
     }

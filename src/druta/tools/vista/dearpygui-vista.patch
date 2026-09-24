@@ -1,0 +1,186 @@
+diff --git a/src/mvGraphics_win32.cpp b/src/mvGraphics_win32.cpp
+index 24da2ec..c33e317 100644
+--- a/src/mvGraphics_win32.cpp
++++ b/src/mvGraphics_win32.cpp
+@@ -65,8 +65,20 @@ setup_graphics(mvViewport& viewport)
+ 	D3D_FEATURE_LEVEL featureLevel;
+ 	const D3D_FEATURE_LEVEL featureLevelArray[2] = { D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_0, };
+ 
++	// Explicit software-rendering option for legacy virtual display drivers.
++	// Hardware selection remains the default; only the exact value "1" opts in.
++	wchar_t warpOption[2] = {};
++	const bool useWarp = GetEnvironmentVariableW(L"DRUTA_D3D11_WARP", warpOption, 2) == 1
++		&& warpOption[0] == L'1';
++	if (useWarp)
++	{
++		if (D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_WARP, nullptr,
++			createDeviceFlags, featureLevelArray, 2, D3D11_SDK_VERSION, &sd, &graphicsData->swapChain,
++			&graphicsData->device, &featureLevel, &graphicsData->deviceContext) != S_OK)
++			return graphics;
++	}
+ 	// use default adapter
+-	if (GContext->IO.info_auto_device)
++	else if (GContext->IO.info_auto_device)
+ 	{
+ 
+ 		int index = 0;
+@@ -215,4 +227,4 @@ present(mvGraphics& graphics, mvColor& clearColor, bool vsync)
+ 	}
+ 	else
+ 		presentFlags = 0;
+-}
+\ No newline at end of file
++}
+diff --git a/thirdparty/ImGuiFileDialog/ImGuiFileDialog.cpp b/thirdparty/ImGuiFileDialog/ImGuiFileDialog.cpp
+index b1fff1c..bc348a1 100644
+--- a/thirdparty/ImGuiFileDialog/ImGuiFileDialog.cpp
++++ b/thirdparty/ImGuiFileDialog/ImGuiFileDialog.cpp
+@@ -389,11 +389,13 @@ namespace IGFD
+ 		std::wstring ret;
+ 		if (!str.empty())
+ 		{
+-			size_t sz = std::mbstowcs(nullptr, str.c_str(), str.size());
+-			if (sz)
++			const int sz = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
++				str.data(), static_cast<int>(str.size()), nullptr, 0);
++			if (sz > 0)
+ 			{
+ 				ret.resize(sz);
+-				std::mbstowcs((wchar_t*)ret.data(), str.c_str(), sz);
++				MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
++					str.data(), static_cast<int>(str.size()), ret.data(), sz);
+ 			}
+ 		}
+ 		return ret;
+@@ -404,11 +406,13 @@ namespace IGFD
+ 		std::string ret;
+ 		if (!str.empty())
+ 		{
+-			size_t sz = std::wcstombs(nullptr, str.c_str(), str.size());
+-			if (sz)
++			const int sz = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS,
++				str.data(), static_cast<int>(str.size()), nullptr, 0, nullptr, nullptr);
++			if (sz > 0)
+ 			{
+ 				ret.resize(sz);
+-				std::wcstombs((char*)ret.data(), str.c_str(), sz);
++				WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS,
++					str.data(), static_cast<int>(str.size()), ret.data(), sz, nullptr, nullptr);
+ 			}
+ 		}
+ 		return ret;
+@@ -481,11 +485,12 @@ namespace IGFD
+ 			namespace fs = std::filesystem;
+ #ifdef WIN32
+ 			std::wstring wname = IGFD::Utils::string_to_wstring(name.c_str());
+-			fs::path pathName = fs::path(wname);
++			const DWORD attributes = GetFileAttributesW(wname.c_str());
++			bExists = attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY);
+ #else
+ 			fs::path pathName = fs::path(name);
+-#endif
+ 			bExists = fs::is_directory(pathName);
++#endif
+ #else
+ 			DIR* pDir = nullptr;
+ 			pDir = opendir(name.c_str());
+@@ -510,10 +515,8 @@ namespace IGFD
+ 			{
+ #ifdef WIN32
+ #ifdef USE_STD_FILESYSTEM
+-				namespace fs = std::filesystem;
+ 				std::wstring wname = IGFD::Utils::string_to_wstring(name.c_str());
+-				fs::path pathName = fs::path(wname);
+-				res = fs::create_directory(pathName);
++				res = CreateDirectoryW(wname.c_str(), nullptr) != 0;
+ #else
+ 				std::wstring wname = IGFD::Utils::string_to_wstring(name);
+ 				if (CreateDirectoryW(wname.c_str(), nullptr))
+@@ -552,9 +555,15 @@ namespace IGFD
+ 		if (vPathFileName.empty())
+ 			return res;
+ 
+-		auto fsPath = fs::path(vPathFileName);
++		auto fsPath = fs::u8path(vPathFileName);
+ 
+-		if (fs::is_regular_file(fsPath)) {
++#ifdef WIN32
++		const DWORD attributes = GetFileAttributesW(fsPath.c_str());
++		const bool isRegularFile = attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_DIRECTORY);
++#else
++		const bool isRegularFile = fs::is_regular_file(fsPath);
++#endif
++		if (isRegularFile) {
+ 			res.name = fsPath.string();
+ 			res.path = fsPath.parent_path().string();
+ 			res.isOk = true;
+@@ -1270,6 +1279,30 @@ namespace IGFD
+ 			ClearFileLists();
+ 
+ #ifdef USE_STD_FILESYSTEM
++			// MSVC's directory_iterator uses FindExInfoBasic, which Vista rejects.
++			// Keep the same UTF-8 filenames, type classification and dialog sorting.
++#ifdef WIN32
++			const std::filesystem::path fspath = std::filesystem::u8path(path);
++			const auto pattern = fspath / L"*";
++			WIN32_FIND_DATAW entry{};
++			const HANDLE search = FindFirstFileW(pattern.c_str(), &entry);
++			AddFile(vFileDialogInternal, path, "..", 'd');
++			if (search != INVALID_HANDLE_VALUE)
++			{
++				// Close the enumeration handle even if allocation below throws.
++				struct CloseSearch { HANDLE handle; ~CloseSearch() { FindClose(handle); } } close{ search };
++				do
++				{
++					if (wcscmp(entry.cFileName, L".") == 0 || wcscmp(entry.cFileName, L"..") == 0)
++						continue;
++					const char fileType = ((entry.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)
++						&& entry.dwReserved0 == IO_REPARSE_TAG_SYMLINK) ? 'l'
++						: (entry.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ? 'd' : 'f';
++					const auto fileName = std::filesystem::path(entry.cFileName).u8string();
++					AddFile(vFileDialogInternal, path, fileName, fileType);
++				} while (FindNextFileW(search, &entry));
++			}
++#else
+ 			//const auto wpath = IGFD::Utils::WGetString(path.c_str());
+ 			const std::filesystem::path fspath(path);
+ 			const auto dir_iter = std::filesystem::directory_iterator(fspath);
+@@ -1286,6 +1319,7 @@ namespace IGFD
+ 				auto fileName = file.path().filename().u8string();
+ 				AddFile(vFileDialogInternal, path, fileName, fileType);
+ 			}
++#endif // WIN32
+ #else // dirent
+ 			struct dirent** files = nullptr;
+ 			int n = scandir(path.c_str(), &files, nullptr, inAlphaSort);
+@@ -1491,9 +1525,15 @@ namespace IGFD
+ 			if (vInfos->fileType == 'f' || vInfos->fileType == 'l' || vInfos->fileType == 'd') // file
+ 				fpn = vInfos->filePath + std::string(1u, PATH_SEP) + vInfos->fileName;
+ 
+-			struct stat statInfos = {};
+ 			char timebuf[100];
++#ifdef WIN32
++			struct _stat64 statInfos = {};
++			const auto widePath = IGFD::Utils::string_to_wstring(fpn);
++			int result = _wstat64(widePath.c_str(), &statInfos);
++#else
++			struct stat statInfos = {};
+ 			int result = stat(fpn.c_str(), &statInfos);
++#endif
+ 			if (!result)
+ 			{
+ 				if (vInfos->fileType != 'd')
+@@ -1560,11 +1600,11 @@ namespace IGFD
+ 		
+ #ifdef USE_STD_FILESYSTEM
+ 		namespace fs = std::filesystem;
+-		bool dir_opened = fs::is_directory(vPath);
++		bool dir_opened = IGFD::Utils::IsDirectoryExist(path);
+ 		if (!dir_opened)
+ 		{
+ 			path = ".";
+-			dir_opened = fs::is_directory(vPath);
++			dir_opened = IGFD::Utils::IsDirectoryExist(path);
+ 		}
+ 		if (dir_opened)
+ #else
