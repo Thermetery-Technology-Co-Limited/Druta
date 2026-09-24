@@ -4,7 +4,10 @@
 import ctypes
 from copy import deepcopy
 from pathlib import Path
-import tomllib
+try:
+    import tomllib
+except ImportError:
+    import tomli as tomllib
 import unittest
 
 from druta.controllers import mp2888

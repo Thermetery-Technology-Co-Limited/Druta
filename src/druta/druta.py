@@ -82,6 +82,7 @@ import contextlib
 import json
 import math
 import os
+import platform
 from collections import namedtuple
 import subprocess
 import sys
@@ -92,6 +93,7 @@ import dearpygui.dearpygui as dpg
 
 from . import (gpuload, paths, profiles, startup, shuntmod, timings, timingwrite,
                timingprofiles, devicerecovery, nct3933_board, i2c_cache)
+from .wincompat import dpi_scale
 from .nvbackend import (GPU, EVENT_REASONS, PERF_DECREASE_BITS, VF_STEP_KHZ, VF_LOCK_DOMAIN,
                         VFP_POINTS, below_cap, enumerate_gpus, is_admin,
                         same_slot,
@@ -194,22 +196,6 @@ DomainKnob = namedtuple("DomainKnob", "key ctrl fallback note xoc_only",
 # knobs that have no wider legal range - a percentage does not gain one by
 # ticking a box.
 KnobRange = namedtuple("KnobRange", "label lo hi xoc_lo xoc_hi")
-
-
-def dpi_scale():
-    """Real desktop scale (1.5 at 150%). Read only AFTER declaring DPI
-    awareness - Windows reports 96 dpi to unaware processes."""
-    for fn in (lambda: ctypes.windll.shcore.SetProcessDpiAwareness(1),
-               lambda: ctypes.windll.user32.SetProcessDPIAware()):
-        try:
-            fn()
-            break
-        except Exception:
-            continue
-    try:
-        return ctypes.windll.user32.GetDpiForSystem() / 96.0
-    except Exception:
-        return 1.0
 
 
 class Druta:
@@ -1525,7 +1511,7 @@ class Druta:
                 self.sync_profile_rail_sliders()
             return
         if key.startswith("current"):
-            policy = int(key.removeprefix("current"))
+            policy = int(key[len("current"):])  # str.removeprefix is 3.9+
             rows = self.read_current_limit_rows()
             row = next((r for r in rows if r["policy"] == policy), None)
             if row is None:
@@ -10481,12 +10467,113 @@ def _tell(text):
         pass
 
 
+def _smoke_test(output_path=None):
+    """Exercise the runtime and renderer without opening any GPU backend.
+
+    A VM without an NVIDIA card can check imports, packaged profiles, DPI and
+    Direct3D initialization this way. It does not validate GPU telemetry or
+    tuning. Save each stage when a path is supplied so even a native renderer
+    crash leaves a useful, incomplete report instead of a false pass.
+    """
+    report = {"status": "running", "stage": "imports",
+              "python_version": platform.python_version(),
+              "platform": platform.platform(), "rendered_frames": 0}
+    context_created = False
+
+    def record():
+        if output_path:
+            with open(output_path, "w", encoding="utf-8") as f:
+                json.dump(report, f, indent=2, sort_keys=True)
+                f.write("\n")
+
+    try:
+        record()
+        report["stage"] = "profiles"
+        record()
+        if railctl is None:
+            raise RuntimeError("I2C profile parser could not be imported")
+        errors = []
+        loaded = railctl.load_profiles(
+            log=lambda message, *_: errors.append(message))
+        if errors or not loaded:
+            raise RuntimeError("; ".join(errors) or "No I2C profiles found")
+        report["i2c_profiles"] = len(loaded)
+        report["dpi_scale"] = dpi_scale()
+        report["stage"] = "renderer"
+        record()
+        dpg.create_context()
+        context_created = True
+        report["dearpygui_version"] = dpg.get_dearpygui_version()
+        dpg.create_viewport(title="Druta runtime smoke test", width=640,
+                            height=400)
+        with dpg.window(tag="smoke_root"):
+            dpg.add_text("Druta runtime smoke test - no GPU access")
+            with dpg.plot(height=250, width=-1):
+                dpg.add_plot_axis(dpg.mvXAxis, tag="smoke_x")
+                dpg.add_plot_axis(dpg.mvYAxis, tag="smoke_y")
+                dpg.add_line_series([0, 1, 2], [0, 1, 0], parent="smoke_y")
+                dpg.set_axis_limits_constraints("smoke_x", 0, 2)
+                dpg.set_axis_zoom_constraints("smoke_x", 0.5, 2)
+        dpg.setup_dearpygui()
+        dpg.show_viewport()
+        dpg.set_primary_window("smoke_root", True)
+        for _ in range(3):
+            if not dpg.is_dearpygui_running():
+                raise RuntimeError("Smoke-test viewport closed before 3 frames")
+            dpg.render_dearpygui_frame()
+            report["rendered_frames"] += 1
+        report["status"] = "passed"
+        report["stage"] = "complete"
+    except Exception as e:
+        report["status"] = "failed"
+        report["error"] = f"{type(e).__name__}: {e}"
+    finally:
+        if context_created:
+            try:
+                dpg.destroy_context()
+            except Exception as e:
+                report["status"] = "failed"
+                report["error"] = f"Context cleanup failed: {e}"
+        try:
+            record()
+        except OSError as e:
+            report["status"] = "failed"
+            report["error"] = f"Could not save smoke report: {e}"
+            out = getattr(sys, "stderr", None) or getattr(sys, "stdout", None)
+            if out is not None:
+                try:
+                    out.write(report["error"] + "\n")
+                except (OSError, ValueError, AttributeError):
+                    pass
+    # A console-less EXE with an output path must never open a modal box: this
+    # mode also runs unattended inside the Windows 7 validation VM.
+    if not output_path:
+        _tell(json.dumps(report, indent=2, sort_keys=True))
+    return 0 if report["status"] == "passed" else 1
+
+
 def main(argv=None):
     """--gpu SLOT picks the card; --list-gpus reports what is available.
 
     The slot spelling is nvtune's and NVML's, so the three tools can be pointed
     at one card with one copied string."""
     argv = list(sys.argv[1:] if argv is None else argv)
+    # Handled first and exclusively: the smoke test never opens a GPU backend,
+    # so it cannot be combined with --restart-gpu or any card selection.
+    if "--smoke-test" in argv or "--smoke-output" in argv:
+        output_path = None
+        if argv.count("--smoke-test") != 1:
+            _tell("--smoke-output requires --smoke-test")
+            return 2
+        argv.remove("--smoke-test")
+        if argv and argv[0] == "--smoke-output" and len(argv) == 2:
+            output_path = argv[1]
+            argv = []
+        if argv or (output_path is not None and
+                    (not output_path or output_path.startswith("--"))):
+            _tell("usage: Druta --smoke-test [--smoke-output PATH]")
+            return 2
+        return _smoke_test(output_path)
     if argv and argv[0] == "--restart-gpu":
         return devicerecovery.cli(argv[1:], _tell)
     slot = None
@@ -10520,9 +10607,12 @@ def main(argv=None):
                 return 2
             slot = argv.pop(0)
         elif a in ("-h", "--help"):
-            _tell("usage: Druta [--gpu SLOT] [--list-gpus] [--startup-profile]\n\n"
+            _tell("usage: Druta [--gpu SLOT] [--list-gpus] [--startup-profile]\n"
+                  "       Druta --smoke-test [--smoke-output PATH]\n\n"
                   "  --gpu SLOT   open on that card, e.g. 0000:02:00.0\n"
-                  "  --list-gpus  print the slot and name of every card\n\n"
+                  "  --list-gpus  print the slot and name of every card\n"
+                  "  --smoke-test test the runtime and renderer without GPU access\n"
+                  "  --smoke-output PATH  save smoke-test results as JSON\n\n"
                   "  --version    print the Druta version\n\n"
                   "  --restart-gpu SLOT  restart that GPU through Windows PnP, then reopen\n"
                   "                      requires admin; never reboots the computer\n\n"

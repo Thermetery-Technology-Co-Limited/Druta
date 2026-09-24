@@ -16,7 +16,10 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 
 
-@unittest.skipUnless(importlib.util.find_spec("setuptools"), "install the dev extra")
+# The wheel declares requires-python >=3.11, so its dev extra (setuptools>=64)
+# is not installable on older interpreters such as the Windows 7 Python 3.8.
+@unittest.skipUnless(sys.version_info >= (3, 11) and importlib.util.find_spec("setuptools"),
+                     "install the dev extra (Python 3.11+)")
 class DistributionAssets(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

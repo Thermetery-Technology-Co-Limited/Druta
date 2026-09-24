@@ -17,6 +17,11 @@ LEGACY_DLL = r"E:\Program Files\NVIDIA Corporation\NVSMI\nvml.dll"
 
 
 class NvmlLoaderTests(unittest.TestCase):
+    def _patch(self, patcher):
+        result = patcher.start()
+        self.addCleanup(patcher.stop)
+        return result
+
     def test_nondefault_windows_and_program_files_drives(self):
         with patch.object(nvbackend, "_windows_system_directory",
                           return_value=r"D:\Windows\System32"), \
@@ -47,12 +52,12 @@ class NvmlLoaderTests(unittest.TestCase):
             self.assertEqual(len(errors), 2)
 
     def loader_patches(self, exists=True):
-        self.paths = self.enterContext(patch.object(
+        self.paths = self._patch(patch.object(
             nvbackend, "_nvml_driver_paths",
             return_value=([SYSTEM_DLL, LEGACY_DLL], [])))
-        self.exists = self.enterContext(patch.object(
+        self.exists = self._patch(patch.object(
             nvbackend.os.path, "isfile", return_value=exists))
-        self.cdll = self.enterContext(patch.object(nvbackend.ctypes, "CDLL"))
+        self.cdll = self._patch(patch.object(nvbackend.ctypes, "CDLL"))
 
     def test_dch_load_does_not_fall_through_to_legacy(self):
         self.loader_patches()

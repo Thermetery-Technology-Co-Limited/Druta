@@ -56,6 +56,8 @@ function Get-SourceSnapshot {
         'druta.py', 'src/run_druta.py', 'src/druta/__init__.py', 'src/druta/__main__.py',
         'Druta.spec', 'build.ps1', 'requirements.txt',
         'pyproject.toml', 'setup.py', 'MANIFEST.in',
+        'Druta-win7.spec', 'build-win7.ps1', 'requirements-win7.txt',
+        'WINDOWS7.md', 'PORTABLE-WINDOWS7.md',
         '.github/PULL_REQUEST_TEMPLATE/i2c_profile.md',
         'AGENTS.md', 'COPYING', 'THIRD-PARTY-NOTICES.md', 'README.md', 'MANUAL.md',
         'TECHNICALDOCUMENTATION.md', 'DEBUG-SUMMARY-RTX5080.md',

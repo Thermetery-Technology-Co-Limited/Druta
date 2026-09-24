@@ -50,6 +50,7 @@ import sys
 import threading
 import time
 from dataclasses import dataclass
+from typing import Optional
 
 # Published diagnostic scripts also import this module directly from src/druta.
 if __package__:
@@ -862,8 +863,8 @@ class ClkDomLayout:
     mask_dword: int
     mode: int
     freq_khz: int
-    nvvdd_uv: int | None
-    msvdd_uv: int | None
+    nvvdd_uv: Optional[int]
+    msvdd_uv: Optional[int]
 
 
 CLKDOM_LAYOUT_TURING = ClkDomLayout(
@@ -1415,30 +1416,48 @@ class Nvml:
         except Exception as e:
             self.err_detail = f"nvml.dll not loadable: {e}"
             return
-        self.dll.nvmlErrorString.restype = ctypes.c_char_p
-        st = self.dll.nvmlInit_v2()
+        if self.has("nvmlErrorString"):
+            self.dll.nvmlErrorString.restype = ctypes.c_char_p
+        init_name = self._export("nvmlInit_v2", "nvmlInit")
+        if init_name is None:
+            self.err_detail = "NVML has no initialization export"
+            return
+        st = getattr(self.dll, init_name)()
         if st != 0:
-            self.err_detail = f"nvmlInit_v2 status {st}"
+            self.err_detail = f"{init_name} status {st}"
+            return
+        # The index spaces changed together in R319. Never mix a v1 count
+        # with a v2 index lookup (or vice versa) on a partially exported DLL.
+        if all(self.has(name) for name in ("nvmlDeviceGetCount_v2",
+                                          "nvmlDeviceGetHandleByIndex_v2")):
+            count_name, handle_name = ("nvmlDeviceGetCount_v2",
+                                       "nvmlDeviceGetHandleByIndex_v2")
+        elif all(self.has(name) for name in ("nvmlDeviceGetCount",
+                                            "nvmlDeviceGetHandleByIndex")):
+            count_name, handle_name = ("nvmlDeviceGetCount",
+                                       "nvmlDeviceGetHandleByIndex")
+        else:
+            self.err_detail = "NVML has no matching device-count/index exports"
             return
         cnt = u32(0)
-        st = self.dll.nvmlDeviceGetCount_v2(ctypes.byref(cnt))
+        st = getattr(self.dll, count_name)(ctypes.byref(cnt))
         if st != 0:
-            self.err_detail = f"nvmlDeviceGetCount_v2 status {st}"
+            self.err_detail = f"{count_name} status {st}"
             return
         for i in range(cnt.value):
             dev = PTR()
-            if self.dll.nvmlDeviceGetHandleByIndex_v2(i,
-                                                      ctypes.byref(dev)) != 0:
+            if getattr(self.dll, handle_name)(i, ctypes.byref(dev)) != 0:
                 continue
-            pci = _NvmlPciInfo()
             entry = {"dev": dev, "nvml_index": i, "slot": "",
                      "devid": None, "subsys": None, "name": "", "uuid": ""}
-            if self.dll.nvmlDeviceGetPciInfo_v3(dev, ctypes.byref(pci)) == 0:
+            pci = self._read_pci(dev)
+            if pci is not None:
                 entry["slot"] = format_slot(pci.domain, pci.bus, pci.device)
                 entry["devid"] = pci.pciDeviceId >> 16
                 entry["subsys"] = pci.pciSubSystemId
             buf = ctypes.create_string_buffer(96)
-            if self.dll.nvmlDeviceGetName(dev, buf, 96) == 0:
+            if (self.has("nvmlDeviceGetName")
+                    and self.dll.nvmlDeviceGetName(dev, buf, 96) == 0):
                 entry["name"] = buf.value.decode(errors="replace")
             # The only identity that survives two IDENTICAL cards in one host,
             # where name and VBIOS are equal by construction. Profiles lean on
@@ -1449,6 +1468,32 @@ class Nvml:
                     entry["uuid"] = ubuf.value.decode(errors="replace")
             self.gpus.append(entry)
         self._select(slot)
+
+    def _export(self, *names):
+        return next((name for name in names if self.has(name)), None)
+
+    def _read_pci(self, dev):
+        """PCI identity from the newest exported reader, or None.
+
+        V2 predates the longer V3 bus-ID tail. Both use the same leading
+        16-byte bus ID and five uint32 identity fields. The V3-sized buffer
+        is also large enough for V2's reserved tail; only shared fields are
+        consumed. An unversioned pre-R285 record lacks subsystem identity and
+        is deliberately not used for pairing or private write profiles.
+        NVIDIA version history: https://docs.nvidia.com/deploy/archive/R470/nvml-api/change-log.html
+
+        On None the GPU is still listed, with a blank slot, device ID and
+        subsystem.
+        """
+        for name in ("nvmlDeviceGetPciInfo_v3", "nvmlDeviceGetPciInfo_v2"):
+            if not self.has(name):
+                continue
+            pci = _NvmlPciInfo()
+            status = getattr(self.dll, name)(dev, ctypes.byref(pci))
+            if status == 13:  # NVML_ERROR_FUNCTION_NOT_FOUND: exported stub.
+                continue
+            return pci if status == 0 else None
+        return None
 
     def _select(self, slot):
         """Same rule as NvAPI._select: lowest slot by default, exact match or
@@ -1669,28 +1714,38 @@ class GPU:
             s["uuid"] = self.nvml.selected.get("uuid", "")
         nv = self.nvml
         if nv.ok:
+            # Old NVML may omit an export or return NOT_SUPPORTED without
+            # writing output. Each field needs its own buffer and success check.
             for key, function, args in (
                     ("name", "nvmlDeviceGetName", (nv.dev,)),
                     ("driver", "nvmlSystemGetDriverVersion", ()),
                     ("vbios", "nvmlDeviceGetVbiosVersion", (nv.dev,))):
+                if not nv.has(function):
+                    continue
                 buf = ctypes.create_string_buffer(96)
                 try:
                     if getattr(nv.dll, function)(*args, buf, 96) == 0 and buf.value:
                         s[key] = buf.value.decode(errors="replace")
                 except Exception:
                     pass
-            # power-limit constraints (mW)
-            try:
-                mn, mx = u32(0), u32(0)
-                if nv.dll.nvmlDeviceGetPowerManagementLimitConstraints(
-                        nv.dev, ctypes.byref(mn), ctypes.byref(mx)) == 0:
-                    s["pl_min_mw"], s["pl_max_mw"] = mn.value, mx.value
-                d = u32(0)
-                if nv.dll.nvmlDeviceGetPowerManagementDefaultLimit(
-                        nv.dev, ctypes.byref(d)) == 0:
-                    s["pl_def_mw"] = d.value
-            except Exception:
-                pass
+            # Power-limit calls are independent: default may exist even when
+            # the driver does not offer editable constraints.
+            if nv.has("nvmlDeviceGetPowerManagementLimitConstraints"):
+                try:
+                    mn, mx = u32(0), u32(0)
+                    if nv.dll.nvmlDeviceGetPowerManagementLimitConstraints(
+                            nv.dev, ctypes.byref(mn), ctypes.byref(mx)) == 0:
+                        s["pl_min_mw"], s["pl_max_mw"] = mn.value, mx.value
+                except Exception:
+                    pass
+            if nv.has("nvmlDeviceGetPowerManagementDefaultLimit"):
+                try:
+                    d = u32(0)
+                    if nv.dll.nvmlDeviceGetPowerManagementDefaultLimit(
+                            nv.dev, ctypes.byref(d)) == 0:
+                        s["pl_def_mw"] = d.value
+                except Exception:
+                    pass
             # supported clock range (for locked-clock UI bounds)
             try:
                 memclks = self._supported_nvml_clocks("nvmlDeviceGetSupportedMemoryClocks")

@@ -47,6 +47,9 @@ MEASURED, and the reason the architecture note is not decoration:
 Same tool, same driver, same slot. So this module reports what happened; it does
 not promise a write will land.
 """
+# Keep annotations unevaluated: the Windows 7 build runs CPython 3.8.
+from __future__ import annotations
+
 import json
 import hashlib
 import os
@@ -80,6 +83,16 @@ _OP_RE = re.compile(
     r"(?P<old>0x[0-9A-Fa-f]+)\s*->\s*(?P<new>0x[0-9A-Fa-f]+)\s*"
     r"\[(?P<mode>would write|write)\]")
 _CHG_RE = re.compile(r"^\s+(?P<name>\w+)\s+(?P<old>\d+)\s*->\s*(?P<new>\d+)\s*$")
+# nvtune's print_ops() (tool/src/cli.cpp) prints a register whose requested
+# fields already hold their values as exactly
+#   "  " NAME " @" hex(offset, 6) "  unchanged (" hex(old_word, 8) ")"
+# where hex(v, w) is "0x" plus uppercase digits zero-padded to w, and prints
+# nothing else for that op. The row is neither a write nor a warning, but it
+# is reported back as a note so the preview still names every register the
+# request reached. Only this exact row counts; a near miss is classified below
+# as before.
+_UNCHANGED_RE = re.compile(r"  (?P<reg>[A-Za-z0-9_]+) @(?P<off>0x[0-9A-F]{6,8})  "
+                           r"unchanged \((?P<word>0x[0-9A-F]{8})\)")
 _REFUSE_RE = re.compile(r"refusing to write with warnings", re.I)
 
 
@@ -167,12 +180,23 @@ class HelperContract:
 _HELPER_CONTRACTS = {}
 
 
+def _sha256_file(handle):
+    """hashlib.file_digest where available (3.11+), else the same digest by chunks."""
+    file_digest = getattr(hashlib, "file_digest", None)
+    if file_digest is not None:
+        return file_digest(handle, "sha256").hexdigest()
+    digest = hashlib.sha256()
+    for block in iter(lambda: handle.read(1 << 20), b""):
+        digest.update(block)
+    return digest.hexdigest()
+
+
 def _exe_fingerprint(exe):
     stat = os.stat(exe)
     # Windows ctime is creation time. A same-size copy preserving mtime can
     # replace a legacy helper without changing any of the stat fields.
     with open(exe, "rb") as handle:
-        digest = hashlib.file_digest(handle, "sha256").hexdigest()
+        digest = _sha256_file(handle)
     return (os.path.normcase(os.path.realpath(exe)), stat.st_size,
             stat.st_mtime_ns, stat.st_ctime_ns, stat.st_ino, digest)
 
@@ -286,7 +310,7 @@ def _run(args, override=None, timeout=90, slot=None, *, helper=None):
 
 
 def _parse(out):
-    ops, warnings = [], []
+    ops, warnings, unchanged = [], [], []
     cur = None
     for line in out.splitlines():
         m = _OP_RE.match(line)
@@ -302,6 +326,12 @@ def _parse(out):
                                    "old": int(m.group("old")),
                                    "new": int(m.group("new"))})
             continue
+        m = _UNCHANGED_RE.fullmatch(line)
+        if m:
+            unchanged.append(f"{m['reg']} @{m['off']} unchanged ({m['word']}): it "
+                             f"already holds the requested value(s), so nothing "
+                             f"will be written to it")
+            continue
         s = line.strip()
         # nvtune prints warnings as bare indented lines under an op; anything
         # that is not an op, a change, a banner or a reminder is one.
@@ -312,7 +342,7 @@ def _parse(out):
                 and s != "dry run complete: no registers written"
                 and "stock values saved" not in s):
             warnings.append(s)
-    return ops, warnings
+    return ops, warnings, unchanged
 
 
 def read_fields(names, slot, override=None):
@@ -349,13 +379,13 @@ def plan(assignments, slot, override=None, *, helper=None):
         out, rc = _run(args, helper.exe, slot=slot, helper=helper)
     except (OSError, subprocess.SubprocessError, timings.TimingsError, WriteError) as e:
         return Plan(assignments, [], [], "", ok=False, error=str(e))
-    ops, warnings = _parse(out)
+    ops, warnings, unchanged = _parse(out)
     # A warning-only preview exits successfully. Any nonzero status remains
     # a failure even if a partial plan was printed first; force cannot fix it.
     if rc != 0:
         return Plan(assignments, [], warnings, out, ok=False,
                     error=f"nvtune dry run exited {rc}: {out or 'no error text'}")
-    return Plan(assignments, ops, warnings, out)
+    return Plan(assignments, ops, warnings, out, notes="\n".join(unchanged))
 
 
 _DUMP_DEVICE_RE = re.compile(r"^(\S+)\s+(\S+)\s+\([^\n]*\)\s*$")
