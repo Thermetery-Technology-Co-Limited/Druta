@@ -257,6 +257,24 @@ class UnchangedRegisterRowTests(unittest.TestCase):
                 self.assertEqual([op["reg"] for op in plan.ops], ["CONFIG0"])
                 self.assertEqual(plan.touches, ["RFC"])
 
+    def unchanged_notes(self, plan):
+        return [line for line in plan.summary().splitlines()
+                if "nothing will be written" in line]
+
+    def test_preview_still_names_a_register_that_already_holds_the_request(self):
+        # Two fields staged, one register written: the summary must say where
+        # the other one went rather than silently listing fewer registers.
+        for mode in MODES:
+            with self.subTest(mode=mode):
+                plan = self.preview(rfc_write(mode) + [FAW_ALREADY_25],
+                                    {"RFC": 158, "FAW": 25})
+                summary = plan.summary()
+                self.assertTrue(summary.startswith("1 field(s): RFC 157->158"), summary)
+                self.assertNotIn("warning", summary)
+                notes = self.unchanged_notes(plan)
+                self.assertEqual(len(notes), 1, summary)
+                self.assertIn("CONFIG3 @0x9A029C unchanged (0x2200334A)", notes[0])
+
     def test_commit_with_an_unchanged_register_is_sent_without_force(self):
         commit = nvtune_output(
             rfc_write("write") + [FAW_ALREADY_25],
@@ -279,16 +297,22 @@ class UnchangedRegisterRowTests(unittest.TestCase):
         for mode in MODES:
             cases = (
                 ("unchanged first", [rfc_already_158] + faw_halved_write(mode),
-                 {"RFC": 158, "FAW": 12}, ["FAW"]),
+                 {"RFC": 158, "FAW": 12}, ["FAW"], "CONFIG0 @0x9A0290 unchanged (0x16489E3A)"),
                 ("between writes", rfc_write(mode) + [cl_already_19] + faw_halved_write(mode),
-                 {"RFC": 158, "CL": 19, "FAW": 12}, ["RFC", "FAW"]),
+                 {"RFC": 158, "CL": 19, "FAW": 12}, ["RFC", "FAW"],
+                 "CONFIG1 @0x9A0294 unchanged (0x31260393)"),
             )
-            for label, rows, assignments, touches in cases:
+            for label, rows, assignments, touches, note in cases:
                 with self.subTest(mode=mode, order=label):
                     plan = self.preview(rows, assignments)
                     self.assertEqual(plan.warnings, ["! " + HALVED])
                     self.assertTrue(plan.needs_force)
                     self.assertEqual(plan.touches, touches)
+                    self.assertIn("1 warning(s) - a commit WITHOUT force will be refused",
+                                  plan.summary())
+                    notes = self.unchanged_notes(plan)
+                    self.assertEqual(len(notes), 1, plan.summary())
+                    self.assertIn(note, notes[0])
 
     def test_real_warning_beside_an_unchanged_register_still_refuses_commit(self):
         rows = rfc_write("would write") + [
@@ -308,6 +332,7 @@ class UnchangedRegisterRowTests(unittest.TestCase):
                                         {"RFC": 158, "FAW": 25})
                     self.assertEqual(plan.warnings, [stray.strip()])
                     self.assertTrue(plan.needs_force)
+                    self.assertEqual(len(self.unchanged_notes(plan)), 1, plan.summary())
 
     def test_preview_with_only_unchanged_registers_is_the_existing_no_op(self):
         plan = self.preview([unchanged_row("CONFIG0", 0x9A0290, 0x16489E3A), FAW_ALREADY_25],
@@ -315,6 +340,10 @@ class UnchangedRegisterRowTests(unittest.TestCase):
         self.assertEqual((plan.ops, plan.warnings, plan.touches), ([], [], []))
         self.assertFalse(plan.needs_force)
         self.assertTrue(plan.summary().startswith("nothing to write"))
+        notes = self.unchanged_notes(plan)
+        self.assertEqual(len(notes), 2, plan.summary())
+        self.assertIn("CONFIG0 @0x9A0290 unchanged (0x16489E3A)", notes[0])
+        self.assertIn("CONFIG3 @0x9A029C unchanged (0x2200334A)", notes[1])
 
     def test_text_resembling_the_unchanged_row_is_still_a_warning(self):
         near_misses = (
@@ -333,6 +362,8 @@ class UnchangedRegisterRowTests(unittest.TestCase):
                     plan = self.preview(rfc_write(mode) + [line], {"RFC": 158, "FAW": 25})
                     self.assertEqual(plan.warnings, [line.strip()])
                     self.assertTrue(plan.needs_force)
+                    # Not recognized as unchanged, so not reported as one.
+                    self.assertEqual(self.unchanged_notes(plan), [])
 
 
 if __name__ == "__main__":
