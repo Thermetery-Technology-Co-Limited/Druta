@@ -12,6 +12,7 @@ fixtures, not generation-wide constants."""
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 from druta import vfheadroom
 from druta.nvbackend import GPU
@@ -197,6 +198,75 @@ class ApplyRestoreTests(unittest.TestCase):
                           GPU.abs_limit_mv(user, "overvoltage")), (1068.75, 1093.75, 1125.0))
         live = self.gpu.read_volt_rail_limits()[0]
         self.assertEqual(GPU.abs_limit_mv(live, "alt_reliability"), 1118.75)
+
+
+class LockStateHookTests(unittest.TestCase):
+    """set_lock_state is the one place every lock change passes through; the
+    limits must follow the V/F hold recorded there."""
+
+    def setUp(self):
+        from druta.druta import Druta
+        self.app = Druta.__new__(Druta)
+        self.app.gpu = bare_gpu()
+        self.rails = FakeRails(self.app.gpu, row(1068.75, 1093.75, 1125.0, boost=25.0))
+        self.app.headroom_on, self.app.headroom_mv = True, 25.0
+        self.app.log = Mock()
+        self.app._clk_lock = None
+        self.dpg = patch("druta.druta.dpg.does_item_exist", return_value=False)
+        self.dpg.start()
+        self.addCleanup(self.dpg.stop)
+
+    def hold(self, mv, **extra):
+        state = {"kind": self.app.LOCK_VF, "idx": 103, "req_mv": mv, "domain": 6,
+                 "got_idx": 103, "got_mv": mv, "got_mhz": 2100.0}
+        state.update(extra)
+        self.app.set_lock_state(state)
+
+    def limits(self):
+        return tuple(self.rails.absolute(k) for k in ("reliability", "alt_reliability", "overvoltage"))
+
+    def test_confirmed_hold_raises_and_release_restores(self):
+        self.hold(1093.75)
+        self.assertEqual(self.limits(), (1093.75, 1118.75, 1125.0))
+        self.app.set_lock_state(None)
+        self.assertEqual(self.limits(), (1068.75, 1093.75, 1125.0))
+
+    def test_same_hold_again_writes_once(self):
+        self.hold(1093.75)
+        self.hold(1093.75)
+        self.assertEqual(len(self.rails.writes), 1)
+
+    def test_moving_the_hold_replans_from_the_users_limits(self):
+        self.hold(1093.75)
+        self.hold(1100.0)
+        self.assertEqual(self.limits(), (1100.0, 1125.0, 1125.0))
+        self.app.set_lock_state(None)
+        self.assertEqual(self.limits(), (1068.75, 1093.75, 1125.0))
+
+    def test_unconfirmed_hold_keeps_the_existing_raise(self):
+        self.hold(1093.75)
+        self.hold(1093.75, verified=False)
+        self.assertEqual(self.limits(), (1093.75, 1118.75, 1125.0))
+
+    def test_setting_off_means_no_raise(self):
+        self.app.headroom_on = False
+        self.hold(1093.75)
+        self.assertEqual(self.rails.writes, [])
+
+    def test_nvml_frequency_lock_gets_no_headroom(self):
+        self.app.set_lock_state({"kind": self.app.LOCK_NVML, "lo": 2100, "hi": 2100})
+        self.assertEqual(self.rails.writes, [])
+
+    def test_backend_without_the_feature_is_left_alone(self):
+        self.app.gpu = Mock()
+        self.hold(1093.75)
+        self.app.gpu.apply_hold_headroom.assert_not_called()
+
+    def test_a_backend_failure_is_logged_not_raised(self):
+        self.app.gpu.volt_rail_limits_supported = lambda rail=None: False
+        self.hold(1093.75)
+        self.assertEqual(self.rails.writes, [])
+        self.assertTrue(any("no headroom applied" in str(c) for c in self.app.log.call_args_list))
 
 
 class SettingTests(unittest.TestCase):

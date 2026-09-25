@@ -91,7 +91,7 @@ import time
 import dearpygui.dearpygui as dpg
 
 from . import (gpuload, paths, profiles, startup, shuntmod, timings, timingwrite,
-               timingprofiles, devicerecovery, nct3933_board, i2c_cache)
+               timingprofiles, devicerecovery, nct3933_board, i2c_cache, vfheadroom)
 from .nvbackend import (GPU, EVENT_REASONS, PERF_DECREASE_BITS, VF_STEP_KHZ, VF_LOCK_DOMAIN,
                         VFP_POINTS, below_cap, enumerate_gpus, is_admin,
                         same_slot,
@@ -277,6 +277,10 @@ class Druta:
         # it, and because releasing the WRONG mechanism returns OK while the
         # card stays pinned.
         self._clk_lock = None
+        # V/F hold headroom (GPU.apply_hold_headroom). Per-user, default on:
+        # a hold on the effective voltage ceiling runs below its programmed
+        # clock, so the protection must not depend on the user finding it.
+        self.headroom_on, self.headroom_mv = vfheadroom.load()
         self._lockable = None      # cached top-mem-row lockable clock list
         self._hold_t = 0.0         # last accepted Ctrl+H (key auto-repeat)
         self._undo_t = 0.0         # last accepted Ctrl+Z/Y (same reason)
@@ -4374,6 +4378,9 @@ class Druta:
         locks that both read 'locked' would leave the user guessing which
         Release applies, and the wrong one succeeds without doing anything."""
         self._clk_lock = state
+        # Before the indicator early-return below: the limits must follow the
+        # hold even when no hold banner exists (exit, headless paths).
+        self.sync_hold_headroom()
         held = state if state and state["kind"] == self.LOCK_VF else None
         uncertain = bool(held and not held.get("verified", True))
         # drawn at the voltage the card is really ON, not the one requested:
@@ -4416,6 +4423,64 @@ class Druta:
         dpg.configure_item("hold_info",
                            color=GOOD if (held and not uncertain and held["got_idx"] == held["idx"])
                            else WARN)
+
+    def sync_hold_headroom(self):
+        """Keep the voltage-limit headroom matched to the V/F hold on record.
+
+        Called from set_lock_state, which every lock change passes through.
+        A confirmed V/F hold gets headroom planned against the point the card
+        really holds (got_mv) at the boost now in force; a hold whose state is
+        unconfirmed keeps whatever raise exists, because the lock may still be
+        in force; no V/F hold means any raise is put back. Never raises: a
+        failure here is logged and must not break the lock bookkeeping."""
+        gpu = getattr(self, "gpu", None)
+        # Defined on the backend CLASS, not merely answering getattr: a test
+        # double or a backend without this feature must stay a no-op.
+        if not callable(getattr(type(gpu), "apply_hold_headroom", None)):
+            return
+        on = getattr(self, "headroom_on", False)
+        margin = getattr(self, "headroom_mv", vfheadroom.DEFAULT_MARGIN_MV)
+        try:
+            record = gpu.hold_headroom_record()
+            record = record if isinstance(record, dict) else None
+            state = self._clk_lock or {}
+            is_vf = state.get("kind") == self.LOCK_VF
+            confirmed = is_vf and state.get("verified", True) and state.get("got_mv") is not None
+            if is_vf and not confirmed:
+                return
+            if confirmed and on:
+                hold = float(state["got_mv"])
+                if (record and abs(record["hold_mv"] - hold) < 1e-6
+                        and abs(record["margin_mv"] - margin) < 1e-6):
+                    return
+                ok, msg = gpu.apply_hold_headroom(hold, margin)
+            elif record:
+                ok, msg = gpu.restore_hold_headroom()
+            else:
+                return
+            self.log(f"headroom: {msg}", ok)
+            if dpg.does_item_exist("vlim_txt0"):
+                self.refresh_volt_limits()
+        except Exception as exc:                                  # noqa: BLE001
+            self.log(f"headroom: not applied - {exc}", False)
+
+    def headroom_changed(self, sender=None, app_data=None, user_data=None):
+        """The Clocks-menu setting moved. Saved immediately; applied to a hold
+        in force only through guard() when it would WRITE a raise. Turning it
+        off restores ungated - putting the user's limits back is always safe."""
+        if dpg.does_item_exist("hr_on"):
+            self.headroom_on = bool(dpg.get_value("hr_on"))
+        if dpg.does_item_exist("hr_mv"):
+            self.headroom_mv = vfheadroom.clamp_margin(dpg.get_value("hr_mv"))
+            dpg.set_value("hr_mv", self.headroom_mv)
+        ok, msg = vfheadroom.save(self.headroom_on, self.headroom_mv)
+        if not ok:
+            self.log(msg, False)
+        held = (self._clk_lock or {}).get("kind") == self.LOCK_VF
+        if self.headroom_on and held and not self.guard():
+            self.log("headroom: setting saved; it applies at the next hold", None)
+            return
+        self.sync_hold_headroom()
 
     def reset_all(self):
         """The ONE write that keeps its press-again arm, at the user's explicit
@@ -7346,6 +7411,32 @@ deliberately does not put behind a button."""
                     dpg.add_button(label="Limited de-flatten ≤ cap",
                                    tag="go_deflat_ltd", width=self.s(230),
                                    callback=self.vf_deflatten)
+                    dpg.add_separator()
+                    # Default ON (vfheadroom). A hold on the effective voltage
+                    # ceiling runs below the clock it shows, and GPU-Z and the
+                    # header both show the programmed clock, so nobody finds
+                    # the loss by looking. The number is labelled as what it
+                    # is: an estimate from one card.
+                    dpg.add_text("VOLTAGE-LIMIT HEADROOM", color=ACCENT)
+                    dpg.add_checkbox(label="Keep headroom above a held point (strongly recommended)",
+                                     tag="hr_on", default_value=self.headroom_on,
+                                     callback=self.headroom_changed)
+                    dpg.add_input_float(tag="hr_mv", label="margin mV",
+                                        default_value=self.headroom_mv, step=6.25,
+                                        format="%.2f", width=self.s(130),
+                                        min_value=vfheadroom.MIN_MARGIN_MV,
+                                        max_value=vfheadroom.MAX_MARGIN_MV,
+                                        min_clamped=True, max_clamped=True,
+                                        on_enter=True, callback=self.headroom_changed)
+                    dpg.add_text("While Ctrl+H or Max it holds a point, the voltage\n"
+                                 "limits are raised to the held voltage + margin, so\n"
+                                 "the hold is not sitting on the ceiling. A point held\n"
+                                 "ON the ceiling runs slower than the clock it shows.\n"
+                                 "The lock keeps the voltage at the held point; the\n"
+                                 "limits go back when the hold ends.\n"
+                                 "25 mV is an estimate from one TITAN RTX (TU102).\n"
+                                 "Other cards and generations are not measured yet.",
+                                 color=DIM)
                     dpg.add_separator()
                 dpg.add_text("GPU CLOCK LOCK", color=ACCENT)
                 if self.gpu.arch() == GPU.ARCH_KEPLER:
