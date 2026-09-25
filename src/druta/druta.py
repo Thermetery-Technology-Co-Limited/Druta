@@ -1581,7 +1581,15 @@ class Druta:
         # disagreeing for a frame.
         if support.get(0):
             self.ov_carryover(raw)
-            self.sync_vcap_to_ceiling(raw)
+            # The USER's ceiling, not one lifted by hold headroom: following
+            # the raised one would move the cap up by the margin, and the next
+            # Max it would hold (and raise) higher again, on every press.
+            record_of = getattr(self.gpu, "hold_headroom_record", None)
+            if raw and callable(record_of) and isinstance(record_of(), dict):
+                raw_user = self.gpu.user_rail_limits(raw)
+            else:
+                raw_user = raw
+            self.sync_vcap_to_ceiling(raw_user)
         for r in (0, 1):
             cells = self.volt_limits_cells(raw, r, state, support.get(r, False))
             if not cells:

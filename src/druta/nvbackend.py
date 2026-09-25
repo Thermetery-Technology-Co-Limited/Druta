@@ -5951,6 +5951,11 @@ class GPU:
         _back, error = self._verify_rail_records(expected, boost)
         if error:
             return False, error
+        record = getattr(self, "_hold_headroom", None)
+        if record and record["rail"] in rails and set(record["written_uv"]).issubset(keys):
+            # The raise was overwritten by first-read values; restoring its
+            # "prior" values later would write stale limits back over them.
+            self._hold_headroom = None
         what = ("rail limits" if rail is None and not fields
                 else f"{_RAIL_NAME[rails[0]]} "
                      + (", ".join(keys) if fields else "limits"))
@@ -5964,6 +5969,203 @@ class GPU:
         return {rail: {k: self.abs_limit_mv(fields, k)
                        for k in self.VOLT_LIMIT_FIELDS}
                 for rail, fields in raw.items()}
+
+    # ---- V/F hold headroom -------------------------------------------------- #
+    # A V/F point held AT the effective voltage ceiling delivers less clock
+    # than it programs. Measured on one TU102 (TITAN RTX, driver 610.88): a
+    # hold on the ceiling ran 27-37 MHz below its programmed clock, at 1093.75,
+    # 1100, 1125 and 1150 mV alike, with or without the lock; the same hold
+    # with the ceiling 25 mV higher delivered its programmed clock.
+    #
+    # The ceiling is rail_ceiling_mv: min(reliability + the reported boost
+    # contribution, alt-reliability, overvoltage). Reliability is not soft: with
+    # alt-reliability/overvoltage at 1150 and reliability at its 1068.75 mV
+    # first-read value, a lock requesting 1125 mV held 1093.75 mV (1068.75 +
+    # 25 mV boost contribution) and still lost 28 MHz. So all three terms need
+    # headroom. That is one card: the margin is a caller setting, not a
+    # constant, and no other generation's behaviour is assumed here.
+    #
+    # The V/F lock pins the rail at the hold voltage, so raising these limits
+    # while a hold is active does not raise the voltage the card runs. It does
+    # raise what the card MAY reach if the lock goes away, which is why the
+    # raise is recorded and undone when the hold ends.
+    HOLD_HEADROOM_FIELDS = ("reliability", "alt_reliability", "overvoltage")
+
+    @classmethod
+    def hold_headroom_targets(cls, fields, hold_mv, margin_mv, maximum_mv):
+        """Plan the raise for ONE rail's fields. Pure; no hardware access.
+
+        Every term of rail_ceiling_mv must clear hold + margin. Reliability is
+        compared WITH the reported boost contribution (`_boost_mv`), so its
+        target is hold + margin - boost: the boost the card already adds is not
+        added again.
+
+        Returns ({field: absolute mV}, None) naming only the fields that must
+        rise - an empty dict means the ceiling already clears the hold by the
+        margin - or (None, reason) when no safe plan exists. Never lowers a
+        field: a limit the user already set higher is their decision."""
+        try:
+            hold_mv, margin_mv, maximum_mv = (float(hold_mv), float(margin_mv),
+                                              float(maximum_mv))
+        except (TypeError, ValueError):
+            return None, "hold, margin and bound must be numbers"
+        if not all(map(math.isfinite, (hold_mv, margin_mv, maximum_mv))):
+            return None, "hold, margin and bound must be finite"
+        if margin_mv <= 0:
+            return None, "headroom margin must be positive"
+        want = hold_mv + margin_mv
+        if want > maximum_mv + 1e-6:
+            return None, (f"hold {hold_mv:.2f} mV + {margin_mv:g} mV margin exceeds "
+                          f"Druta's {maximum_mv:.0f} mV limit bound")
+        try:
+            boost = float(fields.get("_boost_mv", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            return None, "the reported boost contribution is not a number"
+        if not math.isfinite(boost):
+            return None, "the reported boost contribution is not finite"
+        targets = {}
+        for key in cls.HOLD_HEADROOM_FIELDS:
+            if key not in fields:
+                return None, f"{key} is not readable on this rail"
+            current = cls.abs_limit_mv(fields, key)
+            if not math.isfinite(current):
+                return None, f"{key} has no readable reference"
+            added = boost if key == "reliability" else 0.0
+            if current + added < want - 1e-6:
+                targets[key] = want - added
+        return targets, None
+
+    def hold_headroom_record(self):
+        """What the active headroom raise wrote, or ``None``."""
+        return getattr(self, "_hold_headroom", None)
+
+    def apply_hold_headroom(self, hold_mv, margin_mv, rail=0):
+        """Raise alt-reliability and overvoltage to hold + margin while a hold
+        is active. Returns (ok, message).
+
+        This is deliberately NOT behind volt_limits_write_enabled. That switch
+        guards the free-form limit sliders, whose values nothing but Druta
+        bounds. This write is narrower: two fields, upward only, to exactly
+        hold + margin, inside the same 1200 mV (XOC 1500 mV) bound, verified by
+        read-back and undone by restore_hold_headroom. Any previous raise is
+        restored first so two holds never stack their margins."""
+        if self.hold_headroom_record():
+            ok, msg = self.restore_hold_headroom()
+            if not ok:
+                return False, f"previous headroom could not be restored first: {msg}"
+        if not self.volt_rail_limits_supported(rail):
+            return False, "voltage limits are not readable on this GPU; no headroom applied"
+        fields = self.volt_rail_limit_fields(rail)
+        if not set(self.HOLD_HEADROOM_FIELDS).issubset(fields):
+            return False, "alt-reliability/overvoltage are not validated on this rail; no headroom applied"
+        cur = self.read_volt_rail_limits()
+        if cur is None or rail not in cur:
+            return False, "cannot read the current limits; no headroom applied"
+        row = cur[rail]
+        maximum = (self.VOLT_LIMIT_XOC_MAX_MV if self.voltage_xoc_enabled
+                   else self.VOLT_LIMIT_MAX_MV)
+        targets, why = self.hold_headroom_targets(row, hold_mv, margin_mv, maximum)
+        if targets is None:
+            return False, why + "; no headroom applied"
+        if not targets:
+            return True, (f"{_RAIL_NAME[rail]}: alt-reliability and overvoltage already "
+                          f"clear the {float(hold_mv):.2f} mV hold by {float(margin_mv):g} mV")
+        boost = self.read_voltage_boost()
+        if boost is None:
+            return False, "cannot preserve the current voltage boost; no headroom applied"
+        base = row["_base_mv"]
+        rec = [int(round(row[k] * 1000)) for k in self.VOLT_LIMIT_FIELDS]
+        prior = {k: rec[self.VOLT_LIMIT_FIELDS.index(k)] for k in targets}
+        for key, mv in targets.items():
+            rec[self.VOLT_LIMIT_FIELDS.index(key)] = int(round((mv - base[key]) * 1000))
+        written = {k: rec[self.VOLT_LIMIT_FIELDS.index(k)] for k in targets}
+        ok, status = self._write_rail_records({rail: rec})
+        if not ok:
+            return False, (getattr(self, "_volt_rail_write_error", None)
+                           or "the rails request was not seen - nothing was written")
+        # Recorded as soon as the driver saw a SET: from here the limits may have
+        # moved, and only a record lets release/exit put them back.
+        self._hold_headroom = {"rail": rail, "hold_mv": float(hold_mv),
+                               "margin_mv": float(margin_mv),
+                               "prior_uv": prior, "written_uv": written}
+        expected = {r: [round(row2[k] * 1000) for k in self.VOLT_LIMIT_FIELDS]
+                    for r, row2 in cur.items() if row2.get("_base_mv")}
+        expected[rail] = rec
+        if status:
+            restored, msg = self.restore_hold_headroom(force=True)
+            return False, (f"driver refused the headroom write (NV_STATUS 0x{status:X}); "
+                           + ("limits restored" if restored else "RESTORE FAILED: " + msg))
+        _back, error = self._verify_rail_records(expected, boost)
+        if error:
+            restored, msg = self.restore_hold_headroom(force=True)
+            return False, (f"headroom write not verified ({error}); "
+                           + ("limits restored" if restored else "RESTORE FAILED: " + msg))
+        raised = ", ".join(f"{k.replace('_', '-')} {mv:.2f}" for k, mv in sorted(targets.items()))
+        return True, (f"{_RAIL_NAME[rail]}: {raised} mV while holding "
+                      f"{float(hold_mv):.2f} mV (+{float(margin_mv):g} mV headroom)")
+
+    def restore_hold_headroom(self, force=False):
+        """Undo the active headroom raise. Returns (ok, message).
+
+        Restores only fields that still carry the value this raise wrote. A field
+        the user has changed since is theirs now and is left alone; the record is
+        dropped either way once nothing of ours remains.
+
+        `force` restores every recorded field whatever it now reads. That is the
+        rollback after an unverified write: a field that landed on some OTHER
+        value than requested was still moved by this raise, not by the user."""
+        record = self.hold_headroom_record()
+        if not record:
+            return True, "no headroom to restore"
+        rail = record["rail"]
+        cur = self.read_volt_rail_limits()
+        if cur is None or rail not in cur:
+            return False, "cannot read the current limits to restore headroom"
+        rec = [int(round(cur[rail][k] * 1000)) for k in self.VOLT_LIMIT_FIELDS]
+        ours = [k for k, v in record["written_uv"].items()
+                if force or rec[self.VOLT_LIMIT_FIELDS.index(k)] == v]
+        if not ours:
+            self._hold_headroom = None
+            return True, "headroom limits were changed since; nothing of ours to restore"
+        for key in ours:
+            rec[self.VOLT_LIMIT_FIELDS.index(key)] = record["prior_uv"][key]
+        boost = self.read_voltage_boost()
+        if boost is None:
+            return False, "cannot preserve the current voltage boost; headroom left in place"
+        ok, status = self._write_rail_records({rail: rec})
+        if not ok or status:
+            return False, (f"headroom restore refused (NV_STATUS 0x{status or 0:X})"
+                           if ok else (getattr(self, "_volt_rail_write_error", None)
+                                       or "the rails request was not seen"))
+        expected = {r: [round(row[k] * 1000) for k in self.VOLT_LIMIT_FIELDS]
+                    for r, row in cur.items() if row.get("_base_mv")}
+        expected[rail] = rec
+        _back, error = self._verify_rail_records(expected, boost)
+        if error:
+            return False, f"headroom restore not verified: {error}"
+        self._hold_headroom = None
+        return True, (f"{_RAIL_NAME[rail]}: "
+                      + ", ".join(k.replace("_", "-") for k in ours)
+                      + " restored after the hold")
+
+    def user_rail_limits(self, cur=None):
+        """read_volt_rail_limits() with any active headroom raise taken out.
+
+        What the USER set, for anything that must not mistake the temporary
+        raise for their choice: the V/F cap following the ceiling (which would
+        otherwise climb by the margin on every Max it) and profile capture.
+        `cur` lets a caller that already read the limits pass them in."""
+        if cur is None:
+            cur = self.read_volt_rail_limits()
+        record = self.hold_headroom_record()
+        if cur is None or not record or record["rail"] not in cur:
+            return cur
+        out = {r: dict(row) for r, row in cur.items()}
+        row = out[record["rail"]]
+        for key, written in record["written_uv"].items():
+            if int(round(row[key] * 1000)) == written:
+                row[key] = record["prior_uv"][key] / 1000.0
+        return out
 
     def read_voltage_boost(self):
         a = self.nvapi
