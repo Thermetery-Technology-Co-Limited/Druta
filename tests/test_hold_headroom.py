@@ -243,6 +243,15 @@ class LockStateHookTests(unittest.TestCase):
         self.app.set_lock_state(None)
         self.assertEqual(self.limits(), (1068.75, 1093.75, 1125.0))
 
+    def test_boost_change_replans_the_reliability_term(self):
+        self.hold(1093.75)
+        self.assertEqual(self.limits(), (1093.75, 1118.75, 1125.0))
+        self.rails.rows[0]["_boost_mv"] = 50.0     # boost now contributes more
+        self.app.sync_hold_headroom(replan=True)
+        # reliability 1068.75 + 50 already clears 1118.75: it goes back to the
+        # user's value instead of keeping a raise the new boost makes redundant
+        self.assertEqual(self.limits(), (1068.75, 1118.75, 1125.0))
+
     def test_unconfirmed_hold_keeps_the_existing_raise(self):
         self.hold(1093.75)
         self.hold(1093.75, verified=False)

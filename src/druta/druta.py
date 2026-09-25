@@ -3927,7 +3927,12 @@ class Druta:
 
     def apply_volt(self, v):
         if self.guard():
-            self.report(self.gpu.set_voltage_boost(int(v)))
+            ok, msg = self.gpu.set_voltage_boost(int(v))
+            self.report((ok, msg))
+            if ok:
+                # The boost contribution is part of the ceiling a hold's
+                # headroom was planned against; plan again for the new one.
+                self.sync_hold_headroom(replan=True)
 
     def apply_fan(self, v):
         if self.guard():
@@ -4424,15 +4429,16 @@ class Druta:
                            color=GOOD if (held and not uncertain and held["got_idx"] == held["idx"])
                            else WARN)
 
-    def sync_hold_headroom(self):
+    def sync_hold_headroom(self, replan=False):
         """Keep the voltage-limit headroom matched to the V/F hold on record.
 
         Called from set_lock_state, which every lock change passes through.
         A confirmed V/F hold gets headroom planned against the point the card
         really holds (got_mv) at the boost now in force; a hold whose state is
         unconfirmed keeps whatever raise exists, because the lock may still be
-        in force; no V/F hold means any raise is put back. Never raises: a
-        failure here is logged and must not break the lock bookkeeping."""
+        in force; no V/F hold means any raise is put back. `replan` plans an
+        unchanged hold again, for when the ceiling's boost term moved. Never
+        raises: a failure here is logged and must not break lock bookkeeping."""
         gpu = getattr(self, "gpu", None)
         # Defined on the backend CLASS, not merely answering getattr: a test
         # double or a backend without this feature must stay a no-op.
@@ -4450,7 +4456,7 @@ class Druta:
                 return
             if confirmed and on:
                 hold = float(state["got_mv"])
-                if (record and abs(record["hold_mv"] - hold) < 1e-6
+                if (not replan and record and abs(record["hold_mv"] - hold) < 1e-6
                         and abs(record["margin_mv"] - margin) < 1e-6):
                     return
                 ok, msg = gpu.apply_hold_headroom(hold, margin)
