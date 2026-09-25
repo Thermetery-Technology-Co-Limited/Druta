@@ -278,6 +278,131 @@ class LockStateHookTests(unittest.TestCase):
         self.assertTrue(any("no headroom applied" in str(c) for c in self.app.log.call_args_list))
 
 
+class CrashMarkerTests(unittest.TestCase):
+    """A raise that outlives the process must be recognisable next session,
+    and only while the card still carries exactly what Druta wrote."""
+
+    UUID = "GPU-test-0001"
+
+    def setUp(self):
+        from druta.druta import Druta
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / "vf-headroom-active.json"
+        redirect = patch("druta.vfheadroom.active_path", return_value=self.path)
+        redirect.start()
+        self.addCleanup(redirect.stop)
+        self.app = Druta.__new__(Druta)
+        self.app.gpu = bare_gpu()
+        self.app.gpu.static = {"uuid": self.UUID}
+        self.rails = FakeRails(self.app.gpu, row(1068.75, 1093.75, 1125.0, boost=25.0))
+        self.app.headroom_on, self.app.headroom_mv = True, 25.0
+        self.app.log, self.app.log_once, self.app.show_win = Mock(), Mock(), Mock()
+        self.app._clk_lock = None
+        exists = patch("druta.druta.dpg.does_item_exist", return_value=False)
+        exists.start()
+        self.addCleanup(exists.stop)
+
+    def hold(self, mv):
+        self.app.set_lock_state({"kind": self.app.LOCK_VF, "idx": 103, "req_mv": mv, "domain": 6,
+                                 "got_idx": 103, "got_mv": mv, "got_mhz": 2100.0})
+
+    def test_marker_follows_the_raise(self):
+        self.hold(1093.75)
+        self.assertIsNotNone(vfheadroom.active_record(self.UUID, self.path))
+        self.app.set_lock_state(None)
+        self.assertIsNone(vfheadroom.active_record(self.UUID, self.path))
+
+    def test_crash_leaves_a_marker_the_next_session_reports(self):
+        self.hold(1093.75)                          # then the process dies
+        from druta.druta import Druta
+        nxt = Druta.__new__(Druta)
+        nxt.gpu, nxt.log, nxt.show_win = self.app.gpu, Mock(), Mock()
+        nxt.gpu._hold_headroom = None               # a new process has no record
+        nxt.check_stale_headroom()
+        self.assertIsNotNone(nxt._stale_headroom)
+        self.assertTrue(any("still raised" in str(c) for c in nxt.log.call_args_list))
+
+    def test_marker_is_dropped_silently_once_the_limits_are_back(self):
+        self.hold(1093.75)
+        self.app.gpu._hold_headroom = None
+        self.rails.rows[0] = row(1068.75, 1093.75, 1125.0, boost=25.0)   # e.g. after PnP
+        self.app.check_stale_headroom()
+        self.assertIsNone(getattr(self.app, "_stale_headroom", None))
+        self.assertIsNone(vfheadroom.active_record(self.UUID, self.path))
+
+    def test_a_new_session_does_not_clear_an_old_marker_before_checking(self):
+        vfheadroom.mark_active(self.UUID, {"rail": 0, "hold_mv": 1093.75, "margin_mv": 25.0,
+                                           "written_uv": {"alt_reliability": 25000},
+                                           "prior_uv": {"alt_reliability": 0}}, self.path)
+        self.app.mirror_headroom_marker()           # no record this session
+        self.assertIsNotNone(vfheadroom.active_record(self.UUID, self.path))
+
+    def test_dismiss_clears_and_a_refused_restart_keeps_the_marker(self):
+        self.hold(1093.75)
+        self.app._closing = False
+        self.app.open_device_restart = Mock()       # refused: _closing stays False
+        self.app.stale_headroom_restart()
+        self.assertIsNotNone(vfheadroom.active_record(self.UUID, self.path))
+        self.app.stale_headroom_dismiss()
+        self.assertIsNone(vfheadroom.active_record(self.UUID, self.path))
+
+    def test_no_uuid_means_no_marker(self):
+        self.app.gpu.static = {}
+        self.hold(1093.75)
+        self.assertFalse(self.path.exists())
+
+    def test_malformed_marker_is_ignored(self):
+        self.path.write_text('{"%s": {"rail": "0", "written_uv": [], "prior_uv": {}}}' % self.UUID,
+                             encoding="utf-8")
+        self.assertIsNone(vfheadroom.active_record(self.UUID, self.path))
+
+
+class ClockGapCheckTests(unittest.TestCase):
+    def setUp(self):
+        from druta.druta import Druta
+        self.app = Druta.__new__(Druta)
+        self.app.log = Mock()
+        self.app._clk_lock = None
+        self.app.step_khz = Mock(return_value=15000)
+
+    def tick(self, prog, meas, util=99, name="GPC", n=1):
+        for _ in range(n):
+            self.app.check_clock_gap({"util_gpu": util, "clk_domains": [
+                {"domain": 0, "name": name, "prog_mhz": prog, "meas_mhz": meas}]})
+
+    def warnings(self):
+        return [c for c in self.app.log.call_args_list if "below the" in str(c)]
+
+    def test_sustained_at_ceiling_gap_warns_once_and_reports_recovery(self):
+        self.tick(2115, 2083, n=40)
+        self.assertEqual(len(self.warnings()), 1)
+        self.tick(2115, 2114, n=20)
+        self.assertTrue(any("clock it shows again" in str(c) for c in self.app.log.call_args_list))
+
+    def test_noise_sized_gap_is_not_a_warning(self):
+        self.tick(2115, 2112, n=40)
+        self.assertEqual(self.warnings(), [])
+
+    def test_short_gap_low_load_and_moving_clock_do_not_warn(self):
+        self.tick(2115, 2083, n=10)                       # under 5 s
+        self.tick(2115, 2083, util=60, n=40)              # not at load
+        for i in range(40):                               # clock still moving
+            self.tick(2100 + 15 * (i % 2), 2070)
+        self.assertEqual(self.warnings(), [])
+
+    def test_unclassified_domain_is_not_checked(self):
+        self.tick(2115, 2083, name="", n=40)
+        self.assertEqual(self.warnings(), [])
+
+    def test_threshold_follows_this_cards_clock_bin(self):
+        self.app.step_khz = Mock(return_value=12657)      # GP102-style grid
+        self.tick(1911, 1900, n=40)                       # 11 MHz: under one bin
+        self.assertEqual(self.warnings(), [])
+        self.tick(1911, 1898, n=40)                       # 13 MHz: a full bin
+        self.assertEqual(len(self.warnings()), 1)
+
+
 class SettingTests(unittest.TestCase):
     def test_default_is_on_with_25_mv(self):
         with tempfile.TemporaryDirectory() as d:

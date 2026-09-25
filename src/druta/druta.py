@@ -1573,6 +1573,9 @@ class Druta:
         is what a fresh read gives back.
         """
         raw = self.gpu.read_volt_rail_limits()
+        # Every rail write lands here, including a Stock button or Reset all
+        # that overwrote a headroom raise: keep the crash marker truthful.
+        self.mirror_headroom_marker()
         # The card's own absolute view, read fresh alongside the deltas. It is
         # allowed to be None - it is a newer call than the limit block and a
         # card that lacks it must still show its limits - so every use of it
@@ -4467,8 +4470,150 @@ class Druta:
             self.log(f"headroom: {msg}", ok)
             if dpg.does_item_exist("vlim_txt0"):
                 self.refresh_volt_limits()
+            self.mirror_headroom_marker()
         except Exception as exc:                                  # noqa: BLE001
             self.log(f"headroom: not applied - {exc}", False)
+
+    # 5 s of 250 ms panel ticks. Short enough to catch a benchmark run, long
+    # enough that a clock transition (where the counter lags the target) does
+    # not count.
+    CLOCK_GAP_TICKS = 20
+
+    def check_clock_gap(self, d):
+        """Warn when the GPU runs below the clock it shows.
+
+        The one check here that does not depend on any card's measured margin:
+        it compares the driver's measured GPC counter with the programmed
+        target on THIS card. Fires once when, for CLOCK_GAP_TICKS in a row at
+        >= 90 % load with a steady programmed clock, measured sits at least one
+        of this card's clock bins below programmed; says once when it clears.
+        Uses the GPC row only when its name was earned by classification, so a
+        generation with a different domain numbering is simply not checked."""
+        rows = d.get("clk_domains") or []
+        gpc = next((r for r in rows if r.get("name") == "GPC"
+                    and r.get("prog_mhz") and r.get("meas_mhz")), None)
+        util = d.get("util_gpu")
+        hist = getattr(self, "_gap_hist", None)
+        if hist is None:
+            hist = self._gap_hist = []
+        if gpc is None or util is None or util < 90:
+            hist.clear()
+        else:
+            hist.append((gpc["prog_mhz"], gpc["prog_mhz"] - gpc["meas_mhz"]))
+            del hist[:-self.CLOCK_GAP_TICKS]
+        step = self.step_khz() / 1000.0
+        full = len(hist) >= self.CLOCK_GAP_TICKS
+        steady = full and max(p for p, _ in hist) - min(p for p, _ in hist) < 0.5
+        low = steady and min(g for _, g in hist) >= step - 0.5
+        if low and not getattr(self, "_gap_warned", False):
+            self._gap_warned = True
+            prog, _ = hist[-1]
+            gap = sum(g for _, g in hist) / len(hist)
+            hint = ("Check that the voltage limits are above the held voltage "
+                    "(Clocks > voltage-limit headroom)."
+                    if (self._clk_lock or {}).get("kind") == self.LOCK_VF else
+                    "If the card is at its voltage limit, holding a point with "
+                    "headroom (Clocks menu) usually removes this.")
+            self.log(f"clock check: the GPU runs about {gap:.0f} MHz below the "
+                     f"{prog:.0f} MHz it shows (measured counter, 5 s at load). "
+                     + hint, False)
+        elif getattr(self, "_gap_warned", False) and full and not low:
+            self._gap_warned = False
+            self.log("clock check: the GPU runs the clock it shows again", True)
+
+    def headroom_uuid(self):
+        static = getattr(getattr(self, "gpu", None), "static", None)
+        uuid = static.get("uuid") if isinstance(static, dict) else None
+        return uuid if isinstance(uuid, str) and uuid.strip() else None
+
+    def mirror_headroom_marker(self):
+        """Make the on-disk marker say whether a raise is in the driver now.
+
+        Clears only a marker THIS session wrote. A marker left by a previous
+        session is the evidence check_stale_headroom reports, and nothing may
+        drop it before that check has run and the user has answered it."""
+        record_of = getattr(type(getattr(self, "gpu", None)), "hold_headroom_record", None)
+        uuid = self.headroom_uuid()
+        if not callable(record_of) or uuid is None:
+            return
+        record = self.gpu.hold_headroom_record()
+        if isinstance(record, dict):
+            ok, msg = vfheadroom.mark_active(uuid, record)
+            if ok:
+                self._headroom_marked = True
+            else:
+                self.log_once("headroom_marker", f"headroom: {msg}")
+        elif getattr(self, "_headroom_marked", False):
+            ok, msg = vfheadroom.clear_active(uuid)
+            if ok:
+                self._headroom_marked = False
+            else:
+                self.log_once("headroom_marker", f"headroom: {msg}")
+
+    def check_stale_headroom(self):
+        """At startup: did a previous session leave a headroom raise behind?
+
+        Only a marker whose written values are STILL on the card counts. A
+        stale marker (limits since reset, cleared, or changed by anything) is
+        dropped without a word. A live one opens the dialog; Druta never writes
+        the recorded values back itself, because this session's first-read
+        reference was already taken from the raised limits."""
+        uuid = self.headroom_uuid()
+        record = vfheadroom.active_record(uuid) if uuid else None
+        if not record:
+            return
+        try:
+            limits = self.gpu.read_volt_rail_limits()
+        except Exception:                                        # noqa: BLE001
+            limits = None
+        if limits is None:
+            self.log("headroom: a previous session may have left voltage limits raised, "
+                     "but the limits cannot be read to check", False)
+            return
+        if not vfheadroom.still_raised(record, limits):
+            vfheadroom.clear_active(uuid)
+            return
+        self._stale_headroom = record
+        self.log("headroom: a previous session ended while voltage limits were raised "
+                 "for a V/F hold; they are still raised", False)
+        if dpg.does_item_exist("win_headroom_stale"):
+            dpg.set_value("hrs_text", self.stale_headroom_text(record))
+            self.show_win(user_data="win_headroom_stale")
+
+    def stale_headroom_text(self, record):
+        fields = ", ".join(k.replace("_", "-") for k in sorted(record["written_uv"]))
+        hold = record.get("hold_mv")
+        where = f" while holding {hold:.2f} mV" if isinstance(hold, (int, float)) else ""
+        return ("The last Druta session ended without restoring the voltage limits it "
+                f"raised{where} ({fields}). They are still raised on this card.\n\n"
+                "Because this session started with them raised, 'Reset all to stock' "
+                "would treat the raised values as this card's starting values.\n\n"
+                "A GPU device restart (PnP) clears every rail voltage setting and "
+                "returns them to the card's own values. Druta will close and the "
+                "screen may go black for a few seconds.")
+
+    def stale_headroom_restart(self, sender=None, app_data=None, user_data=None):
+        """Start the PnP restart; drop the marker only once it is under way. A
+        refused restart (not admin, I2C busy) must leave the evidence in place."""
+        self.open_device_restart()
+        if not getattr(self, "_closing", False):
+            return
+        uuid = self.headroom_uuid()
+        if uuid:
+            vfheadroom.clear_active(uuid)
+        self._stale_headroom = None
+        if dpg.does_item_exist("win_headroom_stale"):
+            dpg.configure_item("win_headroom_stale", show=False)
+
+    def stale_headroom_dismiss(self, sender=None, app_data=None, user_data=None):
+        uuid = self.headroom_uuid()
+        if uuid:
+            vfheadroom.clear_active(uuid)
+        self._stale_headroom = None
+        if dpg.does_item_exist("win_headroom_stale"):
+            dpg.configure_item("win_headroom_stale", show=False)
+        self.log("headroom: kept the raised limits as they are. 'Restart GPU device "
+                 "(PnP)' in the Device menu clears them later.", None)
 
     def headroom_changed(self, sender=None, app_data=None, user_data=None):
         """The Clocks-menu setting moved. Saved immediately; applied to a hold
@@ -7849,6 +7994,23 @@ deliberately does not put behind a button."""
                                callback=lambda: dpg.configure_item(
                                    "win_ts_done", show=False))
 
+        # Opened only by check_stale_headroom. Two choices and nothing else:
+        # the recorded values are never written back by this session, because
+        # its first-read reference was already taken from the raised limits.
+        with dpg.window(label="Voltage limits still raised", tag="win_headroom_stale",
+                        show=False, modal=True, width=self.s(640), height=self.s(330),
+                        pos=[self.s(220), self.s(170)]):
+            dpg.add_text("", tag="hrs_text", wrap=self.s(600))
+            dpg.add_spacer(height=self.s(10))
+            with dpg.group(horizontal=True):
+                dpg.add_button(label="Restart GPU device (PnP)", tag="hrs_restart",
+                               width=self.s(240), callback=self.stale_headroom_restart)
+                dpg.add_spacer(width=self.s(16))
+                dpg.add_button(label="Keep them for now", width=self.s(180),
+                               callback=self.stale_headroom_dismiss)
+            dpg.add_spacer(height=self.s(4))
+            dpg.add_text("needs Druta running as administrator", color=DIM)
+
         with dpg.window(label="Licences", tag="win_licence", show=False,
                         width=self.s(860), height=self.s(640),
                         pos=[self.s(120), self.s(90)]):
@@ -10460,6 +10622,12 @@ deliberately does not put behind a button."""
             self.log("Device recovery: " + result["message"],
                      result["ok"] and not result["reboot_required"])
         self.vf_read()
+        # After the first rail read, before any write this session can make:
+        # a raise left by a crashed session is only recognisable now.
+        try:
+            self.check_stale_headroom()
+        except Exception as exc:                                  # noqa: BLE001
+            self.log(f"headroom: startup check failed - {exc}", False)
         # One read-only timing capture at startup, on its own thread, so the
         # Timings tab has something in it the first time it is opened instead
         # of an empty table and a button. It cannot write and it cannot block:
@@ -10521,6 +10689,11 @@ deliberately does not put behind a button."""
                                 self.clear_once(name)
                             except Exception as e:
                                 self.log_once(name, f"{name} panel: {e}")
+                        try:
+                            self.check_clock_gap(d)
+                            self.clear_once("clock_gap")
+                        except Exception as e:
+                            self.log_once("clock_gap", f"clock check: {e}")
                 # per FRAME, not on the 4 Hz panel tick: this readout is pinned
                 # to a corner of the plot's view, and at 4 Hz it would visibly
                 # lag behind the user's own pan. Guarded like the panels above
