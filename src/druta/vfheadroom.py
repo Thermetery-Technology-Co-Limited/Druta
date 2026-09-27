@@ -3,13 +3,15 @@
 """Persisted setting for V/F hold headroom (see GPU.apply_hold_headroom).
 
 Default ON with a 25 mV margin. The margin is an estimate from one TU102
-(TITAN RTX): holds on the alt-reliability/overvoltage ceiling lost 30-37 MHz,
-and 25 mV of headroom removed the loss there. Other cards and generations have
-not been measured, so the value is the user's to change and is labelled as an
-estimate wherever it is shown.
+(TITAN RTX): holds on the effective voltage ceiling (reliability plus its boost
+contribution, alt-reliability, overvoltage) lost 19-37 MHz, and 25 mV of
+headroom removed the loss there. Other cards and generations have not been
+measured, so the value is the user's to change and is labelled as an estimate
+wherever it is shown.
 """
 import json
 import math
+import os
 
 from .startup import atomic_json, read_json, state_dir
 
@@ -65,11 +67,83 @@ def save(enabled, margin_mv, path=None):
 # Rail limits outlive the process (a crash, a kill, a power cut), and the next
 # session would read them as its first-read values. The marker is the evidence
 # that lets that session say so. It is bound to the GPU's NVML UUID, holds only
-# what Druta itself wrote, and is never replayed: the only actions it offers
-# are a PnP restart of the device or dismissal.
+# what Druta itself wrote, and is never replayed by this module.
+#
+# Each record names the process that owns it (PID + process creation time).
+# Two Druta windows can drive the same card ("Open a second window on"), and a
+# marker whose owner is still running is a LIVE raise, not a crash: it must not
+# produce a dialog, and it must not be cleared or overwritten by another window.
+
+MARKER_VERSION = 2
+_STILL_ACTIVE = 259
+
 
 def active_path():
     return state_dir() / "vf-headroom-active.json"
+
+
+def process_created(pid):
+    """Creation time (Windows FILETIME ticks) of a RUNNING process `pid`.
+
+    Returns an int for a running process, None for no such running process,
+    and "unknown" when the process exists but cannot be queried (access
+    denied): unknown is treated as alive, so a live raise is never mistaken
+    for a crash."""
+    if not isinstance(pid, int) or pid <= 0:
+        return None
+    if os.name != "nt":
+        return 0 if pid == os.getpid() else None
+    import ctypes
+    from ctypes import wintypes as w
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.OpenProcess.argtypes = [w.DWORD, w.BOOL, w.DWORD]
+    kernel.OpenProcess.restype = w.HANDLE
+    kernel.GetExitCodeProcess.argtypes = [w.HANDLE, ctypes.POINTER(w.DWORD)]
+    kernel.GetExitCodeProcess.restype = w.BOOL
+    kernel.GetProcessTimes.argtypes = [w.HANDLE] + [ctypes.POINTER(w.FILETIME)] * 4
+    kernel.GetProcessTimes.restype = w.BOOL
+    kernel.CloseHandle.argtypes = [w.HANDLE]
+    kernel.CloseHandle.restype = w.BOOL
+    handle = kernel.OpenProcess(0x1000, False, pid)   # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        error = ctypes.get_last_error()
+        return "unknown" if error == 5 else None      # 5 = ERROR_ACCESS_DENIED
+    try:
+        code = w.DWORD()
+        if not kernel.GetExitCodeProcess(handle, ctypes.byref(code)):
+            return "unknown"
+        if code.value != _STILL_ACTIVE:
+            return None
+        created, ended, kernel_t, user_t = (w.FILETIME() for _ in range(4))
+        if not kernel.GetProcessTimes(handle, ctypes.byref(created), ctypes.byref(ended),
+                                      ctypes.byref(kernel_t), ctypes.byref(user_t)):
+            return "unknown"
+        return (created.dwHighDateTime << 32) | created.dwLowDateTime
+    finally:
+        kernel.CloseHandle(handle)
+
+
+def current_owner():
+    return {"pid": os.getpid(), "created": process_created(os.getpid())}
+
+
+def owner_state(owner):
+    """'self', 'alive' (another running Druta process) or 'dead'.
+
+    A missing or malformed owner (a version-1 marker) is dead: it cannot be
+    tied to a running window. A PID that now belongs to a different process
+    (creation time differs) is dead too."""
+    if not isinstance(owner, dict) or not isinstance(owner.get("pid"), int):
+        return "dead"
+    me = current_owner()
+    if owner["pid"] == me["pid"] and owner.get("created") == me["created"]:
+        return "self"
+    created = process_created(owner["pid"])
+    if created is None:
+        return "dead"
+    if created == "unknown" or owner.get("created") in (None, "unknown"):
+        return "alive"
+    return "alive" if created == owner.get("created") else "dead"
 
 
 def _valid_record(record):
@@ -91,16 +165,23 @@ def _read_active(path):
 
 def mark_active(uuid, record, path=None):
     """Record that `record` (GPU.hold_headroom_record) is in the driver for the
-    card `uuid`. Returns (ok, message). No UUID means no marker: an unbound
-    marker could be matched to the wrong card."""
+    card `uuid`, owned by this process. Returns (ok, message). No UUID means no
+    marker: an unbound marker could be matched to the wrong card. A marker
+    owned by another RUNNING Druta process is never overwritten."""
     if not isinstance(uuid, str) or not uuid.strip():
         return False, "no GPU UUID; the headroom raise cannot be tracked across a crash"
     if not _valid_record(record):
         return False, "headroom record has an unexpected shape; not tracked"
     path = path or active_path()
     data = _read_active(path)
-    data[uuid] = {k: record[k] for k in ("rail", "hold_mv", "margin_mv", "written_uv", "prior_uv")
-                  if k in record}
+    existing = data.get(uuid)
+    if isinstance(existing, dict) and owner_state(existing.get("owner")) == "alive":
+        return False, ("another Druta window is tracking a headroom raise on this "
+                       "card; this window's raise is not tracked across a crash")
+    entry = {k: record[k] for k in ("rail", "hold_mv", "margin_mv", "written_uv", "prior_uv")
+             if k in record}
+    entry.update(version=MARKER_VERSION, owner=current_owner())
+    data[uuid] = entry
     try:
         atomic_json(path, data)
         return True, "tracked"
@@ -108,12 +189,20 @@ def mark_active(uuid, record, path=None):
         return False, f"could not record the headroom raise: {exc}"
 
 
-def clear_active(uuid, path=None):
-    """Drop the marker for `uuid`. Returns (ok, message)."""
+def clear_active(uuid, path=None, force=False):
+    """Drop the marker for `uuid`. Returns (ok, message).
+
+    Without `force` only a marker THIS process owns is removed. `force` is for
+    a caller that has already established the owner is gone (the startup check
+    and its dialog); even then a marker owned by a running process is kept."""
     path = path or active_path()
     data = _read_active(path)
-    if uuid not in data:
+    entry = data.get(uuid)
+    if entry is None:
         return True, "nothing to clear"
+    state = owner_state(entry.get("owner") if isinstance(entry, dict) else None)
+    if state == "alive" or (state != "self" and not force):
+        return True, "marker belongs to another Druta window; left in place"
     data.pop(uuid)
     try:
         atomic_json(path, data)
@@ -133,7 +222,7 @@ def active_record(uuid, path=None):
 def still_raised(record, limits):
     """Whether the card's current raw limits still carry what the marker says
     Druta wrote. `limits` is GPU.read_volt_rail_limits(). Anything else - a
-    reset, a reboot that did clear them, another tool - means the marker is
+    reset, a restart that did clear them, another tool - means the marker is
     stale and says nothing about this card any more."""
     try:
         row = (limits or {})[record["rail"]]

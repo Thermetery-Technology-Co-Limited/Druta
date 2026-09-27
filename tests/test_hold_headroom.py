@@ -44,6 +44,7 @@ class FakeRails:
         gpu.volt_rail_limit_fields = lambda rail: GPU.VOLT_LIMIT_FIELDS
         gpu.read_voltage_boost = lambda: 100
         gpu.voltage_xoc_enabled = False
+        gpu.arch = lambda: GPU.ARCH_TURING
 
     def read(self):
         return {r: dict(v, _base_mv=dict(v["_base_mv"])) for r, v in self.rows.items()}
@@ -85,11 +86,11 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(targets, {"reliability": 1093.75, "alt_reliability": 1118.75})
 
     def test_reliability_alone_binding_is_still_raised(self):
-        # alt-reliability and overvoltage far above, reliability + boost at the
-        # hold: the case that held 1093.75 while asked for 1125 and lost clock.
+        # alt-reliability and overvoltage far above, reliability + boost exactly
+        # at the hold: the reliability term alone caps the rail and must rise.
         targets, _ = GPU.hold_headroom_targets(
-            row(1068.75, 1150.0, 1150.0, boost=25.0), 1125.0, 25.0, 1200.0)
-        self.assertEqual(targets, {"reliability": 1125.0})
+            row(1068.75, 1150.0, 1150.0, boost=25.0), 1093.75, 25.0, 1200.0)
+        self.assertEqual(targets, {"reliability": 1093.75})
 
     def test_nothing_is_raised_when_the_ceiling_already_clears_the_hold(self):
         targets, why = GPU.hold_headroom_targets(
@@ -159,11 +160,71 @@ class ApplyRestoreTests(unittest.TestCase):
 
     def test_a_second_hold_replaces_the_first_raise_instead_of_stacking(self):
         self.gpu.apply_hold_headroom(1093.75, 25.0)
-        self.gpu.apply_hold_headroom(1100.0, 25.0)
-        self.assertEqual(self.rails.absolute("alt_reliability"), 1125.0)
+        self.gpu.apply_hold_headroom(1087.5, 25.0)
+        # planned from the user's limits again, not on top of the first raise
+        self.assertEqual((self.rails.absolute("reliability"), self.rails.absolute("alt_reliability")),
+                         (1087.5, 1112.5))
         self.gpu.restore_hold_headroom()
         self.assertEqual((self.rails.absolute("reliability"), self.rails.absolute("alt_reliability"),
                           self.rails.absolute("overvoltage")), (1068.75, 1093.75, 1125.0))
+
+    def test_hold_above_the_ceiling_is_withheld_and_writes_nothing(self):
+        # ceiling = min(1068.75 + 25, 1093.75, 1125) = 1093.75; a raise for an
+        # 1125 mV hold would let the card climb above 1093.75 (measured: 1100)
+        ok, msg = self.gpu.apply_hold_headroom(1125.0, 25.0)
+        self.assertIsNone(ok)
+        self.assertIn("above the voltage ceiling", msg)
+        self.assertEqual(self.rails.writes, [])
+        self.assertIsNone(self.gpu.hold_headroom_record())
+
+    def test_one_step_above_the_ceiling_is_withheld_and_at_ceiling_applies(self):
+        self.assertIsNone(self.gpu.apply_hold_headroom(1100.0, 25.0)[0])
+        self.assertEqual(self.rails.writes, [])
+        self.assertTrue(self.gpu.apply_hold_headroom(1093.75, 25.0)[0])
+
+    def test_above_ceiling_hold_still_restores_a_previous_raise(self):
+        self.gpu.apply_hold_headroom(1093.75, 25.0)
+        ok, _ = self.gpu.apply_hold_headroom(1125.0, 25.0)
+        self.assertIsNone(ok)
+        self.assertIsNone(self.gpu.hold_headroom_record())
+        self.assertEqual((self.rails.absolute("reliability"), self.rails.absolute("alt_reliability")),
+                         (1068.75, 1093.75))
+
+    def test_driver_refused_write_is_rolled_back(self):
+        real_write, seen = self.rails.write, []
+        def refuse_first(records):
+            seen.append(1)
+            real_write(records)
+            return (True, 0x1F) if len(seen) == 1 else (True, 0)   # SET seen, RM refused
+        self.gpu._write_rail_records = refuse_first
+        ok, msg = self.gpu.apply_hold_headroom(1093.75, 25.0)
+        self.assertFalse(ok)
+        self.assertIn("NV_STATUS", msg)
+        self.assertIn("limits restored", msg)
+        self.assertIsNone(self.gpu.hold_headroom_record())
+        self.assertEqual((self.rails.absolute("reliability"), self.rails.absolute("alt_reliability")),
+                         (1068.75, 1093.75))
+
+    def test_rollback_that_also_fails_keeps_the_record_for_exit(self):
+        real_write = self.rails.write
+        def always_refuse(records):
+            real_write(records)
+            return True, 0x1F
+        self.gpu._write_rail_records = always_refuse
+        ok, msg = self.gpu.apply_hold_headroom(1093.75, 25.0)
+        self.assertFalse(ok)
+        self.assertIn("RESTORE FAILED", msg)
+        self.assertIsNotNone(self.gpu.hold_headroom_record())
+
+    def test_full_rail_reset_drops_the_record_single_field_reset_keeps_it(self):
+        gpu = self.gpu
+        gpu._volt_rail_profile = lambda: {"fields": {0: GPU.VOLT_LIMIT_FIELDS},
+                                          "poweron": {0: [0, 0, 0, 0]}}
+        gpu.apply_hold_headroom(1093.75, 25.0)
+        self.assertTrue(gpu.reset_volt_rail_limits(0, fields=("vmin",))[0])
+        self.assertIsNotNone(gpu.hold_headroom_record())
+        self.assertTrue(gpu.reset_volt_rail_limits(0)[0])
+        self.assertIsNone(gpu.hold_headroom_record())
 
     def test_restore_leaves_a_field_the_user_changed_since(self):
         self.gpu.apply_hold_headroom(1093.75, 25.0)
@@ -190,6 +251,24 @@ class ApplyRestoreTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("no headroom applied", msg)
         self.assertEqual(self.rails.writes, [])
+
+    def test_profile_capture_during_a_raise_records_the_users_limits(self):
+        from types import SimpleNamespace
+        from druta import profiles
+        self.gpu.apply_hold_headroom(1093.75, 25.0)
+        g = self.gpu
+        view = SimpleNamespace(
+            read_volt_rail_limits=g.read_volt_rail_limits, hold_headroom_record=g.hold_headroom_record,
+            user_rail_limits=g.user_rail_limits, abs_limit_mv=GPU.abs_limit_mv,
+            volt_rail_limit_fields=lambda r: GPU.VOLT_LIMIT_FIELDS if r == 0 else (),
+            voltage_xoc_enabled=False)
+        state = {profiles.INCOMPLETE_KEY: []}
+        profiles.capture_rails(view, state, None)
+        self.assertEqual(state[profiles.INCOMPLETE_KEY], [])
+        captured = state["rail_limits_mv"]["0"]
+        self.assertEqual((captured["reliability"], captured["alt_reliability"], captured["overvoltage"]),
+                         (1068.75, 1093.75, 1125.0))
+        self.assertEqual(state["rail_limits_uv"]["0"]["alt_reliability"], 0)
 
     def test_user_rail_limits_hides_only_our_raise(self):
         self.gpu.apply_hold_headroom(1093.75, 25.0)
@@ -238,10 +317,54 @@ class LockStateHookTests(unittest.TestCase):
 
     def test_moving_the_hold_replans_from_the_users_limits(self):
         self.hold(1093.75)
-        self.hold(1100.0)
-        self.assertEqual(self.limits(), (1100.0, 1125.0, 1125.0))
+        self.hold(1087.5)
+        self.assertEqual(self.limits(), (1087.5, 1112.5, 1125.0))
         self.app.set_lock_state(None)
         self.assertEqual(self.limits(), (1068.75, 1093.75, 1125.0))
+
+    def test_above_ceiling_hold_warns_and_leaves_the_limits(self):
+        self.hold(1125.0)
+        self.assertEqual(self.limits(), (1068.75, 1093.75, 1125.0))
+        self.assertTrue(self.app._headroom_note)
+        self.assertTrue(any("WARNING" in str(c) for c in self.app.log.call_args_list))
+        self.hold(1093.75)                          # a hold at the ceiling clears it
+        self.assertIsNone(self.app._headroom_note)
+
+    def test_generation_without_rail_control_is_silent(self):
+        self.app.gpu.arch = lambda: 7               # Ampere: no rail-limit control
+        self.hold(1093.75)
+        self.assertEqual(self.rails.writes, [])
+        self.app.log.assert_not_called()
+
+    def test_failed_restore_is_retried_once(self):
+        self.hold(1093.75)
+        calls = []
+        real = self.app.gpu.restore_hold_headroom
+        def flaky(force=False):
+            calls.append(1)
+            return (False, "interrupted") if len(calls) == 1 else real(force)
+        self.app.gpu.restore_hold_headroom = flaky
+        self.app.set_lock_state(None)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(self.limits(), (1068.75, 1093.75, 1125.0))
+
+    def test_exit_restores_a_raise_left_without_a_lock_record(self):
+        self.hold(1093.75)
+        self.app._clk_lock = None                   # the lock record is already gone
+        self.app.vf_recovery_pending = lambda: False
+        self.app.release_on_exit()
+        self.assertEqual(self.limits(), (1068.75, 1093.75, 1125.0))
+
+    def test_switching_cards_is_refused_while_a_raise_is_left(self):
+        self.hold(1093.75)
+        self.app._clk_lock = None
+        self.app.vf_recovery_pending = lambda: False
+        self.assertFalse(self.app.swap_gpu("0000:02:00.0"))
+        self.app.gpu_list = [{"slot": "0000:02:00.0", "name": "other"}]
+        self.app.gpu.slot = lambda: "0000:01:00.0"
+        self.app._switch_armed = None
+        self.app.switch_gpu(user_data="0000:02:00.0")
+        self.assertTrue(any("could not be restored" in str(c) for c in self.app.log.call_args_list))
 
     def test_boost_change_replans_the_reliability_term(self):
         self.hold(1093.75)
@@ -307,6 +430,67 @@ class CrashMarkerTests(unittest.TestCase):
         self.app.set_lock_state({"kind": self.app.LOCK_VF, "idx": 103, "req_mv": mv, "domain": 6,
                                  "got_idx": 103, "got_mv": mv, "got_mhz": 2100.0})
 
+    def set_owner(self, owner):
+        """Rewrite the marker's owner, standing in for the writing process."""
+        import json
+        data = json.loads(self.path.read_text(encoding="utf-8"))
+        data[self.UUID]["owner"] = owner
+        self.path.write_text(json.dumps(data), encoding="utf-8")
+
+    def next_session(self):
+        from druta.druta import Druta
+        nxt = Druta.__new__(Druta)
+        nxt.gpu, nxt.log, nxt.show_win = self.app.gpu, Mock(), Mock()
+        nxt.gpu._hold_headroom = None               # a new process has no record
+        return nxt
+
+    def test_marker_records_its_owner(self):
+        self.hold(1093.75)
+        record = vfheadroom.active_record(self.UUID, self.path)
+        self.assertEqual(record["owner"]["pid"], vfheadroom.current_owner()["pid"])
+        self.assertEqual(record["version"], vfheadroom.MARKER_VERSION)
+
+    def test_live_foreign_owner_is_not_a_crash(self):
+        self.hold(1093.75)
+        with patch("druta.vfheadroom.owner_state", return_value="alive"):
+            nxt = self.next_session()
+            nxt.check_stale_headroom()
+            self.assertIsNone(getattr(nxt, "_stale_headroom", None))
+            nxt.show_win.assert_not_called()
+            self.assertTrue(vfheadroom.clear_active(self.UUID, self.path, force=True)[0])
+        self.assertIsNotNone(vfheadroom.active_record(self.UUID, self.path))
+
+    def test_live_foreign_marker_is_not_overwritten(self):
+        self.hold(1093.75)
+        with patch("druta.vfheadroom.owner_state", return_value="alive"):
+            ok, msg = vfheadroom.mark_active(self.UUID, {"rail": 0, "written_uv": {"reliability": 1},
+                                                        "prior_uv": {"reliability": 0}}, self.path)
+        self.assertFalse(ok)
+        self.assertIn("another Druta window", msg)
+
+    def test_reused_pid_counts_as_dead(self):
+        self.hold(1093.75)
+        me = vfheadroom.current_owner()
+        self.set_owner({"pid": me["pid"], "created": (me["created"] or 0) + 1})
+        nxt = self.next_session()
+        nxt.check_stale_headroom()
+        self.assertIsNotNone(nxt._stale_headroom)
+
+    def test_version_1_marker_without_owner_is_treated_as_dead(self):
+        self.hold(1093.75)
+        self.set_owner(None)
+        nxt = self.next_session()
+        nxt.check_stale_headroom()
+        self.assertIsNotNone(nxt._stale_headroom)
+
+    def test_launched_restart_keeps_the_marker(self):
+        self.hold(1093.75)
+        def launched():
+            self.app._closing = True
+        self.app.open_device_restart = launched
+        self.app.stale_headroom_restart()
+        self.assertIsNotNone(vfheadroom.active_record(self.UUID, self.path))
+
     def test_marker_follows_the_raise(self):
         self.hold(1093.75)
         self.assertIsNotNone(vfheadroom.active_record(self.UUID, self.path))
@@ -315,20 +499,19 @@ class CrashMarkerTests(unittest.TestCase):
 
     def test_crash_leaves_a_marker_the_next_session_reports(self):
         self.hold(1093.75)                          # then the process dies
-        from druta.druta import Druta
-        nxt = Druta.__new__(Druta)
-        nxt.gpu, nxt.log, nxt.show_win = self.app.gpu, Mock(), Mock()
-        nxt.gpu._hold_headroom = None               # a new process has no record
+        self.set_owner({"pid": 2 ** 30, "created": 1})
+        nxt = self.next_session()
         nxt.check_stale_headroom()
         self.assertIsNotNone(nxt._stale_headroom)
         self.assertTrue(any("still raised" in str(c) for c in nxt.log.call_args_list))
 
     def test_marker_is_dropped_silently_once_the_limits_are_back(self):
         self.hold(1093.75)
-        self.app.gpu._hold_headroom = None
+        self.set_owner({"pid": 2 ** 30, "created": 1})
         self.rails.rows[0] = row(1068.75, 1093.75, 1125.0, boost=25.0)   # e.g. after PnP
-        self.app.check_stale_headroom()
-        self.assertIsNone(getattr(self.app, "_stale_headroom", None))
+        nxt = self.next_session()
+        nxt.check_stale_headroom()
+        self.assertIsNone(getattr(nxt, "_stale_headroom", None))
         self.assertIsNone(vfheadroom.active_record(self.UUID, self.path))
 
     def test_a_new_session_does_not_clear_an_old_marker_before_checking(self):

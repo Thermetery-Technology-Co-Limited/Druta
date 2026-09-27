@@ -5985,11 +5985,25 @@ class GPU:
     # headroom. That is one card: the margin is a caller setting, not a
     # constant, and no other generation's behaviour is assumed here.
     #
-    # The V/F lock pins the rail at the hold voltage, so raising these limits
-    # while a hold is active does not raise the voltage the card runs. It does
-    # raise what the card MAY reach if the lock goes away, which is why the
-    # raise is recorded and undone when the hold ends.
+    # VOLTAGE-NEUTRAL ONLY. For a hold AT or BELOW the current ceiling, the
+    # V/F lock pins the rail at the hold voltage, so raising the ceiling does
+    # not change the voltage the card runs; it only raises what the card MAY
+    # reach if the lock goes away, which is why the raise is recorded and undone
+    # when the hold ends. For a hold ABOVE the ceiling the rail is clamped at
+    # the ceiling, and raising it would let the card climb - measured: a 1125 mV
+    # hold under a 1093.75 mV ceiling ran 1100 mV once raised. That is a real
+    # voltage increase, so apply_hold_headroom refuses it (result None) and the
+    # caller warns instead.
     HOLD_HEADROOM_FIELDS = ("reliability", "alt_reliability", "overvoltage")
+
+    def hold_headroom_architecture(self):
+        """Whether this GPU generation has Druta's rail-limit control at all.
+
+        Architectural support, not a live capability read: on a supported card
+        a transient read failure must stay a visible warning, while a card with
+        no rail control (Maxwell, Volta, Ampere, Ada) has nothing to warn about.
+        The per-adapter getters are still validated by apply_hold_headroom."""
+        return self.arch() in self._VOLT_RAIL_ARCHITECTURES
 
     @classmethod
     def hold_headroom_targets(cls, fields, hold_mv, margin_mv, maximum_mv):
@@ -6040,15 +6054,24 @@ class GPU:
         return getattr(self, "_hold_headroom", None)
 
     def apply_hold_headroom(self, hold_mv, margin_mv, rail=0):
-        """Raise alt-reliability and overvoltage to hold + margin while a hold
-        is active. Returns (ok, message).
+        """Raise the ceiling terms (reliability with its boost contribution,
+        alt-reliability, overvoltage) that sit below hold + margin, while a hold
+        is active. Returns (ok, message):
+
+            True   applied, or the ceiling already clears the hold
+            None   deliberately NOT applied: the hold is above the current
+                   ceiling, and raising the ceiling would raise the voltage the
+                   card runs. The message says so; callers should warn.
+            False  could not be applied (unreadable limits, refused write ...)
 
         This is deliberately NOT behind volt_limits_write_enabled. That switch
         guards the free-form limit sliders, whose values nothing but Druta
-        bounds. This write is narrower: two fields, upward only, to exactly
-        hold + margin, inside the same 1200 mV (XOC 1500 mV) bound, verified by
-        read-back and undone by restore_hold_headroom. Any previous raise is
-        restored first so two holds never stack their margins."""
+        bounds. This write is narrower: only the three ceiling terms, upward
+        only, only for a hold at or below the ceiling (so the running voltage
+        does not change), to exactly hold + margin, inside the same 1200 mV
+        (XOC 1500 mV) bound, verified by read-back and undone by
+        restore_hold_headroom. Any previous raise is restored first so two
+        holds never stack their margins."""
         if self.hold_headroom_record():
             ok, msg = self.restore_hold_headroom()
             if not ok:
@@ -6062,14 +6085,30 @@ class GPU:
         if cur is None or rail not in cur:
             return False, "cannot read the current limits; no headroom applied"
         row = cur[rail]
+        ceiling = self.rail_ceiling_mv(row)
+        try:
+            hold = float(hold_mv)
+        except (TypeError, ValueError):
+            return False, "hold voltage must be a number; no headroom applied"
+        if not (math.isfinite(ceiling) and math.isfinite(hold)):
+            return False, "the current voltage ceiling cannot be estimated; no headroom applied"
+        # Strict, on purpose: the ceiling estimate is VID-quantized, and erring
+        # toward "above" only withholds headroom - it never raises the voltage.
+        if hold > ceiling + 1e-3:
+            return None, (f"the held point ({hold:.2f} mV) is above the voltage ceiling "
+                          f"({ceiling:.2f} mV), so the card runs it at about "
+                          f"{ceiling:.2f} mV and may run below the clock it shows. "
+                          f"Headroom was NOT applied, because raising the ceiling "
+                          f"would raise the voltage. Hold a point at or below "
+                          f"{ceiling:.2f} mV, or raise the voltage limits yourself.")
         maximum = (self.VOLT_LIMIT_XOC_MAX_MV if self.voltage_xoc_enabled
                    else self.VOLT_LIMIT_MAX_MV)
         targets, why = self.hold_headroom_targets(row, hold_mv, margin_mv, maximum)
         if targets is None:
             return False, why + "; no headroom applied"
         if not targets:
-            return True, (f"{_RAIL_NAME[rail]}: alt-reliability and overvoltage already "
-                          f"clear the {float(hold_mv):.2f} mV hold by {float(margin_mv):g} mV")
+            return True, (f"{_RAIL_NAME[rail]}: the voltage ceiling ({ceiling:.2f} mV) already "
+                          f"clears the {hold:.2f} mV hold by {float(margin_mv):g} mV")
         boost = self.read_voltage_boost()
         if boost is None:
             return False, "cannot preserve the current voltage boost; no headroom applied"
