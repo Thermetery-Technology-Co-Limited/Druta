@@ -4285,7 +4285,7 @@ class Druta:
         cur = self._clk_lock
         if not cur or cur.get("kind") == kind:
             return True
-        # the raise comes off while the old V/F lock still pins the rail
+        # the raise comes off while the old V/F lock still holds the point
         if not self.restore_headroom_before_unpin("taking the new lock"):
             return False
         ok, m = self.release_current()
@@ -4335,7 +4335,7 @@ class Druta:
         fails). It now also picks WHICH driver call to make, from the record."""
         if not self.guard():
             return
-        # Headroom first, while the lock still pins the rail: released first,
+        # Headroom first, while the lock still holds the point: released first,
         # the card would run unpinned under the raised ceiling until the restore.
         if not self.restore_headroom_before_unpin("Release"):
             return
@@ -4370,7 +4370,7 @@ class Druta:
 
         Printed as well as logged: no frame renders after the loop exits, so the
         log widget is written for consistency and never appears on screen."""
-        # Headroom first, while any V/F lock still pins the rail. If it cannot
+        # Headroom first, while any V/F lock still holds the point. If it cannot
         # be taken off, the V/F lock is KEPT: an idle card held in P0 costs
         # power, but an unpinned card under a raised ceiling can run above the
         # user's voltage limit. The crash marker stays, so the next start says so.
@@ -4447,11 +4447,14 @@ class Druta:
 
     # ---- V/F hold headroom ------------------------------------------------- #
     # GPU.apply_hold_headroom raises the voltage ceiling to hold + margin while a
-    # V/F hold is in force, and only for a hold at or below the ceiling, so the
-    # running voltage does not change. Everything below keeps that true across
-    # the app: the raise is taken off BEFORE the lock is released or moved (never
-    # the other way round), re-planned when its inputs change, watched against
-    # the live rail and the lock, and tracked on disk across a crash.
+    # V/F hold is in force, and only for a hold at or below the ceiling. The held
+    # V/F point's voltage does not change; the rail may rise by at most the
+    # margin, into the driver's own margin above the point that the old ceiling
+    # was clipping (see the note at GPU.HOLD_HEADROOM_FIELDS). Everything below
+    # keeps it bounded across the app: the raise is taken off BEFORE the lock is
+    # released or moved (never the other way round), re-planned when its inputs
+    # change, the live rail is checked against the RAISED ceiling and the lock
+    # against its request, and the raise is tracked on disk across a crash.
 
     def headroom_backend(self):
         """The GPU if its CLASS implements hold headroom, else None: a test double
@@ -4482,11 +4485,12 @@ class Druta:
         return ok, msg
 
     def restore_headroom_before_unpin(self, action):
-        """Restore the raise while the lock still pins the rail. Lowering the
-        ceiling back to the user's values under a hold at or below them does not
-        change the voltage; releasing first would let the unpinned card climb
-        into the raise. Returns False (and says why) when the raise could not be
-        taken off, in which case the caller must NOT unpin."""
+        """Restore the raise while the lock still holds the V/F point. Lowering
+        the ceiling back to the user's values under that hold can only clip the
+        rail's margin again - the voltage goes down, never up; releasing first
+        would let the unlocked card climb the curve into the raise. Returns
+        False (and says why) when the raise could not be taken off, in which
+        case the caller must NOT unpin."""
         if not self.headroom_raise_pending():
             return True
         ok, msg = self.restore_headroom()
@@ -4503,8 +4507,8 @@ class Druta:
 
         Called from set_lock_state (which every lock change passes through) and
         after anything that can change the plan's inputs. The plan is made
-        against the lock's REQUEST (req_mv): the lock never runs the rail above
-        it, so this stays voltage-neutral whatever the curve does later.
+        against the lock's REQUEST (req_mv), the highest point the lock can put
+        the card on, so a later curve edit cannot move the hold above the plan.
 
           confirmed V/F hold, setting on  -> apply (or re-plan) the raise
           unconfirmed V/F state           -> keep the raise only if it belongs to
@@ -4728,7 +4732,9 @@ class Druta:
             self.mirror_headroom_marker()               # a marker write failed earlier
         if getattr(self, "_headroom_retry_at", 0) > self._headroom_tick:
             return                                      # backing off after a failure
-        live = d.get("vcore_mv")
+        # the rail block's live NVVDD (read on the poll thread while a raise is
+        # active), NOT vcore_mv: vcore is the held V/F point and never moves
+        live = d.get("nvvdd_live_mv")
         applied = getattr(self, "_headroom_applied_t", None)
         fresh = snap_t is None or applied is None or snap_t >= applied
         if live is not None and fresh:
@@ -5037,7 +5043,7 @@ class Druta:
         raise would not come off. Leaves the saved setting alone (turning the
         setting off to retry would silently disable a default-on protection for
         every later session). Works under a hold too: taking the raise off while
-        the lock pins the rail does not change the voltage, and afterwards
+        the lock holds the point can only lower the rail, and afterwards
         Release goes through; if the hold is kept, the next sync plans the raise
         again."""
         if not self.headroom_raise_pending():
@@ -5085,7 +5091,7 @@ class Druta:
             return
         self._reset_armed = False
         # The backend reset clears the V/F lock even when its rail step fails;
-        # take the headroom raise off first, while the lock still pins the rail.
+        # take the headroom raise off first, while the lock still holds the point.
         if not self.restore_headroom_before_unpin("Reset all"):
             return
         self.autosave_before("reset-all")
@@ -8049,12 +8055,15 @@ deliberately does not put behind a button."""
                                  "limits are raised to the held voltage + margin, so\n"
                                  "the hold is not sitting on the ceiling. A point held\n"
                                  "ON the ceiling runs slower than the clock it shows.\n"
-                                 "The lock keeps the voltage at the held point; the\n"
-                                 "limits go back when the hold ends.\n"
-                                 "A point ABOVE the ceiling gets no raise (it would\n"
-                                 "raise the voltage) - you get a warning instead.\n"
-                                 "The live core voltage is watched: if it ever reads\n"
-                                 "above the old ceiling, the raise is undone.\n"
+                                 "The held point's voltage stays the same; the rail\n"
+                                 "may run up to the margin higher (the driver's own\n"
+                                 "margin, which a ceiling AT the point cuts off).\n"
+                                 "The limits go back when the hold ends.\n"
+                                 "A point ABOVE the ceiling gets no raise (the card\n"
+                                 "would climb past the ceiling you set, by more than\n"
+                                 "the margin) - you get a warning instead.\n"
+                                 "The live rail voltage is watched: if it ever reads\n"
+                                 "above the raised ceiling, the raise is undone.\n"
                                  "Measured on one TITAN RTX (TU102): 25 mV removed\n"
                                  "the loss there. Other cards and generations are\n"
                                  "not measured yet.",

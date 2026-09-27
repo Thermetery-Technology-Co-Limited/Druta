@@ -4,15 +4,17 @@
 
 """A hold on the effective voltage ceiling delivers less clock than it
 programs (measured on one TU102). These tests cover the software around the
-fix: which ceiling terms are raised and to what, that the running voltage is
-never raised (holds above the ceiling are withheld, the raise always comes off
-while the lock still pins the rail, the live rail is watched), that the raise
+fix: which ceiling terms are raised and to what, that the voltage stays bounded
+(holds above the ceiling are withheld, the raise always comes off while the
+lock still holds the point, the live rail is watched against the raised
+ceiling - it may use the driver's margin above the point, no more), that the raise
 is recorded and undone exactly, and that crash evidence is kept, owned and
 never mistaken for a live window's raise. Card values are fixtures for several
 generations, not constants."""
 
 import json
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -242,14 +244,22 @@ class ApplyRestoreTests(unittest.TestCase):
         self.assertEqual(seen[0][0], 0)
         self.assertEqual(seen[0][1]["written_uv"], gpu.hold_headroom_record()["written_uv"])
 
-    def test_live_voltage_above_the_old_ceiling_undoes_the_raise(self):
+    def test_live_rail_above_the_raised_ceiling_undoes_the_raise(self):
         gpu, rails, *_ = self.make()
-        rails.live = 1112.5                          # the rail climbed into the raise
+        rails.live = 1125.0                          # beyond hold + margin: clamp not holding
         ok, msg = gpu.apply_hold_headroom(1093.75, 25.0)
         self.assertFalse(ok)
-        self.assertIn("voltage rose", msg)
+        self.assertIn("not holding", msg)
         self.assertIsNone(gpu.hold_headroom_record())
         self.assertEqual(rails.ceiling_terms(), (1068.75, 1093.75, 1125.0))
+
+    def test_rail_margin_above_the_old_ceiling_is_expected_and_kept(self):
+        # measured on TU102: holding 1093.75 under a 1118.75 ceiling, the rail
+        # ran 1112.5 (the driver's margin above the point) - that is the fix
+        gpu, rails, *_ = self.make()
+        rails.live = 1112.5
+        self.assertTrue(gpu.apply_hold_headroom(1093.75, 25.0)[0])
+        self.assertEqual(gpu.hold_headroom_record()["raised_ceiling_mv"], 1118.75)
 
     def test_live_voltage_at_the_hold_is_fine_and_missing_live_is_not_a_rise(self):
         gpu, rails, *_ = self.make()
@@ -543,7 +553,7 @@ class LockStateHookTests(AppTestCase):
 
 
 class OrderingTests(AppTestCase):
-    """The raise comes off while the lock still pins the rail - never after."""
+    """The raise comes off while the lock still holds the point - never after."""
 
     def events(self):
         order = []
@@ -633,18 +643,36 @@ class OrderingTests(AppTestCase):
 
 
 class WatchTests(AppTestCase):
-    def test_live_voltage_above_the_old_ceiling_undoes_the_raise(self):
+    def test_live_rail_above_the_raised_ceiling_undoes_the_raise(self):
         self.hold(1093.75)
-        self.app.watch_hold_headroom({"vcore_mv": 1112.5})
+        self.app.watch_hold_headroom({"nvvdd_live_mv": 1125.0})
         self.assertEqual(self.limits(), (1068.75, 1093.75, 1125.0))
-        self.assertTrue(self.logged("voltage rose"))
+        self.assertTrue(self.logged("not holding"))
 
-    def test_voltage_at_the_hold_keeps_the_raise(self):
+    def test_rail_margin_under_the_raised_ceiling_keeps_the_raise(self):
         self.hold(1093.75)
         self.gpu.read_vf_lock_status = lambda domain=None: ({"volt_uV": 1093750}, None)
         for _ in range(8):
-            self.app.watch_hold_headroom({"vcore_mv": 1093.75})
+            self.app.watch_hold_headroom({"nvvdd_live_mv": 1112.5, "vcore_mv": 1093.75})
         self.assertEqual(self.limits(), (1093.75, 1118.75, 1125.0))
+
+    def test_the_v_f_point_voltage_is_not_what_is_judged(self):
+        self.hold(1093.75)
+        self.gpu.read_vf_lock_status = lambda domain=None: ({"volt_uV": 1093750}, None)
+        self.app.watch_hold_headroom({"vcore_mv": 1200.0})        # not the rail reading
+        self.assertEqual(self.limits(), (1093.75, 1118.75, 1125.0))
+
+    def test_poll_snapshot_carries_the_rail_reading_only_during_a_raise(self):
+        gpu = bare_gpu()
+        gpu._lock = threading.RLock()
+        FakeRails(gpu, stock_row("turing")).live = 1112.5
+        for name in ("_priv_clocks", "_read_clocks", "_read_temps", "_read_power", "_read_fan",
+                     "_read_util", "_read_throttle", "_read_pcie", "_read_misc"):
+            setattr(gpu, name, lambda *a, **k: None)
+        gpu.clkdom_is_blackwell = lambda: False
+        self.assertNotIn("nvvdd_live_mv", gpu.read())
+        gpu.apply_hold_headroom(1093.75, 25.0)
+        self.assertEqual(gpu.read()["nvvdd_live_mv"], 1112.5)
 
     def test_a_replaced_lock_takes_the_raise_off(self):
         self.hold(1093.75)
@@ -905,7 +933,7 @@ class VerificationFollowUpTests(AppTestCase):
         calls = []
         self.gpu.restore_hold_headroom = lambda force=False: (calls.append(1) or (False, "busy"))
         for _ in range(3):
-            self.app.watch_hold_headroom({"vcore_mv": 1112.5})
+            self.app.watch_hold_headroom({"nvvdd_live_mv": 1125.0})
         self.assertEqual(len(calls), 2)                 # one restore (with its retry), then back off
         fails = [c for c in self.app.log.call_args_list if "RESTORE FAILED" in str(c)]
         self.assertEqual(len(fails), 1)
@@ -913,9 +941,9 @@ class VerificationFollowUpTests(AppTestCase):
     def test_watch_ignores_a_snapshot_taken_before_the_raise(self):
         self.hold(1093.75)
         applied = self.app._headroom_applied_t
-        self.app.watch_hold_headroom({"vcore_mv": 1112.5}, snap_t=applied - 1.0)
+        self.app.watch_hold_headroom({"nvvdd_live_mv": 1125.0}, snap_t=applied - 1.0)
         self.assertEqual(self.limits(), (1093.75, 1118.75, 1125.0))
-        self.app.watch_hold_headroom({"vcore_mv": 1112.5}, snap_t=applied + 1.0)
+        self.app.watch_hold_headroom({"nvvdd_live_mv": 1125.0}, snap_t=applied + 1.0)
         self.assertEqual(self.limits(), (1068.75, 1093.75, 1125.0))
 
     def test_watch_makes_no_driver_call_when_the_snapshot_has_no_live_reading(self):
