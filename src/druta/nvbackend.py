@@ -5986,10 +5986,14 @@ class GPU:
     # constant, and no other generation's behaviour is assumed here.
     #
     # VOLTAGE-NEUTRAL ONLY. For a hold AT or BELOW the current ceiling, the
-    # V/F lock pins the rail at the hold voltage, so raising the ceiling does
-    # not change the voltage the card runs; it only raises what the card MAY
-    # reach if the lock goes away, which is why the raise is recorded and undone
-    # when the hold ends. For a hold ABOVE the ceiling the rail is clamped at
+    # V/F lock pinned the rail at the hold voltage on the one TU102 measured
+    # (live NVVDD stayed at the hold under load with the raise in place), so
+    # raising the ceiling did not change the voltage the card runs. That is an
+    # observation on one card, not a guarantee for every generation: the live
+    # rail is therefore checked after the write and on every panel tick, and a
+    # reading above the pre-raise ceiling undoes the raise. The raise only
+    # changes what the card MAY reach if the lock goes away, which is why it is
+    # recorded and undone when the hold ends. For a hold ABOVE the ceiling the rail is clamped at
     # the ceiling, and raising it would let the card climb - measured: a 1125 mV
     # hold under a 1093.75 mV ceiling ran 1100 mV once raised. That is a real
     # voltage increase, so apply_hold_headroom refuses it (result None) and the

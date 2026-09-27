@@ -852,6 +852,213 @@ class StillRaisedTests(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------- #
+class VerificationFollowUpTests(AppTestCase):
+    """The second review round: dead ends, lost headroom and noisy retries."""
+
+    UUID = "GPU-test-0002"
+
+    def test_recovery_release_does_not_apply_a_raise_before_unpinning(self):
+        prev = vf_state(self.app, 1093.75)
+        self.app._clk_lock = {"kind": self.app.LOCK_VF, "verified": False, "recovery": True,
+                              "req_mv": 1087.5, "domain": 6, "previous_lock": prev}
+        self.app.vf_recovery_pending = lambda: True
+        self.gpu._vf_lock_recovery = {}
+        def recovered():
+            self.app.vf_recovery_pending = lambda: False
+            return True, "recovered"
+        self.gpu.recover_vf_lock = recovered
+        self.gpu.clear_vf_lock = lambda domain=None, expected_uv=None: (True, "released")
+        self.app.release_current()
+        self.assertEqual(self.rails.writes, [])         # no raise applied on the way out
+
+    def test_restore_now_works_under_a_hold_and_then_release_goes_through(self):
+        self.hold(1093.75)
+        self.app.restore_raised_limits_now()
+        self.assertEqual(self.limits(), (1068.75, 1093.75, 1125.0))
+        self.app.guard = lambda: True
+        self.gpu.clear_vf_lock = lambda domain=None, expected_uv=None: (True, "released")
+        self.app.release_lock()
+        self.assertIsNone(self.app._clk_lock)
+
+    def test_failed_release_after_a_restore_puts_the_raise_back(self):
+        self.hold(1093.75)
+        self.app.guard = lambda: True
+        self.gpu.clear_vf_lock = lambda domain=None, expected_uv=None: (False, "driver refused")
+        self.app.release_lock()
+        self.assertEqual(self.app._clk_lock["kind"], self.app.LOCK_VF)
+        self.assertEqual(self.limits(), (1093.75, 1118.75, 1125.0))
+
+    def test_failed_re_hold_re_plans_the_hold_still_in_force(self):
+        self.hold(1093.75)
+        self.gpu.set_vf_lock = lambda uv, domain=None: (False, "refused")
+        self.gpu.read_vf_lock_status = lambda domain=None: ({"volt_uV": 1093750, "domain": 6}, None)
+        self.gpu.vf_lock_recovery_pending = lambda: False
+        pt = {"idx": 102, "volt_mv": 1087.5, "freq_mhz": 2085.0}
+        self.app.vf_sel, self.app.vf_by_idx, self.app.vf_points = 102, {102: pt}, [pt]
+        self.app.guard = lambda: True
+        self.app.hold_point()
+        self.assertEqual(self.app._clk_lock["req_mv"], 1093.75)
+        self.assertEqual(self.limits(), (1093.75, 1118.75, 1125.0))
+
+    def test_watch_backs_off_after_a_failed_restore_and_logs_once(self):
+        self.hold(1093.75)
+        calls = []
+        self.gpu.restore_hold_headroom = lambda force=False: (calls.append(1) or (False, "busy"))
+        for _ in range(3):
+            self.app.watch_hold_headroom({"vcore_mv": 1112.5})
+        self.assertEqual(len(calls), 2)                 # one restore (with its retry), then back off
+        fails = [c for c in self.app.log.call_args_list if "RESTORE FAILED" in str(c)]
+        self.assertEqual(len(fails), 1)
+
+    def test_watch_ignores_a_snapshot_taken_before_the_raise(self):
+        self.hold(1093.75)
+        applied = self.app._headroom_applied_t
+        self.app.watch_hold_headroom({"vcore_mv": 1112.5}, snap_t=applied - 1.0)
+        self.assertEqual(self.limits(), (1093.75, 1118.75, 1125.0))
+        self.app.watch_hold_headroom({"vcore_mv": 1112.5}, snap_t=applied + 1.0)
+        self.assertEqual(self.limits(), (1068.75, 1093.75, 1125.0))
+
+    def test_watch_makes_no_driver_call_when_the_snapshot_has_no_live_reading(self):
+        self.hold(1093.75)
+        self.gpu.read_rail_live_mv = Mock(side_effect=AssertionError("driver call from the tick"))
+        self.app.watch_hold_headroom({})
+        self.assertEqual(self.limits(), (1093.75, 1118.75, 1125.0))
+
+    def test_exit_still_releases_the_lock_when_the_restore_raises(self):
+        self.app.set_lock_state({"kind": self.app.LOCK_NVML, "lo": 2100, "hi": 2100})
+        self.gpu._hold_headroom = {"rail": 0, "hold_mv": 1093.75, "margin_mv": 25.0,
+                                   "written_uv": {"reliability": 1}, "prior_uv": {"reliability": 0}}
+        def boom(force=False):
+            raise RuntimeError("driver gone")
+        self.gpu.restore_hold_headroom = boom
+        released = []
+        self.gpu.reset_gpu_clocks = lambda: (released.append(1) or (True, "reset"))
+        self.app.release_on_exit()
+        self.assertEqual(released, [1])
+
+    def test_rail_stock_reset_during_a_hold_plans_the_headroom_again(self):
+        self.hold(1093.75)
+        self.gpu._volt_rail_profile = lambda: {"fields": {0: GPU.VOLT_LIMIT_FIELDS},
+                                               "poweron": {0: [0, 0, 0, 0]}}
+        self.app.refresh_volt_limits = Mock()
+        self.app.apply_vlim_reset()
+        self.assertEqual(self.limits(), (1093.75, 1118.75, 1125.0))
+
+    def test_unjudged_dead_marker_withholds_and_the_check_is_retried(self):
+        vfheadroom.mark_active(self.UUID, {"rail": 0, "hold_mv": 1093.75, "margin_mv": 25.0,
+                                           "written_uv": {"alt_reliability": 25000},
+                                           "prior_uv": {"alt_reliability": 0}})
+        data = json.loads(vfheadroom.marker_path(self.UUID, self.root).read_text(encoding="utf-8"))
+        data["owner"] = DEAD
+        vfheadroom.marker_path(self.UUID, self.root).write_text(json.dumps(data), encoding="utf-8")
+        real = self.gpu.read_volt_rail_limits
+        self.gpu.read_volt_rail_limits = lambda: None
+        self.app.check_stale_headroom()
+        self.assertTrue(self.app._stale_recheck)
+        self.gpu.read_volt_rail_limits = real
+        self.hold(1093.75)
+        self.assertEqual(self.app._headroom_note[0], "withheld")
+        self.assertEqual(self.rails.writes, [])
+        self.app._clk_lock = None
+        for _ in range(4):
+            self.app.watch_hold_headroom({})
+        self.assertFalse(self.app._stale_recheck)
+        self.assertIsNone(vfheadroom.active_record(self.UUID))   # judged: values not there
+
+    def test_a_failed_marker_clear_is_retried_on_the_tick(self):
+        self.hold(1093.75)
+        with patch("druta.vfheadroom.clear_active", return_value=(False, "disk full")):
+            self.app.set_lock_state(None)
+        self.assertIsNotNone(vfheadroom.active_record(self.UUID))
+        for _ in range(4):
+            self.app.watch_hold_headroom({})
+        self.assertIsNone(vfheadroom.active_record(self.UUID))
+
+    def test_pnp_blocker_is_checked_on_each_click(self):
+        with patch("druta.vfheadroom.other_instances", return_value=1):
+            self.assertIn("other Druta window", self.app.pnp_blocker())
+        with patch("druta.vfheadroom.other_instances", return_value=0):
+            self.assertIsNone(self.app.pnp_blocker())
+        with patch("druta.vfheadroom.other_instances", side_effect=ValueError("bad output")):
+            self.gpu.read_vf_lock = lambda: None
+            self.assertIsNone(self.app.pnp_blocker())
+
+    def test_setting_off_restores_and_on_again_reapplies(self):
+        self.hold(1093.75)
+        self.app.guard = lambda: True
+        with patch("druta.druta.dpg.get_value", side_effect=lambda tag: {"hr_on": False, "hr_mv": 25.0}[tag]), \
+                patch("druta.druta.dpg.set_value"), \
+                patch("druta.druta.dpg.does_item_exist", side_effect=lambda tag: tag in ("hr_on", "hr_mv")), \
+                patch("druta.vfheadroom.save", return_value=(True, "saved")):
+            self.app.headroom_changed()
+            self.assertEqual(self.limits(), (1068.75, 1093.75, 1125.0))
+        with patch("druta.druta.dpg.get_value", side_effect=lambda tag: {"hr_on": True, "hr_mv": 25.0}[tag]), \
+                patch("druta.druta.dpg.set_value"), \
+                patch("druta.druta.dpg.does_item_exist", side_effect=lambda tag: tag in ("hr_on", "hr_mv")), \
+                patch("druta.vfheadroom.save", return_value=(True, "saved")):
+            self.app.headroom_changed()
+        self.assertEqual(self.limits(), (1093.75, 1118.75, 1125.0))
+
+    def test_restore_with_unreadable_limits_keeps_record_and_marker(self):
+        self.hold(1093.75)
+        self.gpu.read_volt_rail_limits = lambda: None
+        self.app.guard = lambda: True
+        self.app.release_lock()
+        self.assertIsNotNone(self.gpu.hold_headroom_record())
+        self.assertIsNotNone(vfheadroom.active_record(self.UUID))
+        self.assertEqual(self.app._clk_lock["kind"], self.app.LOCK_VF)   # not unpinned
+
+    def test_an_exception_inside_apply_is_logged_and_the_hold_survives(self):
+        def boom(*a, **k):
+            raise RuntimeError("escape hook")
+        self.gpu.apply_hold_headroom = boom
+        self.hold(1093.75)
+        self.assertEqual(self.app._clk_lock["kind"], self.app.LOCK_VF)
+        self.assertEqual(self.app._headroom_note[0], "failed")
+
+
+class OtherGenerationAppTests(unittest.TestCase):
+    """The app-level sync on Pascal and Blackwell bases, not only Turing."""
+
+    def test_hold_raises_and_release_restores_on_pascal_and_blackwell(self):
+        for card in ("pascal", "blackwell"):
+            with self.subTest(card=card), tempfile.TemporaryDirectory() as d, \
+                    patch("druta.vfheadroom.active_dir", return_value=Path(d)), \
+                    patch("druta.druta.dpg.does_item_exist", return_value=False):
+                arch, base, boost = CARDS[card]
+                gpu = bare_gpu()
+                gpu.static = {}
+                rails = FakeRails(gpu, stock_row(card), arch=arch)
+                app = make_app(gpu)
+                ceiling = min(base[0] + boost, base[1], base[2])
+                app.set_lock_state(vf_state(app, ceiling))
+                self.assertEqual(GPU.rail_ceiling_mv(rails.rows[0]), ceiling + 25.0)
+                app.set_lock_state(None)
+                self.assertEqual(rails.ceiling_terms(), base[:3])
+
+
+@unittest.skipUnless(__import__("os").name == "nt", "Windows process identity")
+class RealProcessOwnerTests(unittest.TestCase):
+    def test_a_child_process_is_alive_then_dead_after_it_exits(self):
+        import subprocess
+        import sys
+        import time
+        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+        try:
+            deadline = time.time() + 5
+            created = None
+            while created is None and time.time() < deadline:
+                created = vfheadroom.process_created(child.pid)
+            owner = {"pid": child.pid, "created": created}
+            self.assertEqual(vfheadroom.owner_state(owner), "alive")
+            self.assertEqual(vfheadroom.owner_state({"pid": child.pid, "created": 1}), "dead")
+        finally:
+            child.kill()
+            child.wait()
+        self.assertEqual(vfheadroom.owner_state(owner), "dead")
+
+
+# --------------------------------------------------------------------------- #
 class ClockGapCheckTests(unittest.TestCase):
     def setUp(self):
         from druta.druta import Druta

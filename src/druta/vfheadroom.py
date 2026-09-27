@@ -165,7 +165,14 @@ def owner_state(owner):
     PID that now belongs to a different process (creation time differs) is
     dead. An owner created before this boot is dead whatever access the
     current holder of its PID allows, so an access-denied PID reuse cannot keep
-    a crashed session's marker "alive" forever."""
+    a crashed session's marker "alive" forever.
+
+    KNOWN LIMIT: "this boot" comes from GetTickCount64, which a Windows Fast
+    Startup shutdown does not reset. After one, a crashed session's owner can
+    still read as newer than the boot, and if its PID has been reused by a
+    process this user cannot query, the marker reads as alive. The effect is a
+    missing dialog, never lost evidence: an alive owner's marker is not
+    cleared, and a restart or cold boot resolves it."""
     if not isinstance(owner, dict) or not isinstance(owner.get("pid"), int):
         return "dead"
     me = current_owner()
@@ -296,9 +303,9 @@ def other_instances():
     image = os.path.basename(sys.executable)
     try:
         out = subprocess.run(["tasklist", "/FI", f"IMAGENAME eq {image}", "/FO", "CSV", "/NH"],
-                             capture_output=True, text=True, timeout=5,
+                             capture_output=True, text=True, errors="replace", timeout=5,
                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, ValueError, subprocess.SubprocessError):
         return None
     pids = set()
     for line in out.splitlines():
