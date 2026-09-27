@@ -12,6 +12,9 @@ wherever it is shown.
 import json
 import math
 import os
+import re
+import subprocess
+import sys
 
 from .startup import atomic_json, read_json, state_dir
 
@@ -63,23 +66,61 @@ def save(enabled, margin_mv, path=None):
 
 
 # ---- active-raise marker -------------------------------------------------- #
-# Written while a headroom raise is in the driver, removed when it is restored.
-# Rail limits outlive the process (a crash, a kill, a power cut), and the next
-# session would read them as its first-read values. The marker is the evidence
-# that lets that session say so. It is bound to the GPU's NVML UUID, holds only
-# what Druta itself wrote, and is never replayed by this module.
+# Written while a headroom raise is in the driver (write-ahead: just before the
+# SET), removed when it is restored. Rail limits outlive the process (a crash,
+# a kill, a power cut), and the next session would read them as its first-read
+# values. The marker is the evidence that lets that session say so. It holds
+# only what Druta itself wrote and is never replayed by this module.
 #
-# Each record names the process that owns it (PID + process creation time).
-# Two Druta windows can drive the same card ("Open a second window on"), and a
-# marker whose owner is still running is a LIVE raise, not a crash: it must not
-# produce a dialog, and it must not be cleared or overwritten by another window.
+# One file per GPU (named from its NVML UUID), so markers for different cards
+# never share a read-modify-write. Each record names the process that owns it
+# (PID + process creation time). Two Druta windows can drive the same card
+# ("Open a second window on"), and a marker whose owner is still running is a
+# LIVE raise, not a crash: it must not produce a dialog, and it must not be
+# cleared or overwritten by another window. A file that exists but cannot be
+# read is evidence of unknown content and is never overwritten or deleted.
 
 MARKER_VERSION = 2
 _STILL_ACTIVE = 259
 
 
-def active_path():
-    return state_dir() / "vf-headroom-active.json"
+def active_dir():
+    return state_dir() / "vf-headroom-active"
+
+
+def marker_path(uuid, root=None):
+    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", uuid)
+    return (root or active_dir()) / f"{safe}.json"
+
+
+def _kernel():
+    import ctypes
+    from ctypes import wintypes as w
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.OpenProcess.argtypes = [w.DWORD, w.BOOL, w.DWORD]
+    kernel.OpenProcess.restype = w.HANDLE
+    kernel.GetExitCodeProcess.argtypes = [w.HANDLE, ctypes.POINTER(w.DWORD)]
+    kernel.GetExitCodeProcess.restype = w.BOOL
+    kernel.GetProcessTimes.argtypes = [w.HANDLE] + [ctypes.POINTER(w.FILETIME)] * 4
+    kernel.GetProcessTimes.restype = w.BOOL
+    kernel.CloseHandle.argtypes = [w.HANDLE]
+    kernel.CloseHandle.restype = w.BOOL
+    kernel.GetTickCount64.argtypes = []
+    kernel.GetTickCount64.restype = ctypes.c_ulonglong
+    kernel.GetSystemTimeAsFileTime.argtypes = [ctypes.POINTER(w.FILETIME)]
+    kernel.GetSystemTimeAsFileTime.restype = None
+    return ctypes, w, kernel
+
+
+def boot_filetime():
+    """This boot's start as Windows FILETIME ticks (100 ns), or None."""
+    if os.name != "nt":
+        return None
+    ctypes, w, kernel = _kernel()
+    now = w.FILETIME()
+    kernel.GetSystemTimeAsFileTime(ctypes.byref(now))
+    now_ticks = (now.dwHighDateTime << 32) | now.dwLowDateTime
+    return now_ticks - int(kernel.GetTickCount64()) * 10_000
 
 
 def process_created(pid):
@@ -93,17 +134,7 @@ def process_created(pid):
         return None
     if os.name != "nt":
         return 0 if pid == os.getpid() else None
-    import ctypes
-    from ctypes import wintypes as w
-    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
-    kernel.OpenProcess.argtypes = [w.DWORD, w.BOOL, w.DWORD]
-    kernel.OpenProcess.restype = w.HANDLE
-    kernel.GetExitCodeProcess.argtypes = [w.HANDLE, ctypes.POINTER(w.DWORD)]
-    kernel.GetExitCodeProcess.restype = w.BOOL
-    kernel.GetProcessTimes.argtypes = [w.HANDLE] + [ctypes.POINTER(w.FILETIME)] * 4
-    kernel.GetProcessTimes.restype = w.BOOL
-    kernel.CloseHandle.argtypes = [w.HANDLE]
-    kernel.CloseHandle.restype = w.BOOL
+    ctypes, w, kernel = _kernel()
     handle = kernel.OpenProcess(0x1000, False, pid)   # PROCESS_QUERY_LIMITED_INFORMATION
     if not handle:
         error = ctypes.get_last_error()
@@ -130,20 +161,26 @@ def current_owner():
 def owner_state(owner):
     """'self', 'alive' (another running Druta process) or 'dead'.
 
-    A missing or malformed owner (a version-1 marker) is dead: it cannot be
-    tied to a running window. A PID that now belongs to a different process
-    (creation time differs) is dead too."""
+    A missing or malformed owner cannot be tied to a running window: dead. A
+    PID that now belongs to a different process (creation time differs) is
+    dead. An owner created before this boot is dead whatever access the
+    current holder of its PID allows, so an access-denied PID reuse cannot keep
+    a crashed session's marker "alive" forever."""
     if not isinstance(owner, dict) or not isinstance(owner.get("pid"), int):
         return "dead"
     me = current_owner()
     if owner["pid"] == me["pid"] and owner.get("created") == me["created"]:
         return "self"
+    stored = owner.get("created")
+    boot = boot_filetime()
+    if isinstance(stored, int) and boot is not None and stored < boot:
+        return "dead"
     created = process_created(owner["pid"])
     if created is None:
         return "dead"
-    if created == "unknown" or owner.get("created") in (None, "unknown"):
+    if created == "unknown" or stored in (None, "unknown"):
         return "alive"
-    return "alive" if created == owner.get("created") else "dead"
+    return "alive" if created == stored else "dead"
 
 
 def _valid_record(record):
@@ -155,77 +192,118 @@ def _valid_record(record):
             and all(type(v) is int for v in list(written.values()) + list(prior.values())))
 
 
-def _read_active(path):
+def marker_state(uuid, root=None):
+    """('missing' | 'ok' | 'unreadable', record_or_None) for `uuid`'s file."""
+    path = marker_path(uuid, root)
+    if not path.exists():
+        return "missing", None
     try:
-        data = read_json(path, default={}) or {}
+        data = read_json(path, default=None)
     except (OSError, ValueError, json.JSONDecodeError):
-        return {}
-    return data if isinstance(data, dict) else {}
+        return "unreadable", None
+    if not _valid_record(data):
+        return "unreadable", None
+    return "ok", data
 
 
-def mark_active(uuid, record, path=None):
-    """Record that `record` (GPU.hold_headroom_record) is in the driver for the
-    card `uuid`, owned by this process. Returns (ok, message). No UUID means no
-    marker: an unbound marker could be matched to the wrong card. A marker
-    owned by another RUNNING Druta process is never overwritten."""
-    if not isinstance(uuid, str) or not uuid.strip():
+def _no_uuid(uuid):
+    return not isinstance(uuid, str) or not uuid.strip()
+
+
+def mark_active(uuid, record, root=None):
+    """Record that `record` (GPU.hold_headroom_record) is, or is about to be,
+    in the driver for the card `uuid`, owned by this process. Returns (ok,
+    message). No UUID means no marker: an unbound marker could be matched to
+    the wrong card. Any existing marker this process does not own is left
+    alone - a live window's, a crashed session's (still evidence), or an
+    unreadable one."""
+    if _no_uuid(uuid):
         return False, "no GPU UUID; the headroom raise cannot be tracked across a crash"
     if not _valid_record(record):
         return False, "headroom record has an unexpected shape; not tracked"
-    path = path or active_path()
-    data = _read_active(path)
-    existing = data.get(uuid)
-    if isinstance(existing, dict) and owner_state(existing.get("owner")) == "alive":
-        return False, ("another Druta window is tracking a headroom raise on this "
-                       "card; this window's raise is not tracked across a crash")
-    entry = {k: record[k] for k in ("rail", "hold_mv", "margin_mv", "written_uv", "prior_uv")
-             if k in record}
+    state, existing = marker_state(uuid, root)
+    if state == "unreadable":
+        return False, "an unreadable headroom marker exists for this card; it was left in place"
+    if state == "ok" and owner_state(existing.get("owner")) != "self":
+        return False, ("another headroom marker (a running window's, or an earlier "
+                       "session's) exists for this card; it was left in place")
+    entry = {k: record[k] for k in ("rail", "hold_mv", "margin_mv", "ceiling_mv",
+                                    "written_uv", "prior_uv") if k in record}
     entry.update(version=MARKER_VERSION, owner=current_owner())
-    data[uuid] = entry
     try:
-        atomic_json(path, data)
+        atomic_json(marker_path(uuid, root), entry)
         return True, "tracked"
     except OSError as exc:
         return False, f"could not record the headroom raise: {exc}"
 
 
-def clear_active(uuid, path=None, force=False):
+def clear_active(uuid, root=None, force=False):
     """Drop the marker for `uuid`. Returns (ok, message).
 
     Without `force` only a marker THIS process owns is removed. `force` is for
     a caller that has already established the owner is gone (the startup check
-    and its dialog); even then a marker owned by a running process is kept."""
-    path = path or active_path()
-    data = _read_active(path)
-    entry = data.get(uuid)
-    if entry is None:
+    and its dialog); even then a running owner's marker, or an unreadable one,
+    is kept."""
+    if _no_uuid(uuid):
         return True, "nothing to clear"
-    state = owner_state(entry.get("owner") if isinstance(entry, dict) else None)
-    if state == "alive" or (state != "self" and not force):
+    state, existing = marker_state(uuid, root)
+    if state == "missing":
+        return True, "nothing to clear"
+    if state == "unreadable":
+        return False, "the headroom marker for this card cannot be read; left in place"
+    owner = owner_state(existing.get("owner"))
+    if owner == "alive" or (owner != "self" and not force):
         return True, "marker belongs to another Druta window; left in place"
-    data.pop(uuid)
     try:
-        atomic_json(path, data)
+        marker_path(uuid, root).unlink()
         return True, "cleared"
+    except FileNotFoundError:
+        return True, "nothing to clear"
     except OSError as exc:
         return False, f"could not clear the headroom marker: {exc}"
 
 
-def active_record(uuid, path=None):
-    """The marker left for `uuid`, or None when there is none or it is malformed."""
-    if not isinstance(uuid, str) or not uuid.strip():
+def active_record(uuid, root=None):
+    """The marker left for `uuid`, or None when there is none or it cannot be
+    read (see marker_state to tell those apart)."""
+    if _no_uuid(uuid):
         return None
-    record = _read_active(path or active_path()).get(uuid)
-    return record if _valid_record(record) else None
+    state, record = marker_state(uuid, root)
+    return record if state == "ok" else None
 
 
 def still_raised(record, limits):
     """Whether the card's current raw limits still carry what the marker says
-    Druta wrote. `limits` is GPU.read_volt_rail_limits(). Anything else - a
-    reset, a restart that did clear them, another tool - means the marker is
-    stale and says nothing about this card any more."""
+    Druta wrote: True, False, or None when that cannot be told (the recorded
+    rail or a recorded field is missing from this read). None must never be
+    taken as False - a partial read is not evidence the raise is gone."""
     try:
         row = (limits or {})[record["rail"]]
+    except (KeyError, TypeError):
+        return None
+    try:
         return all(int(round(row[k] * 1000)) == v for k, v in record["written_uv"].items())
     except (KeyError, TypeError, ValueError):
-        return False
+        return None
+
+
+def other_instances():
+    """How many OTHER processes run this same Druta executable, or None when
+    that cannot be told (a source checkout runs as python.exe, shared with
+    unrelated programs). Used only to warn before offering a PnP restart."""
+    if os.name != "nt" or not getattr(sys, "frozen", False):
+        return None
+    image = os.path.basename(sys.executable)
+    try:
+        out = subprocess.run(["tasklist", "/FI", f"IMAGENAME eq {image}", "/FO", "CSV", "/NH"],
+                             capture_output=True, text=True, timeout=5,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    pids = set()
+    for line in out.splitlines():
+        parts = [p.strip('"') for p in line.split('","')]
+        if len(parts) > 1 and parts[1].strip('"').isdigit():
+            pids.add(int(parts[1].strip('"')))
+    pids.discard(os.getpid())
+    return len(pids)

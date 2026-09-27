@@ -5997,13 +5997,50 @@ class GPU:
     HOLD_HEADROOM_FIELDS = ("reliability", "alt_reliability", "overvoltage")
 
     def hold_headroom_architecture(self):
-        """Whether this GPU generation has Druta's rail-limit control at all.
+        """Whether this GPU generation has Druta's rail-limit control at all:
+        True, False, or None when the architecture could not be read this time.
 
         Architectural support, not a live capability read: on a supported card
         a transient read failure must stay a visible warning, while a card with
         no rail control (Maxwell, Volta, Ampere, Ada) has nothing to warn about.
-        The per-adapter getters are still validated by apply_hold_headroom."""
-        return self.arch() in self._VOLT_RAIL_ARCHITECTURES
+        arch() returns None on a failed read and does not cache it, so None is
+        "unknown, try again", never "unsupported". The per-adapter getters are
+        still validated by apply_hold_headroom."""
+        arch = self.arch()
+        if arch is None:
+            return None
+        return arch in self._VOLT_RAIL_ARCHITECTURES
+
+    @classmethod
+    def hold_headroom_ceiling_mv(cls, row):
+        """The ceiling a hold is judged against: the LOWER of Druta's
+        reconstruction (rail_ceiling_mv, from first-read estimated bases) and
+        the card's own absolute 'effective' limit when it reports one. Both are
+        VID-quantized; taking the lower can only withhold headroom, never let a
+        hold that is really above the ceiling through."""
+        estimate = cls.rail_ceiling_mv(row)
+        try:
+            effective = float(row.get("_effective_mv"))
+        except (TypeError, ValueError):
+            effective = float("nan")
+        if math.isfinite(effective) and effective > 0:
+            return min(estimate, effective) if math.isfinite(estimate) else effective
+        return estimate
+
+    def hold_headroom_overwritten(self, limits=None):
+        """True when a recorded raise is no longer fully on the card: a
+        profile load, Undo, a slider or another tool wrote over some of it.
+        The hold then runs on whatever the user's write left, and the caller
+        should re-plan from it. False when there is no record or it is intact."""
+        record = self.hold_headroom_record()
+        if not record:
+            return False
+        limits = self.read_volt_rail_limits() if limits is None else limits
+        try:
+            row = limits[record["rail"]]
+            return any(int(round(row[k] * 1000)) != v for k, v in record["written_uv"].items())
+        except (KeyError, TypeError, ValueError):
+            return False
 
     @classmethod
     def hold_headroom_targets(cls, fields, hold_mv, margin_mv, maximum_mv):
@@ -6053,10 +6090,15 @@ class GPU:
         """What the active headroom raise wrote, or ``None``."""
         return getattr(self, "_hold_headroom", None)
 
-    def apply_hold_headroom(self, hold_mv, margin_mv, rail=0):
+    def apply_hold_headroom(self, hold_mv, margin_mv, rail=0, before_write=None):
         """Raise the ceiling terms (reliability with its boost contribution,
         alt-reliability, overvoltage) that sit below hold + margin, while a hold
-        is active. Returns (ok, message):
+        is active. `hold_mv` must be the V/F LOCK'S REQUEST: the lock never runs
+        the rail above its request, so a request at or below the ceiling keeps
+        the running voltage where it is whatever the curve does later.
+        `before_write(record)`, if given, is called with the planned record just
+        before the SET, so a crash marker can exist before the limits move.
+        Returns (ok, message):
 
             True   applied, or the ceiling already clears the hold
             None   deliberately NOT applied: the hold is above the current
@@ -6075,25 +6117,33 @@ class GPU:
         if self.hold_headroom_record():
             ok, msg = self.restore_hold_headroom()
             if not ok:
+                # one bounded retry, as on release: a write aborted by another
+                # thread's driver call is the expected transient here
+                ok, msg = self.restore_hold_headroom()
+            if not ok:
                 return False, f"previous headroom could not be restored first: {msg}"
         if not self.volt_rail_limits_supported(rail):
-            return False, "voltage limits are not readable on this GPU; no headroom applied"
+            return False, ("the voltage limits could not be read right now; no headroom "
+                           "applied this time")
         fields = self.volt_rail_limit_fields(rail)
         if not set(self.HOLD_HEADROOM_FIELDS).issubset(fields):
-            return False, "alt-reliability/overvoltage are not validated on this rail; no headroom applied"
+            return False, ("reliability/alt-reliability/overvoltage are not validated on this "
+                           "rail; no headroom applied")
         cur = self.read_volt_rail_limits()
         if cur is None or rail not in cur:
-            return False, "cannot read the current limits; no headroom applied"
+            return False, "the current limits could not be read right now; no headroom applied"
         row = cur[rail]
-        ceiling = self.rail_ceiling_mv(row)
+        ceiling = self.hold_headroom_ceiling_mv(row)
         try:
             hold = float(hold_mv)
         except (TypeError, ValueError):
             return False, "hold voltage must be a number; no headroom applied"
         if not (math.isfinite(ceiling) and math.isfinite(hold)):
             return False, "the current voltage ceiling cannot be estimated; no headroom applied"
-        # Strict, on purpose: the ceiling estimate is VID-quantized, and erring
-        # toward "above" only withholds headroom - it never raises the voltage.
+        # A hold exactly AT the ceiling is the main case this exists for and is
+        # allowed. Uncertainty in the (quantized) ceiling is handled by taking
+        # the lower of two independent figures above, and by the live-voltage
+        # check after the write, not by assuming an error direction.
         if hold > ceiling + 1e-3:
             return None, (f"the held point ({hold:.2f} mV) is above the voltage ceiling "
                           f"({ceiling:.2f} mV), so the card runs it at about "
@@ -6118,15 +6168,27 @@ class GPU:
         for key, mv in targets.items():
             rec[self.VOLT_LIMIT_FIELDS.index(key)] = int(round((mv - base[key]) * 1000))
         written = {k: rec[self.VOLT_LIMIT_FIELDS.index(k)] for k in targets}
+        # ceiling_mv / boost_mv are what this plan was made against: the live
+        # guard compares the running voltage with ceiling_mv, and a boost change
+        # (the reliability term) means the plan must be made again.
+        record = {"rail": rail, "hold_mv": float(hold_mv), "margin_mv": float(margin_mv),
+                  "ceiling_mv": float(ceiling),
+                  "boost_mv": float(row.get("_boost_mv", 0.0) or 0.0),
+                  "prior_uv": prior, "written_uv": written}
+        if before_write is not None:
+            # Write-ahead evidence. A marker whose SET never lands is harmless:
+            # the next session drops it once it sees the values are not there.
+            try:
+                before_write(dict(record))
+            except Exception:                                    # noqa: BLE001
+                pass
         ok, status = self._write_rail_records({rail: rec})
         if not ok:
             return False, (getattr(self, "_volt_rail_write_error", None)
                            or "the rails request was not seen - nothing was written")
         # Recorded as soon as the driver saw a SET: from here the limits may have
         # moved, and only a record lets release/exit put them back.
-        self._hold_headroom = {"rail": rail, "hold_mv": float(hold_mv),
-                               "margin_mv": float(margin_mv),
-                               "prior_uv": prior, "written_uv": written}
+        self._hold_headroom = record
         expected = {r: [round(row2[k] * 1000) for k in self.VOLT_LIMIT_FIELDS]
                     for r, row2 in cur.items() if row2.get("_base_mv")}
         expected[rail] = rec
@@ -6139,9 +6201,43 @@ class GPU:
             restored, msg = self.restore_hold_headroom(force=True)
             return False, (f"headroom write not verified ({error}); "
                            + ("limits restored" if restored else "RESTORE FAILED: " + msg))
+        # The read-back above proves the request was STORED, not what it did.
+        # The live rail voltage is a number Druta did not supply: if it now sits
+        # above the ceiling that existed before the raise, the "lock pins the
+        # rail" premise does not hold on this card, and the raise comes off.
+        ok_live, why_live = self.hold_headroom_live_ok(record)
+        if not ok_live:
+            restored, msg = self.restore_hold_headroom(force=True)
+            return False, (why_live + "; " + ("raise undone" if restored
+                                               else "RESTORE FAILED: " + msg))
         raised = ", ".join(f"{k.replace('_', '-')} {mv:.2f}" for k, mv in sorted(targets.items()))
         return True, (f"{_RAIL_NAME[rail]}: {raised} mV while holding "
                       f"{float(hold_mv):.2f} mV (+{float(margin_mv):g} mV headroom)")
+
+    # How far the live rail may read above the pre-raise ceiling before it
+    # counts as a rise. Half a TU102 V/F point; the live figure is VID-grained.
+    HOLD_HEADROOM_LIVE_TOLERANCE_MV = 3.0
+
+    def hold_headroom_live_ok(self, record=None, live_mv=None):
+        """(ok, message): whether the rail's LIVE voltage is still at or below
+        the ceiling the active raise was planned against. Unknown (no live
+        reading on this card) counts as ok - absence of the sensor is not
+        evidence of a rise - and the caller's other checks still apply."""
+        record = record or self.hold_headroom_record()
+        if not record or not math.isfinite(record.get("ceiling_mv", float("nan"))):
+            return True, "no active raise"
+        if live_mv is None:
+            try:
+                live_mv = self.read_rail_live_mv(record["rail"])
+            except Exception:                                    # noqa: BLE001
+                live_mv = None
+        if live_mv is None:
+            return True, "no live rail reading"
+        if live_mv > record["ceiling_mv"] + self.HOLD_HEADROOM_LIVE_TOLERANCE_MV:
+            return False, (f"the rail reads {live_mv:.2f} mV live, above the "
+                           f"{record['ceiling_mv']:.2f} mV ceiling that existed before "
+                           f"the headroom raise - the voltage rose")
+        return True, f"live {live_mv:.2f} mV"
 
     def restore_hold_headroom(self, force=False):
         """Undo the active headroom raise. Returns (ok, message).
