@@ -549,7 +549,9 @@ def classify_domain_names(rows, core_mhz=None, mem_nvml=None,
     populated = {r["domain"]: r for r in rows
                  if r.get("kind") == PRIV_FREQ and r.get("prog_mhz")}
     legacy = architecture in (2, 3, 4)
-    modern = architecture == 6 or blackwell or architecture == 10
+    # Ampere keeps GPC at domain 0 and reported memory at domain 4, the same
+    # slots Turing uses. Its other names are not the Turing table.
+    modern = architecture in (6, 7) or blackwell or architecture == 10
     gpc_dom, gpc_scale, mem_dom = None, 1, None
     if legacy or modern:
         slot, gpc_scale = (15, 2) if legacy else (0, 1)
@@ -648,6 +650,17 @@ def classify_domain_names(rows, core_mhz=None, mem_nvml=None,
         31: ("PCIe link gen", PRIV_LIKELY),
     }
 
+    # GPU-Z 2.71 on the RTX 3070 Ti, driver 595.97, beside Druta's programmed
+    # clocks: Crossbar 1899.1 against domain 1 at 1905, SYS 1701.4 against
+    # domain 2 at 1695, Video 1772.1 against domain 21 at 1770. Domain 5 was
+    # 1350 and has no GPU-Z row, so it stays numbered. Control 1, 3 and 5 had
+    # already been seen to move domains 1, 2 and 21.
+    AMPERE_NAMES = {
+        1: ("Crossbar", PRIV_CONFIRMED),
+        2: ("SYS", PRIV_CONFIRMED),
+        21: ("Video", PRIV_CONFIRMED),
+    }
+
     for r in rows:
         dom = r["domain"]
         r["scale"] = 1
@@ -670,6 +683,8 @@ def classify_domain_names(rows, core_mhz=None, mem_nvml=None,
         elif pascal_like and dom in PASCAL_NAMES:
             r["name"], r["grade"] = PASCAL_NAMES[dom]
             r["scale"] = 2
+        elif architecture == 7 and dom in AMPERE_NAMES:
+            r["name"], r["grade"] = AMPERE_NAMES[dom]
         elif blackwell:
             r["name"], r["grade"] = BLACKWELL_NAMES.get(
                 dom, ("", PRIV_UNNAMED))
@@ -1064,8 +1079,8 @@ CLKDOM_BLACKWELL_RISKY_SCAN_CONTROLS = (0, 2)
 #   did not move the target.
 # These identities are architectural evidence from that adapter, not a
 # device-id allowlist. Another Ampere board still has to echo this layout.
-CLKDOM_AMPERE_CONTROLS = {1: "domain 1", 2: "domain 4", 3: "domain 2",
-                          5: "domain 21", 9: "domain 5"}
+CLKDOM_AMPERE_CONTROLS = {1: "Crossbar", 2: "Memory", 3: "SYS",
+                          5: "Video", 9: "domain 5"}
 CLKDOM_PAIR_AMPERE = {1: 1, 2: 4, 3: 2, 5: 21, 9: 5}
 # Frequency-field candidates only.  The field probe deliberately excludes the
 # neighbouring voltage/rail dwords: discovering a frequency layout must never
@@ -1234,11 +1249,9 @@ MEM_TYPES = {
     10: ("GDDR5X", 4),
     14: ("GDDR6", 4),
     # NVAPI's published enumeration stops at GDDR5X = 10. Type 14 is GDDR6.
-    # Type 15 is the value returned by an RTX 3070 Ti, whose memory is GDDR6X
-    # at the published 19 Gbps rate (NVML reports 9501 MHz). The true-clock
-    # divisor is intentionally unset: an offset-to-clock measurement has not
-    # been made, so the slider stays in reported megahertz.
-    15: ("GDDR6X", None),
+    # Type 15 is what this GDDR6X 3070 Ti returns. GPU-Z reads 1187.7 MHz
+    # while NVML reports 9501, and 9501 / 1187.7 is 8.
+    15: ("GDDR6X", 8),
 }
 
 

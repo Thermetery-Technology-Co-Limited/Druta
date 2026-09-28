@@ -19,6 +19,10 @@ from druta.nvbackend import (
     CLKDOM_LAYOUT_TURING,
     CLKDOM_VERSION,
     GPU,
+    PRIV_CONFIRMED,
+    PRIV_FREQ,
+    PRIV_UNNAMED,
+    classify_domain_names,
     clkdom_entry,
     i32,
     u32,
@@ -78,11 +82,33 @@ class ClkDomUnitTests(unittest.TestCase):
                 gpu._clkdom_get = fake_get
                 self.assertEqual(gpu.clkdom_layout(), CLKDOM_LAYOUT_TURING)
 
+    def test_ampere_gpu_z_names_match_the_live_domains(self):
+        rows = [dict(domain=dom, kind=PRIV_FREQ, name="", grade="unnamed",
+                     prog_khz=int(mhz * 1000), meas_khz=int(mhz * 1000),
+                     prog_mhz=mhz, meas_mhz=mhz, delta_mhz=0, flags=1,
+                     srcid=32, scale=1)
+                for dom, mhz in ((0, 2265), (1, 1905), (2, 1695), (4, 9502),
+                                 (5, 1350), (21, 1770))]
+        named = {row["domain"]: row for row in classify_domain_names(
+            rows, 2265, 9501, architecture=GPU.ARCH_AMPERE)}
+        self.assertEqual(named[0]["name"], "GPC")
+        self.assertEqual(named[1]["name"], "Crossbar")
+        self.assertEqual(named[2]["name"], "SYS")
+        self.assertEqual(named[4]["name"], "MEM")
+        self.assertEqual(named[21]["name"], "Video")
+        self.assertEqual(named[5]["name"], "")
+        self.assertEqual(named[5]["grade"], PRIV_UNNAMED)
+        for domain in (1, 2, 21):
+            self.assertEqual(named[domain]["grade"], PRIV_CONFIRMED)
+
     def test_ampere_control_set_matches_the_measured_indices(self):
         gpu = self.gpu_arch(GPU.ARCH_AMPERE)
         self.assertEqual(set(gpu._clkdom_understood()), {1, 2, 3, 5, 9})
         self.assertEqual(gpu.clkdom_pairing(), {1: 1, 2: 4, 3: 2, 5: 21, 9: 5})
-        self.assertEqual(gpu.clkdom_control_label(2), "domain 4")
+        self.assertEqual(gpu.clkdom_control_label(1), "Crossbar")
+        self.assertEqual(gpu.clkdom_control_label(2), "Memory")
+        self.assertEqual(gpu.clkdom_control_label(3), "SYS")
+        self.assertEqual(gpu.clkdom_control_label(5), "Video")
         self.assertEqual(gpu.clkdom_control_label(9), "domain 5")
 
     def test_unmeasured_architectures_fail_closed_before_runtime_probe(self):
