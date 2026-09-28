@@ -1055,12 +1055,18 @@ CLKDOM_BLACKWELL_RISKY_SCAN_CONTROLS = (0, 2)
 #   +0x10C on control 5 stored +15 MHz and raised only programmed domain 21
 #   +0x114 was refused. +0x110 on control 0 stored +6.25 mV and moved both
 #   vcore and the live NVVDD reading by +6.25 mV.
-# Controls 2 and 9 stored +15 MHz and did not move a programmed target or the
-# NVML memory clock at that operating point, so they are not offered.
+#   +0x10C on control 2 stored and, once memory was at its high clock under a
+#   copy load, moved private domain 4 and the NVML memory clock by the same
+#   amount. The idle 810 MHz memory clock did not move.
+#   +0x10C on control 9 stored. Positive requests left domain 5 at its
+#   1350 MHz programmed ceiling. Negative requests lowered that target
+#   (–45 → –30, –90 → –75, –120 → –105 MHz) and restored it. –15 stored and
+#   did not move the target.
 # These identities are architectural evidence from that adapter, not a
 # device-id allowlist. Another Ampere board still has to echo this layout.
-CLKDOM_AMPERE_CONTROLS = {1: "domain 1", 3: "domain 2", 5: "domain 21"}
-CLKDOM_PAIR_AMPERE = {1: 1, 3: 2, 5: 21}
+CLKDOM_AMPERE_CONTROLS = {1: "domain 1", 2: "domain 4", 3: "domain 2",
+                          5: "domain 21", 9: "domain 5"}
+CLKDOM_PAIR_AMPERE = {1: 1, 2: 4, 3: 2, 5: 21, 9: 5}
 # Frequency-field candidates only.  The field probe deliberately excludes the
 # neighbouring voltage/rail dwords: discovering a frequency layout must never
 # require experimenting with NVVDD or MSVDD.

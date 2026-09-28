@@ -78,6 +78,13 @@ class ClkDomUnitTests(unittest.TestCase):
                 gpu._clkdom_get = fake_get
                 self.assertEqual(gpu.clkdom_layout(), CLKDOM_LAYOUT_TURING)
 
+    def test_ampere_control_set_matches_the_measured_indices(self):
+        gpu = self.gpu_arch(GPU.ARCH_AMPERE)
+        self.assertEqual(set(gpu._clkdom_understood()), {1, 2, 3, 5, 9})
+        self.assertEqual(gpu.clkdom_pairing(), {1: 1, 2: 4, 3: 2, 5: 21, 9: 5})
+        self.assertEqual(gpu.clkdom_control_label(2), "domain 4")
+        self.assertEqual(gpu.clkdom_control_label(9), "domain 5")
+
     def test_unmeasured_architectures_fail_closed_before_runtime_probe(self):
         for architecture in (None, 2, 3, 5, 8, 9):
             with self.subTest(architecture=architecture):
