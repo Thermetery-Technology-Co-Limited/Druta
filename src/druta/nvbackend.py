@@ -653,11 +653,13 @@ def classify_domain_names(rows, core_mhz=None, mem_nvml=None,
     # GPU-Z 2.71 on the RTX 3070 Ti, driver 595.97, beside Druta's programmed
     # clocks: Crossbar 1899.1 against domain 1 at 1905, SYS 1701.4 against
     # domain 2 at 1695, Video 1772.1 against domain 21 at 1770. Domain 5 was
-    # 1350 and has no GPU-Z row, so it stays numbered. Control 1, 3 and 5 had
-    # already been seen to move domains 1, 2 and 21.
+    # 1350 and has no GPU-Z row. It is the control-9 target, the same role as
+    # Turing LTC, so the name is LTC and the likely grade renders the question
+    # mark. Control 1, 3 and 5 had already been seen to move domains 1, 2 and 21.
     AMPERE_NAMES = {
         1: ("Crossbar", PRIV_CONFIRMED),
         2: ("SYS", PRIV_CONFIRMED),
+        5: ("LTC", PRIV_LIKELY),
         21: ("Video", PRIV_CONFIRMED),
     }
 
@@ -1073,14 +1075,14 @@ CLKDOM_BLACKWELL_RISKY_SCAN_CONTROLS = (0, 2)
 #   +0x10C on control 2 stored and, once memory was at its high clock under a
 #   copy load, moved private domain 4 and the NVML memory clock by the same
 #   amount. The idle 810 MHz memory clock did not move.
-#   +0x10C on control 9 stored. Positive requests left domain 5 at its
-#   1350 MHz programmed ceiling. Negative requests lowered that target
+#   +0x10C on control 9 stored. Positive requests left its target, domain 5,
+#   at a 1350 MHz ceiling. Negative requests lowered that target
 #   (–45 → –30, –90 → –75, –120 → –105 MHz) and restored it. –15 stored and
-#   did not move the target.
+#   did not move the target. GPU-Z does not name this row; it is shown as LTC?.
 # These identities are architectural evidence from that adapter, not a
 # device-id allowlist. Another Ampere board still has to echo this layout.
 CLKDOM_AMPERE_CONTROLS = {1: "Crossbar", 2: "Memory", 3: "SYS",
-                          5: "Video", 9: "domain 5"}
+                          5: "Video", 9: "LTC"}
 CLKDOM_PAIR_AMPERE = {1: 1, 2: 4, 3: 2, 5: 21, 9: 5}
 # Frequency-field candidates only.  The field probe deliberately excludes the
 # neighbouring voltage/rail dwords: discovering a frequency layout must never

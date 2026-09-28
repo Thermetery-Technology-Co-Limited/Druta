@@ -21,7 +21,7 @@ from druta.nvbackend import (
     GPU,
     PRIV_CONFIRMED,
     PRIV_FREQ,
-    PRIV_UNNAMED,
+    PRIV_LIKELY,
     classify_domain_names,
     clkdom_entry,
     i32,
@@ -96,8 +96,8 @@ class ClkDomUnitTests(unittest.TestCase):
         self.assertEqual(named[2]["name"], "SYS")
         self.assertEqual(named[4]["name"], "MEM")
         self.assertEqual(named[21]["name"], "Video")
-        self.assertEqual(named[5]["name"], "")
-        self.assertEqual(named[5]["grade"], PRIV_UNNAMED)
+        self.assertEqual(named[5]["name"], "LTC")
+        self.assertEqual(named[5]["grade"], PRIV_LIKELY)
         for domain in (1, 2, 21):
             self.assertEqual(named[domain]["grade"], PRIV_CONFIRMED)
 
@@ -109,7 +109,7 @@ class ClkDomUnitTests(unittest.TestCase):
         self.assertEqual(gpu.clkdom_control_label(2), "Memory")
         self.assertEqual(gpu.clkdom_control_label(3), "SYS")
         self.assertEqual(gpu.clkdom_control_label(5), "Video")
-        self.assertEqual(gpu.clkdom_control_label(9), "domain 5")
+        self.assertEqual(gpu.clkdom_control_label(9), "LTC")
 
     def test_unmeasured_architectures_fail_closed_before_runtime_probe(self):
         for architecture in (None, 2, 3, 5, 8, 9):
