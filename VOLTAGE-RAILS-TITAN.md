@@ -111,7 +111,7 @@ operating state.
 
 ## Druta behavior and reproduction
 
-Pascal, Turing and Blackwell use understood register layouts, but each present
+Pascal, Turing, Ampere and Blackwell use understood register layouts, but each present
 rail obtains its voltage reference from that adapter's first stable paired
 control/status readings. The current boost contribution is removed from the
 reliability reference. Displayed absolute limits are estimates because driver

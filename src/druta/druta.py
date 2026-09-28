@@ -2383,7 +2383,12 @@ class Druta:
                 continue
             if only_missing and dpg.does_item_exist("sl_" + kn.key):
                 continue
-            if kn.ctrl not in controls and not kn.xoc_only:
+            # The additional-memory knob can appear without a measured name on
+            # layouts that already treat control 2 as a memory offset. Ampere
+            # stored that request and it did not move NVML memory, so it stays
+            # hidden until a memory effect is measured.
+            if kn.ctrl not in controls and not (
+                    kn.xoc_only and self.gpu.arch() != self.gpu.ARCH_AMPERE):
                 continue
             request = cur.get(kn.ctrl)
             if not isinstance(request, dict) or "freq_khz" not in request:

@@ -56,7 +56,7 @@ class ClkDomUnitTests(unittest.TestCase):
                             CLKDOM_LAYOUT_BLACKWELL.msvdd_uv)
 
     def test_pascal_and_turing_select_the_measured_legacy_layout(self):
-        for architecture in (GPU.ARCH_PASCAL, GPU.ARCH_TURING):
+        for architecture in (GPU.ARCH_PASCAL, GPU.ARCH_TURING, GPU.ARCH_AMPERE):
             with self.subTest(architecture=architecture):
                 gpu = self.gpu_arch(architecture)
                 gpu._clkdom_layout_cache = None
@@ -79,7 +79,7 @@ class ClkDomUnitTests(unittest.TestCase):
                 self.assertEqual(gpu.clkdom_layout(), CLKDOM_LAYOUT_TURING)
 
     def test_unmeasured_architectures_fail_closed_before_runtime_probe(self):
-        for architecture in (None, 2, 3, 5, 7, 8, 9):
+        for architecture in (None, 2, 3, 5, 8, 9):
             with self.subTest(architecture=architecture):
                 gpu = self.gpu_arch(architecture)
                 gpu._clkdom_layout_cache = None
