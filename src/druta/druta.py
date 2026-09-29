@@ -1804,7 +1804,8 @@ class Druta:
     @staticmethod
     def power_policy_hint(row):
         unit = {"mW": "W", "mA": "A"}.get(row["unit"], "?")
-        return f"policy {row['policy']} - channel {row['channel']} - type 0x{row['type']:02X} ({unit})"
+        # short enough to sit beside the note list in the label column
+        return f"policy {row['policy']}, ch {row['channel']}, 0x{row['type']:02X}, {unit}"
 
     def channel_note(self, row):
         """The note the user gave this row's channel, or ''."""
