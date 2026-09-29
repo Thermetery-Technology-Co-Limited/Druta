@@ -1807,8 +1807,8 @@ class Druta:
         self._ctl_widgets.append("pp_max_all")
         dpg.add_text("The driver sets several of these from the board power limit and "
                      "recalculates them whenever it changes; a value you set here is re-applied "
-                     "after that. Stock hands a policy back to the driver. Type in a name box to "
-                     "label its channel.", color=DIM, wrap=self.s(900))
+                     "after that and marked *. Stock hands a policy back to the driver. Type in a "
+                     "name box to label its channel.", color=DIM, wrap=self.s(900))
         with dpg.table(header_row=False, no_host_extendX=True,
                        policy=dpg.mvTable_SizingFixedFit):
             self.knob_cols()
@@ -1951,12 +1951,13 @@ class Druta:
             if dpg.does_item_exist(f"live_{key}"):
                 if row:
                     amount = lambda v: GPU._policy_amount(v, row["unit"])   # noqa: E731
-                    mark = " (yours)" if row["pinned"] is not None else ""
+                    mark = " *" if row["pinned"] is not None else ""
                     text = f"{amount(row['value'])}\n≤{amount(row['limit'])}{mark}"
                 else:
                     text = "unavailable"
                 dpg.set_value(f"live_{key}", text)
-                dpg.configure_item(f"live_{key}", color=TEXT if row else DIM)
+                dpg.configure_item(f"live_{key}", color=(GOOD if row and row["pinned"] is not None
+                                                         else TEXT if row else DIM))
             if row is None:
                 continue
             self._power_policies[policy] = dict(row)

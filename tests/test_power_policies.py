@@ -399,7 +399,7 @@ class PolicyUiTests(unittest.TestCase):
         self.build()
         self.app.apply_power_policy(4, 150.0)
         self.assertEqual(self.card.request[4], 150000)
-        self.assertIn("(yours)", dpg.get_value("live_pp4"))
+        self.assertTrue(dpg.get_value("live_pp4").endswith(" *"))
 
     def test_a_typed_name_is_saved_for_this_card_and_carried_by_profiles(self):
         self.build()
