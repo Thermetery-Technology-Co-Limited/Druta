@@ -50,6 +50,7 @@ class PolicyCard:
         self.request = {p: s["default"] for p, s in self.spec.items()}
         self.sets, self.ignore_next = [], False
         self.reading = {}                    # channel readings by policy
+        self.control_type = {}               # a control block's type byte, if it disagrees
 
     def derive(self):
         b = self.spec[self.board]
@@ -81,7 +82,7 @@ class PolicyCard:
             words[:5] = [0, 0, 0, 255, self.mask]
             for p, s in self.spec.items():
                 r = (CONTROL[0] + p * CONTROL[1]) // 4
-                words[r:r + 2] = [s["type"], self.request[p]]
+                words[r:r + 2] = [self.control_type.get(p, s["type"]), self.request[p]]
         elif command == A619:
             words[1] = self.mask
             for p, s in self.spec.items():
@@ -278,7 +279,11 @@ class PolicyProfileTests(unittest.TestCase):
         self.gpu.set_power_policy(4, 150000)
         self.gpu.power_policy_names = {4: {"name": "8-pin #1", "channel": 4, "type": 3}}
         state = json.loads(json.dumps(profiles.capture(self.view())))
-        self.assertEqual(state["power_policy_pins"], {"4": 150000})     # not the derived ones
+        self.assertEqual(state["power_policy_pins"],                     # not the derived ones
+                         {"4": {"value": 150000, "channel": 4, "type": 3}})
+        self.assertEqual(state["power_policies"]["5"], {"value": 155000, "channel": 5, "type": 3})
+        self.assertNotIn("2", state["power_policies"])                   # the board: its slider's
+        self.assertNotIn("13", state["power_policies"])                  # core current: its slider's
         self.assertEqual(state["power_policy_names"],
                          {"4": {"name": "8-pin #1", "channel": 4, "type": 3}})
         self.assertIn("power policies set by hand: 4", profiles.summarize(state))
@@ -298,26 +303,56 @@ class PolicyProfileTests(unittest.TestCase):
                          (290000, 150000, 155000))
         self.assertIsNone(rows[13]["pinned"])                    # a derived value is not yours
 
-    def test_saved_values_need_the_same_card_and_must_fit_its_table(self):
+    def test_saved_values_must_fit_this_cards_table_not_its_driver_string(self):
         self.gpu.set_power_policy(4, 150000)
         state = json.loads(json.dumps(profiles.capture(self.view())))
-        other = copy.deepcopy(state)
-        other["device"]["uuid"] = "GPU-OTHER"
-        self.assertIsNotNone(profiles.preflight(self.gpu, other))
-        for pins in ({"4": 168000}, {"6": 1000}, {"2": 300000}, {"4": -1}, {"x": 1}):
+        self.assertIsNone(profiles.preflight(self.gpu, state))
+        updated = copy.deepcopy(state)
+        updated["device"]["driver"] = "999.99"                     # a driver update alone
+        self.assertIsNone(profiles.preflight(self.gpu, updated))
+        entry = {"value": 150000, "channel": 4, "type": 3}
+        for pins in ({"4": dict(entry, value=168000)}, {"4": dict(entry, channel=5)},
+                     {"4": dict(entry, type=4)}, {"6": dict(entry)}, {"2": dict(entry, channel=9, type=0)},
+                     {"4": dict(entry, value=150000.0)}, {"4": 150000}, {"x": dict(entry)}):
             with self.subTest(pins=pins):
                 bad = copy.deepcopy(state)
                 bad["power_policy_pins"] = pins
                 self.assertIsNotNone(profiles.preflight(self.gpu, bad))
-        self.assertIsNone(profiles.preflight(self.gpu, state))
+
+    def test_a_limit_max_all_raised_directly_comes_back_with_the_profile(self):
+        card = PolicyCard([row if row[0] != 14 else (14, 0x0B, 11, 0, 1, 4000000, 5001000)
+                           for row in TITAN])
+        self.gpu = gpu = policy_gpu(card)
+        gpu.max_all_power_policies()
+        self.assertEqual(card.request[14], 5001000)                # not coupled: written directly
+        saved = json.loads(json.dumps(profiles.capture(self.view())))
+        card.request[14] = 4000000
+        gpu.set_power_limit_mw(260000)
+        self.assertTrue(all(ok for ok, _ in profiles.restore(gpu, saved, apply_curve=False)))
+        self.assertEqual((card.request[14], card.request[2]), (5001000, 320000))
+
+    def test_a_pin_on_core_current_is_restored_through_its_own_slider(self):
+        self.gpu.set_current_limit_ma(13, 360000)
+        saved = json.loads(json.dumps(profiles.capture(self.view())))
+        self.assertEqual(saved["power_policy_pins"]["13"]["value"], 360000)
+        self.gpu.set_power_limit_mw(300000)
+        with patch.object(type(self.gpu), "set_current_limit_ma", autospec=True,
+                          side_effect=n.GPU.set_current_limit_ma) as setter:
+            results = profiles.restore(self.gpu, saved, apply_curve=False)
+        self.assertTrue(all(ok for ok, _ in results), results)
+        self.assertIn(((self.gpu, 13, 360000), {"pin": True}),
+                      [(c.args, c.kwargs) for c in setter.call_args_list])
+        self.assertEqual(rows_of(self.gpu)[13]["pinned"], 360000)
 
 
-class PolicyNameStoreTests(unittest.TestCase):
+class PolicyNameStoreCase(unittest.TestCase):
     def setUp(self):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
         self.root = folder.name
 
+
+class PolicyNameStoreTests(PolicyNameStoreCase):
     def test_names_are_kept_per_card(self):
         names = {4: {"name": "8-pin #1", "channel": 4, "type": 3}}
         self.assertTrue(policynames.save("GPU-A", names, root=self.root)[0])
@@ -345,7 +380,7 @@ class PolicyNameStoreTests(unittest.TestCase):
         self.assertEqual(policynames.load("GPU-A", root=self.root), {})
 
 
-class PolicyUiTests(unittest.TestCase):
+class PolicyUiCase(unittest.TestCase):
     def setUp(self):
         dpg.create_context()
         folder = tempfile.TemporaryDirectory()
@@ -376,6 +411,8 @@ class PolicyUiTests(unittest.TestCase):
                                        default_open=True):
                 self.app.build_power_policy_section()
 
+
+class PolicyUiTests(PolicyUiCase):
     def test_one_slider_per_writable_policy_bounded_by_the_bios_range(self):
         self.build()
         config = dpg.get_item_configuration("sl_pp4")
@@ -483,6 +520,187 @@ class PolicyUiTests(unittest.TestCase):
         self.assertEqual(dpg.get_value("note_pp8"), "-")
         self.app.save_power_policy_names()
         self.assertEqual(list(policynames.load("GPU-TEST")), [7])
+
+class ReviewFixBackendTests(unittest.TestCase):
+    def setUp(self):
+        self.card = PolicyCard()
+        self.gpu = policy_gpu(self.card)
+
+    def fail_table_read(self, nth):
+        """The nth table read from now raises, as a one-off RM error would."""
+        real, calls = self.gpu._power_policy_table, [0]
+
+        def flaky():
+            calls[0] += 1
+            if calls[0] == nth:
+                raise ValueError("policy request failed (NTSTATUS 0, RM 0x1A)")
+            return real()
+        self.gpu._power_policy_table = flaky
+
+    def test_a_failed_table_read_while_writing_is_reported_not_raised(self):
+        self.fail_table_read(2)                                    # the write's own read
+        ok, message = self.gpu.set_power_policy(4, 150000)
+        self.assertFalse(ok)
+        self.assertIn("could not be read", message)
+        self.assertEqual(self.card.sets, [])
+
+    def test_a_failed_read_while_reapplying_leaves_the_power_limit_call_standing(self):
+        self.gpu.set_power_policy(4, 150000)
+        self.fail_table_read(2)                                    # re-apply's per-pin write
+        ok, message = self.gpu.set_power_limit_mw(290000)
+        self.assertFalse(ok)
+        self.assertIn("power limit configured to 290 W", message)
+        self.assertIn("FAILED", message)
+
+    def test_reset_all_runs_every_step_when_a_policy_read_fails(self):
+        self.gpu.set_power_policy(14, 4000000)
+        g = self.gpu
+        g.nvapi.VoltCtrlGet = g.nvapi.BoostTableSet = None
+        g._volt_rail_profile = Mock(return_value=None)
+        for name in ("set_clock_offset", "_reset_gpu_clocks", "reset_fan"):
+            setattr(g, name, Mock(return_value=(True, "ok")))
+        for name in ("clkdom_ok", "volt_rail_limits_supported", "_vf_lock_available"):
+            setattr(g, name, Mock(return_value=False))
+        real = g._write_policy_limit
+        g._write_policy_limit = lambda p, v: (self.fail_table_read(1), real(p, v))[1]
+        steps = g.reset_all()
+        g.reset_fan.assert_called_once()                           # the steps after it still ran
+        self.assertTrue(any(not ok and "could not be read" in message for ok, message in steps))
+
+    def test_the_board_is_found_when_nvmls_range_is_unknown(self):
+        for key in ("pl_min_mw", "pl_def_mw", "pl_max_mw"):
+            self.gpu.static.pop(key)
+        rows = rows_of(self.gpu)
+        self.assertTrue(rows[2]["board"])                          # NVML's configured limit
+        self.assertFalse(rows[2]["writable"])
+        self.assertIn("Power limit slider", self.gpu.set_power_policy(2, 300000)[1])
+
+    def test_a_pin_is_never_reapplied_over_the_board(self):
+        self.gpu._power_policy_pins = {2: 300000}                  # however it got there
+        self.assertTrue(self.gpu.set_power_limit_mw(280000)[0])
+        self.assertEqual(self.card.request[2], 280000)
+        self.assertNotIn(2, self.gpu._power_policy_pins)
+
+    def test_max_all_leaves_read_only_rows_alone_and_keeps_the_current_envelope(self):
+        card = PolicyCard([row if row[0] != 14 else (14, 0x0B, 11, 0, 1, 4000000, 5001000)
+                           for row in TITAN], coupled=(3, 4, 5, 7, 8, 9))
+        card.control_type[14] = 0x07                               # a record read-only here
+        gpu = policy_gpu(card)
+        spec = n.GPU.CURRENT_LIMIT_GENERATION_POLICIES[n.GPU.ARCH_TURING][13]
+        with patch.dict(spec, normal_maximum_ma=360000):
+            steps = gpu.max_all_power_policies()
+        self.assertTrue(all(ok for _step, ok, _msg in steps), steps)
+        self.assertEqual(card.request[14], 4000000)                # read-only: not written
+        self.assertEqual(card.request[13], 360000)                 # its slider's normal maximum
+
+    def test_stock_refuses_a_default_outside_the_policys_own_range(self):
+        card = PolicyCard([row if row[0] != 14 else (14, 0x0B, 11, 0, 1, 6000000, 5001000)
+                           for row in TITAN])
+        card.request[14] = 4000000                                 # the request itself is in range
+        gpu = policy_gpu(card)
+        ok, message = gpu.stock_power_policy(14)
+        self.assertFalse(ok)
+        self.assertIn("its default lies outside its own range", message)
+        self.assertEqual(card.sets, [])
+
+    def test_core_current_keeps_its_own_slider_through_a_failed_read(self):
+        rows_of(self.gpu)                                          # read once: established
+        with patch.object(self.gpu, "get_current_limits", return_value=[]):
+            row = rows_of(self.gpu)[13]
+        self.assertTrue(row["named_current"])
+        self.assertFalse(row["writable"])
+
+    def test_stock_keeps_the_note_about_re_applied_values(self):
+        self.gpu.set_power_limit_mw(290000)
+        self.gpu.set_power_policy(4, 150000)
+        self.gpu.set_power_policy(5, 150000)
+        ok, message = self.gpu.stock_power_policy(4)
+        self.assertTrue(ok, message)
+        self.assertIn("back to the driver's value: 155 W", message)
+        self.assertIn("re-applied your values", message)           # policy 5, recomputed
+        self.assertEqual(self.card.request[5], 150000)
+
+
+class ReviewFixUiTests(PolicyUiCase):
+
+    def test_typing_in_a_note_box_holds_the_curve_shortcuts(self):
+        self.build()
+        self.app.set_power_policy_note(4, choice="others")
+        with patch("druta.druta.dpg.is_item_focused", side_effect=lambda t: t == "name_pp4"):
+            self.assertTrue(self.app.typing())
+        self.assertFalse(self.app.typing())
+
+    def test_after_an_apply_only_that_slider_is_resynced(self):
+        self.build()
+        dpg.set_value("sl_pp8", 20.0)                              # staged elsewhere
+        self.app.apply_power_policy(4, 150.0)
+        self.assertEqual(dpg.get_value("sl_pp4"), 150)
+        self.assertEqual(dpg.get_value("sl_pp8"), 20.0)
+
+    def test_stock_resyncs_only_its_own_slider(self):
+        self.build()
+        self.app.apply_power_policy(4, 150.0)
+        dpg.set_value("sl_pp8", 20.0)                              # staged elsewhere
+        self.app.stock_power_policy(4)
+        self.assertEqual(dpg.get_value("sl_pp4"), 143)
+        self.assertEqual(dpg.get_value("sl_pp8"), 20.0)
+
+    def test_values_set_by_hand_follow_the_card_through_a_switch(self):
+        self.build()
+        self.app.gpu.set_power_policy(4, 150000)
+        first = self.app.gpu
+        other = policy_gpu(PolicyCard(), uuid="GPU-OTHER")
+        self.app.hand_over_power_policies(other)
+        self.app.gpu = other
+        self.assertFalse(getattr(other, "_power_policy_pins", None))
+        again = policy_gpu(self.card)                              # the first card, reopened
+        self.app.hand_over_power_policies(again)
+        self.assertEqual(again._power_policy_pins, {4: 150000})
+        self.assertIsNot(again, first)
+
+    def test_max_all_moves_the_power_slider_only_when_the_power_limit_took(self):
+        with dpg.window():
+            dpg.add_slider_float(tag="sl_pl", default_value=260)
+        self.build()
+        self.app.gpu.max_all_power_policies = Mock(return_value=[("power limit", False, "refused")])
+        self.app.max_all_power_policies()
+        self.assertEqual(dpg.get_value("sl_pl"), 260)
+
+    def test_a_note_still_pending_is_saved_before_a_rebuild(self):
+        self.build()
+        self.app.set_power_policy_note(4, text="slot")             # inside the debounce
+        dpg.destroy_context()                                      # the old tree goes, as in a rebuild
+        dpg.create_context()
+        self.build()
+        self.assertEqual(policynames.load("GPU-TEST")[4]["name"], "slot")
+
+    def test_a_read_only_row_says_why(self):
+        self.card.control_type[14] = 0x07
+        self.build()
+        texts = [dpg.get_value(i) for i in dpg.get_all_items()
+                 if dpg.get_item_type(i) == "mvAppItemType::mvText"]
+        self.assertTrue(any("record type differs" in (t or "") for t in texts))
+
+
+class ReviewFixNameStoreTests(PolicyNameStoreCase):
+    def test_a_hidden_name_survives_a_save(self):
+        policynames.save("GPU-A", {9: {"name": "was here", "channel": 5, "type": 4}}, root=self.root)
+        rows = [{"policy": 9, "channel": 6, "type": 4}]           # renumbered: hidden now
+        policynames.save("GPU-A", {4: {"name": "slot", "channel": 4, "type": 3}}, rows=rows,
+                         root=self.root)
+        self.assertEqual(sorted(policynames.load("GPU-A", root=self.root)), [4, 9])
+
+    def test_an_unreadable_store_is_set_aside_not_replaced(self):
+        path = Path(self.root, "power-policy-names.json")
+        path.write_text('{"GPU-B": {"1": {"name": "x", "channel"', encoding="utf-8")
+        ok, message = policynames.save("GPU-A", {4: {"name": "slot", "channel": 4, "type": 3}},
+                                       root=self.root)
+        self.assertTrue(ok)
+        self.assertIn("unreadable", message)
+        kept = [f for f in Path(self.root).iterdir() if ".unreadable-" in f.name]
+        self.assertEqual(len(kept), 1)
+        self.assertIn("GPU-B", kept[0].read_text(encoding="utf-8"))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -29,12 +29,23 @@ def store_path(root=None):
     return base / "power-policy-names.json"
 
 
-def _read(root=None):
+def _read(root=None, strict=False):
+    """The whole store; {} when there is none. strict raises for a store that
+    exists but cannot be read or parsed, so a save does not replace it."""
+    path = store_path(root)
     try:
-        data = json.loads(store_path(root).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
         return {}
-    return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        if strict:
+            raise
+        return {}
+    if not isinstance(data, dict):
+        if strict:
+            raise ValueError("the name store is not a mapping")
+        return {}
+    return data
 
 
 def clean(names):
@@ -66,21 +77,41 @@ def load(uuid, root=None):
     return clean(card) if isinstance(card, dict) else {}
 
 
-def save(uuid, names, root=None):
-    """Replace this card's names. (ok, message); the write is atomic."""
+def save(uuid, names, rows=None, root=None):
+    """Store this card's names. (ok, message); the write is atomic.
+
+    rows: the live table the names were edited against. A stored name the
+    live table does not show - its policy is gone, or its channel or type
+    differ - was not visible to edit, so it is kept rather than dropped.
+    A store that exists but cannot be read is set aside, not replaced."""
     if not uuid:
         return False, "this card reports no UUID to remember names by"
-    data = _read(root)
-    data[str(uuid)] = {str(p): e for p, e in sorted(clean(names).items())}
     path = store_path(root)
+    note = ""
+    try:
+        data = _read(root, strict=True)
+    except (OSError, ValueError) as exc:
+        aside = path.with_name(f"{path.name}.unreadable-{os.getpid()}")
+        try:
+            os.replace(path, aside)
+        except OSError as move_error:
+            return False, f"power-policy names not saved: the store is unreadable ({exc}) " \
+                          f"and could not be set aside ({move_error})"
+        data, note = {}, f"; the unreadable store was kept as {aside.name}"
+    live = {row["policy"]: row for row in rows or ()}
+    stored = clean(data.get(str(uuid)) if isinstance(data.get(str(uuid)), dict) else {})
+    hidden = {p: e for p, e in stored.items()
+              if rows is not None and not (p in live and live[p]["channel"] == e["channel"]
+                                           and live[p]["type"] == e["type"])}
+    data[str(uuid)] = {str(p): e for p, e in sorted({**hidden, **clean(names)}.items())}
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_name(path.name + ".tmp")
+        tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
         tmp.write_text(json.dumps(data, indent=1), encoding="utf-8")
         os.replace(tmp, path)
     except OSError as exc:
         return False, f"power-policy names not saved: {exc}"
-    return True, "power-policy names saved"
+    return True, "power-policy names saved" + note
 
 
 def matching(names, rows):

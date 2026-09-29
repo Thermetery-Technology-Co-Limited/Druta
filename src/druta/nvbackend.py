@@ -3928,19 +3928,27 @@ class GPU:
             return False, f"limit {mw/1000:g} W out of [{mn/1000:g}..{mx/1000:g}] W"
         if self.read_power_limit_mw() is None:
             return False, "configured power-limit readback is unavailable; no write issued"
+        ok, message, got = self._set_power_limit_nvml(mw)
+        if not ok:
+            return False, message
+        # the driver has just recomputed the limits it couples to the board
+        # limit; put back the ones the user set (see read_power_policies)
+        ok, note = self._reapply_power_policy_pins(board_mw=got)
+        return ok, message + (f"; {note}" if note else "")
+
+    def _set_power_limit_nvml(self, mw):
+        """The NVML write and its read-back alone: (ok, message, configured mW)."""
+        nv = self.nvml
         st = nv.dll.nvmlDeviceSetPowerManagementLimit(nv.dev, u32(mw))
-        if st == 0:
-            got = self.read_power_limit_mw()
-            if got is None:
-                return False, "power limit was sent, but configured-limit readback failed"
-            if got != mw:
-                return False, (f"power limit requested {mw/1000:g} W, but the driver "
-                               f"reports a configured limit of {got/1000:g} W")
-            # the driver has just recomputed the limits it couples to the
-            # board limit; put back the ones the user set (see read_power_policies)
-            ok, note = self._reapply_power_policy_pins()
-            return ok, f"power limit configured to {got/1000:g} W" + (f"; {note}" if note else "")
-        return False, f"power limit failed: {nv.errstr(st)}"
+        if st != 0:
+            return False, f"power limit failed: {nv.errstr(st)}", None
+        got = self.read_power_limit_mw()
+        if got is None:
+            return False, "power limit was sent, but configured-limit readback failed", None
+        if got != mw:
+            return False, (f"power limit requested {mw/1000:g} W, but the driver "
+                           f"reports a configured limit of {got/1000:g} W"), got
+        return True, f"power limit configured to {got/1000:g} W", got
 
     def _supported_nvml_clocks(self, function, *selectors):
         """Read a complete variable-length NVML clock list, or return no list.
@@ -4997,7 +5005,7 @@ class GPU:
         text = format(value / 1000, ".3f").rstrip("0").rstrip(".")
         return f"{text} {'W' if unit == 'mW' else 'A' if unit == 'mA' else '?'}"
 
-    def _power_policy_rows(self, layout, info, control, status, named=frozenset()):
+    def _power_policy_rows(self, layout, info, control, status, named=frozenset(), board_mw=None):
         """One dict per policy in the table, as the adapter reports it."""
         st = getattr(self, "static", None) or {}
         pins = getattr(self, "_power_policy_pins", None) or {}
@@ -5017,18 +5025,46 @@ class GPU:
                    "requested": control[record + 1], "limit": status[state + 1],
                    "value": status[state + 2], "pinned": pins.get(p),
                    "named_current": p in named}
+            row["consistent"] = status[state] & 255 == row["type"] and control[record] == row["type"]
+            row["in_range"] = minimum <= row["requested"] <= maximum
             # The board limit is the one NVML sets (the Power limit slider):
             # the mW policy whose range is NVML's own power-limit range.
             row["board"] = (unit == "mW" and st.get("pl_def_mw") == default
                             and st.get("pl_max_mw") == maximum
                             and st.get("pl_min_mw", minimum) == minimum)
-            row["writable"] = (unit is not None and minimum < maximum
-                               and status[state] & 255 == row["type"]
-                               and control[record] == row["type"]
-                               and minimum <= row["requested"] <= maximum
-                               and not row["board"] and not row["named_current"])
             rows.append(row)
+        # NVML's range can be unknown (a getter failed at startup) or differ in
+        # its minimum. The board is then the policy the last NVML write was seen
+        # to set, or the one mW policy whose request is NVML's configured limit.
+        # It must never become an ordinary slider: a value set by hand on it
+        # would undo every Power limit write.
+        if not any(r["board"] for r in rows):
+            seen = getattr(self, "_board_policy", None)
+            match = [r for r in rows if r["policy"] == seen] or [
+                r for r in rows if r["unit"] == "mW" and board_mw is not None
+                and r["requested"] == board_mw]
+            if len(match) == 1:
+                match[0]["board"] = True
+        for row in rows:
+            row["writable"] = (row["unit"] is not None and row["minimum"] < row["maximum"]
+                               and row["consistent"] and row["in_range"]
+                               and not row["board"] and not row["named_current"])
         return rows
+
+    @staticmethod
+    def power_policy_unwritable_reason(row):
+        """Why the full list does not write this row."""
+        if row["board"]:
+            return "the board limit is set with the Power limit slider"
+        if row["named_current"]:
+            return "set with its current-limit slider"
+        if row["unit"] is None:
+            return "its unit is not one Druta understands"
+        if row["minimum"] >= row["maximum"]:
+            return "it has no range to write"
+        if not row["consistent"]:
+            return "its record type differs between the driver's blocks"
+        return "its request lies outside its own range"
 
     def read_power_policies(self):
         """(rows, error): every policy in the driver's table. Read-only.
@@ -5036,12 +5072,16 @@ class GPU:
         row: policy, type, channel, unit ('mW'/'mA'), minimum/default/maximum,
         requested, limit (effective), value (the channel's reading), pinned
         (the value the user set, or None), board (the NVML power limit),
-        named_current (a current policy with its own slider) and writable (a
-        range this list may write; the board and named ones have their own)."""
+        named_current (a current policy with its own slider), consistent and
+        in_range (record checks), and writable (a range this list may write;
+        the board and named ones have their own sliders)."""
         if not self._current_limit_profile_supported():
             return [], "current policies are not validated for this GPU generation"
         self._last_policy_table = None
-        named = {row["policy"] for row in self.get_current_limits()}
+        # a named policy read correctly earlier this session keeps its slider
+        # through a failed read (get_current_limits then returns nothing)
+        named = ({row["policy"] for row in self.get_current_limits()}
+                 | set(getattr(self, "_current_limit_established", ()) or ()))
         table = getattr(self, "_last_policy_table", None)
         if table is None:
             try:
@@ -5051,15 +5091,23 @@ class GPU:
         layout, info, control, status = table
         if control is None:
             return [], "the driver's policy mask is empty"
-        return self._power_policy_rows(layout, info, control, status, named), None
+        try:
+            board_mw = self.read_power_limit_mw()
+        except Exception:                                               # noqa: BLE001
+            board_mw = None
+        return self._power_policy_rows(layout, info, control, status, named, board_mw), None
 
     def _write_policy_limit(self, policy, value):
         """set_current_limit_ma's method for ANY policy in the table: copy the
         control GET, change only this policy's limit word, SET with only it
         selected, read back. The driver may move OTHER policies' limit words
         (it derives some from the board limit); those are reported, while any
-        other difference replays the original record. (ok, message)."""
-        layout, info, control, status = self._power_policy_table()
+        other difference replays the original record. (ok, message) - never
+        raises: it runs from UI callbacks and inside Reset all."""
+        try:
+            layout, info, control, status = self._power_policy_table()
+        except Exception as exc:                                        # noqa: BLE001
+            return False, f"policy {policy}: the policy table could not be read ({exc}); nothing written"
         mask = info[1]
         if control is None or type(policy) is not int or not 0 <= policy < 32 \
                 or not mask >> policy & 1:
@@ -5104,54 +5152,71 @@ class GPU:
                 note = f"restoration could not be verified: {restore_error}"
             return False, f"policy {policy}: {exc}; {note}"
 
+    def _pin(self, policy, value):
+        self._power_policy_pins = {**(getattr(self, "_power_policy_pins", None) or {}), policy: value}
+
     def set_power_policy(self, policy, value, *, pin=True, allow_named=False):
         """Write one policy of the full list within its own range and verify.
         pin records it as the user's value (re-applied after board-limit
         writes). The board limit is refused (the Power limit slider owns it),
         and so is a named current policy unless allow_named (a profile
-        restoring a pin the user set with that slider)."""
+        restoring a value the user set with that slider), which then goes
+        through that slider's own setter and its normal/XOC envelope."""
         rows, error = self.read_power_policies()
         if error:
             return False, error
         row = next((r for r in rows if r["policy"] == policy), None)
         if row is None:
             return False, f"policy {policy} is not in the driver's table"
-        if row["board"]:
-            return False, "the board limit is set with the Power limit slider"
-        if row["named_current"] and not allow_named:
-            return False, f"policy {policy} is set with its current-limit slider"
-        if row["unit"] is None or row["minimum"] >= row["maximum"]:
-            return False, f"policy {policy} has no range to write"
+        if row["named_current"]:
+            if not allow_named:
+                return False, f"policy {policy} is set with its current-limit slider"
+            if type(value) is not int:
+                return False, f"policy {policy} must be a whole number of milliamps"
+            return self.set_current_limit_ma(policy, value, pin=pin)
+        if not row["writable"]:
+            return False, f"policy {policy}: {self.power_policy_unwritable_reason(row)}"
         if type(value) is not int or not row["minimum"] <= value <= row["maximum"]:
             return False, (f"policy {policy} must be between "
                            f"{self._policy_amount(row['minimum'], row['unit'])} and "
                            f"{self._policy_amount(row['maximum'], row['unit'])}")
         ok, message = self._write_policy_limit(policy, value)
         if ok and pin:
-            self._power_policy_pins = {**(getattr(self, "_power_policy_pins", None) or {}),
-                                       policy: value}
+            self._pin(policy, value)
         return ok, message
 
-    def _reapply_power_policy_pins(self):
+    def _reapply_power_policy_pins(self, board_mw=None):
         """After a board-limit write: put back every value the user set that
-        the driver recomputed. (ok, note) - note is "" when nothing moved."""
+        the driver recomputed. (ok, note) - note is "" when nothing moved.
+        The policy the write itself set is the board, never re-applied."""
         pins = dict(getattr(self, "_power_policy_pins", None) or {})
         if not pins:
             return True, ""
         try:
-            layout, info, control, _ = self._power_policy_table()
+            layout, info, control, status = self._power_policy_table()
         except Exception as exc:                                        # noqa: BLE001
             return False, f"your policy values could not be checked: {exc}"
         if control is None:
             return False, "your policy values could not be checked: the policy mask is empty"
         base, stride = layout["control"]
-        redo = [(p, v) for p, v in sorted(pins.items())
-                if info[1] >> p & 1 and control[(base + p * stride) // 4 + 1] != v]
+        request = {p: control[(base + p * stride) // 4 + 1] for p in range(32) if info[1] >> p & 1}
+        if board_mw is not None:
+            board = [row["policy"] for row in self._power_policy_rows(layout, info, control, status)
+                     if row["unit"] == "mW" and row["requested"] == board_mw]
+            if len(board) == 1:
+                self._board_policy = board[0]
+                if board[0] in pins:
+                    pins.pop(board[0])
+                    self._power_policy_pins = pins
+        redo = [(p, v) for p, v in sorted(pins.items()) if p in request and request[p] != v]
         if not redo:
             return True, ""
         failed = []
         for p, v in redo:
-            ok, message = self._write_policy_limit(p, v)
+            try:
+                ok, message = self._write_policy_limit(p, v)
+            except Exception as exc:                                    # noqa: BLE001
+                ok, message = False, f"policy {p}: {exc}"
             if not ok:
                 failed.append(message)
         names = ", ".join(str(p) for p, _ in redo)
@@ -5174,25 +5239,35 @@ class GPU:
         row = next((r for r in rows if r["policy"] == policy), None)
         if row is None:
             return False, f"policy {policy} is not in the driver's table"
-        if row["board"]:
-            return False, "the board limit is set with the Power limit slider"
+        if not row["named_current"] and not row["writable"]:
+            return False, f"policy {policy}: {self.power_policy_unwritable_reason(row)}"
+        if not row["minimum"] <= row["default"] <= row["maximum"]:
+            return False, f"policy {policy}: its default lies outside its own range; nothing written"
+        label = next((r["label"] for r in getattr(self, "_current_limit_last_rows", None) or []
+                      if r.get("policy") == policy), f"policy {policy}")
         ok, message = self._write_policy_limit(policy, row["default"])
         if not ok:
             return False, message
+        notes, ok = [], True
         board = self.read_power_limit_mw()
         if board is not None:
-            ok, message = self.set_power_limit_mw(board)
-            if not ok:
-                return False, f"policy {policy} at its default, but re-sending the board limit failed: {message}"
+            sent, sent_message, got = self._set_power_limit_nvml(board)
+            if not sent:
+                return False, (f"{label} is at its default, but re-sending the board limit "
+                               f"failed: {sent_message}")
+            ok, note = self._reapply_power_policy_pins(board_mw=got)
+            if note:
+                notes.append(note)
         rows, error = self.read_power_policies()
         row = next((r for r in rows if r["policy"] == policy), None) if not error else None
         now = self._policy_amount(row["requested"], row["unit"]) if row else "unreadable"
-        return True, f"policy {policy} is back to the driver's value: {now}"
+        return ok, "; ".join([f"{label} is back to the driver's value: {now}", *notes])
 
     def max_all_power_policies(self):
         """Clear the user's values, raise the board limit to its maximum, then
-        every other policy still below its own maximum to that maximum.
-        [(step, ok, message)]."""
+        every other policy still below its own maximum to that maximum - a
+        named current policy to the maximum its own slider allows (normal or
+        XOC). Rows the list shows read-only are left alone. [(step, ok, msg)]."""
         self._power_policy_pins = {}
         steps = []
         top = (getattr(self, "static", None) or {}).get("pl_max_mw")
@@ -5201,9 +5276,22 @@ class GPU:
         rows, error = self.read_power_policies()
         if error:
             return steps + [("power policies", False, error)]
+        currents = {r["policy"]: r for r in getattr(self, "_current_limit_last_rows", None) or []}
         for row in rows:
-            if (row["board"] or row["unit"] is None or row["minimum"] >= row["maximum"]
-                    or row["requested"] >= row["maximum"]):
+            if row["board"]:
+                continue
+            if row["named_current"]:
+                current = currents.get(row["policy"])
+                if current is None:
+                    continue
+                ceiling = (current["maximum_ma"] if getattr(self, "voltage_xoc_enabled", False)
+                           else max(current["normal_maximum_ma"], current["limit_ma"]))
+                ceiling = min(ceiling, current["maximum_ma"])
+                if current["requested_ma"] < ceiling:
+                    steps.append((current["label"],
+                                  *self.set_current_limit_ma(row["policy"], ceiling, pin=False)))
+                continue
+            if not row["writable"] or row["requested"] >= row["maximum"]:
                 continue
             steps.append((f"policy {row['policy']}",
                           *self._write_policy_limit(row["policy"], row["maximum"])))
@@ -7471,7 +7559,8 @@ class GPU:
                         f"power policies were not reset: {error}")))
             else:
                 for row in rows:
-                    if row["writable"] and row["requested"] != row["default"]:
+                    if (row["writable"] and row["requested"] != row["default"]
+                            and row["minimum"] <= row["default"] <= row["maximum"]):
                         steps.append(ResetStep(f"power policy {row['policy']}",
                                                self._write_policy_limit(row["policy"],
                                                                         row["default"])))
@@ -7613,5 +7702,7 @@ for _m in ("read", "read_clock_domains", "read_vf_curve", "apply_vf_deltas",
            "vf_lock_self_test",
            "set_voltage_boost", "read_voltage_boost", "reset_all",
            "get_current_limits", "set_current_limit_ma",
+           "read_power_policies", "set_power_policy", "stock_power_policy",
+           "max_all_power_policies",
            "clkdom_debug_report", "clkdom_mapping_probe"):
     setattr(GPU, _m, _synchronized(getattr(GPU, _m)))

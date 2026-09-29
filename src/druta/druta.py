@@ -1859,9 +1859,11 @@ class Druta:
                                show=choice == policynames.OTHER, callback=typed(policy))
 
     def build_power_policy_section(self):
+        self.save_power_policy_names(force=True)        # a rebuild must not drop a note
         self._power_policies = {}
         self._policy_synced = {}
         self._policy_names_dirty = None
+        self._policy_names_uuid = self.gpu.static.get("uuid")
         try:
             rows, error = self.gpu.read_power_policies()
         except Exception as exc:                                        # noqa: BLE001
@@ -1914,7 +1916,9 @@ class Druta:
         amount = lambda v: GPU._policy_amount(v, row["unit"])            # noqa: E731
         why = ("set with Power limit (W) above" if row["board"] else
                "set with its current-limit slider above" if row["named_current"] else
-               f"no range to write ({amount(row['minimum'])} .. {amount(row['maximum'])})")
+               f"no range to write ({amount(row['minimum'])} .. {amount(row['maximum'])})"
+               if row["minimum"] >= row["maximum"] else
+               f"read-only: {GPU.power_policy_unwritable_reason(row)}")
         with dpg.table_row():
             self.note_cell(row)
             dpg.add_text(why, color=DIM)
@@ -1931,22 +1935,23 @@ class Druta:
             self.log(f"power policy {policy} input: {exc}", False)
             return
         self.report(self.gpu.set_power_policy(policy, int(round(value * 1000))))
-        self.refresh_power_policies(sync=True)
+        self.refresh_power_policies(force=True, follow={policy})
 
     def stock_power_policy(self, policy):
         if not self.guard():
             return
         self.report(self.gpu.stock_power_policy(policy))
-        self.refresh_power_policies(sync=True)
+        self.refresh_power_policies(force=True, follow={policy})
         self.refresh_current_limits(sync=True)
 
     def max_all_power_policies(self):
         if not self.guard():
             return
-        for _step, ok, message in self.gpu.max_all_power_policies():
+        steps = self.gpu.max_all_power_policies()
+        for _step, ok, message in steps:
             self.log(f"max all: {message}", ok)
         top = self.gpu.static.get("pl_max_mw")
-        if top:
+        if top and any(step == "power limit" and ok for step, ok, _ in steps):
             for tag in ("sl_pl", "in_pl"):
                 if dpg.does_item_exist(tag):
                     dpg.set_value(tag, top / 1000)
@@ -1998,16 +2003,33 @@ class Druta:
                 names.pop(other, None)
         self._policy_names = names
         self.gpu.power_policy_names = dict(names)
-        self._policy_names_dirty = time.time()      # saved once typing pauses
+        self._policy_names_dirty = time.monotonic()  # saved once typing pauses
         self.show_channel_note(row["channel"], note, choice)
         self.refresh_power_policies(force=True)
 
+    def hand_over_power_policies(self, fresh):
+        """Before switching to another card: the values the user set are
+        session state on the GPU object, so keep the leaving card's for when
+        it comes back and give the arriving card its own; save the leaving
+        card's notes while they are still attributed to it."""
+        self.save_power_policy_names(force=True)
+        pins_by_card = getattr(self, "_pins_by_card", None) or {}
+        leaving = self.gpu.static.get("uuid")
+        if leaving:
+            pins_by_card[leaving] = dict(getattr(self.gpu, "_power_policy_pins", None) or {})
+        self._pins_by_card = pins_by_card
+        arriving = fresh.static.get("uuid")
+        if pins_by_card.get(arriving):
+            fresh._power_policy_pins = dict(pins_by_card[arriving])
+
     def save_power_policy_names(self, force=False):
         dirty = getattr(self, "_policy_names_dirty", None)
-        if dirty is None or (not force and time.time() - dirty < 0.8):
+        if dirty is None or (not force and time.monotonic() - dirty < 0.8):
             return
         self._policy_names_dirty = None
-        ok, message = policynames.save(self.gpu.static.get("uuid"), self._policy_names)
+        uuid = getattr(self, "_policy_names_uuid", None) or self.gpu.static.get("uuid")
+        ok, message = policynames.save(uuid, self._policy_names,
+                                       rows=list(getattr(self, "_power_policies", {}).values()))
         if not ok:
             self.log(message, False)
 
@@ -2026,17 +2048,18 @@ class Druta:
         self._policy_names_dirty = 0.0
         self.refresh_power_policies(force=True)
 
-    def refresh_power_policies(self, sync=False, force=False):
+    def refresh_power_policies(self, sync=False, force=False, follow=()):
         """Live readings about once a second while the section is open.
 
         A slider follows the card's request when it moved without the user -
         the driver recalculating it from the board limit, a profile, Reset,
         another tool - unless the user has a different value staged in it.
-        sync (after an apply) always follows; force skips the throttle only."""
+        sync always follows on every row (a profile load, Max all), follow on the
+        rows just applied; force skips the throttle only."""
         self.save_power_policy_names()
         if not getattr(self, "_power_policies", None):
             return
-        now = time.time()
+        now = time.monotonic()
         if not (sync or force):
             if (not dpg.does_item_exist("power_policy_header")
                     or not dpg.get_value("power_policy_header")
@@ -2079,7 +2102,7 @@ class Druta:
             untouched = synced is not None and abs(staged * 1000 - synced) < 0.5
             # after an apply the slider shows what the card took, refused or
             # not; otherwise only a moved request replaces an untouched slider
-            if sync or (row["requested"] != synced and untouched):
+            if sync or policy in follow or (row["requested"] != synced and untouched):
                 for pre in ("sl_", "in_"):
                     if dpg.does_item_exist(pre + key):
                         dpg.set_value(pre + key, row["requested"] / 1000)
@@ -4255,7 +4278,7 @@ class Druta:
             self.report(self.gpu.set_power_limit_mw(int(round(value * 1000))))
             # the driver recalculates the limits it derives from this one
             self.refresh_current_limits(sync=True)
-            self.refresh_power_policies(sync=True)
+            self.refresh_power_policies(force=True)
 
     def apply_volt(self, v):
         if self.guard():
@@ -4410,7 +4433,7 @@ class Druta:
                  lambda: self.gpu.set_power_limit_mw(pl_max),
                  "sl_pl", pl_max / 1000)
             self.refresh_current_limits(sync=True)
-            self.refresh_power_policies(sync=True)
+            self.refresh_power_policies(force=True)
         else:
             self.log("max: power limit - this card reports no maximum", False)
         step("voltage boost 100%",
@@ -5823,10 +5846,11 @@ class Druta:
     def typing(self):
         """True while a text/number box has focus, so W/A/S/D typed into an
         input box never also retunes the curve."""
+        boxes = [f"name_pp{p}" for p in getattr(self, "_power_policies", None) or {}]
         return any(dpg.does_item_exist(t)
                    and (dpg.is_item_focused(t) or dpg.is_item_active(t))
                    for t in ("vcap", "vf_idx", "vf_set", "lock_min", "lock_max",
-                             "log", "info", "prof_name"))
+                             "log", "info", "prof_name", *boxes))
 
     def plot_units_per_px(self):
         """(mV per pixel, MHz per pixel) for the V/F plot AS CURRENTLY VIEWED,
@@ -9150,6 +9174,7 @@ deliberately does not put behind a button."""
             self._gpu_gen += 1
             self._rebuilding = True
         try:
+            self.hand_over_power_policies(fresh)
             self.reset_card_state()
             self.gpu = fresh
             self.gpu_list = enumerate_gpus()
@@ -10780,6 +10805,10 @@ deliberately does not put behind a button."""
                 dpg.render_dearpygui_frame()
         finally:
             self._stop.set()
+            try:
+                self.save_power_policy_names(force=True)
+            except Exception:                                           # noqa: BLE001
+                pass
             try:
                 self.stop_i2c_verification()
             finally:
