@@ -296,8 +296,15 @@ def capture_rails(gpu, state, rail):
                  xoc=bool(getattr(gpu, "voltage_xoc_enabled", False)))
     missing = state[INCOMPLETE_KEY]
     try:
+        # user_rail_limits takes out a temporary V/F hold headroom raise, so a
+        # profile or undo point saved during a hold records the limits the
+        # user chose - replaying it later must not re-apply the raise without
+        # the hold that justified it.
         reader = getattr(gpu, "read_volt_rail_limits", None)
         records = reader() if reader else None
+        record_of = getattr(gpu, "hold_headroom_record", None)
+        if records and callable(record_of) and isinstance(record_of(), dict):
+            records = gpu.user_rail_limits(records)
         for index, record in (records or {}).items():
             fields = gpu.volt_rail_limit_fields(index)
             if fields:
