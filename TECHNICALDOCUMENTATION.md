@@ -168,6 +168,83 @@ the memory type is known), edge temp, hotspot, power, vcore. Subtitles carry the
 p-state, XBAR's delta against core, the memory type and Gbps, the hotspot delta
 over edge, and the power limit.
 
+### Programmed and measured clocks in the tiles
+
+The three clock tiles' big numbers are the **programmed** clock: the driver's
+current figure (public NVAPI, or private array A where that is missing). On one
+TITAN RTX, NVML and GPU-Z showed this same figure. Under each one is a
+**measured** line: array B of the same private row, and its distance from A,
+e.g. `measured 2087  Δ -27.9`. The core line uses the row confirmed as GPC
+(GPC2CLK rows are halved to core MHz); XBAR uses the private slot the tile's
+number is read from; memory uses the row confirmed as MEM, divided like the tile.
+
+B earns the word "measured" on the card in front of you, from its own readings,
+not from a list of cards:
+
+- it must **turn back** on its own twice - move up after moving down, or down
+  after up - while A holds still, landing on values A never reported. B's first
+  two moves after each change of A are not looked at (it may still be catching
+  up: on one TU102, B trailed a change by 1-2 s). A counter keeps jittering
+  both ways. A copy of A only moves one way once A holds: an exact copy at any
+  lag lands on values A reported, and in simulation, offset, smoothed and
+  slew-limited copies up to three reads late earned nothing. What this cannot
+  rule out: a copy that is not exact and four or more reads late, or an array
+  computed from A that overshoots and rings. No card has shown one: on the
+  cards tested, B was identical to A (GK104/GM107), constant while A moved (one
+  GP102 row), or a jittering counter (TU102);
+- a B that equalled A exactly for five readings through a change of A has not
+  shown itself to be independent (GK104/GM107 did this in every tested state):
+  `measured: none (B = A)`; with A never having changed yet, `measured: same as A`;
+- a B that differs from A but has not turned back on its own is shown as
+  `unproven`. It takes A holding still for five readings or more: while GPU
+  Boost changes A every four readings or sooner, a real counter stays
+  `unproven` until the clock holds (on a steady clock, a simulated TU102-like
+  counter earned it in about 9-11 readings). Until 12 readings are in, the
+  line says `checking`.
+
+Only the **core** line is colour-judged, and only when a reading is comparable:
+at ≥ 90 % GPU load (a chosen threshold, released below 85 %; at idle the clock
+gates between bursts and B reads low), after B has refreshed twice since A last
+changed, with B still refreshing, and after five such readings with A
+unchanged. The colour comes from the median of up to the last 15 of them, in
+this card's clock bins with 0.5 MHz of tolerance, either sign (above the
+programmed clock counts too): plain within one bin, amber at one bin or more,
+red at three or more. When the last five spread over more than one bin (a
+transient or an outlier), the line is `varying` and dim.
+
+A colour once reached is **held** until the median falls back past its edge by
+the tolerance plus three standard errors of the median. The scatter behind
+that comes from the steps between successive readings, so a real change of the
+gap does not count as noise. While a colour is held, that release margin only
+widens, because a single quiet window would otherwise release it. The tooltip
+says when a colour is held and by how much. One TU102 held its ceiling at about
+-14.7 MHz, 0.2 MHz from the amber edge. In a simulation at the ±2.2 MHz of
+jitter the same card showed at a 1920 MHz lock, a five-reading median changed
+colour 70-490 times an hour at true gaps from -13.0 to -14.7. This rule changes
+it a few times at most (the worst simulated hour: 7, at -13.0).
+
+The price is history. Once amber, a counter jittering ±2.2 MHz has to come back
+to about 2-2.5 MHz inside the edge (-12 to -12.5 MHz) before the line turns
+plain. The same steady -13.5 is amber when the card came down from -14.7, and
+plain when it started there. A change of A, a load drop below 85 %, or a break
+in the readings starts the judgement over.
+
+No colour is claimed when this card's clock step could not be measured. The core
+subtitle says why a line is dim (`checking`, `same as A`, `settling`,
+`clock moving`, `not refreshing`, `load 3 %`, `vs A 2115`, `read failed`,
+`stale`), and the tooltip gives both raw arrays, the Δ in bins and the evidence.
+When the private read fails after good ones, each tile keeps its last reading
+for up to 3 s (a number is marked `last …`), then reads `measured: n/a`.
+
+XBAR and memory are shown but never judged: XBAR follows the core clock and its
+own bin is not known here, and on one TITAN RTX the two memory arrays differed
+by a fixed -6.8 MHz (raw) in every state, loaded or idle. The log's clock check
+reports what the core tile judged: once, after five judged readings in a row
+coloured with B **below** A, and recovery once after five judged plain ones. It
+counts each reading once (not each redraw, and never a stale snapshot), so it
+shares the tile's trust, load gate and release, pairing, refresh check and
+clock bin. It reports GPC rows only, not GPC2CLK.
+
 Below them: **ALL CLOCK DOMAINS**, then the clocks-event and perf-decrease masks
 (including the insufficient-aux-power bit, a canary for a transplant's power
 wiring), a GPU/board power split with per-domain utilisation, PCIe link
@@ -192,10 +269,12 @@ Those 288 dwords are **two arrays over the same 32 domains, an exact partition**
 
 ### A and B are not two views of one number
 
-**A is the target the driver programmed.** Always exactly on the clock grid,
-bit-identical across samples for a fixed domain. **B is a measured counter.** It
-jitters and never lands on the grid. The tiles quote A; the panel shows both, so
-you can see when they disagree.
+**On TU102, A is the target the driver programmed.** Always exactly on the
+clock grid, bit-identical across samples for a fixed domain. **On TU102, B is a
+measured counter.** It jitters and never lands on the grid. (GK104/GM107 return
+identical A and B, so this is not assumed of any card; the tiles check each card
+at runtime.) The tiles' big numbers quote A and the line under them shows B; the
+panel shows both for every domain, so you can see when they disagree.
 
 Measured on TU102, GPC, under ~99% load, sampled ≥8 s after the last clock
 change (40 samples per locked case, 20 free-boosting):
