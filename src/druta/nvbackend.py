@@ -3500,8 +3500,10 @@ class GPU:
         That is how an earlier build mislabelled a GP102."""
         if self.arch() == self.ARCH_KEPLER:
             return {}
-        # Do not inherit Turing's LTC pair. Ampere's measured map is only the
-        # three controls whose programmed targets moved on the GA104 probe.
+        # Ampere uses its own measured map rather than the populated-domain
+        # signature below: the five controls whose targets moved on the GA104
+        # probe (1->1, 2->4, 3->2, 5->21, 9->5). Control 1 also raised domains
+        # 2 and 21 there; the pair names only the domain it is labelled for.
         if self.arch() == self.ARCH_AMPERE:
             self._clkdom_pair = dict(CLKDOM_PAIR_AMPERE)
             return self._clkdom_pair
