@@ -187,15 +187,25 @@ def capture(gpu, rail=None):
         try:
             policies = getattr(gpu, "_current_limit_generation_policies", None)
             # An unsupported generation has no current-limit knob to save.
-            # Check generation alone: API failure on an applicable card must
-            # still make the snapshot incomplete instead of hiding lost state.
+            # On an applicable card a failed READ still makes the snapshot
+            # incomplete instead of hiding lost state. A policy interface the
+            # backend reports as not understood (unrecognized transport, a
+            # record of another type) has no knob either, so it is not one.
             if not callable(policies) or policies():
                 rows = reader()
                 state["current_limits_ma"] = {
                     str(row["policy"]): row.get("requested_ma", row["limit_ma"])
                     for row in rows}
-                if getattr(gpu, "_current_limit_error", ""):
-                    raise RuntimeError(gpu._current_limit_error)
+                blocking = getattr(gpu, "_current_limit_read_error", None)
+                if blocking is None:            # a backend without the split
+                    blocking = getattr(gpu, "_current_limit_error", "")
+                if blocking:
+                    raise RuntimeError(blocking)
+                note = getattr(gpu, "_current_limit_error", "")
+                if note:
+                    # not understood here, so nothing to restore - but the
+                    # profile says why it holds no current limits
+                    state["current_limits_note"] = note
         except Exception as exc:
             state[INCOMPLETE_KEY].append(f"Current limits NOT captured ({exc})")
     # Modern NVML and the legacy NVAPI fallbacks expose requested per-fan
@@ -1005,6 +1015,8 @@ def summarize(state):
             if isinstance(value, (int, float)) and not isinstance(value, bool):
                 amps = f"{value / 1000:.3f}".rstrip("0").rstrip(".")
                 bits.append(f"{label} {amps} A")
+    if state.get("current_limits_note") and not currents:
+        bits.append("current limits not readable on this card")
     vb = state.get("volt_boost_pct")
     if vb is not None:
         bits.append(f"vboost {vb}%")

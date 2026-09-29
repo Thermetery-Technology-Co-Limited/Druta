@@ -1614,6 +1614,21 @@ def slot_from_argv(argv=None):
     return ""
 
 
+# The RM status a policy GET returns when its parameter block is not the size
+# this driver's structure has: seen for a 20000-byte info GET on the GA104
+# (595.97) and for the 8632-byte one on the TU102 (610.88). It is a property of
+# the request's shape, so it does not go away on a retry.
+RM_CURRENT_POLICY_SIZE_REJECTED = 0x1F
+
+
+class CurrentLimitUnsupported(ValueError):
+    """This adapter's current-policy interface is not one Druta understands: a
+    power GET of unrecognized geometry, a policy GET whose size the driver
+    rejects, or a mask/record layout outside the measured ABI. That is a fixed
+    property of the adapter and driver, so no current-limit control can exist
+    for it - unlike a failed read, which a retry can recover."""
+
+
 class GPU:
     # names for the reset_all steps a caller has to single out (see ResetStep).
     # There are TWO lock mechanisms and a caller clearing its on-screen record
@@ -4505,6 +4520,9 @@ class GPU:
         The hook never substitutes a command or parameters. Subsequent calls
         use the ordinary PCI-matched escape transport, without a hook.
         """
+        # What THIS attempt saw: a record left by an earlier attempt must not
+        # describe a capture that saw nothing (see _current_limit_transport_layouts).
+        self._current_limit_observed_transport = {}
         if not self._current_limit_profile_supported():
             return None
         a = self.nvapi
@@ -4590,18 +4608,25 @@ class GPU:
             self._current_limit_layout_choice = None
             transport = self._capture_current_limit_transport()
             if transport is None:
-                observed = getattr(self, "_current_limit_observed_transport", {})
-                detail = (f"observed {observed['command']}, "
-                          f"{observed['packet_bytes']}/{observed['parameter_bytes']} bytes"
-                          if observed else "no recognized power GET captured")
-                raise ValueError("unsupported current-policy transport: " + detail)
+                observed = getattr(self, "_current_limit_observed_transport", {}) or {}
+                seen = (f"observed {observed.get('command')}, {observed.get('packet_bytes')}/"
+                        f"{observed.get('parameter_bytes')} bytes")
+                if observed and ((observed.get("packet_bytes"), observed.get("parameter_bytes"))
+                                 not in self._CURRENT_LIMIT_LAYOUTS):
+                    # a power GET WAS seen, and its geometry is not one Druta knows
+                    raise CurrentLimitUnsupported("unsupported current-policy transport: " + seen)
+                # nothing seen, or a known power GET whose getter then failed:
+                # a failed read, retried on the next one
+                raise ValueError("unsupported current-policy transport: "
+                                 + (seen + ", but the capture did not complete" if observed
+                                    else "no recognized power GET captured"))
         header, _ = transport
         key = (header[2], header[15]) if len(header) == 17 else None
         layout = self._CURRENT_LIMIT_LAYOUTS.get(key)
         if layout is None or header[14] != layout.get("transport_command", 0x2080A612):
             self._current_limit_transport = None
             self._current_limit_layout_choice = None
-            raise ValueError("unvalidated current-policy transport geometry")
+            raise CurrentLimitUnsupported("unvalidated current-policy transport geometry")
         self._current_limit_transport = transport
         return (layout, *self._CURRENT_LIMIT_LAYOUT_FALLBACKS.get(key, ()))
 
@@ -4613,18 +4638,24 @@ class GPU:
         if len(candidates) == 1:
             self._current_limit_layout_choice = candidates[0]
             return candidates[0]
-        last_error = None
+        rejected = []
         for candidate in candidates:
             try:
                 self._current_limit_probe_info(candidate)
             except ValueError as exc:
-                last_error = exc
                 if getattr(self, "_current_limit_transport", None) is None:
                     raise
+                rejected.append((candidate["sizes"][0x2080A618], exc))
                 continue
             self._current_limit_layout_choice = candidate
             return candidate
-        raise last_error or ValueError("unvalidated current-policy transport geometry")
+        # Every candidate is reported, not only the last one tried: after a
+        # one-off RM error on the right layout, the fallback's size rejection
+        # would otherwise hide the real code.
+        detail = "; ".join(f"{size}-byte info: {exc}" for size, exc in rejected)
+        if rejected and all(getattr(exc, "fixed", False) for _, exc in rejected):
+            raise CurrentLimitUnsupported("no known policy-info layout fits this driver (" + detail + ")")
+        raise ValueError(detail or "unvalidated current-policy transport geometry")
 
     def _current_limit_probe_info(self, layout):
         """Read-only info GET used to choose between same-sized transports."""
@@ -4638,13 +4669,19 @@ class GPU:
             self._current_limit_transport = None
             self._current_limit_layout_choice = None
             raise ValueError(f"policy request failed (NTSTATUS {status}, RM 0x{packet[16]:X})")
+        # .fixed marks a rejection that is a property of this layout on this
+        # driver (its size, or a mask it cannot hold), not of the moment
         if packet[16] != 0:
-            raise ValueError(f"policy info layout rejected (RM 0x{packet[16]:X})")
+            exc = ValueError(f"policy info layout rejected (RM 0x{packet[16]:X})")
+            exc.fixed = packet[16] == RM_CURRENT_POLICY_SIZE_REJECTED
+            raise exc
         info = list(packet[17:])
         mask = info[1] if len(info) > 1 else None
         capacity = self._current_limit_capacity(layout)
         if type(mask) is not int or mask < 0 or mask & ~((1 << capacity) - 1):
-            raise ValueError("current-policy mask does not fit this info layout")
+            exc = ValueError("current-policy mask does not fit this info layout")
+            exc.fixed = True
+            raise exc
         return info
 
     def _current_limit_rm(self, command, params=None, policy_mask=None):
@@ -4689,6 +4726,13 @@ class GPU:
             if status != 0:
                 self._current_limit_transport = None
                 self._current_limit_layout_choice = None
+            elif (command != 0x2080E61B
+                  and packet[16] == RM_CURRENT_POLICY_SIZE_REJECTED):
+                # a GET refused for its size: this layout is not the
+                # driver's, which a retry will not change (a SET refusal is
+                # about the request, and stays an ordinary failure)
+                raise CurrentLimitUnsupported(
+                    f"policy GET 0x{command:08X} size {size} rejected (RM 0x{packet[16]:X})")
             raise ValueError(f"policy request failed (NTSTATUS {status}, "
                              f"RM 0x{packet[16]:X})")
         return list(packet[17:])
@@ -4699,12 +4743,12 @@ class GPU:
         sizes = layout["sizes"]
         info = self._current_limit_rm(0x2080A618)
         if len(info) * 4 != sizes[0x2080A618]:
-            raise ValueError("current-policy info size differs from the measured ABI")
+            raise CurrentLimitUnsupported("current-policy info size differs from the measured ABI")
         mask = info[1]
         specs = self._current_limit_generation_policies()
         capacity = self._current_limit_capacity(layout)
         if type(mask) is not int or mask < 0 or mask & ~((1 << capacity) - 1):
-            raise ValueError("current-policy mask exceeds the validated ABI capacity")
+            raise CurrentLimitUnsupported("current-policy mask exceeds the validated ABI capacity")
         for policy, spec in specs.items():
             if not mask & (1 << policy):
                 self._current_limit_unavailable.append({
@@ -4718,7 +4762,7 @@ class GPU:
                 or len(dynamic) * 4 != sizes[0x2080A619]
                 or dynamic[layout.get("status_mask_word", 1)] != mask
                 or control[:5] != [0, 0, 0, 255, mask]):
-            raise ValueError("current-policy layout or mask differs from the measured ABI")
+            raise CurrentLimitUnsupported("current-policy layout or mask differs from the measured ABI")
         rows = []
         for policy, spec in specs.items():
             if not mask & (1 << policy):
@@ -4731,14 +4775,20 @@ class GPU:
             unit = info[meta + 1] >> 16 & 255
             minimum, default, maximum = info[meta + 2:meta + 5]
             normal_maximum = min(max(spec["normal_maximum_ma"], minimum), maximum)
-            if (type_id != spec["type"] or unit != 1
-                    or not 1 <= minimum <= default <= maximum
-                    or dynamic[state] & 255 != type_id
-                    or control[record] != type_id
-                    or not minimum <= control[record + 1] <= maximum
-                    or not minimum <= dynamic[state + 1] <= maximum):
+            # A record of another type or unit, or whose three blocks disagree
+            # about its type, is a policy this build does not understand: no
+            # control is offered for it. Values outside the record's own range
+            # on an understood record are a bad reading, not that.
+            understood = (type_id == spec["type"] and unit == 1
+                          and 1 <= minimum <= default <= maximum
+                          and dynamic[state] & 255 == type_id
+                          and control[record] == type_id)
+            in_range = (minimum <= control[record + 1] <= maximum
+                        and minimum <= dynamic[state + 1] <= maximum)
+            if not (understood and in_range):
                 self._current_limit_unavailable.append({
                     "policy": policy, "label": spec["label"], "present": True,
+                    "unsupported": not understood,
                     "error": f"policy {policy}: invalid current record "
                              f"(type=0x{type_id:X}, channel={channel}, unit={unit}, "
                              f"min/default/max={minimum}/{default}/{maximum})"})
@@ -4761,33 +4811,60 @@ class GPU:
         ``limit_ma`` is the independent effective policy limit, and
         ``maximum_ma`` is the API ceiling regardless of Druta's XOC setting.
         """
+        # _current_limit_error is every reason a policy is unavailable (shown
+        # in the UI and diagnostics). _current_limit_read_error is the part
+        # that is a failed READ - what profiles and Reset all must not hide.
+        # The rest is an interface this build does not understand, for which
+        # no control exists; it stops being "not understood" once a policy
+        # has been read on this adapter, and counts as a read failure again.
+        established = getattr(self, "_current_limit_established", set())
         if not self._current_limit_profile_supported():
             self._current_limit_error = "NVAPI unavailable or GPU generation unsupported"
+            self._current_limit_read_error = self._current_limit_error
             self._current_limit_last_rows = []
             self._current_limit_unavailable = []
             return []
         try:
             rows, _ = self._current_limit_state()
+            present = [item for item in self._current_limit_unavailable if item["present"]]
+            # a policy read earlier this session that the mask no longer lists
+            # has not stopped existing: that is a bad read too
+            vanished = [f"policy {item['policy']} was read earlier this session and is now "
+                        f"{item['error']}" for item in self._current_limit_unavailable
+                        if not item["present"] and item["policy"] in established]
             self._current_limit_error = "; ".join(
-                item["error"] for item in self._current_limit_unavailable
-                if item["present"])
+                [item["error"] for item in present] + vanished)
+            self._current_limit_read_error = "; ".join(
+                [item["error"] for item in present
+                 if not item.get("unsupported") or item["policy"] in established] + vanished)
+            self._current_limit_established = established | {row["policy"] for row in rows}
             self._current_limit_last_rows = rows
             return rows
+        except CurrentLimitUnsupported as exc:
+            self._current_limit_error = str(exc)
+            self._current_limit_read_error = str(exc) if established else ""
+            self._current_limit_last_rows = []
+            return []
         except Exception as exc:
             self._current_limit_error = str(exc)
+            self._current_limit_read_error = str(exc)
             self._current_limit_last_rows = []
             return []
 
     def current_limit_diagnostics(self):
         """Last GET outcome only; contains no client handles and performs no writes."""
+        choice = getattr(self, "_current_limit_layout_choice", None)
         return {
-            "build": "current-visibility-v2",
+            "build": "current-visibility-v3",
             "driver": getattr(self, "static", {}).get("driver"),
             "vbios": getattr(self, "static", {}).get("vbios"),
             "generation": self.arch(),
             "expected_policies": self._current_limit_generation_policies(),
             "transport": getattr(self, "_current_limit_observed_transport", {}),
+            # which same-sized layout the info probe chose, by its info size
+            "layout_info_bytes": (choice or {}).get("sizes", {}).get(0x2080A618),
             "error": getattr(self, "_current_limit_error", ""),
+            "read_error": getattr(self, "_current_limit_read_error", ""),
             "policies": getattr(self, "_current_limit_last_rows", []),
             "unavailable_policies": getattr(self, "_current_limit_unavailable", []),
         }
@@ -7089,10 +7166,13 @@ class GPU:
             steps.append(ResetStep("rail limits",
                                    self.reset_volt_rail_limits()))
         current_limits = self.get_current_limits()
-        if (self._current_limit_profile_supported()
-                and getattr(self, "_current_limit_error", "")):
+        # Only a failed read is a failed step; a policy interface this build
+        # does not understand has no control to put back.
+        read_error = getattr(self, "_current_limit_read_error",
+                             getattr(self, "_current_limit_error", ""))
+        if self._current_limit_profile_supported() and read_error:
             steps.append(ResetStep("current limits", (False,
-                f"cannot read current limits: {self._current_limit_error}")))
+                f"cannot read current limits: {read_error}")))
         for current in current_limits:
             if (current["limit_ma"] != current["default_ma"]
                     or current["requested_ma"] != current["default_ma"]):
