@@ -150,6 +150,9 @@ def capture(gpu, rail=None):
             # card its V/F deltas were measured on.
             "uuid": gpu.static.get("uuid"),
             "slot": gpu.static.get("slot"),
+            # NVAPI RAM type: tells restore whether the saved driver units
+            # mean the same memory offset here (see saved_memory_request).
+            "mem_type_id": gpu.static.get("mem_type_id"),
         },
         "core_off_mhz": d.get("core_off"),
         # stored both ways: units is what the driver holds, true MHz is what
@@ -410,6 +413,39 @@ def _number(value, label, *, integer=False):
     return value
 
 
+def _same_memory(gpu, state):
+    """Whether the saved offset was held by memory of the type now installed:
+    the recorded RAM type when both sides have one, else the same card (a
+    card's memory type cannot change, so the same card answers it)."""
+    saved = (state.get("device") or {}).get("mem_type_id")
+    live = gpu.static.get("mem_type_id")
+    if saved is not None and live is not None:
+        return saved == live
+    return device_mismatch(state, gpu) is None
+
+
+def saved_memory_request(gpu, state):
+    """The value set_clock_offset(2, ...) needs to put the saved memory offset
+    back, or None when none was saved.
+
+    The saved driver units are what the card held. mem_off_true_mhz is those
+    units divided by the memory-type scale in force when the file was written,
+    and a Druta update can change that scale for the same memory: RAM type 15
+    had no MEM_TYPES entry (scale 2) until GDDR6X was named (scale 16), which
+    would replay an older profile, undo point or sign-in profile at eight
+    times its offset. So on the same memory the units are replayed. On a
+    different memory type (a profile deliberately loaded on another card) the
+    true-MHz figure - the one the profile row shows - is the portable intent,
+    as before; a file without units falls back to it too."""
+    units = state.get("mem_off_units")
+    true_mhz = state.get("mem_off_true_mhz")
+    if units is None:
+        return true_mhz
+    if true_mhz is not None and not _same_memory(gpu, state):
+        return true_mhz
+    return units / gpu.mem_offset_scale()[0]
+
+
 def _vf_deltas(state):
     """Decode only the serialized indices/values, without truncating bad input."""
     saved = state.get("vf_deltas")
@@ -481,12 +517,25 @@ def _validate_saved_fields(gpu, state):
     if core is not None and not -(1 << 31) <= core < (1 << 31):
         raise ValueError("core offset is outside the driver's representation")
     memory = state.get("mem_off_true_mhz")
-    if memory is not None:
+    saved_units = state.get("mem_off_units")
+    if saved_units is not None:
+        _number(saved_units, "memory offset units")
+        # capture() writes both forms from one reading, so they agree at the
+        # scale the file was saved with; a file where they do not has been
+        # altered and says two different things about the offset.
+        saved_scale = state.get("mem_off_scale")
+        if memory is not None and saved_scale is not None:
+            _number(saved_scale, "saved memory offset scale")
+            if abs(memory * saved_scale - saved_units) > 1e-6:
+                raise ValueError("the saved memory offset's driver units and MHz disagree; "
+                                 "save the profile again")
+    if memory is not None or saved_units is not None:
         scale = gpu.mem_offset_scale()[0]
         _number(scale, "memory offset scale")
         if not 0 < scale < (1 << 31):
             raise ValueError("memory offset scale is invalid")
-        units = memory * scale
+        # What restore will actually write (see saved_memory_request).
+        units = saved_memory_request(gpu, state) * scale
         if not math.isfinite(units) or not -(1 << 31) <= units < (1 << 31):
             raise ValueError("memory offset is outside the driver's representation")
         if units != int(units):
@@ -877,7 +926,7 @@ def _restore_validated(gpu, state, apply_curve, rail, results):
     if vb is not None:
         step("voltage boost", lambda: gpu.set_voltage_boost(int(vb)))
 
-    mm = state.get("mem_off_true_mhz")
+    mm = saved_memory_request(gpu, state)
     if mm is not None:
         step("mem offset", lambda: gpu.set_clock_offset(2, mm))
 
