@@ -8,6 +8,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+from druta import realclock
 from druta.druta import BAD, DIM, TEXT, WARN, Druta
 from druta.nvbackend import PRIV_CONFIRMED, PRIV_FREQ, PRIV_LIKELY, PRIV_UNNAMED, PRIV_UNPOPULATED
 
@@ -20,7 +21,7 @@ def row(dom, name, a_khz, b_khz, grade=PRIV_CONFIRMED, scale=1):
 
 
 def jitter(base, i):
-    return base + (i % 3) * 8
+    return base + (i % 2) * 8                      # an 8 kHz quantum, turning back every read
 
 
 class RealClockCase(unittest.TestCase):
@@ -58,7 +59,7 @@ class RealClockCase(unittest.TestCase):
         self.app.refresh_real_clocks(d, now=self.t)
         return d
 
-    def hold_on_the_ceiling(self, n=9, **kw):
+    def hold_on_the_ceiling(self, n=10, **kw):
         for i in range(n):
             self.feed(self.snap(b=jitter(2087100, i), rows=None, **kw))
 
@@ -99,7 +100,7 @@ class MeasuredLineTests(RealClockCase):
         self.assertEqual(self.values["r_core"], "measured: none (B = A)")
 
     def test_a_B_that_never_moves_on_its_own_is_labelled_unproven(self):
-        for _ in range(6):
+        for _ in range(realclock.DECIDE_READS):
             self.feed(self.snap(rows=[row(0, "GPC", 2115000, 2087100)]))
         self.assertTrue(self.values["r_core"].startswith("unproven 2087"))
         self.assertEqual(self.colour["r_core"], DIM)
@@ -113,7 +114,7 @@ class MeasuredLineTests(RealClockCase):
         self.assertIn("drops below 85 %", self.values["rt_core"])
 
     def test_settling_says_when_the_load_stops_counting(self):
-        self.hold_on_the_ceiling(n=5)
+        self.hold_on_the_ceiling(n=6)
         self.feed(self.snap(core=2100, a=2100000, b=2072100))       # A moved: settle again
         self.assertEqual(self.values["s_core"], "P0 \u00b7 settling")
         self.assertIn("drops below 85 %", self.values["rt_core"])
@@ -139,7 +140,7 @@ class MeasuredLineTests(RealClockCase):
 
     def test_pascal_2clk_is_halved_to_core_mhz_and_banded_on_its_bins(self):
         self.app.step_khz.return_value = 12657
-        for i in range(9):
+        for i in range(10):
             self.feed(self.snap(core=1898, xbar=None, rows=[
                 row(15, "GPC2CLK", 3797100, jitter(3771100, i), scale=2)]))
         self.assertEqual(self.values["r_core"], "measured 1886  Δ -13.0")
@@ -159,7 +160,7 @@ class MeasuredLineTests(RealClockCase):
         self.feed(self.snap(rows=[row(4, "MEM", 6801000, 6794200)]))
         self.assertEqual(self.values["r_mem"], "measured: checking B")
         self.assertEqual(self.colour["r_mem"], DIM)
-        for _ in range(6):
+        for _ in range(realclock.DECIDE_READS):
             self.feed(self.snap(rows=[row(4, "MEM", 6801000, 6794200)]))
         self.assertTrue(self.values["r_mem"].startswith("unproven"))
         self.assertEqual(self.colour["r_mem"], DIM)
@@ -187,7 +188,7 @@ class MeasuredLineTests(RealClockCase):
         self.assertIn("Shown, never judged", self.values["rt_xbar"])
 
     def test_a_B_equal_to_A_at_one_steady_clock_says_so_without_a_number(self):
-        for _ in range(7):
+        for _ in range(realclock.DECIDE_READS):
             self.feed(self.snap(rows=[row(0, "GPC", 2115000, 2115000)]))
         self.assertEqual(self.values["r_core"], "measured: same as A")
         self.assertEqual(self.values["s_core"], "P0 · same as A")
@@ -195,7 +196,7 @@ class MeasuredLineTests(RealClockCase):
         self.assertIn("cannot yet be told apart from a copy of A", self.values["rt_core"])
 
     def test_an_unproven_B_that_equals_A_right_now_is_not_said_to_differ(self):
-        for _ in range(6):
+        for _ in range(realclock.DECIDE_READS):
             self.feed(self.snap(rows=[row(0, "GPC", 2115000, 2087100)]))
         for _ in range(2):
             self.feed(self.snap(rows=[row(0, "GPC", 2115000, 2115000)]))
@@ -231,6 +232,46 @@ class MeasuredLineTests(RealClockCase):
         self.assertEqual([self.values[f"r_{k}"] for k in ("core", "xbar", "mem")],
                          ["measured: n/a"] * 3)
         self.assertEqual(self.values["s_core"], "P8")
+
+    def test_a_failed_read_while_checking_says_the_state_is_kept(self):
+        for i in range(2):
+            self.feed(self.snap(b=jitter(2087100, i)))
+        self.feed({"core": 2115, "xbar": 2025, "mem": 6801, "util_gpu": 99, "pstate": 0,
+                   "clk_domains": None, "clk_domains_err": "did not answer"})
+        self.assertEqual(self.values["r_core"], "measured: checking B")
+        self.assertIn("last good state is kept", self.values["rt_core"])
+        self.assertNotIn('shown as "last"', self.values["rt_core"])
+
+    def test_a_fault_in_the_line_is_no_reading_for_the_log(self):
+        # the core tile is fed, then drawing another tile fails: the blanked
+        # line judges nothing, so the log must not count what it fed
+        app = self.app
+        app.log = Mock()
+        app._clk_lock = None
+        app.refresh_domains = Mock()
+        app.mem_fmt = lambda value: ("--", "")
+        app._bar_band, app._bar_themes = {}, {}
+        app.gpu = SimpleNamespace(static={"mem_div": 2}, mem_offset_scale=lambda: (1, "MHz"))
+        app.shunt = SimpleNamespace(active=False)
+        app.log_once = Mock()
+        view = app.real_clock_view
+
+        def failing_view(key, *args, **kw):
+            if key == "mem":
+                raise RuntimeError("mem view boom")
+            return view(key, *args, **kw)
+        app.real_clock_view = failing_view
+        for i in range(20):
+            d = self.snap(core=1950, rows=[row(0, "GPC", 1950000, jitter(1935000, i)),
+                                           row(4, "MEM", 6801000, jitter(6794200, i))],
+                          power_w=50, pl_now_mw=200000)
+            self.t += 1.05
+            with patch("druta.druta.time.monotonic", return_value=self.t):
+                app.refresh_monitor(d)
+            app.check_clock_gap(d)
+        self.assertEqual(self.values["r_core"], "measured: --")
+        self.assertEqual(app._real.last("core").verdict, "warn")    # fed, and judged
+        self.assertEqual([c for c in app.log.call_args_list if "below the" in str(c)], [])
 
     def test_a_row_not_yet_read_is_not_called_missing(self):
         self.app._stale = True
@@ -283,7 +324,7 @@ class MeasuredLineTests(RealClockCase):
         self.assertIn("held until the median falls clearly back", self.values["rt_core"])
 
     def test_a_three_bin_loss_is_red(self):
-        for i in range(9):
+        for i in range(10):
             self.feed(self.snap(b=jitter(2069000, i)))
         self.assertEqual(self.colour["r_core"], BAD)
 
@@ -432,6 +473,33 @@ class TileHeightTests(RealClockCase):
         measure()
         app._stale = True
         self.feed(self.snap())                                  # stale
+        measure()
+        self.assertEqual(len(set(heights)), 1, heights)
+
+    def test_a_raw_five_digit_memory_clock_does_not_grow_the_tile(self):
+        # memory with no known divisor is shown raw: one RTX 5080 read 14,778
+        app = self.app
+        app.s = lambda v: v
+        app.gpu = SimpleNamespace(static={"mem_div": None, "mem_type": "unknown"})
+        # a font where "+" is half a character wider than "-": every four-digit
+        # template fits a line here, the five-digit memory line does not
+        app.text_h = lambda txt, font, wrap=-1.0: 19 * (1 + int(
+            len(txt or "") + 0.5 * (txt or "").count("+")) // 23)
+        heights = []
+
+        def measure():
+            with patch("druta.druta.dpg.does_item_exist",
+                       side_effect=lambda tag: tag[:2] in ("s_", "r_")), \
+                    patch("druta.druta.dpg.get_value",
+                          side_effect=lambda tag: self.values.get(tag, "")):
+                heights.append(app.tile_height(180))
+        rows = lambda i: [row(0, "GPC", 2115000, jitter(2087100, i)),
+                          row(4, "MEM", 14801000, jitter(14778000, i))]
+        self.feed(self.snap(mem=14801, rows=rows(0)))           # checking
+        measure()
+        for i in range(1, 10):
+            self.feed(self.snap(mem=14801, rows=rows(i)))
+        self.assertTrue(self.values["r_mem"].startswith("measured 14778"))
         measure()
         self.assertEqual(len(set(heights)), 1, heights)
 

@@ -27,7 +27,7 @@ class Feeder:
 
 
 def jitter(base_khz, i):
-    return base_khz + (i % 3) * 8                  # an 8 kHz quantum, never repeating twice
+    return base_khz + (i % 2) * 8                  # an 8 kHz quantum, turning back every read
 
 
 class BandTests(unittest.TestCase):
@@ -53,14 +53,15 @@ class EvidenceTests(unittest.TestCase):
     def test_a_counter_under_a_fixed_target_is_measured_then_judged(self):
         # one TITAN RTX holding 2115 MHz on its voltage ceiling read B ~2087
         feed = Feeder()
-        seen = [feed(2115000, jitter(2087000, i)) for i in range(9)]
-        # its moves are +8, +8, -16 kHz: the first turn back is evidence 1, the next 2
-        self.assertEqual([r.trust for r in seen[:4]], [rc.CHECKING] * 4)
-        self.assertEqual(seen[4].trust, rc.MEASURED)
-        self.assertEqual([r.state for r in seen[4:8]], ["settling"] * 4)
-        self.assertEqual((seen[8].state, seen[8].verdict), ("judged", "warn"))
-        self.assertTrue(-29 < seen[8].delta_mhz < -27)
-        self.assertEqual(len(seen[8].window), rc.WINDOW_READS)
+        seen = [feed(2115000, jitter(2087000, i)) for i in range(10)]
+        # B turns back every reading: its first FRESH_NEEDED moves are not
+        # looked at, the next sets a direction, and the two after it turn
+        self.assertEqual([r.trust for r in seen[:5]], [rc.CHECKING] * 5)
+        self.assertEqual(seen[5].trust, rc.MEASURED)
+        self.assertEqual([r.state for r in seen[5:9]], ["settling"] * 4)
+        self.assertEqual((seen[9].state, seen[9].verdict), ("judged", "warn"))
+        self.assertTrue(-29 < seen[9].delta_mhz < -27)
+        self.assertEqual(len(seen[9].window), rc.WINDOW_READS)
 
     def test_identical_arrays_are_a_mirror_and_never_measured(self):
         # GK104/GM107: B identical to A through idle, boost and held P0
@@ -90,22 +91,22 @@ class EvidenceTests(unittest.TestCase):
     def test_a_constant_B_that_differs_from_A_is_unproven(self):
         # GP102: control 1 moved A 3442 -> 3493 while B sat at 3290.3
         feed = Feeder(key="xbar", dom=16, name="")
-        seen = [feed(3442000 if i < 3 else 3493000, 3290300) for i in range(7)]
+        seen = [feed(3442000 if i < 3 else 3493000, 3290300) for i in range(rc.DECIDE_READS + 1)]
         self.assertEqual(seen[-1].trust, rc.UNPROVEN)
         self.assertIsNone(seen[-1].verdict)
 
     def test_five_exact_matches_through_a_change_withdraw_trust_and_it_returns(self):
         feed = Feeder()
-        for i in range(4):
+        for i in range(5):
             feed(1950000, jitter(1949900, i))
-        self.assertEqual(feed(1950000, 1949910).trust, rc.MEASURED)
+        self.assertEqual(feed(1950000, jitter(1949900, 5)).trust, rc.MEASURED)
         copies = [feed(a, a) for a in (1950000, 1950000, 1965000, 1965000, 1965000)]
         self.assertEqual(copies[-1].trust, rc.MIRROR)
         self.assertEqual(feed(1965000, 1964900).trust, rc.MEASURED)
 
     def test_a_clock_change_transient_never_enters_the_window(self):
         feed = Feeder()
-        before = [feed(1350000, jitter(1364940, i)) for i in range(9)]
+        before = [feed(1350000, jitter(1364940, i)) for i in range(10)]
         self.assertEqual(before[-1].verdict, "warn")          # one bin ABOVE, at a 1350 lock
         after = [feed(1950000, 2550000), feed(1950000, 1650000)]
         after += [feed(1950000, jitter(1949900, i)) for i in range(6)]
@@ -116,7 +117,7 @@ class EvidenceTests(unittest.TestCase):
 
     def test_the_first_loaded_reading_is_load_start(self):
         feed = Feeder()
-        for i in range(4):
+        for i in range(6):
             feed(1950000, jitter(1949900, i), util=5)
         self.assertEqual(feed(1950000, 1949910, util=99).state, "load start")
         self.assertEqual(feed(1950000, 1949902, util=99).state, "settling")
@@ -145,7 +146,7 @@ class EvidenceTests(unittest.TestCase):
 
     def test_one_outlier_inside_the_window_is_varying_not_steady(self):
         feed = Feeder()
-        for i in range(8):
+        for i in range(10):
             feed(1950000, jitter(1935200, i))
         r = feed(1950000, 1685000)                                  # the load ending
         self.assertEqual(r.verdict, "varying")
@@ -156,14 +157,15 @@ class EvidenceTests(unittest.TestCase):
                 self.assertIsNone(rc.gap_band(-300.0, bin_mhz))
                 self.assertIsNone(rc.window_verdict([-300.0] * 5, bin_mhz))
         feed = Feeder(bin_mhz=None)
-        seen = [feed(2115000, jitter(2087000, i)) for i in range(9)]
+        seen = [feed(2115000, jitter(2087000, i)) for i in range(10)]
         self.assertEqual((seen[-1].state, seen[-1].verdict), ("judged", None))
 
     def test_a_B_equal_to_A_at_one_steady_clock_is_same_not_unproven(self):
         feed = Feeder(dom=15, name="GPC2CLK", scale=2)
-        seen = [feed(2168000, 2168000) for _ in range(8)]
-        self.assertEqual([r.trust for r in seen[:4]], [rc.CHECKING] * 4)
-        self.assertTrue(all(r.trust == rc.SAME for r in seen[4:]))
+        seen = [feed(2168000, 2168000) for _ in range(rc.DECIDE_READS + 3)]
+        n = rc.DECIDE_READS - 1
+        self.assertEqual([r.trust for r in seen[:n]], [rc.CHECKING] * n)
+        self.assertTrue(all(r.trust == rc.SAME for r in seen[n:]))
 
     def test_the_catch_up_after_a_change_of_A_is_no_evidence(self):
         # B = A - 6.8 MHz, one read late: it only ever moves once after A does
@@ -228,6 +230,101 @@ class EvidenceTests(unittest.TestCase):
                 self.assertNotEqual(seen[-1].trust, rc.MEASURED)
                 self.assertTrue(all(r.verdict is None for r in seen))
 
+    def test_a_late_smoothed_or_slew_limited_copy_earns_no_evidence(self):
+        # two reads late, B is still moving towards the old A when A's
+        # reversal reaches it - but that is within B's first FRESH_NEEDED
+        # moves after the change, which are not looked at
+        a = [1950000] * 4 + [1965000] * 4 + [1950000] * 12 + [1965000] * 4 + [1950000] * 12
+
+        def smoothed(lag, alpha=0.3):
+            cur, out = float(a[0]), []
+            for i in range(len(a)):
+                cur += alpha * (a[max(0, i - lag)] - cur)
+                out.append(int(round(cur / 8.0)) * 8)
+            return out
+
+        def slew_limited(lag, per_read=5000):
+            cur, out = a[0], []
+            for i in range(len(a)):
+                src = a[max(0, i - lag)]
+                cur += max(-per_read, min(per_read, src - cur))
+                out.append(cur)
+            return out
+        for name, b in (("smoothed", smoothed(2)), ("slew", slew_limited(2)),
+                        ("smoothed, 3 late", smoothed(3)), ("slew, 3 late", slew_limited(3))):
+            with self.subTest(name):
+                feed = Feeder()
+                seen = [feed(x, y) for x, y in zip(a, b)]
+                self.assertEqual(seen[-1].events, 0)
+                self.assertTrue(all(r.verdict is None for r in seen))
+
+    def test_the_colour_near_an_edge_changes_a_few_times_an_hour_at_most(self):
+        # an hour of readings at gaps from 1.5 MHz inside the amber edge to
+        # 0.2 MHz past it, with the +-2.2 MHz of jitter one TU102 showed at a
+        # lock; the five-reading median this replaced changed colour 70-460
+        # times an hour across this band
+        for gap in (13.0, 13.6, 14.0, 14.3, 14.7):
+            for seed in (1, 2):
+                with self.subTest(gap=gap, seed=seed):
+                    rnd, feed, b, colours = random.Random(seed), Feeder(), None, []
+                    for _ in range(3428):
+                        last = b
+                        while b == last:
+                            b = int(round((1965000 - gap * 1000
+                                           + rnd.uniform(-2200, 2200)) / 8.0)) * 8
+                        r = feed(1965000, b)
+                        if r.verdict in ("ok", "warn", "bad"):
+                            colours.append(r.verdict)
+                    changes = sum(1 for x, y in zip(colours, colours[1:]) if x != y)
+                    self.assertLessEqual(changes, 8)
+
+    def test_a_quiet_window_does_not_release_a_held_colour(self):
+        # the hold only widens while a band is held: one quiet stretch, whose
+        # own scatter would allow a release, does not
+        rnd, feed = random.Random(4), Feeder()
+        for _ in range(40):
+            r = feed(1950000, int(round((1935300 + rnd.uniform(-2200, 2200)) / 8.0)) * 8)
+        self.assertEqual(r.verdict, "warn")                        # -14.7, jittering
+        for i in range(30):
+            r = feed(1950000, 1936100 + (i % 2) * 8)               # -13.9, quiet
+        self.assertEqual((r.verdict, r.held), ("warn", True))
+        self.assertGreater(r.hold_mhz, rc.median_hold(r.window))
+        fresh = Feeder()
+        for i in range(30):
+            r = fresh(1950000, 1936100 + (i % 2) * 8)
+        self.assertEqual(r.verdict, "ok")                          # without that history
+
+    def test_a_B_on_two_levels_still_shows_its_spread(self):
+        # eight readings on one level and seven on the other: a median absolute
+        # deviation reads 0 here; the steps between readings do not
+        self.assertGreater(rc.median_hold([-13.9, -14.9] * 7 + [-13.9]), 1.0)
+        self.assertAlmostEqual(rc.median_hold([-14.8] * 15), rc.GAP_TOL_MHZ)
+
+    def test_a_released_colour_keeps_none_of_its_old_margin(self):
+        # red held on a noisy B releases to amber; amber starts its own margin,
+        # so a later fall well inside the amber edge turns plain
+        feed = Feeder()
+        for i in range(10):
+            feed(1950000, 1904000 + (i % 2) * 8)                   # trust, at -46
+        for i in range(24):
+            r = feed(1950000, 1904000 if i % 2 else 1910000)       # -46 / -40
+        self.assertEqual(r.verdict, "bad")
+        for i in range(20):
+            r = feed(1950000, 1920000 + (i % 2) * 8)               # -30: amber
+        self.assertEqual(r.verdict, "warn")
+        for i in range(20):
+            r = feed(1950000, 1940500 + (i % 2) * 8)               # -9.5
+        self.assertEqual(r.verdict, "ok")
+
+    def test_an_exact_copy_many_reads_late_replays_only_values_A_reported(self):
+        # six reads late, B turns while A holds - onto A's own earlier values
+        feed = Feeder()
+        zig = [1950000, 1965000, 1935000, 1965000, 1935000]
+        a = zig + [1905000] * 9 + zig + [1890000] * 9
+        seen = [feed(x, a[max(0, i - 6)]) for i, x in enumerate(a)]
+        self.assertEqual(seen[-1].events, 0)
+        self.assertNotEqual(seen[-1].trust, rc.MEASURED)
+
     def test_a_jittering_gap_on_a_band_edge_does_not_flicker(self):
         # one TU102 read about -14.7 on its ceiling, 0.2 MHz from the edge, and
         # its counter spread about +-2.2 MHz at a lock; the five-reading median
@@ -271,13 +368,15 @@ class EvidenceTests(unittest.TestCase):
 
     def test_a_boost_that_keeps_stepping_keeps_one_word(self):
         feed = Feeder()
-        for i in range(6):
+        for i in range(10):
             feed(1950000, jitter(1935000, i))
-        states = []
-        for i in range(40):
-            a = 1950000 - 15000 * ((i // 4) % 2)              # a step every 4 readings
-            states.append(feed(a, jitter(a - 12000, i)).state)
-        self.assertEqual(set(states[8:]), {"moving"})
+        for period in (3, 4, 5, 6):
+            with self.subTest(period=period):
+                states = []
+                for i in range(60):
+                    a = 1950000 - 15000 * ((i // period) % 2)  # a step every `period`
+                    states.append(feed(a, jitter(a - 12000, i)).state)
+                self.assertEqual(set(states[2 * period:]), {"moving"})
 
     def test_a_row_returned_to_settles_again_before_it_is_judged(self):
         feed = Feeder()
@@ -328,11 +427,11 @@ class EvidenceTests(unittest.TestCase):
 
     def test_2clk_is_in_core_units_and_this_cards_bins(self):
         feed = Feeder(dom=15, name="GPC2CLK", scale=2, bin_mhz=12.657)
-        seen = [feed(3797100, 3771000 + (i % 2) * 8) for i in range(8)]
+        seen = [feed(3797100, 3771000 + (i % 2) * 8) for i in range(10)]
         self.assertAlmostEqual(seen[-1].a_mhz, 1898.55)
         self.assertEqual(seen[-1].verdict, "warn")             # -13.05 core MHz
         feed = Feeder(dom=15, name="GPC2CLK", scale=2, bin_mhz=12.657)
-        seen = [feed(3797100, 3773000 + (i % 2) * 8) for i in range(8)]
+        seen = [feed(3797100, 3773000 + (i % 2) * 8) for i in range(10)]
         self.assertEqual(seen[-1].verdict, "ok")               # -12.05 core MHz
 
     def test_a_read_gap_drops_continuity_but_keeps_trust(self):

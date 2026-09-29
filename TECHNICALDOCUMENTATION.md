@@ -182,44 +182,59 @@ B earns the word "measured" on the card in front of you, from its own readings,
 not from a list of cards:
 
 - it must **turn back** on its own twice - move up after moving down, or down
-  after up - while A holds still, landing on values A never reported. A counter
-  jitters both ways. A copy of A - late by any number of reads, offset, or
-  smoothed - only moves one way towards A after A changes, so its first move
-  after each change of A is never half of a turn. What this cannot rule out: a
-  copy that is both offset and two or more reads late could replay a quick
-  up-and-back of A as a turn. No card has shown such an array: on the cards
-  tested, B was identical to A (GK104/GM107), constant while A moved (one GP102
-  row), or a jittering counter (TU102);
+  after up - while A holds still, landing on values A never reported. B's first
+  two moves after each change of A are not looked at (it may still be catching
+  up: on one TU102, B trailed a change by 1-2 s). A counter keeps jittering
+  both ways. A copy of A only moves one way once A holds: an exact copy at any
+  lag lands on values A reported, and in simulation, offset, smoothed and
+  slew-limited copies up to three reads late earned nothing. What this cannot
+  rule out: a copy that is not exact and four or more reads late, or an array
+  computed from A that overshoots and rings. No card has shown one: on the
+  cards tested, B was identical to A (GK104/GM107), constant while A moved (one
+  GP102 row), or a jittering counter (TU102);
 - a B that equalled A exactly for five readings through a change of A has not
   shown itself to be independent (GK104/GM107 did this in every tested state):
   `measured: none (B = A)`; with A never having changed yet, `measured: same as A`;
 - a B that differs from A but has not turned back on its own is shown as
-  `unproven`. While GPU Boost changes A every reading or two, B has no chance
-  to, so a real counter can stay `unproven` until the clock holds still.
+  `unproven`. It takes A holding still for five readings or more: while GPU
+  Boost changes A every four readings or sooner, a real counter stays
+  `unproven` until the clock holds (on a steady clock, a simulated TU102-like
+  counter earned it in about 9-11 readings). Until 12 readings are in, the
+  line says `checking`.
 
 Only the **core** line is colour-judged, and only when a reading is comparable:
 at ≥ 90 % GPU load (a chosen threshold, released below 85 %; at idle the clock
 gates between bursts and B reads low), after B has refreshed twice since A last
-changed (on one TU102, B trailed a clock change by 1-2 s), with B still
-refreshing, and after five such readings with A unchanged. The colour comes
-from the median of up to the last 15 of them, in this card's clock bins with
-0.5 MHz of tolerance, either sign (above the programmed clock counts too): plain
-within one bin, amber at one bin or more, red at three or more. When the last
-five spread over more than one bin (a transient or an outlier), the line is
-`varying` and dim. A colour once reached is **held** until the median falls back
-past its edge by the tolerance plus three standard errors of the median
-(1.86 × MAD / √n, from the readings' own scatter), and the tooltip says when a
-colour is held. So a gap that sits on an edge does not flicker: one TU102 held
-its ceiling at about -14.7 MHz, 0.2 MHz from the amber edge. In a simulation at
-the ±2.2 MHz of jitter the same card showed at a 1920 MHz lock, a five-reading
-median changed colour about 400 times an hour; this rule, a few times at most.
-The price is history: the same steady -14.2 is amber when the card came down
-from -14.7, and plain when it started there. No colour is claimed when this card's clock step could not be
-measured. The core subtitle says why a line is dim (`checking`, `same as A`,
-`settling`, `clock moving`, `not refreshing`, `load 3 %`, `vs A 2115`,
-`read failed`, `stale`), and the tooltip gives both raw arrays, the Δ in bins
-and the evidence. When the private read fails after good ones, every tile's
-line shows its last values as `last …` for up to 3 s, then `measured: n/a`.
+changed, with B still refreshing, and after five such readings with A
+unchanged. The colour comes from the median of up to the last 15 of them, in
+this card's clock bins with 0.5 MHz of tolerance, either sign (above the
+programmed clock counts too): plain within one bin, amber at one bin or more,
+red at three or more. When the last five spread over more than one bin (a
+transient or an outlier), the line is `varying` and dim.
+
+A colour once reached is **held** until the median falls back past its edge by
+the tolerance plus three standard errors of the median. The scatter behind
+that comes from the steps between successive readings, so a real change of the
+gap does not count as noise. While a colour is held, that release margin only
+widens, because a single quiet window would otherwise release it. The tooltip
+says when a colour is held and by how much. One TU102 held its ceiling at about
+-14.7 MHz, 0.2 MHz from the amber edge. In a simulation at the ±2.2 MHz of
+jitter the same card showed at a 1920 MHz lock, a five-reading median changed
+colour 70-490 times an hour at true gaps from -13.0 to -14.7. This rule changes
+it a few times at most (the worst simulated hour: 7, at -13.0).
+
+The price is history. Once amber, a counter jittering ±2.2 MHz has to come back
+to about 2-2.5 MHz inside the edge (-12 to -12.5 MHz) before the line turns
+plain. The same steady -13.5 is amber when the card came down from -14.7, and
+plain when it started there. A change of A, a load drop below 85 %, or a break
+in the readings starts the judgement over.
+
+No colour is claimed when this card's clock step could not be measured. The core
+subtitle says why a line is dim (`checking`, `same as A`, `settling`,
+`clock moving`, `not refreshing`, `load 3 %`, `vs A 2115`, `read failed`,
+`stale`), and the tooltip gives both raw arrays, the Δ in bins and the evidence.
+When the private read fails after good ones, each tile keeps its last reading
+for up to 3 s (a number is marked `last …`), then reads `measured: n/a`.
 
 XBAR and memory are shown but never judged: XBAR follows the core clock and its
 own bin is not known here, and on one TITAN RTX the two memory arrays differed

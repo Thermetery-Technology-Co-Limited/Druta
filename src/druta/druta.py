@@ -636,6 +636,8 @@ class Druta:
                       "unproven 0000  Δ +00.0", "last 0000  Δ +0000",
                       "measured: none (B = A)", "measured: not read yet",
                       "measured: checking B", "measured: same as A", "measured: n/a")
+    # a memory clock with no known divisor is shown raw, and can have five digits
+    REAL_TEMPLATES_RAW = ("measured 00000  Δ +00000",)
     # every word the core subtitle can take, so the tile never grows with it
     REAL_SUB_TOKENS = (" · steady at load", " · varying", " · settling",
                        " · load 100 %", " · load unread", " · stale",
@@ -998,8 +1000,8 @@ class Druta:
         if rows is not None and fresh:
             self._real_fed_t = now
         # a private read that failed after good ones is not a card without the
-        # getter: the last reading stays, dimmed and marked "last", but only
-        # for as long as it could still be continuous with the next one
+        # getter: the last reading stays, dimmed and marked "last", for up to
+        # READ_GAP_S after the last snapshot that was fed
         fed_t = getattr(self, "_real_fed_t", None)
         failed = rows is None and fed_t is not None and now - fed_t <= realclock.READ_GAP_S
         bin_mhz = None
@@ -1153,9 +1155,10 @@ class Druta:
                          f"clock step could not be measured, and a colour is not claimed "
                          f"against a borrowed one.")
         ev, n, run = reading.events, reading.samples, reading.mirror_run
-        counted = ("B turning back on its own - up after down, or down after up - while A "
-                   "holds still, to a value A never reported; a copy of A, lagged, offset or "
-                   "smoothed, only moves one way after A changes")
+        counted = (f"B turning back on its own - up after down, or down after up - while A "
+                   f"holds still, to a value A never reported, after its first "
+                   f"{realclock.FRESH_NEEDED} moves since A last changed (a copy of A a few "
+                   f"reads late, offset or smoothed, only moves one way by then)")
         if trust == realclock.MEASURED:
             lines.append(f"B counts as measured on this card: while A held still it turned back "
                          f"on its own {ev} times, to values A never reported ({n} readings).")
@@ -1183,8 +1186,10 @@ class Druta:
                           f"({ev} of {realclock.EVIDENCE_EVENTS} in {n} readings)")
                          + " - so it is shown as unproven, not as a measurement.")
         if failed:
-            lines.append(f"The private clock read failed this time; the last good values are "
-                         f"shown as \"last\", not judged, for up to {realclock.READ_GAP_S:g} s.")
+            lines.append(f"The private clock read failed this time; the last good "
+                         + ("values are shown as \"last\"" if line.startswith("last ")
+                            else "state is kept")
+                         + f", not judged, for up to {realclock.READ_GAP_S:g} s.")
         elif stale:
             lines.append("Not judged: the latest driver read failed; these are the last good "
                          "values.")
@@ -1202,12 +1207,12 @@ class Druta:
                              f"median {statistics.median(reading.window):+.1f}.")
                 if reading.held and bin_mhz:
                     edge = (3 if verdict == "bad" else 1) * bin_mhz - realclock.GAP_TOL_MHZ
-                    hold = realclock.median_hold(reading.window)
+                    hold = reading.hold_mhz or realclock.median_hold(reading.window)
                     lines.append(f"{'Red' if verdict == 'bad' else 'Amber'} is HELD: the median "
                                  f"crossed the {edge:.1f} MHz edge earlier and has not fallen "
                                  f"{hold:.1f} MHz back past it (the tolerance plus three "
-                                 f"standard errors of the median), so the colour does not "
-                                 f"flicker on the edge.")
+                                 f"standard errors of the median, the widest seen while held), "
+                                 f"so the colour does not flicker on the edge.")
             elif state in ("settling", "load start"):
                 lines.append(f"Not judged yet: needs {realclock.WINDOW_READS} readings at >= "
                              f"{gate} % load (a chosen threshold; once reached, the load counts "
@@ -1266,13 +1271,16 @@ class Druta:
         units = lh
         real = 0
         base = getattr(self, "_real_sub_base", "P?")
+        static = getattr(getattr(self, "gpu", None), "static", None) or {}
+        templates = self.REAL_TEMPLATES + (() if static.get("mem_div")
+                                           else self.REAL_TEMPLATES_RAW)
         for key, _label, unit, _col in self.TILES:
             txt = (dpg.get_value(f"s_{key}") if dpg.does_item_exist(f"s_{key}")
                    else "") or "Ag"
             subs = max(subs, self.text_h(txt, "ui", wrap) or lh)
             units = max(units, self.text_h(unit, "ui", wrap) or lh)
             if dpg.does_item_exist(f"r_{key}"):
-                for line in self.REAL_TEMPLATES + (dpg.get_value(f"r_{key}") or "",):
+                for line in templates + (dpg.get_value(f"r_{key}") or "",):
                     real = max(real, self.text_h(line or "Ag", "ui", wrap) or lh)
         if real:
             # every state of the core subtitle, so the tile does not jump when
@@ -1536,6 +1544,10 @@ class Druta:
                                                f"time ({exc}); nothing is judged.")
                     dpg.configure_item(f"r_{key}", color=DIM)
                 self._real_col = {key: "dim" for key in self.REAL_TILES}
+                # nor may the log count a reading the blanked line does not show
+                tracker = getattr(self, "_real", None)
+                self._gap_seen = tracker.last("core") if tracker is not None else None
+                self._gap_hist = []
             except Exception:                                     # noqa: BLE001
                 pass
         else:
