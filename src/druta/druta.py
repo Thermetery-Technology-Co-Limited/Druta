@@ -144,11 +144,16 @@ RISK_BAND_NAME = {RISK_AMBER: "AMBER", RISK_RED: "RED",
 # inclusive, colours from the palette and the risk tints above.
 WIRE_BANDS = ((5.0, TEXT), (10.0, WARN), (13.0, RISK_TINT[RISK_RED][2]),
               (math.inf, RISK_TINT[RISK_CRIMSON][1]))
+# The PCIe slot's 12 V current as a whole (its current comes through board
+# pins, not a cable): up to 5.5 A white (66 W, the slot's 12 V rating), to
+# 6.25 A yellow (75 W), to 7 A red (84 W), above that crimson.
+SLOT_BANDS = ((5.5, TEXT), (6.25, WARN), (7.0, RISK_TINT[RISK_RED][2]),
+              (math.inf, RISK_TINT[RISK_CRIMSON][1]))
 
 
-def wire_band(amps_per_wire):
-    """Index into WIRE_BANDS for one wire's current."""
-    return next(i for i, (top, _colour) in enumerate(WIRE_BANDS) if amps_per_wire <= top)
+def band_colour(amps, bands):
+    """The colour of the band (upper bound inclusive) this current falls in."""
+    return next(colour for top, colour in bands if amps <= top)
 # Says what the SCORE means. What each individual feature does is in
 # RISK_FEATURE_TEXT, and the banner shows both.
 RISK_BAND_TEXT = {
@@ -1814,23 +1819,29 @@ class Druta:
                 return entry["name"]
         return ""
 
-    def row_wires(self, row):
-        """12 V wires sharing a CURRENT row's reading, from its channel note."""
-        return policynames.wires(self.channel_note(row)) if row.get("unit") == "mA" else None
+    def row_scale(self, row):
+        """(divisor, bands, suffix) for a CURRENT row whose channel note is a
+        connector, or None: a cable's current per 12 V wire (WIRE_BANDS), the
+        slot's current as a whole (SLOT_BANDS)."""
+        if row.get("unit") != "mA":
+            return None
+        note = self.channel_note(row)
+        if note == "PCIE":
+            return 1, SLOT_BANDS, ""
+        wires = policynames.wires(note)
+        return (wires, WIRE_BANDS, "/wire") if wires else None
 
-    def wire_theme(self, band):
-        """Text colour for a value box in WIRE_BANDS[band]; built once per UI
-        build (build_ui deletes unparented themes on a rebuild)."""
-        themes = getattr(self, "_wire_themes", None)
-        if themes is None or not all(dpg.does_item_exist(t) for t in themes.values()):
-            themes = {}
-            for i, (_top, colour) in enumerate(WIRE_BANDS):
-                with dpg.theme() as th:
-                    with dpg.theme_component(dpg.mvAll):
-                        dpg.add_theme_color(dpg.mvThemeCol_Text, colour)
-                themes[i] = th
-            self._wire_themes = themes
-        return themes[band]
+    def current_theme(self, colour):
+        """Text colour for a value box; built once per colour per UI build
+        (build_ui deletes unparented themes on a rebuild)."""
+        themes = getattr(self, "_current_themes", None) or {}
+        if colour not in themes or not dpg.does_item_exist(themes[colour]):
+            with dpg.theme() as th:
+                with dpg.theme_component(dpg.mvAll):
+                    dpg.add_theme_color(dpg.mvThemeCol_Text, colour)
+            themes[colour] = th
+            self._current_themes = themes
+        return themes[colour]
 
     def note_cell(self, row):
         """The label cell: the channel note's choice list, then the policy's
@@ -1884,7 +1895,9 @@ class Druta:
                      "after that and marked *. Stock hands a policy back to the driver. Note a "
                      "channel by its connector, or 'others' for your own words; a current row on a "
                      "connector shows its current per 12 V wire, coloured: to 5 A white, 10 A "
-                     "yellow, 13 A red, above that crimson.", color=DIM, wrap=self.s(900))
+                     "yellow, 13 A red, above that crimson. The slot (PCIE) is judged as a whole: "
+                     "to 5.5 A white, 6.25 A yellow, 7 A red, above that crimson.",
+                     color=DIM, wrap=self.s(900))
         with dpg.table(header_row=False, no_host_extendX=True,
                        policy=dpg.mvTable_SizingFixedFit):
             self.knob_cols(self.POLICY_COLS)
@@ -2073,16 +2086,18 @@ class Druta:
         live = {row["policy"]: row for row in rows}
         for policy, previous in list(self._power_policies.items()):
             key, row = f"pp{policy}", live.get(policy)
-            wires = self.row_wires(row or previous)
+            scale = self.row_scale(row or previous)
             if dpg.does_item_exist(f"live_{key}"):
                 if row:
                     amount = lambda v: GPU._policy_amount(v, row["unit"])   # noqa: E731
                     mark = " *" if row["pinned"] is not None else ""
-                    if wires:
-                        now_w, limit_w = row["value"] / 1000 / wires, row["limit"] / 1000 / wires
-                        text = (f"{amount(row['value'])} ({now_w:.2f}/wire)\n"
-                                f"≤{amount(row['limit'])} ({limit_w:.2f}/wire){mark}")
-                        colour = WIRE_BANDS[wire_band(now_w)][1]
+                    if scale:
+                        divisor, bands, per = scale
+                        now_a, limit_a = row["value"] / 1000 / divisor, row["limit"] / 1000 / divisor
+                        text = (f"{amount(row['value'])} ({now_a:.2f}{per})\n"
+                                f"≤{amount(row['limit'])} ({limit_a:.2f}{per}){mark}" if per else
+                                f"{amount(row['value'])}\n≤{amount(row['limit'])}{mark}")
+                        colour = band_colour(now_a, bands)
                     else:
                         text = f"{amount(row['value'])}\n≤{amount(row['limit'])}{mark}"
                         colour = GOOD if row["pinned"] is not None else TEXT
@@ -2111,8 +2126,8 @@ class Druta:
             # the limit's band for the value on the slider, staged or set:
             # raising it shows where it lands before Apply
             if dpg.does_item_exist(f"in_{key}"):
-                dpg.bind_item_theme(f"in_{key}", self.wire_theme(wire_band(staged / wires))
-                                    if wires else 0)
+                dpg.bind_item_theme(f"in_{key}", self.current_theme(
+                    band_colour(staged / scale[0], scale[1])) if scale else 0)
 
     def build_volt_limits_rows(self):
         """Build readouts and confirmed controls for the rails on this card."""

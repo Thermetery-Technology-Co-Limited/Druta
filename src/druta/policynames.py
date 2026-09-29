@@ -18,8 +18,9 @@ from pathlib import Path
 NAME_MAX = 80
 # The note a channel can be given from the list, and how many 12 V wires share
 # a connector's current: the per-wire colour bands in the UI divide its reading
-# by this, assuming an even split. None: not a cable (the slot's current comes
-# through board pins), so no per-wire figure. Any other note is free text.
+# by this, assuming an even split. None: not a cable - the slot's current comes
+# through board pins and is judged as a whole (the UI's slot bands). Any other
+# note is free text.
 CONNECTORS = {"PCIE 8pin": 3, "PCIE": None, "EPS 8pin": 4, "12VHPWR/12V-2x6": 6}
 OTHER = "others"
 

@@ -23,7 +23,7 @@ import dearpygui.dearpygui as dpg
 
 from druta import nvbackend as n
 from druta import policynames, profiles
-from druta.druta import WIRE_BANDS, Druta
+from druta.druta import SLOT_BANDS, WIRE_BANDS, Druta
 
 A612, A618, A619, A61A, E61B = 0x2080A612, 0x2080A618, 0x2080A619, 0x2080A61A, 0x2080E61B
 INFO, STATUS, CONTROL = (0xCC, 0xFC), (0x9C, 0x1720), (0x14, 0xC4)
@@ -483,14 +483,15 @@ class PolicyUiTests(PolicyUiCase):
     def test_the_limits_band_follows_the_value_on_the_slider(self):
         self.build()
         self.app.set_power_policy_note(8, choice="PCIE 8pin")
-        self.assertEqual(dpg.get_item_theme("in_pp8"), self.app.wire_theme(1))   # 17 A = 5.67/wire
+        theme = lambda band: self.app.current_theme(WIRE_BANDS[band][1])        # noqa: E731
+        self.assertEqual(dpg.get_item_theme("in_pp8"), theme(1))      # 17 A = 5.67/wire
         dpg.set_value("sl_pp8", 33.75)                                 # staged, not applied
         self.app.refresh_power_policies(force=True)
-        self.assertEqual(dpg.get_item_theme("in_pp8"), self.app.wire_theme(2))   # 11.25/wire
+        self.assertEqual(dpg.get_item_theme("in_pp8"), theme(2))      # 11.25/wire
         self.assertEqual(self.card.sets, [])
         dpg.set_value("sl_pp8", 12.0)
         self.app.refresh_power_policies(force=True)
-        self.assertEqual(dpg.get_item_theme("in_pp8"), self.app.wire_theme(0))
+        self.assertEqual(dpg.get_item_theme("in_pp8"), theme(0))
         self.app.set_power_policy_note(8, choice="-")
         self.assertIsNone(dpg.get_item_theme("in_pp8"))
 
@@ -509,6 +510,22 @@ class PolicyUiTests(PolicyUiCase):
                 else:
                     self.app.set_power_policy_note(8, text="my cable")
                 self.assertNotIn("/wire", dpg.get_value("live_pp8"))
+
+    def test_the_slot_is_judged_as_a_whole_by_its_own_bands(self):
+        self.build()
+        self.app.set_power_policy_note(7, choice="PCIE")               # slot current, channel 3
+        for amps, band in ((5.0, 0), (5.5, 0), (6.0, 1), (6.25, 1), (6.5, 2), (7.0, 2), (7.5, 3)):
+            with self.subTest(amps=amps):
+                self.card.reading[7] = int(amps * 1000)
+                self.app.refresh_power_policies(force=True)
+                self.assertEqual(self.colour("live_pp7"), SLOT_BANDS[band][1])
+                self.assertNotIn("/wire", dpg.get_value("live_pp7"))
+        # the Titan's own 11 A slot limit, shown as it is
+        self.assertEqual(dpg.get_item_theme("in_pp7"), self.app.current_theme(SLOT_BANDS[3][1]))
+        dpg.set_value("sl_pp7", 6.0)
+        self.app.refresh_power_policies(force=True)
+        self.assertEqual(dpg.get_item_theme("in_pp7"), self.app.current_theme(SLOT_BANDS[1][1]))
+        self.assertEqual(self.card.sets, [])
 
     def test_a_loaded_profiles_notes_become_this_cards_notes(self):
         self.build()
