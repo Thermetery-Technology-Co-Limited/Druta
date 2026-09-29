@@ -4,7 +4,7 @@
 
 Default ON with a 25 mV margin. The margin is an estimate from one TU102
 (TITAN RTX): holds on the effective voltage ceiling (reliability plus its boost
-contribution, alt-reliability, overvoltage) lost 19-37 MHz, and 25 mV of
+contribution, alt-reliability, overvoltage) lost 27-37 MHz, and 25 mV of
 headroom removed the loss there. Other cards and generations have not been
 measured, so the value is the user's to change and is labelled as an estimate
 wherever it is shown.
@@ -46,7 +46,7 @@ def load(path=None):
     defaults: a broken settings file must not silently turn the protection off."""
     try:
         data = read_json(path or config_path(), default={}) or {}
-    except (OSError, ValueError, json.JSONDecodeError):
+    except (OSError, ValueError, RecursionError):
         data = {}
     enabled = data.get("enabled", DEFAULT_ENABLED)
     if not isinstance(enabled, bool):
@@ -81,6 +81,13 @@ def save(enabled, margin_mv, path=None):
 # read is evidence of unknown content and is never overwritten or deleted.
 
 MARKER_VERSION = 2
+# Versions this build can judge. Version 1 had no owner (it reads as dead).
+# A marker of any other version is from a build that may name its fields
+# differently: it is kept as evidence of unknown content, like an unreadable one.
+KNOWN_MARKER_VERSIONS = (1, MARKER_VERSION)
+# GPU.VOLT_LIMIT_FIELDS: the only field names a marker may carry (pinned by a
+# test, so this module need not import the backend).
+LIMIT_FIELDS = ("reliability", "alt_reliability", "overvoltage", "vmin")
 _STILL_ACTIVE = 259
 
 
@@ -167,48 +174,56 @@ def owner_state(owner):
     current holder of its PID allows, so an access-denied PID reuse cannot keep
     a crashed session's marker "alive" forever.
 
+    The process is asked FIRST: a running process whose creation time can be
+    read is decisive either way, whatever the wall clock says - a clock stepped
+    forward after the owner started would otherwise put its creation "before
+    this boot" and read a live window's raise as a crash. The boot comparison
+    only decides when the process exists but cannot be queried.
+
     KNOWN LIMIT: "this boot" comes from GetTickCount64, which a Windows Fast
     Startup shutdown does not reset. After one, a crashed session's owner can
     still read as newer than the boot, and if its PID has been reused by a
     process this user cannot query, the marker reads as alive. The effect is a
     missing dialog, never lost evidence: an alive owner's marker is not
     cleared, and a restart or cold boot resolves it."""
-    if not isinstance(owner, dict) or not isinstance(owner.get("pid"), int):
+    if not isinstance(owner, dict) or type(owner.get("pid")) is not int:
         return "dead"
     me = current_owner()
     if owner["pid"] == me["pid"] and owner.get("created") == me["created"]:
         return "self"
     stored = owner.get("created")
-    boot = boot_filetime()
-    if isinstance(stored, int) and boot is not None and stored < boot:
-        return "dead"
     created = process_created(owner["pid"])
     if created is None:
         return "dead"
-    if created == "unknown" or stored in (None, "unknown"):
-        return "alive"
-    return "alive" if created == stored else "dead"
+    if type(created) is int and type(stored) is int:
+        return "alive" if created == stored else "dead"
+    boot = boot_filetime()
+    if type(stored) is int and boot is not None and stored < boot:
+        return "dead"
+    return "alive"
 
 
 def _valid_record(record):
     if not isinstance(record, dict):
         return False
     written, prior = record.get("written_uv"), record.get("prior_uv")
-    return (isinstance(record.get("rail"), int) and isinstance(written, dict)
+    return (type(record.get("rail")) is int and isinstance(written, dict)
             and isinstance(prior, dict) and written and set(written) == set(prior)
+            and set(written) <= set(LIMIT_FIELDS)
             and all(type(v) is int for v in list(written.values()) + list(prior.values())))
 
 
 def marker_state(uuid, root=None):
-    """('missing' | 'ok' | 'unreadable', record_or_None) for `uuid`'s file."""
+    """('missing' | 'ok' | 'unreadable', record_or_None) for `uuid`'s file.
+    'unreadable' also covers a marker of a version this build cannot judge."""
     path = marker_path(uuid, root)
     if not path.exists():
         return "missing", None
     try:
         data = read_json(path, default=None)
-    except (OSError, ValueError, json.JSONDecodeError):
+    except (OSError, ValueError, RecursionError):
         return "unreadable", None
-    if not _valid_record(data):
+    if not _valid_record(data) or data.get("version", 1) not in KNOWN_MARKER_VERSIONS:
         return "unreadable", None
     return "ok", data
 
@@ -237,11 +252,34 @@ def mark_active(uuid, record, root=None):
     entry = {k: record[k] for k in ("rail", "hold_mv", "margin_mv", "ceiling_mv",
                                     "written_uv", "prior_uv") if k in record}
     entry.update(version=MARKER_VERSION, owner=current_owner())
+    path = marker_path(uuid, root)
+    if state == "ok":
+        # our own marker: replaced in one step
+        try:
+            atomic_json(path, entry)
+            return True, "tracked"
+        except (OSError, ValueError) as exc:
+            return False, f"could not record the headroom raise: {exc}"
+    # A NEW marker is created exclusively: two windows that both found none a
+    # moment ago must not both think they own it. os.rename fails on Windows
+    # when the target exists, where os.replace would overwrite it.
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.new")
     try:
-        atomic_json(marker_path(uuid, root), entry)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_text(json.dumps(entry, indent=2, sort_keys=True, allow_nan=False),
+                       encoding="utf-8")
+        os.rename(tmp, path)
         return True, "tracked"
-    except OSError as exc:
-        return False, f"could not record the headroom raise: {exc}"
+    except FileExistsError:
+        result = (False, "another headroom marker appeared for this card at the same moment; "
+                         "it was left in place")
+    except (OSError, ValueError) as exc:
+        result = (False, f"could not record the headroom raise: {exc}")
+    try:
+        tmp.unlink()
+    except OSError:
+        pass
+    return result
 
 
 def clear_active(uuid, root=None, force=False):

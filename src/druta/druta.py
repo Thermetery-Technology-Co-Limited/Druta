@@ -4293,7 +4293,7 @@ class Druta:
         if not ok:
             self.log("the new lock was NOT taken: the old one is still held and "
                      "two locks cannot both be tracked", False)
-            self.sync_hold_headroom(replan=True)   # its raise came off above
+            self.reconfirm_hold_after_failed_release()   # its raise came off above
             return False
         self.set_lock_state(None)
         return True
@@ -4344,8 +4344,34 @@ class Druta:
         if ok:
             self.set_lock_state(None)
         else:
-            # the lock is still in force but its raise came off: plan it again
+            # the lock may still be in force, and its raise came off
+            self.reconfirm_hold_after_failed_release()
+
+    def reconfirm_hold_after_failed_release(self):
+        """After a release that did not succeed: the card may still be held -
+        or unlocked already, when the release was sent but its verification
+        read failed. A raise is planned again only for a V/F lock read back as
+        this window's own; a card read back unlocked drops the record, and an
+        unreadable lock is marked unconfirmed, which gets no raise."""
+        lock = self._clk_lock or {}
+        if lock.get("kind") != self.LOCK_VF or lock.get("req_mv") is None:
             self.sync_hold_headroom(replan=True)
+            return
+        try:
+            st, err = self.gpu.read_vf_lock_status(domain=lock.get("domain"))
+        except Exception as exc:                                  # noqa: BLE001
+            st, err = None, str(exc)
+        if err:
+            self.log("the V/F lock could not be read back after the failed release; it "
+                     "is shown as unconfirmed and gets no headroom until Release "
+                     "succeeds", False)
+            self.set_lock_state(dict(lock, verified=False))
+            return
+        if st is None or st.get("volt_uV") != int(round(float(lock["req_mv"]) * 1000)):
+            self.log("the V/F lock reads back as released after all", True)
+            self.set_lock_state(None)
+            return
+        self.sync_hold_headroom(replan=True)
 
     def release_on_exit(self):
         """Drop whichever lock THIS app is still holding, as the window closes.
@@ -4449,8 +4475,8 @@ class Druta:
     # GPU.apply_hold_headroom raises the voltage ceiling to hold + margin while a
     # V/F hold is in force, and only for a hold at or below the ceiling. The held
     # V/F point's voltage does not change; the rail may rise by at most the
-    # margin, into the driver's own margin above the point that the old ceiling
-    # was clipping (see the note at GPU.HOLD_HEADROOM_FIELDS). Everything below
+    # margin (one TU102 ran its rail above the point once the ceiling stopped
+    # clipping it; see the note at GPU.HOLD_HEADROOM_FIELDS). Everything below
     # keeps it bounded across the app: the raise is taken off BEFORE the lock is
     # released or moved (never the other way round), re-planned when its inputs
     # change, the live rail is checked against the RAISED ceiling and the lock
@@ -4476,9 +4502,15 @@ class Druta:
         gpu = self.headroom_backend()
         if not gpu or not isinstance(gpu.hold_headroom_record(), dict):
             return True, "no headroom to restore"
-        ok, msg = gpu.restore_hold_headroom()
-        if not ok:
+        # Never raises: it runs from DearPyGui callbacks, where an exception
+        # ends the main loop. A failure keeps the record, so every caller's
+        # "not restored" path (lock kept, retry, banner) still applies.
+        try:
             ok, msg = gpu.restore_hold_headroom()
+            if not ok:
+                ok, msg = gpu.restore_hold_headroom()
+        except Exception as exc:                                  # noqa: BLE001
+            ok, msg = False, f"the restore raised: {exc}"
         if refresh and dpg.does_item_exist("vlim_txt0"):
             self.refresh_volt_limits()
         self.mirror_headroom_marker()
@@ -4552,16 +4584,22 @@ class Druta:
             return
         if not (confirmed and on):
             self._headroom_note = None
+            if not is_vf:
+                self._headroom_tripped = None                   # the hold ended
             if record:
                 ok, msg = self.restore_headroom()
                 self.log(f"headroom: {msg}", ok)
+                if not ok:
+                    self._headroom_note = ("raised", msg)       # the watch retries
             return
         hold = float(request)
         if arch is None:
             # architecture not read this time: unknown, not unsupported
             if record:
-                self.restore_headroom()
-            self._headroom_note = ("unread", "the GPU architecture could not be read this time")
+                self.drop_raise_for("the GPU architecture could not be read")
+            if not self.headroom_still_raised():
+                self._headroom_note = ("unread", "the GPU architecture could not be read this time")
+            self.note_unread_for_retry()
             self.log_once("headroom_arch", "headroom: the GPU architecture could not be read this "
                           "time; headroom not applied (the next hold tries again)")
             return
@@ -4569,15 +4607,40 @@ class Druta:
         blocked = self.headroom_blocker()
         if blocked:
             if record:
-                self.restore_headroom()
-            self._headroom_note = ("withheld", blocked)
+                self.drop_raise_for(blocked)
+            if not self.headroom_still_raised():
+                self._headroom_note = ("withheld", blocked)
             self.log(f"headroom: WARNING - {blocked}", None)
             return
-        if record and not replan and abs(record["hold_mv"] - hold) < 1e-6 \
-                and abs(record["margin_mv"] - margin) < 1e-6 and not self.headroom_boost_moved(gpu, record):
+        key = self.headroom_hold_key(state)
+        tripped = getattr(self, "_headroom_tripped", None)
+        if tripped is not None and tripped != key:
+            self._headroom_tripped = tripped = None             # a different hold now
+        if tripped is not None:
+            # the live check took this hold's raise off: it is not put back by a
+            # re-plan (boost, profile, margin, Max it) until the hold changes
+            if record:
+                self.drop_raise_for("the live rail went above the raised ceiling")
+            if not self.headroom_still_raised():
+                self._headroom_note = ("withheld", "the live rail went above the raised ceiling "
+                                                   "during this hold; headroom stays off until "
+                                                   "the hold changes")
+            return
+        same_hold = bool(record) and abs(record["hold_mv"] - hold) < 1e-6
+        if same_hold and not replan and abs(record["margin_mv"] - margin) < 1e-6 \
+                and not self.headroom_boost_moved(gpu, record):
             return
         check = getattr(gpu, "hold_headroom_rail_unavailable", None)
-        missing = check(0) if callable(check) and not record else None
+        missing = check(0) if callable(check) and (same_hold or not record) else None
+        if missing and same_hold:
+            # A re-plan that cannot read the rails keeps the verified raise it
+            # would otherwise strip first: it belongs to this very hold.
+            _kind, why = missing
+            self._headroom_note = ("unread", why)
+            self.note_unread_for_retry()
+            self.log(f"headroom: the raise was not re-planned - the voltage limits could not "
+                     f"be read this time ({why}); the raise made for this hold stays", None)
+            return
         if missing:
             kind, why = missing
             if kind == "unanswered":
@@ -4592,8 +4655,9 @@ class Druta:
                              f"again at each hold.", None)
             else:
                 self._headroom_note = ("unread", why)
+                self.note_unread_for_retry()
                 self.log(f"headroom: not applied - the voltage limits could not be read "
-                         f"this time ({why}); the next hold tries again", False)
+                         f"this time ({why}); Druta tries again", False)
             return
         self._headroom_unanswered = None
         self.clear_once("headroom_rails")
@@ -4601,7 +4665,14 @@ class Druta:
         if ok is False and not isinstance(gpu.hold_headroom_record(), dict):
             # nothing landed; a write that was not seen is safe to repeat once
             ok, msg = gpu.apply_hold_headroom(hold, margin, before_write=self.write_ahead_marker)
-        if ok is None:
+        if getattr(gpu, "_hold_headroom_live_trip", False):
+            gpu._hold_headroom_live_trip = False
+            self._headroom_tripped = key
+        if ok is not True and isinstance(gpu.hold_headroom_record(), dict):
+            # a write whose rollback failed: the limits are still raised
+            self._headroom_note = ("raised", msg)
+            self.log(f"headroom: {msg}", False)
+        elif ok is None:
             self._headroom_note = ("withheld", msg)
             self.log(f"headroom: WARNING - {msg}", None)
         elif ok is False:
@@ -4614,18 +4685,50 @@ class Druta:
             self._headroom_applied_t = time.monotonic()
             self._headroom_retry_at = 0
             self.log(f"headroom: {msg}", True)
-            if self.headroom_uuid() is None:
-                self.log_once("headroom_uuid", "headroom: this GPU reports no UUID, so the raise "
-                              "cannot be tracked across a crash; it is still restored normally")
+            if self.headroom_uuid() is None and self._once.get("headroom_uuid") is None:
+                self._once["headroom_uuid"] = True
+                self.log("headroom: this GPU reports no UUID, so the raise cannot be tracked "
+                         "across a crash; it is still restored normally", None)
         if dpg.does_item_exist("vlim_txt0"):
             self.refresh_volt_limits()
         self.mirror_headroom_marker()
+
+    def headroom_hold_key(self, state=None):
+        """Which hold a latch belongs to: its domain and request."""
+        state = self._clk_lock if state is None else state
+        state = state or {}
+        return (state.get("domain"), state.get("req_mv"))
+
+    def headroom_still_raised(self):
+        gpu = self.headroom_backend()
+        return bool(gpu) and isinstance(gpu.hold_headroom_record(), dict)
+
+    def drop_raise_for(self, why):
+        """Take the raise off because the plan no longer wants it. A failure is
+        NOT silent: the limits are still raised, the banner says so and the
+        watch retries at its back-off cadence."""
+        ok, msg = self.restore_headroom()
+        if ok:
+            return True
+        self._headroom_note = ("raised", f"{why}, but the raise could not be taken off: {msg}")
+        self.log(f"headroom: {why}; the raise could not be taken off ({msg}) - retrying", False)
+        return False
+
+    # A transient read failure at hold time is retried this many times at the
+    # lock-check cadence (once a second), then left for the next hold.
+    HEADROOM_UNREAD_RETRIES = 3
+
+    def note_unread_for_retry(self):
+        if not getattr(self, "_headroom_retrying", False):
+            self._headroom_unread_left = self.HEADROOM_UNREAD_RETRIES
 
     def headroom_boost_moved(self, gpu, record):
         """The reliability term includes the reported boost contribution: if it
         moved since the plan (a slider, a profile, Undo, Max it), plan again."""
         try:
             row = (gpu.read_volt_rail_limits() or {}).get(record["rail"]) or {}
+            if row.get("_absolute_ok") is False:
+                return False        # the boost was not read this time: unknown, not moved
             now = float(row.get("_boost_mv", record.get("boost_mv", 0.0)) or 0.0)
         except Exception:                                        # noqa: BLE001
             return False
@@ -4653,12 +4756,16 @@ class Druta:
                 if owner == "alive":
                     return ("another Druta window has raised this card's voltage limits for "
                             "its own hold; headroom was NOT applied in this window")
+                if owner == "dead" and uuid in self._stale_judged():
+                    return None                 # judged; only its delete is pending
                 if owner == "dead":
-                    # an earlier session's marker not yet judged (its limits could
-                    # not be read at startup): a raise now would be planned on top
-                    # of it and lose the only record of the original limits
-                    return ("an earlier Druta session's headroom marker for this card has "
-                            "not been checked yet (the limits could not be read); headroom "
+                    # an earlier session's (or a window that has since closed)
+                    # marker not yet judged: a raise now would be planned on top
+                    # of it and lose the only record of the original limits. The
+                    # watch judges it now, and opens the dialog if it is live.
+                    self._stale_recheck = True
+                    return ("a headroom marker left for this card by an earlier Druta "
+                            "session or a closed window has not been judged yet; headroom "
                             "was NOT applied to this hold")
         return None
 
@@ -4703,13 +4810,19 @@ class Druta:
                    f"Clocks menu (NVML locked clocks) - no V/F point is held")
         else:
             txt = ""
-        note = getattr(self, "_headroom_note", None) if held and not uncertain else None
+        note = getattr(self, "_headroom_note", None)
+        # a raise that could not be taken off is shown whatever the lock says
+        if not (note and note[0] == "raised") and not (held and not uncertain):
+            note = None
         if note:
             kind, _msg = note
-            txt += ("\nHEADROOM WITHHELD - the card may run below the clock shown; the "
+            txt = txt or "No V/F hold"
+            txt += ("\nVOLTAGE LIMITS STILL RAISED - the headroom raise could not be taken "
+                    "off; Druta retries (see log)" if kind == "raised" else
+                    "\nHEADROOM WITHHELD - the card may run below the clock shown; the "
                     "voltage limits were not raised (see log)" if kind == "withheld" else
                     "\nHEADROOM NOT APPLIED - the card may run below the clock shown; "
-                    "its voltage limits could not be read this time (see log)"
+                    "Druta could not read what it needs this time and tries again (see log)"
                     if kind == "unread" else
                     "\nHEADROOM NOT APPLIED - the card may run below the clock shown; "
                     "the limit write did not succeed (see log)")
@@ -4743,6 +4856,8 @@ class Druta:
         self._headroom_tick = getattr(self, "_headroom_tick", 0) + 1
         slow = self._headroom_tick % self.HEADROOM_LOCK_CHECK_TICKS == 0
         uuid = self.headroom_uuid()
+        if slow:
+            self.refresh_foreign_headroom()
         record = gpu.hold_headroom_record()
         if not isinstance(record, dict):
             if slow:
@@ -4751,19 +4866,32 @@ class Druta:
                 if getattr(self, "_stale_recheck", False):
                     self._stale_recheck = False
                     self.check_stale_headroom()
+                if uuid and uuid in self._stale_judged():
+                    self.clear_stale_marker(uuid)       # a judged marker's delete failed
+                note = getattr(self, "_headroom_note", None)
+                if (note and note[0] == "unread"
+                        and getattr(self, "_headroom_unread_left", 0) > 0):
+                    # a read that failed at hold time: bounded retries
+                    self._headroom_unread_left -= 1
+                    self._headroom_retrying = True
+                    try:
+                        self.sync_hold_headroom()
+                    finally:
+                        self._headroom_retrying = False
             return
-        if slow and uuid and uuid not in self._headroom_marked_uuids():
+        if slow and uuid and not self.headroom_marker_current(uuid, record):
             self.mirror_headroom_marker()               # a marker write failed earlier
         if getattr(self, "_headroom_retry_at", 0) > self._headroom_tick:
             return                                      # backing off after a failure
         # the rail block's live NVVDD (read on the poll thread while a raise is
-        # active), NOT vcore_mv: vcore is the held V/F point and never moves
+        # active), NOT vcore_mv: vcore is the held V/F point's voltage
         live = d.get("nvvdd_live_mv")
         applied = getattr(self, "_headroom_applied_t", None)
         fresh = snap_t is None or applied is None or snap_t >= applied
         if live is not None and fresh:
             ok, why = gpu.hold_headroom_live_ok(record, live_mv=live)
             if not ok:
+                self._headroom_tripped = self.headroom_hold_key()
                 self.watch_restore(why)
                 return
         if not slow:
@@ -4771,6 +4899,10 @@ class Druta:
         lock = self._clk_lock or {}
         if lock.get("kind") != self.LOCK_VF or lock.get("req_mv") is None:
             self.watch_restore("no V/F hold of this window is in force")
+            return
+        if not getattr(self, "headroom_on", False):
+            # turned off with a restore that failed: keep trying
+            self.watch_restore("headroom is turned off", note=False)
             return
         try:
             st, err = gpu.read_vf_lock_status(domain=lock.get("domain"))
@@ -4784,16 +4916,18 @@ class Druta:
                                   "(another tool may have replaced it)"):
                 self.set_lock_state(None)
 
-    def watch_restore(self, why):
+    def watch_restore(self, why, note=True):
         """Take the raise off for the watch; on failure, log once and back off
-        to the lock-check cadence. Returns whether the raise is off."""
+        to the lock-check cadence. Returns whether the raise is off. `note`
+        False: a successful restore leaves no banner note (the setting is off)."""
         ok, msg = self.restore_headroom()
-        self._headroom_note = ("withheld", why)
         if ok:
+            self._headroom_note = ("withheld", why) if note else None
             self._headroom_retry_at = 0
             self.clear_once("headroom_watch_restore")
-            self.log(f"headroom: {why}; raise undone ({msg})", True)
+            self.log(f"headroom: {why}; raise undone ({msg})", None)
         else:
+            self._headroom_note = ("raised", f"{why}; the restore failed: {msg}")
             self._headroom_retry_at = self._headroom_tick + self.HEADROOM_LOCK_CHECK_TICKS
             self.log_once("headroom_watch_restore",
                           f"headroom: {why}; RESTORE FAILED ({msg}) - retrying every second")
@@ -4870,15 +5004,38 @@ class Druta:
 
     def write_ahead_marker(self, record):
         """apply_hold_headroom's before_write hook: the marker exists before the
-        limits move, so a crash in between still leaves evidence."""
+        limits move, so a crash in between still leaves evidence. Returns False
+        when it could not be written, which stops the raise; None for a card
+        with no UUID (never trackable, said once, and not refused for it)."""
         uuid = self.headroom_uuid()
         if uuid is None:
-            return
+            return None
         ok, msg = vfheadroom.mark_active(uuid, record)
         if ok:
             self._headroom_marked_uuids().add(uuid)
+            self._headroom_marker_written()[uuid] = self.marker_view(record)
         else:
             self.log_once("headroom_marker", f"headroom: {msg}")
+        return ok
+
+    @staticmethod
+    def marker_view(record):
+        """The part of a raise record the marker carries, for comparing the
+        marker on disk with the raise in the driver."""
+        return (record.get("rail"), tuple(sorted((record.get("written_uv") or {}).items())),
+                tuple(sorted((record.get("prior_uv") or {}).items())))
+
+    def _headroom_marker_written(self):
+        written = getattr(self, "_headroom_marker_last", None)
+        if not isinstance(written, dict):
+            written = self._headroom_marker_last = {}
+        return written
+
+    def headroom_marker_current(self, uuid, record):
+        """Whether the marker this window last wrote for `uuid` describes
+        `record` - a re-plan whose marker write failed leaves an older one."""
+        return (uuid in self._headroom_marked_uuids()
+                and self._headroom_marker_written().get(uuid) == self.marker_view(record))
 
     def _headroom_marked_uuids(self):
         marked = getattr(self, "_headroom_marked", None)
@@ -4902,6 +5059,7 @@ class Druta:
             ok, msg = vfheadroom.mark_active(uuid, record)
             if ok:
                 marked.add(uuid)
+                self._headroom_marker_written()[uuid] = self.marker_view(record)
                 self.clear_once("headroom_marker")
             else:
                 self.log_once("headroom_marker", f"headroom: {msg}")
@@ -4909,6 +5067,7 @@ class Druta:
             ok, msg = vfheadroom.clear_active(uuid)
             if ok:
                 marked.discard(uuid)
+                self._headroom_marker_written().pop(uuid, None)
                 self.clear_once("headroom_marker")
             else:
                 self.log_once("headroom_marker", f"headroom: {msg}")
@@ -4937,11 +5096,13 @@ class Druta:
                      "it was left in place", False)
             return
         owner = vfheadroom.owner_state(record.get("owner"))
-        if owner in ("alive", "self"):
-            # Another Druta window on this card is holding with a live raise
-            # (or this is our own marker). Not a crash: no dialog, no clearing.
-            self.log("headroom: another Druta window is holding this card with its "
-                     "voltage limits raised; they go back when that hold ends", None)
+        if owner == "self":
+            return                              # this window's own raise
+        if owner == "alive":
+            # Another Druta window on this card is holding with a live raise.
+            # Not a crash: no dialog, no clearing. This session's first read
+            # took that raise as the card's starting values; that is undone.
+            self.note_foreign_headroom(record)
             return
         try:
             limits = self.gpu.read_volt_rail_limits()
@@ -4958,7 +5119,8 @@ class Druta:
             return
         self._stale_recheck = False
         if not raised:
-            vfheadroom.clear_active(uuid, force=True)
+            self.clear_stale_marker(uuid)
+            self.resume_startup_profile()       # held while the marker was unjudged
             return
         self._stale_headroom = record
         self.log("headroom: a previous session ended while voltage limits were raised "
@@ -4969,6 +5131,38 @@ class Druta:
             dpg.set_value("hrs_text", self.stale_headroom_text(record))
             self.show_win(user_data="win_headroom_stale")
             dpg.set_value("hrs_text", self.stale_headroom_text(record, self.pnp_blocker()))
+
+    def note_foreign_headroom(self, record):
+        """Another running window's raise on this card: this window's restore
+        target and its profiles use the limits from before that raise."""
+        gpu = self.headroom_backend()
+        if not gpu:
+            return
+        first = getattr(gpu, "_foreign_hold_headroom", None) != record
+        gpu._foreign_hold_headroom = record
+        changed = gpu.adopt_foreign_hold_headroom(record)
+        if first:
+            self.log("headroom: another Druta window is holding this card with its voltage "
+                     "limits raised; they go back when that hold ends. This window leaves "
+                     "that raise out of its starting values and of the profiles it saves"
+                     + (f" ({', '.join(k.replace('_', '-') for k in changed)} were read "
+                        f"while raised)" if changed else ""), None)
+
+    def refresh_foreign_headroom(self):
+        """Follow another running window's raise on this card (once a second),
+        so a raise it makes after this session started is left out too."""
+        gpu, uuid = self.headroom_backend(), self.headroom_uuid()
+        if not gpu or not uuid:
+            return
+        try:
+            state, marker = vfheadroom.marker_state(uuid)
+            alive = state == "ok" and vfheadroom.owner_state(marker.get("owner")) == "alive"
+        except Exception:                                        # noqa: BLE001
+            return
+        if alive:
+            self.note_foreign_headroom(marker)
+        else:
+            gpu._foreign_hold_headroom = None
 
     def pnp_blocker(self):
         """Why a PnP restart should not run now, or None. Checked on every click,
@@ -5006,6 +5200,11 @@ class Druta:
                 "on every GPU. After the restart Druta opens again and checks this "
                 "card again. Druta will close and the screen may go black for a "
                 "few seconds.")
+        held = getattr(self, "_held_startup_request", None)
+        if held:
+            text += (f"\n\nThe startup profile '{held.get('name', '')}' is waiting for this "
+                     "answer. After a restart it does not run again this boot; load it by "
+                     "hand.")
         if others:
             text += "\n\n" + others
         return text
@@ -5025,7 +5224,7 @@ class Druta:
             if raised is False:
                 uuid = self.headroom_uuid()
                 if uuid:
-                    vfheadroom.clear_active(uuid, force=True)
+                    self.clear_stale_marker(uuid)
                 self._stale_headroom = None
                 if dpg.does_item_exist("win_headroom_stale"):
                     dpg.configure_item("win_headroom_stale", show=False)
@@ -5044,10 +5243,37 @@ class Druta:
         if getattr(self, "_closing", False) and dpg.does_item_exist("win_headroom_stale"):
             dpg.configure_item("win_headroom_stale", show=False)
 
+    def clear_stale_marker(self, uuid):
+        """Drop an earlier session's marker once it has been judged. A failed
+        delete is said, and the watch tries again: left in place, the file would
+        withhold every hold here for the wrong reason and ask again next time."""
+        try:
+            ok, msg = vfheadroom.clear_active(uuid, force=True)
+        except Exception as exc:                                  # noqa: BLE001
+            ok, msg = False, str(exc)
+        pending = self._stale_judged()
+        if ok:
+            pending.discard(uuid)
+            self.clear_once("headroom_stale_clear")
+        else:
+            # judged already: it no longer withholds holds here, and the watch
+            # retries the delete
+            pending.add(uuid)
+            self.log_once("headroom_stale_clear",
+                          f"headroom: the earlier session's marker could not be removed "
+                          f"({msg}); Druta tries again")
+        return ok
+
+    def _stale_judged(self):
+        judged = getattr(self, "_stale_judged_uuids", None)
+        if not isinstance(judged, set):
+            judged = self._stale_judged_uuids = set()
+        return judged
+
     def stale_headroom_dismiss(self, sender=None, app_data=None, user_data=None):
         uuid = self.headroom_uuid()
         if uuid:
-            vfheadroom.clear_active(uuid, force=True)
+            self.clear_stale_marker(uuid)
         self._stale_headroom = None
         if dpg.does_item_exist("win_headroom_stale"):
             dpg.configure_item("win_headroom_stale", show=False)
@@ -5078,10 +5304,18 @@ class Druta:
             return
         ok, msg = self.restore_headroom()
         self.log(f"headroom: {msg}", ok)
-        if ok and (self._clk_lock or {}).get("kind") == self.LOCK_VF:
+        held = (self._clk_lock or {}).get("kind") == self.LOCK_VF
+        if not ok:
+            self._headroom_note = ("raised", msg)
+        elif held:
+            self._headroom_note = ("withheld", "the raised limits were restored by hand")
             self.log("headroom: raised limits restored with the hold still in force; "
-                     "Release (Ctrl+H) now goes through. The raise comes back only if "
-                     "the hold changes", None)
+                     "Release (Ctrl+H) now goes through. Anything that plans the headroom "
+                     "again (a new hold, a boost, margin or limit change) raises them "
+                     "again", None)
+        else:
+            self._headroom_note = None
+        self.draw_hold_banner()
 
     def headroom_changed(self, sender=None, app_data=None, user_data=None):
         """The Clocks-menu setting moved. Saved immediately; applied to a hold
@@ -5155,6 +5389,10 @@ class Druta:
                 failed += 1
             self.log(f"the {self.LOCK_NAME[kind]} release was NOT confirmed - "
                      "the indicator stays up until release is confirmed", False)
+            # the raise came off before the reset: a hold still in force is
+            # planned again on the reset limits, an unreadable one is shown
+            # unconfirmed, a released one drops its record
+            self.reconfirm_hold_after_failed_release()
         # A refused reset or missing getter must not turn a live offset into a
         # displayed zero. Re-read each available request; preserve the last
         # displayed value wherever readback is unavailable.
@@ -8083,14 +8321,15 @@ deliberately does not put behind a button."""
                                  "the hold is not sitting on the ceiling. A point held\n"
                                  "ON the ceiling runs slower than the clock it shows.\n"
                                  "The held point's voltage stays the same; the rail\n"
-                                 "may run up to the margin higher (the driver's own\n"
-                                 "margin, which a ceiling AT the point cuts off).\n"
-                                 "The limits go back when the hold ends.\n"
+                                 "may run up to the margin higher (one TITAN RTX ran\n"
+                                 "its rail above the point once the ceiling no longer\n"
+                                 "cut it off). The limits go back when the hold ends.\n"
                                  "A point ABOVE the ceiling gets no raise (the card\n"
                                  "would climb past the ceiling you set, by more than\n"
                                  "the margin) - you get a warning instead.\n"
-                                 "The live rail voltage is watched: if it ever reads\n"
-                                 "above the raised ceiling, the raise is undone.\n"
+                                 "Where the card reports a live rail voltage it is\n"
+                                 "watched: above the raised ceiling (beyond this\n"
+                                 "card's own reading offset), the raise is undone.\n"
                                  "Measured on one TITAN RTX (TU102): 25 mV removed\n"
                                  "the loss there. Other cards and generations are\n"
                                  "not measured yet.",
@@ -9512,6 +9751,9 @@ deliberately does not put behind a button."""
         # already cleared the outgoing card's entry.
         self._headroom_note = None
         self._headroom_unanswered = None
+        self._headroom_tripped = None
+        self._headroom_unread_left = 0
+        self._stale_recheck_logged = False
         getattr(self, "_once", {}).pop("headroom_rails", None)
         self._stale_headroom = None
         self._gap_hist = []
@@ -11200,6 +11442,14 @@ deliberately does not put behind a button."""
                 self._held_startup_request, self._startup_request = self._startup_request, None
                 self.log("startup profile held until the raised-voltage-limits dialog is "
                          "answered", None)
+            elif self._startup_request and getattr(self, "_stale_recheck", False):
+                # An earlier session's marker that could not be judged yet: the
+                # same risk until the limits read. It runs once the marker is
+                # judged gone, or once the dialog it opens is answered.
+                self._held_startup_request, self._startup_request = self._startup_request, None
+                self.log("startup profile held until a raised-voltage-limits marker left by "
+                         "an earlier session can be checked; load it by hand if the "
+                         "limits stay unreadable", None)
             elif self._startup_request:
                 request, self._startup_request = self._startup_request, None
                 self.begin_profile_load(request["name"], request["profile"], automatic=True)
