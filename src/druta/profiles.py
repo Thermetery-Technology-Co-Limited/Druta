@@ -52,6 +52,8 @@ KEEP_AUTOSAVES = 20
 # the snapshot into the log line the user actually sees.
 INCOMPLETE_KEY = "incomplete"
 CURRENT_DAC_FORMAT = "i2c.current_dac_control"
+# A power-policy name is a label the user types beside the slider.
+POLICY_NAME_MAX = 80
 
 
 def vf_applicable(gpu):
@@ -208,6 +210,20 @@ def capture(gpu, rail=None):
                     state["current_limits_note"] = note
         except Exception as exc:
             state[INCOMPLETE_KEY].append(f"Current limits NOT captured ({exc})")
+    # The power-policy values the USER set (the driver derives the rest from
+    # the board limit, so restoring the board limit restores those), and the
+    # names typed beside the sliders. Both are session state on the GPU
+    # object, not a hardware read.
+    pins = getattr(gpu, "_power_policy_pins", None)
+    if isinstance(pins, dict) and pins:
+        state["power_policy_pins"] = {str(p): int(v) for p, v in sorted(pins.items())}
+    names = getattr(gpu, "power_policy_names", None)
+    if isinstance(names, dict) and names:
+        state["power_policy_names"] = {
+            str(p): {"name": str(e["name"])[:POLICY_NAME_MAX], "channel": int(e["channel"]),
+                     "type": int(e["type"])}
+            for p, e in sorted(names.items())
+            if isinstance(e, dict) and e.get("name")}
     # Modern NVML and the legacy NVAPI fallbacks expose requested per-fan
     # levels. The measured duty above can still be ramping toward that request.
     try:
@@ -580,6 +596,29 @@ def _validate_saved_fields(gpu, state):
             level = _number(row.get("level"), "fan requested level", integer=True)
             if not 0 <= level <= 100:
                 raise ValueError("fan requested level is outside [0..100]%")
+    pins = state.get("power_policy_pins")
+    if pins is not None:
+        if not isinstance(pins, dict):
+            raise ValueError("power-policy values must be a mapping")
+        for key, value in pins.items():
+            if not isinstance(key, str) or not key.isdigit() or str(int(key)) != key \
+                    or not 0 <= int(key) < 32:
+                raise ValueError("invalid power-policy index")
+            _number(value, f"power policy {key}", integer=True)
+            if not 0 <= value < (1 << 32):
+                raise ValueError(f"power policy {key} is outside the driver's representation")
+    names = state.get("power_policy_names")
+    if names is not None:
+        if not isinstance(names, dict):
+            raise ValueError("power-policy names must be a mapping")
+        for key, entry in names.items():
+            if not isinstance(key, str) or not key.isdigit() or str(int(key)) != key \
+                    or not 0 <= int(key) < 32:
+                raise ValueError("invalid power-policy index in names")
+            if (not isinstance(entry, dict) or not isinstance(entry.get("name"), str)
+                    or len(entry["name"]) > POLICY_NAME_MAX
+                    or type(entry.get("channel")) is not int or type(entry.get("type")) is not int):
+                raise ValueError(f"invalid name for power policy {key}")
     deltas = _vf_deltas(state)
     maximum = getattr(gpu, "MAX_ABS_DELTA_KHZ", 1_000_000)
     for index, delta in deltas.items():
@@ -642,11 +681,27 @@ def preflight(gpu, state, rail=None, *, apply_curve=True):
         i2c = state.get("i2c")
         nvvdd = state.get("nvvdd_offset_mv")
         msvdd = state.get("msvdd_offsets_mv") or {}
-        if not (limits or offsets or i2c or msvdd or nvvdd is not None):
+        pins = state.get("power_policy_pins") or {}
+        if not (limits or offsets or i2c or msvdd or nvvdd is not None or pins):
             return None
         error = strict_device_error(state, gpu)
         if error:
             return error
+        if pins:
+            # policy numbering is this card's own table: check every saved
+            # value against the live range before anything is written
+            reader = getattr(gpu, "read_power_policies", None)
+            if not callable(reader):
+                raise ValueError("power policies are not available on this build")
+            rows, problem = reader()
+            if problem:
+                raise ValueError(f"power policies are unreadable: {problem}")
+            live = {row["policy"]: row for row in rows}
+            for key, value in pins.items():
+                row = live.get(int(key))
+                if row is None or row["board"] or row["unit"] is None \
+                        or not row["minimum"] <= value <= row["maximum"]:
+                    raise ValueError(f"saved power policy {key} does not fit this card's table")
         if i2c:
             if rail is None or rail.p.read_only:
                 raise ValueError("saved I2C regulator is not available")
@@ -918,6 +973,12 @@ def _restore_validated(gpu, state, apply_curve, rail, results):
             if not step("I2C offset", lambda: rail.set_offset_mv(offset, acknowledged=True)):
                 return results
 
+    # The profile's own power-policy values replace this session's: none of
+    # the session's may be re-applied by the board-limit write below.
+    pins = state.get("power_policy_pins") or {}
+    if callable(getattr(gpu, "set_power_policy", None)):
+        gpu._power_policy_pins = {}
+
     mw = state.get("power_limit_mw")
     if mw:
         step("power limit", lambda: gpu.set_power_limit_mw(int(mw)))
@@ -929,8 +990,16 @@ def _restore_validated(gpu, state, apply_curve, rail, results):
         for policy, ma in current_limits.items():
             # Leave value validation and normal/XOC enforcement to the
             # backend; a profile must not silently truncate a malformed value.
+            # Not pinned: a saved value may be one the driver derived.
             step(f"current policy {policy}",
-                 lambda policy=policy, ma=ma: gpu.set_current_limit_ma(int(policy), ma))
+                 lambda policy=policy, ma=ma: gpu.set_current_limit_ma(int(policy), ma, pin=False))
+
+    # After the board limit and the current limits, which the board limit
+    # drives: the values the user set, re-pinned so they stay put.
+    for policy, value in pins.items():
+        step(f"power policy {policy}",
+             lambda policy=policy, value=value: gpu.set_power_policy(
+                 int(policy), value, pin=True, allow_named=True))
 
     vb = state.get("volt_boost_pct")
     if vb is not None:
@@ -1017,6 +1086,9 @@ def summarize(state):
                 bits.append(f"{label} {amps} A")
     if state.get("current_limits_note") and not currents:
         bits.append("current limits not readable on this card")
+    pins = state.get("power_policy_pins") or {}
+    if isinstance(pins, dict) and pins:
+        bits.append("power policies set by hand: " + ", ".join(sorted(pins, key=int)))
     vb = state.get("volt_boost_pct")
     if vb is not None:
         bits.append(f"vboost {vb}%")

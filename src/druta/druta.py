@@ -91,7 +91,7 @@ import time
 import dearpygui.dearpygui as dpg
 
 from . import (gpuload, paths, profiles, startup, shuntmod, timings, timingwrite,
-               timingprofiles, devicerecovery, nct3933_board, i2c_cache)
+               timingprofiles, devicerecovery, nct3933_board, i2c_cache, policynames)
 from .nvbackend import (GPU, EVENT_REASONS, PERF_DECREASE_BITS, VF_STEP_KHZ, VF_LOCK_DOMAIN,
                         VFP_POINTS, below_cap, enumerate_gpus, is_admin,
                         same_slot,
@@ -1526,6 +1526,15 @@ class Druta:
             return
         if key.startswith("current"):
             policy = int(key.removeprefix("current"))
+            # Stock is the driver's value: under a raised board limit that is
+            # the value it derives, not the rated default (stock_power_policy)
+            stock = getattr(type(self.gpu), "stock_power_policy", None)
+            if callable(stock):
+                if self.guard():
+                    self.report(self.gpu.stock_power_policy(policy))
+                    self.refresh_current_limits(sync=True)
+                    self.refresh_power_policies(sync=True)
+                return
             rows = self.read_current_limit_rows()
             row = next((r for r in rows if r["policy"] == policy), None)
             if row is None:
@@ -1763,6 +1772,208 @@ class Druta:
             return
         self.report(self.gpu.set_current_limit_ma(policy, milliamps))
         self.refresh_current_limits(sync=True)
+
+    # ---- every policy in the driver's power-policy table ----------------- #
+    # One slider per policy, bounded by the policy's own minimum and maximum as
+    # the card reports them, with a typeable value like every other knob. The
+    # board limit and the named current limits keep their sliders above and
+    # appear here read-only. The name box is the user's label for the channel
+    # (policynames): the table carries numbers, not rail names.
+    POLICY_REFRESH_S = 1.0
+
+    @staticmethod
+    def power_policy_hint(row):
+        unit = {"mW": "W", "mA": "A"}.get(row["unit"], "?")
+        return f"policy {row['policy']} - channel {row['channel']} - type 0x{row['type']:02X} ({unit})"
+
+    def build_power_policy_section(self):
+        self._power_policies = {}
+        self._policy_synced = {}
+        self._policy_names_dirty = None
+        try:
+            rows, error = self.gpu.read_power_policies()
+        except Exception as exc:                                        # noqa: BLE001
+            rows, error = [], str(exc)
+        self._policy_names = (policynames.matching(policynames.load(self.gpu.static.get("uuid")), rows)
+                              if rows else {})
+        self.gpu.power_policy_names = dict(self._policy_names)
+        if error:
+            dpg.add_text(f"Power policies unavailable: {error}", color=DIM, wrap=self.s(900))
+            return
+        with dpg.group(horizontal=True):
+            dpg.add_text("Beware of your PSU's rating as you change power limit.", color=WARN)
+            dpg.add_button(label="Max all", tag="pp_max_all", width=self.s(110),
+                           callback=lambda: self.max_all_power_policies())
+        self._ctl_widgets.append("pp_max_all")
+        dpg.add_text("The driver sets several of these from the board power limit and "
+                     "recalculates them whenever it changes; a value you set here is re-applied "
+                     "after that. Stock hands a policy back to the driver. Type in a name box to "
+                     "label its channel.", color=DIM, wrap=self.s(900))
+        with dpg.table(header_row=False, no_host_extendX=True,
+                       policy=dpg.mvTable_SizingFixedFit):
+            self.knob_cols()
+            for row in rows:
+                self.power_policy_row(row)
+        self.refresh_power_policies(sync=True)
+
+    def power_policy_row(self, row):
+        policy = row["policy"]
+        key = f"pp{policy}"
+        self._power_policies[policy] = dict(row)
+        name = (self._policy_names.get(policy) or {}).get("name", "")
+        hint = self.power_policy_hint(row)
+
+        # factories, not default arguments: DearPyGui fills a callback's
+        # parameters positionally (see slider_row's _fire)
+        def apply_for(p):
+            return lambda value: self.apply_power_policy(p, value)
+
+        def stock_for(p):
+            return lambda: self.stock_power_policy(p)
+
+        def name_for(p):
+            return lambda text: self.rename_power_policy(p, text)
+
+        if row["writable"]:
+            self.slider_row(key, name, row["minimum"] / 1000, row["maximum"] / 1000,
+                            row["requested"] / 1000, apply_for(policy),
+                            extra=("Stock", stock_for(policy)), decimals=3,
+                            name_cb=name_for(policy), name_hint=hint)
+            self._policy_synced[policy] = row["requested"]
+            return
+        amount = lambda v: GPU._policy_amount(v, row["unit"])            # noqa: E731
+        why = ("set with Power limit (W) above" if row["board"] else
+               "set with its current-limit slider above" if row["named_current"] else
+               f"no range to write ({amount(row['minimum'])} .. {amount(row['maximum'])})")
+        rename = name_for(policy)
+        with dpg.table_row():
+            dpg.add_input_text(tag=f"name_{key}", default_value=name, hint=hint,
+                               width=self.s(self.KNOB_COLS[0] - 10),
+                               callback=lambda sender, value: rename(value))
+            dpg.add_text(why, color=DIM)
+            dpg.add_text(amount(row["requested"]), tag=f"req_{key}", color=DIM)
+            dpg.add_text("--", tag=f"live_{key}", color=DIM)
+            self.bind(f"live_{key}", "mono")
+
+    def apply_power_policy(self, policy, value):
+        if not self.guard():
+            return
+        try:
+            value = self.knob_input_value(f"pp{policy}", value)
+        except (TypeError, ValueError, OverflowError) as exc:
+            self.log(f"power policy {policy} input: {exc}", False)
+            return
+        self.report(self.gpu.set_power_policy(policy, int(round(value * 1000))))
+        self.refresh_power_policies(sync=True)
+
+    def stock_power_policy(self, policy):
+        if not self.guard():
+            return
+        self.report(self.gpu.stock_power_policy(policy))
+        self.refresh_power_policies(sync=True)
+        self.refresh_current_limits(sync=True)
+
+    def max_all_power_policies(self):
+        if not self.guard():
+            return
+        for _step, ok, message in self.gpu.max_all_power_policies():
+            self.log(f"max all: {message}", ok)
+        top = self.gpu.static.get("pl_max_mw")
+        if top:
+            for tag in ("sl_pl", "in_pl"):
+                if dpg.does_item_exist(tag):
+                    dpg.set_value(tag, top / 1000)
+        self.refresh_power_policies(sync=True)
+        self.refresh_current_limits(sync=True)
+
+    def rename_power_policy(self, policy, text):
+        row = getattr(self, "_power_policies", {}).get(policy)
+        if row is None:
+            return
+        text = (text or "").strip()[:policynames.NAME_MAX]
+        names = dict(getattr(self, "_policy_names", {}) or {})
+        if text:
+            names[policy] = {"name": text, "channel": row["channel"], "type": row["type"]}
+        else:
+            names.pop(policy, None)
+        self._policy_names = names
+        self.gpu.power_policy_names = dict(names)
+        self._policy_names_dirty = time.time()      # saved once typing pauses
+
+    def save_power_policy_names(self, force=False):
+        dirty = getattr(self, "_policy_names_dirty", None)
+        if dirty is None or (not force and time.time() - dirty < 0.8):
+            return
+        self._policy_names_dirty = None
+        ok, message = policynames.save(self.gpu.static.get("uuid"), self._policy_names)
+        if not ok:
+            self.log(message, False)
+
+    def apply_profile_policy_names(self, state):
+        """A loaded profile's names become this card's names, where they still
+        match the live table (policynames.matching)."""
+        names = policynames.clean((state or {}).get("power_policy_names"))
+        rows = list(getattr(self, "_power_policies", {}).values())
+        matched = policynames.matching(names, rows) if names and rows else {}
+        if not matched:
+            return
+        self._policy_names = {**(getattr(self, "_policy_names", {}) or {}), **matched}
+        self.gpu.power_policy_names = dict(self._policy_names)
+        for policy, entry in matched.items():
+            if dpg.does_item_exist(f"name_pp{policy}"):
+                dpg.set_value(f"name_pp{policy}", entry["name"])
+        self._policy_names_dirty = 0.0
+
+    def refresh_power_policies(self, sync=False):
+        """Live readings about once a second while the section is open.
+
+        A slider follows the card's request when it moved without the user -
+        the driver recalculating it from the board limit, a profile, Reset,
+        another tool - unless the user has a different value staged in it.
+        sync (after an apply) always follows."""
+        self.save_power_policy_names()
+        if not getattr(self, "_power_policies", None):
+            return
+        now = time.time()
+        if not sync:
+            if (not dpg.does_item_exist("power_policy_header")
+                    or not dpg.get_value("power_policy_header")
+                    or now - getattr(self, "_policy_refresh_t", 0.0) < self.POLICY_REFRESH_S):
+                return
+        self._policy_refresh_t = now
+        try:
+            rows, _error = self.gpu.read_power_policies()
+        except Exception:                                               # noqa: BLE001
+            rows = []
+        live = {row["policy"]: row for row in rows}
+        for policy, previous in list(self._power_policies.items()):
+            key, row = f"pp{policy}", live.get(policy)
+            if dpg.does_item_exist(f"live_{key}"):
+                if row:
+                    amount = lambda v: GPU._policy_amount(v, row["unit"])   # noqa: E731
+                    mark = " (yours)" if row["pinned"] is not None else ""
+                    text = f"{amount(row['value'])}\n≤{amount(row['limit'])}{mark}"
+                else:
+                    text = "unavailable"
+                dpg.set_value(f"live_{key}", text)
+                dpg.configure_item(f"live_{key}", color=TEXT if row else DIM)
+            if row is None:
+                continue
+            self._power_policies[policy] = dict(row)
+            if dpg.does_item_exist(f"req_{key}"):
+                dpg.set_value(f"req_{key}", GPU._policy_amount(row["requested"], row["unit"]))
+            if not previous.get("writable") or not dpg.does_item_exist(f"sl_{key}"):
+                continue
+            synced = self._policy_synced.get(policy)
+            staged = dpg.get_value(f"sl_{key}")
+            untouched = synced is not None and abs(staged * 1000 - synced) < 0.5
+            # after an apply the slider shows what the card took, refused or
+            # not; otherwise only a moved request replaces an untouched slider
+            if sync or (row["requested"] != synced and untouched):
+                for pre in ("sl_", "in_"):
+                    if dpg.does_item_exist(pre + key):
+                        dpg.set_value(pre + key, row["requested"] / 1000)
+                self._policy_synced[policy] = row["requested"]
 
     def build_volt_limits_rows(self):
         """Build readouts and confirmed controls for the rails on this card."""
@@ -2328,6 +2539,12 @@ class Druta:
                                             "request, not a measured voltage. An inert result on one "
                                             "5080/580.97 does not establish behavior on your board.",
                                             wrap=self.s(400))
+            # Every limit in the driver's power-policy table, not only the ones
+            # above. Closed by default: most are derived from the board limit.
+            if callable(getattr(self.gpu, "read_power_policies", None)):
+                with dpg.collapsing_header(label="Power policies", tag="power_policy_header",
+                                           default_open=False):
+                    self.build_power_policy_section()
             if railctl is not None:
                 with dpg.collapsing_header(label="I2C regulator", tag="i2c_regulator_header",
                                            default_open=bool(getattr(self, "_rail_candidates", []))):
@@ -2428,7 +2645,8 @@ class Druta:
             dpg.pop_container_stack()
 
     def slider_row(self, key, label, lo, hi, init, cb, note=None, extra=None,
-                   color=None, xoc_lo=None, xoc_hi=None, decimals=0):
+                   color=None, xoc_lo=None, xoc_hi=None, decimals=0,
+                   name_cb=None, name_hint=""):
         """One knob = one row of the enclosing knob table (see knob_cols), so
         every Apply lands in the same column even though the labels, the notes
         and the presence of an extra button all differ per row.
@@ -2449,9 +2667,16 @@ class Druta:
         with dpg.table_row():
             # colour is normally TEXT; the per-domain offsets pass the Monitor's
             # grade colour so a hedged name looks hedged on both tabs
-            dpg.add_text(label, color=color or TEXT,
-                         wrap=self.s(self.KNOB_COLS[0] - 10)
-                         if key == "memdom" or key.startswith("current") else -1)
+            if name_cb is not None:
+                # a row the user names: the label IS the name box, and the
+                # hint says what the driver reports when it is empty
+                dpg.add_input_text(tag=f"name_{key}", default_value=label, hint=name_hint,
+                                   width=self.s(self.KNOB_COLS[0] - 10),
+                                   callback=lambda sender, value: name_cb(value))
+            else:
+                dpg.add_text(label, color=color or TEXT,
+                             wrap=self.s(self.KNOB_COLS[0] - 10)
+                             if key == "memdom" or key.startswith("current") else -1)
             with dpg.group():
                 # clamped: in DPG min_value/max_value only bound the DRAG.
                 # Ctrl+click turns a slider into a text field that accepts
@@ -2537,7 +2762,7 @@ class Druta:
     @staticmethod
     def float_knob(key):
         return (key in ("mem", "pl", "rail", "msvdd", "i2crail")
-                or key.startswith(("vlim", "current")))
+                or key.startswith(("vlim", "current", "pp")))
 
     def knob_value(self, key, value):
         return self.knob_input_value(key, value)
@@ -3914,6 +4139,9 @@ class Druta:
                 if dpg.does_item_exist(tag):
                     dpg.set_value(tag, value)
             self.report(self.gpu.set_power_limit_mw(int(round(value * 1000))))
+            # the driver recalculates the limits it derives from this one
+            self.refresh_current_limits(sync=True)
+            self.refresh_power_policies(sync=True)
 
     def apply_volt(self, v):
         if self.guard():
@@ -4067,6 +4295,8 @@ class Druta:
             step(f"power limit {pl_max / 1000:g} W",
                  lambda: self.gpu.set_power_limit_mw(pl_max),
                  "sl_pl", pl_max / 1000)
+            self.refresh_current_limits(sync=True)
+            self.refresh_power_policies(sync=True)
         else:
             self.log("max: power limit - this card reports no maximum", False)
         step("voltage boost 100%",
@@ -4583,6 +4813,7 @@ class Druta:
         m_t = self.mem_fmt(d.get("mem_p0max"))[0]
         self.refresh_rail_live()
         self.refresh_current_limits()
+        self.refresh_power_policies()
         # Vcore is formatted on its own, exactly as Tk did: it needs NVAPI AND a
         # non-zero rail reading, and the app runs fine with NVAPI down. Folding
         # it into the conditional made ONE missing field blank the whole
@@ -7076,6 +7307,7 @@ deliberately does not put behind a button."""
         else:
             self.log(f"profile '{name}' applied", True)
         self.sync_sliders_from_gpu(state)
+        self.apply_profile_policy_names(state)
         if state.get("scope") == "fan":
             return
         self.sync_profile_rail_sliders()
@@ -7210,6 +7442,7 @@ deliberately does not put behind a button."""
             except Exception as e:
                 self.log(f"fan target could not be read: {e}; slider left unchanged", False)
         self.refresh_current_limits(sync=True)
+        self.refresh_power_policies(sync=True)
         self.sync_knob_boxes()
 
     # ====================================================================== #

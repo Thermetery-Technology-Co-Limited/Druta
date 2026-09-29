@@ -32,7 +32,7 @@ class CurrentLimitProfileTests(unittest.TestCase):
         self.assertEqual(state["current_limits_ma"], {"13": 300125})
         result = profiles.restore(gpu, state, apply_curve=False)
         self.assertTrue(all(ok for ok, _ in result))
-        gpu.set_current_limit_ma.assert_called_once_with(13, 300125)
+        gpu.set_current_limit_ma.assert_called_once_with(13, 300125, pin=False)
 
     def test_round_trip_preserves_milliamps(self):
         gpu = fixture()
@@ -123,7 +123,7 @@ class CurrentLimitProfileTests(unittest.TestCase):
                                       "voltage_xoc_enabled": True}, apply_curve=False)
         self.assertEqual(result, [(False, "XOC required")])
         self.assertFalse(gpu.voltage_xoc_enabled)
-        gpu.set_current_limit_ma.assert_called_once_with(13, 600000)
+        gpu.set_current_limit_ma.assert_called_once_with(13, 600000, pin=False)
 
     def test_one_failed_limit_does_not_hide_other_result(self):
         gpu = fixture()
