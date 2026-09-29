@@ -142,7 +142,10 @@ python tools/probe_volt_rails.py --gpu 0000:02:00.0 --raise-ceiling --output doc
 ```
 
 The write experiment requires the measured board identity, original zero rail
-deltas and 100% boost. It saves exact recovery data before writing. Run it
+deltas and 100% boost. It does not check the driver version. Before writing, it
+also requires the understood 1104-byte `0x2080B213` rail packet with a native
+type-2 record, a boost word matching the NVAPI voltage boost and a valid
+absolute NVVDD record. It saves exact recovery data before writing. Run it
 without another tuner changing the card concurrently.
 
 Sample-level results, identity data, restoration checks and hashes of the
