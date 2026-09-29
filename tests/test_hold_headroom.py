@@ -514,7 +514,7 @@ class LockStateHookTests(AppTestCase):
         self.gpu.arch = lambda: None
         self.hold(1093.75)
         self.assertEqual(self.rails.writes, [])
-        self.assertEqual(self.app._headroom_note[0], "failed")
+        self.assertEqual(self.app._headroom_note[0], "unread")      # no write was tried
         self.assertTrue(self.logged("could not be read"))
 
     def test_backend_without_the_feature_is_left_alone(self):
@@ -559,6 +559,137 @@ class LockStateHookTests(AppTestCase):
             self.app.refresh_volt_limits()
         self.assertTrue(self.logged("re-planning"))
         self.assertEqual(GPU.rail_ceiling_mv(self.rails.rows[0]), 1118.75)
+
+
+class RailGetters:
+    """The two NVAPI rail getters the backend reads, answering like a Turing
+    card's (NVVDD at its first-read limits) or with a status every time."""
+
+    def __init__(self, gpu, status=0, exported=("VoltRailsCtlGet", "VoltRailsAbs")):
+        self.status = status
+        gpu.nvapi = type("Api", (), {"ok": True, "gpu": None})()
+        gpu.static = {}
+        gpu.arch = lambda: GPU.ARCH_TURING
+        for name in exported:
+            setattr(gpu.nvapi, name, getattr(self, name))
+
+    def VoltRailsCtlGet(self, handle, pointer):
+        return self.status                       # deltas all zero: stock
+
+    def VoltRailsAbs(self, handle, pointer):
+        if self.status:
+            return self.status
+        import ctypes
+        words = ctypes.cast(pointer._obj, ctypes.POINTER(ctypes.c_uint32))
+        base = GPU.LIVE_RAIL_BASE // 4
+        for n, value in enumerate((1, 900000, 1068750, 1093750, 1125000, 1068750, 643750)):
+            words[base + n] = value
+        return 0
+
+
+class RailAvailabilityTests(unittest.TestCase):
+    """A supported generation whose adapter never answered its rail getters is
+    told apart from one whose answered getters failed this time."""
+
+    def test_getters_that_answer_leave_nothing_to_report(self):
+        gpu = bare_gpu()
+        RailGetters(gpu)
+        self.assertIsNone(gpu.hold_headroom_rail_unavailable(0))
+
+    def test_getters_that_never_answered_on_this_adapter(self):
+        gpu = bare_gpu()
+        RailGetters(gpu, status=-104)
+        kind, why = gpu.hold_headroom_rail_unavailable(0)
+        self.assertEqual(kind, "unanswered")
+        self.assertIn("VoltRailsCtlGet status -104", why)
+        self.assertIn("VoltRailsAbs status -104", why)
+
+    def test_a_getter_not_exported_says_so(self):
+        gpu = bare_gpu()
+        RailGetters(gpu, exported=("VoltRailsAbs",))
+        kind, why = gpu.hold_headroom_rail_unavailable(0)
+        self.assertEqual(kind, "unanswered")
+        self.assertIn("VoltRailsCtlGet not exported", why)
+
+    def test_getters_that_answered_earlier_and_fail_now_are_transient(self):
+        gpu = bare_gpu()
+        getters = RailGetters(gpu)
+        self.assertIsNone(gpu.hold_headroom_rail_unavailable(0))
+        getters.status = -1
+        kind, why = gpu.hold_headroom_rail_unavailable(0)
+        self.assertEqual(kind, "transient")
+        self.assertIn("status -1", why)
+
+    def test_a_failed_read_is_retried_at_once_not_after_the_cadence(self):
+        gpu = bare_gpu()
+        getters = RailGetters(gpu, status=-1)
+        gpu.volt_rail_limits_supported(0)           # fails; the rail waits 2 s
+        getters.status = 0                          # the driver answers now
+        self.assertIsNone(gpu.hold_headroom_rail_unavailable(0))
+
+
+class RailAnswerAppTests(AppTestCase):
+    def unavailable(self, kind, why="the driver did not return this rail's control settings"):
+        self.gpu.hold_headroom_rail_unavailable = lambda rail=0: (kind, why) if kind else None
+
+    def banner(self):
+        shown = {}
+        with patch("druta.druta.dpg.does_item_exist", side_effect=lambda tag: tag == "hold_info"), \
+                patch("druta.druta.dpg.set_value", side_effect=shown.__setitem__), \
+                patch("druta.druta.dpg.configure_item"):
+            self.app.draw_hold_banner()
+        return shown.get("hold_info", "")
+
+    def test_a_card_that_never_answered_is_reported_once_not_on_every_hold(self):
+        self.unavailable("unanswered")
+        for _ in range(3):
+            self.app.set_lock_state(None)
+            self.hold(1093.75)
+        self.assertEqual(self.rails.writes, [])
+        self.assertIsNone(self.app._headroom_note)
+        notes = [c for c in self.app.log.call_args_list if "not available on this card" in str(c)]
+        self.assertEqual(len(notes), 1)
+        self.assertIsNone(notes[0].args[1])                  # a warning, not a failure
+        self.assertNotIn("HEADROOM", self.banner())
+
+    def test_a_later_answer_gets_its_headroom_and_re_arms_the_note(self):
+        self.unavailable("unanswered")
+        self.hold(1093.75)
+        self.app.set_lock_state(None)
+        self.unavailable(None)
+        self.hold(1093.75)
+        self.assertEqual(self.limits(), (1093.75, 1118.75, 1125.0))
+        self.assertIsNone(self.app._headroom_unanswered)
+        self.app.set_lock_state(None)
+        self.unavailable("unanswered")
+        self.hold(1093.75)
+        notes = [c for c in self.app.log.call_args_list if "not available on this card" in str(c)]
+        self.assertEqual(len(notes), 2)
+
+    def test_a_transient_read_failure_stays_visible_and_says_what_failed(self):
+        self.unavailable("transient", "the driver did not return a valid rail status")
+        self.hold(1093.75)
+        self.assertEqual(self.rails.writes, [])
+        self.assertEqual(self.app._headroom_note[0], "unread")
+        text = self.banner()
+        self.assertIn("HEADROOM NOT APPLIED", text)
+        self.assertIn("could not be read this time", text)
+        self.assertNotIn("write did not succeed", text)
+
+    def test_a_raise_already_on_the_card_is_not_second_guessed(self):
+        self.hold(1093.75)
+        self.unavailable("unanswered")
+        self.hold(1087.5)                                    # re-plan: apply restores first
+        self.assertEqual(self.limits(), (1087.5, 1112.5, 1125.0))
+
+    def test_the_clock_check_names_a_card_that_never_answered(self):
+        self.unavailable("unanswered", "VoltRailsCtlGet status -104")
+        self.hold(1093.75)
+        self.app.step_khz = lambda: 15000
+        row = {"name": "GPC", "grade": PRIV_CONFIRMED, "prog_mhz": 2100.0, "meas_mhz": 2070.0}
+        for _ in range(self.app.CLOCK_GAP_TICKS):
+            self.app.check_clock_gap({"clk_domains": [row], "util_gpu": 99})
+        self.assertTrue(self.logged("has not returned its voltage limits"))
 
 
 class OrderingTests(AppTestCase):

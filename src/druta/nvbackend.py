@@ -6034,6 +6034,49 @@ class GPU:
             return None
         return arch in self._VOLT_RAIL_ARCHITECTURES
 
+    def hold_headroom_rail_unavailable(self, rail=0):
+        """None when this adapter's rail limits can be planned against now,
+        else (kind, reason). Read-only; after a failed read the rail is read
+        once more at once instead of waiting out the getters' retry cadence.
+
+            "transient"   both getters returned this rail validly earlier in
+                          this session, or they answer but its reference is
+                          not established yet: a failure now is a read that
+                          did not work this time
+            "unanswered"  they have not returned it validly on this adapter
+                          at all this session (an export missing, or a status
+                          every time): nothing was ever there to write to
+
+        Neither is a permanent verdict: the next hold asks again, so a slow
+        start or a later answer still gets its headroom."""
+        if self.volt_rail_limits_supported(rail):
+            return None
+        retry = getattr(self, "_volt_rail_retry_after", None) or {}
+        for key in [k for k in retry if k[1] == rail]:
+            retry.pop(key, None)
+        if self.volt_rail_limits_supported(rail):
+            return None
+        cache = getattr(self, "_volt_rail_masks_cache", None) or {}
+        answered = all(rail in cache.get(f, ()) for f in ("VoltRailsCtlGet", "VoltRailsAbs"))
+        try:
+            diag = self.volt_rail_diagnostics()
+        except Exception as exc:                                    # noqa: BLE001
+            diag = {"rails": {}, "getters": {}, "error": str(exc)}
+        reason = ((diag.get("rails") or {}).get(rail) or {}).get("reason") \
+            or diag.get("error") or "the rail's control settings were not returned"
+        a = getattr(self, "nvapi", None)
+        statuses = []
+        for function in ("VoltRailsCtlGet", "VoltRailsAbs"):
+            if not (getattr(a, "ok", False) and getattr(a, function, None)):
+                statuses.append(f"{function} not exported")
+                continue
+            got = ((diag.get("getters") or {}).get(function) or {}).get(rail)
+            if got and not got.get("valid"):
+                statuses.append(f"{function} status {got.get('status')}"
+                                + (f" ({got['error']})" if got.get("error") else ""))
+        detail = f"{reason} ({'; '.join(statuses)})" if statuses else reason
+        return ("transient" if answered else "unanswered"), detail
+
     @classmethod
     def hold_headroom_ceiling_mv(cls, row):
         """The ceiling a hold is judged against: the LOWER of Druta's
@@ -6116,9 +6159,14 @@ class GPU:
     def apply_hold_headroom(self, hold_mv, margin_mv, rail=0, before_write=None):
         """Raise the ceiling terms (reliability with its boost contribution,
         alt-reliability, overvoltage) that sit below hold + margin, while a hold
-        is active. `hold_mv` must be the V/F LOCK'S REQUEST: the lock never runs
-        the rail above its request, so a request at or below the ceiling keeps
-        the running voltage where it is whatever the curve does later.
+        is active. `hold_mv` must be the V/F LOCK'S REQUEST, the highest point
+        the lock can put the card on, so a later curve edit cannot move the hold
+        above the plan. The held point's voltage stays at the request, but the
+        rail itself may run above it once the ceiling stops clamping it: on the
+        one TU102 measured, the live NVVDD rose up to 18.75 mV above the held
+        point (the driver's own margin). The raised ceiling bounds that rise,
+        and the live guard (hold_headroom_live_ok) takes the raise off if the
+        rail reads above it.
         `before_write(record)`, if given, is called with the planned record just
         before the SET, so a crash marker can exist before the limits move.
         Returns (ok, message):
@@ -6132,8 +6180,9 @@ class GPU:
         This is deliberately NOT behind volt_limits_write_enabled. That switch
         guards the free-form limit sliders, whose values nothing but Druta
         bounds. This write is narrower: only the three ceiling terms, upward
-        only, only for a hold at or below the ceiling (so the running voltage
-        does not change), to exactly hold + margin, inside the same 1200 mV
+        only, only for a hold at or below the ceiling (so the held point's
+        voltage does not change; the rail stays under the raised ceiling),
+        to exactly hold + margin, inside the same 1200 mV
         (XOC 1500 mV) bound, verified by read-back and undone by
         restore_hold_headroom. Any previous raise is restored first so two
         holds never stack their margins."""
@@ -6191,9 +6240,10 @@ class GPU:
         for key, mv in targets.items():
             rec[self.VOLT_LIMIT_FIELDS.index(key)] = int(round((mv - base[key]) * 1000))
         written = {k: rec[self.VOLT_LIMIT_FIELDS.index(k)] for k in targets}
-        # ceiling_mv / boost_mv are what this plan was made against: the live
-        # guard compares the running voltage with ceiling_mv, and a boost change
-        # (the reliability term) means the plan must be made again.
+        # ceiling_mv / boost_mv are what this plan was made against (the
+        # ceiling before the raise; the live guard uses raised_ceiling_mv, set
+        # below from the read-back), and a boost change (the reliability
+        # term) means the plan must be made again.
         record = {"rail": rail, "hold_mv": float(hold_mv), "margin_mv": float(margin_mv),
                   "ceiling_mv": float(ceiling),
                   "boost_mv": float(row.get("_boost_mv", 0.0) or 0.0),

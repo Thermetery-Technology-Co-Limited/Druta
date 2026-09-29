@@ -4561,7 +4561,7 @@ class Druta:
             # architecture not read this time: unknown, not unsupported
             if record:
                 self.restore_headroom()
-            self._headroom_note = ("failed", "the GPU architecture could not be read this time")
+            self._headroom_note = ("unread", "the GPU architecture could not be read this time")
             self.log_once("headroom_arch", "headroom: the GPU architecture could not be read this "
                           "time; headroom not applied (the next hold tries again)")
             return
@@ -4576,6 +4576,27 @@ class Druta:
         if record and not replan and abs(record["hold_mv"] - hold) < 1e-6 \
                 and abs(record["margin_mv"] - margin) < 1e-6 and not self.headroom_boost_moved(gpu, record):
             return
+        check = getattr(gpu, "hold_headroom_rail_unavailable", None)
+        missing = check(0) if callable(check) and not record else None
+        if missing:
+            kind, why = missing
+            if kind == "unanswered":
+                # nothing on this adapter has answered yet: not a failed write,
+                # and not worth a warning on every hold. Said once; the next
+                # hold still asks, so a later answer gets its headroom.
+                self._headroom_note = None
+                self._headroom_unanswered = why
+                if self._once.get("headroom_rails") != why:
+                    self._once["headroom_rails"] = why
+                    self.log(f"headroom: not available on this card - {why}. Druta asks "
+                             f"again at each hold.", None)
+            else:
+                self._headroom_note = ("unread", why)
+                self.log(f"headroom: not applied - the voltage limits could not be read "
+                         f"this time ({why}); the next hold tries again", False)
+            return
+        self._headroom_unanswered = None
+        self.clear_once("headroom_rails")
         ok, msg = gpu.apply_hold_headroom(hold, margin, before_write=self.write_ahead_marker)
         if ok is False and not isinstance(gpu.hold_headroom_record(), dict):
             # nothing landed; a write that was not seen is safe to repeat once
@@ -4687,6 +4708,9 @@ class Druta:
             kind, _msg = note
             txt += ("\nHEADROOM WITHHELD - the card may run below the clock shown; the "
                     "voltage limits were not raised (see log)" if kind == "withheld" else
+                    "\nHEADROOM NOT APPLIED - the card may run below the clock shown; "
+                    "its voltage limits could not be read this time (see log)"
+                    if kind == "unread" else
                     "\nHEADROOM NOT APPLIED - the card may run below the clock shown; "
                     "the limit write did not succeed (see log)")
         dpg.set_value("hold_info", txt)
@@ -4823,6 +4847,9 @@ class Druta:
             elif not arch:
                 hint = ("Druta cannot change this GPU generation's voltage limits, so "
                         "voltage-limit headroom is not available here.")
+            elif getattr(self, "_headroom_unanswered", None):
+                hint = ("This card has not returned its voltage limits, so headroom "
+                        f"could not be applied ({self._headroom_unanswered}).")
             elif (self._clk_lock or {}).get("kind") == self.LOCK_VF:
                 hint = ("Check that the held point is at or below the voltage "
                         "ceiling and that headroom is on (Clocks menu).")
@@ -9484,6 +9511,8 @@ deliberately does not put behind a button."""
         # process has marked is NOT: it is keyed by card, and swap_gpu has
         # already cleared the outgoing card's entry.
         self._headroom_note = None
+        self._headroom_unanswered = None
+        getattr(self, "_once", {}).pop("headroom_rails", None)
         self._stale_headroom = None
         self._gap_hist = []
         self._gap_warned = False
