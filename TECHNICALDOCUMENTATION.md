@@ -168,6 +168,38 @@ the memory type is known), edge temp, hotspot, power, vcore. Subtitles carry the
 p-state, XBAR's delta against core, the memory type and Gbps, the hotspot delta
 over edge, and the power limit.
 
+### Programmed and measured clocks in the tiles
+
+The three clock tiles' big numbers are the **programmed** clock: the driver's
+current figure, which is also what NVML, GPU-Z and the Control tab show (on one
+TITAN RTX, NVML's clock equals array A below exactly). Under each one is a
+**measured** line: array B of the same private row, and its distance from A,
+e.g. `measured 2087  Δ -27.9`. The core line uses the row confirmed as GPC
+(GPC2CLK rows are halved to core MHz); XBAR uses the private slot the tile's
+number is read from; memory uses the row confirmed as MEM, divided like the tile.
+
+B earns the word "measured" on the card in front of you, from its own readings,
+not from a list of cards:
+
+- it must change on its own while A holds still, to values A never reported
+  (twice), so neither a copy of A nor a copy lagging one read counts;
+- a B that equalled A exactly for five readings through a change of A is not
+  independent (GK104/GM107 did this in every tested state) and no measured
+  number is shown: `measured: none (B = A)`;
+- a B that differs from A but never moves on its own is shown as `unproven`.
+
+The Δ is only judged when it is comparable: at ≥ 90 % GPU load (below that the
+clock gates between bursts and B reads low), after B has refreshed twice since
+A last changed (it trails a clock change by 1-2 s), and over a window of five
+readings with A unchanged. Colours are this card's clock bins with 0.5 MHz of
+tolerance, either sign: plain within one bin, amber at one bin or more, red at
+three or more, only when every reading of the window agrees; otherwise dim.
+The core tile's subtitle says why a line is dim (`settling`, `load 3 %`,
+`stale`), and the tooltip gives both raw arrays, the Δ in bins and the
+evidence. Memory is shown but never colour-graded: Druta knows the card's
+graphics clock bin, not a memory one. The log's clock check uses the same GPC
+row, load gate and tolerance.
+
 Below them: **ALL CLOCK DOMAINS**, then the clocks-event and perf-decrease masks
 (including the insufficient-aux-power bit, a canary for a transplant's power
 wiring), a GPU/board power split with per-domain utilisation, PCIe link
@@ -194,8 +226,9 @@ Those 288 dwords are **two arrays over the same 32 domains, an exact partition**
 
 **A is the target the driver programmed.** Always exactly on the clock grid,
 bit-identical across samples for a fixed domain. **B is a measured counter.** It
-jitters and never lands on the grid. The tiles quote A; the panel shows both, so
-you can see when they disagree.
+jitters and never lands on the grid. The tiles' big numbers quote A and the
+line under them shows B; the panel shows both for every domain, so you can see
+when they disagree.
 
 Measured on TU102, GPC, under ~99% load, sampled ≥8 s after the last clock
 change (40 samples per locked case, 20 free-boosting):

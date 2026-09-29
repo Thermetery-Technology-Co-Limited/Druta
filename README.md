@@ -198,6 +198,12 @@ the memory type is known),
 - power, 
 - vcore. 
 
+The clock tiles show the **programmed** clock (what GPU-Z shows) with the
+**measured** one right under it and the gap between them, e.g. `measured 2087
+Δ -27.9`. It turns amber at one clock bin and red at three, only under load
+and once the reading has settled; hover it for the raw numbers. On a card whose
+second clock array just copies the first, it says so instead of showing a number.
+
 Within the subtitle there are:
 - the p-state, 
 - XBAR's delta against core, (will be deprecated) 

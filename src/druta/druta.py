@@ -91,13 +91,14 @@ import time
 import dearpygui.dearpygui as dpg
 
 from . import (gpuload, paths, profiles, startup, shuntmod, timings, timingwrite,
-               timingprofiles, devicerecovery, nct3933_board, i2c_cache, vfheadroom)
+               timingprofiles, devicerecovery, nct3933_board, i2c_cache, vfheadroom,
+               realclock)
 from .nvbackend import (GPU, EVENT_REASONS, PERF_DECREASE_BITS, VF_STEP_KHZ, VF_LOCK_DOMAIN,
                         VFP_POINTS, below_cap, enumerate_gpus, is_admin,
                         same_slot,
-                        PRIV_CONFIRMED, PRIV_DOMAIN_ID, PRIV_LIKELY,
-                        PRIV_N_DOMAINS, PRIV_PCIE_GEN, PRIV_UNNAMED,
-                        PRIV_UNPOPULATED)
+                        PRIV_A_STRIDE, PRIV_CONFIRMED, PRIV_DOMAIN_ID, PRIV_FREQ,
+                        PRIV_LIKELY, PRIV_N_DOMAINS, PRIV_PCIE_GEN, PRIV_SLOT,
+                        PRIV_UNNAMED, PRIV_UNPOPULATED)
 
 __version__ = "1.6.0"
 
@@ -348,6 +349,9 @@ class Druta:
         self._dom_band = {}        # per-domain A-vs-B divergence colour band
         self._dom_name = {}        # per-domain (label, grade) actually drawn
         self._dom_shown = set()    # domains whose table row is currently shown
+        # the measured line under the clock tiles (see refresh_real_clocks)
+        self._real = realclock.ClockEvidence()
+        self._real_last_d, self._real_col, self._real_sub_base = None, {}, "P?"
         self._plan_themes = {}     # plan-banner box themes, one per band
         self._plan_band = None
         # What a staged RAMP or HARD DE-FLATTEN is, in the plan banner's own
@@ -605,20 +609,50 @@ class Druta:
     # ====================================================================== #
     #  MONITOR                                                               #
     # ====================================================================== #
-    TILES = [("core", "CORE CLOCK", "MHz", ACCENT),
-             ("xbar", "XBAR CLOCK", "MHz", VIOLET),
-             ("mem", "MEM CLOCK", "MHz", ACCENT),
+    # The clock tiles' big number is the PROGRAMMED figure (what GPU-Z and
+    # NVML show); the line under it is the measured one (REAL_TILES).
+    TILES = [("core", "CORE CLOCK", "MHz programmed", ACCENT),
+             ("xbar", "XBAR CLOCK", "MHz programmed", VIOLET),
+             ("mem", "MEM CLOCK", "MHz programmed", ACCENT),
              ("edge", "EDGE TEMP", "\u00b0C", GOOD),
              ("hot", "HOTSPOT", "\u00b0C", WARN),
              ("pwr", "POWER", "W", ACCENT),
              ("vcore", "VCORE", "mV", ACCENT)]
+
+    # The tiles that carry a measured line: array B of the same private row the
+    # tile's programmed number stands for (see realclock and real_clock_row).
+    REAL_TILES = ("core", "xbar", "mem")
+    # The XBAR tile's number IS array A of this private domain (PRIV_SLOT is in
+    # array-A dwords), so its measured line pairs with the same slot.
+    XBAR_TILE_DOMAIN = PRIV_SLOT["xbar"] // PRIV_A_STRIDE
+    # A row whose A differs from the tile's number by this much is not the
+    # tile's clock: its delta is shown against A and never coloured.
+    REAL_PAIR_TOL_MHZ = 1.0
+    # the widest line in normal use, so the tile never grows when it fills in
+    REAL_TEMPLATE = "measured 0000  Δ -00.0"
+    REAL_SUB_TOKENS = (" · steady at load", " · varying", " · settling",
+                       " · load 100 %", " · load unread", " · stale")
+    REAL_COL = {"text": TEXT, "warn": WARN, "bad": BAD, "dim": DIM}
 
     BARS = [("gpu", "GPU", ACCENT), ("board", "Board", VIOLET),
             ("tdp", "TDP used", WARN), ("ugpu", "GPU util", GOOD),
             ("ufb", "FB util", GOOD), ("uvid", "VID util", GOOD),
             ("ubus", "BUS util", GOOD)]
 
+    # A tile's own item gap and padding, in UNSCALED px, set by its theme so
+    # tile_height() can add them up exactly. Left to the default style, every
+    # text item also advanced by twice the frame padding (6 px) and the gap
+    # was the default 4, none of which the estimate counted: each tile clipped
+    # its bottom line (the subtitle) out of sight.
+    TILE_GAP, TILE_PAD = 4, 8
+
     def build_monitor(self):
+        with dpg.theme() as tile_theme:
+            with dpg.theme_component(dpg.mvAll):
+                dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, self.s(8), self.s(self.TILE_GAP))
+                dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, self.s(8), self.s(self.TILE_PAD))
+                # text lines advance by their own height only
+                dpg.add_theme_style(dpg.mvStyleVar_FramePadding, self.s(4), 0)
         with dpg.tab(label="  Monitor  "):
             with dpg.group(horizontal=True, tag="tile_row"):
                 for key, label, unit, col in self.TILES:
@@ -629,17 +663,24 @@ class Druta:
                                           height=self.s(104), border=True,
                                           no_scrollbar=True,
                                           no_scroll_with_mouse=True):
+                        dpg.bind_item_theme(f"tile_{key}", tile_theme)
                         dpg.add_text(label, color=DIM)
                         dpg.add_text("--", tag=f"t_{key}", color=col)
                         self.bind(f"t_{key}", "big")
-                        dpg.add_text(unit, color=DIM)
+                        dpg.add_text(unit, tag=f"u_{key}", color=DIM, wrap=self.s(165))
+                        if key in self.REAL_TILES:
+                            # directly under the programmed number it qualifies
+                            dpg.add_text("measured: --", tag=f"r_{key}", color=DIM,
+                                         wrap=self.s(165))
+                            with dpg.tooltip(f"r_{key}"):
+                                dpg.add_text("", tag=f"rt_{key}", wrap=self.s(520))
                         dpg.add_text("", tag=f"s_{key}", color=DIM, wrap=self.s(165))
             dpg.add_spacer(height=self.s(6))
 
-            # Directly under the tiles on purpose: the CORE CLOCK tile above
-            # shows the PROGRAMMED target, and this is the panel that says what
-            # the card is measured to be doing instead. Put it at the bottom of
-            # the page and the number it qualifies is off screen.
+            # Directly under the tiles on purpose: the clock tiles above show
+            # the PROGRAMMED target with the measured figure under it, and this
+            # panel shows both arrays for every domain. Put it at the bottom of
+            # the page and the numbers it qualifies are off screen.
             self.build_domains()
             dpg.add_spacer(height=self.s(6))
 
@@ -752,8 +793,8 @@ class Druta:
             dpg.add_text(
                 "A / B = driver-reported clock arrays. TU102: target / measured "
                 "counter; GK104/GM107: identical in tested states. 2CLK = doubled "
-                "clock units. Delta colors use one / three graphics bins, "
-                "scaled only for identified 2CLK domains.\n"
+                "clock units. Delta colors use one / three graphics bins (0.5 MHz "
+                "tolerance), scaled only for identified 2CLK domains.\n"
                 "Names: plain = confirmed; '?' = inferred; '--' = unidentified.",
                 tag="dom_legend", color=DIM, wrap=self.s(1100))
             dpg.add_text("", tag="dom_err", color=BAD, show=False)
@@ -804,11 +845,10 @@ class Druta:
         was measuring wrong."""
         if delta_mhz is None:
             return "ok"
-        d = abs(delta_mhz)
         # bands are ONE and THREE clock bins, so they follow the card's grid
-        # rather than a Turing-sized 15/45 MHz
-        warn = (self.step_khz() / 1000.0) * max(1, scale)
-        return ("bad" if d >= 3 * warn else "warn" if d >= warn else "ok")
+        # rather than a Turing-sized 15/45 MHz, with the tiles' tolerance: a
+        # counter one bin off reads a hair short of it (+14.9 on 15 MHz)
+        return realclock.gap_band(abs(delta_mhz) / max(1, scale), self.step_khz() / 1000.0)
 
     def refresh_domains(self, d):
         rows = d.get("clk_domains")
@@ -878,6 +918,230 @@ class Druta:
                     dpg.configure_item(f"dom_row_{dom}", show=dom in present)
             self._dom_shown = present
 
+    # ---- the measured clock under each clock tile -------------------------- #
+    # The tiles' big numbers are the PROGRAMMED clock, which is what GPU-Z,
+    # NVML and every other readout show. A card can run below it: a V/F hold on
+    # the voltage ceiling does (issue #29), and GPU Boost can too. The line
+    # under each clock tile is array B of the same private row - on TU102 a
+    # measured counter - with its distance from A. realclock decides, from this
+    # card's own readings, whether B may be called measured at all, and when a
+    # distance is comparable (load, settling, a steady target).
+
+    @staticmethod
+    def core_clock_row(rows, allow_2clk=False):
+        """The row CONFIRMED as the core clock, with both arrays present.
+        GPC2CLK (a doubled row) only when asked for: the log's clock check does
+        not use it."""
+        names = ("GPC", "GPC2CLK") if allow_2clk else ("GPC",)
+        return next((r for r in rows or () if r.get("name") in names
+                     and r.get("grade") in (None, PRIV_CONFIRMED)
+                     and r.get("prog_mhz") and r.get("meas_mhz")), None)
+
+    @classmethod
+    def real_clock_row(cls, rows, key):
+        """The private row a clock tile's measured line reads, or None."""
+        if key == "core":
+            return cls.core_clock_row(rows, allow_2clk=True)
+        if key == "xbar":
+            # by slot, not by name: the tile's number is this slot's array A
+            return next((r for r in rows or () if r.get("domain") == cls.XBAR_TILE_DOMAIN
+                         and r.get("kind") == PRIV_FREQ
+                         and r.get("grade") != PRIV_UNPOPULATED
+                         and r.get("prog_khz") and r.get("meas_khz")), None)
+        if key == "mem":
+            return next((r for r in rows or () if r.get("name") == "MEM"
+                         and r.get("grade") == PRIV_CONFIRMED and r.get("kind") == PRIV_FREQ
+                         and r.get("prog_khz") and r.get("meas_khz")), None)
+        return None
+
+    def real_tracker(self):
+        tracker = getattr(self, "_real", None)
+        if tracker is None:
+            tracker = self._real = realclock.ClockEvidence()
+        return tracker
+
+    def refresh_real_clocks(self, d, now=None):
+        """Feed each DISTINCT snapshot once (the UI redraws one reading about
+        four times a second) and draw the measured line of every clock tile.
+        Calls only dpg.set_value / configure_item: it runs on apps with no
+        widget tree in the tests, and inside refresh_monitor."""
+        now = time.monotonic() if now is None else now
+        fresh = d is not getattr(self, "_real_last_d", None)
+        self._real_last_d = d
+        rows = d.get("clk_domains")
+        stale = getattr(self, "_stale", False)
+        tracker = self.real_tracker()
+        colours = getattr(self, "_real_col", None)
+        if colours is None:
+            colours = self._real_col = {}
+        token = ""
+        for key in self.REAL_TILES:
+            row = self.real_clock_row(rows, key) if rows else None
+            tile = d.get(key)
+            if fresh and not stale:
+                if row is None or tile is None:
+                    tracker.miss(key)
+                else:
+                    scale = row.get("scale", 1) or 1
+                    tracker.feed(key, row["domain"], row.get("name"), row.get("prog_khz"),
+                                 row.get("meas_khz"), scale, d.get("util_gpu"),
+                                 abs(row["prog_khz"] / 1000.0 / scale - tile)
+                                 < self.REAL_PAIR_TOL_MHZ,
+                                 now, self.step_khz() / 1000.0, graded=key != "mem")
+            reading = tracker.last(key) if row is not None else None
+            line, colour, tok, tip = self.real_clock_view(key, reading, row, tile, d, stale)
+            dpg.set_value(f"r_{key}", line)
+            dpg.set_value(f"rt_{key}", tip)
+            if colours.get(key) != colour:
+                colours[key] = colour
+                dpg.configure_item(f"r_{key}", color=self.REAL_COL[colour])
+            if key == "core":
+                token = tok
+        base = f"P{d.get('pstate', '?')}"
+        self._real_sub_base = base
+        dpg.set_value("s_core", base + token)
+
+    @staticmethod
+    def real_delta_text(dv):
+        r = round(dv, 1)
+        # +0.0, never "-0.0" (-0.0 + 0.0 is +0.0 in IEEE 754)
+        return f"{r + 0.0:+.1f}" if abs(r) < 100 else f"{int(round(dv)):+d}"
+
+    def real_clock_view(self, key, reading, row, tile, d, stale):
+        """(line, colour key, core subtitle token, tooltip) for one tile. Pure
+        apart from reading this card's clock step and memory divisor."""
+        footer = ("Plain = within one clock bin, amber = one bin or more, red = three "
+                  "or more, either sign, in every reading of the window; dim = not judged. "
+                  "B was shown to be a physical counter on one TITAN RTX (TU102); elsewhere "
+                  "'measured' means B passed the check above, not a calibrated instrument.")
+        rows = d.get("clk_domains")
+        if rows is None:
+            err = d.get("clk_domains_err")
+            return (("measured: n/a" if err else "measured: --"), "dim", "",
+                    (f"{err}. The private getter is Druta's only source of a measured clock."
+                     if err else "No private clock reading yet."))
+        if tile is None:
+            return ("measured: --", "dim", "",
+                    "This tile has no figure on this card, so there is nothing to pair a "
+                    "measurement with.")
+        if row is None or reading is None:
+            why = {"core": "No row on this card is CONFIRMED as the core clock (GPC or GPC2CLK) "
+                           "with both arrays non-zero in this reading. Names are earned per card; "
+                           "see ALL CLOCK DOMAINS.",
+                   "xbar": f"Private domain {self.XBAR_TILE_DOMAIN} is empty or absent in this "
+                           f"reading.",
+                   "mem": "No row on this card is CONFIRMED as MEM with both arrays non-zero."}
+            return "measured: --", "dim", "", why.get(key, "")
+        div = 1.0
+        if key == "mem":
+            static = getattr(getattr(self, "gpu", None), "static", None) or {}
+            div = float(static.get("mem_div") or 1.0)
+        m, dv, a = reading.b_mhz / div, reading.delta_mhz / div, reading.a_mhz / div
+        number = f"{m:.0f}  Δ {self.real_delta_text(dv)}"
+        if not reading.paired:
+            number += f"  vs A {a:.0f}"
+        trust = reading.trust
+        if trust == realclock.CHECKING:
+            line = "measured: checking B"
+        elif trust == realclock.MIRROR:
+            line = "measured: none (B = A)"
+        elif trust == realclock.UNPROVEN:
+            line = f"unproven {number}"
+        else:
+            line = f"measured {number}"
+
+        state, verdict = reading.state, reading.verdict
+        if stale or trust != realclock.MEASURED:
+            colour = "dim"
+        elif key == "mem":
+            colour = "text"
+        else:
+            colour = {"ok": "text", "warn": "warn", "bad": "bad"}.get(verdict, "dim")
+        if stale:
+            tok = " · stale"
+        elif trust != realclock.MEASURED:
+            tok = ""
+        elif state == "judged":
+            tok = " · varying" if verdict == "varying" else " · steady at load"
+        elif state in ("settling", "load start"):
+            tok = " · settling"
+        elif state == "light":
+            tok = f" · load {reading.util:.0f} %"
+        elif state == "load unread":
+            tok = " · load unread"
+        else:
+            tok = ""
+
+        bin_mhz = self.step_khz() / 1000.0
+        scale = reading.scale
+        if key == "core":
+            head = (f"The number above is the driver's current clock, {tile} MHz (public NVAPI; "
+                    f"NVML and GPU-Z show this figure).")
+        elif key == "xbar":
+            head = f"The number above is array A of private domain {reading.dom}, {tile} MHz."
+        else:
+            head = (f"The number above is the driver's current memory clock "
+                    f"({self.mem_fmt(tile)[0]}{' MHz' if div != 1.0 else ', raw driver units'}).")
+        two = scale == 2
+        a_raw, b_raw = reading.a_khz / 1000.0, reading.b_khz / 1000.0
+        lines = [head,
+                 f"Row: private domain {reading.dom} {reading.name or '--'}"
+                 + (" (a 2CLK row, halved to core MHz here)" if two else ""),
+                 f"A (programmed)  {a_raw:.1f} MHz" + (f" = 2 x {a_raw / 2:.1f}" if two else ""),
+                 f"B (second array)  {b_raw:.1f} MHz" + (f" = 2 x {b_raw / 2:.1f}" if two else "")]
+        if key == "mem":
+            lines.append("Not colour-graded: Druta knows this card's graphics clock bin, not a "
+                         "memory clock bin." + (f" Shown divided by {div:g} as the tile is."
+                                                if div != 1.0 else ""))
+        else:
+            lines.append(f"Δ B-A {reading.delta_mhz:+.1f} MHz = "
+                         f"{reading.delta_mhz / bin_mhz:+.2f} bins of {bin_mhz:.3f} MHz "
+                         f"(this card's clock step)")
+        ev, n = reading.events, reading.samples
+        lines.append({
+            realclock.MEASURED: f"B counts as measured on this card: while A held still it "
+                                f"changed {ev} times, to values A never reported ({n} readings).",
+            realclock.CHECKING: f"Checking whether B is a counter on this card: it has to change "
+                                f"while A holds still, to values A never reported ({ev} of "
+                                f"{realclock.EVIDENCE_EVENTS} so far, {n} readings).",
+            realclock.MIRROR: f"B has equalled A exactly in the last {reading.mirror_run} "
+                              f"readings, through a change of A, so on this card it is not an "
+                              f"independent measurement and no measured clock is shown "
+                              f"(GK104/GM107 did this in every tested state).",
+            realclock.UNPROVEN: f"B differs from A but has not changed on its own while A held "
+                                f"still ({ev} of {realclock.EVIDENCE_EVENTS} in {n} readings), so "
+                                f"it is shown as unproven, not as a measurement."}[trust])
+        if trust == realclock.MEASURED and key != "mem":
+            gate = realclock.LOAD_GATE_PCT
+            if stale:
+                lines.append("Not judged: the latest driver read failed; these are the last "
+                             "good values.")
+            elif state == "judged" and verdict == "varying":
+                lines.append(f"Not coloured: Δ ran {min(reading.window):+.1f} to "
+                             f"{max(reading.window):+.1f} MHz across a band edge.")
+            elif state == "judged":
+                lo, hi = reading.window_util or (reading.util, reading.util)
+                lines.append(f"Judged over the last {len(reading.window)} readings at "
+                             f"{lo:.0f}-{hi:.0f} % load with A unchanged: Δ "
+                             f"{min(reading.window):+.1f} to {max(reading.window):+.1f} MHz.")
+            elif state in ("settling", "load start"):
+                lines.append(f"Not judged yet: needs {realclock.WINDOW_READS} readings at >= "
+                             f"{gate} % load with A unchanged, after B has refreshed "
+                             f"{realclock.FRESH_NEEDED} times since A last changed (on one "
+                             f"TU102, B trailed a clock change by 1-2 s).")
+            elif state == "light":
+                lines.append(f"Not judged below {gate} % load ({reading.util:.0f} % now): the "
+                             f"clock gates between bursts, so B reads low (one TU102 read "
+                             f"470-573 MHz at a 1350 MHz lock).")
+            elif state == "load unread":
+                lines.append("Not judged: GPU load is unavailable in this reading.")
+            elif state == "unpaired":
+                lines.append(f"Not judged: this row's A ({reading.a_mhz:.1f}) differs from the "
+                             f"number above ({tile}) by {self.REAL_PAIR_TOL_MHZ:g} MHz or more, "
+                             f"so Δ is against A.")
+        lines.append(footer)
+        return line, colour, tok, "\n".join(lines)
+
     def text_h(self, txt, font_name, wrap=-1.0):
         """Rendered height of `txt`, or None if the font is not ready yet."""
         f = self._fonts.get(font_name)
@@ -896,12 +1160,29 @@ class Druta:
         bh = self.text_h("0123", "big") or self.s(31)
         wrap = self.sub_wrap(tw)
         subs = lh
-        for key, *_ in self.TILES:
+        units = lh
+        real = 0
+        base = getattr(self, "_real_sub_base", "P?")
+        for key, _label, unit, _col in self.TILES:
             txt = (dpg.get_value(f"s_{key}") if dpg.does_item_exist(f"s_{key}")
                    else "") or "Ag"
             subs = max(subs, self.text_h(txt, "ui", wrap) or lh)
-        # label + unit + value + subtitle, plus 3 item gaps and frame padding
-        return int(lh * 2 + bh + subs + self.s(30))
+            units = max(units, self.text_h(unit, "ui", wrap) or lh)
+            if dpg.does_item_exist(f"r_{key}"):
+                for line in (self.REAL_TEMPLATE, dpg.get_value(f"r_{key}") or ""):
+                    real = max(real, self.text_h(line or "Ag", "ui", wrap) or lh)
+        if real:
+            # every state of the core subtitle, so the tile does not jump when
+            # the measured line changes state
+            for tok in self.REAL_SUB_TOKENS:
+                subs = max(subs, self.text_h(base + tok, "ui", wrap) or lh)
+        # label + value + unit + measured line + subtitle, the gaps between them
+        # and the padding above and below - both set by the tile theme - and
+        # the border
+        items = 5 if real else 4
+        return int(lh + units + bh + real + subs
+                   + (items - 1) * self.s(self.TILE_GAP) + 2 * self.s(self.TILE_PAD)
+                   + self.s(2))
 
     def sub_wrap(self, tw):
         return max(self.s(80), tw - self.s(26))
@@ -945,8 +1226,9 @@ class Druta:
         for key, *_ in self.TILES:
             if dpg.does_item_exist(f"tile_{key}"):
                 dpg.configure_item(f"tile_{key}", width=tw, height=tile_h)
-            if dpg.does_item_exist(f"s_{key}"):
-                dpg.configure_item(f"s_{key}", wrap=wrap)
+            for part in ("s", "u", "r"):
+                if dpg.does_item_exist(f"{part}_{key}"):
+                    dpg.configure_item(f"{part}_{key}", wrap=wrap)
         # two columns; give the mid row whatever is left after tiles + bottom
         colw = max(self.s(300), (W - pad * 3) // 2)
         # 0.16 was over-generous now that a fourth row competes for the height:
@@ -957,7 +1239,11 @@ class Druta:
         # only its height is managed here). 11 populated rows plus the legend
         # do not fit beside anything, and it is a child_window - past its
         # share it scrolls internally rather than pushing the page.
-        dom_h = max(self.s(240), int(H * 0.34))
+        # The domains panel scrolls internally, so on a short window it gives
+        # way before the middle panels do (the measured line made the tiles
+        # taller): nothing changes where there is room.
+        dom_h = max(self.s(240), min(int(H * 0.34),
+                                     H - tile_h - bot_h - self.s(102) - self.s(220)))
         mid_h = max(self.s(220), H - tile_h - dom_h - bot_h - self.s(102))
         if dpg.does_item_exist("pan_dom"):
             dpg.configure_item("pan_dom", height=dom_h)
@@ -1132,6 +1418,17 @@ class Druta:
             dpg.set_value("s_pwr", limit_text)
         vc = d.get("vcore_mv")
         dpg.set_value("t_vcore", f"{vc:.0f}" if vc is not None else "--")
+        # its own guard: a fault in the measured line must not stop the rest
+        # of the page from drawing
+        try:
+            self.refresh_real_clocks(d)
+        except Exception as exc:                                  # noqa: BLE001
+            try:
+                self.log_once("real_clock", f"measured clock: {exc}")
+            except Exception:                                     # noqa: BLE001
+                pass
+        else:
+            getattr(self, "_once", {}).pop("real_clock", None)
 
         em = d.get("event_mask", 0)
         for bit, name in EVENT_REASONS:
@@ -4991,6 +5288,8 @@ class Druta:
     # enough that a clock transition (where the counter lags the target) does
     # not count.
     CLOCK_GAP_TICKS = 20
+    # the load at which a clock is comparable: below it the clock gates
+    CLOCK_GAP_UTIL = realclock.LOAD_GATE_PCT
 
     def check_clock_gap(self, d):
         """Warn when the GPU runs below the clock it shows.
@@ -5005,14 +5304,12 @@ class Druta:
         legacy GPC2CLK rows are not checked, because their programmed/measured
         arrays have not been shown to differ there."""
         rows = d.get("clk_domains") or []
-        gpc = next((r for r in rows if r.get("name") == "GPC"
-                    and r.get("grade") in (None, PRIV_CONFIRMED)
-                    and r.get("prog_mhz") and r.get("meas_mhz")), None)
+        gpc = self.core_clock_row(rows)             # the same row the CORE tile reads
         util = d.get("util_gpu")
         hist = getattr(self, "_gap_hist", None)
         if hist is None:
             hist = self._gap_hist = []
-        if gpc is None or util is None or util < 90:
+        if gpc is None or util is None or util < self.CLOCK_GAP_UTIL:
             hist.clear()
         else:
             hist.append((gpc["prog_mhz"], gpc["prog_mhz"] - gpc["meas_mhz"]))
@@ -5020,8 +5317,9 @@ class Druta:
         step = self.step_khz() / 1000.0
         full = len(hist) >= self.CLOCK_GAP_TICKS
         steady = full and max(p for p, _ in hist) - min(p for p, _ in hist) < 0.5
-        low = steady and min(g for _, g in hist) >= step - 0.5
-        clear = steady and max(g for _, g in hist) < step - 0.5
+        tol = realclock.GAP_TOL_MHZ                 # the tiles' tolerance too
+        low = steady and min(g for _, g in hist) >= step - tol
+        clear = steady and max(g for _, g in hist) < step - tol
         if low and not getattr(self, "_gap_warned", False):
             self._gap_warned = True
             prog, _ = hist[-1]
@@ -9829,6 +10127,9 @@ deliberately does not put behind a button."""
         # which stops being true the moment the widgets are rebuilt
         self._bar_band, self._dom_band = {}, {}
         self._dom_name, self._dom_shown = {}, set()
+        # what B has shown is the outgoing card's
+        self._real = realclock.ClockEvidence()
+        self._real_last_d, self._real_col = None, {}
         self._tw_btn = None
         self._plan_band = None
         # timings tab
