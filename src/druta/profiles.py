@@ -52,7 +52,7 @@ KEEP_AUTOSAVES = 20
 # the snapshot into the log line the user actually sees.
 INCOMPLETE_KEY = "incomplete"
 CURRENT_DAC_FORMAT = "i2c.current_dac_control"
-# A power-policy name is a label the user types beside the slider.
+# A power-policy name is the note the user gives a channel beside its slider.
 POLICY_NAME_MAX = 80
 
 

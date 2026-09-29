@@ -136,6 +136,19 @@ RISK_TINT = {
 }
 RISK_BAND_NAME = {RISK_AMBER: "AMBER", RISK_RED: "RED",
                   RISK_CRIMSON: "CRIMSON"}
+
+# Per-wire current bands for a row marked as a connector (Power policies): the
+# connector's current divided over its 12 V wires. Up to 5 A white (18 AWG
+# continuous with poor ventilation), to 10 A yellow (18 AWG's upper limit), to
+# 13 A red (16 AWG), above that crimson (14 AWG or strong airflow). Upper bound
+# inclusive, colours from the palette and the risk tints above.
+WIRE_BANDS = ((5.0, TEXT), (10.0, WARN), (13.0, RISK_TINT[RISK_RED][2]),
+              (math.inf, RISK_TINT[RISK_CRIMSON][1]))
+
+
+def wire_band(amps_per_wire):
+    """Index into WIRE_BANDS for one wire's current."""
+    return next(i for i, (top, _colour) in enumerate(WIRE_BANDS) if amps_per_wire <= top)
 # Says what the SCORE means. What each individual feature does is in
 # RISK_FEATURE_TEXT, and the banner shows both.
 RISK_BAND_TEXT = {
@@ -1333,8 +1346,8 @@ class Druta:
         return (memory_label or f"{shown} clock offset (MHz)",
                 self.GRADE_COL.get(grade, DIM), priv)
 
-    def knob_cols(self):
-        for w in self.KNOB_COLS:
+    def knob_cols(self, widths=None):
+        for w in widths or self.KNOB_COLS:
             dpg.add_table_column(width_fixed=True,
                                  init_width_or_weight=self.s(w))
 
@@ -1777,14 +1790,72 @@ class Druta:
     # One slider per policy, bounded by the policy's own minimum and maximum as
     # the card reports them, with a typeable value like every other knob. The
     # board limit and the named current limits keep their sliders above and
-    # appear here read-only. The name box is the user's label for the channel
-    # (policynames): the table carries numbers, not rail names.
+    # appear here read-only. Each row's label is the channel's NOTE: a choice
+    # of connector types or "others" with free text (policynames). The table
+    # carries channel numbers, not rail names, so the note is the user's. A
+    # connector note also says how many 12 V wires share the current, and a
+    # current row on such a channel shows and colours its per-wire figure.
     POLICY_REFRESH_S = 1.0
+    # wider label (note) and live (per-wire) columns than the main knob tables;
+    # the section is full width
+    POLICY_COLS = (320, 200, 66, 180, 78, 74)
+    NOTE_W = 150
 
     @staticmethod
     def power_policy_hint(row):
         unit = {"mW": "W", "mA": "A"}.get(row["unit"], "?")
         return f"policy {row['policy']} - channel {row['channel']} - type 0x{row['type']:02X} ({unit})"
+
+    def channel_note(self, row):
+        """The note the user gave this row's channel, or ''."""
+        for entry in (getattr(self, "_policy_names", None) or {}).values():
+            if entry["channel"] == row["channel"]:
+                return entry["name"]
+        return ""
+
+    def row_wires(self, row):
+        """12 V wires sharing a CURRENT row's reading, from its channel note."""
+        return policynames.wires(self.channel_note(row)) if row.get("unit") == "mA" else None
+
+    def wire_theme(self, band):
+        """Text colour for a value box in WIRE_BANDS[band]; built once per UI
+        build (build_ui deletes unparented themes on a rebuild)."""
+        themes = getattr(self, "_wire_themes", None)
+        if themes is None or not all(dpg.does_item_exist(t) for t in themes.values()):
+            themes = {}
+            for i, (_top, colour) in enumerate(WIRE_BANDS):
+                with dpg.theme() as th:
+                    with dpg.theme_component(dpg.mvAll):
+                        dpg.add_theme_color(dpg.mvThemeCol_Text, colour)
+                themes[i] = th
+            self._wire_themes = themes
+        return themes[band]
+
+    def note_cell(self, row):
+        """The label cell: the channel note's choice list, then the policy's
+        description - or, for "others", the text box for the note."""
+        key, policy = f"pp{row['policy']}", row["policy"]
+        note = self.channel_note(row)
+        choice = (note if note in policynames.CONNECTORS else
+                  policynames.OTHER if note else "-")
+
+        # factories, not default arguments: DearPyGui fills a callback's
+        # parameters positionally (see slider_row's _fire)
+        def chose(p):
+            return lambda sender, value: self.set_power_policy_note(p, choice=value)
+
+        def typed(p):
+            return lambda sender, value: self.set_power_policy_note(p, text=value)
+
+        rest = self.s(self.POLICY_COLS[0] - self.NOTE_W - 18)
+        with dpg.group(horizontal=True):
+            dpg.add_combo(("-", *policynames.CONNECTORS, policynames.OTHER), tag=f"note_{key}",
+                          default_value=choice, width=self.s(self.NOTE_W), callback=chose(policy))
+            dpg.add_text(self.power_policy_hint(row), tag=f"desc_{key}", color=DIM,
+                         show=choice != policynames.OTHER)
+            dpg.add_input_text(tag=f"name_{key}", hint=self.power_policy_hint(row), width=rest,
+                               default_value=note if choice == policynames.OTHER else "",
+                               show=choice == policynames.OTHER, callback=typed(policy))
 
     def build_power_policy_section(self):
         self._power_policies = {}
@@ -1807,11 +1878,13 @@ class Druta:
         self._ctl_widgets.append("pp_max_all")
         dpg.add_text("The driver sets several of these from the board power limit and "
                      "recalculates them whenever it changes; a value you set here is re-applied "
-                     "after that and marked *. Stock hands a policy back to the driver. Type in a "
-                     "name box to label its channel.", color=DIM, wrap=self.s(900))
+                     "after that and marked *. Stock hands a policy back to the driver. Note a "
+                     "channel by its connector, or 'others' for your own words; a current row on a "
+                     "connector shows its current per 12 V wire, coloured: to 5 A white, 10 A "
+                     "yellow, 13 A red, above that crimson.", color=DIM, wrap=self.s(900))
         with dpg.table(header_row=False, no_host_extendX=True,
                        policy=dpg.mvTable_SizingFixedFit):
-            self.knob_cols()
+            self.knob_cols(self.POLICY_COLS)
             for row in rows:
                 self.power_policy_row(row)
         self.refresh_power_policies(sync=True)
@@ -1820,36 +1893,29 @@ class Druta:
         policy = row["policy"]
         key = f"pp{policy}"
         self._power_policies[policy] = dict(row)
-        name = (self._policy_names.get(policy) or {}).get("name", "")
-        hint = self.power_policy_hint(row)
 
-        # factories, not default arguments: DearPyGui fills a callback's
-        # parameters positionally (see slider_row's _fire)
         def apply_for(p):
             return lambda value: self.apply_power_policy(p, value)
 
         def stock_for(p):
             return lambda: self.stock_power_policy(p)
 
-        def name_for(p):
-            return lambda text: self.rename_power_policy(p, text)
+        def label_for(r):
+            return lambda: self.note_cell(r)
 
         if row["writable"]:
-            self.slider_row(key, name, row["minimum"] / 1000, row["maximum"] / 1000,
+            self.slider_row(key, "", row["minimum"] / 1000, row["maximum"] / 1000,
                             row["requested"] / 1000, apply_for(policy),
                             extra=("Stock", stock_for(policy)), decimals=3,
-                            name_cb=name_for(policy), name_hint=hint)
+                            label_cell=label_for(row))
             self._policy_synced[policy] = row["requested"]
             return
         amount = lambda v: GPU._policy_amount(v, row["unit"])            # noqa: E731
         why = ("set with Power limit (W) above" if row["board"] else
                "set with its current-limit slider above" if row["named_current"] else
                f"no range to write ({amount(row['minimum'])} .. {amount(row['maximum'])})")
-        rename = name_for(policy)
         with dpg.table_row():
-            dpg.add_input_text(tag=f"name_{key}", default_value=name, hint=hint,
-                               width=self.s(self.KNOB_COLS[0] - 10),
-                               callback=lambda sender, value: rename(value))
+            self.note_cell(row)
             dpg.add_text(why, color=DIM)
             dpg.add_text(amount(row["requested"]), tag=f"req_{key}", color=DIM)
             dpg.add_text("--", tag=f"live_{key}", color=DIM)
@@ -1886,19 +1952,54 @@ class Druta:
         self.refresh_power_policies(sync=True)
         self.refresh_current_limits(sync=True)
 
-    def rename_power_policy(self, policy, text):
+    def show_channel_note(self, channel, note, choice=None):
+        """Put a channel's note on every row of that channel."""
+        if choice is None:
+            choice = (note if note in policynames.CONNECTORS else
+                      policynames.OTHER if note else "-")
+        for policy, row in getattr(self, "_power_policies", {}).items():
+            if row["channel"] != channel:
+                continue
+            key = f"pp{policy}"
+            if dpg.does_item_exist(f"note_{key}"):
+                dpg.set_value(f"note_{key}", choice)
+            if dpg.does_item_exist(f"desc_{key}"):
+                dpg.configure_item(f"desc_{key}", show=choice != policynames.OTHER)
+            if dpg.does_item_exist(f"name_{key}"):
+                dpg.configure_item(f"name_{key}", show=choice == policynames.OTHER)
+                if choice == policynames.OTHER and dpg.get_value(f"name_{key}") != note:
+                    dpg.set_value(f"name_{key}", note)
+
+    def set_power_policy_note(self, policy, choice=None, text=None):
+        """A note belongs to the CHANNEL - its power and its current rows share
+        the physical input - so every row on it follows. choice is from the
+        list ('-' clears, 'others' opens the text box); text is typed there."""
         row = getattr(self, "_power_policies", {}).get(policy)
         if row is None:
             return
-        text = (text or "").strip()[:policynames.NAME_MAX]
-        names = dict(getattr(self, "_policy_names", {}) or {})
-        if text:
-            names[policy] = {"name": text, "channel": row["channel"], "type": row["type"]}
+        if text is not None:
+            note, choice = (text or "").strip()[:policynames.NAME_MAX], policynames.OTHER
+        elif choice in policynames.CONNECTORS:
+            note = choice
+        elif choice == policynames.OTHER:
+            box = f"name_pp{policy}"
+            note = ((dpg.get_value(box) or "").strip()[:policynames.NAME_MAX]
+                    if dpg.does_item_exist(box) else "")
         else:
-            names.pop(policy, None)
+            note, choice = "", "-"
+        names = dict(getattr(self, "_policy_names", {}) or {})
+        for other, r in self._power_policies.items():
+            if r["channel"] != row["channel"]:
+                continue
+            if note:
+                names[other] = {"name": note, "channel": r["channel"], "type": r["type"]}
+            else:
+                names.pop(other, None)
         self._policy_names = names
         self.gpu.power_policy_names = dict(names)
         self._policy_names_dirty = time.time()      # saved once typing pauses
+        self.show_channel_note(row["channel"], note, choice)
+        self.refresh_power_policies(force=True)
 
     def save_power_policy_names(self, force=False):
         dirty = getattr(self, "_policy_names_dirty", None)
@@ -1910,7 +2011,7 @@ class Druta:
             self.log(message, False)
 
     def apply_profile_policy_names(self, state):
-        """A loaded profile's names become this card's names, where they still
+        """A loaded profile's notes become this card's notes, where they still
         match the live table (policynames.matching)."""
         names = policynames.clean((state or {}).get("power_policy_names"))
         rows = list(getattr(self, "_power_policies", {}).values())
@@ -1919,23 +2020,23 @@ class Druta:
             return
         self._policy_names = {**(getattr(self, "_policy_names", {}) or {}), **matched}
         self.gpu.power_policy_names = dict(self._policy_names)
-        for policy, entry in matched.items():
-            if dpg.does_item_exist(f"name_pp{policy}"):
-                dpg.set_value(f"name_pp{policy}", entry["name"])
+        for entry in matched.values():
+            self.show_channel_note(entry["channel"], entry["name"])
         self._policy_names_dirty = 0.0
+        self.refresh_power_policies(force=True)
 
-    def refresh_power_policies(self, sync=False):
+    def refresh_power_policies(self, sync=False, force=False):
         """Live readings about once a second while the section is open.
 
         A slider follows the card's request when it moved without the user -
         the driver recalculating it from the board limit, a profile, Reset,
         another tool - unless the user has a different value staged in it.
-        sync (after an apply) always follows."""
+        sync (after an apply) always follows; force skips the throttle only."""
         self.save_power_policy_names()
         if not getattr(self, "_power_policies", None):
             return
         now = time.time()
-        if not sync:
+        if not (sync or force):
             if (not dpg.does_item_exist("power_policy_header")
                     or not dpg.get_value("power_policy_header")
                     or now - getattr(self, "_policy_refresh_t", 0.0) < self.POLICY_REFRESH_S):
@@ -1948,16 +2049,23 @@ class Druta:
         live = {row["policy"]: row for row in rows}
         for policy, previous in list(self._power_policies.items()):
             key, row = f"pp{policy}", live.get(policy)
+            wires = self.row_wires(row or previous)
             if dpg.does_item_exist(f"live_{key}"):
                 if row:
                     amount = lambda v: GPU._policy_amount(v, row["unit"])   # noqa: E731
                     mark = " *" if row["pinned"] is not None else ""
-                    text = f"{amount(row['value'])}\n≤{amount(row['limit'])}{mark}"
+                    if wires:
+                        now_w, limit_w = row["value"] / 1000 / wires, row["limit"] / 1000 / wires
+                        text = (f"{amount(row['value'])} ({now_w:.2f}/wire)\n"
+                                f"≤{amount(row['limit'])} ({limit_w:.2f}/wire){mark}")
+                        colour = WIRE_BANDS[wire_band(now_w)][1]
+                    else:
+                        text = f"{amount(row['value'])}\n≤{amount(row['limit'])}{mark}"
+                        colour = GOOD if row["pinned"] is not None else TEXT
                 else:
-                    text = "unavailable"
+                    text, colour = "unavailable", DIM
                 dpg.set_value(f"live_{key}", text)
-                dpg.configure_item(f"live_{key}", color=(GOOD if row and row["pinned"] is not None
-                                                         else TEXT if row else DIM))
+                dpg.configure_item(f"live_{key}", color=colour)
             if row is None:
                 continue
             self._power_policies[policy] = dict(row)
@@ -1975,6 +2083,12 @@ class Druta:
                     if dpg.does_item_exist(pre + key):
                         dpg.set_value(pre + key, row["requested"] / 1000)
                 self._policy_synced[policy] = row["requested"]
+                staged = row["requested"] / 1000
+            # the limit's band for the value on the slider, staged or set:
+            # raising it shows where it lands before Apply
+            if dpg.does_item_exist(f"in_{key}"):
+                dpg.bind_item_theme(f"in_{key}", self.wire_theme(wire_band(staged / wires))
+                                    if wires else 0)
 
     def build_volt_limits_rows(self):
         """Build readouts and confirmed controls for the rails on this card."""
@@ -2647,7 +2761,7 @@ class Druta:
 
     def slider_row(self, key, label, lo, hi, init, cb, note=None, extra=None,
                    color=None, xoc_lo=None, xoc_hi=None, decimals=0,
-                   name_cb=None, name_hint=""):
+                   label_cell=None):
         """One knob = one row of the enclosing knob table (see knob_cols), so
         every Apply lands in the same column even though the labels, the notes
         and the presence of an extra button all differ per row.
@@ -2668,12 +2782,10 @@ class Druta:
         with dpg.table_row():
             # colour is normally TEXT; the per-domain offsets pass the Monitor's
             # grade colour so a hedged name looks hedged on both tabs
-            if name_cb is not None:
-                # a row the user names: the label IS the name box, and the
-                # hint says what the driver reports when it is empty
-                dpg.add_input_text(tag=f"name_{key}", default_value=label, hint=name_hint,
-                                   width=self.s(self.KNOB_COLS[0] - 10),
-                                   callback=lambda sender, value: name_cb(value))
+            if label_cell is not None:
+                # a row whose label cell is its own widget (the power-policy
+                # note: a choice list and, for "others", a text box)
+                label_cell()
             else:
                 dpg.add_text(label, color=color or TEXT,
                              wrap=self.s(self.KNOB_COLS[0] - 10)

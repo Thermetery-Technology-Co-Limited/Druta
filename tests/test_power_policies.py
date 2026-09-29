@@ -23,7 +23,7 @@ import dearpygui.dearpygui as dpg
 
 from druta import nvbackend as n
 from druta import policynames, profiles
-from druta.druta import Druta
+from druta.druta import WIRE_BANDS, Druta
 
 A612, A618, A619, A61A, E61B = 0x2080A612, 0x2080A618, 0x2080A619, 0x2080A61A, 0x2080E61B
 INFO, STATUS, CONTROL = (0xCC, 0xFC), (0x9C, 0x1720), (0x14, 0xC4)
@@ -49,6 +49,7 @@ class PolicyCard:
         self.coupled, self.board = coupled, board
         self.request = {p: s["default"] for p, s in self.spec.items()}
         self.sets, self.ignore_next = [], False
+        self.reading = {}                    # channel readings by policy
 
     def derive(self):
         b = self.spec[self.board]
@@ -85,7 +86,7 @@ class PolicyCard:
             words[1] = self.mask
             for p, s in self.spec.items():
                 st = (STATUS[0] + p * STATUS[1]) // 4
-                words[st:st + 3] = [s["type"], self.effective(p), 1000 + p]
+                words[st:st + 3] = [s["type"], self.effective(p), self.reading.get(p, 1000 + p)]
         elif command == E61B:
             params = list(packet[17:])
             policy = params[4].bit_length() - 1
@@ -401,27 +402,87 @@ class PolicyUiTests(unittest.TestCase):
         self.assertEqual(self.card.request[4], 150000)
         self.assertTrue(dpg.get_value("live_pp4").endswith(" *"))
 
-    def test_a_typed_name_is_saved_for_this_card_and_carried_by_profiles(self):
+    def test_a_note_belongs_to_the_channel_and_is_saved_for_this_card(self):
         self.build()
-        self.app.rename_power_policy(4, "  8-pin #1  ")
+        self.app.set_power_policy_note(8, choice="others")          # 8-pin #1 current, channel 4
+        self.assertTrue(dpg.is_item_shown("name_pp8"))
+        self.app.set_power_policy_note(8, text="  first 8-pin  ")
         self.app.save_power_policy_names(force=True)
-        self.assertEqual(policynames.load("GPU-TEST"), {4: {"name": "8-pin #1", "channel": 4, "type": 3}})
-        self.assertEqual(self.app.gpu.power_policy_names[4]["name"], "8-pin #1")
+        saved = policynames.load("GPU-TEST")
+        self.assertEqual({p: e["name"] for p, e in saved.items()}, {4: "first 8-pin", 8: "first 8-pin"})
+        self.assertEqual(dpg.get_value("note_pp4"), "others")       # the power row on channel 4
+        self.assertEqual(dpg.get_value("name_pp4"), "first 8-pin")
+        self.assertEqual(self.app.gpu.power_policy_names[4]["name"], "first 8-pin")
         dpg.destroy_context()
         dpg.create_context()
-        self.build()                                             # a fresh session starts with it
-        self.assertEqual(dpg.get_value("name_pp4"), "8-pin #1")
+        self.build()                                                 # a fresh session starts with it
+        self.assertEqual((dpg.get_value("note_pp8"), dpg.get_value("name_pp8")),
+                         ("others", "first 8-pin"))
 
-    def test_a_loaded_profiles_names_become_this_cards_names(self):
+    def test_a_connector_note_and_clearing_it(self):
+        self.build()
+        self.app.set_power_policy_note(4, choice="PCIE 8pin")
+        self.assertEqual(dpg.get_value("note_pp8"), "PCIE 8pin")
+        self.assertFalse(dpg.is_item_shown("name_pp8"))
+        self.assertTrue(dpg.is_item_shown("desc_pp8"))
+        self.app.set_power_policy_note(8, choice="-")
+        self.assertEqual((dpg.get_value("note_pp4"), self.app._policy_names), ("-", {}))
+
+    def colour(self, tag):
+        return tuple(round(c * 255) for c in dpg.get_item_configuration(tag)["color"][:3])
+
+    def test_a_connectors_current_is_shown_and_coloured_per_wire(self):
+        self.build()
+        self.app.set_power_policy_note(8, choice="PCIE 8pin")        # 3 wires
+        for amps, band in ((15.0, 0), (20.0, 1), (36.0, 2), (45.0, 3), (30.0, 1), (30.3, 2)):
+            with self.subTest(amps=amps):
+                self.card.reading[8] = int(amps * 1000)
+                self.app.refresh_power_policies(force=True)
+                self.assertIn(f"({amps / 3:.2f}/wire)", dpg.get_value("live_pp8"))
+                self.assertEqual(self.colour("live_pp8"), WIRE_BANDS[band][1])
+        self.assertIn("(5.67/wire)", dpg.get_value("live_pp8"))       # the 17 A limit per wire
+        self.assertNotIn("/wire", dpg.get_value("live_pp4"))           # the power row: watts
+
+    def test_the_limits_band_follows_the_value_on_the_slider(self):
+        self.build()
+        self.app.set_power_policy_note(8, choice="PCIE 8pin")
+        self.assertEqual(dpg.get_item_theme("in_pp8"), self.app.wire_theme(1))   # 17 A = 5.67/wire
+        dpg.set_value("sl_pp8", 33.75)                                 # staged, not applied
+        self.app.refresh_power_policies(force=True)
+        self.assertEqual(dpg.get_item_theme("in_pp8"), self.app.wire_theme(2))   # 11.25/wire
+        self.assertEqual(self.card.sets, [])
+        dpg.set_value("sl_pp8", 12.0)
+        self.app.refresh_power_policies(force=True)
+        self.assertEqual(dpg.get_item_theme("in_pp8"), self.app.wire_theme(0))
+        self.app.set_power_policy_note(8, choice="-")
+        self.assertIsNone(dpg.get_item_theme("in_pp8"))
+
+    def test_each_connector_divides_by_its_own_wires(self):
+        self.build()
+        self.card.reading[8] = 24000
+        for note, text in (("PCIE 8pin", "(8.00/wire)"), ("EPS 8pin", "(6.00/wire)"),
+                           ("12VHPWR/12V-2x6", "(4.00/wire)")):
+            with self.subTest(note=note):
+                self.app.set_power_policy_note(8, choice=note)
+                self.assertIn(text, dpg.get_value("live_pp8"))
+        for note in ("PCIE", None):                                    # the slot's pins; free text
+            with self.subTest(note=note):
+                if note:
+                    self.app.set_power_policy_note(8, choice=note)
+                else:
+                    self.app.set_power_policy_note(8, text="my cable")
+                self.assertNotIn("/wire", dpg.get_value("live_pp8"))
+
+    def test_a_loaded_profiles_notes_become_this_cards_notes(self):
         self.build()
         self.app.apply_profile_policy_names(
             {"power_policy_names": {"7": {"name": "slot 12 V", "channel": 3, "type": 4},
                                     "8": {"name": "wrong channel", "channel": 9, "type": 4}}})
-        self.assertEqual(dpg.get_value("name_pp7"), "slot 12 V")
-        self.assertEqual(dpg.get_value("name_pp8"), "")
+        self.assertEqual((dpg.get_value("note_pp7"), dpg.get_value("name_pp7")), ("others", "slot 12 V"))
+        self.assertEqual(dpg.get_value("name_pp3"), "slot 12 V")       # same channel
+        self.assertEqual(dpg.get_value("note_pp8"), "-")
         self.app.save_power_policy_names()
         self.assertEqual(list(policynames.load("GPU-TEST")), [7])
-
 
 if __name__ == "__main__":
     unittest.main()
