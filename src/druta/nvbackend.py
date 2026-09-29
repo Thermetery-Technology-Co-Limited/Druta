@@ -5024,7 +5024,7 @@ class GPU:
                    "minimum": minimum, "default": default, "maximum": maximum,
                    "requested": control[record + 1], "limit": status[state + 1],
                    "value": status[state + 2], "pinned": pins.get(p),
-                   "named_current": p in named}
+                   "named_current": p in named, "maybe_board": ""}
             row["consistent"] = status[state] & 255 == row["type"] and control[record] == row["type"]
             row["in_range"] = minimum <= row["requested"] <= maximum
             # The board limit is the one NVML sets (the Power limit slider):
@@ -5034,21 +5034,33 @@ class GPU:
                             and st.get("pl_min_mw", minimum) == minimum)
             rows.append(row)
         # NVML's range can be unknown (a getter failed at startup) or differ in
-        # its minimum. The board is then the policy the last NVML write was seen
-        # to set, or the one mW policy whose request is NVML's configured limit.
-        # It must never become an ordinary slider: a value set by hand on it
-        # would undo every Power limit write.
+        # its minimum. The board is then the policy already seen to be it, or
+        # the one mW policy whose request is NVML's configured limit, which is
+        # remembered from then on. It must never become an ordinary slider: a
+        # value set by hand on it would undo every Power limit write. So while
+        # it cannot be told apart - two requests equal the limit, or the limit
+        # is unreadable - every candidate is read-only rather than none.
         if not any(r["board"] for r in rows):
             seen = getattr(self, "_board_policy", None)
-            match = [r for r in rows if r["policy"] == seen] or [
-                r for r in rows if r["unit"] == "mW" and board_mw is not None
-                and r["requested"] == board_mw]
-            if len(match) == 1:
-                match[0]["board"] = True
+            match = [r for r in rows if r["policy"] == seen]
+            if not match:
+                candidates = [r for r in rows if r["unit"] == "mW"
+                              and (board_mw is None or r["requested"] == board_mw)]
+                if board_mw is not None and len(candidates) == 1:
+                    match = candidates
+                    self._board_policy = candidates[0]["policy"]
+                else:
+                    why = ("NVML's power limit is unreadable right now" if board_mw is None
+                           else "its request equals the Power limit, as another policy's does")
+                    for row in candidates:
+                        row["maybe_board"] = why
+            for row in match:
+                row["board"] = True
         for row in rows:
             row["writable"] = (row["unit"] is not None and row["minimum"] < row["maximum"]
                                and row["consistent"] and row["in_range"]
-                               and not row["board"] and not row["named_current"])
+                               and not row["board"] and not row["maybe_board"]
+                               and not row["named_current"])
         return rows
 
     @staticmethod
@@ -5056,6 +5068,8 @@ class GPU:
         """Why the full list does not write this row."""
         if row["board"]:
             return "the board limit is set with the Power limit slider"
+        if row.get("maybe_board"):
+            return f"it may be the board limit ({row['maybe_board']})"
         if row["named_current"]:
             return "set with its current-limit slider"
         if row["unit"] is None:
@@ -5072,7 +5086,9 @@ class GPU:
         row: policy, type, channel, unit ('mW'/'mA'), minimum/default/maximum,
         requested, limit (effective), value (the channel's reading), pinned
         (the value the user set, or None), board (the NVML power limit),
-        named_current (a current policy with its own slider), consistent and
+        maybe_board (why this may be the board limit when it cannot be told
+        apart right now, else ""), named_current (a current policy with its
+        own slider), consistent and
         in_range (record checks), and writable (a range this list may write;
         the board and named ones have their own sliders)."""
         if not self._current_limit_profile_supported():

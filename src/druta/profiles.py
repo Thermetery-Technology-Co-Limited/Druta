@@ -212,10 +212,10 @@ def capture(gpu, rail=None):
             state[INCOMPLETE_KEY].append(f"Current limits NOT captured ({exc})")
     # Every policy the full list can write, as the card holds it, and which of
     # them the USER set (those stay put through later board-limit writes).
-    # Restore writes only what the restored board limit did not already
-    # derive, so a limit Max all raised directly comes back too. Each entry
-    # keeps the channel and record type it was read from, so a table that
-    # changed under the profile is refused instead of written by number.
+    # Restore writes only what the restored board limit did not derive again,
+    # so a limit Max all raised directly comes back too. Each entry keeps the
+    # channel and record type it was read from, so a value whose policy
+    # changed under the profile is reported instead of written by number.
     reader = getattr(gpu, "read_power_policies", None)
     if callable(reader):
         try:
@@ -626,7 +626,11 @@ def _validate_saved_fields(gpu, state):
             if not isinstance(key, str) or not key.isdigit() or str(int(key)) != key \
                     or not 0 <= int(key) < 32:
                 raise ValueError("invalid power-policy index")
-            if (not isinstance(entry, dict) or type(entry.get("value")) is not int
+            if field == "power_policy_pins" and type(entry) is int:
+                # an earlier build's shape: the value alone, no channel or
+                # type to check it against; restore reports it, not refuses
+                entry = {"value": entry}
+            elif (not isinstance(entry, dict) or type(entry.get("value")) is not int
                     or type(entry.get("channel")) is not int or type(entry.get("type")) is not int):
                 raise ValueError(f"invalid saved value for power policy {key}")
             if not 0 <= entry["value"] < (1 << 32):
@@ -669,33 +673,93 @@ def _validate_fan_scope(state):
     _validate_saved_fields(None, state)
 
 
-def _check_power_policies(gpu, state):
-    """Saved power-policy values must still fit this card's live table: the
-    same policy with the same channel and record type, inside its range. The
-    numbering is the card's own, so a table that changed is refused rather
-    than written by number. Not a driver-version check: the table is compared,
-    not the driver string."""
-    saved = state.get("power_policies") or {}
-    pins = state.get("power_policy_pins") or {}
-    if not saved and not pins:
+def _policy_misfit(gpu, row, entry, named_ok):
+    """Why a saved power-policy value does not fit this card's live table, or
+    None. It must be the same policy with the same channel and record type,
+    writable, inside its range: the numbering is the card's own, so a table
+    that changed is not written by number. The table is compared, not the
+    driver string."""
+    if not isinstance(entry, dict):
+        return ("it was saved by an earlier build without its channel and record type; "
+                "set it again and save the profile")
+    if row is None:
+        return "this card's policy table has no such policy"
+    if row["board"]:
+        return "it is this card's board limit"
+    if row["channel"] != entry["channel"] or row["type"] != entry["type"]:
+        return "its channel or record type differs on this card; save the profile again"
+    if not (row["writable"] or (named_ok and row["named_current"])):
+        reason = getattr(gpu, "power_policy_unwritable_reason", None)
+        return reason(row) if callable(reason) else "it is read-only on this card"
+    if not row["minimum"] <= entry["value"] <= row["maximum"]:
+        return "the saved value is outside this card's range for it"
+    return None
+
+
+def _policy_requests(gpu):
+    """{policy: request} from the live table, or None when it cannot be read."""
+    try:
+        rows, problem = gpu.read_power_policies()
+    except Exception:                                               # noqa: BLE001
+        return None
+    return None if problem else {row["policy"]: row["requested"] for row in rows}
+
+
+def _restore_power_policies(gpu, saved, pins, before, board_ok, results, step):
+    """The saved policies, then the values the user set, re-pinned.
+
+    A saved value that is not the user's may be one the driver derived from
+    the board limit. The board-limit write has just derived those again for
+    the restored limit, so a policy it moved keeps the driver's value; the
+    rest are written. When that cannot be told - the board limit was not
+    restored, or the table was unreadable before it - they are not written.
+    Each value that does not fit the live table is reported on its own; the
+    rest of the profile stands."""
+    if not callable(getattr(gpu, "set_power_policy", None)):
+        results.append((False, "power policies: this build cannot restore them"))
         return
-    reader = getattr(gpu, "read_power_policies", None)
-    if not callable(reader):
-        raise ValueError("power policies are not available on this build")
-    rows, problem = reader()
+    try:
+        rows, problem = gpu.read_power_policies()
+    except Exception as exc:                                        # noqa: BLE001
+        rows, problem = [], str(exc)
     if problem:
-        raise ValueError(f"power policies are unreadable: {problem}")
+        results.append((False, f"power policies NOT restored: {problem}"))
+        return
     live = {row["policy"]: row for row in rows}
-    for field, entries in (("power_policies", saved), ("power_policy_pins", pins)):
-        for key, entry in entries.items():
-            row = live.get(int(key))
-            fits = (row is not None and not row["board"]
-                    and row["channel"] == entry["channel"] and row["type"] == entry["type"]
-                    and (row["writable"] or (field == "power_policy_pins" and row["named_current"]))
-                    and row["minimum"] <= entry["value"] <= row["maximum"])
-            if not fits:
-                raise ValueError(f"saved power policy {key} does not match this card's policy "
-                                 f"table; save the profile again")
+    derived, withheld = [], []
+    for policy, entry in saved.items():
+        if policy in pins:
+            continue                                  # the user's own value, below
+        row = live.get(int(policy))
+        why = _policy_misfit(gpu, row, entry, False)
+        if why:
+            results.append((False, f"power policy {policy} not restored: {why}"))
+        elif not board_ok or before is None:
+            withheld.append(policy)
+        elif before.get(int(policy)) != row["requested"]:
+            if row["requested"] != entry["value"]:
+                derived.append(policy)
+        else:
+            step(f"power policy {policy}",
+                 lambda policy=policy, entry=entry: gpu.set_power_policy(
+                     int(policy), entry["value"], pin=False))
+    if derived:
+        results.append((True, "power policies " + ", ".join(derived) + ": the driver's values "
+                        "for the restored power limit (the saved values were not set by hand)"))
+    if withheld:
+        cause = ("the power limit was not restored" if not board_ok
+                 else "the policy table could not be read before the power limit was written")
+        results.append((False, "power policies " + ", ".join(withheld) + " not restored: "
+                        f"{cause}, so which of them the driver derives from it is unknown"))
+    for policy, entry in pins.items():
+        row = live.get(int(policy))
+        why = _policy_misfit(gpu, row, entry, True)
+        if why:
+            results.append((False, f"power policy {policy} (set by hand) not restored: {why}"))
+            continue
+        step(f"power policy {policy}",
+             lambda policy=policy, entry=entry, named=row["named_current"]: gpu.set_power_policy(
+                 int(policy), entry["value"], pin=True, allow_named=named))
 
 
 def preflight(gpu, state, rail=None, *, apply_curve=True):
@@ -734,7 +798,6 @@ def preflight(gpu, state, rail=None, *, apply_curve=True):
         i2c = state.get("i2c")
         nvvdd = state.get("nvvdd_offset_mv")
         msvdd = state.get("msvdd_offsets_mv") or {}
-        _check_power_policies(gpu, state)
         if not (limits or offsets or i2c or msvdd or nvvdd is not None):
             return None
         error = strict_device_error(state, gpu)
@@ -1014,12 +1077,16 @@ def _restore_validated(gpu, state, apply_curve, rail, results):
     # The profile's own power-policy values replace this session's: none of
     # the session's may be re-applied by the board-limit write below.
     pins = state.get("power_policy_pins") or {}
+    saved = state.get("power_policies") or {}
     if callable(getattr(gpu, "set_power_policy", None)):
         gpu._power_policy_pins = {}
+    # The table before the board-limit write: what that write moves is what
+    # the driver derives from it (_restore_power_policies).
+    before = _policy_requests(gpu) if saved and callable(
+        getattr(gpu, "read_power_policies", None)) else None
 
     mw = state.get("power_limit_mw")
-    if mw:
-        step("power limit", lambda: gpu.set_power_limit_mw(int(mw)))
+    board_ok = bool(mw) and step("power limit", lambda: gpu.set_power_limit_mw(int(mw)))
 
     current_limits = state.get("current_limits_ma") or {}
     if not isinstance(current_limits, dict):
@@ -1033,19 +1100,10 @@ def _restore_validated(gpu, state, apply_curve, rail, results):
                  lambda policy=policy, ma=ma: gpu.set_current_limit_ma(int(policy), ma, pin=False))
 
     # After the board limit and the current limits, which the board limit
-    # drives: every saved policy the restored board limit did not already
-    # derive, and the values the user set, re-pinned so they stay put.
-    saved = state.get("power_policies") or {}
-    for policy, entry in saved.items():
-        step(f"power policy {policy}",
-             lambda policy=policy, entry=entry: gpu.set_power_policy(
-                 int(policy), entry["value"], pin=policy in pins))
-    for policy, entry in pins.items():
-        if policy not in saved:
-            # a current policy with its own slider: through that slider's setter
-            step(f"power policy {policy}",
-                 lambda policy=policy, entry=entry: gpu.set_power_policy(
-                     int(policy), entry["value"], pin=True, allow_named=True))
+    # drives: the saved policies it did not derive, and the values the user
+    # set, re-pinned so they stay put.
+    if saved or pins:
+        _restore_power_policies(gpu, saved, pins, before, board_ok, results, step)
 
     vb = state.get("volt_boost_pct")
     if vb is not None:

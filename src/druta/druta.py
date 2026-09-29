@@ -1551,7 +1551,9 @@ class Druta:
                 if self.guard():
                     self.report(self.gpu.stock_power_policy(policy))
                     self.refresh_current_limits(sync=True)
-                    self.refresh_power_policies(sync=True)
+                    # its own row in the list is a read-only mirror; the
+                    # re-derived sliders follow, staged ones stay
+                    self.refresh_power_policies(force=True)
                 return
             rows = self.read_current_limit_rows()
             row = next((r for r in rows if r["policy"] == policy), None)

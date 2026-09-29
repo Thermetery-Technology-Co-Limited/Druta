@@ -304,6 +304,7 @@ class PolicyProfileTests(unittest.TestCase):
         self.assertIsNone(rows[13]["pinned"])                    # a derived value is not yours
 
     def test_saved_values_must_fit_this_cards_table_not_its_driver_string(self):
+        self.gpu.set_power_limit_mw(290000)
         self.gpu.set_power_policy(4, 150000)
         state = json.loads(json.dumps(profiles.capture(self.view())))
         self.assertIsNone(profiles.preflight(self.gpu, state))
@@ -311,13 +312,33 @@ class PolicyProfileTests(unittest.TestCase):
         updated["device"]["driver"] = "999.99"                     # a driver update alone
         self.assertIsNone(profiles.preflight(self.gpu, updated))
         entry = {"value": 150000, "channel": 4, "type": 3}
-        for pins in ({"4": dict(entry, value=168000)}, {"4": dict(entry, channel=5)},
-                     {"4": dict(entry, type=4)}, {"6": dict(entry)}, {"2": dict(entry, channel=9, type=0)},
-                     {"4": dict(entry, value=150000.0)}, {"4": 150000}, {"x": dict(entry)}):
-            with self.subTest(pins=pins):
+        for pins in ({"4": dict(entry, value=150000.0)}, {"x": dict(entry)}, {"4": "150000"}):
+            with self.subTest(malformed=pins):
                 bad = copy.deepcopy(state)
                 bad["power_policy_pins"] = pins
                 self.assertIsNotNone(profiles.preflight(self.gpu, bad))
+        # a value that no longer fits the live table is reported on its own;
+        # the rest of the profile is restored
+        for key, pin, part in (("4", dict(entry, value=168000), "outside this card's range"),
+                               ("4", dict(entry, channel=5), "channel or record type differs"),
+                               ("4", dict(entry, type=4), "channel or record type differs"),
+                               ("6", dict(entry), "no such policy"),
+                               ("2", dict(entry, channel=9, type=0), "board limit"),
+                               ("4", 150000, "earlier build")):
+            with self.subTest(key=key, pin=pin):
+                self.gpu.set_power_limit_mw(260000)
+                self.card.sets.clear()
+                bad = copy.deepcopy(state)
+                bad["power_policy_pins"] = {key: pin}
+                self.assertIsNone(profiles.preflight(self.gpu, bad))
+                results = profiles.restore(self.gpu, bad, apply_curve=False)
+                self.assertIn((True, "power limit configured to 290 W"), results)
+                failed = [m for ok, m in results if not ok]
+                self.assertEqual(len(failed), 1, results)
+                self.assertIn(f"power policy {key} (set by hand) not restored", failed[0])
+                self.assertIn(part, failed[0])
+                self.assertNotIn(int(key), [p for p, _ in self.card.sets])
+                self.assertEqual(self.gpu._power_policy_pins, {})
 
     def test_a_limit_max_all_raised_directly_comes_back_with_the_profile(self):
         card = PolicyCard([row if row[0] != 14 else (14, 0x0B, 11, 0, 1, 4000000, 5001000)
@@ -343,6 +364,86 @@ class PolicyProfileTests(unittest.TestCase):
         self.assertIn(((self.gpu, 13, 360000), {"pin": True}),
                       [(c.args, c.kwargs) for c in setter.call_args_list])
         self.assertEqual(rows_of(self.gpu)[13]["pinned"], 360000)
+
+    def test_an_unreadable_or_absent_table_leaves_the_rest_of_the_profile_standing(self):
+        self.gpu.set_power_limit_mw(290000)
+        self.gpu.set_power_policy(4, 150000)
+        saved = json.loads(json.dumps(profiles.capture(self.view())))
+        self.gpu.set_power_limit_mw(260000)
+        real, calls = self.gpu._power_policy_table, [0]
+
+        def after_the_board_write():
+            calls[0] += 1
+            if calls[0] > 1:                                       # the first is the before-read
+                raise ValueError("policy request failed (NTSTATUS 0, RM 0x1A)")
+            return real()
+        self.gpu._power_policy_table = after_the_board_write
+        self.assertIsNone(profiles.preflight(self.gpu, saved))
+        results = profiles.restore(self.gpu, saved, apply_curve=False)
+        self.assertIn((True, "power limit configured to 290 W"), results)
+        self.assertIn((False, "power policies NOT restored: policy request failed "
+                              "(NTSTATUS 0, RM 0x1A)"), results)
+        # a generation this build has no policy table for: the same, not a refusal
+        other = policy_gpu(PolicyCard(), arch=8)
+        self.assertIsNone(profiles.preflight(other, saved))
+        results = profiles.restore(other, saved, apply_curve=False)
+        self.assertIn((True, "power limit configured to 290 W"), results)
+        self.assertIn((False, "power policies NOT restored: current policies are not validated "
+                              "for this GPU generation"), results)
+
+    def test_a_value_the_driver_derives_is_left_to_the_driver_not_written_back(self):
+        self.gpu.set_power_limit_mw(290000)
+        saved = json.loads(json.dumps(profiles.capture(self.view())))
+        self.assertEqual(saved["power_policies"]["4"]["value"], 155000)
+        self.gpu.set_power_limit_mw(260000)
+        derive = self.card.derive
+
+        def another_drivers_rounding():                            # derives 1 W higher
+            derive()
+            for p in (3, 4, 5):
+                self.card.request[p] += 1000
+        self.card.derive = another_drivers_rounding
+        self.card.sets.clear()
+        results = profiles.restore(self.gpu, saved, apply_curve=False)
+        self.assertTrue(all(ok for ok, _ in results), results)
+        self.assertEqual(self.card.sets, [])                       # nothing written by number
+        self.assertEqual(self.card.request[4], 156000)             # the driver's, for 290 W
+        self.assertEqual(self.gpu._power_policy_pins, {})
+        self.assertTrue(any("the driver's values for the restored power limit" in m
+                            for _, m in results))
+
+    def test_without_the_board_limit_only_the_values_set_by_hand_are_written(self):
+        self.gpu.set_power_limit_mw(290000)
+        self.gpu.set_power_policy(8, 20000)
+        saved = json.loads(json.dumps(profiles.capture(self.view())))
+        del saved["power_limit_mw"]                                # readback was unavailable
+        self.gpu._power_policy_pins = {}
+        self.gpu.set_power_limit_mw(260000)
+        self.card.sets.clear()
+        results = profiles.restore(self.gpu, saved, apply_curve=False)
+        # core current comes back through its own slider's saved value, as before
+        self.assertEqual([s for s in self.card.sets if s[0] != 13], [(8, 20000)])
+        self.assertEqual((self.card.request[2], self.card.request[4]), (260000, 143000))
+        failed = [m for ok, m in results if not ok]
+        self.assertEqual(len(failed), 1, results)
+        self.assertIn("the power limit was not restored", failed[0])
+
+    def test_restore_pins_the_users_value_not_the_cards(self):
+        self.gpu.set_power_limit_mw(290000)
+        self.gpu.set_power_policy(4, 150000)
+        saved = json.loads(json.dumps(profiles.capture(self.view())))
+        saved["power_policies"]["4"]["value"] = 155000             # a re-apply that failed
+        self.gpu.set_power_policy(14, 4000000)                     # one the board does not drive
+        saved["power_policy_pins"]["14"] = {"value": 4000000, "channel": 11, "type": 0x0B}
+        saved["power_policies"]["14"]["value"] = 3000000
+        self.gpu.set_power_limit_mw(260000)
+        self.gpu.stock_power_policy(14)
+        self.card.sets.clear()
+        results = profiles.restore(self.gpu, saved, apply_curve=False)
+        self.assertTrue(all(ok for ok, _ in results), results)
+        self.assertEqual((self.card.request[4], self.gpu._power_policy_pins),
+                         (150000, {4: 150000, 14: 4000000}))
+        self.assertEqual([s for s in self.card.sets if s[0] == 14], [(14, 4000000)])
 
 
 class PolicyNameStoreCase(unittest.TestCase):
@@ -592,6 +693,31 @@ class ReviewFixBackendTests(unittest.TestCase):
         self.assertFalse(rows[2]["writable"])
         self.assertIn("Power limit slider", self.gpu.set_power_policy(2, 300000)[1])
 
+    def test_while_the_board_cannot_be_told_apart_every_candidate_is_read_only(self):
+        for key in ("pl_min_mw", "pl_def_mw", "pl_max_mw"):
+            self.gpu.static.pop(key)
+        self.card.request[14] = 260000                             # another tool: equal to the board
+        rows = rows_of(self.gpu)
+        for p in (2, 14):
+            self.assertFalse(rows[p]["board"] or rows[p]["writable"], p)
+            self.assertIn("as another policy's does", n.GPU.power_policy_unwritable_reason(rows[p]))
+        self.assertFalse(self.gpu.set_power_policy(2, 300000)[0])
+        self.assertTrue(self.gpu.set_power_limit_mw(280000)[0])    # now only policy 2 matches
+        rows = rows_of(self.gpu)
+        self.assertTrue(rows[2]["board"] and rows[14]["writable"])
+        with patch.object(self.gpu, "read_power_limit_mw", return_value=None):
+            self.assertTrue(rows_of(self.gpu)[2]["board"])         # remembered, not re-guessed
+
+    def test_an_unreadable_power_limit_with_the_board_unknown_holds_every_mw_row(self):
+        for key in ("pl_min_mw", "pl_def_mw", "pl_max_mw"):
+            self.gpu.static.pop(key)
+        with patch.object(self.gpu, "read_power_limit_mw", return_value=None):
+            rows = rows_of(self.gpu)
+        self.assertFalse(any(r["writable"] for r in rows.values() if r["unit"] == "mW"))
+        self.assertTrue(rows[8]["writable"])                       # a current row is not a candidate
+        self.assertIn("unreadable", n.GPU.power_policy_unwritable_reason(rows[4]))
+        self.assertTrue(rows_of(self.gpu)[2]["board"])             # readable again: found
+
     def test_a_pin_is_never_reapplied_over_the_board(self):
         self.gpu._power_policy_pins = {2: 300000}                  # however it got there
         self.assertTrue(self.gpu.set_power_limit_mw(280000)[0])
@@ -660,6 +786,16 @@ class ReviewFixUiTests(PolicyUiCase):
         dpg.set_value("sl_pp8", 20.0)                              # staged elsewhere
         self.app.stock_power_policy(4)
         self.assertEqual(dpg.get_value("sl_pp4"), 143)
+        self.assertEqual(dpg.get_value("sl_pp8"), 20.0)
+
+    def test_stock_on_the_core_current_slider_keeps_a_staged_value_in_the_list(self):
+        self.build()
+        self.app.gpu.set_current_limit_ma(13, 360000)
+        dpg.set_value("sl_pp8", 20.0)                              # staged elsewhere
+        self.app.report = Mock()
+        self.app.refresh_current_limits = Mock()
+        self.app.stock_knob("current13")
+        self.assertEqual(self.card.request[13], 350780)
         self.assertEqual(dpg.get_value("sl_pp8"), 20.0)
 
     def test_values_set_by_hand_follow_the_card_through_a_switch(self):
