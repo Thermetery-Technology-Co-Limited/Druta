@@ -378,10 +378,19 @@ class ApplyRestoreTests(unittest.TestCase):
     def test_architecture_is_three_way(self):
         gpu = bare_gpu()
         for arch, want in ((GPU.ARCH_TURING, True), (GPU.ARCH_PASCAL, True), (10, True),
-                           (7, False), (8, False), (GPU.ARCH_MAXWELL, False), (None, None)):
+                           (8, False), (GPU.ARCH_MAXWELL, False), (None, None)):
             with self.subTest(arch=arch):
                 gpu.arch = lambda a=arch: a
                 self.assertIs(gpu.hold_headroom_architecture(), want)
+
+    def test_headroom_follows_rail_control_rather_than_its_own_list(self):
+        # A generation that gains rail control (as Ampere does once measured)
+        # gets the headroom with it; one without rail control never does.
+        gpu = bare_gpu()
+        gpu.arch = lambda: 99
+        self.assertFalse(gpu.hold_headroom_architecture())
+        gpu._VOLT_RAIL_ARCHITECTURES = GPU._VOLT_RAIL_ARCHITECTURES + (99,)
+        self.assertTrue(gpu.hold_headroom_architecture())
 
 
 # --------------------------------------------------------------------------- #
@@ -496,7 +505,7 @@ class LockStateHookTests(AppTestCase):
         self.assertEqual(self.rails.writes, [])
 
     def test_generation_without_rail_control_is_silent(self):
-        self.gpu.arch = lambda: 7                    # Ampere
+        self.gpu.arch = lambda: 8                    # Ada: no rail control
         self.hold(1093.75)
         self.assertEqual(self.rails.writes, [])
         self.app.log.assert_not_called()

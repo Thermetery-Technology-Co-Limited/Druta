@@ -6022,7 +6022,10 @@ class GPU:
 
         Architectural support, not a live capability read: on a supported card
         a transient read failure must stay a visible warning, while a card with
-        no rail control (Maxwell, Volta, Ampere, Ada) has nothing to warn about.
+        no rail control (e.g. Maxwell, Volta, Ada) has nothing to warn about.
+        It follows _VOLT_RAIL_ARCHITECTURES rather than keeping its own list, so
+        a generation that gains rail control gains the headroom with it - with
+        no measurement of the clock loss on that generation implied.
         arch() returns None on a failed read and does not cache it, so None is
         "unknown, try again", never "unsupported". The per-adapter getters are
         still validated by apply_hold_headroom."""
