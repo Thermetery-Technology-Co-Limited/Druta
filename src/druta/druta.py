@@ -83,6 +83,7 @@ import json
 import math
 import os
 from collections import namedtuple
+import statistics
 import subprocess
 import sys
 import threading
@@ -630,8 +631,12 @@ class Druta:
     REAL_PAIR_TOL_MHZ = 1.0
     # the widest line in normal use, so the tile never grows when it fills in
     REAL_TEMPLATE = "measured 0000  Δ -00.0"
+    # every word the core subtitle can take, so the tile never grows with it
     REAL_SUB_TOKENS = (" · steady at load", " · varying", " · settling",
-                       " · load 100 %", " · load unread", " · stale")
+                       " · load 100 %", " · load unread", " · stale",
+                       " · read failed", " · checking", " · same as A",
+                       " · B = A", " · unproven", " · clock moving",
+                       " · not refreshing", " · vs A 0000")
     REAL_COL = {"text": TEXT, "warn": WARN, "bad": BAD, "dim": DIM}
 
     BARS = [("gpu", "GPU", ACCENT), ("board", "Board", VIOLET),
@@ -669,7 +674,11 @@ class Druta:
                         self.bind(f"t_{key}", "big")
                         dpg.add_text(unit, tag=f"u_{key}", color=DIM, wrap=self.s(165))
                         if key in self.REAL_TILES:
-                            # directly under the programmed number it qualifies
+                            # directly under the programmed number it qualifies;
+                            # a rebuilt line starts dim, so its colour cache must
+                            # too (Refresh capabilities rebuilds the tab)
+                            self._real_col = {**(getattr(self, "_real_col", None) or {}),
+                                              key: "dim"}
                             dpg.add_text("measured: --", tag=f"r_{key}", color=DIM,
                                          wrap=self.s(165))
                             with dpg.tooltip(f"r_{key}"):
@@ -766,6 +775,10 @@ class Druta:
         both arrays, so its B values do not establish physical clock delivery.
         Rows retain their domain numbers across performance states and cards.
         """
+        # The rows below are built hidden, nameless and dim. Their caches must
+        # start over with them: a rebuild (Refresh capabilities) that kept them
+        # would never show, name or colour a row again until the set changed.
+        self._dom_band, self._dom_name, self._dom_shown = {}, {}, set()
         with dpg.child_window(tag="pan_dom", width=-1, height=self.s(300)):
             dpg.add_text("ALL CLOCK DOMAINS  ·  private NvAPI "
                          "GetAllClocks (0x1BD69F49)", color=ACCENT,
@@ -793,8 +806,10 @@ class Druta:
             dpg.add_text(
                 "A / B = driver-reported clock arrays. TU102: target / measured "
                 "counter; GK104/GM107: identical in tested states. 2CLK = doubled "
-                "clock units. Delta colors use one / three graphics bins (0.5 MHz "
-                "tolerance), scaled only for identified 2CLK domains.\n"
+                "clock units. Delta colors: per reading, not gated by load or settling "
+                "(dim = within one graphics bin, amber = one bin, red = three; 0.5 MHz "
+                "tolerance in core MHz, 2CLK rows halved first; MEM rows use the graphics "
+                "bin too).\n"
                 "Names: plain = confirmed; '?' = inferred; '--' = unidentified.",
                 tag="dom_legend", color=DIM, wrap=self.s(1100))
             dpg.add_text("", tag="dom_err", color=BAD, show=False)
@@ -848,7 +863,8 @@ class Druta:
         # bands are ONE and THREE clock bins, so they follow the card's grid
         # rather than a Turing-sized 15/45 MHz, with the tiles' tolerance: a
         # counter one bin off reads a hair short of it (+14.9 on 15 MHz)
-        return realclock.gap_band(abs(delta_mhz) / max(1, scale), self.step_khz() / 1000.0)
+        return realclock.gap_band(abs(delta_mhz) / max(1, scale),
+                                  self.step_khz() / 1000.0) or "ok"
 
     def refresh_domains(self, d):
         rows = d.get("clk_domains")
@@ -974,22 +990,31 @@ class Druta:
         colours = getattr(self, "_real_col", None)
         if colours is None:
             colours = self._real_col = {}
+        if rows is not None:
+            self._real_had_rows = True
+        # a private read that failed once, after good ones, is not a card
+        # without the getter: the last reading stays, dimmed and said so
+        failed = rows is None and getattr(self, "_real_had_rows", False)
+        bin_mhz = None
         token = ""
         for key in self.REAL_TILES:
             row = self.real_clock_row(rows, key) if rows else None
             tile = d.get(key)
-            if fresh and not stale:
+            if fresh and not stale and not failed:
                 if row is None or tile is None:
                     tracker.miss(key)
                 else:
+                    if bin_mhz is None:
+                        bin_mhz = self.real_clock_bin()
                     scale = row.get("scale", 1) or 1
                     tracker.feed(key, row["domain"], row.get("name"), row.get("prog_khz"),
                                  row.get("meas_khz"), scale, d.get("util_gpu"),
                                  abs(row["prog_khz"] / 1000.0 / scale - tile)
                                  < self.REAL_PAIR_TOL_MHZ,
-                                 now, self.step_khz() / 1000.0, graded=key != "mem")
-            reading = tracker.last(key) if row is not None else None
-            line, colour, tok, tip = self.real_clock_view(key, reading, row, tile, d, stale)
+                                 now, bin_mhz, graded=key == "core")
+            reading = tracker.last(key) if (row is not None or failed) else None
+            line, colour, tok, tip = self.real_clock_view(key, reading, row, tile, d, stale,
+                                                          failed)
             dpg.set_value(f"r_{key}", line)
             dpg.set_value(f"rt_{key}", tip)
             if colours.get(key) != colour:
@@ -1001,30 +1026,49 @@ class Druta:
         self._real_sub_base = base
         dpg.set_value("s_core", base + token)
 
+    def real_clock_bin(self):
+        """This card's clock bin in MHz, or None when the step is only the
+        fallback constant: a colour is never claimed against a borrowed grid."""
+        measured = getattr(getattr(self, "gpu", None), "step_is_measured", None)
+        try:
+            if callable(measured) and not measured():
+                return None
+        except Exception:                                         # noqa: BLE001
+            return None
+        return self.step_khz() / 1000.0
+
     @staticmethod
     def real_delta_text(dv):
         r = round(dv, 1)
         # +0.0, never "-0.0" (-0.0 + 0.0 is +0.0 in IEEE 754)
         return f"{r + 0.0:+.1f}" if abs(r) < 100 else f"{int(round(dv)):+d}"
 
-    def real_clock_view(self, key, reading, row, tile, d, stale):
+    # the core subtitle's word for each state that leaves the line dim
+    REAL_STATE_TOKEN = {
+        realclock.CHECKING: " · checking", realclock.SAME: " · same as A",
+        realclock.MIRROR: " · B = A", realclock.UNPROVEN: " · unproven",
+        "settling": " · settling", "load start": " · settling",
+        "moving": " · clock moving", "stuck": " · not refreshing",
+        "load unread": " · load unread"}
+
+    def real_clock_view(self, key, reading, row, tile, d, stale, failed=False):
         """(line, colour key, core subtitle token, tooltip) for one tile. Pure
         apart from reading this card's clock step and memory divisor."""
-        footer = ("Plain = within one clock bin, amber = one bin or more, red = three "
-                  "or more, either sign, in every reading of the window; dim = not judged. "
-                  "B was shown to be a physical counter on one TITAN RTX (TU102); elsewhere "
-                  "'measured' means B passed the check above, not a calibrated instrument.")
         rows = d.get("clk_domains")
-        if rows is None:
+        if rows is None and not (failed and reading is not None):
             err = d.get("clk_domains_err")
             return (("measured: n/a" if err else "measured: --"), "dim", "",
-                    (f"{err}. The private getter is Druta's only source of a measured clock."
-                     if err else "No private clock reading yet."))
-        if tile is None:
+                    (f"{err}. The private clock getter is the only source these tiles use "
+                     f"for a measured clock." if err else "No private clock reading yet."))
+        if tile is None and not failed:
             return ("measured: --", "dim", "",
                     "This tile has no figure on this card, so there is nothing to pair a "
                     "measurement with.")
-        if row is None or reading is None:
+        if reading is None:
+            if row is not None:
+                return ("measured: not read yet", "dim", " · stale" if stale else "",
+                        "No reading of this row has been taken yet"
+                        + (" (telemetry is stale)." if stale else "."))
             why = {"core": "No row on this card is CONFIRMED as the core clock (GPC or GPC2CLK) "
                            "with both arrays non-zero in this reading. Names are earned per card; "
                            "see ALL CLOCK DOMAINS.",
@@ -1032,114 +1076,145 @@ class Druta:
                            f"reading.",
                    "mem": "No row on this card is CONFIRMED as MEM with both arrays non-zero."}
             return "measured: --", "dim", "", why.get(key, "")
+        static = getattr(getattr(self, "gpu", None), "static", None) or {}
         div = 1.0
-        if key == "mem":
-            static = getattr(getattr(self, "gpu", None), "static", None) or {}
-            div = float(static.get("mem_div") or 1.0)
+        if key == "mem" and static.get("mem_div"):
+            div = float(static["mem_div"])
         m, dv, a = reading.b_mhz / div, reading.delta_mhz / div, reading.a_mhz / div
         number = f"{m:.0f}  Δ {self.real_delta_text(dv)}"
-        if not reading.paired:
-            number += f"  vs A {a:.0f}"
-        trust = reading.trust
-        if trust == realclock.CHECKING:
-            line = "measured: checking B"
-        elif trust == realclock.MIRROR:
-            line = "measured: none (B = A)"
-        elif trust == realclock.UNPROVEN:
-            line = f"unproven {number}"
-        else:
-            line = f"measured {number}"
+        trust, state, verdict = reading.trust, reading.state, reading.verdict
+        line = {realclock.CHECKING: "measured: checking B",
+                realclock.MIRROR: "measured: none (B = A)",
+                realclock.SAME: "measured: same as A",
+                realclock.UNPROVEN: f"unproven {number}"}.get(trust, f"measured {number}")
 
-        state, verdict = reading.state, reading.verdict
-        if stale or trust != realclock.MEASURED:
-            colour = "dim"
-        elif key == "mem":
-            colour = "text"
-        else:
-            colour = {"ok": "text", "warn": "warn", "bad": "bad"}.get(verdict, "dim")
+        judged = trust == realclock.MEASURED and key == "core" and not stale and not failed
+        colour = ({"ok": "text", "warn": "warn", "bad": "bad"}.get(verdict, "dim")
+                  if judged else "dim")
         if stale:
             tok = " · stale"
+        elif failed:
+            tok = " · read failed"
         elif trust != realclock.MEASURED:
-            tok = ""
+            tok = self.REAL_STATE_TOKEN.get(trust, "")
         elif state == "judged":
-            tok = " · varying" if verdict == "varying" else " · steady at load"
-        elif state in ("settling", "load start"):
-            tok = " · settling"
+            tok = " · varying" if verdict == "varying" else (
+                " · steady at load" if verdict else "")
         elif state == "light":
             tok = f" · load {reading.util:.0f} %"
-        elif state == "load unread":
-            tok = " · load unread"
+        elif state == "unpaired":
+            tok = f" · vs A {a:.0f}"
         else:
-            tok = ""
+            tok = self.REAL_STATE_TOKEN.get(state, "")
 
-        bin_mhz = self.step_khz() / 1000.0
-        scale = reading.scale
+        bin_mhz = self.real_clock_bin()
+        two = reading.scale == 2
+        a_raw, b_raw = reading.a_khz / 1000.0, reading.b_khz / 1000.0
         if key == "core":
-            head = (f"The number above is the driver's current clock, {tile} MHz (public NVAPI; "
-                    f"NVML and GPU-Z show this figure).")
+            head = (f"The number above is the driver's current clock, {tile} MHz (public NVAPI, "
+                    f"or private array A where that is missing). On one TITAN RTX, NVML and "
+                    f"GPU-Z showed this same programmed figure.")
         elif key == "xbar":
             head = f"The number above is array A of private domain {reading.dom}, {tile} MHz."
         else:
             head = (f"The number above is the driver's current memory clock "
-                    f"({self.mem_fmt(tile)[0]}{' MHz' if div != 1.0 else ', raw driver units'}).")
-        two = scale == 2
-        a_raw, b_raw = reading.a_khz / 1000.0, reading.b_khz / 1000.0
+                    f"({self.mem_fmt(tile)[0]}"
+                    f"{' MHz' if static.get('mem_div') else ', raw driver units'}).")
         lines = [head,
                  f"Row: private domain {reading.dom} {reading.name or '--'}"
                  + (" (a 2CLK row, halved to core MHz here)" if two else ""),
                  f"A (programmed)  {a_raw:.1f} MHz" + (f" = 2 x {a_raw / 2:.1f}" if two else ""),
                  f"B (second array)  {b_raw:.1f} MHz" + (f" = 2 x {b_raw / 2:.1f}" if two else "")]
         if key == "mem":
-            lines.append("Not colour-graded: Druta knows this card's graphics clock bin, not a "
-                         "memory clock bin." + (f" Shown divided by {div:g} as the tile is."
-                                                if div != 1.0 else ""))
-        else:
+            lines.append("Shown, never judged: Druta knows this card's graphics clock bin, not a "
+                         "memory one, and on one TITAN RTX the two memory arrays differed by a "
+                         "fixed -6.8 MHz (raw) in every state, loaded or idle - so a memory Δ "
+                         "is not by itself a lower memory clock."
+                         + (f" Shown divided by {div:g}, as the tile is." if div != 1.0 else ""))
+        elif key == "xbar":
+            lines.append(f"Δ B-A {reading.delta_mhz:+.1f} MHz. Shown, never judged: XBAR "
+                         f"follows the core clock, and its own clock bin is not known here.")
+        elif bin_mhz:
             lines.append(f"Δ B-A {reading.delta_mhz:+.1f} MHz = "
                          f"{reading.delta_mhz / bin_mhz:+.2f} bins of {bin_mhz:.3f} MHz "
                          f"(this card's clock step)")
-        ev, n = reading.events, reading.samples
-        lines.append({
-            realclock.MEASURED: f"B counts as measured on this card: while A held still it "
-                                f"changed {ev} times, to values A never reported ({n} readings).",
-            realclock.CHECKING: f"Checking whether B is a counter on this card: it has to change "
-                                f"while A holds still, to values A never reported ({ev} of "
-                                f"{realclock.EVIDENCE_EVENTS} so far, {n} readings).",
-            realclock.MIRROR: f"B has equalled A exactly in the last {reading.mirror_run} "
-                              f"readings, through a change of A, so on this card it is not an "
-                              f"independent measurement and no measured clock is shown "
-                              f"(GK104/GM107 did this in every tested state).",
-            realclock.UNPROVEN: f"B differs from A but has not changed on its own while A held "
-                                f"still ({ev} of {realclock.EVIDENCE_EVENTS} in {n} readings), so "
-                                f"it is shown as unproven, not as a measurement."}[trust])
-        if trust == realclock.MEASURED and key != "mem":
+        else:
+            lines.append(f"Δ B-A {reading.delta_mhz:+.1f} MHz. Not judged: this card's "
+                         f"clock step could not be measured, and a colour is not claimed "
+                         f"against a borrowed one.")
+        ev, n, run = reading.events, reading.samples, reading.mirror_run
+        if trust == realclock.MEASURED:
+            lines.append(f"B counts as measured on this card: while A held still it changed "
+                         f"{ev} times on its own, to values A never reported ({n} readings).")
+        elif trust == realclock.CHECKING:
+            lines.append(f"Checking whether B is a counter on this card: it has to change on its "
+                         f"own while A holds still, to values A never reported ({ev} of "
+                         f"{realclock.EVIDENCE_EVENTS} so far, {n} readings).")
+        elif trust == realclock.SAME:
+            lines.append(f"B has equalled A exactly in the last {run} readings while A held "
+                         f"still, so it cannot yet be told apart from a copy of A. If A changes "
+                         f"and B follows it exactly, that is what this says.")
+        elif trust == realclock.MIRROR and ev >= realclock.EVIDENCE_EVENTS:
+            lines.append(f"B equals A exactly right now, through a change of A ({run} readings), "
+                         f"although it changed on its own {ev} times earlier; no measured "
+                         f"number is shown while it copies A.")
+        elif trust == realclock.MIRROR:
+            lines.append(f"B has equalled A exactly in the last {run} readings, through a change "
+                         f"of A, so on this card it has not shown itself to be an independent "
+                         f"measurement and no measured clock is shown (GK104/GM107 did this in "
+                         f"every tested state).")
+        else:
+            lines.append((f"B equals A right now and has not changed on its own while A held "
+                          f"still ({ev} of {realclock.EVIDENCE_EVENTS} in {n} readings)"
+                          if reading.b_khz == reading.a_khz else
+                          f"B differs from A but has not changed on its own while A held still "
+                          f"({ev} of {realclock.EVIDENCE_EVENTS} in {n} readings)")
+                         + ", so it is shown as unproven, not as a measurement.")
+        if failed:
+            lines.append("The private clock read failed this time; the last good values are "
+                         "shown, not judged.")
+        elif stale:
+            lines.append("Not judged: the latest driver read failed; these are the last good "
+                         "values.")
+        elif trust == realclock.MEASURED and key == "core":
             gate = realclock.LOAD_GATE_PCT
-            if stale:
-                lines.append("Not judged: the latest driver read failed; these are the last "
-                             "good values.")
-            elif state == "judged" and verdict == "varying":
-                lines.append(f"Not coloured: Δ ran {min(reading.window):+.1f} to "
-                             f"{max(reading.window):+.1f} MHz across a band edge.")
-            elif state == "judged":
+            if state == "judged" and verdict == "varying":
+                lines.append(f"Not coloured: within the last {len(reading.window)} readings "
+                             f"Δ ran {min(reading.window):+.1f} to "
+                             f"{max(reading.window):+.1f} MHz, more than one bin apart.")
+            elif state == "judged" and verdict:
                 lo, hi = reading.window_util or (reading.util, reading.util)
                 lines.append(f"Judged over the last {len(reading.window)} readings at "
                              f"{lo:.0f}-{hi:.0f} % load with A unchanged: Δ "
-                             f"{min(reading.window):+.1f} to {max(reading.window):+.1f} MHz.")
+                             f"{min(reading.window):+.1f} to {max(reading.window):+.1f} MHz, "
+                             f"median {statistics.median(reading.window):+.1f}.")
             elif state in ("settling", "load start"):
                 lines.append(f"Not judged yet: needs {realclock.WINDOW_READS} readings at >= "
-                             f"{gate} % load with A unchanged, after B has refreshed "
-                             f"{realclock.FRESH_NEEDED} times since A last changed (on one "
-                             f"TU102, B trailed a clock change by 1-2 s).")
+                             f"{gate} % load (a chosen threshold) with A unchanged, after B has "
+                             f"refreshed {realclock.FRESH_NEEDED} times since A last changed "
+                             f"(on one TU102, B trailed a clock change by 1-2 s).")
+            elif state == "moving":
+                lines.append("Not judged: the programmed clock keeps changing (GPU Boost moving "
+                             "between bins), so there is no steady target to compare B with.")
+            elif state == "stuck":
+                lines.append(f"Not judged: B has not changed in {realclock.STUCK_READS} or more "
+                             f"readings while A held still, so it may not be refreshing.")
             elif state == "light":
-                lines.append(f"Not judged below {gate} % load ({reading.util:.0f} % now): the "
-                             f"clock gates between bursts, so B reads low (one TU102 read "
-                             f"470-573 MHz at a 1350 MHz lock).")
+                lines.append(f"Not judged below {gate} % load ({reading.util:.0f} % now) - a "
+                             f"chosen threshold. At idle the clock gates between bursts and B "
+                             f"reads low (one TU102 read 470-573 MHz at a 1350 MHz lock).")
             elif state == "load unread":
                 lines.append("Not judged: GPU load is unavailable in this reading.")
             elif state == "unpaired":
                 lines.append(f"Not judged: this row's A ({reading.a_mhz:.1f}) differs from the "
                              f"number above ({tile}) by {self.REAL_PAIR_TOL_MHZ:g} MHz or more, "
                              f"so Δ is against A.")
-        lines.append(footer)
+        if key == "core":
+            lines.append("Colour, judged over the window's median at load: plain = within one "
+                         "clock bin, amber = one bin or more, red = three or more, either sign "
+                         "(above the programmed clock counts too); dim = not judged. B behaved "
+                         "as a physical counter on one TITAN RTX (TU102); elsewhere 'measured' "
+                         "means B passed the check above, not a calibrated instrument.")
         return line, colour, tok, "\n".join(lines)
 
     def text_h(self, txt, font_name, wrap=-1.0):
@@ -1425,6 +1500,12 @@ class Druta:
         except Exception as exc:                                  # noqa: BLE001
             try:
                 self.log_once("real_clock", f"measured clock: {exc}")
+                # a fault must read as "not judged", not leave an old verdict
+                # under a tile that has moved on
+                for key in self.REAL_TILES:
+                    dpg.set_value(f"r_{key}", "measured: --")
+                    dpg.configure_item(f"r_{key}", color=DIM)
+                self._real_col = {key: "dim" for key in self.REAL_TILES}
             except Exception:                                     # noqa: BLE001
                 pass
         else:
@@ -5305,6 +5386,13 @@ class Druta:
         arrays have not been shown to differ there."""
         rows = d.get("clk_domains") or []
         gpc = self.core_clock_row(rows)             # the same row the CORE tile reads
+        # The log calls B a measured counter, so it says nothing about a B the
+        # core tile has found reason not to trust (a copy of A, never moving)
+        tracker = getattr(self, "_real", None)
+        seen = tracker.last("core") if tracker is not None else None
+        if (gpc is not None and seen is not None and seen.dom == gpc.get("domain")
+                and seen.trust != realclock.MEASURED):
+            gpc = None
         util = d.get("util_gpu")
         hist = getattr(self, "_gap_hist", None)
         if hist is None:

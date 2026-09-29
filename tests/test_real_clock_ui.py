@@ -117,7 +117,7 @@ class MeasuredLineTests(RealClockCase):
                    "clk_domains_err": "private NvAPI_GPU_GetAllClocks did not answer"})
         self.assertEqual([self.values[f"r_{k}"] for k in ("core", "xbar", "mem")],
                          ["measured: n/a"] * 3)
-        self.assertIn("only source of a measured clock", self.values["rt_core"])
+        self.assertIn("the only source these tiles use", self.values["rt_core"])
 
     def test_the_power_monitor_snapshot_draws_without_a_clock_reading(self):
         self.feed({"power_w": 50, "pl_now_mw": 200000})
@@ -162,13 +162,88 @@ class MeasuredLineTests(RealClockCase):
         for i in range(8):
             self.feed(self.snap(rows=[row(4, "MEM", 6801000, jitter(6794200, i))]))
         self.assertEqual(self.values["r_mem"], "measured 3397  Δ -3.4")
-        self.assertEqual(self.colour["r_mem"], TEXT)
-        self.assertIn("Not colour-graded", self.values["rt_mem"])
+        self.assertEqual(self.colour["r_mem"], DIM)                  # shown, never judged
+        self.assertIn("fixed -6.8 MHz", self.values["rt_mem"])
+        self.assertNotIn("Plain = within one clock bin", self.values["rt_mem"])
 
     def test_a_row_that_is_not_the_tiles_clock_is_named_and_never_coloured(self):
         self.hold_on_the_ceiling(core=2100)
-        self.assertTrue(self.values["r_core"].endswith("vs A 2115"))
+        self.assertEqual(self.values["r_core"], "measured 2087  \u0394 -27.9")   # no longer
+        self.assertEqual(self.values["s_core"], "P0 \u00b7 vs A 2115")       # the detail moves
         self.assertEqual(self.colour["r_core"], DIM)
+
+    def test_the_xbar_line_is_shown_but_never_coloured(self):
+        for i in range(8):
+            self.feed(self.snap(rows=[row(0, "GPC", 2115000, jitter(2087100, i)),
+                                      row(1, "XBAR", 2025000, jitter(1985000, i))]))
+        self.assertTrue(self.values["r_xbar"].startswith("measured 1985"))
+        self.assertEqual(self.colour["r_xbar"], DIM)
+        self.assertIn("Shown, never judged", self.values["rt_xbar"])
+
+    def test_a_B_equal_to_A_at_one_steady_clock_says_so_without_a_number(self):
+        for _ in range(7):
+            self.feed(self.snap(rows=[row(0, "GPC", 2115000, 2115000)]))
+        self.assertEqual(self.values["r_core"], "measured: same as A")
+        self.assertEqual(self.values["s_core"], "P0 · same as A")
+        self.assertNotIn("B differs from A", self.values["rt_core"])
+        self.assertIn("cannot yet be told apart from a copy of A", self.values["rt_core"])
+
+    def test_an_unproven_B_that_equals_A_right_now_is_not_said_to_differ(self):
+        for _ in range(6):
+            self.feed(self.snap(rows=[row(0, "GPC", 2115000, 2087100)]))
+        for _ in range(2):
+            self.feed(self.snap(rows=[row(0, "GPC", 2115000, 2115000)]))
+        self.assertTrue(self.values["r_core"].startswith("unproven"))
+        self.assertIn("B equals A right now", self.values["rt_core"])
+        self.assertNotIn("B differs from A", self.values["rt_core"])
+
+    def test_one_failed_private_read_keeps_the_last_reading_dimmed(self):
+        self.hold_on_the_ceiling()
+        self.feed({"core": 2115, "xbar": 2025, "mem": 6801, "util_gpu": 99, "pstate": 0,
+                   "clk_domains": None, "clk_domains_err": "did not answer"})
+        self.assertEqual(self.values["r_core"], "measured 2087  Δ -27.9")
+        self.assertEqual(self.colour["r_core"], DIM)
+        self.assertEqual(self.values["s_core"], "P0 · read failed")
+        self.hold_on_the_ceiling(n=1)
+        self.assertEqual(self.app._real.last("core").state, "judged")   # continuity kept
+
+    def test_a_row_not_yet_read_is_not_called_missing(self):
+        self.app._stale = True
+        self.feed(self.snap())
+        self.assertEqual(self.values["r_core"], "measured: not read yet")
+        self.assertNotIn("No row on this card", self.values["rt_core"])
+
+    def test_no_colour_is_claimed_against_a_borrowed_clock_step(self):
+        self.app.gpu = SimpleNamespace(static={}, step_is_measured=lambda: False)
+        self.hold_on_the_ceiling(n=9)
+        self.assertEqual(self.colour["r_core"], DIM)
+        self.assertIn("could not be measured", self.values["rt_core"])
+
+    def test_a_fault_leaves_no_old_verdict_behind(self):
+        app = self.app
+        self.hold_on_the_ceiling()
+        self.assertEqual(self.colour["r_core"], WARN)
+        app.refresh_domains = Mock()
+        app.mem_fmt = lambda value: ("--", "")
+        app._bar_band, app._bar_themes = {}, {}
+        app.gpu = SimpleNamespace(static={}, mem_offset_scale=lambda: (1, "MHz"))
+        app.shunt = SimpleNamespace(active=False)
+        app.log_once = Mock()
+        app.refresh_real_clocks = Mock(side_effect=RuntimeError("boom"))
+        app.refresh_monitor({"power_w": 50, "pl_now_mw": 200000})
+        self.assertEqual((self.values["r_core"], self.colour["r_core"]), ("measured: --", DIM))
+
+    def test_a_card_switch_starts_its_evidence_over(self):
+        self.hold_on_the_ceiling()
+        app = self.app
+        app.gpu = SimpleNamespace(static={}, slot=lambda: "0000:01:00.0")
+        app._tim_lock = __import__("threading").Lock()
+        try:
+            app.reset_card_state()
+        except AttributeError as exc:            # the rest of the app state is not built here
+            self.skipTest(f"reset_card_state needs more of the app: {exc}")
+        self.feed(self.snap(rows=[row(0, "GPC", 1950000, 1950000)]))
+        self.assertEqual(self.values["r_core"], "measured: checking B")
 
     def test_a_three_bin_loss_is_red(self):
         for i in range(8):
@@ -213,11 +288,45 @@ class SharedRuleTests(unittest.TestCase):
         self.assertEqual(Druta.CLOCK_GAP_UTIL, realclock.LOAD_GATE_PCT)
 
 
+class LogCheckTests(RealClockCase):
+    def setUp(self):
+        super().setUp()
+        self.app.log = Mock()
+        self.app._clk_lock = None
+
+    def run_log(self, n, a, b_of, util=99):
+        for i in range(n):
+            d = self.snap(util=util, rows=[row(0, "GPC", a, b_of(i))])
+            self.feed(d)
+            self.app.check_clock_gap(d)
+
+    def warned(self):
+        return [c for c in self.app.log.call_args_list if "below the" in str(c)]
+
+    def test_the_log_says_nothing_about_a_B_the_tile_does_not_trust(self):
+        self.run_log(30, 1950000, lambda i: 1935000)             # never moves: unproven
+        self.assertEqual(self.warned(), [])
+        self.run_log(30, 1950000, lambda i: jitter(1935000, i))  # a counter: measured
+        self.assertEqual(len(self.warned()), 1)
+
+    def test_the_log_counts_exactly_the_tiles_load_gate(self):
+        self.run_log(40, 1950000, lambda i: jitter(1935000, i), util=89)
+        self.assertEqual(self.warned(), [])
+        self.run_log(25, 1950000, lambda i: jitter(1935000, i), util=90)
+        self.assertEqual(len(self.warned()), 1)
+
+    def test_the_log_carries_the_tiles_tolerance(self):
+        self.app.step_khz.return_value = 12657
+        self.run_log(30, 1898000, lambda i: jitter(1885800, i))  # -12.2 on a 12.657 bin
+        self.assertEqual(len(self.warned()), 1)
+
+
 class TileHeightTests(RealClockCase):
     def test_the_tile_does_not_change_height_as_the_line_changes_state(self):
         app = self.app
         app.s = lambda v: v
-        app.text_h = lambda txt, font, wrap=-1.0: 19 * (1 + len(txt or "") // 28)
+        # a narrow tile: "P0 · steady at load" wraps where "P0 · checking" does not
+        app.text_h = lambda txt, font, wrap=-1.0: 19 * (1 + len(txt or "") // 18)
         heights = []
 
         def measure():

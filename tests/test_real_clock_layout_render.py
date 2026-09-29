@@ -1,8 +1,9 @@
 # Copyright (C) 2026 Thermetery Technology Co Limited
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Real DearPyGui coverage for the measured line in the Monitor's clock tiles:
-the tiles keep one height through every state of the line, never grow a
-scrollbar, and keep the line inside the tile."""
+"""Real DearPyGui coverage for the measured line in the Monitor's clock tiles,
+with the app's own fonts where they exist: the tiles keep one height through
+every state of the line, never overflow either way, and a rebuilt tab (Refresh
+capabilities) colours its line again."""
 import importlib.util
 import json
 import os
@@ -34,8 +35,8 @@ class RealClockLayoutRenderTests(unittest.TestCase):
             app.scale = 1
             app._fonts = {}
             app._bar_themes, app._bar_band = {}, {}
-            app._dom_band, app._dom_name, app._dom_shown = {}, {}, set()
             app.gpu = SimpleNamespace(static={"mem_div": 2, "mem_type": "GDDR6"})
+            app._dom_band, app._dom_name, app._dom_shown = {}, {}, set()
             app.step_khz = Mock(return_value=15000)
             app._stale = False
 
@@ -47,39 +48,43 @@ class RealClockLayoutRenderTests(unittest.TestCase):
 
             clock = [0.0]
 
-            def feed(a, b, util=99, stale=False):
+            def feed(a, b, util=99, stale=False, core=None):
                 clock[0] += 1.05
                 app._stale = stale
-                d = {"core": a // 1000, "xbar": 2025, "mem": 6801, "util_gpu": util,
-                     "pstate": 0, "clk_domains": [row(0, "GPC", a, b),
-                                                  row(1, "XBAR", 2025000, 2011100),
-                                                  row(4, "MEM", 6801000, 6794200)]}
+                d = {"core": core if core is not None else a // 1000, "xbar": 2025, "mem": 6801,
+                     "util_gpu": util, "pstate": 0,
+                     "clk_domains": [row(0, "GPC", a, b), row(1, "XBAR", 2025000, 2011100),
+                                     row(4, "MEM", 6801000, 6794200)]}
                 app.refresh_real_clocks(d, now=clock[0])
 
             def frames(count=3):
                 for _ in range(count):
                     dpg.render_dearpygui_frame()
 
-            states = [("checking", lambda: feed(2115000, 2087100))]
-            states.append(("amber", lambda: [feed(2115000, 2087100 + (i % 3) * 8)
-                                              for i in range(8)]))
-            states.append(("light", lambda: feed(2115000, 1300000, util=3)))
-            states.append(("stale", lambda: feed(2115000, 2087100, stale=True)))
-            states.append(("mirror", lambda: [feed(a, a) for a in
-                                               (1950000, 1965000, 1950000, 1965000, 1950000,
-                                                1965000)]))
+            amber = lambda: [feed(2115000, 2087100 + (i % 3) * 8) for i in range(9)]
+            states = [("checking", lambda: feed(2115000, 2087100)),
+                      ("amber", amber),
+                      ("unpaired", lambda: feed(2115000, 2087108, core=2100)),
+                      ("light", lambda: feed(2115000, 1300000, util=3)),
+                      ("stale", lambda: feed(2115000, 2087100, stale=True)),
+                      ("mirror", lambda: [feed(a, a) for a in
+                                          (1950000, 1965000, 1950000, 1965000, 1950000, 1965000)])]
 
-            dpg.create_context()
-            try:
-                dpg.create_viewport(title="Druta measured clock layout", width=1180, height=900)
+            def build():
                 with dpg.window(tag="root"):
                     with dpg.tab_bar(tag="tabs"):
                         app.build_monitor()
+
+            dpg.create_context()
+            app.load_fonts()
+            try:
+                dpg.create_viewport(title="Druta measured clock layout", width=1180, height=900)
+                build()
                 dpg.setup_dearpygui()
                 dpg.show_viewport()
                 dpg.set_primary_window("root", True)
                 out = []
-                for width, height in ((1180, 900), (1544, 1000), (1920, 1080)):
+                for width, height in ((1000, 800), (1180, 900), (1544, 1000), (1920, 1080)):
                     dpg.set_viewport_width(width)
                     dpg.set_viewport_height(height)
                     frames()
@@ -87,16 +92,35 @@ class RealClockLayoutRenderTests(unittest.TestCase):
                         step()
                         app.relayout()
                         frames()
-                        tile = dpg.get_item_rect_size("tile_core")
+                        tile_w, tile_h = dpg.get_item_rect_size("tile_core")
+                        line_w = dpg.get_item_rect_size("r_core")[0]
                         scrolls = {key: dpg.get_y_scroll_max(f"tile_{key}")
                                    for key, *_ in app.TILES}
-                        # a line past the tile would make it scroll (reported even with
-                        # its scrollbar hidden); the line itself must be drawn
-                        inside = dpg.get_item_state("r_core").get("visible", False)
-                        out.append({"size": [width, height], "state": name,
-                                    "tile_h": tile[1], "scroll": max(scrolls.values()),
-                                    "inside": inside, "line": dpg.get_value("r_core")})
-                print(json.dumps(out))
+                        out.append({"size": [width, height], "state": name, "tile_h": tile_h,
+                                    "scroll": max(scrolls.values()),
+                                    # the line fits inside the tile's padding on both sides
+                                    "fits_x": line_w <= tile_w - 2 * app.s(8),
+                                    "visible": dpg.get_item_state("r_core").get("visible", False),
+                                    "line": dpg.get_value("r_core")})
+                # Refresh capabilities rebuilds the tab: its line must colour again
+                amber()
+                app.refresh_domains({"clk_domains": [row(0, "GPC", 2115000, 2087100)],
+                                     "clk_domains_err": None})
+                frames()
+                before = list(dpg.get_item_configuration("r_core")["color"])
+                dpg.delete_item("root")
+                build()
+                dpg.set_primary_window("root", True)
+                amber()
+                frames()
+                after = list(dpg.get_item_configuration("r_core")["color"])
+                # the domains table rebuilt with it must show and name its rows again
+                snap = {"clk_domains": [row(0, "GPC", 2115000, 2087100)], "clk_domains_err": None}
+                app.refresh_domains(snap)
+                frames()
+                table = {"shown": dpg.get_item_configuration("dom_row_0")["show"],
+                         "name": dpg.get_value("dom_0_name")}
+                print(json.dumps({"rows": out, "before": before, "after": after, "table": table}))
             finally:
                 dpg.destroy_context()
             """
@@ -106,17 +130,20 @@ class RealClockLayoutRenderTests(unittest.TestCase):
         environment["PYTHONPATH"] = source + os.pathsep + environment.get("PYTHONPATH", "")
         result = subprocess.run(
             [sys.executable, "-c", script], cwd=ROOT, env=environment,
-            capture_output=True, text=True, timeout=60,
+            capture_output=True, text=True, timeout=90,
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        rows = json.loads(result.stdout.strip().splitlines()[-1])
-        self.assertEqual(len(rows), 15)
+        data = json.loads(result.stdout.strip().splitlines()[-1])
+        rows = data["rows"]
+        self.assertEqual(len(rows), 24)
         for size in {tuple(r["size"]) for r in rows}:
             at = [r for r in rows if tuple(r["size"]) == size]
             self.assertEqual(len({r["tile_h"] for r in at}), 1, at)
         self.assertTrue(all(r["scroll"] == 0 for r in rows), rows)
-        self.assertTrue(all(r["inside"] for r in rows), rows)
+        self.assertTrue(all(r["fits_x"] and r["visible"] for r in rows), rows)
         self.assertIn("measured 2087", next(r["line"] for r in rows if r["state"] == "amber"))
+        self.assertEqual(data["after"], data["before"])            # amber again after a rebuild
+        self.assertEqual(data["table"], {"shown": True, "name": "GPC"})
 
 
 if __name__ == "__main__":

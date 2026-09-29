@@ -26,8 +26,8 @@ CURRENT). A and B are the private `GetAllClocks` arrays (medians).
 - **Fixed clocks** (domains 3, 5, 6, 20, 22) read B exactly equal to A in 10 to 25 of 36 samples, on a card
   whose B is otherwise a counter. So B equal to A at one fixed target proves nothing either way. The
   "copies A" test therefore needs B to have equalled A through a change of A.
-- **At idle, unlocked:** GPC read A 390 / B 390.00 (with B once at 402.28) and XBAR B equalled A in 16 of 32
-  samples.
+- **At idle, unlocked** (a separate, earlier run the same day, in which the GPUPI load did not start): GPC read
+  A 390 / B 390.00 (with B once at 402.28) and XBAR B equalled A in 16 of 32 samples.
 
 What this does not establish: B's behaviour on any other card, driver or load. The
 readout decides per card, at runtime, whether B may be called measured.
