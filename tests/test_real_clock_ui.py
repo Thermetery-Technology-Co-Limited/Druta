@@ -8,7 +8,6 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from druta import realclock
 from druta.druta import BAD, DIM, TEXT, WARN, Druta
 from druta.nvbackend import PRIV_CONFIRMED, PRIV_FREQ, PRIV_LIKELY, PRIV_UNNAMED, PRIV_UNPOPULATED
 
@@ -59,7 +58,7 @@ class RealClockCase(unittest.TestCase):
         self.app.refresh_real_clocks(d, now=self.t)
         return d
 
-    def hold_on_the_ceiling(self, n=8, **kw):
+    def hold_on_the_ceiling(self, n=9, **kw):
         for i in range(n):
             self.feed(self.snap(b=jitter(2087100, i), rows=None, **kw))
 
@@ -111,6 +110,13 @@ class MeasuredLineTests(RealClockCase):
         self.assertEqual(self.values["s_core"], "P0 · load 3 %")
         self.assertEqual(self.colour["r_core"], DIM)
         self.assertIn("Not judged below 90 % load", self.values["rt_core"])
+        self.assertIn("drops below 85 %", self.values["rt_core"])
+
+    def test_settling_says_when_the_load_stops_counting(self):
+        self.hold_on_the_ceiling(n=5)
+        self.feed(self.snap(core=2100, a=2100000, b=2072100))       # A moved: settle again
+        self.assertEqual(self.values["s_core"], "P0 \u00b7 settling")
+        self.assertIn("drops below 85 %", self.values["rt_core"])
 
     def test_the_private_getter_down_reads_n_a_everywhere(self):
         self.feed({"core": 2115, "xbar": None, "mem": 6801, "clk_domains": None,
@@ -133,7 +139,7 @@ class MeasuredLineTests(RealClockCase):
 
     def test_pascal_2clk_is_halved_to_core_mhz_and_banded_on_its_bins(self):
         self.app.step_khz.return_value = 12657
-        for i in range(8):
+        for i in range(9):
             self.feed(self.snap(core=1898, xbar=None, rows=[
                 row(15, "GPC2CLK", 3797100, jitter(3771100, i), scale=2)]))
         self.assertEqual(self.values["r_core"], "measured 1886  Δ -13.0")
@@ -201,11 +207,30 @@ class MeasuredLineTests(RealClockCase):
         self.hold_on_the_ceiling()
         self.feed({"core": 2115, "xbar": 2025, "mem": 6801, "util_gpu": 99, "pstate": 0,
                    "clk_domains": None, "clk_domains_err": "did not answer"})
-        self.assertEqual(self.values["r_core"], "measured 2087  Δ -27.9")
+        self.assertEqual(self.values["r_core"], "last 2087  Δ -27.9")
         self.assertEqual(self.colour["r_core"], DIM)
         self.assertEqual(self.values["s_core"], "P0 · read failed")
         self.hold_on_the_ceiling(n=1)
         self.assertEqual(self.app._real.last("core").state, "judged")   # continuity kept
+
+    def test_a_failed_read_marks_every_tile_and_expires(self):
+        for i in range(9):
+            self.feed(self.snap(rows=[row(0, "GPC", 2115000, jitter(2087100, i)),
+                                      row(1, "XBAR", 2025000, jitter(1985000, i)),
+                                      row(4, "MEM", 6801000, jitter(6794200, i))]))
+        # the XBAR figure comes from the private getter too, so it goes with it
+        failed = {"core": 300, "mem": 405, "util_gpu": 0, "pstate": 8,
+                  "clk_domains": None, "clk_domains_err": "did not answer"}
+        self.feed(failed)
+        self.assertEqual([self.values[f"r_{k}"][:5] for k in ("core", "xbar", "mem")],
+                         ["last "] * 3)
+        self.assertNotIn("None", self.values["rt_xbar"])
+        for _ in range(3):                          # the UI redraws the same failed snapshot
+            self.t += 1.05
+            self.app.refresh_real_clocks(failed, now=self.t)
+        self.assertEqual([self.values[f"r_{k}"] for k in ("core", "xbar", "mem")],
+                         ["measured: n/a"] * 3)
+        self.assertEqual(self.values["s_core"], "P8")
 
     def test_a_row_not_yet_read_is_not_called_missing(self):
         self.app._stale = True
@@ -230,8 +255,11 @@ class MeasuredLineTests(RealClockCase):
         app.shunt = SimpleNamespace(active=False)
         app.log_once = Mock()
         app.refresh_real_clocks = Mock(side_effect=RuntimeError("boom"))
-        app.refresh_monitor({"power_w": 50, "pl_now_mw": 200000})
+        app.refresh_monitor({"power_w": 50, "pl_now_mw": 200000, "pstate": 0})
         self.assertEqual((self.values["r_core"], self.colour["r_core"]), ("measured: --", DIM))
+        self.assertNotIn("Judged", self.values["rt_core"])
+        self.assertIn("could not be drawn", self.values["rt_core"])
+        self.assertEqual(self.values["s_core"], "P0")
 
     def test_a_card_switch_starts_its_evidence_over(self):
         self.hold_on_the_ceiling()
@@ -245,8 +273,17 @@ class MeasuredLineTests(RealClockCase):
         self.feed(self.snap(rows=[row(0, "GPC", 1950000, 1950000)]))
         self.assertEqual(self.values["r_core"], "measured: checking B")
 
+    def test_a_colour_held_on_its_edge_says_so(self):
+        for i in range(12):
+            self.feed(self.snap(b=2100300 + (i % 2) * 8))              # -14.7: amber
+        for i in range(20):
+            self.feed(self.snap(b=2100800 + (i % 2) * 8))              # -14.2
+        self.assertEqual(self.colour["r_core"], WARN)
+        self.assertIn("Amber is HELD", self.values["rt_core"])
+        self.assertIn("held until the median falls clearly back", self.values["rt_core"])
+
     def test_a_three_bin_loss_is_red(self):
-        for i in range(8):
+        for i in range(9):
             self.feed(self.snap(b=jitter(2069000, i)))
         self.assertEqual(self.colour["r_core"], BAD)
 
@@ -284,8 +321,6 @@ class SharedRuleTests(unittest.TestCase):
         app.step_khz.return_value = 12657
         self.assertEqual(app.dom_band(24.5, scale=2), "warn")
 
-    def test_the_log_check_and_the_tiles_use_one_load_gate(self):
-        self.assertEqual(Druta.CLOCK_GAP_UTIL, realclock.LOAD_GATE_PCT)
 
 
 class LogCheckTests(RealClockCase):
@@ -294,11 +329,13 @@ class LogCheckTests(RealClockCase):
         self.app.log = Mock()
         self.app._clk_lock = None
 
-    def run_log(self, n, a, b_of, util=99):
+    def run_log(self, n, a, b_of, util=99, redraws=4, core=None):
         for i in range(n):
-            d = self.snap(util=util, rows=[row(0, "GPC", a, b_of(i))])
+            d = self.snap(core=a // 1000 if core is None else core, util=util,
+                          rows=[row(0, "GPC", a, b_of(i))])
             self.feed(d)
-            self.app.check_clock_gap(d)
+            for _ in range(redraws):                # the UI loop redraws each snapshot
+                self.app.check_clock_gap(d)
 
     def warned(self):
         return [c for c in self.app.log.call_args_list if "below the" in str(c)]
@@ -314,6 +351,58 @@ class LogCheckTests(RealClockCase):
         self.assertEqual(self.warned(), [])
         self.run_log(25, 1950000, lambda i: jitter(1935000, i), util=90)
         self.assertEqual(len(self.warned()), 1)
+
+    def test_the_log_keeps_the_tiles_load_release(self):
+        self.run_log(6, 1950000, lambda i: jitter(1935000, i), util=95)
+        self.run_log(20, 1950000, lambda i: jitter(1935000, i + 6), util=87)
+        self.assertEqual(self.colour["r_core"], WARN)                # the tile still judges
+        self.assertEqual(len(self.warned()), 1)
+
+    def test_the_log_says_nothing_while_the_tile_refuses_to_judge(self):
+        cases = {
+            "not refreshing": dict(b_of=lambda i: jitter(1935000, i) if i < 6 else 1935000),
+            "unpaired": dict(b_of=lambda i: jitter(1935000, i), core=1935),
+        }
+        for name, kw in cases.items():
+            with self.subTest(name):
+                self.setUp()
+                self.run_log(40, 1950000, **kw)
+                self.assertEqual(self.warned(), [])
+
+    def test_the_log_says_nothing_against_a_borrowed_clock_step(self):
+        self.app.gpu = SimpleNamespace(static={}, step_is_measured=lambda: False)
+        self.run_log(40, 1950000, lambda i: jitter(1935000, i))
+        self.assertEqual(self.warned(), [])
+
+    def test_a_stale_snapshot_redrawn_is_no_reading_for_the_log(self):
+        self.run_log(9, 1965000, lambda i: jitter(1964000, i))       # plain: no warning
+        d = self.snap(core=1965, rows=[row(0, "GPC", 1965000, 1905000)])   # a lagging read
+        self.feed(d)
+        self.app._stale = True
+        for _ in range(40):                             # 10 s of redraws of that one read
+            self.t += 0.25
+            self.app.refresh_real_clocks(d, now=self.t)
+            self.app.check_clock_gap(d)
+        self.assertEqual(self.warned(), [])
+
+    def test_the_log_reports_only_a_clock_below_the_one_shown(self):
+        self.run_log(30, 1950000, lambda i: jitter(1965000, i))      # one bin ABOVE
+        self.assertEqual(self.colour["r_core"], WARN)                # the tile: either sign
+        self.assertEqual(self.warned(), [])
+
+    def test_one_plain_reading_is_not_a_recovery(self):
+        self.run_log(30, 1950000, lambda i: jitter(1935000, i))
+        self.assertEqual(len(self.warned()), 1)
+        def recovered():
+            return [c for c in self.app.log.call_args_list if "clock it shows again" in str(c)]
+        for i in range(30):                                        # the gap closes ...
+            self.run_log(1, 1950000, lambda _i, i=i: jitter(1949000, i))
+            if self.colour["r_core"] == TEXT:
+                break
+        self.assertEqual(self.colour["r_core"], TEXT)              # ... the tile turns plain
+        self.assertEqual(recovered(), [])                          # one reading: not yet
+        self.run_log(5, 1950000, lambda i: jitter(1949008, i))
+        self.assertEqual(len(recovered()), 1)
 
     def test_the_log_carries_the_tiles_tolerance(self):
         self.app.step_khz.return_value = 12657
@@ -343,6 +432,29 @@ class TileHeightTests(RealClockCase):
         measure()
         app._stale = True
         self.feed(self.snap())                                  # stale
+        measure()
+        self.assertEqual(len(set(heights)), 1, heights)
+
+    def test_a_wider_sign_or_a_state_line_does_not_grow_the_tile(self):
+        # "+" is wider than "-" in the UI font: here it takes a character more,
+        # so "measured 0000  \u0394 +00.0" wraps where the "-" line does not
+        app = self.app
+        app.s = lambda v: v
+        app.text_h = lambda txt, font, wrap=-1.0: 19 * (1 + (len(txt or "")
+                                                             + (txt or "").count("+")) // 23)
+        heights = []
+
+        def measure():
+            with patch("druta.druta.dpg.does_item_exist",
+                       side_effect=lambda tag: tag[:2] in ("s_", "r_")), \
+                    patch("druta.druta.dpg.get_value",
+                          side_effect=lambda tag: self.values.get(tag, "")):
+                heights.append(app.tile_height(180))
+        self.feed(self.snap())                                  # checking
+        measure()
+        for i in range(9):
+            self.feed(self.snap(b=jitter(2129900, i)))          # one bin above: +14.9
+        self.assertIn("+14.9", self.values["r_core"])
         measure()
         self.assertEqual(len(set(heights)), 1, heights)
 

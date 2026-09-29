@@ -941,9 +941,8 @@ class RailAnswerAppTests(AppTestCase):
         self.unavailable("unanswered", "VoltRailsCtlGet status -104")
         self.hold(1093.75)
         self.app.step_khz = lambda: 15000
-        row = {"name": "GPC", "grade": PRIV_CONFIRMED, "prog_mhz": 2100.0, "meas_mhz": 2070.0}
-        for _ in range(self.app.CLOCK_GAP_TICKS):
-            self.app.check_clock_gap({"clk_domains": [row], "util_gpu": 99})
+        self.gpu.step_is_measured = lambda: True
+        clock_reads(self.app, 20, 2100.0, 2070.0)
         self.assertTrue(self.logged("has not returned its voltage limits"))
 
 
@@ -1503,18 +1502,37 @@ class RealProcessOwnerTests(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------- #
+def clock_reads(app, n, prog, meas, util=99, name="GPC", grade=PRIV_CONFIRMED, scale=1):
+    """n snapshots through the core tile and then the log check, as the UI
+    loop does: B (in MHz) jitters by 8 kHz like a counter, so it earns trust."""
+    from druta.nvbackend import PRIV_FREQ
+    t = getattr(app, "_test_t", 0.0)
+    with patch("druta.druta.dpg.set_value"), patch("druta.druta.dpg.configure_item"):
+        for _ in range(n):
+            t += 1.05
+            i = app._test_i = getattr(app, "_test_i", 0) + 1
+            a_khz, b_khz = int(round(prog * 1000)), int(round(meas * 1000)) + (i % 2) * 8
+            d = {"core": round(prog / scale), "util_gpu": util, "pstate": 0, "clk_domains": [
+                {"domain": 0, "name": name, "grade": grade, "kind": PRIV_FREQ,
+                 "prog_khz": a_khz, "meas_khz": b_khz, "scale": scale,
+                 "prog_mhz": a_khz / 1000.0, "meas_mhz": b_khz / 1000.0}]}
+            app.refresh_real_clocks(d, now=t)
+            app.check_clock_gap(d)
+    app._test_t = t
+
+
 class ClockGapCheckTests(unittest.TestCase):
     def setUp(self):
         from druta.druta import Druta
         self.app = Druta.__new__(Druta)
         self.app.log = Mock()
         self.app._clk_lock = None
+        self.app._stale = False
         self.app.step_khz = Mock(return_value=15000)
 
     def tick(self, prog, meas, util=99, name="GPC", grade=PRIV_CONFIRMED, n=1):
-        for _ in range(n):
-            self.app.check_clock_gap({"util_gpu": util, "clk_domains": [
-                {"domain": 0, "name": name, "grade": grade, "prog_mhz": prog, "meas_mhz": meas}]})
+        clock_reads(self.app, n, prog, meas, util=util, name=name, grade=grade,
+                    scale=2 if name.endswith("2CLK") else 1)
 
     def warnings(self):
         return [c for c in self.app.log.call_args_list if "below the" in str(c)]

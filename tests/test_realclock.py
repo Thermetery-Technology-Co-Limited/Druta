@@ -4,6 +4,7 @@
 when its distance from the programmed one (A) is judged. Traces follow what one
 TITAN RTX showed (B never on the grid, jitter of a few kHz, ~1 s refresh) and
 what GK104/GM107 showed (B identical to A); neither is assumed of any card."""
+import random
 import unittest
 
 from druta import realclock as rc
@@ -52,13 +53,14 @@ class EvidenceTests(unittest.TestCase):
     def test_a_counter_under_a_fixed_target_is_measured_then_judged(self):
         # one TITAN RTX holding 2115 MHz on its voltage ceiling read B ~2087
         feed = Feeder()
-        seen = [feed(2115000, jitter(2087000, i)) for i in range(8)]
-        self.assertEqual([r.trust for r in seen[:3]], [rc.CHECKING] * 3)
-        self.assertEqual(seen[3].trust, rc.MEASURED)
-        self.assertEqual([r.state for r in seen[3:7]], ["settling"] * 4)
-        self.assertEqual((seen[7].state, seen[7].verdict), ("judged", "warn"))
-        self.assertTrue(-29 < seen[7].delta_mhz < -27)
-        self.assertEqual(len(seen[7].window), rc.WINDOW_READS)
+        seen = [feed(2115000, jitter(2087000, i)) for i in range(9)]
+        # its moves are +8, +8, -16 kHz: the first turn back is evidence 1, the next 2
+        self.assertEqual([r.trust for r in seen[:4]], [rc.CHECKING] * 4)
+        self.assertEqual(seen[4].trust, rc.MEASURED)
+        self.assertEqual([r.state for r in seen[4:8]], ["settling"] * 4)
+        self.assertEqual((seen[8].state, seen[8].verdict), ("judged", "warn"))
+        self.assertTrue(-29 < seen[8].delta_mhz < -27)
+        self.assertEqual(len(seen[8].window), rc.WINDOW_READS)
 
     def test_identical_arrays_are_a_mirror_and_never_measured(self):
         # GK104/GM107: B identical to A through idle, boost and held P0
@@ -103,7 +105,7 @@ class EvidenceTests(unittest.TestCase):
 
     def test_a_clock_change_transient_never_enters_the_window(self):
         feed = Feeder()
-        before = [feed(1350000, jitter(1364940, i)) for i in range(8)]
+        before = [feed(1350000, jitter(1364940, i)) for i in range(9)]
         self.assertEqual(before[-1].verdict, "warn")          # one bin ABOVE, at a 1350 lock
         after = [feed(1950000, 2550000), feed(1950000, 1650000)]
         after += [feed(1950000, jitter(1949900, i)) for i in range(6)]
@@ -172,6 +174,23 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(seen[-1].events, 0)
         self.assertNotEqual(seen[-1].trust, rc.MEASURED)
 
+    def test_a_late_copy_following_A_up_and_down_earns_no_evidence(self):
+        # its catch-ups alternate in direction, but each is the first move
+        # after a change of A, so none is a turn
+        feed = Feeder()
+        a = [1950000] * 3 + [1965000] * 3 + [1950000] * 3 + [1965000] * 3 + [1950000] * 3
+        seen = [feed(x, a[max(0, i - 1)] - 6800) for i, x in enumerate(a)]
+        self.assertEqual(seen[-1].events, 0)
+        self.assertNotEqual(seen[-1].trust, rc.MEASURED)
+
+    def test_a_copy_of_A_lagging_four_reads_through_zigzags_earns_no_evidence(self):
+        # four reads late, B turns while A holds - onto values A reported
+        feed = Feeder()
+        a = [1950000, 1965000, 1935000] + [1920000] * 5 + [1935000, 1950000, 1920000] + [1905000] * 5
+        seen = [feed(x, a[max(0, i - 4)]) for i, x in enumerate(a)]
+        self.assertEqual(seen[-1].events, 0)
+        self.assertNotEqual(seen[-1].trust, rc.MEASURED)
+
     def test_a_copy_of_A_lagging_three_reads_earns_no_evidence(self):
         # B = A three reads late, through two staircases of A: B moves twice
         # while A holds, the second time to an old value of A
@@ -183,6 +202,82 @@ class EvidenceTests(unittest.TestCase):
         seen = [feed(x, y) for x, y in zip(a, b)]
         self.assertEqual(seen[-1].events, 0)
         self.assertNotEqual(seen[-1].trust, rc.MEASURED)
+
+    def test_a_copy_of_A_lagging_two_reads_with_an_offset_earns_no_evidence(self):
+        # B = A two reads late and shifted: after each two-bin boost drop B
+        # moves twice while A holds, to values A never reported, but one way
+        a = ([1965000] * 3 + [1950000, 1935000] + [1935000] * 3 + [1920000, 1905000]
+             + [1905000] * 8)
+        for offset in (-6800, -15000):
+            with self.subTest(offset=offset):
+                feed = Feeder()
+                seen = [feed(x, a[max(0, i - 2)] + offset) for i, x in enumerate(a)]
+                self.assertEqual(seen[-1].events, 0)
+                self.assertTrue(all(r.verdict is None for r in seen))
+
+    def test_a_smoothed_copy_of_A_earns_no_evidence(self):
+        # an exponential average of A approaches A from one side only
+        for step, alpha in ((30000, 0.1), (15000, 0.3), (300000, 0.2), (-45000, 0.15)):
+            with self.subTest(step=step, alpha=alpha):
+                feed = Feeder()
+                a = [1950000 - step] * 3 + [1950000] * 40
+                cur, seen = float(a[0]), []
+                for x in a:
+                    cur += alpha * (x - cur)
+                    seen.append(feed(x, int(round(cur / 8.0)) * 8))
+                self.assertNotEqual(seen[-1].trust, rc.MEASURED)
+                self.assertTrue(all(r.verdict is None for r in seen))
+
+    def test_a_jittering_gap_on_a_band_edge_does_not_flicker(self):
+        # one TU102 read about -14.7 on its ceiling, 0.2 MHz from the edge, and
+        # its counter spread about +-2.2 MHz at a lock; the five-reading median
+        # this replaced changed colour about 40 times over this trace
+        for seed in (1, 2, 3):
+            with self.subTest(seed=seed):
+                rnd, feed, b, colours = random.Random(seed), Feeder(), None, []
+                for _ in range(1200):
+                    last = b
+                    while b == last:                    # a 1 Hz counter: new every read
+                        b = int(round((1950300 + rnd.uniform(-2200, 2200)) / 8.0)) * 8
+                    r = feed(1965000, b)
+                    if r.verdict in ("ok", "warn", "bad"):
+                        colours.append(r.verdict)
+                changes = sum(1 for x, y in zip(colours, colours[1:]) if x != y)
+                self.assertLessEqual(changes, 3)
+                self.assertEqual(colours[-1], "warn")
+
+    def test_a_band_kept_by_hysteresis_says_so(self):
+        feed = Feeder()
+        for i in range(12):
+            feed(1950000, 1935300 + (i % 2) * 8)                 # -14.7: amber
+        seen = [feed(1950000, 1935800 + (i % 2) * 8) for i in range(30)]    # -14.2
+        self.assertEqual((seen[-1].verdict, seen[-1].held), ("warn", True))
+        direct = Feeder()
+        seen = [direct(1950000, 1935800 + (i % 2) * 8) for i in range(30)]
+        self.assertEqual((seen[-1].verdict, seen[-1].held), ("ok", False))
+
+    def test_one_outlier_neither_resets_nor_widens_the_hold(self):
+        self.assertAlmostEqual(rc.median_hold([-14.8] * 14 + [-265.0]), rc.GAP_TOL_MHZ)
+        feed = Feeder()
+        for i in range(12):
+            feed(1950000, 1935300 + (i % 2) * 8)                 # -14.7: amber
+        for i in range(20):
+            held = feed(1950000, 1935800 + (i % 2) * 8)          # -14.2: held amber
+        self.assertEqual((held.verdict, held.held), ("warn", True))
+        self.assertEqual(feed(1950000, 1910000).verdict, "varying")
+        seen = [feed(1950000, 1935800 + (i % 2) * 8) for i in range(10)]
+        after = [(r.verdict, r.held) for r in seen[rc.WINDOW_READS - 1:]]
+        self.assertEqual(after, [("warn", True)] * len(after))
+
+    def test_a_boost_that_keeps_stepping_keeps_one_word(self):
+        feed = Feeder()
+        for i in range(6):
+            feed(1950000, jitter(1935000, i))
+        states = []
+        for i in range(40):
+            a = 1950000 - 15000 * ((i // 4) % 2)              # a step every 4 readings
+            states.append(feed(a, jitter(a - 12000, i)).state)
+        self.assertEqual(set(states[8:]), {"moving"})
 
     def test_a_row_returned_to_settles_again_before_it_is_judged(self):
         feed = Feeder()

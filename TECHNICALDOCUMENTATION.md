@@ -181,34 +181,54 @@ number is read from; memory uses the row confirmed as MEM, divided like the tile
 B earns the word "measured" on the card in front of you, from its own readings,
 not from a list of cards:
 
-- it must move on its own while A holds still, to values A never reported,
-  twice - and not counting its first move after A changes, where a copy of A
-  that lags one read would catch up;
+- it must **turn back** on its own twice - move up after moving down, or down
+  after up - while A holds still, landing on values A never reported. A counter
+  jitters both ways. A copy of A - late by any number of reads, offset, or
+  smoothed - only moves one way towards A after A changes, so its first move
+  after each change of A is never half of a turn. What this cannot rule out: a
+  copy that is both offset and two or more reads late could replay a quick
+  up-and-back of A as a turn. No card has shown such an array: on the cards
+  tested, B was identical to A (GK104/GM107), constant while A moved (one GP102
+  row), or a jittering counter (TU102);
 - a B that equalled A exactly for five readings through a change of A has not
   shown itself to be independent (GK104/GM107 did this in every tested state):
   `measured: none (B = A)`; with A never having changed yet, `measured: same as A`;
-- a B that differs from A but never moves on its own is shown as `unproven`.
+- a B that differs from A but has not turned back on its own is shown as
+  `unproven`. While GPU Boost changes A every reading or two, B has no chance
+  to, so a real counter can stay `unproven` until the clock holds still.
 
 Only the **core** line is colour-judged, and only when a reading is comparable:
 at ≥ 90 % GPU load (a chosen threshold, released below 85 %; at idle the clock
 gates between bursts and B reads low), after B has refreshed twice since A last
 changed (on one TU102, B trailed a clock change by 1-2 s), with B still
-refreshing, and over a window of five readings with A unchanged. The colour
-comes from the window's median, in this card's clock bins with 0.5 MHz of
-tolerance, either sign (above the programmed clock counts too): plain within one
-bin, amber at one bin or more, red at three or more, with hysteresis so a gap on
-a band edge does not flicker. A window that spreads over more than one bin (a
-transient or an outlier) is `varying` and dim. No colour is claimed when this
-card's clock step could not be measured. The core subtitle says why a line is
-dim (`checking`, `same as A`, `settling`, `clock moving`, `not refreshing`,
-`load 3 %`, `vs A 2115`, `read failed`, `stale`), and the tooltip gives both raw
-arrays, the Δ in bins and the evidence.
+refreshing, and after five such readings with A unchanged. The colour comes
+from the median of up to the last 15 of them, in this card's clock bins with
+0.5 MHz of tolerance, either sign (above the programmed clock counts too): plain
+within one bin, amber at one bin or more, red at three or more. When the last
+five spread over more than one bin (a transient or an outlier), the line is
+`varying` and dim. A colour once reached is **held** until the median falls back
+past its edge by the tolerance plus three standard errors of the median
+(1.86 × MAD / √n, from the readings' own scatter), and the tooltip says when a
+colour is held. So a gap that sits on an edge does not flicker: one TU102 held
+its ceiling at about -14.7 MHz, 0.2 MHz from the amber edge. In a simulation at
+the ±2.2 MHz of jitter the same card showed at a 1920 MHz lock, a five-reading
+median changed colour about 400 times an hour; this rule, a few times at most.
+The price is history: the same steady -14.2 is amber when the card came down
+from -14.7, and plain when it started there. No colour is claimed when this card's clock step could not be
+measured. The core subtitle says why a line is dim (`checking`, `same as A`,
+`settling`, `clock moving`, `not refreshing`, `load 3 %`, `vs A 2115`,
+`read failed`, `stale`), and the tooltip gives both raw arrays, the Δ in bins
+and the evidence. When the private read fails after good ones, every tile's
+line shows its last values as `last …` for up to 3 s, then `measured: n/a`.
 
 XBAR and memory are shown but never judged: XBAR follows the core clock and its
 own bin is not known here, and on one TITAN RTX the two memory arrays differed
 by a fixed -6.8 MHz (raw) in every state, loaded or idle. The log's clock check
-uses the same GPC row, load gate and tolerance (not GPC2CLK), and says nothing
-about a B the core tile does not trust.
+reports what the core tile judged: once, after five judged readings in a row
+coloured with B **below** A, and recovery once after five judged plain ones. It
+counts each reading once (not each redraw, and never a stale snapshot), so it
+shares the tile's trust, load gate and release, pairing, refresh check and
+clock bin. It reports GPC rows only, not GPC2CLK.
 
 Below them: **ALL CLOCK DOMAINS**, then the clocks-event and perf-decrease masks
 (including the insufficient-aux-power bit, a canary for a transplant's power

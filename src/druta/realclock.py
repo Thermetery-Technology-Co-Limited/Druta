@@ -24,9 +24,10 @@ from dataclasses import dataclass
 
 LOAD_GATE_PCT = 90      # a chosen threshold: judged only at this load or more ...
 LOAD_EXIT_PCT = 85      # ... and until the load drops below this (no flicker at 89/91)
-WINDOW_READS = 5        # readings in one judged window
+WINDOW_READS = 5        # readings before a verdict, and the span checked for a transient
+MEDIAN_READS = 15       # readings under one A that the judged median spans at most
 FRESH_NEEDED = 2        # B refreshes since A last changed before a reading counts
-EVIDENCE_EVENTS = 2     # independent B changes that earn "measured"
+EVIDENCE_EVENTS = 2     # turns of B on its own, while A holds, that earn "measured"
 DECIDE_READS = 5        # readings before "checking" becomes a verdict about B
 MIRROR_RUN = 5          # exact B == A readings, across a change of A, that withdraw it
 STUCK_READS = 5         # readings with B unchanged while A held: B is not refreshing
@@ -58,25 +59,42 @@ def gap_band(gap_mhz, bin_mhz):
     return "ok"
 
 
-def window_verdict(deltas, bin_mhz, previous=None):
-    """One verdict for a window of gaps.
+def median_hold(deltas):
+    """How far past a band edge the median of `deltas` must fall before a
+    band once reached is released: the tolerance plus three standard errors
+    of that median, estimated from the readings' own scatter (1.86 x MAD /
+    sqrt(n) for a median). A policy, not a measurement: a counter jittering
+    +-2.2 MHz adds about 1.6 MHz to the tolerance over 15 readings, a quiet
+    one about nothing, and one outlier does not widen it."""
+    deltas = [d for d in deltas if d is not None]
+    if not deltas:
+        return GAP_TOL_MHZ
+    median = statistics.median(deltas)
+    mad = statistics.median(abs(d - median) for d in deltas)
+    return GAP_TOL_MHZ + 3 * 1.86 * mad / len(deltas) ** 0.5
 
-    'varying' when the window itself spreads over more than one bin (a
-    transient or an outlier inside it); otherwise the band of the window's
-    MEDIAN, with hysteresis against `previous`: a band once reached is kept
-    until the median has fallen GAP_TOL_MHZ past its edge, so a gap that sits
+
+def window_verdict(deltas, bin_mhz, previous=None):
+    """One verdict for a window of gaps, oldest first.
+
+    'varying' when the last WINDOW_READS of them spread over more than one
+    bin (a transient or an outlier); otherwise the band of the MEDIAN of them
+    all, with hysteresis against `previous`: a band once reached is kept until
+    the median has fallen past its edge by median_hold(), so a gap that sits
     on an edge does not flicker between colours. None without a usable bin."""
     deltas = [d for d in deltas if d is not None]
     if not deltas or not _usable(bin_mhz):
         return None
-    if max(deltas) - min(deltas) > bin_mhz:
+    recent = deltas[-WINDOW_READS:]
+    if max(recent) - min(recent) > bin_mhz:
         return "varying"
     median = statistics.median(deltas)
     band = gap_band(median, bin_mhz)
     g = abs(median)
-    if previous == "bad" and band == "warn" and g >= 3 * bin_mhz - 2 * GAP_TOL_MHZ:
+    hold = median_hold(deltas)
+    if previous == "bad" and band == "warn" and g >= 3 * bin_mhz - GAP_TOL_MHZ - hold:
         band = "bad"
-    elif previous in ("warn", "bad") and band == "ok" and g >= bin_mhz - 2 * GAP_TOL_MHZ:
+    elif previous in ("warn", "bad") and band == "ok" and g >= bin_mhz - GAP_TOL_MHZ - hold:
         band = "warn"
     return band
 
@@ -103,6 +121,7 @@ class Reading:
     paired: bool
     state: str
     verdict: object
+    held: bool              # the verdict is a band kept by hysteresis, not the median's own
     window: tuple
     window_util: object
 
@@ -115,13 +134,14 @@ class _Evidence:
         self.events = 0
         self.fresh = 0
         self.still = 0              # readings with B unchanged while A held
+        self.direction = 0          # sign of B's last move while A held
         self.mirror_run = 0
         self.mirror_as = set()      # A values seen during the current B == A run
         self.prev = None            # (a_khz, b_khz) of the previous reading
         self.recent_a = deque(maxlen=RECENT_A)
 
     def break_continuity(self):
-        self.prev, self.fresh, self.still = None, 0, 0
+        self.prev, self.fresh, self.still, self.direction = None, 0, 0, 0
 
 
 class _Key:
@@ -131,14 +151,14 @@ class _Key:
         self.dom = None
         self.window = []
         self.loaded = False
-        self.verdict = None         # the last judged verdict, for hysteresis
+        self.band = None            # the last judged colour band, for hysteresis
         self.last_t = None
         self.last = None
         self.n = 0
         self.a_changes = deque(maxlen=4)    # reading numbers at which A changed
 
     def break_continuity(self):
-        self.window, self.loaded, self.verdict = [], False, None
+        self.window, self.loaded, self.band = [], False, None
 
 
 class ClockEvidence:
@@ -205,16 +225,20 @@ class ClockEvidence:
         else:
             prev_a, prev_b = ev.prev
             if a_khz != prev_a:
-                ev.fresh = ev.still = 0
+                ev.fresh = ev.still = ev.direction = 0
                 k.a_changes.append(k.n)
             elif b_khz != prev_b:
                 ev.fresh += 1
                 ev.still = 0
+                direction = 1 if b_khz > prev_b else -1
                 # B moved on its own while A held still, to a value A never
-                # reported - and not its first move after A changed, which is
-                # where a copy of A that lags a read would catch up
-                if ev.fresh >= 2 and b_khz != a_khz and b_khz not in ev.recent_a:
+                # reported, and turned back from its previous move: a counter
+                # jitters both ways, while a copy of A - lagging, offset or
+                # smoothed - only ever chases A one way after it changes
+                if (ev.direction and direction != ev.direction
+                        and b_khz != a_khz and b_khz not in ev.recent_a):
                     ev.events += 1
+                ev.direction = direction
             else:
                 ev.still += 1
         if not ev.recent_a or ev.recent_a[-1] != a_khz:
@@ -255,25 +279,28 @@ class ClockEvidence:
         else:
             state = "window"
         if state == "window":
-            k.window = (k.window + [(a_khz, delta, util)])[-WINDOW_READS:]
-            state = "judged" if len(k.window) >= WINDOW_READS else "settling"
+            k.window = (k.window + [(a_khz, delta, util)])[-MEDIAN_READS:]
+            state = ("judged" if len(k.window) >= WINDOW_READS
+                     else "moving" if moving else "settling")
         else:
-            k.window = []
+            k.window, k.band = [], None
         k.loaded = loaded
 
         deltas = tuple(d for _a, d, _u in k.window)
         utils = [u for _a, _d, u in k.window]
-        verdict = None
+        verdict, held = None, False
         if state == "judged":
-            verdict = window_verdict(deltas, bin_mhz, previous=k.verdict)
-        k.verdict = verdict if state == "judged" else None
+            verdict = window_verdict(deltas, bin_mhz, previous=k.band)
+            if verdict in ("ok", "warn", "bad"):
+                held = verdict != window_verdict(deltas, bin_mhz)
+                k.band = verdict        # kept through a 'varying' window
         reading = Reading(
             key=key, dom=dom, name=name or "", scale=scale, trust=trust,
             events=ev.events, samples=ev.samples, mirror_run=ev.mirror_run,
             fresh=ev.fresh, a_khz=a_khz, b_khz=b_khz,
             a_mhz=a_khz / 1000.0 / scale, b_mhz=b_khz / 1000.0 / scale,
             delta_mhz=delta, util=util, paired=bool(paired), state=state,
-            verdict=verdict,
+            verdict=verdict, held=held,
             window=deltas if state == "judged" else (),
             window_util=(min(utils), max(utils)) if state == "judged" and utils else None)
         k.last = reading
