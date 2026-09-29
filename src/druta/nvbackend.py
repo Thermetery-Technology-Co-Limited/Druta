@@ -6030,9 +6030,11 @@ class GPU:
     HOLD_HEADROOM_FALLBACK_GRAIN_MV = 6.25
 
     def hold_headroom_grain_mv(self):
-        """This card's voltage grain: the smallest step between the distinct
-        voltages of its own V/F points, or None when the curve cannot be read.
-        Remembered once read; the curve's voltage grid does not change."""
+        """This card's voltage grain: the most common step between the distinct
+        voltages of its own V/F points (so one odd point does not decide it),
+        kept within [half, twice] the fallback as a sanity bound, or None when
+        the curve cannot be read. Remembered once read; the curve's voltage
+        grid does not change."""
         grain = getattr(self, "_hold_headroom_grain", None)
         if grain:
             return grain
@@ -6042,10 +6044,15 @@ class GPU:
             points = None
         volts = sorted({round(float(p["volt_mv"]), 4) for p in points or ()
                         if math.isfinite(float(p["volt_mv"]))})
-        steps = [b - a for a, b in zip(volts, volts[1:]) if b - a > 0]
+        steps = [round(b - a, 2) for a, b in zip(volts, volts[1:]) if b - a > 0]
         if not steps:
             return None
-        self._hold_headroom_grain = min(steps)
+        counts = {}
+        for step in steps:
+            counts[step] = counts.get(step, 0) + 1
+        modal = min(counts, key=lambda s: (-counts[s], s))
+        fallback = self.HOLD_HEADROOM_FALLBACK_GRAIN_MV
+        self._hold_headroom_grain = min(2 * fallback, max(fallback / 2, modal))
         return self._hold_headroom_grain
 
     def hold_headroom_architecture(self):
@@ -6148,7 +6155,9 @@ class GPU:
         written = record.get("written_uv") or {}
         if any(k in now and now[k] != v for k, v in written.items()):
             return True
-        return any(k in now and now[k] != v
+        # an untouched term only matters when it went DOWN: raised, the plan
+        # still holds and re-planning would only write the same raise again
+        return any(k in now and now[k] < v
                    for k, v in (record.get("input_uv") or {}).items() if k not in written)
 
     @classmethod
@@ -6233,7 +6242,11 @@ class GPU:
         (XOC 1500 mV) bound, verified by read-back and undone by
         restore_hold_headroom. Any previous raise is restored first so two
         holds never stack their margins."""
-        if self.hold_headroom_record():
+        self._hold_headroom_unread = False
+        # a re-plan takes the old raise off first, and the live field lags a
+        # write: its reading right after is not this card's settled offset
+        replanning = bool(self.hold_headroom_record())
+        if replanning:
             ok, msg = self.restore_hold_headroom()
             if not ok:
                 # one bounded retry, as on release: a write aborted by another
@@ -6242,21 +6255,22 @@ class GPU:
             if not ok:
                 return False, f"previous headroom could not be restored first: {msg}"
         if not self.volt_rail_limits_supported(rail):
-            return None, ("the voltage limits could not be read right now; no headroom "
-                          "applied this time")
+            return self._headroom_unread("the voltage limits could not be read right now; no "
+                                         "headroom applied this time")
         fields = self.volt_rail_limit_fields(rail)
         if not set(self.HOLD_HEADROOM_FIELDS).issubset(fields):
             return None, ("reliability/alt-reliability/overvoltage are not validated on this "
                           "rail; no headroom applied")
         cur = self.read_volt_rail_limits()
         if cur is None or rail not in cur:
-            return None, "the current limits could not be read right now; no headroom applied"
+            return self._headroom_unread("the current limits could not be read right now; no "
+                                         "headroom applied")
         row = cur[rail]
         if row.get("_absolute_ok") is False:
             # the boost contribution and the card's effective limit would be
             # placeholders: a plan made on them overshoots by the boost
-            return None, ("the rail's absolute state could not be read right now; no "
-                          "headroom applied this time")
+            return self._headroom_unread("the rail's absolute state could not be read right "
+                                         "now; no headroom applied this time")
         ceiling = self.hold_headroom_ceiling_mv(row)
         try:
             hold = float(hold_mv)
@@ -6285,27 +6299,38 @@ class GPU:
                           f"clears the {hold:.2f} mV hold by {float(margin_mv):g} mV")
         boost = self.read_voltage_boost()
         if boost is None:
-            return None, "cannot preserve the current voltage boost; no headroom applied"
+            return self._headroom_unread("cannot preserve the current voltage boost right now; "
+                                         "no headroom applied")
+        grain = self.hold_headroom_grain_mv()
         # The live reading's offset above the card's own ceiling BEFORE the
         # raise, with the user's limits in force: a card whose live field reads
         # above a binding limit (not seen on TU102/GP102) carries the same
         # offset after the raise, and the live check allows it rather than
         # calling it a clamp that is not holding. 0 wherever live reads at or
-        # below the ceiling. More than the margin is not an offset Druta can
-        # tell from a rail already past its limits, so nothing is raised.
+        # below the ceiling. It is this card's, so it is kept for the session
+        # and a new reading can only LOWER it: a re-plan does not measure at
+        # all, and a reading that has not settled cannot loosen the check. More
+        # than the margin is not an offset Druta can tell from a rail already
+        # past its limits, so nothing is raised.
         try:
             live0 = self.read_rail_live_mv(rail)
         except Exception:                                        # noqa: BLE001
             live0 = None
         live0 = live0 if isinstance(live0, (int, float)) and live0 > 0 else None
-        enforced0 = self._headroom_enforced_mv(row)
-        offset = max(0.0, live0 - enforced0) if live0 is not None and math.isfinite(enforced0) else 0.0
+        enforced0 = self._headroom_enforced_mv(row, grain)
+        known = getattr(self, "_hold_headroom_offset_mv", None)
+        if replanning and known is not None:
+            offset = known
+        elif live0 is not None and math.isfinite(enforced0):
+            offset = max(0.0, live0 - enforced0)
+            offset = offset if known is None else min(known, offset)
+            self._hold_headroom_offset_mv = offset
+        else:
+            offset = known or 0.0
         if offset > float(margin_mv) + 1e-6:
-            return None, (f"the rail reads {live0:.2f} mV live, {offset:.2f} mV above its "
-                          f"{enforced0:.2f} mV ceiling before any raise - more than the "
-                          f"{float(margin_mv):g} mV margin, so a raise could not be checked "
-                          f"on this card. Headroom was NOT applied.")
-        grain = self.hold_headroom_grain_mv()
+            return None, (f"the rail read {offset:.2f} mV above its ceiling before any raise "
+                          f"- more than the {float(margin_mv):g} mV margin, so a raise could "
+                          f"not be checked on this card. Headroom was NOT applied.")
         base = row["_base_mv"]
         rec = [int(round(row[k] * 1000)) for k in self.VOLT_LIMIT_FIELDS]
         prior = {k: rec[self.VOLT_LIMIT_FIELDS.index(k)] for k in targets}
@@ -6338,8 +6363,9 @@ class GPU:
             else:
                 why_not = "the crash marker could not be written"
             if tracked is False:
-                return None, (f"{why_not}, so a crash could leave the raise untracked; "
-                              f"no headroom applied")
+                # an I/O failure of the moment: retried like a failed read
+                return self._headroom_unread(f"{why_not}, so a crash could leave the raise "
+                                             f"untracked; no headroom applied")
         # Recorded BEFORE the SET: an exception after the driver took it must
         # not lose the only record of the original limits. A write the driver
         # never saw drops the record again.
@@ -6350,17 +6376,26 @@ class GPU:
             # The SET may or may not have landed. A normal restore puts back
             # only fields that carry our value, and drops the record when none
             # do; if it cannot run, the record stays for release and exit.
+            # A forced restore writes every recorded prior back: a field that
+            # landed on some OTHER value was still moved by this raise, and
+            # when nothing landed it rewrites what is there, verified.
             try:
-                restored, msg = self.restore_hold_headroom()
+                restored, msg = self.restore_hold_headroom(force=True)
             except Exception as again:                           # noqa: BLE001
                 restored, msg = False, str(again)
             return False, (f"the headroom write raised ({exc}); "
                            + ("limits checked and restored" if restored
                               else "RESTORE FAILED, the raise is kept on record: " + msg))
-        if not ok:
+        if not ok and status is None:
+            # no SET was issued
             self._hold_headroom = None
             return False, (getattr(self, "_volt_rail_write_error", None)
                            or "the rails request was not seen - nothing was written")
+        if not ok:
+            # a SET was issued but not confirmed (a follow-up step failed)
+            restored, msg = self.restore_hold_headroom(force=True)
+            return False, ("the headroom write was issued but not confirmed; "
+                           + ("limits restored" if restored else "RESTORE FAILED: " + msg))
         expected = {r: [round(row2[k] * 1000) for k in self.VOLT_LIMIT_FIELDS]
                     for r, row2 in cur.items() if row2.get("_base_mv")}
         expected[rail] = rec
@@ -6381,7 +6416,7 @@ class GPU:
         after = (back or {}).get(rail) if isinstance(back, dict) else None
         if isinstance(after, dict) and after.get("_absolute_ok") is not False:
             try:
-                raised_mv = float(self._headroom_enforced_mv(after))
+                raised_mv = float(self._headroom_enforced_mv(after, grain))
             except (KeyError, TypeError, ValueError):
                 raised_mv = float("nan")
         record["raised_ceiling_mv"] = (raised_mv if math.isfinite(raised_mv)
@@ -6413,19 +6448,34 @@ class GPU:
                       f"{float(hold_mv):.2f} mV (+{float(margin_mv):g} mV headroom)"
                       + "".join(f"; {n}" for n in notes))
 
+    def _headroom_unread(self, message):
+        """A refusal because something could not be read THIS time: nothing
+        was written, and the caller retries (a transient, not a decision)."""
+        self._hold_headroom_unread = True
+        return None, message
+
     @classmethod
-    def _headroom_enforced_mv(cls, row):
+    def _headroom_enforced_mv(cls, row, grain=None):
         """The ceiling the card enforces as far as can be told: the HIGHER of
-        Druta's reconstruction and the card's own absolute effective limit.
-        Used only to judge a live reading; the refusal gate takes the lower
-        (hold_headroom_ceiling_mv), so each errs its own safe way."""
+        Druta's reconstruction and the card's own absolute effective limit, but
+        never more than one voltage grain above the reconstruction - the step
+        a card may round a request up by, not a figure the live check should
+        trust without bound. Used only to judge a live reading; the refusal
+        gate takes the lower (hold_headroom_ceiling_mv), so each errs its own
+        safe way."""
         estimate = cls.rail_ceiling_mv(row)
         try:
             effective = float(row.get("_effective_mv"))
         except (TypeError, ValueError):
             effective = float("nan")
         values = [v for v in (estimate, effective) if math.isfinite(v) and v > 0]
-        return max(values) if values else float("nan")
+        if not values:
+            return float("nan")
+        enforced = max(values)
+        if math.isfinite(estimate) and estimate > 0:
+            step = grain if grain and grain > 0 else cls.HOLD_HEADROOM_FALLBACK_GRAIN_MV
+            enforced = min(enforced, estimate + step)
+        return enforced
 
     def hold_headroom_bound_mv(self, record=None):
         """The voltage the live rail must stay at or below while `record` is

@@ -432,6 +432,81 @@ class ApplyRestoreTests(unittest.TestCase):
         gpu.restore_hold_headroom()
         self.assertEqual(held, [True, True])
 
+    def test_an_unsettled_reading_cannot_loosen_the_live_check(self):
+        gpu, rails, *_ = self.make()
+        rails.live = 1093.75                           # settled, at the ceiling: offset 0
+        self.assertTrue(gpu.apply_hold_headroom(1093.75, 25.0)[0])
+        rails.live = rails.live_after = 1112.5         # still up from the raise
+        self.assertTrue(gpu.apply_hold_headroom(1093.75, 25.0)[0])      # a re-plan
+        self.assertEqual(gpu.hold_headroom_record()["live_offset_mv"], 0.0)
+        gpu.restore_hold_headroom()
+        self.assertTrue(gpu.apply_hold_headroom(1093.75, 25.0)[0])      # a new raise
+        self.assertEqual(gpu.hold_headroom_record()["live_offset_mv"], 0.0)   # only lowered
+
+    def test_an_unsettled_low_reading_does_not_tighten_a_real_offset(self):
+        # a card whose live field reads 12.5 above a binding limit: a re-plan's
+        # reading right after the restore (lower, not settled) must not make
+        # the check trip on that card's normal reading
+        gpu, rails, *_ = self.make()
+        rails.live, rails.live_after = 1106.25, 1131.25
+        self.assertTrue(gpu.apply_hold_headroom(1093.75, 25.0)[0])
+        rails.live = rails.live_after = 1093.75
+        self.assertTrue(gpu.apply_hold_headroom(1093.75, 25.0)[0])      # a re-plan
+        self.assertEqual(gpu.hold_headroom_record()["live_offset_mv"], 12.5)
+        self.assertTrue(gpu.hold_headroom_live_ok(live_mv=1131.25)[0])
+
+    def test_an_off_value_landing_that_then_raises_is_forced_back(self):
+        gpu, rails, *_ = self.make()
+        write = rails.write
+
+        def lands_off_then_raises(records):
+            if not rails.writes:
+                rails.corrupt_next_write = True            # alt-reliability lands 6.25 off
+                write(records)
+                raise OSError("escape callback failed after the SET")
+            return write(records)
+        gpu._write_rail_records = lands_off_then_raises
+        self.assertFalse(gpu.apply_hold_headroom(1093.75, 25.0)[0])
+        self.assertEqual(rails.ceiling_terms(), (1068.75, 1093.75, 1125.0))
+        self.assertIsNone(gpu.hold_headroom_record())
+
+    def test_an_issued_but_unconfirmed_write_is_forced_back(self):
+        gpu, rails, *_ = self.make()
+        write = rails.write
+
+        def issued_not_confirmed(records):
+            write(records)
+            return (False, 0) if len(rails.writes) == 1 else (True, 0)
+        gpu._write_rail_records = issued_not_confirmed
+        ok, msg = gpu.apply_hold_headroom(1093.75, 25.0)
+        self.assertFalse(ok)
+        self.assertIn("issued but not confirmed; limits restored", msg)
+        self.assertEqual(rails.ceiling_terms(), (1068.75, 1093.75, 1125.0))
+
+    def test_an_effective_limit_far_above_the_estimate_is_not_trusted(self):
+        gpu, rails, *_ = self.make()
+        rails.live, rails.effective_after = 1093.75, 1200.0
+        self.assertTrue(gpu.apply_hold_headroom(1093.75, 25.0)[0])
+        self.assertEqual(gpu.hold_headroom_record()["raised_ceiling_mv"], 1118.75 + 6.25)
+        self.assertFalse(gpu.hold_headroom_live_ok(live_mv=1150.0)[0])
+
+    def test_the_grain_is_the_cards_usual_step_within_sane_bounds(self):
+        for volts, want in (((800, 806.25, 812.5, 812.501, 818.75, 825), 6.25),   # one odd point
+                            ((800, 825, 850, 875), 12.5),                         # coarse: bounded
+                            ((800, 805, 810, 815, 820), 5.0)):                    # this card's own
+            with self.subTest(volts=volts):
+                gpu = bare_gpu()
+                gpu.read_vf_curve = lambda v=volts: ([{"volt_mv": x} for x in v], None)
+                self.assertEqual(gpu.hold_headroom_grain_mv(), want)
+
+    def test_raising_a_term_the_raise_did_not_touch_does_not_re_plan(self):
+        gpu, rails, *_ = self.make()
+        self.assertTrue(gpu.apply_hold_headroom(1093.75, 25.0)[0])
+        rails.rows[0]["overvoltage"] = 1150.0 - 1125.0             # up: the plan still holds
+        self.assertFalse(gpu.hold_headroom_overwritten())
+        rails.rows[0]["overvoltage"] = 1100.0 - 1125.0             # down: plan again
+        self.assertTrue(gpu.hold_headroom_overwritten())
+
     def test_live_voltage_at_the_hold_is_fine_and_missing_live_is_not_a_rise(self):
         gpu, rails, *_ = self.make()
         rails.live = 1093.75
@@ -1620,6 +1695,22 @@ class SecondReviewAppTests(AppTestCase):
         self.ticks(4)
         self.assertEqual(self.limits(), (1093.75, 1118.75, 1125.0))
 
+    def test_a_read_that_fails_inside_the_apply_is_retried_too(self):
+        read, calls = self.rails.read, []
+
+        def absolute_state_missing_once():
+            rows = read()
+            calls.append(1)
+            if len(calls) == 1:
+                rows[0]["_absolute_ok"] = False
+            return rows
+        self.gpu.read_volt_rail_limits = absolute_state_missing_once
+        self.hold(1093.75)
+        self.assertEqual(self.app._headroom_note[0], "unread")
+        self.assertEqual(self.rails.writes, [])
+        self.ticks(2)
+        self.assertEqual(self.limits(), (1093.75, 1118.75, 1125.0))
+
     def test_those_retries_are_bounded(self):
         self.gpu.hold_headroom_rail_unavailable = lambda rail=0: ("transient", "status -1")
         self.hold(1093.75)
@@ -1631,7 +1722,10 @@ class SecondReviewAppTests(AppTestCase):
         with patch("druta.vfheadroom.mark_active", return_value=(False, "disk full")):
             self.hold(1093.75)
         self.assertEqual(self.rails.writes, [])
-        self.assertEqual(self.app._headroom_note[0], "withheld")
+        self.assertEqual(self.app._headroom_note[0], "unread")          # an I/O failure: retried
+        self.ticks()
+        self.assertEqual(self.limits(), (1093.75, 1118.75, 1125.0))
+        self.assertIsNotNone(vfheadroom.active_record(self.UUID))
 
     def test_a_stale_marker_is_rewritten_on_the_tick(self):
         self.hold(1093.75)
@@ -1664,6 +1758,81 @@ class SecondReviewAppTests(AppTestCase):
         for _ in range(nxt.HEADROOM_LOCK_CHECK_TICKS):
             nxt.watch_hold_headroom({})
         self.assertFalse(self.path().exists())
+
+    def test_a_hold_withheld_for_an_unjudged_marker_is_raised_once_it_is_judged(self):
+        self.hold(1093.75)
+        self.set_owner(DEAD)
+        self.rails.rows[0] = stock_row("turing")            # the old raise is gone already
+        other = make_app(self.gpu)
+        self.gpu._hold_headroom = None
+        other.set_lock_state(vf_state(other, 1093.75))
+        self.assertEqual(other._headroom_note[0], "withheld")
+        for _ in range(other.HEADROOM_LOCK_CHECK_TICKS):
+            other.watch_hold_headroom({})
+        self.assertFalse(self.path().exists() and vfheadroom.active_record(self.UUID)["owner"] == DEAD)
+        self.assertEqual(self.limits(), (1093.75, 1118.75, 1125.0))
+        self.assertIsNone(other._headroom_note)
+
+    def test_still_raised_is_retried_while_the_hold_stays(self):
+        self.hold(1093.75)
+        self.gpu.read_vf_lock_status = lambda domain=None: ({"volt_uV": 1093750}, None)
+        real, calls = self.gpu.restore_hold_headroom, []
+
+        def fails_twice(force=False):
+            calls.append(1)
+            return (False, "interrupted") if len(calls) <= 2 else real(force)
+        self.gpu.restore_hold_headroom = fails_twice
+        self.app.headroom_mv = 50.0
+        self.app.sync_hold_headroom()
+        self.assertEqual(self.app._headroom_note[0], "raised")
+        self.ticks(2)
+        self.assertIsNone(self.app._headroom_note)
+        self.assertEqual(self.limits(), (1118.75, 1143.75, 1143.75))    # the new margin
+                                                                        # (reliability + 25 boost)
+
+    def test_a_pending_recovery_keeps_its_record_after_a_failed_release(self):
+        lock = dict(vf_state(self.app, 1093.75), verified=False, recovery=True)
+        self.app._clk_lock = lock
+        self.app.vf_recovery_pending = lambda: True
+        self.gpu.read_vf_lock_status = lambda domain=None: ({"volt_uV": 1150000}, None)
+        self.app.reconfirm_hold_after_failed_release()
+        self.assertTrue(self.app._clk_lock["recovery"])
+        self.assertEqual(self.rails.writes, [])
+
+    def test_a_restore_that_half_landed_is_not_re_planned_by_its_own_refresh(self):
+        self.hold(1093.75)
+        applies = []
+        apply = self.gpu.apply_hold_headroom
+        self.gpu.apply_hold_headroom = lambda *a, **k: applies.append(a) or apply(*a, **k)
+        self.rails.rows[0]["alt_reliability"] = 1100.0 - 1093.75       # one field landed
+        self.gpu.restore_hold_headroom = lambda force=False: (False, "verify failed")
+        self.app.refresh_volt_limits = type(self.app).refresh_volt_limits.__get__(self.app)
+        with patch("druta.druta.dpg.does_item_exist", side_effect=lambda tag: tag == "vlim_txt0"), \
+                patch.object(type(self.app), "rail_limit_diagnostics", return_value={}, create=True), \
+                patch.object(type(self.app), "rail_limit_support", return_value={}, create=True), \
+                patch.object(type(self.app), "update_rail_limit_diagnostic_ui", create=True), \
+                patch.object(type(self.app), "volt_limits_cells", return_value=None, create=True):
+            self.gpu.read_volt_rail_state = lambda: None
+            ok, _msg = self.app.restore_headroom()
+        self.assertFalse(ok)
+        self.assertEqual(applies, [])
+
+    def test_a_parked_startup_profile_runs_once_there_is_nothing_to_judge(self):
+        for state in ("missing", "unreadable", "alive"):
+            with self.subTest(state=state):
+                self.app._held_startup_request = {"name": "p", "profile": {}}
+                self.app.begin_profile_load = Mock()
+                if state == "missing":
+                    marker = ("missing", None)
+                elif state == "unreadable":
+                    marker = ("unreadable", None)
+                else:
+                    marker = ("ok", {"rail": 0, "written_uv": {"alt_reliability": 1},
+                                     "prior_uv": {"alt_reliability": 0}, "owner": DEAD})
+                with patch("druta.vfheadroom.marker_state", return_value=marker), \
+                        patch("druta.vfheadroom.owner_state", return_value="alive"):
+                    self.app.check_stale_headroom()
+                self.app.begin_profile_load.assert_called_once_with("p", {}, automatic=True)
 
     def test_a_second_window_does_not_take_a_live_raise_as_the_cards_start(self):
         self.hold(1093.75)                                             # window A raises

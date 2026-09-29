@@ -4357,6 +4357,11 @@ class Druta:
         if lock.get("kind") != self.LOCK_VF or lock.get("req_mv") is None:
             self.sync_hold_headroom(replan=True)
             return
+        if lock.get("recovery") or self.vf_recovery_pending():
+            # the record is what names the pending recovery on screen and routes
+            # Release to it: kept, unconfirmed, with no raise
+            self.set_lock_state(dict(lock, verified=False))
+            return
         try:
             st, err = self.gpu.read_vf_lock_status(domain=lock.get("domain"))
         except Exception as exc:                                  # noqa: BLE001
@@ -4367,8 +4372,13 @@ class Druta:
                      "succeeds", False)
             self.set_lock_state(dict(lock, verified=False))
             return
-        if st is None or st.get("volt_uV") != int(round(float(lock["req_mv"]) * 1000)):
+        if st is None:
             self.log("the V/F lock reads back as released after all", True)
+            self.set_lock_state(None)
+            return
+        if st.get("volt_uV") != int(round(float(lock["req_mv"]) * 1000)):
+            self.log("the V/F lock this window took is no longer in force - another "
+                     "request is (another tool may have replaced it)", False)
             self.set_lock_state(None)
             return
         self.sync_hold_headroom(replan=True)
@@ -4512,7 +4522,16 @@ class Druta:
         except Exception as exc:                                  # noqa: BLE001
             ok, msg = False, f"the restore raised: {exc}"
         if refresh and dpg.does_item_exist("vlim_txt0"):
-            self.refresh_volt_limits()
+            # The readout only. A restore that half-landed must not be taken
+            # for a user's write and re-planned by the reconcile in there: the
+            # caller may be about to release the lock. A failed restore keeps
+            # its record, and whoever asked retries it.
+            reconciling = getattr(self, "_headroom_reconciling", False)
+            self._headroom_reconciling = True
+            try:
+                self.refresh_volt_limits()
+            finally:
+                self._headroom_reconciling = reconciling
         self.mirror_headroom_marker()
         return ok, msg
 
@@ -4584,6 +4603,8 @@ class Druta:
             return
         if not (confirmed and on):
             self._headroom_note = None
+            self._headroom_blocked = False
+            self.clear_once("headroom_blocked")
             if not is_vf:
                 self._headroom_tripped = None                   # the hold ended
             if record:
@@ -4605,13 +4626,19 @@ class Druta:
             return
         self.clear_once("headroom_arch")
         blocked = self.headroom_blocker()
+        # the watch re-plans this hold once the blocker clears on its own (a
+        # marker judged, another window's hold ended)
+        self._headroom_blocked = bool(blocked)
         if blocked:
             if record:
                 self.drop_raise_for(blocked)
             if not self.headroom_still_raised():
                 self._headroom_note = ("withheld", blocked)
-            self.log(f"headroom: WARNING - {blocked}", None)
+            if self._once.get("headroom_blocked") != blocked:
+                self._once["headroom_blocked"] = blocked
+                self.log(f"headroom: WARNING - {blocked}", None)
             return
+        self.clear_once("headroom_blocked")
         key = self.headroom_hold_key(state)
         tripped = getattr(self, "_headroom_tripped", None)
         if tripped is not None and tripped != key:
@@ -4668,10 +4695,17 @@ class Druta:
         if getattr(gpu, "_hold_headroom_live_trip", False):
             gpu._hold_headroom_live_trip = False
             self._headroom_tripped = key
+        unread = bool(getattr(gpu, "_hold_headroom_unread", False))
         if ok is not True and isinstance(gpu.hold_headroom_record(), dict):
-            # a write whose rollback failed: the limits are still raised
+            # a write whose rollback failed: the limits are still raised, and
+            # the watch retries every second
             self._headroom_note = ("raised", msg)
-            self.log(f"headroom: {msg}", False)
+            self.log_once("headroom_raised", f"headroom: {msg}")
+        elif ok is None and unread:
+            # something could not be read this time: retried, not a decision
+            self._headroom_note = ("unread", msg)
+            self.note_unread_for_retry()
+            self.log(f"headroom: not applied - {msg}; Druta tries again", False)
         elif ok is None:
             self._headroom_note = ("withheld", msg)
             self.log(f"headroom: WARNING - {msg}", None)
@@ -4680,6 +4714,7 @@ class Druta:
             self.log(f"headroom: {msg}", False)
         else:
             self._headroom_note = None
+            self.clear_once("headroom_raised")
             # same clock as the poll thread's _snap_t: the watch judges only
             # snapshots taken after this raise
             self._headroom_applied_t = time.monotonic()
@@ -4709,9 +4744,11 @@ class Druta:
         watch retries at its back-off cadence."""
         ok, msg = self.restore_headroom()
         if ok:
+            self.clear_once("headroom_drop")
             return True
         self._headroom_note = ("raised", f"{why}, but the raise could not be taken off: {msg}")
-        self.log(f"headroom: {why}; the raise could not be taken off ({msg}) - retrying", False)
+        self.log_once("headroom_drop", f"headroom: {why}; the raise could not be taken off "
+                                       f"({msg}) - retrying every second")
         return False
 
     # A transient read failure at hold time is retried this many times at the
@@ -4868,16 +4905,11 @@ class Druta:
                     self.check_stale_headroom()
                 if uuid and uuid in self._stale_judged():
                     self.clear_stale_marker(uuid)       # a judged marker's delete failed
-                note = getattr(self, "_headroom_note", None)
-                if (note and note[0] == "unread"
-                        and getattr(self, "_headroom_unread_left", 0) > 0):
-                    # a read that failed at hold time: bounded retries
-                    self._headroom_unread_left -= 1
-                    self._headroom_retrying = True
-                    try:
-                        self.sync_hold_headroom()
-                    finally:
-                        self._headroom_retrying = False
+                if getattr(self, "_headroom_blocked", False) and self.headroom_blocker() is None:
+                    self._headroom_blocked = False      # the reason cleared on its own
+                    self.sync_hold_headroom()
+                    return
+                self.retry_unread_headroom()
             return
         if slow and uuid and not self.headroom_marker_current(uuid, record):
             self.mirror_headroom_marker()               # a marker write failed earlier
@@ -4915,6 +4947,27 @@ class Druta:
             if self.watch_restore("the V/F lock this window took is no longer in force "
                                   "(another tool may have replaced it)"):
                 self.set_lock_state(None)
+            return
+        # the lock is still ours: finish what the last sync could not
+        note = getattr(self, "_headroom_note", None)
+        if note and note[0] == "raised":
+            self._headroom_retry_at = self._headroom_tick + self.HEADROOM_LOCK_CHECK_TICKS
+            self.sync_hold_headroom(replan=True)
+        else:
+            self.retry_unread_headroom(replan=True)
+
+    def retry_unread_headroom(self, replan=False):
+        """A read that failed at hold time: a bounded number of retries, once
+        a second (the counter is armed by note_unread_for_retry)."""
+        note = getattr(self, "_headroom_note", None)
+        if not (note and note[0] == "unread" and getattr(self, "_headroom_unread_left", 0) > 0):
+            return
+        self._headroom_unread_left -= 1
+        self._headroom_retrying = True
+        try:
+            self.sync_hold_headroom(replan=replan)
+        finally:
+            self._headroom_retrying = False
 
     def watch_restore(self, why, note=True):
         """Take the raise off for the watch; on failure, log once and back off
@@ -5089,11 +5142,17 @@ class Druta:
                          "session cannot be checked for", None)
             return
         state, record = vfheadroom.marker_state(uuid)
+        # A startup profile parked while a marker was unjudged runs as soon as
+        # there is nothing left to judge: no marker, one that can never be
+        # judged (unreadable: kept as evidence, and it withholds headroom
+        # here, but it is no reason to skip the profile), or a live window's.
         if state == "missing":
+            self.resume_startup_profile()
             return
         if state == "unreadable":
             self.log("headroom: a headroom marker for this card exists but cannot be read; "
                      "it was left in place", False)
+            self.resume_startup_profile()
             return
         owner = vfheadroom.owner_state(record.get("owner"))
         if owner == "self":
@@ -5103,6 +5162,7 @@ class Druta:
             # Not a crash: no dialog, no clearing. This session's first read
             # took that raise as the card's starting values; that is undone.
             self.note_foreign_headroom(record)
+            self.resume_startup_profile()
             return
         try:
             limits = self.gpu.read_volt_rail_limits()
