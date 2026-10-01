@@ -623,7 +623,8 @@ class ApplyRestoreTests(unittest.TestCase):
 
     def test_architecture_is_three_way(self):
         gpu = bare_gpu()
-        for arch, want in ((GPU.ARCH_TURING, True), (GPU.ARCH_PASCAL, True), (10, True),
+        for arch, want in ((GPU.ARCH_TURING, True), (GPU.ARCH_PASCAL, True),
+                           (GPU.ARCH_AMPERE, True), (10, True),
                            (8, False), (GPU.ARCH_MAXWELL, False), (None, None)):
             with self.subTest(arch=arch):
                 gpu.arch = lambda a=arch: a
@@ -1957,6 +1958,45 @@ class ReleaseReviewAppTests(AppTestCase):
                 patch("druta.druta.dpg.is_item_active", return_value=False), \
                 patch("druta.druta.dpg.is_item_focused", side_effect=lambda tag: tag == "hr_mv"):
             self.assertTrue(self.app.typing())
+
+
+class AmpereHeadroomTests(unittest.TestCase):
+    """Ampere gets headroom because #30 gave it rail control: through the
+    rail getters of a card whose first read matches one RTX 3070 Ti
+    (reliability 1081.25, alt-reliability and overvoltage 1100, boost 0),
+    with the MSVDD mask rejected as there. Those values are that card's,
+    not Ampere's: this pins the path, not the numbers."""
+
+    def gpu(self):
+        from tests.test_volt_rails import fake_gpu
+        gpu = fake_gpu("turing", architecture=GPU.ARCH_AMPERE,
+                       name="NVIDIA GeForce RTX 3070 Ti", devid=0x2482)
+        gpu.nvapi.bases = (1081250, 1100000, 1100000, 662500)
+        gpu.nvapi.sync_live()
+        gpu.read_voltage_boost = Mock(return_value=0)
+        gpu._lock = threading.RLock()
+        return gpu
+
+    def terms(self, gpu):
+        row = gpu.read_volt_rail_limits()[0]
+        return tuple(GPU.abs_limit_mv(row, k) for k in ("reliability", "alt_reliability", "overvoltage"))
+
+    def test_a_hold_on_the_ceiling_is_raised_checked_and_restored(self):
+        gpu = self.gpu()
+        self.assertTrue(gpu.hold_headroom_architecture())
+        self.assertIsNone(gpu.hold_headroom_rail_unavailable(0))
+        self.assertEqual(self.terms(gpu), (1081.25, 1100.0, 1100.0))
+        ok, message = gpu.apply_hold_headroom(1081.25, 25.0)
+        self.assertTrue(ok, message)
+        self.assertEqual(self.terms(gpu), (1106.25, 1106.25, 1106.25))
+        record = gpu.hold_headroom_record()
+        self.assertEqual(record["raised_ceiling_mv"], 1106.25)
+        allowance = gpu.hold_headroom_allowance_mv(record)
+        self.assertTrue(gpu.hold_headroom_live_ok(record, live_mv=1106.25)[0])   # as that card read
+        self.assertFalse(gpu.hold_headroom_live_ok(record, live_mv=1106.25 + allowance + 1.0)[0])
+        self.assertTrue(gpu.restore_hold_headroom()[0])
+        self.assertEqual(self.terms(gpu), (1081.25, 1100.0, 1100.0))
+        self.assertEqual(gpu.nvapi.control[0], [0, 0, 0, 0])
 
 
 class MarkerFileTests(unittest.TestCase):
