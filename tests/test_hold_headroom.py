@@ -1905,6 +1905,35 @@ class ReleaseReviewAppTests(AppTestCase):
         self.ticks(1)
         self.assertEqual(self.limits(), (1068.75, 1093.75, 1125.0))
 
+    def test_read_only_still_retries_a_restore_that_failed(self):
+        # the live rail trips the check while controls are locked, and the
+        # first restore is aborted; once writes work, the next lock check
+        # takes the raise off without waiting for Unlock controls
+        self.gpu.read_vf_lock_status = lambda domain=None: (
+            {"volt_uV": 1093750, "domain": 6}, None)
+        self.hold(1093.75)
+        self.app.unlocked = lambda: False
+        good = self.gpu._write_rail_records
+        self.gpu._write_rail_records = lambda records: (False, 0)       # aborted
+        self.ticks(1, {"nvvdd_live_mv": 1140.0})
+        self.assertEqual(self.app._headroom_note[0], "raised")
+        self.assertEqual(self.limits(), (1093.75, 1118.75, 1125.0))
+        self.gpu._write_rail_records = good
+        self.ticks(3, {"nvvdd_live_mv": 1093.75})
+        self.assertEqual(self.limits(), (1068.75, 1093.75, 1125.0))
+        self.assertEqual(self.app._headroom_note[0], "withheld")
+
+    def test_a_raise_owed_while_read_only_says_it_waits_for_unlock(self):
+        self.gpu.hold_headroom_rail_unavailable = lambda rail=0: ("transient", "status -1")
+        self.hold(1093.75)
+        self.app.unlocked = lambda: False
+        shown = {}
+        with patch("druta.druta.dpg.does_item_exist", side_effect=lambda tag: tag == "hold_info"), \
+                patch("druta.druta.dpg.set_value", side_effect=shown.__setitem__), \
+                patch("druta.druta.dpg.configure_item"):
+            self.app.draw_hold_banner()
+        self.assertIn("tries again once controls are unlocked", shown["hold_info"])
+
     def test_a_second_windows_profiles_save_the_users_limits(self):
         self.hold(1093.75)                                     # window A raises
         gpu_b = bare_gpu()

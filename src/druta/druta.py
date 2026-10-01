@@ -5716,7 +5716,8 @@ class Druta:
                     "\nHEADROOM WITHHELD - the card may run below the clock shown; the "
                     "voltage limits were not raised (see log)" if kind == "withheld" else
                     "\nHEADROOM NOT APPLIED - the card may run below the clock shown; "
-                    "Druta could not read what it needs this time and tries again (see log)"
+                    "Druta could not read what it needs this time and tries again"
+                    + ("" if self.unlocked() else " once controls are unlocked") + " (see log)"
                     if kind == "unread" else
                     "\nHEADROOM NOT APPLIED - the card may run below the clock shown; "
                     "the limit write did not succeed (see log)")
@@ -5808,10 +5809,15 @@ class Druta:
                 self.set_lock_state(None)
             return
         # the lock is still ours: finish what the last sync could not - but not
-        # while Druta is read-only, which stops every write except a restore
-        if not self.unlocked():
-            return
+        # while Druta is read-only, which stops every write except a restore. A
+        # raise that was due to come off and did not is that restore: it is
+        # taken off rather than planned again.
         note = getattr(self, "_headroom_note", None)
+        if not self.unlocked():
+            if note and note[0] == "raised":
+                self.watch_restore("a raise that could not be taken off earlier is taken off "
+                                   "now; Druta is read-only, so it is not planned again")
+            return
         if note and note[0] == "raised":
             self._headroom_retry_at = self._headroom_tick + self.HEADROOM_LOCK_CHECK_TICKS
             self.sync_hold_headroom(replan=True)
