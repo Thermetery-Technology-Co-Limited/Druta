@@ -3,7 +3,7 @@ include druta.py src/run_druta.py Druta.spec build.ps1 requirements.txt pyprojec
 include AGENTS.md COPYING THIRD-PARTY-NOTICES.md README.md MANUAL.md
 include TECHNICALDOCUMENTATION.md DEBUG-SUMMARY-RTX5080.md
 include VOLTAGE-RAILS-TITAN.md VOLTAGE-RAILS-47212.md DRIVER-COMPATIBILITY.md
-include RELEASE-NOTES-1.3.0.md RELEASE-NOTES-1.5.0a.md RELEASE-NOTES-1.5.1.md RELEASE-NOTES-1.6.0.md
+include RELEASE-NOTES-1.3.0.md RELEASE-NOTES-1.5.0a.md RELEASE-NOTES-1.5.1.md RELEASE-NOTES-1.6.0.md RELEASE-NOTES-1.7.0.md
 include MAXWELL-PASCAL-VALIDATION.md
 include BLACKWELL-VALIDATION.md
 include .github/PULL_REQUEST_TEMPLATE/i2c_profile.md
@@ -38,3 +38,8 @@ include experiments/kepler-timing-writes-47212.json
 include experiments/kepler-timing-sweep-47212.json
 include experiments/kepler-ncp4206-identity-47212.json
 include experiments/kepler-ncp4206-control-47212.json
+include experiments/ampere-ga104-3070ti-20260928.md
+include experiments/hold-headroom-titan-rtx-61088-20260929.md
+include experiments/hold-headroom-rtx-3070ti-59597.md
+include experiments/measured-clock-sources-titan-rtx-61088-20260929.md
+include experiments/release-1.7.0-smoke-titan-rtx-61088.md

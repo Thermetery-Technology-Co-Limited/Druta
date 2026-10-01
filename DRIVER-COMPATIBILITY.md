@@ -50,7 +50,7 @@ these boards and drivers. Blackwell's existing 580.97 controls are separate;
 this comparison does not establish a 472.12 Blackwell path. The 580.97 baseline
 column describes the TITAN boards; GTX 770, GTX 745 and GTX 690 were tested only on 472.12.
 
-**Current-policy controls:** eligibility follows Pascal, Turing or Blackwell
+**Current-policy controls:** eligibility follows Pascal, Turing, Ampere or Blackwell
 architecture plus exact runtime descriptor/mask checks, never device ID,
 driver string or VBIOS. On driver **580.97**, the TITAN Xp and TITAN RTX
 core-current policies passed 5 A down/up/readback/restore checks and expose

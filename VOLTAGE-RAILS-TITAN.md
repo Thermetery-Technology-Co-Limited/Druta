@@ -118,7 +118,11 @@ reliability reference. Displayed absolute limits are estimates because driver
 status can be quantized; signed control deltas are preserved exactly. No board's
 measured bases are applied to another board by generation. Device ID, subsystem
 ID, driver string and VBIOS are not slider gates, and a missing second rail does
-not suppress the first. Rail-write opt-in is local to each selected GPU.
+not suppress the first. Rail-write opt-in is local to each selected GPU. The
+one rail-limit write that does not need it is the V/F hold headroom raise
+(Clocks > Keep headroom above a held point, on by default): only reliability,
+alt-reliability and overvoltage, upward, to exactly the held point + margin,
+for as long as the hold lasts.
 The user-selected rail request bounds are **1200 mV normally / 1500 mV
 with XOC**, including overvoltage. NVVDD offset permits **+200 / +500 mV**
 respectively. These are software request limits, not verified hardware maxima.

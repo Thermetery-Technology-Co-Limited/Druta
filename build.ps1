@@ -62,6 +62,7 @@ function Get-SourceSnapshot {
         'VOLTAGE-RAILS-TITAN.md', 'VOLTAGE-RAILS-47212.md', 'DRIVER-COMPATIBILITY.md',
         'RELEASE-NOTES-1.3.0.md', 'RELEASE-NOTES-1.5.0a.md', 'RELEASE-NOTES-1.5.1.md',
         'RELEASE-NOTES-1.6.0.md',
+        'RELEASE-NOTES-1.7.0.md',
         'MAXWELL-PASCAL-VALIDATION.md', 'BLACKWELL-VALIDATION.md',
         'CURRENT-LIMITS-RTX5080.md', 'COMPATIBILITY-GATING-AUDIT.md',
         'CURRENT-LIMITS-KEPLER-MAXWELL.md',
@@ -145,7 +146,12 @@ function Get-SourceSnapshot {
         'experiments/kepler-timing-writes-47212.json',
         'experiments/kepler-timing-sweep-47212.json',
         'experiments/kepler-ncp4206-identity-47212.json',
-        'experiments/kepler-ncp4206-control-47212.json'
+        'experiments/kepler-ncp4206-control-47212.json',
+        'experiments/ampere-ga104-3070ti-20260928.md',
+        'experiments/hold-headroom-titan-rtx-61088-20260929.md',
+        'experiments/hold-headroom-rtx-3070ti-59597.md',
+        'experiments/measured-clock-sources-titan-rtx-61088-20260929.md',
+        'experiments/release-1.7.0-smoke-titan-rtx-61088.md'
     )
     # Only the explicitly public measurement files above are included
     # from experiments/. Other research/session captures remain excluded.

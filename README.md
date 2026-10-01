@@ -1,6 +1,6 @@
 # Druta
 
-**Version 1.6.0** — [release notes](RELEASE-NOTES-1.6.0.md).
+**Version 1.7.0** — [release notes](RELEASE-NOTES-1.7.0.md).
 
 Package-refactor validation: [Maxwell/Pascal](MAXWELL-PASCAL-VALIDATION.md)
 and [RTX 5080 / Blackwell](BLACKWELL-VALIDATION.md), including controlled
@@ -99,7 +99,7 @@ python -m pip install -r requirements.txt
 ```
 
 The local build produces `dist\Druta\Druta.exe` and
-`dist\Druta-1.6.0-win64.zip`. Distribute the
+`dist\Druta-1.7.0-win64.zip`. Distribute the
 whole `Druta` folder or ZIP: the EXE needs its adjacent `_internal` folder.
 
 `dist\Druta\source\` contains the matching working-tree source, including
@@ -555,6 +555,9 @@ Had enough with boring sliders to the maximum? Click "max it". It does the V/F d
 If you undo here, it undoes the four changes but *not* the hold because the hold is a
 driver state, not a profile value, so `Undo last write` still leaves the card pinned. 
 
+While that hold lasts, Druta also raises the voltage limits to the held
+point plus 25 mV, so the point does not sit on the voltage ceiling (see
+"Voltage-limit headroom" below). The limits go back when the hold ends.
 
 Core and memory clock offsets, power limit, voltage boost, fan duty (with an
 Auto button that restores the curve), and the GPU clock lock. All writes sit
@@ -562,6 +565,46 @@ behind the **Unlock controls** checkbox — untick it to make the app read-only.
 
 Core offsets snap **down** onto the card's own grid before being sent, because
 they land in the same per-point V/F delta table the curve editor uses.
+
+## Voltage-limit headroom for V/F holds
+
+A V/F point held on the effective voltage ceiling runs below the clock it
+shows, and GPU-Z and Druta's header both show the programmed clock, so nobody
+sees it. One TITAN RTX lost 15-28 MHz depending on the held point, and one RTX
+3070 Ti lost one 15 MHz step. 25 mV of headroom removed the loss on both.
+
+**Clocks > Keep headroom above a held point (strongly recommended)** is on by
+default. While a hold (Ctrl+H or Max it) is in force, Druta raises
+reliability, alt-reliability and overvoltage to the held voltage + margin and
+puts them back when the hold ends.
+
+- 25 mV is a fixed safe margin for every card, not tuned per card or
+  generation. You can change it (6.25-100 mV).
+- This is the one rail-limit write that does not need the **Rail limits**
+  box: it only ever raises those three terms, to exactly the held point +
+  margin, for as long as the hold lasts. Untick Keep headroom to stop it.
+- The held point's voltage stays the same, but the rail may run up to the
+  margin higher. The TITAN RTX ran up to 18.75 mV higher; the 3070 Ti ran the
+  full 25 mV higher.
+- If the live rail reads above the raised ceiling, the raise comes off. It
+  also comes off if another tool replaces the V/F lock.
+- If Druta dies during a raise, the next session says so and offers a GPU
+  device restart (PnP).
+
+## Power policies
+
+The Control tab's **Power policies** section lists every policy in the
+driver's power-policy table as a slider, bounded by the card's own range.
+
+- On the two cards measured, every board-limit write made the driver recompute
+  several of them from the board limit. A value you set here is applied
+  again after every board-limit write Druta makes, and marked `*` while the
+  card holds it.
+- **Stock** hands a policy back to the driver; **Max all** raises the board
+  limit and every writable policy to its maximum.
+- You can note each channel with its connector. Current rows on a noted cable
+  are coloured by the current per 12 V wire, and the PCIe slot as a whole.
+- Beware of your PSU's rating as you change power limit.
 
 ---
 
@@ -692,7 +735,11 @@ every V/F delta, as readable JSON in `profiles/`. New profiles also capture
 the **NVVDD/MSVDD limit fields as exact signed microvolt deltas**, estimated
 absolute values for display, the NVVDD voltage offset, experimental MSVDD
 requests, per-domain clock requests (including **Additional Memory Clock
-Offset**), the identified I2C regulator's controls and XOC mode. The profile
+Offset**), the identified I2C regulator's controls and XOC mode. Since 1.7.0
+they also save every writable power policy, the values you set by hand and
+your channel notes; on load each saved policy is matched against the live
+table by channel, record type and range, and a profile from before 1.7.0
+leaves this session's values set by hand alone. The profile
 list names these values, and loading reports each control's result. Each rail
 requires its own understood runtime interface. MSVDD requests retain their
 experimental XOC requirement; stored readback is not proof of physical VOUT.

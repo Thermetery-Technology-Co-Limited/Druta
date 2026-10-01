@@ -16,7 +16,9 @@ Druta is from Sanskrit *druta* meaning fast. In Hindu performing art, it can als
 
 **Profiles > Save profile** captures the applied curve, clocks, power, fan policy,
 confirmed per-rail limits and voltage offsets, the Additional Memory Clock
-Offset, and the identified I2C regulator's offset. The Load profile list shows
+Offset, the identified I2C regulator's offset, and (since 1.7.0) every
+writable power policy with the values set by hand and the channel notes. The
+Load profile list shows
 these settings. Loading also restores XOC mode and enables the rail controls
 needed by the tune; I2C verification runs under load in each new session.
 
@@ -64,6 +66,11 @@ This mode is actually the opposite of deflatten. It flattens everything after 80
 ## 3. (my favorite function) `Max it`: 
 
 Had enough with boring sliders to the maximum? Click "max it". It does the V/F deflatten, maxes out the voltage boost, power limit, fan, and holds at 1093mv all in one click. You click it once, and the rest is the actual part of overclocking: changing the frequency. 
+
+While the hold lasts, Druta also raises the voltage limits to the held point +
+25 mV (Clocks > Keep headroom above a held point, on by default), because a
+point held on the voltage ceiling runs below the clock it shows. 25 mV is a
+fixed safe margin for every card. The limits go back when the hold ends.
 
 Kepler and Maxwell cards with the legacy P0 API instead have a yellow
 **Lock P0 and max fan** button here. Availability is based on generation and API support, without device, subsystem,

@@ -867,6 +867,13 @@ at the start of a session:
 | 3 | voltage boost | 100% |
 | 4 | V/F curve | de-flatten, apply, then hold the cap point |
 
+With **Keep headroom above a held point** on (the default), the hold in step 4
+also raises reliability, alt-reliability and overvoltage to the held point plus
+25 mV for as long as it lasts, so the cap point does not sit on the voltage
+ceiling, where it would run below the clock it shows. That raise does not need
+the Rail limits box; it is written only upward, to exactly hold + margin, and
+restored when the hold ends (`GPU.apply_hold_headroom`).
+
 **Headroom first, clocks last.** Cooling before the power budget rises, budget
 before the extra voltage spends it, curve last because it is the only step
 asking for more clock. Reversed, each step spends headroom the next one is
@@ -898,9 +905,11 @@ Two things it does not do: the fans stay at **100% manual** until `Auto` or
 "max" means. The log names the cap it used.
 
 
-On Pascal, Turing and Blackwell, the Control tab exposes current policies only
-after the generation descriptor agrees with the live masks, record types,
-channels and mA unit. Pascal/Turing expose the validated core current; Blackwell
+On Pascal, Turing, Ampere and Blackwell, the Control tab exposes current
+policies only after the generation descriptor agrees with the live masks,
+record types, channels and mA unit. Pascal, Turing and Ampere expose the
+validated core current (on Ampere, the info, status and control buffer sizes
+are chosen by which info GET the adapter accepts); Blackwell
 also exposes its other rail. Blackwell normal caps are 500 A / 200 A and XOC
 follows the API maxima. Limits participate in profiles and Reset all. See
 [current-limit ABI and validation](CURRENT-LIMITS-RTX5080.md).
