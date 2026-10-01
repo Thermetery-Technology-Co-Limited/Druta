@@ -6,7 +6,7 @@ Package-refactor validation: [Maxwell/Pascal](MAXWELL-PASCAL-VALIDATION.md)
 and [RTX 5080 / Blackwell](BLACKWELL-VALIDATION.md), including controlled
 writes, readbacks, restoration and the limits of the tested coverage.
 
-A monitor and tuner for Kepler, Maxwell, Pascal, Turing and Blackwell NVIDIA cards,
+A monitor and tuner for Kepler, Maxwell, Pascal, Turing, Ampere and Blackwell NVIDIA cards,
 driven through NVAPI/NVML private interfaces. Available controls depend on the
 generation and the current adapter's runtime capabilities. It edits supported V/F curves
 with planners built around how the boost arbiter actually behaves, and reads and
@@ -47,10 +47,11 @@ above their default 1093.75 mV NVVDD cap. With the ceiling raised to 1125 mV
 and the V/F curve requesting it, both reported **1112.5 mV**. Druta now exposes
 NVVDD limit controls by GPU generation plus runtime layout validation; no
 non-I2C slider is gated by device ID or VBIOS. MSVDD remains unavailable on
-both tested TITANs. See [measurements and reproduction](VOLTAGE-RAILS-TITAN.md).
+both tested TITANs. Ampere uses the same recognized 1104-byte rail packet
+when the live getter echoes it. See [measurements and reproduction](VOLTAGE-RAILS-TITAN.md).
 
 **Current limits:** the Control tab exposes the runtime-validated core-current
-policy on Pascal, Turing and Blackwell. The tested TITAN Xp and TITAN RTX allow
+policy on Pascal, Turing, Ampere and Blackwell. The tested TITAN Xp and TITAN RTX allow
 **218 A** and **390 A** respectively. Blackwell also exposes its other-rail
 policy; normal mode caps those two controls at **500 A / 200 A**, while XOC
 permits the advertised API maximum (**5,001 A** on the tested Astral). Apply,

@@ -2,9 +2,9 @@
 
 Druta's Control tab discovers current limits from a generation descriptor plus
 the live driver ABI. Slider eligibility never depends on a PCI device ID,
-board name, driver string or VBIOS. Pascal and Turing expose the validated
-**Core current limit**; Blackwell additionally exposes **Other rail current
-limit**. Each present policy is validated independently, so a missing or invalid
+board name, driver string or VBIOS. Pascal, Turing and Ampere expose the
+validated **Core current limit**; Blackwell additionally exposes **Other rail
+current limit**. Each present policy is validated independently, so a missing or invalid
 second policy does not suppress a valid core slider. The occupancy mask is
 bounded by validated buffer capacity and its 32-bit field, rather than the
 18 policies observed on the development board. Unavailable policies retain
@@ -16,6 +16,7 @@ separate diagnostics; writes still select only one understood policy.
 | Turing core, policy 13 | 350.780 A | 390 A | 390 A |
 | Blackwell core, policy 13 | 300 A | 500 A | 5,001 A |
 | Blackwell other rail, policy 14 | 120 A | 200 A | 5,001 A |
+| Ampere core, policy 13 | 243 A on the tested 3070 Ti | API maximum, at most 500 A | API maximum |
 
 Values are displayed in amperes and passed to the driver in milliamps.
 **Apply** changes one rail limit; **Stock** restores that policy's reported
@@ -142,6 +143,15 @@ existing UI row from the live getter produced **Core current limit (A)** at
 350.780 A, with a 1–390 A range and no policy-14 slider on this Turing card.
 
 Evidence: [610.88 validation](experiments/current-limits-titan-61088-20260908.json).
+
+Driver 595.97 on the tested RTX 3070 Ti emits the same 54,420-byte power GET,
+but rejects the 20,000-byte info GET with RM `0x1F`. nvapi64 pairs that
+transport with an 8,632-byte info GET, a 190,272-byte status GET and a
+6,356-byte control GET. Info records keep the 0x58/0xE4 layout. Policy 13 is
+type `0x0F`, channel 19, unit mA, default 243 A and API maximum 270 A on that
+board. A 270 A to 269 A to 270 A write restored the stored and effective
+limits. Other Ampere boards must echo this type; a different channel is
+relabeled rather than hidden. The 5,001 A policy 18 record is not exposed.
 On 472.12 this TITAN uses the older 0x208026xx commands, which at that validation remained outside
 these two current-control layouts.
 

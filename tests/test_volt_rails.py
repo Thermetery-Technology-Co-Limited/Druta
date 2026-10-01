@@ -325,6 +325,15 @@ class RailProfileTests(unittest.TestCase):
         self.assertEqual(absolute, {0: dict(zip(
             GPU.VOLT_LIMIT_FIELDS, [1068.75, 1093.75, 1200.0, 650.0]))})
 
+    def test_ampere_uses_the_recognized_rail_protocol(self):
+        gpu = fake_gpu("turing", architecture=GPU.ARCH_AMPERE)
+        self.assertIn(0, gpu.read_volt_rail_limits())
+        self.assertTrue(gpu.volt_rail_limits_supported(0))
+        self.assertFalse(gpu.volt_rail_limits_supported(1))
+        self.assertEqual(gpu.volt_rail_limit_fields(0), GPU.VOLT_LIMIT_FIELDS)
+        gpu.volt_limits_write_enabled = True
+        self.assertTrue(gpu.set_volt_rail_limits(0, reliability=1000)[0])
+
     def test_unknown_generation_does_not_borrow_blackwell_conversions(self):
         gpu = fake_gpu(architecture=8)
         fields = gpu.read_volt_rail_limits()[0]

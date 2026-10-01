@@ -549,7 +549,9 @@ def classify_domain_names(rows, core_mhz=None, mem_nvml=None,
     populated = {r["domain"]: r for r in rows
                  if r.get("kind") == PRIV_FREQ and r.get("prog_mhz")}
     legacy = architecture in (2, 3, 4)
-    modern = architecture == 6 or blackwell or architecture == 10
+    # Ampere keeps GPC at domain 0 and reported memory at domain 4, the same
+    # slots Turing uses. Its other names are not the Turing table.
+    modern = architecture in (6, 7) or blackwell or architecture == 10
     gpc_dom, gpc_scale, mem_dom = None, 1, None
     if legacy or modern:
         slot, gpc_scale = (15, 2) if legacy else (0, 1)
@@ -648,6 +650,19 @@ def classify_domain_names(rows, core_mhz=None, mem_nvml=None,
         31: ("PCIe link gen", PRIV_LIKELY),
     }
 
+    # GPU-Z 2.71 on the RTX 3070 Ti, driver 595.97, beside Druta's programmed
+    # clocks: Crossbar 1899.1 against domain 1 at 1905, SYS 1701.4 against
+    # domain 2 at 1695, Video 1772.1 against domain 21 at 1770. Domain 5 was
+    # 1350 and has no GPU-Z row. It is the control-9 target, the same role as
+    # Turing LTC, so the name is LTC and the likely grade renders the question
+    # mark. Control 1, 3 and 5 had already been seen to move domains 1, 2 and 21.
+    AMPERE_NAMES = {
+        1: ("Crossbar", PRIV_CONFIRMED),
+        2: ("SYS", PRIV_CONFIRMED),
+        5: ("LTC", PRIV_LIKELY),
+        21: ("Video", PRIV_CONFIRMED),
+    }
+
     for r in rows:
         dom = r["domain"]
         r["scale"] = 1
@@ -670,6 +685,8 @@ def classify_domain_names(rows, core_mhz=None, mem_nvml=None,
         elif pascal_like and dom in PASCAL_NAMES:
             r["name"], r["grade"] = PASCAL_NAMES[dom]
             r["scale"] = 2
+        elif architecture == 7 and dom in AMPERE_NAMES:
+            r["name"], r["grade"] = AMPERE_NAMES[dom]
         elif blackwell:
             r["name"], r["grade"] = BLACKWELL_NAMES.get(
                 dom, ("", PRIV_UNNAMED))
@@ -1047,6 +1064,26 @@ CLKDOM_BLACKWELL_CONTROL_POLARITY = {1: 1, 3: 1, 4: 1}
 # GPC and memory paths on a different driver branch.
 CLKDOM_BLACKWELL_SAFE_SCAN_CONTROLS = (1, 3, 4, 5, 6, 7, 8, 9)
 CLKDOM_BLACKWELL_RISKY_SCAN_CONTROLS = (0, 2)
+
+# Ampere uses the Turing control-block geometry. On one GA104 (RTX 3070 Ti,
+# driver 595.97), with the core locked at 1500 MHz:
+#   +0x10C on control 1 stored +15 MHz and raised programmed domains 1, 2 and 21
+#   +0x10C on control 3 stored +15 MHz and raised only programmed domain 2
+#   +0x10C on control 5 stored +15 MHz and raised only programmed domain 21
+#   +0x114 was refused. +0x110 on control 0 stored +6.25 mV and moved both
+#   vcore and the live NVVDD reading by +6.25 mV.
+#   +0x10C on control 2 stored and, once memory was at its high clock under a
+#   copy load, moved private domain 4 and the NVML memory clock by the same
+#   amount. The idle 810 MHz memory clock did not move.
+#   +0x10C on control 9 stored. Positive requests left its target, domain 5,
+#   at a 1350 MHz ceiling. Negative requests lowered that target
+#   (–45 → –30, –90 → –75, –120 → –105 MHz) and restored it. –15 stored and
+#   did not move the target. GPU-Z does not name this row; it is shown as LTC?.
+# These identities are architectural evidence from that adapter, not a
+# device-id allowlist. Another Ampere board still has to echo this layout.
+CLKDOM_AMPERE_CONTROLS = {1: "Crossbar", 2: "Memory", 3: "SYS",
+                          5: "Video", 9: "LTC"}
+CLKDOM_PAIR_AMPERE = {1: 1, 2: 4, 3: 2, 5: 21, 9: 5}
 # Frequency-field candidates only.  The field probe deliberately excludes the
 # neighbouring voltage/rail dwords: discovering a frequency layout must never
 # require experimenting with NVVDD or MSVDD.
@@ -1213,6 +1250,10 @@ MEM_TYPES = {
     8:  ("GDDR5", 2),
     10: ("GDDR5X", 4),
     14: ("GDDR6", 4),
+    # NVAPI's published enumeration stops at GDDR5X = 10. Type 14 is GDDR6.
+    # Type 15 is what this GDDR6X 3070 Ti returns. GPU-Z reads 1187.7 MHz
+    # while NVML reports 9501, and 9501 / 1187.7 is 8.
+    15: ("GDDR6X", 8),
 }
 
 
@@ -1571,6 +1612,21 @@ def slot_from_argv(argv=None):
         if a in ("--gpu", "-d") and i + 1 < len(argv):
             return argv[i + 1]
     return ""
+
+
+# The RM status a policy GET returns when its parameter block is not the size
+# this driver's structure has: seen for a 20000-byte info GET on the GA104
+# (595.97) and for the 8632-byte one on the TU102 (610.88). It is a property of
+# the request's shape, so it does not go away on a retry.
+RM_CURRENT_POLICY_SIZE_REJECTED = 0x1F
+
+
+class CurrentLimitUnsupported(ValueError):
+    """This adapter's current-policy interface is not one Druta understands: a
+    power GET of unrecognized geometry, a policy GET whose size the driver
+    rejects, or a mask/record layout outside the measured ABI. That is a fixed
+    property of the adapter and driver, so no current-limit control can exist
+    for it - unlike a failed read, which a retry can recover."""
 
 
 class GPU:
@@ -2550,6 +2606,7 @@ class GPU:
     ARCH_MAXWELL = 3
     ARCH_PASCAL = 4
     ARCH_TURING = 6
+    ARCH_AMPERE = 7
     ARCH_NAMES = {1: "Fermi", 2: "Kepler", 3: "Maxwell", 4: "Pascal", 5: "Volta",
                   6: "Turing", 7: "Ampere", 8: "Ada", 9: "Hopper",
                   10: "Blackwell"}
@@ -2684,7 +2741,7 @@ class GPU:
     def _clkdom_candidate(self, architecture):
         if architecture == 10:
             return CLKDOM_LAYOUT_BLACKWELL
-        if architecture in (self.ARCH_PASCAL, self.ARCH_TURING):
+        if architecture in (self.ARCH_PASCAL, self.ARCH_TURING, self.ARCH_AMPERE):
             return CLKDOM_LAYOUT_TURING
         return None
 
@@ -2750,6 +2807,15 @@ class GPU:
         self._clkdom_capability_error = None
         return layout
 
+    def _clkdom_understood(self, architecture=None):
+        """Control indices whose frequency field has a measured effect."""
+        architecture = self.arch() if architecture is None else architecture
+        if architecture == self.ARCH_AMPERE:
+            return CLKDOM_AMPERE_CONTROLS
+        if architecture == 10:
+            return CLKDOM_BLACKWELL_CONTROLS
+        return CLKDOM_NAMES
+
     def clkdom_controls_for_ui(self, rows=None):
         """Understood controls accepted by this driver's validated layout.
 
@@ -2760,8 +2826,7 @@ class GPU:
         if self.clkdom_layout() is None:
             return []
         # Getter pairing is optional telemetry, not control authorization.
-        understood = (CLKDOM_BLACKWELL_CONTROLS if self.clkdom_is_blackwell()
-                      else CLKDOM_NAMES)
+        understood = self._clkdom_understood()
         accepted = set(self.clkdom_domains())
         return sorted(d for d in understood if d in accepted)
 
@@ -2772,7 +2837,9 @@ class GPU:
         return CLKDOM_BLACKWELL_CONTROL_POLARITY.get(int(control), 1)
 
     def clkdom_control_label(self, control):
-        """Human-readable Blackwell control name, with an honest fallback."""
+        """Human-readable control name, with an honest fallback."""
+        if self.arch() == self.ARCH_AMPERE:
+            return CLKDOM_AMPERE_CONTROLS.get(control, f"domain {control}")
         if self.clkdom_is_blackwell():
             return CLKDOM_BLACKWELL_CONTROLS.get(
                 control, f"control {control}")
@@ -3251,8 +3318,7 @@ class GPU:
         layout = getattr(self, "_clkdom_layout_cache", None)
         if layout in (None, False):
             return frozenset()
-        understood = (CLKDOM_BLACKWELL_CONTROLS if architecture == 10
-                      else CLKDOM_NAMES)
+        understood = self._clkdom_understood(architecture)
         return frozenset(set(getattr(self, "_clkdom_valid", ()) or ())
                          & set(understood))
 
@@ -3266,8 +3332,7 @@ class GPU:
             return True
         if getattr(self, "_clkdom_offset_read_pending", False):
             return True
-        understood = (CLKDOM_BLACKWELL_CONTROLS if architecture == 10
-                      else CLKDOM_NAMES)
+        understood = self._clkdom_understood(architecture)
         accepted = set(getattr(self, "_clkdom_valid", ()) or ())
         return bool(set(understood) - accepted)
 
@@ -3319,8 +3384,7 @@ class GPU:
 
         if architecture is not None and layout is not None and self.clkdom_ok() \
                 and layout.header + CLKDOM_SLOTS * layout.stride == layout.size:
-            understood = (CLKDOM_BLACKWELL_CONTROLS if architecture == 10
-                          else CLKDOM_NAMES)
+            understood = self._clkdom_understood(architecture)
             accepted = set(getattr(self, "_clkdom_valid", ()) or ())
             errors = dict(getattr(self, "_clkdom_probe_errors", {}) or {})
             valid_response = None
@@ -3459,8 +3523,15 @@ class GPU:
         core_mhz the naming runs BLIND: it cannot apply the unpopulated check,
         so it names a dead domain 0 'GPC' and reports every card as Turing.
         That is how an earlier build mislabelled a GP102."""
-        if self.arch() == 2:
+        if self.arch() == self.ARCH_KEPLER:
             return {}
+        # Ampere uses its own measured map rather than the populated-domain
+        # signature below: the five controls whose targets moved on the GA104
+        # probe (1->1, 2->4, 3->2, 5->21, 9->5). Control 1 also raised domains
+        # 2 and 21 there; the pair names only the domain it is labelled for.
+        if self.arch() == self.ARCH_AMPERE:
+            self._clkdom_pair = dict(CLKDOM_PAIR_AMPERE)
+            return self._clkdom_pair
         if getattr(self, "_clkdom_pair", None):
             return self._clkdom_pair
         if rows is None:
@@ -3867,16 +3938,27 @@ class GPU:
             return False, f"limit {mw/1000:g} W out of [{mn/1000:g}..{mx/1000:g}] W"
         if self.read_power_limit_mw() is None:
             return False, "configured power-limit readback is unavailable; no write issued"
+        ok, message, got = self._set_power_limit_nvml(mw)
+        if not ok:
+            return False, message
+        # the driver has just recomputed the limits it couples to the board
+        # limit; put back the ones the user set (see read_power_policies)
+        ok, note = self._reapply_power_policy_pins(board_mw=got)
+        return ok, message + (f"; {note}" if note else "")
+
+    def _set_power_limit_nvml(self, mw):
+        """The NVML write and its read-back alone: (ok, message, configured mW)."""
+        nv = self.nvml
         st = nv.dll.nvmlDeviceSetPowerManagementLimit(nv.dev, u32(mw))
-        if st == 0:
-            got = self.read_power_limit_mw()
-            if got is None:
-                return False, "power limit was sent, but configured-limit readback failed"
-            if got != mw:
-                return False, (f"power limit requested {mw/1000:g} W, but the driver "
-                               f"reports a configured limit of {got/1000:g} W")
-            return True, f"power limit configured to {got/1000:g} W"
-        return False, f"power limit failed: {nv.errstr(st)}"
+        if st != 0:
+            return False, f"power limit failed: {nv.errstr(st)}", None
+        got = self.read_power_limit_mw()
+        if got is None:
+            return False, "power limit was sent, but configured-limit readback failed", None
+        if got != mw:
+            return False, (f"power limit requested {mw/1000:g} W, but the driver "
+                           f"reports a configured limit of {got/1000:g} W"), got
+        return True, f"power limit configured to {got/1000:g} W", got
 
     def _supported_nvml_clocks(self, function, *selectors):
         """Read a complete variable-length NVML clock list, or return no list.
@@ -4379,6 +4461,14 @@ class GPU:
             13: {"label": "Core current", "type": 0x0B, "channel": 19,
                  "normal_maximum_ma": 500_000},
         },
+        # Type 0x0F / channel 19 were read from the GA104 info block, not
+        # copied from Turing. A different channel is relabeled; a different
+        # type stays unavailable. Policy 18 on that adapter is the 5001 A
+        # sentinel, not a second rail.
+        ARCH_AMPERE: {
+            13: {"label": "Core current", "type": 0x0F, "channel": 19,
+                 "normal_maximum_ma": 500_000},
+        },
         10: {
             13: {"label": "Core current", "type": 0x12, "channel": 13,
                  "normal_maximum_ma": 500_000},
@@ -4411,6 +4501,18 @@ class GPU:
             "control": (0x14, 0xC4),
         },
     }
+    # Same power-GET size as the 610.88 layout, but a different info GET.
+    # nvapi64 pairs 8632/190272/6356 with commands A618/A619/A61A, and the
+    # 20000-byte info GET is rejected (RM 0x1F) on the measured GA104.
+    # Record bases were checked against every occupied policy's info type.
+    _CURRENT_LIMIT_LAYOUT_FALLBACKS = {
+        (54420, 54352): ({
+            "sizes": {0x2080A618: 8632, 0x2080A619: 0x2E740,
+                      0x2080A61A: 0x18D4, 0x2080E61B: 0x18D4},
+            "info": (0x58, 0xE4), "status": (0x80, 0x168C),
+            "control": (0x14, 0xB8),
+        },),
+    }
 
     def _current_limit_generation_policies(self):
         return self.CURRENT_LIMIT_GENERATION_POLICIES.get(self.arch(), {})
@@ -4439,6 +4541,9 @@ class GPU:
         The hook never substitutes a command or parameters. Subsequent calls
         use the ordinary PCI-matched escape transport, without a hook.
         """
+        # What THIS attempt saw: a record left by an earlier attempt must not
+        # describe a capture that saw nothing (see _current_limit_transport_layouts).
+        self._current_limit_observed_transport = {}
         if not self._current_limit_profile_supported():
             return None
         a = self.nvapi
@@ -4517,27 +4622,95 @@ class GPU:
                                       ctypes.byref(previous))
             return found[0] if status == 0 and len(found) == 1 else None
 
-    def _current_limit_abi(self):
+    def _current_limit_transport_layouts(self):
+        """Capture the power GET once and return every layout that packet can be."""
         transport = getattr(self, "_current_limit_transport", None)
         if transport is None:
+            self._current_limit_layout_choice = None
             transport = self._capture_current_limit_transport()
             if transport is None:
-                observed = getattr(self, "_current_limit_observed_transport", {})
-                detail = (f"observed {observed['command']}, "
-                          f"{observed['packet_bytes']}/{observed['parameter_bytes']} bytes"
-                          if observed else "no recognized power GET captured")
-                raise ValueError("unsupported current-policy transport: " + detail)
+                observed = getattr(self, "_current_limit_observed_transport", {}) or {}
+                seen = (f"observed {observed.get('command')}, {observed.get('packet_bytes')}/"
+                        f"{observed.get('parameter_bytes')} bytes")
+                if observed and ((observed.get("packet_bytes"), observed.get("parameter_bytes"))
+                                 not in self._CURRENT_LIMIT_LAYOUTS):
+                    # a power GET WAS seen, and its geometry is not one Druta knows
+                    raise CurrentLimitUnsupported("unsupported current-policy transport: " + seen)
+                # nothing seen, or a known power GET whose getter then failed:
+                # a failed read, retried on the next one
+                raise ValueError("unsupported current-policy transport: "
+                                 + (seen + ", but the capture did not complete" if observed
+                                    else "no recognized power GET captured"))
         header, _ = transport
-        layout = (self._CURRENT_LIMIT_LAYOUTS.get((header[2], header[15]))
-                  if len(header) == 17 else None)
+        key = (header[2], header[15]) if len(header) == 17 else None
+        layout = self._CURRENT_LIMIT_LAYOUTS.get(key)
         if layout is None or header[14] != layout.get("transport_command", 0x2080A612):
             self._current_limit_transport = None
-            raise ValueError("unvalidated current-policy transport geometry")
+            self._current_limit_layout_choice = None
+            raise CurrentLimitUnsupported("unvalidated current-policy transport geometry")
         self._current_limit_transport = transport
-        return layout
+        return (layout, *self._CURRENT_LIMIT_LAYOUT_FALLBACKS.get(key, ()))
 
-    def _current_limit_rm(self, command, params=None, policy_mask=None):
-        """Only the four measured policy operations, on this live GPU client."""
+    def _current_limit_abi(self):
+        chosen = getattr(self, "_current_limit_layout_choice", None)
+        if chosen is not None and getattr(self, "_current_limit_transport", None) is not None:
+            return chosen
+        candidates = self._current_limit_transport_layouts()
+        if len(candidates) == 1:
+            self._current_limit_layout_choice = candidates[0]
+            return candidates[0]
+        rejected = []
+        for candidate in candidates:
+            try:
+                self._current_limit_probe_info(candidate)
+            except ValueError as exc:
+                if getattr(self, "_current_limit_transport", None) is None:
+                    raise
+                rejected.append((candidate["sizes"][0x2080A618], exc))
+                continue
+            self._current_limit_layout_choice = candidate
+            return candidate
+        # Every candidate is reported, not only the last one tried: after a
+        # one-off RM error on the right layout, the fallback's size rejection
+        # would otherwise hide the real code.
+        detail = "; ".join(f"{size}-byte info: {exc}" for size, exc in rejected)
+        if rejected and all(getattr(exc, "fixed", False) for _, exc in rejected):
+            raise CurrentLimitUnsupported("no known policy-info layout fits this driver (" + detail + ")")
+        raise ValueError(detail or "unvalidated current-policy transport geometry")
+
+    def _current_limit_probe_info(self, layout):
+        """Read-only info GET used to choose between same-sized transports."""
+        size = layout["sizes"][0x2080A618]
+        header, fields = self._current_limit_transport
+        packet = (u32 * (17 + size // 4))(*header, *([0] * (size // 4)))
+        packet[2], packet[14], packet[15], packet[16] = (
+            ctypes.sizeof(packet), 0x2080A618, size, 0)
+        status = self._legacy_clk_escape(packet, fields)
+        if status != 0:
+            self._current_limit_transport = None
+            self._current_limit_layout_choice = None
+            raise ValueError(f"policy request failed (NTSTATUS {status}, RM 0x{packet[16]:X})")
+        # .fixed marks a rejection that is a property of this layout on this
+        # driver (its size, or a mask it cannot hold), not of the moment
+        if packet[16] != 0:
+            exc = ValueError(f"policy info layout rejected (RM 0x{packet[16]:X})")
+            exc.fixed = packet[16] == RM_CURRENT_POLICY_SIZE_REJECTED
+            raise exc
+        info = list(packet[17:])
+        mask = info[1] if len(info) > 1 else None
+        capacity = self._current_limit_capacity(layout)
+        if type(mask) is not int or mask < 0 or mask & ~((1 << capacity) - 1):
+            exc = ValueError("current-policy mask does not fit this info layout")
+            exc.fixed = True
+            raise exc
+        return info
+
+    def _current_limit_rm(self, command, params=None, policy_mask=None, *, any_live_policy=False):
+        """Only the four measured policy operations, on this live GPU client.
+
+        A SET selects exactly one policy: one of the generation's named
+        current policies, or - for the full policy list (any_live_policy) -
+        one the driver's table listed on its last validated read."""
         if not self._current_limit_profile_supported():
             raise ValueError("current limits are not validated for this GPU generation")
         if command not in (0x2080A618, 0x2080A619, 0x2080A61A, 0x2080E61B):
@@ -4545,9 +4718,19 @@ class GPU:
         if command == 0x2080E61B:
             if params is None:
                 raise ValueError("current-policy writes require a getter buffer")
-            allowed_masks = {1 << policy for policy in self._current_limit_generation_policies()}
+            if any_live_policy:
+                live = getattr(self, "_power_policy_mask", 0) or 0
+                allowed_masks = {1 << policy for policy in range(32) if live >> policy & 1}
+            else:
+                allowed_masks = {1 << policy for policy in self._current_limit_generation_policies()}
             if len(params) < 5 or params[4] not in allowed_masks:
-                raise ValueError("current-policy write must select one generation-supported rail")
+                raise ValueError("current-policy write must select one policy the validated table lists"
+                                 if any_live_policy else
+                                 "current-policy write must select one generation-supported rail")
+        if params is not None and getattr(self, "_current_limit_layout_choice", None) is None:
+            candidates = self._current_limit_transport_layouts()
+            if not any(len(params) * 4 == candidate["sizes"].get(command) for candidate in candidates):
+                raise ValueError("unexpected current-policy buffer size")
         layout = self._current_limit_abi()
         size = layout["sizes"][command]
         wire_command = layout.get("commands", {}).get(command, command)
@@ -4573,22 +4756,53 @@ class GPU:
         if status != 0 or packet[16] != 0:
             if status != 0:
                 self._current_limit_transport = None
+                self._current_limit_layout_choice = None
+            elif (command != 0x2080E61B
+                  and packet[16] == RM_CURRENT_POLICY_SIZE_REJECTED):
+                # a GET refused for its size: this layout is not the
+                # driver's, which a retry will not change (a SET refusal is
+                # about the request, and stays an ordinary failure)
+                raise CurrentLimitUnsupported(
+                    f"policy GET 0x{command:08X} size {size} rejected (RM 0x{packet[16]:X})")
             raise ValueError(f"policy request failed (NTSTATUS {status}, "
                              f"RM 0x{packet[16]:X})")
         return list(packet[17:])
 
-    def _current_limit_state(self):
-        self._current_limit_unavailable = []
+    def _power_policy_table(self):
+        """(layout, info, control, status) from one validated read of the
+        driver's whole policy table - control and status are None when the
+        mask is empty. The generation-specific current rows and the full
+        policy list are both parsed from this, so both see the same checks."""
         layout = self._current_limit_abi()
         sizes = layout["sizes"]
         info = self._current_limit_rm(0x2080A618)
         if len(info) * 4 != sizes[0x2080A618]:
-            raise ValueError("current-policy info size differs from the measured ABI")
+            raise CurrentLimitUnsupported("current-policy info size differs from the measured ABI")
         mask = info[1]
-        specs = self._current_limit_generation_policies()
         capacity = self._current_limit_capacity(layout)
         if type(mask) is not int or mask < 0 or mask & ~((1 << capacity) - 1):
-            raise ValueError("current-policy mask exceeds the validated ABI capacity")
+            raise CurrentLimitUnsupported("current-policy mask exceeds the validated ABI capacity")
+        if not mask:
+            self._power_policy_mask = 0
+            self._last_policy_table = (layout, info, None, None)
+            return layout, info, None, None
+        control = self._current_limit_rm(0x2080A61A, policy_mask=mask)
+        dynamic = self._current_limit_rm(0x2080A619, policy_mask=mask)
+        if (len(control) * 4 != sizes[0x2080A61A]
+                or len(dynamic) * 4 != sizes[0x2080A619]
+                or dynamic[layout.get("status_mask_word", 1)] != mask
+                or control[:5] != [0, 0, 0, 255, mask]):
+            raise CurrentLimitUnsupported("current-policy layout or mask differs from the measured ABI")
+        # the mask a policy SET may select from (see _current_limit_rm)
+        self._power_policy_mask = mask
+        self._last_policy_table = (layout, info, control, dynamic)
+        return layout, info, control, dynamic
+
+    def _current_limit_state(self):
+        self._current_limit_unavailable = []
+        layout, info, control, dynamic = self._power_policy_table()
+        mask = info[1]
+        specs = self._current_limit_generation_policies()
         for policy, spec in specs.items():
             if not mask & (1 << policy):
                 self._current_limit_unavailable.append({
@@ -4596,13 +4810,6 @@ class GPU:
                     "error": "not exposed in the driver's policy mask"})
         if not mask:
             return [], None
-        control = self._current_limit_rm(0x2080A61A, policy_mask=mask)
-        dynamic = self._current_limit_rm(0x2080A619, policy_mask=mask)
-        if (len(control) * 4 != sizes[0x2080A61A]
-                or len(dynamic) * 4 != sizes[0x2080A619]
-                or dynamic[layout.get("status_mask_word", 1)] != mask
-                or control[:5] != [0, 0, 0, 255, mask]):
-            raise ValueError("current-policy layout or mask differs from the measured ABI")
         rows = []
         for policy, spec in specs.items():
             if not mask & (1 << policy):
@@ -4615,14 +4822,20 @@ class GPU:
             unit = info[meta + 1] >> 16 & 255
             minimum, default, maximum = info[meta + 2:meta + 5]
             normal_maximum = min(max(spec["normal_maximum_ma"], minimum), maximum)
-            if (type_id != spec["type"] or unit != 1
-                    or not 1 <= minimum <= default <= maximum
-                    or dynamic[state] & 255 != type_id
-                    or control[record] != type_id
-                    or not minimum <= control[record + 1] <= maximum
-                    or not minimum <= dynamic[state + 1] <= maximum):
+            # A record of another type or unit, or whose three blocks disagree
+            # about its type, is a policy this build does not understand: no
+            # control is offered for it. Values outside the record's own range
+            # on an understood record are a bad reading, not that.
+            understood = (type_id == spec["type"] and unit == 1
+                          and 1 <= minimum <= default <= maximum
+                          and dynamic[state] & 255 == type_id
+                          and control[record] == type_id)
+            in_range = (minimum <= control[record + 1] <= maximum
+                        and minimum <= dynamic[state + 1] <= maximum)
+            if not (understood and in_range):
                 self._current_limit_unavailable.append({
                     "policy": policy, "label": spec["label"], "present": True,
+                    "unsupported": not understood,
                     "error": f"policy {policy}: invalid current record "
                              f"(type=0x{type_id:X}, channel={channel}, unit={unit}, "
                              f"min/default/max={minimum}/{default}/{maximum})"})
@@ -4645,43 +4858,80 @@ class GPU:
         ``limit_ma`` is the independent effective policy limit, and
         ``maximum_ma`` is the API ceiling regardless of Druta's XOC setting.
         """
+        # _current_limit_error is every reason a policy is unavailable (shown
+        # in the UI and diagnostics). _current_limit_read_error is the part
+        # that is a failed READ - what profiles and Reset all must not hide.
+        # The rest is an interface this build does not understand, for which
+        # no control exists; it stops being "not understood" once a policy
+        # has been read on this adapter, and counts as a read failure again.
+        established = getattr(self, "_current_limit_established", set())
         if not self._current_limit_profile_supported():
             self._current_limit_error = "NVAPI unavailable or GPU generation unsupported"
+            self._current_limit_read_error = self._current_limit_error
             self._current_limit_last_rows = []
             self._current_limit_unavailable = []
             return []
         try:
             rows, _ = self._current_limit_state()
+            present = [item for item in self._current_limit_unavailable if item["present"]]
+            # a policy read earlier this session that the mask no longer lists
+            # has not stopped existing: that is a bad read too
+            vanished = [f"policy {item['policy']} was read earlier this session and is now "
+                        f"{item['error']}" for item in self._current_limit_unavailable
+                        if not item["present"] and item["policy"] in established]
             self._current_limit_error = "; ".join(
-                item["error"] for item in self._current_limit_unavailable
-                if item["present"])
+                [item["error"] for item in present] + vanished)
+            self._current_limit_read_error = "; ".join(
+                [item["error"] for item in present
+                 if not item.get("unsupported") or item["policy"] in established] + vanished)
+            self._current_limit_established = established | {row["policy"] for row in rows}
             self._current_limit_last_rows = rows
             return rows
+        except CurrentLimitUnsupported as exc:
+            self._current_limit_error = str(exc)
+            self._current_limit_read_error = str(exc) if established else ""
+            self._current_limit_last_rows = []
+            return []
         except Exception as exc:
             self._current_limit_error = str(exc)
+            self._current_limit_read_error = str(exc)
             self._current_limit_last_rows = []
             return []
 
     def current_limit_diagnostics(self):
         """Last GET outcome only; contains no client handles and performs no writes."""
+        choice = getattr(self, "_current_limit_layout_choice", None)
         return {
-            "build": "current-visibility-v2",
+            "build": "current-visibility-v3",
             "driver": getattr(self, "static", {}).get("driver"),
             "vbios": getattr(self, "static", {}).get("vbios"),
             "generation": self.arch(),
             "expected_policies": self._current_limit_generation_policies(),
             "transport": getattr(self, "_current_limit_observed_transport", {}),
+            # which same-sized layout the info probe chose, by its info size
+            "layout_info_bytes": (choice or {}).get("sizes", {}).get(0x2080A618),
             "error": getattr(self, "_current_limit_error", ""),
+            "read_error": getattr(self, "_current_limit_read_error", ""),
             "policies": getattr(self, "_current_limit_last_rows", []),
             "unavailable_policies": getattr(self, "_current_limit_unavailable", []),
         }
 
-    def set_current_limit_ma(self, policy, ma):
+    def set_current_limit_ma(self, policy, ma, *, pin=True):
         """Change one policy and verify stored AND effective limits.
 
         Preserve all other control bytes. If verification fails, replay only
         this policy's original record and report whether restoration verified.
+        pin records the value as one the user set, so it is re-applied after
+        a board-limit write recomputes it (see _reapply_power_policy_pins);
+        profile restores and Reset all pass pin=False.
         """
+        ok, message = self._set_current_limit_ma(policy, ma)
+        if ok and pin:
+            self._power_policy_pins = {**(getattr(self, "_power_policy_pins", None) or {}),
+                                       policy: ma}
+        return ok, message
+
+    def _set_current_limit_ma(self, policy, ma):
         def amps(value_ma):
             return format(value_ma / 1000, ".3f").rstrip("0").rstrip(".")
 
@@ -4744,6 +4994,334 @@ class GPU:
             except Exception as restore_error:
                 note = f"restoration could not be verified: {restore_error}"
             return False, f"{exc}; {note}"
+
+    # ---- every policy in the driver's table ------------------------------ #
+    # The table holds more limits than the generation-specific current policies
+    # above: the board limit, per-input power and current limits, and others.
+    # Every record starts with the same header - type, channel, unit (0 mW,
+    # 1 mA), minimum, rated default, maximum - and takes the same control SET.
+    # Measured on one TITAN RTX (TU102, 610.88), idle: each policy with a real
+    # range stored a written limit exactly, reported it as effective (the board
+    # limit adds 3.125%; policy 0 kept an effective 20 W whatever was asked)
+    # and restored exactly. The driver RECOMPUTES the slot, 8-pin and core
+    # current limits from the board limit on every board-limit write - even a
+    # write of the same value - which replaces any of them set by hand. Druta
+    # keeps the values the user set ("pins") and re-applies them after its own
+    # board-limit writes. Which policies are coupled is not assumed anywhere:
+    # it is whatever the driver moves on the current adapter.
+
+    @staticmethod
+    def _policy_amount(value, unit):
+        text = format(value / 1000, ".3f").rstrip("0").rstrip(".")
+        return f"{text} {'W' if unit == 'mW' else 'A' if unit == 'mA' else '?'}"
+
+    def _power_policy_rows(self, layout, info, control, status, named=frozenset(), board_mw=None):
+        """One dict per policy in the table, as the adapter reports it."""
+        st = getattr(self, "static", None) or {}
+        pins = getattr(self, "_power_policy_pins", None) or {}
+        mask = info[1]
+        rows = []
+        for p in range(32):
+            if not mask >> p & 1:
+                continue
+            meta = (layout["info"][0] + p * layout["info"][1]) // 4
+            state = (layout["status"][0] + p * layout["status"][1]) // 4
+            record = (layout["control"][0] + p * layout["control"][1]) // 4
+            word = info[meta + 1]
+            unit = {0: "mW", 1: "mA"}.get(word >> 16 & 255)
+            minimum, default, maximum = info[meta + 2:meta + 5]
+            row = {"policy": p, "type": word & 255, "channel": word >> 8 & 255, "unit": unit,
+                   "minimum": minimum, "default": default, "maximum": maximum,
+                   "requested": control[record + 1], "limit": status[state + 1],
+                   "value": status[state + 2], "pinned": pins.get(p),
+                   "named_current": p in named, "maybe_board": ""}
+            row["consistent"] = status[state] & 255 == row["type"] and control[record] == row["type"]
+            row["in_range"] = minimum <= row["requested"] <= maximum
+            # The board limit is the one NVML sets (the Power limit slider):
+            # the mW policy whose range is NVML's own power-limit range.
+            row["board"] = (unit == "mW" and st.get("pl_def_mw") == default
+                            and st.get("pl_max_mw") == maximum
+                            and st.get("pl_min_mw", minimum) == minimum)
+            rows.append(row)
+        # NVML's range can be unknown (a getter failed at startup) or differ in
+        # its minimum. The board is then the policy already seen to be it, or
+        # the one mW policy whose request is NVML's configured limit, which is
+        # remembered from then on. It must never become an ordinary slider: a
+        # value set by hand on it would undo every Power limit write. So while
+        # it cannot be told apart - two requests equal the limit, or the limit
+        # is unreadable - every candidate is read-only rather than none.
+        if not any(r["board"] for r in rows):
+            seen = getattr(self, "_board_policy", None)
+            match = [r for r in rows if r["policy"] == seen]
+            if not match:
+                candidates = [r for r in rows if r["unit"] == "mW"
+                              and (board_mw is None or r["requested"] == board_mw)]
+                if board_mw is not None and len(candidates) == 1:
+                    match = candidates
+                    self._board_policy = candidates[0]["policy"]
+                else:
+                    why = ("NVML's power limit is unreadable right now" if board_mw is None
+                           else "its request equals the Power limit, as another policy's does")
+                    for row in candidates:
+                        row["maybe_board"] = why
+            for row in match:
+                row["board"] = True
+        for row in rows:
+            row["writable"] = (row["unit"] is not None and row["minimum"] < row["maximum"]
+                               and row["consistent"] and row["in_range"]
+                               and not row["board"] and not row["maybe_board"]
+                               and not row["named_current"])
+        return rows
+
+    @staticmethod
+    def power_policy_unwritable_reason(row):
+        """Why the full list does not write this row."""
+        if row["board"]:
+            return "the board limit is set with the Power limit slider"
+        if row.get("maybe_board"):
+            return f"it may be the board limit ({row['maybe_board']})"
+        if row["named_current"]:
+            return "set with its current-limit slider"
+        if row["unit"] is None:
+            return "its unit is not one Druta understands"
+        if row["minimum"] >= row["maximum"]:
+            return "it has no range to write"
+        if not row["consistent"]:
+            return "its record type differs between the driver's blocks"
+        return "its request lies outside its own range"
+
+    def read_power_policies(self):
+        """(rows, error): every policy in the driver's table. Read-only.
+
+        row: policy, type, channel, unit ('mW'/'mA'), minimum/default/maximum,
+        requested, limit (effective), value (the channel's reading), pinned
+        (the value the user set, or None), board (the NVML power limit),
+        maybe_board (why this may be the board limit when it cannot be told
+        apart right now, else ""), named_current (a current policy with its
+        own slider), consistent and
+        in_range (record checks), and writable (a range this list may write;
+        the board and named ones have their own sliders)."""
+        if not self._current_limit_profile_supported():
+            return [], "current policies are not validated for this GPU generation"
+        self._last_policy_table = None
+        # a named policy read correctly earlier this session keeps its slider
+        # through a failed read (get_current_limits then returns nothing)
+        named = ({row["policy"] for row in self.get_current_limits()}
+                 | set(getattr(self, "_current_limit_established", ()) or ()))
+        table = getattr(self, "_last_policy_table", None)
+        if table is None:
+            try:
+                table = self._power_policy_table()
+            except Exception as exc:                                    # noqa: BLE001
+                return [], str(exc)
+        layout, info, control, status = table
+        if control is None:
+            return [], "the driver's policy mask is empty"
+        try:
+            board_mw = self.read_power_limit_mw()
+        except Exception:                                               # noqa: BLE001
+            board_mw = None
+        return self._power_policy_rows(layout, info, control, status, named, board_mw), None
+
+    def _write_policy_limit(self, policy, value):
+        """set_current_limit_ma's method for ANY policy in the table: copy the
+        control GET, change only this policy's limit word, SET with only it
+        selected, read back. The driver may move OTHER policies' limit words
+        (it derives some from the board limit); those are reported, while any
+        other difference replays the original record. (ok, message) - never
+        raises: it runs from UI callbacks and inside Reset all."""
+        try:
+            layout, info, control, status = self._power_policy_table()
+        except Exception as exc:                                        # noqa: BLE001
+            return False, f"policy {policy}: the policy table could not be read ({exc}); nothing written"
+        mask = info[1]
+        if control is None or type(policy) is not int or not 0 <= policy < 32 \
+                or not mask >> policy & 1:
+            return False, f"policy {policy} is not in the driver's table"
+        base, stride = layout["control"]
+        words = {q: (base + q * stride) // 4 + 1 for q in range(32) if mask >> q & 1}
+        row = next(r for r in self._power_policy_rows(layout, info, control, status)
+                   if r["policy"] == policy)
+        amount = lambda v: self._policy_amount(v, row["unit"])          # noqa: E731
+        if control[words[policy]] == value:
+            return True, f"policy {policy} already at {amount(value)}"
+        expected = list(control)
+        expected[words[policy]] = value
+        request = list(expected)
+        request[4] = 1 << policy
+        try:
+            self._current_limit_rm(0x2080E61B, request, any_live_policy=True)
+            _, _, back, back_status = self._power_policy_table()
+            if back[words[policy]] != value:
+                raise ValueError("control read-back disagrees")
+            limit_words = set(words.values())
+            if any(back[i] != expected[i] for i in range(len(back)) if i not in limit_words):
+                raise ValueError("control read-back changed data outside the limits")
+            moved = [q for q in words if q != policy and back[words[q]] != control[words[q]]]
+            effective = next(r["limit"] for r in
+                             self._power_policy_rows(layout, info, back, back_status)
+                             if r["policy"] == policy)
+            message = f"policy {policy} set to {amount(value)}; effective limit {amount(effective)}"
+            if moved:
+                message += "; the driver also changed policies " + ", ".join(map(str, moved))
+            return True, message
+        except Exception as exc:                                        # noqa: BLE001
+            restore = list(control)
+            restore[4] = 1 << policy
+            try:
+                self._current_limit_rm(0x2080E61B, restore, any_live_policy=True)
+                _, _, again, _ = self._power_policy_table()
+                if again[words[policy]] != control[words[policy]]:
+                    raise ValueError("restoration read-back disagrees")
+                note = "original limit restored and verified"
+            except Exception as restore_error:                          # noqa: BLE001
+                note = f"restoration could not be verified: {restore_error}"
+            return False, f"policy {policy}: {exc}; {note}"
+
+    def _pin(self, policy, value):
+        self._power_policy_pins = {**(getattr(self, "_power_policy_pins", None) or {}), policy: value}
+
+    def set_power_policy(self, policy, value, *, pin=True, allow_named=False):
+        """Write one policy of the full list within its own range and verify.
+        pin records it as the user's value (re-applied after board-limit
+        writes). The board limit is refused (the Power limit slider owns it),
+        and so is a named current policy unless allow_named (a profile
+        restoring a value the user set with that slider), which then goes
+        through that slider's own setter and its normal/XOC envelope."""
+        rows, error = self.read_power_policies()
+        if error:
+            return False, error
+        row = next((r for r in rows if r["policy"] == policy), None)
+        if row is None:
+            return False, f"policy {policy} is not in the driver's table"
+        if row["named_current"]:
+            if not allow_named:
+                return False, f"policy {policy} is set with its current-limit slider"
+            if type(value) is not int:
+                return False, f"policy {policy} must be a whole number of milliamps"
+            return self.set_current_limit_ma(policy, value, pin=pin)
+        if not row["writable"]:
+            return False, f"policy {policy}: {self.power_policy_unwritable_reason(row)}"
+        if type(value) is not int or not row["minimum"] <= value <= row["maximum"]:
+            return False, (f"policy {policy} must be between "
+                           f"{self._policy_amount(row['minimum'], row['unit'])} and "
+                           f"{self._policy_amount(row['maximum'], row['unit'])}")
+        ok, message = self._write_policy_limit(policy, value)
+        if ok and pin:
+            self._pin(policy, value)
+        return ok, message
+
+    def _reapply_power_policy_pins(self, board_mw=None):
+        """After a board-limit write: put back every value the user set that
+        the driver recomputed. (ok, note) - note is "" when nothing moved.
+        The policy the write itself set is the board, never re-applied."""
+        pins = dict(getattr(self, "_power_policy_pins", None) or {})
+        if not pins:
+            return True, ""
+        try:
+            layout, info, control, status = self._power_policy_table()
+        except Exception as exc:                                        # noqa: BLE001
+            return False, f"your policy values could not be checked: {exc}"
+        if control is None:
+            return False, "your policy values could not be checked: the policy mask is empty"
+        base, stride = layout["control"]
+        request = {p: control[(base + p * stride) // 4 + 1] for p in range(32) if info[1] >> p & 1}
+        if board_mw is not None:
+            board = [row["policy"] for row in self._power_policy_rows(layout, info, control, status)
+                     if row["unit"] == "mW" and row["requested"] == board_mw]
+            if len(board) == 1:
+                self._board_policy = board[0]
+                if board[0] in pins:
+                    pins.pop(board[0])
+                    self._power_policy_pins = pins
+        redo = [(p, v) for p, v in sorted(pins.items()) if p in request and request[p] != v]
+        if not redo:
+            return True, ""
+        failed = []
+        for p, v in redo:
+            try:
+                ok, message = self._write_policy_limit(p, v)
+            except Exception as exc:                                    # noqa: BLE001
+                ok, message = False, f"policy {p}: {exc}"
+            if not ok:
+                failed.append(message)
+        names = ", ".join(str(p) for p, _ in redo)
+        if failed:
+            return False, (f"the driver recalculated policies {names}; re-applying your "
+                           f"values FAILED: " + "; ".join(failed))
+        return True, f"the driver recalculated policies {names}; re-applied your values"
+
+    def stock_power_policy(self, policy):
+        """Stock: drop the user's value and give the policy back to the driver.
+        The rated default is written, then the board limit is sent again so the
+        driver re-derives whatever it couples to it; a policy it does not
+        couple stays at its default."""
+        pins = dict(getattr(self, "_power_policy_pins", None) or {})
+        pins.pop(policy, None)
+        self._power_policy_pins = pins
+        rows, error = self.read_power_policies()
+        if error:
+            return False, error
+        row = next((r for r in rows if r["policy"] == policy), None)
+        if row is None:
+            return False, f"policy {policy} is not in the driver's table"
+        if not row["named_current"] and not row["writable"]:
+            return False, f"policy {policy}: {self.power_policy_unwritable_reason(row)}"
+        if not row["minimum"] <= row["default"] <= row["maximum"]:
+            return False, f"policy {policy}: its default lies outside its own range; nothing written"
+        label = next((r["label"] for r in getattr(self, "_current_limit_last_rows", None) or []
+                      if r.get("policy") == policy), f"policy {policy}")
+        ok, message = self._write_policy_limit(policy, row["default"])
+        if not ok:
+            return False, message
+        notes, ok = [], True
+        board = self.read_power_limit_mw()
+        if board is not None:
+            sent, sent_message, got = self._set_power_limit_nvml(board)
+            if not sent:
+                return False, (f"{label} is at its default, but re-sending the board limit "
+                               f"failed: {sent_message}")
+            ok, note = self._reapply_power_policy_pins(board_mw=got)
+            if note:
+                notes.append(note)
+        rows, error = self.read_power_policies()
+        row = next((r for r in rows if r["policy"] == policy), None) if not error else None
+        now = self._policy_amount(row["requested"], row["unit"]) if row else "unreadable"
+        return ok, "; ".join([f"{label} is back to the driver's value: {now}", *notes])
+
+    def max_all_power_policies(self):
+        """Clear the user's values, raise the board limit to its maximum, then
+        every other policy still below its own maximum to that maximum - a
+        named current policy to the maximum its own slider allows (normal or
+        XOC). Rows the list shows read-only are left alone. [(step, ok, msg)]."""
+        self._power_policy_pins = {}
+        steps = []
+        top = (getattr(self, "static", None) or {}).get("pl_max_mw")
+        if top:
+            steps.append(("power limit", *self.set_power_limit_mw(top)))
+        rows, error = self.read_power_policies()
+        if error:
+            return steps + [("power policies", False, error)]
+        currents = {r["policy"]: r for r in getattr(self, "_current_limit_last_rows", None) or []}
+        for row in rows:
+            if row["board"]:
+                continue
+            if row["named_current"]:
+                current = currents.get(row["policy"])
+                if current is None:
+                    continue
+                ceiling = (current["maximum_ma"] if getattr(self, "voltage_xoc_enabled", False)
+                           else max(current["normal_maximum_ma"], current["limit_ma"]))
+                ceiling = min(ceiling, current["maximum_ma"])
+                if current["requested_ma"] < ceiling:
+                    steps.append((current["label"],
+                                  *self.set_current_limit_ma(row["policy"], ceiling, pin=False)))
+                continue
+            if not row["writable"] or row["requested"] >= row["maximum"]:
+                continue
+            steps.append((f"policy {row['policy']}",
+                          *self._write_policy_limit(row["policy"], row["maximum"])))
+        return steps
 
     @contextmanager
     def verification_legacy_p0(self):
@@ -5276,7 +5854,10 @@ class GPU:
     # Turing and Blackwell. Architectural support does not supply board-specific
     # voltages or factory defaults. Historical board measurements are recorded
     # in VOLTAGE-RAILS-TITAN.md and VOLTAGE-RAILS-47212.md.
-    _VOLT_RAIL_ARCHITECTURES = (ARCH_PASCAL, ARCH_TURING, 10)
+    # Ampere's public getters and the 1104-byte 0x2080B213 packet match the
+    # layout already recognized for Pascal, Turing and Blackwell. Voltage
+    # numbers still come from the current adapter, not from those cards.
+    _VOLT_RAIL_ARCHITECTURES = (ARCH_PASCAL, ARCH_TURING, ARCH_AMPERE, 10)
 
     def _volt_rail_profile(self):
         """Current-adapter references, not a generation's factory defaults.
@@ -7555,6 +8136,9 @@ class GPU:
         """Return a list of (ok, message) so the caller can flag partial resets.
         Each element is a ResetStep, so it also unpacks as that pair while
         naming the knob it moved - GPU.LOCK_STEP is the clock-lock release."""
+        # Stock means the driver's own values: nothing set by hand is kept or
+        # re-applied past this point (see _reapply_power_policy_pins).
+        self._power_policy_pins = {}
         steps = [ResetStep("core offset", self.set_clock_offset(0, 0)),
                  ResetStep("mem offset", self.set_clock_offset(2, 0))]
         # The per-domain offsets are a THIRD mechanism: neither set_clock_offset
@@ -7631,16 +8215,19 @@ class GPU:
             steps.append(ResetStep("rail limits",
                                    self.reset_volt_rail_limits()))
         current_limits = self.get_current_limits()
-        if (self._current_limit_profile_supported()
-                and getattr(self, "_current_limit_error", "")):
+        # Only a failed read is a failed step; a policy interface this build
+        # does not understand has no control to put back.
+        read_error = getattr(self, "_current_limit_read_error",
+                             getattr(self, "_current_limit_error", ""))
+        if self._current_limit_profile_supported() and read_error:
             steps.append(ResetStep("current limits", (False,
-                f"cannot read current limits: {self._current_limit_error}")))
+                f"cannot read current limits: {read_error}")))
         for current in current_limits:
             if (current["limit_ma"] != current["default_ma"]
                     or current["requested_ma"] != current["default_ma"]):
                 steps.append(ResetStep(
                     current["label"].lower(), self.set_current_limit_ma(
-                        current["policy"], current["default_ma"])))
+                        current["policy"], current["default_ma"], pin=False)))
         if self.static.get("pl_def_mw"):
             steps.append(ResetStep(
                 "power limit", self.set_power_limit_mw(self.static["pl_def_mw"])))
@@ -7648,6 +8235,22 @@ class GPU:
             steps.append(ResetStep(
                 "power limit",
                 (False, "power limit: default unknown, left unchanged")))
+        # After the board limit: the policies it drives are back at their
+        # defaults by now, so this only writes ones the driver does not couple.
+        if getattr(self, "_power_policy_mask", None) is not None \
+                and self._current_limit_profile_supported():
+            rows, error = self.read_power_policies()
+            if error:
+                if getattr(self, "_current_limit_read_error", ""):
+                    steps.append(ResetStep("power policies", (False,
+                        f"power policies were not reset: {error}")))
+            else:
+                for row in rows:
+                    if (row["writable"] and row["requested"] != row["default"]
+                            and row["minimum"] <= row["default"] <= row["maximum"]):
+                        steps.append(ResetStep(f"power policy {row['policy']}",
+                                               self._write_policy_limit(row["policy"],
+                                                                        row["default"])))
         steps.append(ResetStep(self.LOCK_STEP,
                                self._reset_gpu_clocks(allow_pascal_noop=True)))
         if self.legacy_p0_owned():
@@ -7786,6 +8389,8 @@ for _m in ("read", "read_clock_domains", "read_vf_curve", "apply_vf_deltas",
            "vf_lock_self_test",
            "set_voltage_boost", "read_voltage_boost", "reset_all",
            "get_current_limits", "set_current_limit_ma",
+           "read_power_policies", "set_power_policy", "stock_power_policy",
+           "max_all_power_policies",
            # a rail SET from this thread is aborted by any other thread's driver
            # call while its escape hook is armed, and the poll reads the rail
            # block every tick during a raise
