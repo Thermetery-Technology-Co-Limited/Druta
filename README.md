@@ -199,6 +199,14 @@ the memory type is known),
 - power, 
 - vcore. 
 
+The clock tiles show the **programmed** clock (on my TITAN RTX that is what
+GPU-Z and NVML show) with the **measured** one right under it and the gap
+between them, e.g. `measured 2087  Δ -27.9`. The core line turns amber at one
+clock bin and red at three, either way (running above counts too), only under
+load and once the reading has settled; hover it for the raw numbers. XBAR and
+memory are shown but not coloured. On a card whose second clock array just
+copies the first, it says so instead of showing a number.
+
 Within the subtitle there are:
 - the p-state, 
 - XBAR's delta against core, (will be deprecated) 
