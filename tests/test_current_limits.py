@@ -11,20 +11,24 @@ from druta import nvbackend as n
 from tests.fixture_current_47212 import TITAN_INFO
 
 
-def fixture(arch=10, newer=False, legacy=False):
+def fixture(arch=10, newer=False, legacy=False, ampere_layout=False):
     g = n.GPU.__new__(n.GPU)
     g._lock = threading.RLock()
     g.static = {"driver": "580.97", "vbios": "98.03.3b.c0.6f"}
     g.nvapi = SimpleNamespace(ok=True, selected={"devid": 0x2C02,
                                                 "slot": "0000:01:00.0"})
-    g.arch = Mock(return_value=arch)
     g.voltage_xoc_enabled = False
     generation = {
         10: (0x3FFFF, ((13, 0x12, 13, 300000, 5001000),
                        (14, 0x12, 12, 120000, 5001000))),
         n.GPU.ARCH_TURING: (0xEBBF, ((13, 0x0B, 19, 350780, 390000),)),
         n.GPU.ARCH_PASCAL: (0xEDBF, ((13, 0x0B, 11, 204700, 218000),)),
+        n.GPU.ARCH_AMPERE: (1 << 13, ((13, 0x0F, 19, 243000, 270000),)),
     }
+    if ampere_layout:
+        arch = n.GPU.ARCH_AMPERE
+        newer = True
+    g.arch = Mock(return_value=arch)
     mask, policies = generation.get(arch, (0, ()))
     packet_bytes, param_bytes = (54420, 54352) if newer else (11748, 11680)
     info_bytes, status_bytes, control_bytes = ((20000, 396024, 13840) if newer
@@ -32,6 +36,11 @@ def fixture(arch=10, newer=False, legacy=False):
     info_base, info_stride = (0xCC, 0xFC) if newer else (0x58, 0xE4)
     status_base, status_stride = (0x9C, 0x1720) if newer else (0x70, 0x1454)
     control_base, control_stride = (0x14, 0xC4) if newer else (0x14, 0x7C)
+    if ampere_layout:
+        info_bytes, status_bytes, control_bytes = 8632, 0x2E740, 0x18D4
+        info_base, info_stride = 0x58, 0xE4
+        status_base, status_stride = 0x80, 0x168C
+        control_base, control_stride = 0x14, 0xB8
     status_mask_word = 0 if legacy else 1
     wire = {c: c for c in (0x2080A618, 0x2080A619, 0x2080A61A, 0x2080E61B)}
     if legacy:
@@ -58,7 +67,8 @@ def fixture(arch=10, newer=False, legacy=False):
     state = SimpleNamespace(info=info, control=control, dynamic=dynamic,
                             writes=[], store_only=False, refused=False,
                             break_get_once=False, break_restore=False,
-                            mutate_other=False, failed_after_set=False)
+                            mutate_other=False, failed_after_set=False,
+                            rejected_info_bytes=[])
     header = [0] * 17
     header[2], header[14], header[15] = packet_bytes, 0x2080A612, param_bytes
     if legacy:
@@ -96,6 +106,10 @@ def fixture(arch=10, newer=False, legacy=False):
             raise OSError("readback disconnected")
         data = {0x2080A618: state.info, 0x2080A619: state.dynamic,
                 0x2080A61A: state.control}[command]
+        if (ampere_layout and command == 0x2080A618 and packet[15] != 8632):
+            state.rejected_info_bytes.append(packet[15])
+            packet[16] = 31
+            return 0
         if command == 0x2080A618:
             assert not any(packet[17:])
         elif command == 0x2080A619:
@@ -158,6 +172,23 @@ class CurrentLimitTests(unittest.TestCase):
         g._capture_current_limit_transport.return_value[0][14] = 0x2080A612
         self.assertEqual(g.get_current_limits(), [])
         g._legacy_clk_escape.assert_not_called()
+
+    def test_ampere_large_transport_uses_the_accepted_info_layout(self):
+        g, state = fixture(ampere_layout=True)
+        rows = g.get_current_limits()
+        self.assertEqual(state.rejected_info_bytes, [20000])
+        self.assertEqual([(row["policy"], row["limit_ma"], row["default_ma"],
+                           row["maximum_ma"], row["normal_maximum_ma"], row["channel"])
+                          for row in rows],
+                         [(13, 243000, 243000, 270000, 270000, 19)])
+        original = list(state.control)
+        ok, message = g.set_current_limit_ma(13, 242000)
+        self.assertTrue(ok, message)
+        word = (0x14 + 13 * 0xB8) // 4 + 1
+        self.assertEqual([index for index, pair in enumerate(zip(original, state.control))
+                          if pair[0] != pair[1]], [word])
+        self.assertEqual(state.writes[0][4], 1 << 13)
+        self.assertEqual(len(state.writes[0]) * 4, 0x18D4)
 
     def test_new_geometry_reads_each_generation_independently_of_identity(self):
         for arch, defaults in ((n.GPU.ARCH_TURING, [350780]),
@@ -361,7 +392,10 @@ class CurrentLimitTests(unittest.TestCase):
                     self.assertEqual(state.control[4], mask)
 
     def test_policy_mask_capacity_is_derived_from_all_known_buffers(self):
-        for layout in n.GPU._CURRENT_LIMIT_LAYOUTS.values():
+        layouts = list(n.GPU._CURRENT_LIMIT_LAYOUTS.values())
+        for group in n.GPU._CURRENT_LIMIT_LAYOUT_FALLBACKS.values():
+            layouts.extend(group)
+        for layout in layouts:
             self.assertEqual(n.GPU._current_limit_capacity(layout), 32)
         g, state = fixture()
         state.info[1] |= 1 << 32

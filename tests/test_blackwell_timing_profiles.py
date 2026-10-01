@@ -202,7 +202,9 @@ class MultiRailProfileTests(unittest.TestCase):
         self.gpu.memory_offset_step_units = Mock(return_value=2)
         state = profiles.capture(self.gpu)
         for memory in (-0.5, 0.5, 1.5):
+            # both saved forms, consistent: restore writes the driver units
             state["mem_off_true_mhz"] = memory
+            state["mem_off_units"] = memory * state["mem_off_scale"]
             results = profiles.restore(self.gpu, state)
             self.assertFalse(results[0][0])
             self.assertIn("offset grid", results[0][1])

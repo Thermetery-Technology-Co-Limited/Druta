@@ -549,7 +549,9 @@ def classify_domain_names(rows, core_mhz=None, mem_nvml=None,
     populated = {r["domain"]: r for r in rows
                  if r.get("kind") == PRIV_FREQ and r.get("prog_mhz")}
     legacy = architecture in (2, 3, 4)
-    modern = architecture == 6 or blackwell or architecture == 10
+    # Ampere keeps GPC at domain 0 and reported memory at domain 4, the same
+    # slots Turing uses. Its other names are not the Turing table.
+    modern = architecture in (6, 7) or blackwell or architecture == 10
     gpc_dom, gpc_scale, mem_dom = None, 1, None
     if legacy or modern:
         slot, gpc_scale = (15, 2) if legacy else (0, 1)
@@ -648,6 +650,19 @@ def classify_domain_names(rows, core_mhz=None, mem_nvml=None,
         31: ("PCIe link gen", PRIV_LIKELY),
     }
 
+    # GPU-Z 2.71 on the RTX 3070 Ti, driver 595.97, beside Druta's programmed
+    # clocks: Crossbar 1899.1 against domain 1 at 1905, SYS 1701.4 against
+    # domain 2 at 1695, Video 1772.1 against domain 21 at 1770. Domain 5 was
+    # 1350 and has no GPU-Z row. It is the control-9 target, the same role as
+    # Turing LTC, so the name is LTC and the likely grade renders the question
+    # mark. Control 1, 3 and 5 had already been seen to move domains 1, 2 and 21.
+    AMPERE_NAMES = {
+        1: ("Crossbar", PRIV_CONFIRMED),
+        2: ("SYS", PRIV_CONFIRMED),
+        5: ("LTC", PRIV_LIKELY),
+        21: ("Video", PRIV_CONFIRMED),
+    }
+
     for r in rows:
         dom = r["domain"]
         r["scale"] = 1
@@ -670,6 +685,8 @@ def classify_domain_names(rows, core_mhz=None, mem_nvml=None,
         elif pascal_like and dom in PASCAL_NAMES:
             r["name"], r["grade"] = PASCAL_NAMES[dom]
             r["scale"] = 2
+        elif architecture == 7 and dom in AMPERE_NAMES:
+            r["name"], r["grade"] = AMPERE_NAMES[dom]
         elif blackwell:
             r["name"], r["grade"] = BLACKWELL_NAMES.get(
                 dom, ("", PRIV_UNNAMED))
@@ -1047,6 +1064,26 @@ CLKDOM_BLACKWELL_CONTROL_POLARITY = {1: 1, 3: 1, 4: 1}
 # GPC and memory paths on a different driver branch.
 CLKDOM_BLACKWELL_SAFE_SCAN_CONTROLS = (1, 3, 4, 5, 6, 7, 8, 9)
 CLKDOM_BLACKWELL_RISKY_SCAN_CONTROLS = (0, 2)
+
+# Ampere uses the Turing control-block geometry. On one GA104 (RTX 3070 Ti,
+# driver 595.97), with the core locked at 1500 MHz:
+#   +0x10C on control 1 stored +15 MHz and raised programmed domains 1, 2 and 21
+#   +0x10C on control 3 stored +15 MHz and raised only programmed domain 2
+#   +0x10C on control 5 stored +15 MHz and raised only programmed domain 21
+#   +0x114 was refused. +0x110 on control 0 stored +6.25 mV and moved both
+#   vcore and the live NVVDD reading by +6.25 mV.
+#   +0x10C on control 2 stored and, once memory was at its high clock under a
+#   copy load, moved private domain 4 and the NVML memory clock by the same
+#   amount. The idle 810 MHz memory clock did not move.
+#   +0x10C on control 9 stored. Positive requests left its target, domain 5,
+#   at a 1350 MHz ceiling. Negative requests lowered that target
+#   (–45 → –30, –90 → –75, –120 → –105 MHz) and restored it. –15 stored and
+#   did not move the target. GPU-Z does not name this row; it is shown as LTC?.
+# These identities are architectural evidence from that adapter, not a
+# device-id allowlist. Another Ampere board still has to echo this layout.
+CLKDOM_AMPERE_CONTROLS = {1: "Crossbar", 2: "Memory", 3: "SYS",
+                          5: "Video", 9: "LTC"}
+CLKDOM_PAIR_AMPERE = {1: 1, 2: 4, 3: 2, 5: 21, 9: 5}
 # Frequency-field candidates only.  The field probe deliberately excludes the
 # neighbouring voltage/rail dwords: discovering a frequency layout must never
 # require experimenting with NVVDD or MSVDD.
@@ -1213,6 +1250,10 @@ MEM_TYPES = {
     8:  ("GDDR5", 2),
     10: ("GDDR5X", 4),
     14: ("GDDR6", 4),
+    # NVAPI's published enumeration stops at GDDR5X = 10. Type 14 is GDDR6.
+    # Type 15 is what this GDDR6X 3070 Ti returns. GPU-Z reads 1187.7 MHz
+    # while NVML reports 9501, and 9501 / 1187.7 is 8.
+    15: ("GDDR6X", 8),
 }
 
 
@@ -1571,6 +1612,21 @@ def slot_from_argv(argv=None):
         if a in ("--gpu", "-d") and i + 1 < len(argv):
             return argv[i + 1]
     return ""
+
+
+# The RM status a policy GET returns when its parameter block is not the size
+# this driver's structure has: seen for a 20000-byte info GET on the GA104
+# (595.97) and for the 8632-byte one on the TU102 (610.88). It is a property of
+# the request's shape, so it does not go away on a retry.
+RM_CURRENT_POLICY_SIZE_REJECTED = 0x1F
+
+
+class CurrentLimitUnsupported(ValueError):
+    """This adapter's current-policy interface is not one Druta understands: a
+    power GET of unrecognized geometry, a policy GET whose size the driver
+    rejects, or a mask/record layout outside the measured ABI. That is a fixed
+    property of the adapter and driver, so no current-limit control can exist
+    for it - unlike a failed read, which a retry can recover."""
 
 
 class GPU:
@@ -2540,6 +2596,7 @@ class GPU:
     ARCH_MAXWELL = 3
     ARCH_PASCAL = 4
     ARCH_TURING = 6
+    ARCH_AMPERE = 7
     ARCH_NAMES = {1: "Fermi", 2: "Kepler", 3: "Maxwell", 4: "Pascal", 5: "Volta",
                   6: "Turing", 7: "Ampere", 8: "Ada", 9: "Hopper",
                   10: "Blackwell"}
@@ -2674,7 +2731,7 @@ class GPU:
     def _clkdom_candidate(self, architecture):
         if architecture == 10:
             return CLKDOM_LAYOUT_BLACKWELL
-        if architecture in (self.ARCH_PASCAL, self.ARCH_TURING):
+        if architecture in (self.ARCH_PASCAL, self.ARCH_TURING, self.ARCH_AMPERE):
             return CLKDOM_LAYOUT_TURING
         return None
 
@@ -2740,6 +2797,15 @@ class GPU:
         self._clkdom_capability_error = None
         return layout
 
+    def _clkdom_understood(self, architecture=None):
+        """Control indices whose frequency field has a measured effect."""
+        architecture = self.arch() if architecture is None else architecture
+        if architecture == self.ARCH_AMPERE:
+            return CLKDOM_AMPERE_CONTROLS
+        if architecture == 10:
+            return CLKDOM_BLACKWELL_CONTROLS
+        return CLKDOM_NAMES
+
     def clkdom_controls_for_ui(self, rows=None):
         """Understood controls accepted by this driver's validated layout.
 
@@ -2750,8 +2816,7 @@ class GPU:
         if self.clkdom_layout() is None:
             return []
         # Getter pairing is optional telemetry, not control authorization.
-        understood = (CLKDOM_BLACKWELL_CONTROLS if self.clkdom_is_blackwell()
-                      else CLKDOM_NAMES)
+        understood = self._clkdom_understood()
         accepted = set(self.clkdom_domains())
         return sorted(d for d in understood if d in accepted)
 
@@ -2762,7 +2827,9 @@ class GPU:
         return CLKDOM_BLACKWELL_CONTROL_POLARITY.get(int(control), 1)
 
     def clkdom_control_label(self, control):
-        """Human-readable Blackwell control name, with an honest fallback."""
+        """Human-readable control name, with an honest fallback."""
+        if self.arch() == self.ARCH_AMPERE:
+            return CLKDOM_AMPERE_CONTROLS.get(control, f"domain {control}")
         if self.clkdom_is_blackwell():
             return CLKDOM_BLACKWELL_CONTROLS.get(
                 control, f"control {control}")
@@ -3241,8 +3308,7 @@ class GPU:
         layout = getattr(self, "_clkdom_layout_cache", None)
         if layout in (None, False):
             return frozenset()
-        understood = (CLKDOM_BLACKWELL_CONTROLS if architecture == 10
-                      else CLKDOM_NAMES)
+        understood = self._clkdom_understood(architecture)
         return frozenset(set(getattr(self, "_clkdom_valid", ()) or ())
                          & set(understood))
 
@@ -3256,8 +3322,7 @@ class GPU:
             return True
         if getattr(self, "_clkdom_offset_read_pending", False):
             return True
-        understood = (CLKDOM_BLACKWELL_CONTROLS if architecture == 10
-                      else CLKDOM_NAMES)
+        understood = self._clkdom_understood(architecture)
         accepted = set(getattr(self, "_clkdom_valid", ()) or ())
         return bool(set(understood) - accepted)
 
@@ -3309,8 +3374,7 @@ class GPU:
 
         if architecture is not None and layout is not None and self.clkdom_ok() \
                 and layout.header + CLKDOM_SLOTS * layout.stride == layout.size:
-            understood = (CLKDOM_BLACKWELL_CONTROLS if architecture == 10
-                          else CLKDOM_NAMES)
+            understood = self._clkdom_understood(architecture)
             accepted = set(getattr(self, "_clkdom_valid", ()) or ())
             errors = dict(getattr(self, "_clkdom_probe_errors", {}) or {})
             valid_response = None
@@ -3449,8 +3513,15 @@ class GPU:
         core_mhz the naming runs BLIND: it cannot apply the unpopulated check,
         so it names a dead domain 0 'GPC' and reports every card as Turing.
         That is how an earlier build mislabelled a GP102."""
-        if self.arch() == 2:
+        if self.arch() == self.ARCH_KEPLER:
             return {}
+        # Ampere uses its own measured map rather than the populated-domain
+        # signature below: the five controls whose targets moved on the GA104
+        # probe (1->1, 2->4, 3->2, 5->21, 9->5). Control 1 also raised domains
+        # 2 and 21 there; the pair names only the domain it is labelled for.
+        if self.arch() == self.ARCH_AMPERE:
+            self._clkdom_pair = dict(CLKDOM_PAIR_AMPERE)
+            return self._clkdom_pair
         if getattr(self, "_clkdom_pair", None):
             return self._clkdom_pair
         if rows is None:
@@ -4369,6 +4440,14 @@ class GPU:
             13: {"label": "Core current", "type": 0x0B, "channel": 19,
                  "normal_maximum_ma": 500_000},
         },
+        # Type 0x0F / channel 19 were read from the GA104 info block, not
+        # copied from Turing. A different channel is relabeled; a different
+        # type stays unavailable. Policy 18 on that adapter is the 5001 A
+        # sentinel, not a second rail.
+        ARCH_AMPERE: {
+            13: {"label": "Core current", "type": 0x0F, "channel": 19,
+                 "normal_maximum_ma": 500_000},
+        },
         10: {
             13: {"label": "Core current", "type": 0x12, "channel": 13,
                  "normal_maximum_ma": 500_000},
@@ -4401,6 +4480,18 @@ class GPU:
             "control": (0x14, 0xC4),
         },
     }
+    # Same power-GET size as the 610.88 layout, but a different info GET.
+    # nvapi64 pairs 8632/190272/6356 with commands A618/A619/A61A, and the
+    # 20000-byte info GET is rejected (RM 0x1F) on the measured GA104.
+    # Record bases were checked against every occupied policy's info type.
+    _CURRENT_LIMIT_LAYOUT_FALLBACKS = {
+        (54420, 54352): ({
+            "sizes": {0x2080A618: 8632, 0x2080A619: 0x2E740,
+                      0x2080A61A: 0x18D4, 0x2080E61B: 0x18D4},
+            "info": (0x58, 0xE4), "status": (0x80, 0x168C),
+            "control": (0x14, 0xB8),
+        },),
+    }
 
     def _current_limit_generation_policies(self):
         return self.CURRENT_LIMIT_GENERATION_POLICIES.get(self.arch(), {})
@@ -4429,6 +4520,9 @@ class GPU:
         The hook never substitutes a command or parameters. Subsequent calls
         use the ordinary PCI-matched escape transport, without a hook.
         """
+        # What THIS attempt saw: a record left by an earlier attempt must not
+        # describe a capture that saw nothing (see _current_limit_transport_layouts).
+        self._current_limit_observed_transport = {}
         if not self._current_limit_profile_supported():
             return None
         a = self.nvapi
@@ -4507,24 +4601,88 @@ class GPU:
                                       ctypes.byref(previous))
             return found[0] if status == 0 and len(found) == 1 else None
 
-    def _current_limit_abi(self):
+    def _current_limit_transport_layouts(self):
+        """Capture the power GET once and return every layout that packet can be."""
         transport = getattr(self, "_current_limit_transport", None)
         if transport is None:
+            self._current_limit_layout_choice = None
             transport = self._capture_current_limit_transport()
             if transport is None:
-                observed = getattr(self, "_current_limit_observed_transport", {})
-                detail = (f"observed {observed['command']}, "
-                          f"{observed['packet_bytes']}/{observed['parameter_bytes']} bytes"
-                          if observed else "no recognized power GET captured")
-                raise ValueError("unsupported current-policy transport: " + detail)
+                observed = getattr(self, "_current_limit_observed_transport", {}) or {}
+                seen = (f"observed {observed.get('command')}, {observed.get('packet_bytes')}/"
+                        f"{observed.get('parameter_bytes')} bytes")
+                if observed and ((observed.get("packet_bytes"), observed.get("parameter_bytes"))
+                                 not in self._CURRENT_LIMIT_LAYOUTS):
+                    # a power GET WAS seen, and its geometry is not one Druta knows
+                    raise CurrentLimitUnsupported("unsupported current-policy transport: " + seen)
+                # nothing seen, or a known power GET whose getter then failed:
+                # a failed read, retried on the next one
+                raise ValueError("unsupported current-policy transport: "
+                                 + (seen + ", but the capture did not complete" if observed
+                                    else "no recognized power GET captured"))
         header, _ = transport
-        layout = (self._CURRENT_LIMIT_LAYOUTS.get((header[2], header[15]))
-                  if len(header) == 17 else None)
+        key = (header[2], header[15]) if len(header) == 17 else None
+        layout = self._CURRENT_LIMIT_LAYOUTS.get(key)
         if layout is None or header[14] != layout.get("transport_command", 0x2080A612):
             self._current_limit_transport = None
-            raise ValueError("unvalidated current-policy transport geometry")
+            self._current_limit_layout_choice = None
+            raise CurrentLimitUnsupported("unvalidated current-policy transport geometry")
         self._current_limit_transport = transport
-        return layout
+        return (layout, *self._CURRENT_LIMIT_LAYOUT_FALLBACKS.get(key, ()))
+
+    def _current_limit_abi(self):
+        chosen = getattr(self, "_current_limit_layout_choice", None)
+        if chosen is not None and getattr(self, "_current_limit_transport", None) is not None:
+            return chosen
+        candidates = self._current_limit_transport_layouts()
+        if len(candidates) == 1:
+            self._current_limit_layout_choice = candidates[0]
+            return candidates[0]
+        rejected = []
+        for candidate in candidates:
+            try:
+                self._current_limit_probe_info(candidate)
+            except ValueError as exc:
+                if getattr(self, "_current_limit_transport", None) is None:
+                    raise
+                rejected.append((candidate["sizes"][0x2080A618], exc))
+                continue
+            self._current_limit_layout_choice = candidate
+            return candidate
+        # Every candidate is reported, not only the last one tried: after a
+        # one-off RM error on the right layout, the fallback's size rejection
+        # would otherwise hide the real code.
+        detail = "; ".join(f"{size}-byte info: {exc}" for size, exc in rejected)
+        if rejected and all(getattr(exc, "fixed", False) for _, exc in rejected):
+            raise CurrentLimitUnsupported("no known policy-info layout fits this driver (" + detail + ")")
+        raise ValueError(detail or "unvalidated current-policy transport geometry")
+
+    def _current_limit_probe_info(self, layout):
+        """Read-only info GET used to choose between same-sized transports."""
+        size = layout["sizes"][0x2080A618]
+        header, fields = self._current_limit_transport
+        packet = (u32 * (17 + size // 4))(*header, *([0] * (size // 4)))
+        packet[2], packet[14], packet[15], packet[16] = (
+            ctypes.sizeof(packet), 0x2080A618, size, 0)
+        status = self._legacy_clk_escape(packet, fields)
+        if status != 0:
+            self._current_limit_transport = None
+            self._current_limit_layout_choice = None
+            raise ValueError(f"policy request failed (NTSTATUS {status}, RM 0x{packet[16]:X})")
+        # .fixed marks a rejection that is a property of this layout on this
+        # driver (its size, or a mask it cannot hold), not of the moment
+        if packet[16] != 0:
+            exc = ValueError(f"policy info layout rejected (RM 0x{packet[16]:X})")
+            exc.fixed = packet[16] == RM_CURRENT_POLICY_SIZE_REJECTED
+            raise exc
+        info = list(packet[17:])
+        mask = info[1] if len(info) > 1 else None
+        capacity = self._current_limit_capacity(layout)
+        if type(mask) is not int or mask < 0 or mask & ~((1 << capacity) - 1):
+            exc = ValueError("current-policy mask does not fit this info layout")
+            exc.fixed = True
+            raise exc
+        return info
 
     def _current_limit_rm(self, command, params=None, policy_mask=None):
         """Only the four measured policy operations, on this live GPU client."""
@@ -4538,6 +4696,10 @@ class GPU:
             allowed_masks = {1 << policy for policy in self._current_limit_generation_policies()}
             if len(params) < 5 or params[4] not in allowed_masks:
                 raise ValueError("current-policy write must select one generation-supported rail")
+        if params is not None and getattr(self, "_current_limit_layout_choice", None) is None:
+            candidates = self._current_limit_transport_layouts()
+            if not any(len(params) * 4 == candidate["sizes"].get(command) for candidate in candidates):
+                raise ValueError("unexpected current-policy buffer size")
         layout = self._current_limit_abi()
         size = layout["sizes"][command]
         wire_command = layout.get("commands", {}).get(command, command)
@@ -4563,6 +4725,14 @@ class GPU:
         if status != 0 or packet[16] != 0:
             if status != 0:
                 self._current_limit_transport = None
+                self._current_limit_layout_choice = None
+            elif (command != 0x2080E61B
+                  and packet[16] == RM_CURRENT_POLICY_SIZE_REJECTED):
+                # a GET refused for its size: this layout is not the
+                # driver's, which a retry will not change (a SET refusal is
+                # about the request, and stays an ordinary failure)
+                raise CurrentLimitUnsupported(
+                    f"policy GET 0x{command:08X} size {size} rejected (RM 0x{packet[16]:X})")
             raise ValueError(f"policy request failed (NTSTATUS {status}, "
                              f"RM 0x{packet[16]:X})")
         return list(packet[17:])
@@ -4573,12 +4743,12 @@ class GPU:
         sizes = layout["sizes"]
         info = self._current_limit_rm(0x2080A618)
         if len(info) * 4 != sizes[0x2080A618]:
-            raise ValueError("current-policy info size differs from the measured ABI")
+            raise CurrentLimitUnsupported("current-policy info size differs from the measured ABI")
         mask = info[1]
         specs = self._current_limit_generation_policies()
         capacity = self._current_limit_capacity(layout)
         if type(mask) is not int or mask < 0 or mask & ~((1 << capacity) - 1):
-            raise ValueError("current-policy mask exceeds the validated ABI capacity")
+            raise CurrentLimitUnsupported("current-policy mask exceeds the validated ABI capacity")
         for policy, spec in specs.items():
             if not mask & (1 << policy):
                 self._current_limit_unavailable.append({
@@ -4592,7 +4762,7 @@ class GPU:
                 or len(dynamic) * 4 != sizes[0x2080A619]
                 or dynamic[layout.get("status_mask_word", 1)] != mask
                 or control[:5] != [0, 0, 0, 255, mask]):
-            raise ValueError("current-policy layout or mask differs from the measured ABI")
+            raise CurrentLimitUnsupported("current-policy layout or mask differs from the measured ABI")
         rows = []
         for policy, spec in specs.items():
             if not mask & (1 << policy):
@@ -4605,14 +4775,20 @@ class GPU:
             unit = info[meta + 1] >> 16 & 255
             minimum, default, maximum = info[meta + 2:meta + 5]
             normal_maximum = min(max(spec["normal_maximum_ma"], minimum), maximum)
-            if (type_id != spec["type"] or unit != 1
-                    or not 1 <= minimum <= default <= maximum
-                    or dynamic[state] & 255 != type_id
-                    or control[record] != type_id
-                    or not minimum <= control[record + 1] <= maximum
-                    or not minimum <= dynamic[state + 1] <= maximum):
+            # A record of another type or unit, or whose three blocks disagree
+            # about its type, is a policy this build does not understand: no
+            # control is offered for it. Values outside the record's own range
+            # on an understood record are a bad reading, not that.
+            understood = (type_id == spec["type"] and unit == 1
+                          and 1 <= minimum <= default <= maximum
+                          and dynamic[state] & 255 == type_id
+                          and control[record] == type_id)
+            in_range = (minimum <= control[record + 1] <= maximum
+                        and minimum <= dynamic[state + 1] <= maximum)
+            if not (understood and in_range):
                 self._current_limit_unavailable.append({
                     "policy": policy, "label": spec["label"], "present": True,
+                    "unsupported": not understood,
                     "error": f"policy {policy}: invalid current record "
                              f"(type=0x{type_id:X}, channel={channel}, unit={unit}, "
                              f"min/default/max={minimum}/{default}/{maximum})"})
@@ -4635,33 +4811,60 @@ class GPU:
         ``limit_ma`` is the independent effective policy limit, and
         ``maximum_ma`` is the API ceiling regardless of Druta's XOC setting.
         """
+        # _current_limit_error is every reason a policy is unavailable (shown
+        # in the UI and diagnostics). _current_limit_read_error is the part
+        # that is a failed READ - what profiles and Reset all must not hide.
+        # The rest is an interface this build does not understand, for which
+        # no control exists; it stops being "not understood" once a policy
+        # has been read on this adapter, and counts as a read failure again.
+        established = getattr(self, "_current_limit_established", set())
         if not self._current_limit_profile_supported():
             self._current_limit_error = "NVAPI unavailable or GPU generation unsupported"
+            self._current_limit_read_error = self._current_limit_error
             self._current_limit_last_rows = []
             self._current_limit_unavailable = []
             return []
         try:
             rows, _ = self._current_limit_state()
+            present = [item for item in self._current_limit_unavailable if item["present"]]
+            # a policy read earlier this session that the mask no longer lists
+            # has not stopped existing: that is a bad read too
+            vanished = [f"policy {item['policy']} was read earlier this session and is now "
+                        f"{item['error']}" for item in self._current_limit_unavailable
+                        if not item["present"] and item["policy"] in established]
             self._current_limit_error = "; ".join(
-                item["error"] for item in self._current_limit_unavailable
-                if item["present"])
+                [item["error"] for item in present] + vanished)
+            self._current_limit_read_error = "; ".join(
+                [item["error"] for item in present
+                 if not item.get("unsupported") or item["policy"] in established] + vanished)
+            self._current_limit_established = established | {row["policy"] for row in rows}
             self._current_limit_last_rows = rows
             return rows
+        except CurrentLimitUnsupported as exc:
+            self._current_limit_error = str(exc)
+            self._current_limit_read_error = str(exc) if established else ""
+            self._current_limit_last_rows = []
+            return []
         except Exception as exc:
             self._current_limit_error = str(exc)
+            self._current_limit_read_error = str(exc)
             self._current_limit_last_rows = []
             return []
 
     def current_limit_diagnostics(self):
         """Last GET outcome only; contains no client handles and performs no writes."""
+        choice = getattr(self, "_current_limit_layout_choice", None)
         return {
-            "build": "current-visibility-v2",
+            "build": "current-visibility-v3",
             "driver": getattr(self, "static", {}).get("driver"),
             "vbios": getattr(self, "static", {}).get("vbios"),
             "generation": self.arch(),
             "expected_policies": self._current_limit_generation_policies(),
             "transport": getattr(self, "_current_limit_observed_transport", {}),
+            # which same-sized layout the info probe chose, by its info size
+            "layout_info_bytes": (choice or {}).get("sizes", {}).get(0x2080A618),
             "error": getattr(self, "_current_limit_error", ""),
+            "read_error": getattr(self, "_current_limit_read_error", ""),
             "policies": getattr(self, "_current_limit_last_rows", []),
             "unavailable_policies": getattr(self, "_current_limit_unavailable", []),
         }
@@ -5266,7 +5469,10 @@ class GPU:
     # Turing and Blackwell. Architectural support does not supply board-specific
     # voltages or factory defaults. Historical board measurements are recorded
     # in VOLTAGE-RAILS-TITAN.md and VOLTAGE-RAILS-47212.md.
-    _VOLT_RAIL_ARCHITECTURES = (ARCH_PASCAL, ARCH_TURING, 10)
+    # Ampere's public getters and the 1104-byte 0x2080B213 packet match the
+    # layout already recognized for Pascal, Turing and Blackwell. Voltage
+    # numbers still come from the current adapter, not from those cards.
+    _VOLT_RAIL_ARCHITECTURES = (ARCH_PASCAL, ARCH_TURING, ARCH_AMPERE, 10)
 
     def _volt_rail_profile(self):
         """Current-adapter references, not a generation's factory defaults.
@@ -6960,10 +7166,13 @@ class GPU:
             steps.append(ResetStep("rail limits",
                                    self.reset_volt_rail_limits()))
         current_limits = self.get_current_limits()
-        if (self._current_limit_profile_supported()
-                and getattr(self, "_current_limit_error", "")):
+        # Only a failed read is a failed step; a policy interface this build
+        # does not understand has no control to put back.
+        read_error = getattr(self, "_current_limit_read_error",
+                             getattr(self, "_current_limit_error", ""))
+        if self._current_limit_profile_supported() and read_error:
             steps.append(ResetStep("current limits", (False,
-                f"cannot read current limits: {self._current_limit_error}")))
+                f"cannot read current limits: {read_error}")))
         for current in current_limits:
             if (current["limit_ma"] != current["default_ma"]
                     or current["requested_ma"] != current["default_ma"]):

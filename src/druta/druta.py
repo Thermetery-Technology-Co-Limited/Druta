@@ -2383,7 +2383,9 @@ class Druta:
                 continue
             if only_missing and dpg.does_item_exist("sl_" + kn.key):
                 continue
-            if kn.ctrl not in controls and not kn.xoc_only:
+            # Including the additional-memory knob. It is shown only when this
+            # generation's measured control set includes its control index.
+            if kn.ctrl not in controls:
                 continue
             request = cur.get(kn.ctrl)
             if not isinstance(request, dict) or "freq_khz" not in request:
