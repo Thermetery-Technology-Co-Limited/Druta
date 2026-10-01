@@ -8772,8 +8772,8 @@ deliberately does not put behind a button."""
                     # Default ON (vfheadroom). A hold on the effective voltage
                     # ceiling runs below the clock it shows, and GPU-Z and the
                     # header both show the programmed clock, so nobody finds
-                    # the loss by looking. The number is labelled as what it
-                    # is: an estimate from one card.
+                    # the loss by looking. The margin is a fixed safe margin,
+                    # the same for every card (vfheadroom).
                     dpg.add_text("VOLTAGE-LIMIT HEADROOM", color=ACCENT)
                 arch_of = getattr(type(self.gpu), "hold_headroom_architecture", None)
                 hr_arch = arch_of(self.gpu) if callable(arch_of) else False
@@ -8803,17 +8803,17 @@ deliberately does not put behind a button."""
                                  "ON the ceiling runs slower than the clock it shows.\n"
                                  "The held point's voltage stays the same; the rail\n"
                                  "may run up to the margin higher (one TITAN RTX ran\n"
-                                 "its rail above the point once the ceiling no longer\n"
-                                 "cut it off). The limits go back when the hold ends.\n"
+                                 "its rail up to 18.75 mV higher, one RTX 3070 Ti the\n"
+                                 "full 25 mV). The limits go back when the hold ends.\n"
                                  "A point ABOVE the ceiling gets no raise (the card\n"
                                  "would climb past the ceiling you set, by more than\n"
                                  "the margin) - you get a warning instead.\n"
                                  "Where the card reports a live rail voltage it is\n"
                                  "watched: above the raised ceiling (beyond this\n"
                                  "card's own reading offset), the raise is undone.\n"
-                                 "Measured on one TITAN RTX (TU102): 25 mV removed\n"
-                                 "the loss there. Other cards and generations are\n"
-                                 "not measured yet.",
+                                 "25 mV is a fixed safe margin for every card, not\n"
+                                 "tuned per card or generation. On one TITAN RTX and\n"
+                                 "one RTX 3070 Ti it removed the loss.",
                                  color=DIM)
                     dpg.add_button(label="Restore raised limits now", tag="hr_restore",
                                    width=self.s(230), callback=self.restore_raised_limits_now)

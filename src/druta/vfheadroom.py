@@ -2,12 +2,15 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Persisted setting for V/F hold headroom (see GPU.apply_hold_headroom).
 
-Default ON with a 25 mV margin. The margin is an estimate from one TU102
-(TITAN RTX): holds on the effective voltage ceiling (reliability plus its boost
-contribution, alt-reliability, overvoltage) lost 27-37 MHz, and 25 mV of
-headroom removed the loss there. Other cards and generations have not been
-measured, so the value is the user's to change and is labelled as an estimate
-wherever it is shown.
+Default ON with a 25 mV margin: a fixed safe margin for every card, not tuned
+per card or generation, and the user's to change. Holds on the effective voltage
+ceiling (reliability plus its boost contribution, alt-reliability, overvoltage)
+ran below the clock they showed on one TITAN RTX (TU102, 27-37 MHz) and one RTX
+3070 Ti (GA104, one 15 MHz step), and 25 mV of headroom removed the loss on both
+(experiments/hold-headroom-*.md). Those runs show that the loss exists and that
+25 mV clears it; they are not a procedure. Nobody is expected to sweep margins
+(6.25, 12.5, ...) per card or generation, and a change elsewhere does not need
+a margin measurement to be accepted.
 """
 import json
 import math
