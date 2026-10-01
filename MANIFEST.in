@@ -1,5 +1,7 @@
-# The sdist can rebuild both the wheel and the distributable Windows bundle.
+# The sdist can rebuild the wheel and the distributable Windows bundles,
+# including the separate Windows 7 build.
 include druta.py src/run_druta.py Druta.spec build.ps1 requirements.txt pyproject.toml setup.py MANIFEST.in
+include Druta-win7.spec build-win7.ps1 requirements-win7.txt WINDOWS7.md PORTABLE-WINDOWS7.md
 include AGENTS.md COPYING THIRD-PARTY-NOTICES.md README.md MANUAL.md
 include TECHNICALDOCUMENTATION.md DEBUG-SUMMARY-RTX5080.md
 include VOLTAGE-RAILS-TITAN.md VOLTAGE-RAILS-47212.md DRIVER-COMPATIBILITY.md

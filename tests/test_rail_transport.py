@@ -58,7 +58,8 @@ def test_prepare_write_preserves_every_unowned_byte(layout):
     if layout.valid_word is not None:
         owned_words.add(layout.record0 + layout.valid_word)
 
-    for index, (before, after) in enumerate(zip(source, result, strict=True)):
+    assert len(result) == len(source)  # zip(strict=True) is Python 3.10+
+    for index, (before, after) in enumerate(zip(source, result)):
         if index // 4 not in owned_words:
             assert after == before
 
