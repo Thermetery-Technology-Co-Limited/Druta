@@ -5,8 +5,9 @@
 Default ON with a 25 mV margin: a fixed safe margin for every card, not tuned
 per card or generation, and the user's to change. Holds on the effective voltage
 ceiling (reliability plus its boost contribution, alt-reliability, overvoltage)
-ran below the clock they showed on one TITAN RTX (TU102, 27-37 MHz) and one RTX
-3070 Ti (GA104, one 15 MHz step), and 25 mV of headroom removed the loss on both
+ran below the clock they showed on one TITAN RTX (TU102, 15-28 MHz depending on
+the held point) and one RTX 3070 Ti (GA104, one 15 MHz step), and 25 mV of
+headroom removed the loss on both
 (experiments/hold-headroom-*.md). Those runs show that the loss exists and that
 25 mV clears it; they are not a procedure. Nobody is expected to sweep margins
 (6.25, 12.5, ...) per card or generation, and a change elsewhere does not need

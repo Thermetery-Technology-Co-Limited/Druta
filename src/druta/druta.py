@@ -2027,13 +2027,13 @@ class Druta:
         # disagreeing for a frame.
         if support.get(0):
             self.ov_carryover(raw)
-            # The USER's ceiling, not one lifted by hold headroom: following
-            # the raised one would move the cap up by the margin, and the next
-            # Max it would hold (and raise) higher again, on every press.
-            record_of = getattr(self.gpu, "hold_headroom_record", None)
-            if raw and callable(record_of) and isinstance(record_of(), dict):
-                raw_user = self.gpu.user_rail_limits(raw)
-            else:
+            # The USER's ceiling, not one lifted by hold headroom (this
+            # window's or another window's on the same card): following the
+            # raised one would move the cap up by the margin, and the next Max
+            # it would hold (and raise) higher again, on every press.
+            user_of = getattr(self.gpu, "user_rail_limits", None)
+            raw_user = user_of(raw) if raw and callable(user_of) else raw
+            if not isinstance(raw_user, dict):
                 raw_user = raw
             self.sync_vcap_to_ceiling(raw_user)
         for r in (0, 1):
@@ -5325,6 +5325,8 @@ class Druta:
                     self.check_stale_headroom()
                 if uuid and uuid in self._stale_judged():
                     self.clear_stale_marker(uuid)       # a judged marker's delete failed
+                if not self.unlocked():
+                    return      # read-only: a raise still owed waits for Unlock controls
                 if getattr(self, "_headroom_blocked", False) and self.headroom_blocker() is None:
                     self._headroom_blocked = False      # the reason cleared on its own
                     self.sync_hold_headroom()
@@ -5368,7 +5370,10 @@ class Druta:
                                   "(another tool may have replaced it)"):
                 self.set_lock_state(None)
             return
-        # the lock is still ours: finish what the last sync could not
+        # the lock is still ours: finish what the last sync could not - but not
+        # while Druta is read-only, which stops every write except a restore
+        if not self.unlocked():
+            return
         note = getattr(self, "_headroom_note", None)
         if note and note[0] == "raised":
             self._headroom_retry_at = self._headroom_tick + self.HEADROOM_LOCK_CHECK_TICKS
@@ -6894,7 +6899,7 @@ class Druta:
         return any(dpg.does_item_exist(t)
                    and (dpg.is_item_focused(t) or dpg.is_item_active(t))
                    for t in ("vcap", "vf_idx", "vf_set", "lock_min", "lock_max",
-                             "log", "info", "prof_name"))
+                             "log", "info", "prof_name", "hr_mv"))
 
     def plot_units_per_px(self):
         """(mV per pixel, MHz per pixel) for the V/F plot AS CURRENTLY VIEWED,
@@ -8418,6 +8423,12 @@ deliberately does not put behind a button."""
         if error:
             self.profile_failure(error, automatic)
             return
+        held = getattr(self, "_held_startup_request", None)
+        if held and not automatic:
+            # the user has taken over: the held one must not run on top later
+            self._held_startup_request = None
+            self.log(f"startup profile '{held.get('name', '')}' will not run on its own now: "
+                     f"a profile was loaded by hand", None)
         chosen = self.rail_for_profile(state)
         if chosen is not self.rail:
             self.invalidate_i2c_verification()
@@ -10237,6 +10248,14 @@ deliberately does not put behind a button."""
         self._stale_recheck_logged = False
         getattr(self, "_once", {}).pop("headroom_rails", None)
         self._stale_headroom = None
+        # a startup profile held for the outgoing card's marker belongs to that
+        # card; the arriving card's own marker check sets the recheck again
+        held = getattr(self, "_held_startup_request", None)
+        if held:
+            self.log(f"startup profile '{held.get('name', '')}' was waiting for the previous "
+                     f"card and is not applied to this one; load it by hand", None)
+        self._held_startup_request = None
+        self._stale_recheck = False
         self._gap_hist, self._gap_seen = [], None
         self._gap_warned = False
         self._discard_armed = False
@@ -11666,6 +11685,13 @@ deliberately does not put behind a button."""
             if self.vf_points:
                 self.vf_redraw()
             self.relayout()
+            # the rebuilt tree has an empty hold banner: a hold in force, and
+            # what its headroom did, must still say so. A raise that waited on
+            # an unreadable rail gets its bounded retries again - the watch
+            # makes it, not this read-only refresh.
+            self.draw_hold_banner()
+            if (getattr(self, "_headroom_note", None) or (None,))[0] == "unread":
+                self.note_unread_for_retry()
         except Exception as exc:
             self.log(f"capability refresh failed: {exc}; retry is available", False)
             return

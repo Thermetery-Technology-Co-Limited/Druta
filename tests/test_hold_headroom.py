@@ -19,7 +19,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from druta import vfheadroom
+from druta import profiles, vfheadroom
 from druta.nvbackend import GPU, PRIV_CONFIRMED
 
 # (architecture, first-read bases rel/alt/ov/vmin, boost contribution at 100 %)
@@ -650,6 +650,7 @@ def make_app(gpu):
     app._clk_lock = None
     app.show_win = Mock()
     app.vf_recovery_pending = lambda: False
+    app.unlocked = lambda: True                  # writes unlocked, as a hold needs
     return app
 
 
@@ -1868,6 +1869,94 @@ class SecondReviewAppTests(AppTestCase):
         user = gpu_b.user_rail_limits()[0]                             # what B's profiles save
         self.assertEqual(GPU.abs_limit_mv(user, "alt_reliability"), 1093.75)
         self.assertTrue(any("another Druta window" in str(c) for c in b.log.call_args_list))
+
+
+class ReleaseReviewAppTests(AppTestCase):
+    """The 1.7.0 release review's findings in the headroom app code."""
+
+    UUID = "GPU-test-0170"
+
+    def ticks(self, n=1, d=None):
+        for _ in range(n * self.app.HEADROOM_LOCK_CHECK_TICKS):
+            self.app.watch_hold_headroom(d or {})
+
+    def test_read_only_holds_back_a_raise_still_owed_and_resumes_on_unlock(self):
+        calls = []
+
+        def unavailable(rail=0):
+            calls.append(1)
+            return ("transient", "status -1") if len(calls) < 2 else None
+        self.gpu.hold_headroom_rail_unavailable = unavailable
+        self.hold(1093.75)
+        self.assertEqual(self.rails.writes, [])
+        self.app.unlocked = lambda: False                      # 'Unlock controls' unticked
+        self.ticks(4)
+        self.assertEqual(self.rails.writes, [])                # nothing written while read-only
+        self.app.unlocked = lambda: True
+        self.ticks(4)
+        self.assertEqual(self.limits(), (1093.75, 1118.75, 1125.0))
+
+    def test_read_only_still_takes_a_raise_off(self):
+        self.hold(1093.75)
+        self.assertEqual(self.limits(), (1093.75, 1118.75, 1125.0))
+        self.app.unlocked = lambda: False
+        self.app._clk_lock = None                              # the hold is gone
+        self.ticks(1)
+        self.assertEqual(self.limits(), (1068.75, 1093.75, 1125.0))
+
+    def test_a_second_windows_profiles_save_the_users_limits(self):
+        self.hold(1093.75)                                     # window A raises
+        gpu_b = bare_gpu()
+        gpu_b.static = {"uuid": self.UUID}
+        rails_b = FakeRails(gpu_b, stock_row("turing"))
+        rails_b.rows = self.rails.rows                         # the same card
+        raised = tuple(int(round(self.rails.rows[0][k] * 1000)) for k in GPU.VOLT_LIMIT_FIELDS)
+        gpu_b._volt_rail_initial_uv = {0: raised}
+        b = make_app(gpu_b)
+        with patch("druta.vfheadroom.owner_state", return_value="alive"):
+            b.check_stale_headroom()
+        self.assertIsNone(gpu_b.hold_headroom_record())        # B has no raise of its own
+        state = {profiles.INCOMPLETE_KEY: []}
+        profiles.capture_rails(gpu_b, state, None)
+        captured = state["rail_limits_mv"][0] if 0 in state["rail_limits_mv"] \
+            else state["rail_limits_mv"]["0"]
+        self.assertEqual((captured["reliability"], captured["alt_reliability"]), (1068.75, 1093.75))
+
+    def test_a_hand_load_drops_a_held_startup_profile(self):
+        from druta.druta import Druta
+        app = Druta.__new__(Druta)
+        app.gpu, app.rail, app._i2c_busy = Mock(), None, False
+        app.guard = Mock(return_value=True)
+        app.rail_for_profile = Mock(return_value=None)
+        app.autosave_before = Mock(return_value=True)
+        app.log, app.profile_failure, app.finish_profile_load = Mock(), Mock(), Mock()
+        app._held_startup_request = {"name": "sign-in", "profile": {"schema": 2}}
+        with patch("druta.druta.profiles.preflight", return_value=None):
+            app.begin_profile_load("mine", {"schema": 2, "scope": "fan"})
+        self.assertIsNone(app._held_startup_request)
+        app.begin_profile_load = Mock()
+        app.resume_startup_profile()                           # the marker judged later
+        app.begin_profile_load.assert_not_called()
+
+    def test_a_card_switch_drops_a_held_startup_profile(self):
+        from types import SimpleNamespace
+        from druta.druta import Druta
+        app = Druta.__new__(Druta)
+        app.gpu = SimpleNamespace(static={}, slot=lambda: "0000:02:00.0")
+        app._tim_lock = threading.Lock()
+        app.log = Mock()
+        app._held_startup_request = {"name": "sign-in", "profile": {}}
+        app._stale_recheck = True
+        app.reset_card_state()
+        self.assertIsNone(app._held_startup_request)
+        self.assertFalse(app._stale_recheck)
+        self.assertTrue(any("not applied to this one" in str(c) for c in app.log.call_args_list))
+
+    def test_the_margin_box_holds_the_curve_shortcuts(self):
+        with patch("druta.druta.dpg.does_item_exist", return_value=True), \
+                patch("druta.druta.dpg.is_item_active", return_value=False), \
+                patch("druta.druta.dpg.is_item_focused", side_effect=lambda tag: tag == "hr_mv"):
+            self.assertTrue(self.app.typing())
 
 
 class MarkerFileTests(unittest.TestCase):

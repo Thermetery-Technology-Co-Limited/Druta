@@ -5989,9 +5989,11 @@ class GPU:
     # ---- V/F hold headroom -------------------------------------------------- #
     # A V/F point held AT the effective voltage ceiling delivers less clock
     # than it programs. Measured on one TU102 (TITAN RTX, driver 610.88): a
-    # hold on the ceiling ran 27-37 MHz below its programmed clock, at 1093.75,
-    # 1100, 1125 and 1150 mV alike, with or without the lock; the same hold
-    # with the ceiling 25 mV higher delivered its programmed clock.
+    # hold on the ceiling ran below its programmed clock - 28 MHz on a 1093.75
+    # mV ceiling under load, about 15 MHz on 1068.75 mV
+    # (experiments/hold-headroom-titan-rtx-61088-20260929.md and
+    # experiments/measured-clock-sources-titan-rtx-61088-20260929.md) - and the
+    # same hold with the ceiling 25 mV higher delivered its programmed clock.
     #
     # The ceiling is rail_ceiling_mv: min(reliability + the reported boost
     # contribution, alt-reliability, overvoltage). Reliability is not soft: with
