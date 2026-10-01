@@ -1074,11 +1074,16 @@ def _restore_validated(gpu, state, apply_curve, rail, results):
             if not step("I2C offset", lambda: rail.set_offset_mv(offset, acknowledged=True)):
                 return results
 
-    # The profile's own power-policy values replace this session's: none of
-    # the session's may be re-applied by the board-limit write below.
+    # A profile that carries power-policy data replaces this session's values
+    # set by hand: none of the session's may be re-applied by the board-limit
+    # write below. One that carries none (written before Druta kept them, or
+    # captured while the table was unreadable) says nothing about them, so
+    # they stay set, and the board-limit write re-applies them as it would for
+    # a limit set by hand.
     pins = state.get("power_policy_pins") or {}
     saved = state.get("power_policies") or {}
-    if callable(getattr(gpu, "set_power_policy", None)):
+    carries = "power_policies" in state or "power_policy_pins" in state
+    if carries and callable(getattr(gpu, "set_power_policy", None)):
         gpu._power_policy_pins = {}
     # The table before the board-limit write: what that write moves is what
     # the driver derives from it (_restore_power_policies).

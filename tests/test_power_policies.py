@@ -835,6 +835,83 @@ class ReviewFixUiTests(PolicyUiCase):
         self.assertTrue(any("record type differs" in (t or "") for t in texts))
 
 
+class ReleaseReviewBackendTests(unittest.TestCase):
+    """The 1.7.0 release review: state the user set is kept when a profile
+    says nothing about it."""
+
+    def setUp(self):
+        self.card = PolicyCard()
+        self.gpu = policy_gpu(self.card)
+
+    def test_a_profile_without_power_policy_data_keeps_the_values_set_by_hand(self):
+        # 1.6.x profiles and sign-in copies carry no power-policy fields
+        self.gpu.set_power_limit_mw(290000)
+        self.gpu.set_power_policy(4, 150000)
+        results = profiles.restore(self.gpu, {"schema": 2, "power_limit_mw": 290000,
+                                              "current_limits_ma": {}}, apply_curve=False)
+        self.assertTrue(all(ok for ok, _m in results), results)
+        self.assertEqual(self.gpu._power_policy_pins, {4: 150000})
+        self.assertEqual(self.card.request[4], 150000)            # put back after the board write
+
+    def test_a_profile_with_power_policy_data_replaces_them(self):
+        self.gpu.set_power_limit_mw(290000)
+        self.gpu.set_power_policy(4, 150000)
+        profiles.restore(self.gpu, {"schema": 2, "power_limit_mw": 290000, "current_limits_ma": {},
+                                    "power_policies": {}, "power_policy_pins": {}},
+                         apply_curve=False)
+        self.assertEqual(self.gpu._power_policy_pins, {})
+        self.assertNotEqual(self.card.request[4], 150000)         # the driver's value again
+
+
+class ReleaseReviewUiTests(PolicyUiCase):
+    def test_max_all_shows_the_board_limit_that_took_even_when_a_re_apply_failed(self):
+        with dpg.window():
+            dpg.add_slider_float(tag="sl_pl", default_value=260)
+        self.build()
+        self.card.request[self.card.board] = 320000                # NVML took the maximum
+        self.app.gpu.max_all_power_policies = Mock(return_value=[
+            ("power limit", False, "power limit configured to 320 W; re-applying your values FAILED")])
+        self.app.max_all_power_policies()
+        self.assertEqual(dpg.get_value("sl_pl"), 320)
+
+    def test_the_mark_shows_only_a_value_the_card_still_holds(self):
+        self.build()
+        self.app.apply_power_policy(4, 150.0)
+        self.app.refresh_power_policies(force=True)
+        self.assertTrue(dpg.get_value("live_pp4").endswith(" *"))
+        self.card.request[4] = 155000                              # another tool's board write
+        self.app.refresh_power_policies(force=True)
+        self.assertFalse(dpg.get_value("live_pp4").endswith(" *"))
+        self.assertEqual(self.app.gpu._power_policy_pins, {4: 150000})   # Druta's next write puts it back
+
+    def test_typing_in_a_value_box_holds_the_curve_shortcuts(self):
+        self.build()
+        with patch("druta.druta.dpg.is_item_focused", side_effect=lambda t: t == "in_pp4"):
+            self.assertTrue(self.app.typing())
+
+    def test_a_card_with_no_uuid_keeps_its_notes_and_values_for_the_session(self):
+        self.app.gpu = policy_gpu(self.card, uuid=None)
+        self.app.gpu.slot = lambda: "0000:01:00.0"
+        self.build()
+        self.app.set_power_policy_note(4, text="aux input")
+        dpg.destroy_context()                                      # Refresh capabilities rebuilds
+        dpg.create_context()
+        self.build()
+        self.assertEqual(self.app._policy_names[4]["name"], "aux input")
+        self.app.set_power_policy_note(4, text="aux input 2")
+        self.app.save_power_policy_names(force=True)
+        said = [c for c in self.app.log.call_args_list if "no UUID" in str(c)]
+        self.assertEqual(len(said), 1)                             # once, not on every pause
+        self.app.gpu.set_power_policy(4, 150000)
+        other = policy_gpu(PolicyCard(), uuid="GPU-OTHER")
+        self.app.hand_over_power_policies(other)
+        self.app.gpu = other
+        again = policy_gpu(self.card, uuid=None)                   # the first card, by its slot
+        again.slot = lambda: "0000:01:00.0"
+        self.app.hand_over_power_policies(again)
+        self.assertEqual(again._power_policy_pins, {4: 150000})
+
+
 class ReviewFixNameStoreTests(PolicyNameStoreCase):
     def test_a_hidden_name_survives_a_save(self):
         policynames.save("GPU-A", {9: {"name": "was here", "channel": 5, "type": 4}}, root=self.root)

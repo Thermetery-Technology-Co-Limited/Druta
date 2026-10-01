@@ -1871,18 +1871,39 @@ class Druta:
                                default_value=note if choice == policynames.OTHER else "",
                                show=choice == policynames.OTHER, callback=typed(policy))
 
+    def policy_card_key(self, gpu=None):
+        """Whose session power-policy state this is: the card's UUID, or its
+        PCI slot when it reports none. A slot is good for this session only,
+        so nothing keyed by it is written to disk."""
+        gpu = gpu or self.gpu
+        uuid = (getattr(gpu, "static", None) or {}).get("uuid")
+        if uuid:
+            return uuid
+        try:
+            slot = gpu.slot()
+        except Exception:                                               # noqa: BLE001
+            slot = ""
+        return f"slot:{slot}" if slot else None
+
     def build_power_policy_section(self):
         self.save_power_policy_names(force=True)        # a rebuild must not drop a note
+        prior_card = getattr(self, "_policy_names_card", None)
+        prior_names = dict(getattr(self, "_policy_names", None) or {})
         self._power_policies = {}
         self._policy_synced = {}
         self._policy_names_dirty = None
-        self._policy_names_uuid = self.gpu.static.get("uuid")
+        uuid = self.gpu.static.get("uuid")
+        self._policy_names_uuid = uuid
+        self._policy_names_card = self.policy_card_key()
         try:
             rows, error = self.gpu.read_power_policies()
         except Exception as exc:                                        # noqa: BLE001
             rows, error = [], str(exc)
-        self._policy_names = (policynames.matching(policynames.load(self.gpu.static.get("uuid")), rows)
-                              if rows else {})
+        # a card with no UUID has nothing on disk: the same card rebuilt keeps
+        # the notes typed this session
+        stored = (policynames.load(uuid) if uuid else
+                  prior_names if prior_card and prior_card == self._policy_names_card else {})
+        self._policy_names = policynames.matching(stored, rows) if rows else {}
         self.gpu.power_policy_names = dict(self._policy_names)
         if error:
             dpg.add_text(f"Power policies unavailable: {error}", color=DIM, wrap=self.s(900))
@@ -1966,7 +1987,8 @@ class Druta:
         for _step, ok, message in steps:
             self.log(f"max all: {message}", ok)
         top = self.gpu.static.get("pl_max_mw")
-        if top and any(step == "power limit" and ok for step, ok, _ in steps):
+        if (not self.sync_power_slider_from_card() and top
+                and any(step == "power limit" and ok for step, ok, _ in steps)):
             for tag in ("sl_pl", "in_pl"):
                 if dpg.does_item_exist(tag):
                     dpg.set_value(tag, top / 1000)
@@ -2029,12 +2051,12 @@ class Druta:
         card's notes while they are still attributed to it."""
         self.save_power_policy_names(force=True)
         pins_by_card = getattr(self, "_pins_by_card", None) or {}
-        leaving = self.gpu.static.get("uuid")
+        leaving = self.policy_card_key()
         if leaving:
             pins_by_card[leaving] = dict(getattr(self.gpu, "_power_policy_pins", None) or {})
         self._pins_by_card = pins_by_card
-        arriving = fresh.static.get("uuid")
-        if pins_by_card.get(arriving):
+        arriving = self.policy_card_key(fresh)
+        if arriving and pins_by_card.get(arriving):
             fresh._power_policy_pins = dict(pins_by_card[arriving])
 
     def save_power_policy_names(self, force=False):
@@ -2046,6 +2068,13 @@ class Druta:
         ok, message = policynames.save(uuid, self._policy_names,
                                        rows=list(getattr(self, "_power_policies", {}).values()))
         if not ok:
+            if not uuid:
+                # said once per card, not on every pause in typing
+                card = self.policy_card_key()
+                if getattr(self, "_policy_no_uuid_said", None) == card:
+                    return
+                self._policy_no_uuid_said = card
+                message += "; the notes are kept for this session only"
             self.log(message, False)
 
     def apply_profile_policy_names(self, state):
@@ -2092,7 +2121,11 @@ class Druta:
             if dpg.does_item_exist(f"live_{key}"):
                 if row:
                     amount = lambda v: GPU._policy_amount(v, row["unit"])   # noqa: E731
-                    mark = " *" if row["pinned"] is not None else ""
+                    # only while the card still holds it: another tool's
+                    # board-limit write recomputes it, and only Druta's own
+                    # writes put it back
+                    held = row["pinned"] is not None and row.get("requested") == row["pinned"]
+                    mark = " *" if held else ""
                     if scale:
                         divisor, bands, per = scale
                         now_a, limit_a = row["value"] / 1000 / divisor, row["limit"] / 1000 / divisor
@@ -2102,7 +2135,7 @@ class Druta:
                         colour = band_colour(now_a, bands)
                     else:
                         text = f"{amount(row['value'])}\n≤{amount(row['limit'])}{mark}"
-                        colour = GOOD if row["pinned"] is not None else TEXT
+                        colour = GOOD if held else TEXT
                 else:
                     text, colour = "unavailable", DIM
                 dpg.set_value(f"live_{key}", text)
@@ -4297,6 +4330,22 @@ class Druta:
             self.refresh_current_limits(sync=True)
             self.refresh_power_policies(force=True)
 
+    def sync_power_slider_from_card(self):
+        """Show the board limit the card is configured with, whatever a write's
+        verdict: the NVML write can take while re-applying the values set by
+        hand after it fails, and the slider must not keep the old value then.
+        Returns the configured mW, or None when it cannot be read."""
+        try:
+            got = self.gpu.read_power_limit_mw()
+        except Exception:                                               # noqa: BLE001
+            got = None
+        if not got:
+            return None
+        for tag in ("sl_pl", "in_pl"):
+            if dpg.does_item_exist(tag):
+                dpg.set_value(tag, got / 1000)
+        return got
+
     def apply_volt(self, v):
         if self.guard():
             self.report(self.gpu.set_voltage_boost(int(v)))
@@ -4449,6 +4498,8 @@ class Druta:
             step(f"power limit {pl_max / 1000:g} W",
                  lambda: self.gpu.set_power_limit_mw(pl_max),
                  "sl_pl", pl_max / 1000)
+            if self.sync_power_slider_from_card():  # took, even if a re-apply after it failed
+                self.sync_knob_boxes()
             self.refresh_current_limits(sync=True)
             self.refresh_power_policies(force=True)
         else:
@@ -5864,6 +5915,7 @@ class Druta:
         """True while a text/number box has focus, so W/A/S/D typed into an
         input box never also retunes the curve."""
         boxes = [f"name_pp{p}" for p in getattr(self, "_power_policies", None) or {}]
+        boxes += [f"in_{key}" for key in getattr(self, "_slider_ranges", None) or {}]
         return any(dpg.does_item_exist(t)
                    and (dpg.is_item_focused(t) or dpg.is_item_active(t))
                    for t in ("vcap", "vf_idx", "vf_set", "lock_min", "lock_max",
