@@ -176,27 +176,75 @@ structural timing field or inferred register was used.
 Timing reads and preview worked on these configurations. Persistent timing
 adjustment was not demonstrated and is not represented as successful.
 
-## Scope and restoration
+## uP9512R I2C discovery and verification
 
-The production read-only I2C discovery sweep completed all 2736
-route/controller probes on each driver with no recognized candidates.
-This establishes no supported I2C controller for those sweeps, not the
-absence of every device or route. No I2C writes were attempted.
+The original production read-only I2C sweeps completed 2736 route/controller
+probes on each driver with no recognized candidates. Those sweeps predated
+the uP9512R adapter and did not test that controller's identification recipe.
+No I2C writes were attempted during those original sweeps.
+
+After adding the [uP9512R adapter](i2c/UP9512R.md), production discovery with
+that controller selected completed **896/896** probes on **each driver**.
+Both found one candidate: NVAPI port **2**, seven-bit address **0x25**,
+vendor/device IDs **0x00/0x2B**. Entry control bytes at
+`0x0A/0x0B/0x0C/0x2A` were `00/00/00/20`, meaning all five offset fields
+were zero and disabled. Read-only register `0x39` was `0x94`. Idle controller
+FB was 930-940 mV and IMON was 110 mV. These are controller ADC voltages,
+not calibrated rail-voltage or current measurements. The route and readings
+are observations on this board, not discovery gates or universal references.
+
+At held P0 operating points, production Verify failed on the first +10 mV
+rung on **both drivers**. Its first byte write, `0x0A = 0x11`, returned
+**NVAPI -1**, byte count 1, with both extra 32-bit words zero. All four entry
+control bytes, the SMBus lock value and the temporary GPU holds were confirmed
+restored. A separate 617.42 same-value write, `0x0A = 0x00`, at explicit
+100 kHz also returned -1 and left the controls unchanged. The failure's cause
+was not established; an unlocked register value alone did not make these
+NVAPI writes succeed. Druta never wrote the SMBus lock.
+
+An independent documented RM SMBus-byte operation at 100 kHz also read the
+IDs, all control bytes and lock successfully on both drivers, using the native
+I2C object matched to the selected GPU. Its same-value `0x0A = 0x00` write
+returned **`0x16` (`NV_ERR_ILLEGAL_ACTION`)** on both. Independent readback
+confirmed the controller state was unchanged. The internal refusal reason
+remains unknown; this diagnostic transport is not shipped as a fallback.
+
+On 617.42, an earlier loaded point reporting GPU VID 1195 mV was refused by
+the 1200 mV controller-FB guard before any write. The subsequent verification
+attempt used a 1000 mV GPU hold. VID and FB are separate telemetry channels.
+No successful physical offset response was demonstrated. Common Apply,
+I2C profile replay and Reset were therefore **not exercised on hardware**;
+their transport, profile and UI behavior has mocked regression coverage.
+
+## Scope and restoration
 
 Every ordinary-control step restored its captured entry state. Every private
 clock, NVVDD, rail and current probe passed its restoration check, including
 complete clock/lock packet comparisons where applicable. Exploratory clock
 probes also restored state when requests had no effect or failed readback.
 
+During the later uP9512R validation, switching to 581.42 reported installer
+success with no reboot required, followed by an unexpected PC shutdown.
+Windows recorded Event 6008; crash dumps and crash logging were disabled,
+so the cause was not established. A second switch to 581.42, with tests and
+the Druta UI closed, was interrupted by another unexpected shutdown before
+the installer return was captured. After reboot, 581.42 was active and the
+controller bytes were unchanged. Both returns to 617.42 completed successfully
+without a reboot. The original GPU profile's raw requests and holds were
+restored. Its estimated minimum-voltage first-read reference changed from
+925 to 920 mV despite the identical raw zero-delta request, so the derived
+absolute profile values were not byte-for-byte equal across sessions. No
+voltage offset was left applied.
+
 Stored requests, programmed values and physical effects are distinct. These
 captures do not establish performance improvements, long-term stability,
-memory integrity, other operating points, I2C control support or final UI
+memory integrity, other operating points, successful I2C adjustment or final UI
 callback behavior. The bounded CUDA copy workload exercised
 bandwidth; it was not a memory-integrity checker.
 
-The hardware-free regression run passed **1570 tests**, including the
-synthetic DearPyGui renderer checks. A further **97 scoped tests** passed after
-the GPU-Z label update. After restoring the stripped Windows capture components,
+The final hardware-free regression run after the uP9512R changes passed
+**1649 tests**, including the synthetic DearPyGui renderer checks, following
+the return to 617.42. After restoring the stripped Windows capture components,
 native desktop inspection on 617.42 confirmed the control and monitor views and
 the Clocks menu's enabled "Keep headroom above a held point (strongly recommended)"
 option, with a 25 mV margin. This was visual inspection; complete desktop UI

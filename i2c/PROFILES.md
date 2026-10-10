@@ -3,7 +3,8 @@
 Read [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution workflow. This
 reference describes the current interfaces in [railctl.py](../src/druta/railctl.py),
 [mp2888.py](../src/druta/controllers/mp2888.py), [mp29816.py](../src/druta/mp29816.py),
-and [ncp4206.py](../src/druta/controllers/ncp4206.py).
+[ncp4206.py](../src/druta/controllers/ncp4206.py), and
+[up9512r.py](../src/druta/controllers/up9512r.py).
 
 An I2C recipe is TOML register data. A controller adapter supplies behavior that
 cannot be represented by the generic signed-offset writer. A saved **tuning
@@ -23,6 +24,7 @@ See [MP29816 measurements and scope](MP29816-ASTRAL.md).
 | Path | Discovery | Write behavior |
 |---|---|---|
 | NCP4206 | Ports 0–7, unicast addresses `0x08`–`0x77`, `0x20` first; known read-only model ID plus VOUT_MODE, with the observed revision pinned to the instance; no generation/PCI/revision allowlist | Absolute VID and ordered command/mode changes; Auto restores GPU VID control |
+| uP9512R | Ports 0–7, unicast addresses `0x08`–`0x77`, `0x25` first; repeated read-only vendor/device IDs; no board or driver filter | Common positive 10 mV offset across five load states; preserve other fields; locked controllers remain read-only; [register evidence and limits](UP9512R.md) |
 | MP2888A | Ports 0–7, addresses `0x08`–`0x77`, `0x20` first; repeated register/telemetry fingerprint; no PCI/subsystem filter | Adapter binds the TOML offset recipe to the discovered location and rechecks its fingerprint |
 | MP29816 | Ports 0–7, unicast addresses, `0x30` first; source-backed count-prefixed `0xAD` model ID; already-selected PAGE 0 or 1 and runtime scale | Both pages have the sourced signed-byte offset in 5 mV mode; other documented scales provide telemetry only |
 | Other TOML recipes | Optional PCI constraints, one configured port and configured address(es), then all identity checks | One signed `offset_mv` field through the generic guarded writer |
@@ -37,7 +39,7 @@ is a unique model ID or proof of which rail the controller drives.
 The MP scanners are dispatched for recipes whose `profile.regulator`, compared
 case-insensitively, is `MPS MP2888A` or `MPS MP29816`. This is recipe routing,
 not evidence of device identity. Do not give another part that name to bypass its discovery
-checks. NCP4206 uses its built-in adapter rather than a TOML offset recipe.
+checks. NCP4206 and uP9512R use built-in adapters rather than TOML offset recipes.
 
 Scanning labels physical rails as unassigned: identifying a controller or PAGE
 does not establish that its output is NVVDD. Historical recipe names and rail
@@ -79,11 +81,14 @@ and checks restoration of the exact
 original register word. Refused restoration, exceptions or incorrect readback
 force failure. A detecting step is not a calibrated gain or exact deadband.
 NCP4206 has its own voltage-target ladder and command/mode restoration.
+uP9512R has a feedback-ADC staircase and exact five-state/enable restoration;
+its tuning profiles retain mixed offsets and the enable state. Its FB/IMON
+readings are in mV, with no board gain or current calibration inferred.
 
 Apply requires a valid verification bound to the current GPU, controller object,
 port/address and recipe. Card/controller changes, rescans and observed connection
 loss invalidate that result. Stock/reset cannot make a first write to an
-untouched MP candidate. Recovery remains available on the same connection after
+untouched MP candidate or uP9512R. Recovery remains available on the same connection after
 a verification write/restoration attempt; load setup failure alone grants no
 writes. Stock sets the offset to zero, whereas Verify restores its entry offset,
 which may be nonzero. NCP4206 Auto returns voltage control to GPU VID.
@@ -153,7 +158,7 @@ pci_subsys = ["0x12A310DE"]
 These optional filters apply to ordinary TOML recipes. Each nonempty filter requires the selected GPU's known ID to occur in its
 list before that recipe probes the bus. Omitting
 both removes only this prefilter, not the identity checks. Built-in NCP4206,
-MP2888A and MP29816 discovery bypass board-ID matching; the historical MP IDs record the
+uP9512R, MP2888A and MP29816 discovery bypass board-ID matching; the historical MP IDs record the
 authoring board, not an eligibility restriction.
 
 ### `[bus]`

@@ -67,10 +67,26 @@
       "reason": "No named GPU-Z L2/LTC row. Control 9 to domain 5 routing is established, but routing and elimination among named rows do not independently establish the LTC engine identity."
     },
     "additional_unnamed_domains": [
-      {"private_domain": 3, "druta_a_mhz": 810.0, "druta_b_mhz": 810.0},
-      {"private_domain": 6, "druta_a_mhz": 1350.0, "druta_b_mhz": 1350.0},
-      {"private_domain": 20, "druta_a_mhz": 540.0, "druta_b_mhz": 540.0},
-      {"private_domain": 22, "druta_a_mhz": 108.0, "druta_b_mhz": 108.0}
+      {
+        "private_domain": 3,
+        "druta_a_mhz": 810.0,
+        "druta_b_mhz": 810.0
+      },
+      {
+        "private_domain": 6,
+        "druta_a_mhz": 1350.0,
+        "druta_b_mhz": 1350.0
+      },
+      {
+        "private_domain": 20,
+        "druta_a_mhz": 540.0,
+        "druta_b_mhz": 540.0
+      },
+      {
+        "private_domain": 22,
+        "druta_a_mhz": 108.0,
+        "druta_b_mhz": 108.0
+      }
     ],
     "interpretation": "Combined with the restored control-to-domain probes, these named GPU-Z frequencies corroborate Crossbar, SYS and Video labels. This does not validate the separate private clock-measurement API or establish either GetAllClocks array as an independent physical counter on Ada. Earlier per-run labels are preserved as historical evidence."
   },
@@ -1202,5 +1218,690 @@
     "ada-read-617.42.json": "6ae575af24c94b4f7d0e05723bc313b47cdfb23bdb99ab763520b9bdfb93e269",
     "ada-timing-581.42.json": "1a28339fb9e7d0ab4c20bf519d1c53d44ec173359f64dc07db89d809b39fff64",
     "ada-timing-617.42.json": "608ee398f2be83a8c2e6837397d5c0c8a057987f6d41c2313fd24967f1849b64"
+  },
+  "up9512r_support": {
+    "date": "2026-10-07",
+    "controller": "uPI uP9512R",
+    "datasheet": {
+      "document": "uP9512R-DS-F0000, November 2018",
+      "url": "https://uploadcdn.oneyac.com/upload/document/1754981236304_9415.pdf",
+      "sha256": "681ac5e3e3a76f598ea6fcba06fd80b34a07830b3ddfad6349f11172c7b7b1b2"
+    },
+    "scope": "One user-described Manli RTX 4080 SUPER. Route/IDs establish the controller, not calibrated rail topology or successful voltage control.",
+    "implementation": [
+      "Manual ID-based discovery without board/driver gates",
+      "FB/IMON input-voltage telemetry",
+      "Five unsigned 10 mV offset fields and enable state",
+      "Compound profile capture/replay, exact readback/rollback, per-session measured verification"
+    ],
+    "hardware_trials": [
+      {
+        "driver": "617.42",
+        "timestamp_utc": "2026-10-07T16:05:31.474226+00:00",
+        "discovery": {
+          "progress_end": [
+            896,
+            896,
+            "uP9512R port 7, 0x77"
+          ],
+          "hits": [
+            {
+              "port": 2,
+              "addr7": 37,
+              "telemetry": {
+                "control": {
+                  "kind": "up9512r-offset-v1",
+                  "offsets_mv": [
+                    0,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "enabled": false
+                },
+                "offsets_mv": [
+                  0,
+                  0,
+                  0,
+                  0,
+                  0
+                ],
+                "offset_mv": 0,
+                "offset_enabled": false,
+                "write_locked": false,
+                "vout_mv": 930,
+                "imon_mv": 110
+              }
+            }
+          ]
+        },
+        "entry_registers": [
+          0,
+          0,
+          0,
+          32
+        ],
+        "entry_smbus_lock": 148,
+        "warmup_voltage_mv": 1195.0,
+        "verification": [
+          false,
+          "uP9512R INCONCLUSIVE - verification write refused: uP9512R 0x0A write failed or outcome uncertain; exact entry control restored; complete original control restored",
+          [
+            {
+              "offset_increment_mv": 10,
+              "baseline_mv": 1010,
+              "baseline_samples_mv": [
+                1010,
+                1010,
+                1010,
+                1020,
+                1010,
+                1010,
+                1010,
+                1010,
+                1010,
+                1010,
+                1010,
+                1010,
+                1010,
+                1010,
+                1010,
+                1010,
+                1010,
+                1010,
+                1010,
+                1010,
+                1010,
+                1010,
+                1020,
+                1010,
+                1010
+              ],
+              "trial_control": {
+                "kind": "up9512r-offset-v1",
+                "offsets_mv": [
+                  10,
+                  10,
+                  10,
+                  10,
+                  10
+                ],
+                "enabled": true
+              },
+              "voltage_ceiling_mv": 1200,
+              "moved": false
+            }
+          ]
+        ],
+        "writes": [
+          {
+            "reg": "0x0A",
+            "value": 17,
+            "ok": false
+          }
+        ],
+        "write_transport": [
+          {
+            "status": -1,
+            "returned_size": 1,
+            "extra": [
+              0,
+              0
+            ]
+          }
+        ],
+        "write_verified": false,
+        "restoration": {
+          "final_registers": [
+            0,
+            0,
+            0,
+            32
+          ],
+          "control_exact": true,
+          "lock_unchanged": true,
+          "vf_lock_exact": true,
+          "clock_lock_exact": true
+        },
+        "apply_reset_profile_replay_on_hardware": "Not attempted after verification failed.",
+        "loaded_point_refusal": [
+          false,
+          "uP9512R INCONCLUSIVE - uP9512R FB ADC unavailable or exceeded verification ceiling; nothing written",
+          []
+        ],
+        "verification_voltage_mv": 1000
+      },
+      {
+        "driver": "581.42",
+        "timestamp_utc": "2026-10-07T16:10:22.762770+00:00",
+        "discovery": {
+          "progress_end": [
+            896,
+            896,
+            "uP9512R port 7, 0x77"
+          ],
+          "hits": [
+            {
+              "port": 2,
+              "addr7": 37,
+              "telemetry": {
+                "control": {
+                  "kind": "up9512r-offset-v1",
+                  "offsets_mv": [
+                    0,
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "enabled": false
+                },
+                "offsets_mv": [
+                  0,
+                  0,
+                  0,
+                  0,
+                  0
+                ],
+                "offset_mv": 0,
+                "offset_enabled": false,
+                "write_locked": false,
+                "vout_mv": 940,
+                "imon_mv": 110
+              }
+            }
+          ]
+        },
+        "entry_registers": [
+          0,
+          0,
+          0,
+          32
+        ],
+        "entry_smbus_lock": 148,
+        "warmup_voltage_mv": 1075.0,
+        "verification": [
+          false,
+          "uP9512R INCONCLUSIVE - verification write refused: uP9512R 0x0A write failed or outcome uncertain; exact entry control restored; complete original control restored",
+          [
+            {
+              "offset_increment_mv": 10,
+              "baseline_mv": 1080,
+              "baseline_samples_mv": [
+                1080,
+                1080,
+                1080,
+                1080,
+                1080,
+                1080,
+                1080,
+                1080,
+                1080,
+                1080,
+                1080,
+                1080,
+                1080,
+                1080,
+                1080,
+                1080,
+                1080,
+                1080,
+                1080,
+                1080,
+                1080,
+                1080,
+                1080,
+                1080,
+                1080
+              ],
+              "trial_control": {
+                "kind": "up9512r-offset-v1",
+                "offsets_mv": [
+                  10,
+                  10,
+                  10,
+                  10,
+                  10
+                ],
+                "enabled": true
+              },
+              "voltage_ceiling_mv": 1200,
+              "moved": false
+            }
+          ]
+        ],
+        "writes": [
+          {
+            "reg": "0x0A",
+            "value": 17,
+            "ok": false
+          }
+        ],
+        "write_transport": [
+          {
+            "status": -1,
+            "returned_size": 1,
+            "extra": [
+              0,
+              0
+            ]
+          }
+        ],
+        "write_verified": false,
+        "restoration": {
+          "final_registers": [
+            0,
+            0,
+            0,
+            32
+          ],
+          "control_exact": true,
+          "lock_unchanged": true,
+          "vf_lock_exact": true,
+          "clock_lock_exact": true
+        },
+        "apply_reset_profile_replay_on_hardware": "Not attempted after verification failed."
+      }
+    ],
+    "explicit_100khz_samevalue": {
+      "driver": "617.42",
+      "port": 2,
+      "addr7": 37,
+      "speed_enum": 4,
+      "speed_khz": 100,
+      "register": 10,
+      "value": 0,
+      "status": -1,
+      "cbSize": 1,
+      "extra": [
+        0,
+        0
+      ],
+      "before": [
+        0,
+        0,
+        0,
+        32
+      ],
+      "after": [
+        0,
+        0,
+        0,
+        32
+      ],
+      "exact": true,
+      "smbus_lock": 148
+    },
+    "alternate_rm_smbus_byte_trials": [
+      {
+        "driver": "617.42",
+        "route": {
+          "port": 2,
+          "addr7": 37
+        },
+        "native_object_matched_selected_gpu": true,
+        "before": [
+          0,
+          0,
+          0,
+          32
+        ],
+        "command": "0x402c0105",
+        "type": "SMBUS_BYTE_RW",
+        "speed_khz": 100,
+        "calls": [
+          {
+            "reg": "0x27",
+            "writing": false,
+            "requested": null,
+            "returned": 0,
+            "ntstatus": 0,
+            "rm_status": 0,
+            "rm_status_hex": "0x00000000"
+          },
+          {
+            "reg": "0x28",
+            "writing": false,
+            "requested": null,
+            "returned": 43,
+            "ntstatus": 0,
+            "rm_status": 0,
+            "rm_status_hex": "0x00000000"
+          },
+          {
+            "reg": "0x27",
+            "writing": false,
+            "requested": null,
+            "returned": 0,
+            "ntstatus": 0,
+            "rm_status": 0,
+            "rm_status_hex": "0x00000000"
+          },
+          {
+            "reg": "0x28",
+            "writing": false,
+            "requested": null,
+            "returned": 43,
+            "ntstatus": 0,
+            "rm_status": 0,
+            "rm_status_hex": "0x00000000"
+          },
+          {
+            "reg": "0x0A",
+            "writing": false,
+            "requested": null,
+            "returned": 0,
+            "ntstatus": 0,
+            "rm_status": 0,
+            "rm_status_hex": "0x00000000"
+          },
+          {
+            "reg": "0x0B",
+            "writing": false,
+            "requested": null,
+            "returned": 0,
+            "ntstatus": 0,
+            "rm_status": 0,
+            "rm_status_hex": "0x00000000"
+          },
+          {
+            "reg": "0x0C",
+            "writing": false,
+            "requested": null,
+            "returned": 0,
+            "ntstatus": 0,
+            "rm_status": 0,
+            "rm_status_hex": "0x00000000"
+          },
+          {
+            "reg": "0x2A",
+            "writing": false,
+            "requested": null,
+            "returned": 32,
+            "ntstatus": 0,
+            "rm_status": 0,
+            "rm_status_hex": "0x00000000"
+          },
+          {
+            "reg": "0x39",
+            "writing": false,
+            "requested": null,
+            "returned": 148,
+            "ntstatus": 0,
+            "rm_status": 0,
+            "rm_status_hex": "0x00000000"
+          },
+          {
+            "reg": "0x0A",
+            "writing": true,
+            "requested": 0,
+            "returned": 0,
+            "ntstatus": 0,
+            "rm_status": 22,
+            "rm_status_hex": "0x00000016"
+          },
+          {
+            "reg": "0x0A",
+            "writing": false,
+            "requested": null,
+            "returned": 0,
+            "ntstatus": 0,
+            "rm_status": 0,
+            "rm_status_hex": "0x00000000"
+          },
+          {
+            "reg": "0x0B",
+            "writing": false,
+            "requested": null,
+            "returned": 0,
+            "ntstatus": 0,
+            "rm_status": 0,
+            "rm_status_hex": "0x00000000"
+          },
+          {
+            "reg": "0x0C",
+            "writing": false,
+            "requested": null,
+            "returned": 0,
+            "ntstatus": 0,
+            "rm_status": 0,
+            "rm_status_hex": "0x00000000"
+          },
+          {
+            "reg": "0x2A",
+            "writing": false,
+            "requested": null,
+            "returned": 32,
+            "ntstatus": 0,
+            "rm_status": 0,
+            "rm_status_hex": "0x00000000"
+          }
+        ],
+        "same_value_write_accepted": false,
+        "rm_after": [
+          0,
+          0,
+          0,
+          32
+        ],
+        "nvapi_after": [
+          0,
+          0,
+          0,
+          32
+        ],
+        "lock_after": 148,
+        "exact": true,
+        "unload_status": 0
+      },
+      {
+        "driver": "581.42",
+        "route": {
+          "port": 2,
+          "addr7": 37
+        },
+        "native_object_matched_selected_gpu": true,
+        "before": [
+          0,
+          0,
+          0,
+          32
+        ],
+        "command": "0x402c0105",
+        "type": "SMBUS_BYTE_RW",
+        "speed_khz": 100,
+        "calls": [
+          {
+            "reg": "0x27",
+            "writing": false,
+            "requested": null,
+            "returned": 0,
+            "ntstatus": 0,
+            "rm_status": 0,
+            "rm_status_hex": "0x00000000"
+          },
+          {
+            "reg": "0x28",
+            "writing": false,
+            "requested": null,
+            "returned": 43,
+            "ntstatus": 0,
+            "rm_status": 0,
+            "rm_status_hex": "0x00000000"
+          },
+          {
+            "reg": "0x27",
+            "writing": false,
+            "requested": null,
+            "returned": 0,
+            "ntstatus": 0,
+            "rm_status": 0,
+            "rm_status_hex": "0x00000000"
+          },
+          {
+            "reg": "0x28",
+            "writing": false,
+            "requested": null,
+            "returned": 43,
+            "ntstatus": 0,
+            "rm_status": 0,
+            "rm_status_hex": "0x00000000"
+          },
+          {
+            "reg": "0x0A",
+            "writing": false,
+            "requested": null,
+            "returned": 0,
+            "ntstatus": 0,
+            "rm_status": 0,
+            "rm_status_hex": "0x00000000"
+          },
+          {
+            "reg": "0x0B",
+            "writing": false,
+            "requested": null,
+            "returned": 0,
+            "ntstatus": 0,
+            "rm_status": 0,
+            "rm_status_hex": "0x00000000"
+          },
+          {
+            "reg": "0x0C",
+            "writing": false,
+            "requested": null,
+            "returned": 0,
+            "ntstatus": 0,
+            "rm_status": 0,
+            "rm_status_hex": "0x00000000"
+          },
+          {
+            "reg": "0x2A",
+            "writing": false,
+            "requested": null,
+            "returned": 32,
+            "ntstatus": 0,
+            "rm_status": 0,
+            "rm_status_hex": "0x00000000"
+          },
+          {
+            "reg": "0x39",
+            "writing": false,
+            "requested": null,
+            "returned": 148,
+            "ntstatus": 0,
+            "rm_status": 0,
+            "rm_status_hex": "0x00000000"
+          },
+          {
+            "reg": "0x0A",
+            "writing": true,
+            "requested": 0,
+            "returned": 0,
+            "ntstatus": 0,
+            "rm_status": 22,
+            "rm_status_hex": "0x00000016"
+          },
+          {
+            "reg": "0x0A",
+            "writing": false,
+            "requested": null,
+            "returned": 0,
+            "ntstatus": 0,
+            "rm_status": 0,
+            "rm_status_hex": "0x00000000"
+          },
+          {
+            "reg": "0x0B",
+            "writing": false,
+            "requested": null,
+            "returned": 0,
+            "ntstatus": 0,
+            "rm_status": 0,
+            "rm_status_hex": "0x00000000"
+          },
+          {
+            "reg": "0x0C",
+            "writing": false,
+            "requested": null,
+            "returned": 0,
+            "ntstatus": 0,
+            "rm_status": 0,
+            "rm_status_hex": "0x00000000"
+          },
+          {
+            "reg": "0x2A",
+            "writing": false,
+            "requested": null,
+            "returned": 32,
+            "ntstatus": 0,
+            "rm_status": 0,
+            "rm_status_hex": "0x00000000"
+          }
+        ],
+        "same_value_write_accepted": false,
+        "rm_after": [
+          0,
+          0,
+          0,
+          32
+        ],
+        "nvapi_after": [
+          0,
+          0,
+          0,
+          32
+        ],
+        "lock_after": 148,
+        "exact": true,
+        "unload_status": 0
+      }
+    ],
+    "regression_tests": {
+      "total": 1649,
+      "passed": 1649,
+      "renderer_checks_included": true
+    },
+    "driver_switch": {
+      "to_581_installer_success": true,
+      "to_581_reboot_requested": false,
+      "unexpected_shutdown_followed": true,
+      "event_evidence": "Windows EventLog 6008; driver install log completed successfully at 09:06:23 local, boot at 09:07:11.",
+      "cause": "Undetermined; crash dumps and bugcheck event logging were disabled.",
+      "return_to_617_success": true,
+      "return_to_617_reboot": false,
+      "second_to_581": {
+        "installer_return_captured": false,
+        "unexpected_shutdown_followed": true,
+        "driver_after_boot": "581.42",
+        "boot_local": "09:28:40",
+        "event_evidence": "Windows EventLog 6008; reported previous shutdown at 09:27:19 local.",
+        "tests_and_gui_closed": true
+      },
+      "second_return_to_617_success": true,
+      "second_return_to_617_reboot": false
+    },
+    "final_restoration": {
+      "driver": "617.42",
+      "captured_gpu_requests_exact": true,
+      "controller_bytes_exact": true,
+      "smbus_lock_unchanged": true,
+      "vf_and_clock_locks": "No lock before or after",
+      "estimated_floor_reference_mv_before_after": [
+        925,
+        920
+      ],
+      "stored_floor_delta_uv_before_after": [
+        0,
+        0
+      ]
+    },
+    "limitations": [
+      "Both tested drivers reject the first offset-byte write with NVAPI -1. The tested write path remains unverified; Apply remains gated.",
+      "Explicit 100 kHz did not enable the same-value write on 617.42.",
+      "An independent documented RM SMBus byte transaction read both IDs and all controls on both drivers, but rejected the same-value write with 0x16 (NV_ERR_ILLEGAL_ACTION). The internal refusal reason remains unknown.",
+      "No SMBus unlock, NVM commit, protection or frequency register writes were attempted.",
+      "Hardware Apply, Reset and compound profile replay were not exercised because verification failed; these paths have mocked fault/rollback coverage."
+    ]
   }
 }

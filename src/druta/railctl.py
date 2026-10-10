@@ -1022,7 +1022,7 @@ class Rail:
 
 def controller_names(log=None):
     """Controller families offered for an explicit, read-only scoped scan."""
-    names = ["Nuvoton NCT3933U", "NCP4206"]
+    names = ["Nuvoton NCT3933U", "NCP4206", "uPI uP9512R"]
     for profile in load_profiles(log=log):
         if profile.regulator not in names:
             names.append(profile.regulator)
@@ -1058,7 +1058,7 @@ def discover(nvapi, dev_id=None, subsys=None, log=None, *, architecture=None,
              progress=None, cancelled=None, controller=None, routes=None):
     """Read-only candidate discovery on the selected GPU's actual I2C buses.
 
-    NCT3933U, NCP4206, MP2888A and MP29816 use controller evidence, without board-ID gates.
+    NCT3933U, NCP4206, uP9512R, MP2888A and MP29816 use controller evidence, without board-ID gates.
     Other TOML recipes retain their explicit board constraints. Return every
     candidate: a caller must never silently resolve an ambiguous bus map.
     """
@@ -1066,6 +1066,9 @@ def discover(nvapi, dev_id=None, subsys=None, log=None, *, architecture=None,
     from .controllers.nct3933 import (DISCOVERY_PORTS as NCT3933_PORTS,
                                      DISCOVERY_ADDRESSES as NCT3933_ADDRESSES,
                                      NCT3933U)
+    from .controllers.up9512r import (DISCOVERY_PORTS as UP9512R_PORTS,
+                                     DISCOVERY_ADDRESSES as UP9512R_ADDRESSES,
+                                     UP9512R)
     from .controllers.mp2888 import (DISCOVERY_ADDRESSES as MP2888_ADDRESSES,
                                      DISCOVERY_PORTS as MP2888_PORTS,
                                      discover as discover_mp2888)
@@ -1076,7 +1079,7 @@ def discover(nvapi, dev_id=None, subsys=None, log=None, *, architecture=None,
     cooperative = progress is not None or cancelled is not None
     cancelled = cancelled or (lambda: False)
     profiles = load_profiles(log=log)
-    names = ["Nuvoton NCT3933U", "NCP4206"]
+    names = ["Nuvoton NCT3933U", "NCP4206", "uPI uP9512R"]
     for p in profiles:
         if p.regulator not in names:
             names.append(p.regulator)
@@ -1084,12 +1087,15 @@ def discover(nvapi, dev_id=None, subsys=None, log=None, *, architecture=None,
         raise ValueError("unknown I2C controller scan scope")
     nct_routes = _route_pairs(NCT3933_ADDRESSES, NCT3933_PORTS, selected_routes)
     ncp_routes = _route_pairs(DISCOVERY_ADDRESSES, DISCOVERY_PORTS, selected_routes)
+    up9512r_routes = _route_pairs(UP9512R_ADDRESSES, UP9512R_PORTS, selected_routes)
     mp2888_routes = _route_pairs(MP2888_ADDRESSES, MP2888_PORTS, selected_routes)
     mp29816_routes = _route_pairs(MP29816_ADDRESSES, MP29816_PORTS, selected_routes)
     if controller != "Nuvoton NCT3933U" and controller is not None:
         nct_routes = []
     if controller != "NCP4206" and controller is not None:
         ncp_routes = []
+    if controller != "uPI uP9512R" and controller is not None:
+        up9512r_routes = []
     selected = getattr(nvapi, "selected", None) or {}
     conflict = any(supplied is not None and selected.get(key) is not None
                    and supplied != selected[key]
@@ -1098,7 +1104,7 @@ def discover(nvapi, dev_id=None, subsys=None, log=None, *, architecture=None,
         dev_id = selected.get("devid")
     if subsys is None:
         subsys = selected.get("subsys")
-    total = (len(ncp_routes) + len(nct_routes)
+    total = (len(ncp_routes) + len(nct_routes) + len(up9512r_routes)
              if getattr(nvapi, "ok", False) else 0)
     eligible = {}
     for p in profiles:
@@ -1151,6 +1157,17 @@ def discover(nvapi, dev_id=None, subsys=None, log=None, *, architecture=None,
             except Exception:
                 pass
             advance(f"NCP4206 port {port}, 0x{addr7:02X}")
+        for port, addr7 in up9512r_routes:
+            if cancelled():
+                return hits
+            try:
+                controller_rail = UP9512R(nvapi, port=port, addr7=addr7)
+                if controller_rail.present():
+                    controller_rail.discovery_telemetry = controller_rail.telemetry()
+                    hits.append(controller_rail)
+            except Exception:
+                pass
+            advance(f"uP9512R port {port}, 0x{addr7:02X}")
     for p in profiles:
         if cancelled():
             return hits

@@ -52,6 +52,7 @@ KEEP_AUTOSAVES = 20
 # the snapshot into the log line the user actually sees.
 INCOMPLETE_KEY = "incomplete"
 CURRENT_DAC_FORMAT = "i2c.current_dac_control"
+MULTI_STATE_OFFSET_FORMAT = "i2c.multi_state_offset"
 # A power-policy name is the note the user gives a channel beside its slider.
 POLICY_NAME_MAX = 80
 
@@ -411,6 +412,10 @@ def capture_rails(gpu, state, rail):
                 state["i2c"] = dict(rail_identity(rail), format=CURRENT_DAC_FORMAT,
                                     current_dac_control=control,
                                     display_name=rail.p.name)
+            elif getattr(rail, "multi_state_offset", False):
+                control = rail.capture_control()
+                state["i2c"] = dict(rail_identity(rail), format=MULTI_STATE_OFFSET_FORMAT,
+                                    control=control, display_name=rail.p.name)
             elif getattr(rail, "absolute_voltage", False):
                 control = rail.capture_control()
                 state["i2c"] = dict(rail_identity(rail), control=control,
@@ -540,6 +545,11 @@ def _validate_saved_fields(gpu, state):
                 or "current_dac_control" not in i2c
                 or "control" in i2c or "offset_mv" in i2c):
             raise ValueError("current DAC profile has conflicting or missing control data")
+    elif i2c and i2c.get("format") == MULTI_STATE_OFFSET_FORMAT:
+        if "control" not in i2c or "offset_mv" in i2c:
+            raise ValueError("load-state offset profile has conflicting or missing control data")
+        from .controllers.up9512r import parse_control
+        parse_control(i2c["control"])
     elif i2c and i2c.get("format") is not None:
         raise ValueError("unknown I2C profile format")
     if "rail_limits_uv" in state and not isinstance(state["rail_limits_uv"], dict):
@@ -826,6 +836,15 @@ def preflight(gpu, state, rail=None, *, apply_curve=True):
                 rail.validate_control(i2c["current_dac_control"], xoc=None)
             elif getattr(rail, "current_dac", False):
                 raise ValueError("current DAC cannot load another I2C control format")
+            elif i2c.get("format") == MULTI_STATE_OFFSET_FORMAT:
+                if not getattr(rail, "multi_state_offset", False):
+                    raise ValueError("saved load-state offset controller is not available")
+                rail.validate_control(i2c["control"], xoc=bool(state.get("xoc")))
+                ready, message = rail.plan_control(i2c["control"], xoc=bool(state.get("xoc")))
+                if not ready:
+                    raise ValueError(message)
+            elif getattr(rail, "multi_state_offset", False):
+                raise ValueError("load-state offset controller requires its complete saved control")
             elif getattr(rail, "absolute_voltage", False):
                 if "offset_mv" in i2c:
                     raise ValueError("absolute I2C voltage cannot load an offset")
@@ -1075,7 +1094,10 @@ def _restore_validated(gpu, state, apply_curve, rail, results):
                         lambda: rail.restore_control(state["i2c"]["current_dac_control"])):
                 return results
         elif "control" in state["i2c"]:
-            if not step("I2C voltage/mode", lambda: rail.restore_control(state["i2c"]["control"])):
+            label = ("I2C load-state offsets/mode"
+                     if state["i2c"].get("format") == MULTI_STATE_OFFSET_FORMAT
+                     else "I2C voltage/mode")
+            if not step(label, lambda: rail.restore_control(state["i2c"]["control"])):
                 return results
         else:
             offset = state["i2c"]["offset_mv"]
@@ -1241,6 +1263,16 @@ def summarize(state):
                             f"config 0x{config:02X} ({label})")
             else:
                 bits.append("I2C current DAC control is invalid")
+        elif i2c.get("format") == MULTI_STATE_OFFSET_FORMAT:
+            try:
+                from .controllers.up9512r import parse_control
+                control = parse_control(i2c.get("control"))
+                values = "/".join(f"{v:+g}" for v in control["offsets_mv"])
+                mode = "enabled" if control["enabled"] else "disabled"
+                label = i2c.get("display_name") or i2c.get("profile", "load-state offsets")
+                bits.append(f"I2C offsets LCS0-4 {values} mV, {mode} ({label})")
+            except (ValueError, TypeError, KeyError):
+                bits.append("I2C load-state offset control is invalid")
         elif "control" in i2c:
             from .controllers.ncp4206 import decode_vid
             control = i2c["control"]
