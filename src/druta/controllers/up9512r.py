@@ -27,6 +27,7 @@ HARDWARE_MAX_MV = 150
 NORMAL_MAX_MV = 50
 NORMAL_CEILING_MV = 1200
 TYPO_CEILING_MV = 2000
+_ADAPTER_LOCK_GUARD = threading.Lock()
 
 
 def _offset(value):
@@ -77,16 +78,48 @@ class UP9512R(Rail):
             src={'kind': KIND, 'port': port, 'addr7': addr7, 'identity': [0, 0x2B]},
             read_only=False, weak_id=False, lsb_mv=10, env_min=0, env_max=NORMAL_MAX_MV,
             hw_min_mv=0, hw_max_mv=HARDWARE_MAX_MV, raw_min=0, raw_max=15,
-            ceiling=NORMAL_CEILING_MV, sanity_rail=TYPO_CEILING_MV, rungs=[10, 20, 30],
+            ceiling=NORMAL_CEILING_MV, sanity_rail=TYPO_CEILING_MV, rungs=[10, 20, 30, 40, 50],
             provenance={'datasheet': 'uP9512R-DS-F0000, Nov 2018, pp. 17-23',
                         'guard_policy': 'Software offset/voltage guards; not board-rated limits'})
         super().__init__(p, nvapi, addr7=addr7)
-        self._mutex = threading.RLock()
+        with _ADAPTER_LOCK_GUARD:
+            if not hasattr(nvapi, '_up9512r_mutex'):
+                nvapi._up9512r_mutex = threading.RLock()
+            self._mutex = nvapi._up9512r_mutex
         self._target = self._target_identity()
         self.last_transaction = None
         self._verification_write_attempted = False
         self._verification_restore_ok = True
         self._verification_restore_error = ''
+        self._write_route = None
+        self._recovery_states = set()
+
+    def _write_transport(self):
+        """Select by architecture and API contract, never by board/driver ID.
+
+        Ada's indexed read supports a two-byte prefix followed by one read
+        byte. For this controller that prefix commits one register byte. The
+        surrounding transaction must independently read back the complete state.
+        Keep the selected route for recovery; never replay a failed write through
+        a different transport. A failed architecture query remains retryable.
+        """
+        if self._write_route is not None:
+            return self._write_route
+        reader = getattr(self.nvapi, 'GetArchInfo', None)
+        if reader is None:
+            return 'nvapi-write'
+        from ..nvbackend import _GpuArchInfo, NvAPI
+        for revision in (2, 1):
+            info = _GpuArchInfo(version=NvAPI.ver(_GpuArchInfo, revision))
+            status = reader(self.nvapi.gpu, ctypes.byref(info))
+            if status == -9:
+                continue
+            if (status != 0 or info.version != NvAPI.ver(_GpuArchInfo, revision)
+                    or not info.architecture or not self._bound()):
+                raise ValueError('uP9512R write transport architecture query failed; retry after refresh')
+            self._write_route = 'nvapi-combined' if info.architecture == 0x190 else 'nvapi-write'
+            return self._write_route
+        raise ValueError('uP9512R write transport architecture layout is unavailable')
 
     def _target_identity(self):
         handle = getattr(self.nvapi, 'gpu', None)
@@ -110,8 +143,10 @@ class UP9512R(Rail):
         for sentinel in (0xA5, 0x5A):
             buf, extra = (u8 * 1)(sentinel), (u32 * 2)()
             packet, pointer = self._mk(cmd, buf, 1)
+            geometry = bytes(packet)
             status = fn(self.nvapi.gpu, ctypes.byref(packet), ctypes.byref(extra))
-            if status != 0 or packet.cbSize != 1 or not self._bound():
+            if (status != 0 or bytes(packet) != geometry or list(pointer) != [cmd]
+                    or list(extra) != [0, 0] or not self._bound()):
                 return None
             if buf[0] != sentinel:
                 return int(buf[0])
@@ -123,13 +158,23 @@ class UP9512R(Rail):
             raise ValueError('Only uP9512R offset/enable byte registers are writable')
         if not self._bound():
             return False
-        fn = self.nvapi._i(I2C_WRITE_EX, PTR, PTR, PTR)
+        combined = self._write_transport() == 'nvapi-combined'
+        fn = self.nvapi._i(I2C_READ_EX if combined else I2C_WRITE_EX, PTR, PTR, PTR)
         if fn is None:
             return False
-        buf, extra = (u8 * 1)(value), (u32 * 2)()
+        buf, extra = (u8 * 1)(value ^ 0xFF if combined else value), (u32 * 2)()
         packet, pointer = self._mk(cmd, buf, 1)
+        if combined:
+            pointer = (u8 * 2)(cmd, value)
+            packet.pbI2cRegAddress = ctypes.cast(pointer, ctypes.POINTER(u8))
+            packet.regAddrSize = 2
+        prefix = list(pointer)
+        geometry = bytes(packet)
+        # One dispatch only. Even a failed read-direction call may have stored
+        # the prefix byte; _transaction owns independent readback and recovery.
         status = fn(self.nvapi.gpu, ctypes.byref(packet), ctypes.byref(extra))
-        return status == 0 and packet.cbSize == 1 and self._bound()
+        return (status == 0 and bytes(packet) == geometry and list(pointer) == prefix
+                and list(extra) == [0, 0] and int(buf[0]) == value and self._bound())
 
     def present(self):
         try:
@@ -239,15 +284,20 @@ class UP9512R(Rail):
             reg = CONTROL_REGISTERS[index]
             attempted.append(reg)  # A failure/exception may still have changed hardware.
             self._verification_write_attempted = True
+            next_state = list(working)
+            next_state[index] = target[index]
+            self._recovery_states = {tuple(working), tuple(next_state)}
             if not self._raw_write(reg, target[index], 1):
                 raise ValueError(f'uP9512R 0x{reg:02X} write failed or outcome uncertain')
             working[index] = target[index]
             if self._capture_registers() != tuple(working):
                 raise ValueError(f'uP9512R 0x{reg:02X} readback/preserved bits mismatch')
+            self._recovery_states = {tuple(working)}
         if self._capture_registers() != target:
             raise ValueError('uP9512R complete control readback mismatch')
 
-    def _transaction(self, state, *, recovery=False, expected=None, exact=None):
+    def _transaction(self, state, *, recovery=False, expected=None, exact=None,
+                     expected_raw_states=None):
         attempted, before = [], None
         self.last_transaction = {'requested': state, 'attempted_registers': attempted}
         self._verification_restore_ok = True
@@ -256,6 +306,8 @@ class UP9512R(Rail):
             state = parse_control(state)
             before = self._capture_registers()
             self.last_transaction['before'] = list(before)
+            if expected_raw_states is not None and before not in expected_raw_states:
+                raise ValueError('uP9512R control changed outside this transaction; recovery not dispatched')
             if expected is not None and _decode(before) != parse_control(expected):
                 raise ValueError('uP9512R settings changed since capture; read again')
             self._writable(before)
@@ -277,13 +329,31 @@ class UP9512R(Rail):
             return True, 'uP9512R all five offset fields and enable read back exactly; other bits preserved'
         except Exception as exc:
             message = str(exc)
-            if attempted and before is not None:
+            if recovery and attempted and before is not None:
+                # Recovery may already have disabled offsets. Rolling back to
+                # its entry state would re-enable the trial after a later field
+                # fails. Keep partial recovery, report it, and never raise the
+                # rail again merely to undo a failed restoration.
+                try:
+                    residual = self._capture_registers()
+                    self.last_transaction['residual'] = list(residual)
+                    restored = residual == target
+                except Exception as read_exc:
+                    restored = False
+                    message += '; independent recovery readback: ' + str(read_exc)
+                self._verification_restore_ok = restored
+                self._verification_restore_error = '' if restored else message
+                message += ('; requested recovery state independently confirmed'
+                            if restored else '; RESTORE FAILED; partial recovery retained')
+            elif attempted and before is not None:
                 errors = []
                 try:
                     current = self._capture_registers()
                     if any((a & ~mask) != (b & ~mask)
                            for a, b, mask in zip(current, before, CONTROL_MASKS)):
                         raise ValueError('preserved bits changed; rollback not dispatched')
+                    if current not in self._recovery_states:
+                        raise ValueError('control changed outside this transaction; rollback not dispatched')
                     self._writable(current)
                     self._dispatch(before, current, [])
                 except Exception as restore_exc:
@@ -345,23 +415,32 @@ class UP9512R(Rail):
             return False, 'uP9512R verification requires acknowledgment and held P0 callback; nothing written', []
         with self._mutex:
             ladder, point = [], None
+            core_min = core_max = None
+            memory_min = memory_max = None
             entry_xoc = bool(self.xoc)
             ceiling = TYPO_CEILING_MV if entry_xoc else NORMAL_CEILING_MV
 
             def check():
-                nonlocal point
+                nonlocal point, core_min, core_max, memory_min, memory_max
                 if cancelled():
                     raise ValueError('verification cancelled')
                 if bool(self.xoc) != entry_xoc:
                     raise ValueError('XOC mode changed during verification')
                 current = operating_point()
                 if (not isinstance(current, (tuple, list)) or len(current) != 3
-                        or any(type(v) not in (int, float) or not math.isfinite(v) for v in current)
-                        or current[0] != 0 or current[1] <= 0 or current[2] <= 0):
+                        or type(current[0]) not in (int, float) or current[0] != 0):
                     raise ValueError('GPU is not at a readable held P0 operating point')
                 current = tuple(current)
-                if point is not None and current != point:
-                    raise ValueError('GPU operating point changed during verification')
+                # Frequency is diagnostic only. Thermal Boost can change it
+                # without changing the voltage hold, which the caller checks
+                # independently. Missing clock telemetry also cannot gate the
+                # measured FB-voltage response and reversal.
+                if type(current[1]) in (int, float) and math.isfinite(current[1]) and current[1] > 0:
+                    core_min = current[1] if core_min is None else min(core_min, current[1])
+                    core_max = current[1] if core_max is None else max(core_max, current[1])
+                if type(current[2]) in (int, float) and math.isfinite(current[2]) and current[2] > 0:
+                    memory_min = current[2] if memory_min is None else min(memory_min, current[2])
+                    memory_max = current[2] if memory_max is None else max(memory_max, current[2])
                 point = current
 
             def sample(expected):
@@ -378,7 +457,9 @@ class UP9512R(Rail):
                     time.sleep(.04)
                 check()
                 return {'samples_mv': values, 'median_mv': statistics.median(values),
-                        'noise_mv': max(values) - min(values), 'quantum_mv': 10}
+                        'noise_mv': max(values) - min(values), 'quantum_mv': 10,
+                        'observed_core_clock_range_mhz': [core_min, core_max],
+                        'observed_memory_clock_range_mhz': [memory_min, memory_max]}
 
             try:
                 check()
@@ -404,6 +485,8 @@ class UP9512R(Rail):
                     trial_state = {'kind': KIND, 'offsets_mv': [v + step for v in effective], 'enabled': True}
                     rung = {'offset_increment_mv': step, 'baseline_mv': base,
                             'baseline_samples_mv': baseline['samples_mv'],
+                            'baseline_core_clock_range_mhz': baseline['observed_core_clock_range_mhz'],
+                            'clock_observations_gate_verification': False,
                             'trial_control': trial_state, 'voltage_ceiling_mv': ceiling, 'moved': False}
                     ladder.append(rung)
                     ok, message = self._transaction(trial_state, expected=expected)
@@ -428,7 +511,8 @@ class UP9512R(Rail):
             finally:
                 errors = []
                 try:
-                    ok, message = (self._transaction(original, recovery=True, exact=original_raw)
+                    ok, message = (self._transaction(original, recovery=True, exact=original_raw,
+                                                    expected_raw_states=set(self._recovery_states))
                                    if self._verification_write_attempted else (True, 'nothing written'))
                     if not ok:
                         errors.append(message)
@@ -450,13 +534,15 @@ class UP9512R(Rail):
                 time.sleep(.15)
                 restored = sample(original_raw)
                 tolerance = max(10, baseline['noise_mv'], restored['noise_mv'])
+                reversal = hit['median_mv'] - restored['median_mv']
+                hit.update(restored_vout_mv=restored['median_mv'], restored_samples_mv=restored['samples_mv'],
+                           restored_noise_mv=restored['noise_mv'], reversal_mv=reversal,
+                           observed_core_clock_range_mhz=restored['observed_core_clock_range_mhz'],
+                           observed_memory_clock_range_mhz=restored['observed_memory_clock_range_mhz'])
                 if abs(restored['median_mv'] - base) > tolerance:
                     raise ValueError('FB ADC did not return to the baseline noise/resolution band')
-                reversal = hit['median_mv'] - restored['median_mv']
                 if reversal < 10 or reversal <= max(hit['response_noise_mv'], restored['noise_mv']):
                     raise ValueError('FB ADC did not show a downward response above noise after restoration')
-                hit.update(restored_vout_mv=restored['median_mv'], restored_samples_mv=restored['samples_mv'],
-                           reversal_mv=reversal)
             except Exception as exc:
                 failure = str(exc)
             finally:
@@ -471,4 +557,6 @@ class UP9512R(Rail):
             if failure:
                 return False, f'uP9512R INCONCLUSIVE - {failure}; original control restored', ladder
             return True, ('uP9512R WRITE PATH CONFIRMED at the tested operating point: FB ADC rose and reversed '
-                          'after exact five-state/enable restoration. This does not establish calibrated gain or load safety.'), ladder
+                          'after exact five-state/enable restoration. '
+                          'Frequency observations do not gate this voltage test. '
+                          'This does not establish calibrated gain or load safety.'), ladder

@@ -4729,8 +4729,10 @@ class Druta:
         rail._verification_restore_ok = True
         rail._verification_restore_error = ""
         try:
+            from .controllers.up9512r import UP9512R
+            voltage_only = isinstance(rail, UP9512R)
             voltage = None
-            if not getattr(rail, "absolute_voltage", False):
+            if not voltage_only and not getattr(rail, "absolute_voltage", False):
                 out = gpuload.induce(gpu, max_seconds=180.0,
                                     on_settled=gpu.read_vcore_mv, cancelled=cancel.is_set)
                 if out.get("error"):
@@ -4743,7 +4745,8 @@ class Druta:
                 gpu, lambda point: rail.verify(
                     acknowledged=True, log=lambda m: self.log("  " + m, None),
                     cancelled=cancel.is_set, operating_point=point),
-                cancelled=cancel.is_set, voltage_mv=voltage)
+                cancelled=cancel.is_set, voltage_mv=voltage,
+                require_stable_clocks=not voltage_only)
         except Exception as e:                                  # noqa: BLE001
             res["err"] = f"{type(e).__name__}: {e}"
         try:

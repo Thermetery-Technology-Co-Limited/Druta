@@ -152,7 +152,8 @@ function Get-SourceSnapshot {
         'experiments/hold-headroom-rtx-3070ti-59597.md',
         'experiments/measured-clock-sources-titan-rtx-61088-20260929.md',
         'experiments/release-1.7.0-smoke-titan-rtx-61088.md',
-        'experiments/ada-ad103-validation.json'
+        'experiments/ada-ad103-validation.json',
+        'experiments/ada-up9512r-product-2026-10-09.json'
     )
     # Only the explicitly public measurement files above are included
     # from experiments/. Other research/session captures remain excluded.

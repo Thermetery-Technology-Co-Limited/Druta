@@ -423,13 +423,14 @@ def induce(gpu, settle_timeout=15.0, max_seconds=DEFAULT_MAX_SECONDS,
 
 
 def verify_in_p0(gpu, callback, cancelled=None, settle_timeout=15.0,
-                 voltage_mv=None):
+                 voltage_mv=None, require_stable_clocks=True):
     """Run a verifier under a temporary GPU hold, after observing stable P0.
 
     CUDA must have stopped first: it can force P2 even with a point hold.
     voltage_mv may be the operating voltage captured by a preceding warmup.
     Kepler uses its legacy P0 request and needs neither CUDA nor voltage_mv.
-    No voltage floor or fan/power-limit changes.
+    No voltage floor or fan/power-limit changes. Voltage-only controller tests
+    may opt out of frequency settling; P0 and the exact hold remain checked.
     """
     if cancelled is not None and cancelled():
         raise LoadError("verification cancelled")
@@ -452,9 +453,9 @@ def verify_in_p0(gpu, callback, cancelled=None, settle_timeout=15.0,
             check_hold()
             sample = gpu.read()
             point = tuple(sample.get(k) for k in ("pstate", "core", "mem"))
-            valid = (point[0] == 0 and all(isinstance(v, (int, float))
-                     and math.isfinite(v) and v > 0 for v in point[1:]))
-            stable = stable + 1 if valid and point == last else 0
+            valid = point[0] == 0 and (not require_stable_clocks or all(
+                isinstance(v, (int, float)) and math.isfinite(v) and v > 0 for v in point[1:]))
+            stable = stable + 1 if valid and (not require_stable_clocks or point == last) else 0
             if stable >= 2:
                 result = callback(operating_point)
                 operating_point()

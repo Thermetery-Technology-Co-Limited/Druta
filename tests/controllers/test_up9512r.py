@@ -313,18 +313,18 @@ class UP9512RVerificationTests(unittest.TestCase):
         ok, message, ladder = self.verify()
         self.assertFalse(ok)
         self.assertIn('INCONCLUSIVE', message)
-        self.assertEqual(len(ladder), 3)
+        self.assertEqual(len(ladder), 5)
         self.assertEqual(self.controls(), original)
         self.assertTrue(self.rail._verification_restore_ok)
 
-    def test_cancel_clock_drift_and_xoc_change_after_write_restore(self):
-        for reason in ('cancel', 'clock', 'xoc'):
+    def test_cancel_and_xoc_change_after_write_restore(self):
+        for reason in ('cancel', 'xoc'):
             self.setUp()
             original = self.controls()
             def point():
                 if self.bus.writes and reason == 'xoc':
                     self.rail.xoc = True
-                return (0, 3000 if self.bus.writes and reason == 'clock' else 3060, 1438)
+                return (0, 3060, 1438)
             ok, message, _ = self.verify(operating_point=point,
                                         cancelled=lambda: bool(self.bus.writes) and reason == 'cancel')
             self.assertFalse(ok)

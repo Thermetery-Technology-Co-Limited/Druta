@@ -1,15 +1,22 @@
 # Ada / RTX 4080 SUPER validation
 
-**2026-10-09 update:** the private [disabled-offset storage test](https://github.com/Thermetery-Technology-Co-Limited/drutadrv/blob/ada-up9512r-bar0-probe/research/ADA-I2C-DISABLED-OFFSET-WITNESS.md)
-proved reversible uP9512R `0A: 00 -> 01 -> 00` storage through the combined-prefix
-route on both 617.42 and 581.42. Each run made one change, one restoration and
-28 independent register reads; `2A=20` and all other sampled bytes stayed exact.
-All 26 runner tests passed, and root plus independent evidence review passed.
-Both driver switches needed no reboot; 617.42 and exact controller state were
-restored, with Druta open and responding. The recorded interval had no selected
-fault event or query error. This proves register storage, while active voltage
-response and a production fallback remain unverified. Application code and the
-packaged EXE are unchanged. Earlier results below retain their original scope.
+**2026-10-09 product update:** Druta's uP9512R adapter now uses a combined
+register/value prefix through `I2CReadEx` on Ada, with independent ordinary reads
+for exact state verification and guarded recovery. **Core and memory frequency
+are diagnostic only during uP9512R Verify, including its P0 preparation.**
+Physical P0, the captured voltage hold, controller identity, exact stored state,
+FB rise/reversal above noise and restoration remain required. **The current
+verifier passed on both drivers after Max it / P0 de-flatten-and-hold, first
+qualifying at +40 mV: controller FB was 1130 -> 1150 -> 1130 mV on 617.42 and
+1120 -> 1150 -> 1110 mV on 581.42.** Both restored controller/GPU state exactly;
+the 581.42 restored voltage median was within the measured baseline noise band.
+Its core frequency varied from 2865 to 2880 MHz without failing verification.
+Earlier strict-clock results retain their original outcomes;
+they are not reclassified by the later change in verification criteria.
+The [product evidence](experiments/ada-up9512r-product-2026-10-09.json)
+records the completed tests; [the controller documentation](i2c/UP9512R.md)
+describes transport and recovery behavior. Earlier results below retain their
+original scope, including inconclusive attempts and rejected conventional writes.
 
 The completed 2026-10-07 captures cover one user-described Manli RTX 4080
 SUPER on NVIDIA **617.42 and 581.42**. Both NVAPI and NVML identified device
@@ -189,6 +196,129 @@ adjustment was not demonstrated and is not represented as successful.
 
 ## uP9512R I2C discovery and verification
 
+### Integrated Ada transport
+
+The product adapter chooses the two-byte-prefix route from a successful live
+Ada architecture query and understood V2/V1 layout. There is no GPU, subsystem,
+VBIOS or driver-version allowlist. Other architectures keep conventional
+`I2CWriteEx`; transient query failures do not become permanent unsupported
+results. The request is an effective write: it contains `[register, value]`,
+`regAddrSize=2` and one returned byte. No automatic replay, sentinel retry or
+fallback write occurs after a failed or uncertain combined request.
+
+This ordinary NVAPI route uses RM command `0x402C0102`, which reaches the same
+indexed read callback as the previously tested native type-9 `0x402C0105`
+operation. It does not ship the research allocation observer, cached native
+object discovery or a driver/DLL patch. The earlier type-9 request/configuration
+captures do not establish identical product packets or physical bus speed.
+
+Every request checks complete packet geometry, owned prefix/buffer pointers,
+extra flags and selected-target binding. Ordinary one-byte reads independently
+confirm full stored control state after each write. Controller instances sharing
+an NVAPI object share a transaction mutex. Recovery accepts only states reachable
+from that transaction, refuses an unrelated controlled-field change, and never
+re-enables the trial after restoration has disabled it but later failed.
+
+The current uP9512R UI path skips CUDA warmup and waits only for physical P0,
+with the exact voltage hold checked independently. Neither core nor memory
+frequency needs to settle. The controller verifier records available finite
+frequency ranges as diagnostics; changes, missing telemetry and nonfinite
+frequency values cannot prevent a voltage-response pass. FB availability,
+voltage ceiling, noise, rise, reversal and exact restoration still determine
+the result. Other controller verification paths keep their existing behavior.
+
+The current verifier passed on **both drivers** after the actual Max it / P0
+de-flatten-and-hold workflow, with a 1100 mV hold and +26 mV session headroom.
+The existing headroom path recorded reliability and alternate-reliability writes
+that raised the stored ceiling to 1126 mV before the I2C trial. The default
++10/+20/+30/+40/+50 mV staircase first qualified at +40 mV on each driver:
+
+| Driver | FB baseline / qualifying trial / restored | Measured response | Frequency observation, not a criterion |
+| --- | --- | --- | --- |
+| 617.42 | **1130 / 1150 / 1130 mV** | +20 mV rise, 20 mV reversal, 10 mV observed variation | Core 2880 MHz throughout |
+| 581.42 | **1120 / 1150 / 1110 mV** | +30 mV rise, 40 mV reversal, 20 mV observed variation | Core varied 2865-2880 MHz; verification passed |
+
+Each run made 17 byte requests, restored the controller and full captured GPU
+state exactly, reported no helper errors and unloaded NVAPI successfully. The
+581.42 restored FB median was 10 mV below its starting median, within the measured
+20 mV baseline/restoration variation. A restored voltage sample is not required
+to equal the baseline exactly; register and GPU-state restoration are exact.
+
+These were low-load trials under the normal 1200 mV FB guard, without a 3D stress
+workload or persistent headroom-preference change. The +40 mV request produced
+different reported FB changes on the two runs, so these results establish
+response and reversal at the sampled points rather than calibrated gain or a
+degradation-free voltage threshold.
+
+The hardware-free regression suite passed **1708 tests**, including frequency
+drift and missing/nonfinite clock readings, malformed packet and target responses,
+alternate controller routes, transient architecture queries, independent storage
+witnesses, uncertain completions, conflicting writers and partial recovery.
+The [public product evidence](experiments/ada-up9512r-product-2026-10-09.json)
+retains earlier inconclusive runs alongside the completed passes.
+
+#### Earlier combined-route tests with strict clock gating
+
+The earlier **581.42** test ran the actual Max it / P0 de-flatten-and-hold path,
+then the product's default +10/+20/+30/+40/+50 mV verification staircase. The
+held point remained P0, reporting 2865 MHz core and 11501 MHz in the driver's
+memory-clock field. Baseline controller FB was 1130 mV; rung medians were
+1130, 1130, 1140, 1150 and 1160 mV. The +50 mV rung was the first to exceed
+20 mV observed variation. Its 30 mV rise reversed to 1130 mV after restoration.
+Twenty byte requests staged fields, enabled last and eventually disabled first
+before restoring them. Full controller and captured application state were
+restored, with no helper errors and successful NVAPI unload.
+
+The comparison used a 1100 mV hold with a 26 mV session headroom margin. Before
+I2C verification, the existing headroom path recorded +26000 uV reliability
+and alternate-reliability writes, raising the stored ceiling from 1100 to
+1126 mV. The test did not change the persistent headroom preference. It was
+a low-load validation within the normal 1200 mV FB guard, without a 3D stress
+workload. This guard is not a degradation-free hardware threshold.
+
+On **617.42**, the same Max it/default-staircase setup did not obtain a complete
+response-and-reversal pass. The first attempt, starting at 2865 MHz core,
+reached +40 mV and reported 1130 -> 1150 mV, then a 15 MHz core-clock change
+interrupted reversal sampling. It made 17 I2C byte requests. A second attempt
+after 45 seconds settling started at 2880 MHz and detected an operating-point
+change during baseline, before any I2C write. Both returned inconclusive with
+exact controller and full application-state restoration and successful unload.
+Those outcomes remain inconclusive in the evidence. The current verifier no
+longer treats frequency movement as a failure, while preserving P0 and voltage
+hold checks; the historical runs are not retrospectively relabeled as passes.
+
+Earlier 617.42 product tests proved disabled-offset storage and a lower-point
+enabled response. A single +30 mV request at held P0 reporting 2355 MHz core
+produced **930 -> 950 -> 930 mV**, with 25 samples per phase and zero spread.
+That eight-write trial restored all controller bytes and the V/F hold exactly.
+The preceding +10 mV and +20 mV attempts remained inconclusive because of
+variation and the reversal threshold; both restored entry state.
+
+Earlier 581.42 variants are retained separately. A +30 mV trial reported
+1100 -> 1140 -> 1100 mV, but its 1125 mV hold was above the initial 1100 mV
+ceiling, so automatic headroom correctly refused and no headroom write occurred.
+With the corrected 1100 mV hold and +26 mV session headroom, a single +30 mV
+trial was inconclusive, while a single +50 mV trial passed
+1130 -> 1160 -> 1130 mV. The earlier default-staircase run above supplies the
+workflow result under its then-current criteria. Requested offset and observed quantized response
+remain distinct; none of these runs calibrates physical rail gain or validates
+all operating points, load states or sustained-load stability.
+
+### Earlier conventional-write and private research results
+
+These paragraphs preserve the preceding investigations. A statement that an
+individual round did not change product behavior applies to that round, rather
+than the integrated route described above.
+
+The private [disabled-offset storage test](https://github.com/Thermetery-Technology-Co-Limited/drutadrv/blob/ada-up9512r-bar0-probe/research/ADA-I2C-DISABLED-OFFSET-WITNESS.md)
+preceding integration proved `0A: 00 -> 01 -> 00` with native type 9 on both
+617.42 and 581.42. Each run made one change, one restoration and 28 independent
+ordinary register reads; `2A=20` and the other sampled bytes stayed exact. Its
+26 runner tests and independent evidence review passed. Both driver switches
+needed no reboot; 617.42 and exact controller state were restored, with no
+selected fault event or query error. That round proved storage only and did not
+change application code or the packaged EXE.
+
 The original production read-only I2C sweeps completed 2736 route/controller
 probes on each driver with no recognized candidates. Those sweeps predated
 the uP9512R adapter and did not test that controller's identification recipe.
@@ -273,14 +403,15 @@ This round made no controller-data writes or direct research MMIO requests.
 Independent seven-register readback remained exact after both driver switches;
 617.42, nvtunedrv and the verified EXE were restored. See the
 [completion-diagnostics record](https://github.com/Thermetery-Technology-Co-Limited/drutadrv/blob/ada-up9512r-bar0-probe/research/ADA-PMU-COMPLETION-DIAGNOSTICS.md).
-This binary-derived interface is research only; application write support
-remains unverified.
+This binary-derived interface is research only; that statistics round did not
+establish application write support.
 
 On 617.42, an earlier loaded point reporting GPU VID 1195 mV was refused by
 the 1200 mV controller-FB guard before any write. The subsequent verification
 attempt used a 1000 mV GPU hold. VID and FB are separate telemetry channels.
-No successful physical offset response was demonstrated. Common Apply,
-I2C profile replay and Reset were therefore **not exercised on hardware**;
+No successful physical offset response had been demonstrated at that stage.
+Common Apply, I2C profile replay and Reset were therefore **not exercised on
+hardware**;
 their transport, profile and UI behavior has mocked regression coverage.
 
 ## Scope and restoration
@@ -303,13 +434,13 @@ restored. Its estimated minimum-voltage first-read reference changed from
 absolute profile values were not byte-for-byte equal across sessions. No
 voltage offset was left applied.
 
-Stored requests, programmed values and physical effects are distinct. These
-captures do not establish performance improvements, long-term stability,
+Stored requests, programmed values and physical effects are distinct. Those
+earlier captures did not establish performance improvements, long-term stability,
 memory integrity, other operating points, successful I2C adjustment or final UI
 callback behavior. The bounded CUDA copy workload exercised
 bandwidth; it was not a memory-integrity checker.
 
-The final hardware-free regression run after the uP9512R changes passed
+The earlier hardware-free regression run after the initial uP9512R changes passed
 **1649 tests**, including the synthetic DearPyGui renderer checks, following
 the return to 617.42. After restoring the stripped Windows capture components,
 native desktop inspection on 617.42 confirmed the control and monitor views and
@@ -338,7 +469,8 @@ state after restoring 617.42; the tracer was removed, research services stopped,
 nvtunedrv running, and the verified EXE reopened. The monitored interval contains
 no new crash/TDR/dump-error event and no event-query errors. See the
 [raw-completion evidence](https://github.com/Thermetery-Technology-Co-Limited/drutadrv/blob/ada-up9512r-bar0-probe/research/ADA-RAW-I2C-COMPLETION.md) for exact binary bindings, capture checks,
-and the remaining interpretation limits. Application write support is unchanged.
+and the remaining interpretation limits. That capture round did not change
+application write support.
 
 An offline [firmware preparation follow-up](https://github.com/Thermetery-Technology-Co-Limited/drutadrv/blob/ada-up9512r-bar0-probe/research/ADA-PMU-IMAGE-PREPARATION.md)
 confirmed the static Ada PMU archive bindings in 581.42, supplementing the
@@ -364,7 +496,8 @@ halt requests, driver switches or display restarts. The reader unloaded, Druta
 remained responsive, boot time was unchanged, and the monitored interval had no
 selected crash/TDR/dump-error event or event-query error. This new status test
 was performed on 617.42 only. Readable status does not establish debugger-memory
-permission or an SMBus unlock; production write support remains unverified.
+permission or an SMBus unlock; that status-only round did not establish
+production write support.
 
 ### Isolated PMU debugger-status follow-up (617.42 only)
 
@@ -422,7 +555,8 @@ direct research MMIO, no explicit token acquisition and no driver switch.
 Tracer removal and restoration passed for both, with the verified EXE reopened,
 boot/service state unchanged and no selected event or event-query error in the
 test windows. No full controller-state readback or sustained RAM-stability
-claim follows. Application code and the packaged EXE are unchanged. See the
+claim follows. That observation round changed neither application code nor the
+packaged EXE. See the
 [capture evidence and limitations](https://github.com/Thermetery-Technology-Co-Limited/drutadrv/blob/ada-up9512r-bar0-probe/research/ADA-I2C-OWNER-OBSERVATION.md).
 
 ### Write-time ownership comparison, both drivers
@@ -431,7 +565,7 @@ One unchanged `0A=00` write per driver captured owner `0x66`, mapped index `2`,
 resource `0x0C` and acquired mask `0x04`, selecting the existing-owner branch.
 Those host fields match the earlier successful 617.42 read, while both writes
 still return NVAPI `-1`. Physical mutex contents, later ownership completion,
-firmware permission and accepted writing remain unverified. This round did
+firmware permission and accepted writing were not established by that round. It did
 not capture a fresh RM or raw firmware response.
 
 All seven baseline/readback registers matched on each driver. After two driver
@@ -439,8 +573,8 @@ switches, 617.42 and the verified EXE were restored, a final independent
 seven-register readback matched, and the tracer was absent. Totals: two rejected
 unchanged-value writes, 35 explicit reads, no direct research MMIO or explicit
 token acquisition. No reboot was required or observed, and the full monitored
-interval had no selected fault event or query error. Application code and the
-packaged EXE are unchanged. See the [write ownership evidence](https://github.com/Thermetery-Technology-Co-Limited/drutadrv/blob/ada-up9512r-bar0-probe/research/ADA-I2C-WRITE-OWNERSHIP.md).
+interval had no selected fault event or query error. That round changed neither
+application code nor the packaged EXE. See the [write ownership evidence](https://github.com/Thermetery-Technology-Co-Limited/drutadrv/blob/ada-up9512r-bar0-probe/research/ADA-I2C-WRITE-OWNERSHIP.md).
 
 ### Request configuration follow-up, 617.42
 
