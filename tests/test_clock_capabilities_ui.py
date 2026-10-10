@@ -182,7 +182,8 @@ class CapabilityRefreshUiTests(FakeUiTest):
             read_clk_domain_offsets=lambda: ({knob.ctrl: {"freq_khz": 125000}}, ""),
             read=lambda: (_ for _ in ()).throw(RuntimeError("telemetry")),
             clkdom_controls_for_ui=lambda _rows: [knob.ctrl],
-            clkdom_domains=lambda: [knob.ctrl])
+            clkdom_domains=lambda: [knob.ctrl],
+            clkdom_offset_slider_offered=lambda _control: True)
         self.app.domain_knob_label = Mock(return_value=("Recovered XBAR", (1, 2, 3), True))
         self.app.slider_row = Mock()
         self.assertEqual(self.app.build_domain_offset_rows(

@@ -606,8 +606,17 @@ def classify_domain_names(rows, core_mhz=None, mem_nvml=None,
     # slaved to GPC at ~0.966". Calling that XBAR is an analogy with TU102,
     # where the domain in the same relationship (~0.95 of GPC) is XBAR. The
     # behaviour is established; the word is not.
+    #
+    # Domain 17 is that control block's SYS target. Control 3 moves its
+    # programmed value on GP102 and on a Gigabyte GP106 (driver 581.42); the
+    # measured column does not follow on either. The word stays hedged for
+    # the same reason as XBAR2CLK. The register is the 2x reading, so the
+    # name is SYS2CLK rather than a 1x SYS label beside a doubled number.
     pascal_like = architecture == 4 or (architecture is None and gpc_dom == 15)
-    PASCAL_NAMES = {16: ("XBAR2CLK", PRIV_LIKELY)}
+    PASCAL_NAMES = {
+        16: ("XBAR2CLK", PRIV_LIKELY),
+        17: ("SYS2CLK", PRIV_LIKELY),
+    }
 
     # BLACKWELL PUTS GPC AT DOMAIN 0 TOO, so `turing_like` is true there and
     # the TU102 table would be applied wholesale to a card it was never earned
@@ -1043,8 +1052,11 @@ CLKDOM_PAIR_TURING = {1: 1, 3: 2, 5: 21, 9: 5}    # A and B both +45, verified
 #
 # The correspondence itself is real - control 1 does drive domain 16's target,
 # control 3 domain 17's - so it is recorded here rather than deleted, to save
-# anyone re-deriving it. The live-counter map is empty because this experiment
-# established target correspondence only. Control visibility is independent.
+# anyone re-deriving it. A Gigabyte GP106 on driver 581.42 repeated it, and
+# control 5 moved no domain there. The live-counter map is empty because
+# column B does not follow the stored request. The frequency sliders that
+# would display these targets are hidden for the Pascal generation; this
+# pairing stays as telemetry, not as a knob.
 CLKDOM_PAIR_PASCAL_TARGET_ONLY = {1: 16, 3: 17}
 CLKDOM_PAIR_PASCAL = {}
 
@@ -2716,6 +2728,10 @@ class GPU:
     #                  exists on the OLD card and not the new one.
     #   Pascal / XBAR  GP102. Stored and ignored - the original measurement,
     #                  and the one that was wrongly generalised to every domain.
+    #   Pascal / SYS   GP102 and GP106. Control 3 moves domain 17's programmed
+    #                  target. Column B, the measured clock, does not follow.
+    #   Pascal / VIDEO GP106, control 5. No private domain moved. GP102 refuses
+    #                  this control; it has no VIDEO NAFLL.
     #   Turing / MEM   TU102, Titan RTX. APPLIES, but NOT 1:1 and not on any
     #                  ratio yet identified: a +100 request moved the clock to
     #                  1772.7 and +750 landed at 1937, which two points do not
@@ -2733,6 +2749,8 @@ class GPU:
     CLKDOM_DELTA_APPLIES = {
         (ARCH_PASCAL, 2): True,
         (ARCH_PASCAL, 1): False,
+        (ARCH_PASCAL, 3): False,
+        (ARCH_PASCAL, 5): False,
         (ARCH_TURING, 2): True,
         (10, 2): True,
     }
@@ -2746,12 +2764,26 @@ class GPU:
     def clkdom_delta_inert(self, domain=None):
         """True only for a measured inert delta; False for a measured response.
 
-        Unknown domains/architectures return None. Pascal XBAR was stored but
-        ignored, while Pascal MEM responded; neither result establishes the
-        behavior of Kepler or Maxwell's unvalidated private control layouts.
+        Unknown domains/architectures return None. Pascal XBAR and SYS were
+        stored but ignored, and Pascal VIDEO moved no domain. Pascal MEM
+        responded. None of those results establishes the behavior of Kepler
+        or Maxwell's unvalidated private control layouts.
         """
         applies = self.CLKDOM_DELTA_APPLIES.get((self.arch(), domain))
         return None if applies is None else not applies
+
+    def clkdom_offset_slider_offered(self, control):
+        """Whether a per-domain frequency slider is shown for this generation.
+
+        Pascal accepts the XBAR, SYS and VIDEO records. Column B stays on the
+        ratio the VBIOS already computed, so those sliders are not offered.
+        Additional memory, control 2, is the measured exception and stays.
+        An unknown architecture keeps the control: absence of a measurement
+        is not a reason to remove a slider the driver has already accepted.
+        """
+        if self.arch() == self.ARCH_PASCAL and int(control) != 2:
+            return False
+        return True
 
     def clkdom_delta_clears_ceiling(self, domain):
         """Does this delta reach past the card's DECLARED range? Tri-state."""

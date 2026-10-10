@@ -3247,6 +3247,10 @@ class Druta:
             # generation's measured control set includes its control index.
             if kn.ctrl not in controls:
                 continue
+            # Pascal stores XBAR/SYS/VIDEO requests and the measured clock
+            # does not follow. Additional memory is the one that does.
+            if not self.gpu.clkdom_offset_slider_offered(kn.ctrl):
+                continue
             request = cur.get(kn.ctrl)
             if not isinstance(request, dict) or "freq_khz" not in request:
                 missing_current = True
