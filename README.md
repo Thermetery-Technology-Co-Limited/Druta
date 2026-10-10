@@ -65,10 +65,22 @@ requests, NVVDD offsets/limits and a 400-to-399 A current-policy check on
 corroboration; LTC remains tentative.
 nvtune read timing registers and produced previews, but the RFC write failed
 readback and remained unchanged. See [scope and evidence](ADA-VALIDATION.md).
-The [uP9512R adapter](i2c/UP9512R.md) identifies the controller and reads its
-five offset states, FB and IMON voltages. On this board, the first verification
-write returned an error on both drivers, so physical I2C adjustment remains
-unverified.
+Ada also gets the default-on V/F hold headroom, because it now has rail-limit
+control; the clock loss that headroom corrects was measured on a TITAN RTX and
+an RTX 3070 Ti, not on Ada. The full Power policies list and Max all are open
+on Ada through the same packet checks. The owner set the policy sliders by
+hand on this card; there is no recorded log of that, and no recorded Max all
+run.
+
+The [uP9512R adapter](i2c/UP9512R.md) writes this controller through a
+register/value request sent with `I2CReadEx`, then reads every control byte
+back. **Verify and Apply make real VRM writes.** On this board, Verify passed
+at +40 mV on both drivers: controller FB 1130 -> 1150 -> 1130 mV on 617.42 and
+1120 -> 1150 -> 1110 mV on 581.42. FB is the controller's own uncalibrated
+10 mV ADC, and one low-load operating point does not establish a gain. Earlier
+writes through the conventional `I2CWriteEx` failed on both drivers. Apply,
+Reset and profile replay use the same transaction code as Verify but were not
+run from the UI on hardware; they have mocked coverage only.
 
 **RTX 5080 Astral I2C:** the MP29816 profile exposes measured NVVDD voltage at
 port 2 / 7-bit address 0x30 and an experimental 5 mV-step offset function.
@@ -733,6 +745,10 @@ Start with the [I2C contribution workflow](i2c/CONTRIBUTING.md),
 NCP4206, MP2888A, MP29816 and uP9512R discovery scan actual buses without GPU
 board-ID filters. Checking **I2C rail** reveals the controls; **Connect / Scan**
 or **Full scan** starts discovery, with probe progress and cancellation.
+Since 1.8.0a, Full scan on every generation also probes the uP9512R identity
+on every address of ports 0-7: 896 more single-byte reads, about a third more
+than before, and no writes. A board that answers as both a uP9512R and another
+controller now lists both and needs an explicit selection.
 Launch, checking the box and switching GPUs do not start a scan. I2C-bearing
 profiles require that manual scan first.
 Another board with one of these controllers usually needs discovery and
@@ -770,7 +786,10 @@ need XOC (including above-normal carryover left after unticking XOC and a nonzer
 Additional Memory Clock Offset) mark the saved profile as XOC so it can restore
 those requests after reboot. An I2C load
 automatically runs the existing verification under load if this session has not
-verified the regulator yet, then executes its dry run and checked write.
+verified the regulator yet, then executes its dry run and checked write. A
+saved uP9512R state that already matches the controller writes nothing and
+needs no Verify. A uP9512R whose SMBus lock is closed is read-only to Druta,
+so profiles and undo points do not capture it.
 
 Private-control profiles must match the GPU, VBIOS and driver. If these change,
 save a fresh profile after validating the settings on that configuration.

@@ -88,9 +88,12 @@ readings are in mV, with no board gain or current calibration inferred.
 Apply requires a valid verification bound to the current GPU, controller object,
 port/address and recipe. Card/controller changes, rescans and observed connection
 loss invalidate that result. Stock/reset cannot make a first write to an
-untouched MP candidate or uP9512R. Recovery remains available on the same connection after
+untouched MP candidate. Recovery remains available on the same connection after
 a verification write/restoration attempt; load setup failure alone grants no
-writes. Stock sets the offset to zero, whereas Verify restores its entry offset,
+writes. The uP9512R's offsets are positive-only, so its Reset (zero and
+disable) can only lower the request and needs no prior Verify; it still needs
+the I2C opt-in, the identified controller and an open SMBus lock. A uP9512R
+already at zero and disabled gets no write. Stock sets the offset to zero, whereas Verify restores its entry offset,
 which may be nonzero. NCP4206 Auto returns voltage control to GPU VID.
 
 No `[[write]]` means a read-only recipe. Missing `[[identity]]` is rejected by

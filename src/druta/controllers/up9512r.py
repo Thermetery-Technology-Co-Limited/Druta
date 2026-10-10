@@ -27,7 +27,16 @@ HARDWARE_MAX_MV = 150
 NORMAL_MAX_MV = 50
 NORMAL_CEILING_MV = 1200
 TYPO_CEILING_MV = 2000
+# Bounded read-only recovery: a transient NACK or busy status is not a value.
+READ_ATTEMPTS = 3
+READ_RETRY_S = .02
+RESTORE_ATTEMPTS = 3
+RESTORE_RETRY_S = .05
 _ADAPTER_LOCK_GUARD = threading.Lock()
+
+
+class Unreadable(ValueError):
+    """A read failed; unlike a mismatch, retrying it may succeed."""
 
 
 def _offset(value):
@@ -63,6 +72,9 @@ def _encode(state, before):
 class UP9512R(Rail):
     requires_verification = True
     multi_state_offset = True
+    # Offsets are positive-only, so zeroing and disabling them can only lower
+    # the request. Reset therefore needs no proof that a raise reaches the rail.
+    reset_only_lowers = True
 
     def __init__(self, nvapi, *, port=2, addr7=0x25):
         from ..railctl import _V3
@@ -177,40 +189,123 @@ class UP9512R(Rail):
                 and list(extra) == [0, 0] and int(buf[0]) == value and self._bound())
 
     def present(self):
+        # Single-shot: discovery probes hundreds of empty routes with this.
+        # After identification, use still_present(), which retries failed reads.
         try:
             return self._bound() and all(self.read(reg) == value
                                         for _ in range(2) for reg, value in IDENTITY)
         except Exception:
             return False
 
-    def _capture_registers(self):
-        if not self.present():
-            raise ValueError('uP9512R identity/selected GPU no longer matches')
+    def still_present(self):
+        """Post-identification check: failed reads get bounded retry, a mismatch none."""
+        try:
+            self._check_identity()
+            return True
+        except Exception:
+            return False
+
+    def _read_retry(self, reg):
+        for attempt in range(READ_ATTEMPTS):
+            if attempt:
+                time.sleep(READ_RETRY_S)
+            value = self.read(reg)
+            if value is not None or not self._bound():
+                return value
+        return None
+
+    def _check_identity(self):
+        for attempt in range(READ_ATTEMPTS):
+            if attempt:
+                time.sleep(READ_RETRY_S)
+            try:
+                return self._identity_once()
+            except Unreadable as exc:
+                error = exc
+        raise Unreadable(f'{error} after {READ_ATTEMPTS} attempts')
+
+    def _identity_once(self):
+        if not self._bound():
+            raise ValueError('uP9512R selected GPU no longer matches')
+        for _ in range(2):
+            for reg, value in IDENTITY:
+                got = self.read(reg)
+                if got is None:
+                    if not self._bound():
+                        raise ValueError('uP9512R selected GPU no longer matches')
+                    raise Unreadable(f'uP9512R identity register 0x{reg:02X} unreadable')
+                if got != value:
+                    raise ValueError('uP9512R identity no longer matches')
+
+    def _capture_once(self):
+        self._identity_once()
         raw = tuple(self.read(reg) for reg in CONTROL_REGISTERS)
+        if any(v is None for v in raw):
+            raise Unreadable('uP9512R control read failed')
         if any(type(v) is not int or not 0 <= v <= 255 for v in raw):
-            raise ValueError('uP9512R control read failed')
-        if tuple(self.read(reg) for reg in CONTROL_REGISTERS) != raw or not self.present():
-            raise ValueError('uP9512R control/identity changed during capture')
+            raise ValueError('uP9512R control read outside one byte')
+        again = tuple(self.read(reg) for reg in CONTROL_REGISTERS)
+        if any(v is None for v in again):
+            raise Unreadable('uP9512R control re-read failed')
+        if again != raw:
+            raise ValueError('uP9512R control changed during capture')
+        self._identity_once()
         return raw
+
+    def _capture_registers(self):
+        """Complete control bytes; retry only reads that failed, never a mismatch."""
+        for attempt in range(READ_ATTEMPTS):
+            if attempt:
+                time.sleep(READ_RETRY_S)
+            try:
+                return self._capture_once()
+            except Unreadable as exc:
+                error = exc
+        raise Unreadable(f'{error} after {READ_ATTEMPTS} attempts')
 
     def capture_control(self):
         with self._mutex:
             return _decode(self._capture_registers())
 
     def _writable(self, raw):
-        lock = self.read(0x39)
+        lock = self._read_retry(0x39)
+        if lock is None:
+            raise Unreadable('uP9512R SMBus lock register 0x39 is unreadable; no write issued')
         if lock != 0x94:
-            raise ValueError('uP9512R SMBus is locked or unreadable; Druta never unlocks register 0x39')
+            raise ValueError('uP9512R SMBus is locked; Druta never unlocks register 0x39')
         if raw[3] & 0x83:
             raise ValueError('uP9512R internal-test bits are nonzero; unknown control layout')
+
+    def write_locked(self):
+        """True/False from register 0x39; None while identity or lock stays
+        unreadable. Raises when the identity no longer matches."""
+        with self._mutex:
+            try:
+                self._check_identity()
+            except Unreadable:
+                return None
+            lock = self._read_retry(0x39)
+            return None if lock is None else lock != 0x94
+
+    def matches_control(self, state):
+        """Read-only: the live, understood control already equals ``state``.
+
+        A locked controller can still match; nothing needs writing then.
+        """
+        with self._mutex:
+            try:
+                state = parse_control(state)
+                raw = self._capture_registers()
+                return not raw[3] & 0x83 and _decode(raw) == state
+            except Exception:
+                return False
 
     def telemetry(self):
         try:
             with self._mutex:
                 control = self.capture_control()
-                fb, imon, lock = self.read(0x2D), self.read(0x2C), self.read(0x39)
-                if not self.present():
-                    return {}
+                fb, imon, lock = (self._read_retry(reg) for reg in (0x2D, 0x2C, 0x39))
+                self._check_identity()
                 offsets = control['offsets_mv']
                 return {'control': control, 'offsets_mv': offsets,
                         'offset_mv': offsets[0] if len(set(offsets)) == 1 else None,
@@ -222,10 +317,15 @@ class UP9512R(Rail):
             return {}
 
     def read_vout(self):
-        if not self.present():
+        try:
+            self._check_identity()
+            value = self._read_retry(0x2D)
+            if value is None:
+                return None
+            self._check_identity()
+        except Exception:
             return None
-        value = self.read(0x2D)
-        return value * 10 if value is not None and self.present() else None
+        return value * 10
 
     def validate_offset_mv(self, mv, *, xoc=False):
         try:
@@ -329,6 +429,7 @@ class UP9512R(Rail):
             return True, 'uP9512R all five offset fields and enable read back exactly; other bits preserved'
         except Exception as exc:
             message = str(exc)
+            self.last_transaction['cause'] = message
             if recovery and attempted and before is not None:
                 # Recovery may already have disabled offsets. Rolling back to
                 # its entry state would re-enable the trial after a later field
@@ -399,6 +500,44 @@ class UP9512R(Rail):
             # Release/zero is recovery, not a new request to raise voltage.
             return self._transaction({'kind': KIND, 'offsets_mv': [0] * 5, 'enabled': False},
                                      recovery=True, expected=expected)
+
+    def _restore_entry(self, original, original_raw):
+        """Bounded recovery to the exact entry bytes; returns the errors left.
+
+        Each attempt re-reads the controller and dispatches only the fields
+        that still differ, so a retry never repeats a write that already
+        landed. Accepted start states stay limited to this verification's own.
+        """
+        if not self._verification_write_attempted:
+            try:
+                if self._capture_registers() == original_raw:
+                    return []
+                return ['complete original byte state independent readback mismatch']
+            except Exception as exc:
+                return [str(exc)]
+        accepted = set(self._recovery_states) | {original_raw}
+        errors = []
+        for attempt in range(RESTORE_ATTEMPTS):
+            if attempt:
+                time.sleep(RESTORE_RETRY_S)
+            errors = []
+            try:
+                ok, message = self._transaction(original, recovery=True, exact=original_raw,
+                                                expected_raw_states=accepted)
+                if not ok:
+                    errors.append(message)
+            except Exception as exc:
+                errors.append(str(exc))
+            # The independent readback, not a transport status, is the verdict:
+            # a write can land although its call reported failure.
+            try:
+                if self._capture_registers() == original_raw:
+                    return []
+                errors.append('complete original byte state independent readback mismatch')
+            except Exception as exc:
+                errors.append(str(exc))
+            accepted |= set(self._recovery_states)
+        return [f'after {RESTORE_ATTEMPTS} attempts: ' + '; '.join(errors)]
 
     def verify(self, *, acknowledged=False, ref=None, log=None, cancelled=None,
                operating_point=None, allow_idle=False):
@@ -473,7 +612,8 @@ class UP9512R(Rail):
                 steps = [step for step in self.p.rungs if max(effective) + step <= maximum
                          and base + step <= ceiling]
                 if not steps:
-                    raise ValueError('no headroom for the bounded verification staircase')
+                    raise ValueError('no headroom for the bounded verification staircase; '
+                                     'Reset releases the offsets without a prior Verify')
             except Exception as exc:
                 return False, f'uP9512R INCONCLUSIVE - {exc}; nothing written', ladder
 
@@ -491,7 +631,10 @@ class UP9512R(Rail):
                     ladder.append(rung)
                     ok, message = self._transaction(trial_state, expected=expected)
                     if not ok:
-                        raise ValueError('verification write refused: ' + message)
+                        # The entry restoration below decides the final state;
+                        # report only why the trial stopped.
+                        raise ValueError('verification write refused: '
+                                         + self.last_transaction.get('cause', message))
                     expected = trial_state
                     time.sleep(.15)
                     trial = sample(_encode(trial_state, original_raw))
@@ -509,20 +652,7 @@ class UP9512R(Rail):
             except Exception as exc:
                 failure = str(exc)
             finally:
-                errors = []
-                try:
-                    ok, message = (self._transaction(original, recovery=True, exact=original_raw,
-                                                    expected_raw_states=set(self._recovery_states))
-                                   if self._verification_write_attempted else (True, 'nothing written'))
-                    if not ok:
-                        errors.append(message)
-                except Exception as exc:
-                    errors.append(str(exc))
-                try:
-                    if self._capture_registers() != original_raw:
-                        errors.append('complete original byte state independent readback mismatch')
-                except Exception as exc:
-                    errors.append(str(exc))
+                errors = self._restore_entry(original, original_raw)
                 self._verification_restore_ok = not errors
                 self._verification_restore_error = '; '.join(errors)
             if errors:

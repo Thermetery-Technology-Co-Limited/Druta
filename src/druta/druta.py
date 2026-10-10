@@ -3676,7 +3676,7 @@ class Druta:
         if getattr(self.rail, "current_dac", False):
             return
         try:
-            if not self.rail.present():
+            if not self.rail_present():
                 return
         except Exception as exc:
             self.log(f"i2c telemetry unavailable: {exc}", False)
@@ -4121,6 +4121,10 @@ class Druta:
         self._i2c_verified = False
         self._i2c_verified_for = None
 
+    def rail_present(self):
+        """Post-identification presence; a controller may retry failed reads."""
+        return getattr(self.rail, "still_present", self.rail.present)()
+
     def i2c_connection(self):
         if self.rail is None:
             return None
@@ -4413,7 +4417,7 @@ class Druta:
                          else "No compatible controller responded to the scan.", color=WARN)
             return
         dpg.add_text(self.rail.p.name, color=DIM)
-        if not self.rail.present():
+        if not self.rail_present():
             self.invalidate_i2c_verification()
             dpg.add_text("Controller no longer responds; rescan I2C.", color=WARN)
             return
@@ -4491,8 +4495,13 @@ class Druta:
             self.cancel_i2c_discovery(clear=True)
             self.refresh_i2c_candidates()
 
-    def reset_i2c_rail(self):
-        """Allow recovery of a tried connection, never probe an untouched one."""
+    def reset_i2c_rail(self, *, autosave=True):
+        """Allow recovery of a tried connection, never probe an untouched one.
+
+        A controller whose reset can only lower the request (positive-only
+        offsets zeroed and disabled) may reset without a prior Verify, so a
+        session that starts at the envelope edge is not stuck there.
+        """
         if getattr(self, "_i2c_busy", False):
             return False, "wait for verification and restoration to finish"
         if (hasattr(self, "_i2c_discovery_complete")
@@ -4513,6 +4522,8 @@ class Druta:
             return result
         if getattr(self.rail, "requires_verification", False):
             if not (self.i2c_verified()
+                    or (getattr(self.rail, "reset_only_lowers", False)
+                        and getattr(self.rail, "multi_state_offset", False))
                     or (getattr(self, "_i2c_recovery_for", None) is not None
                         and self._i2c_recovery_for == self.i2c_connection())):
                 return False, f"{self.rail.p.regulator} has not been verified; no reset write issued"
@@ -4524,7 +4535,8 @@ class Druta:
                 expected = self._capture_multi_state_offset_control()
             except Exception as exc:                            # noqa: BLE001
                 return False, f"load-state offset capture failed: {exc}"
-            self.autosave_before("i2c-load-state-offset-reset")
+            if autosave:
+                self.autosave_before("i2c-load-state-offset-reset")
             result = self.rail.reset(expected=expected)
             self._multi_state_offset_failure(result)
             return result
@@ -4549,7 +4561,7 @@ class Druta:
                            "tab red, and the red is the only warning this path "
                            "gets - it must not be possible to write here "
                            "without having seen it")
-        if not self.rail.present():
+        if not self.rail_present():
             self.invalidate_i2c_verification()
             return False, (f"the {self.rail.p.regulator} that identified at "
                            f"0x{self.rail.addr7:02X} is no longer answering - "
@@ -4577,8 +4589,17 @@ class Druta:
         self._i2c_offset_control_before = control
         return control
 
+    def _clear_offset_restore_failure(self, rail):
+        """Exact readback has re-established the state; the session flag stays."""
+        failed_rail, _ = getattr(self, "_i2c_offset_restore_failure", (None, ""))
+        if failed_rail is rail:
+            self._i2c_offset_restore_failure = (None, "")
+
     def _multi_state_offset_failure(self, result):
-        if result[0] or getattr(self.rail, "_verification_restore_ok", True):
+        if result[0]:
+            self._clear_offset_restore_failure(self.rail)
+            return
+        if getattr(self.rail, "_verification_restore_ok", True):
             return
         self.invalidate_i2c_verification()
         self._i2c_restore_failed = True
@@ -4678,7 +4699,8 @@ class Druta:
             else:
                 self.invalidate_i2c_verification()
             return
-        avail, msg = ((True, "") if getattr(self.rail, "absolute_voltage", False)
+        avail, msg = ((True, "") if (getattr(self.rail, "absolute_voltage", False)
+                                     or self._voltage_only_verification(self.rail))
                       else gpuload.available())
         if not avail:
             self.log("verify: " + msg, False)
@@ -4716,6 +4738,12 @@ class Druta:
             self.sync_lock_ui()
             self.log(f"verify could not start: {exc}", False)
 
+    @staticmethod
+    def _voltage_only_verification(rail):
+        """The uP9512R verifier reads its own FB ADC at a held P0 point; no CUDA load."""
+        from .controllers.up9512r import UP9512R
+        return isinstance(rail, UP9512R)
+
     def _i2c_verify_worker(self, gpu=None, rail=None, connection=None, cancel=None):
         # Bound to the Rail captured at start, so a card swap mid-run cannot
         # redirect the restore write at a different board's bus.
@@ -4729,8 +4757,7 @@ class Druta:
         rail._verification_restore_ok = True
         rail._verification_restore_error = ""
         try:
-            from .controllers.up9512r import UP9512R
-            voltage_only = isinstance(rail, UP9512R)
+            voltage_only = self._voltage_only_verification(rail)
             voltage = None
             if not voltage_only and not getattr(rail, "absolute_voltage", False):
                 out = gpuload.induce(gpu, max_seconds=180.0,
@@ -4776,6 +4803,8 @@ class Druta:
                   and connection == self.i2c_connection())
             self._i2c_verified = ok
             self._i2c_verified_for = connection if ok else None
+            if ok and getattr(rail, "multi_state_offset", False):
+                self._clear_offset_restore_failure(rail)
             if res.get("err"):
                 msg += f"; {res['err']}"
             self.log("verify: " + msg, ok)
@@ -6421,7 +6450,7 @@ class Druta:
         # take the headroom raise off first, while the lock still holds the point.
         if not self.restore_headroom_before_unpin("Reset all"):
             return
-        self.autosave_before("reset-all")
+        captured = self.autosave_before("reset-all")
         failed = 0
         # One flag per MECHANISM. reset_all releases both, and the record may
         # only be dropped when the step matching what THIS app holds succeeded
@@ -6471,7 +6500,9 @@ class Druta:
         if (self.rail is not None
                 and (getattr(self.rail, "current_dac", False)
                      or dpg.does_item_exist("sl_i2crail"))):
-            ok, m = self.reset_i2c_rail()
+            # One undo point, taken before the GPU reset. Only if it came out
+            # incomplete does the controller reset take its own second chance.
+            ok, m = self.reset_i2c_rail(autosave=not captured)
             self.log(("current DAC outputs: " if getattr(self.rail, "current_dac", False)
                       else "VRM rail offset: ") + m, ok)
             failed += (0 if ok else 1)
@@ -9034,7 +9065,8 @@ deliberately does not put behind a button."""
                                ("i2c_mode", bool(state.get("i2c")))):
                 dpg.set_value(tag, value)
             self.sync_risk_ui()
-        if state.get("i2c") and not self.i2c_verified():
+        if (state.get("i2c") and not self.i2c_verified()
+                and profiles.i2c_replay_needed(state, self.rail)):
             self.verify_i2c_rail()
             # Current-DAC register readback is synchronous. It establishes
             # controller identity/state but never claims a physical-voltage
@@ -9158,7 +9190,8 @@ deliberately does not put behind a button."""
                 raise ValueError("save a new, complete profile before enabling startup")
             manager.enable(name, state)
             self.log(f"'{name}' will load at Windows sign-in after a clean shutdown. "
-                     "Its saved rail/XOC settings are included; I2C is reverified under load.", True)
+                     "Its saved rail/XOC settings are included; I2C is reverified under load "
+                     "unless the controller already holds the saved state.", True)
         except Exception as e:
             self.log(f"startup profile: {e}", False)
         self.refresh_profile_list()

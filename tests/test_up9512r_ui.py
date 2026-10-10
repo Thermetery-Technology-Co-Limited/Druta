@@ -166,6 +166,158 @@ class UP9512RUiTests(FakeUiTest):
         self.rail.reset.assert_called_once_with(expected=self.control)
         self.app.autosave_before.assert_called_once_with("i2c-load-state-offset-reset")
 
+    def test_release_only_controller_resets_without_a_prior_verify(self):
+        self.rail.reset_only_lowers = True
+        self.app.invalidate_i2c_verification()
+        self.assertTrue(self.app.reset_i2c_rail()[0])
+        self.rail.reset.assert_called_once_with(expected=self.control)
+        self.app.autosave_before.assert_called_once_with("i2c-load-state-offset-reset")
+        # The release still needs the opt-in and an identified, unlocked controller.
+        self.rail.reset.reset_mock()
+        self.telemetry["write_locked"] = True
+        self.assertFalse(self.app.reset_i2c_rail()[0])
+        self.telemetry["write_locked"] = False
+        self.values["i2c_mode"] = False
+        self.assertFalse(self.app.reset_i2c_rail()[0])
+        self.rail.reset.assert_not_called()
+
+    def test_fresh_session_at_the_normal_maximum_can_reset_on_the_real_controller(self):
+        from tests.test_up9512r_profiles import setup
+
+        _, rail, registers, writes, _, _ = setup()
+        registers.update({0x0A: 0x55, 0x0B: 0x55, 0x0C: 0x5A, 0x2A: 0x60})
+        self.app.rail = rail
+        self.app.invalidate_i2c_verification()
+        ok, message, _ = rail.verify(acknowledged=True,
+                                     operating_point=lambda: (0, 2865, 1438))
+        self.assertFalse(ok)
+        self.assertIn("nothing written", message)
+        self.assertFalse(writes)
+        ok, message = self.app.reset_i2c_rail()
+        self.assertTrue(ok, message)
+        self.assertEqual(rail.capture_control(),
+                         {"kind": "up9512r-offset-v1", "offsets_mv": [0] * 5, "enabled": False})
+        self.assertEqual(writes[0], (0x2A, 0x20, 1), "disable is written first")
+        self.assertEqual(registers[0x0C] & 0x0F, 0x0A, "preserved low nibble")
+
+    def reset_all_order(self, *, complete):
+        order = []
+        app = self.app
+        app.autosave_before.side_effect = (
+            lambda action, **_: order.append("autosave:" + action) or complete)
+        self.rail.reset.side_effect = lambda **_: order.append("rail.reset") or (True, "cleared")
+        app._reset_armed, app._clk_lock = True, None
+        app.restore_headroom_before_unpin = Mock(return_value=True)
+        app.gpu.reset_all = Mock(side_effect=lambda: order.append("gpu.reset_all") or [])
+        for name in ("sync_sliders_from_gpu", "sync_profile_rail_sliders", "sync_knob_boxes",
+                     "refresh_volt_limits", "refresh_current_limits", "vf_read"):
+            setattr(app, name, Mock())
+        app.reset_all()
+        self.assertEqual(self.values["sl_i2crail"], 0)
+        return order
+
+    def test_reset_all_takes_its_one_undo_point_before_any_write(self):
+        self.assertEqual(self.reset_all_order(complete=True),
+                         ["autosave:reset-all", "gpu.reset_all", "rail.reset"])
+
+    def test_incomplete_reset_all_snapshot_gets_the_controller_reset_undo_point(self):
+        self.assertEqual(self.reset_all_order(complete=False),
+                         ["autosave:reset-all", "gpu.reset_all",
+                          "autosave:i2c-load-state-offset-reset", "rail.reset"])
+
+    def test_release_only_bypass_needs_the_gated_load_state_path(self):
+        self.rail.reset_only_lowers = True
+        self.rail.multi_state_offset = False
+        self.app.invalidate_i2c_verification()
+        result = self.app.reset_i2c_rail()
+        self.assertFalse(result[0])
+        self.assertIn("not been verified", result[1])
+        self.rail.reset.assert_not_called()
+
+    def test_one_failed_identity_read_keeps_the_gate_and_verification(self):
+        from tests.test_up9512r_profiles import setup
+
+        _, rail, registers, _, _, _ = setup()
+        self.app.rail = rail
+        self.app._i2c_verified_for = self.app.i2c_connection()
+        reads = []
+        real = rail.read.side_effect
+
+        def read(reg, width=1):
+            reads.append(reg)
+            if reg == 0x27 and reads.count(0x27) == 1:
+                return None
+            return real(reg, width)
+        rail.read.side_effect = read
+        self.assertEqual(self.app.i2c_gate(), (True, ""))
+        self.assertTrue(self.app.i2c_verified())
+
+    def test_confirmed_reset_or_verify_clears_the_uncertain_status_line(self):
+        self.app._i2c_restore_failed = True
+        self.app._i2c_offset_restore_failure = (self.rail, "LCS2 restore not confirmed")
+        self.app.i2c_rail_text(None)
+        self.assertIn("state is uncertain", self.values["i2c_write_status"])
+        self.assertTrue(self.app.reset_i2c_rail()[0])
+        self.app.i2c_rail_text(None)
+        self.assertNotIn("uncertain", self.values["i2c_write_status"])
+        self.assertTrue(self.app._i2c_restore_failed, "the session stays unclean")
+
+        self.app._i2c_offset_restore_failure = (self.rail, "LCS2 restore not confirmed")
+        self.app.gpu.read_vcore_mv = Mock(return_value=900)
+        with patch.object(druta.gpuload, "induce", return_value={"result": 900}), \
+                patch.object(druta.gpuload, "verify_in_p0",
+                             return_value=(True, "WRITE PATH CONFIRMED", [])):
+            self.app._i2c_verify_worker()
+        self.assertTrue(self.app.i2c_verified())
+        self.app.i2c_rail_text(None)
+        self.assertNotIn("uncertain", self.values["i2c_write_status"])
+
+    def test_failed_reset_keeps_the_uncertain_status_line(self):
+        self.app._i2c_offset_restore_failure = (self.rail, "LCS2 restore not confirmed")
+        self.rail.reset.return_value = (False, "0x0A readback mismatch")
+        self.rail._verification_restore_ok = False
+        self.assertFalse(self.app.reset_i2c_rail()[0])
+        self.app.i2c_rail_text(None)
+        self.assertIn("state is uncertain", self.values["i2c_write_status"])
+
+    def test_voltage_only_verify_needs_no_cuda_but_offset_rails_still_do(self):
+        from tests.test_up9512r_profiles import setup
+
+        unavailable = (False, "nvcuda.dll could not be loaded")
+        self.app._tim_busy = False
+        self.app.sync_lock_ui = Mock()
+        with patch.object(druta.gpuload, "available", return_value=unavailable) as cuda, \
+                patch.object(druta.threading, "Thread") as worker:
+            self.app.verify_i2c_rail()  # The mock offset rail is not voltage-only.
+            worker.assert_not_called()
+            self.assertIn("nvcuda", self.app.log.call_args.args[0])
+            self.app.rail = setup()[1]
+            self.app.verify_i2c_rail()
+            worker.assert_called_once()
+            self.assertEqual(cuda.call_count, 1)
+        self.app._i2c_busy = False
+
+    def test_profile_whose_load_state_offsets_already_match_needs_no_verify(self):
+        from tests.test_up9512r_profiles import setup
+
+        _, rail, registers, writes, _, state = setup()
+        app = self.app
+        app.gpu, app.rail = setup()[0], rail
+        app.invalidate_i2c_verification()
+        app.rail_for_profile = Mock(return_value=rail)
+        app.verify_i2c_rail = Mock()
+        app.finish_profile_load = Mock()
+        app.sync_risk_ui = Mock()
+        registers[0x39] = 0x87  # Locked: the matching entry still needs no write.
+        app.begin_profile_load("saved offsets", state)
+        app.verify_i2c_rail.assert_not_called()
+        app.finish_profile_load.assert_called_once()
+        self.assertFalse(writes)
+        app.finish_profile_load.reset_mock()
+        registers.update({0x39: 0x94, 0x0A: 0})
+        app.begin_profile_load("saved offsets", state)
+        app.verify_i2c_rail.assert_called_once()
+
     def test_reset_capture_failure_is_a_refusal(self):
         self.rail.validate_control.side_effect = ValueError("entry state unreadable")
         result = self.app.reset_i2c_rail()

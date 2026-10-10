@@ -78,6 +78,10 @@ state were restored. This validates the production workflow and stored
 state, without establishing performance or voltage behavior at other
 operating points.
 
+Ada gets this headroom by default because it now has rail-limit control. The
+clock loss that headroom corrects was measured on a TITAN RTX and an RTX 3070
+Ti; it was not measured on Ada.
+
 ## Additional clocks
 
 Both drivers accepted version `0x000261A4`, size `0x61A4`, header `0x124`
@@ -161,6 +165,11 @@ Policy 13 reported type `0x0F`, channel 19 and current units, with a 1 mA
 minimum and 400000 mA default/maximum. Both drivers accepted **400 / 399 /
 400 A** with matching requested and effective-limit readbacks. This validates
 the policy interface, not a measured 399 A load or physical current threshold.
+
+The full Power policies list, values set by hand and **Max all** are open on
+Ada through the same generation gate and packet checks. The owner set the
+policy sliders by hand on this card; that session has no recorded log here,
+and Max all has no recorded run.
 
 The two drivers exercised different current-policy geometries:
 
@@ -256,6 +265,13 @@ alternate controller routes, transient architecture queries, independent storage
 witnesses, uncertain completions, conflicting writers and partial recovery.
 The [public product evidence](experiments/ada-up9512r-product-2026-10-09.json)
 retains earlier inconclusive runs alongside the completed passes.
+
+**Apply, Reset and profile replay were not run from the UI on hardware.** They
+share the transaction code that Verify's trial and restoration writes ran
+through above; the UI flows have mocked coverage only. The 1.8.0a fixes (Reset
+without a prior Verify, read and restoration retries, lock-aware capture and
+no-op replay) followed these runs and have hardware-free coverage only; the
+suite then passed **1746 tests**.
 
 #### Earlier combined-route tests with strict clock gating
 
@@ -362,7 +378,7 @@ driver switches completed without requesting a reboot, and independent reads
 confirmed the original seven identity/lock/control bytes. Driver 617.42 was
 restored. No new monitored crash/TDR/dump-error event occurred in this round.
 The exact host/firmware rejection condition remains unresolved; the separate
-[policy research record](https://github.com/Thermetery-Technology-Co-Limited/drutadrv/blob/ada-up9512r-bar0-probe/research/I2C-POLICY.md)
+[policy research record](https://github.com/Thermetery-Technology-Co-Limited/drutadrv/blob/ada-up9512r-bar0-probe/research/I2C-POLICY.md) (private repository)
 distinguishes static Falcon-status translation from live response evidence.
 Independent binary reviews exclude normal ownership/restore returns as the
 direct `0x16` source on both drivers. Further 617.42 queue-path exclusions are
@@ -391,7 +407,7 @@ readback remained exact. Five bounded traces reported no loss and preserved
 existing trace sessions. Both overrides were removed, four mode restarts and
 two driver switches completed, and 617.42 plus the verified EXE were restored.
 No new monitored crash/TDR/dump-error event occurred in the recorded interval.
-The [return-site research](https://github.com/Thermetery-Technology-Co-Limited/drutadrv/blob/ada-up9512r-bar0-probe/research/ADA-I2C-ETW.md)
+The [return-site research](https://github.com/Thermetery-Technology-Co-Limited/drutadrv/blob/ada-up9512r-bar0-probe/research/ADA-I2C-ETW.md) (private repository)
 records positive observations separately from the conditional firmware-origin
 inference. No application write-capability claim or production fallback changed.
 
@@ -402,7 +418,7 @@ rejection does not identify the handler branch or runtime eligibility state.
 This round made no controller-data writes or direct research MMIO requests.
 Independent seven-register readback remained exact after both driver switches;
 617.42, nvtunedrv and the verified EXE were restored. See the
-[completion-diagnostics record](https://github.com/Thermetery-Technology-Co-Limited/drutadrv/blob/ada-up9512r-bar0-probe/research/ADA-PMU-COMPLETION-DIAGNOSTICS.md).
+[completion-diagnostics record](https://github.com/Thermetery-Technology-Co-Limited/drutadrv/blob/ada-up9512r-bar0-probe/research/ADA-PMU-COMPLETION-DIAGNOSTICS.md) (private repository).
 This binary-derived interface is research only; that statistics round did not
 establish application write support.
 
@@ -468,11 +484,11 @@ completed without a reboot request. Independent readback confirmed the original
 state after restoring 617.42; the tracer was removed, research services stopped,
 nvtunedrv running, and the verified EXE reopened. The monitored interval contains
 no new crash/TDR/dump-error event and no event-query errors. See the
-[raw-completion evidence](https://github.com/Thermetery-Technology-Co-Limited/drutadrv/blob/ada-up9512r-bar0-probe/research/ADA-RAW-I2C-COMPLETION.md) for exact binary bindings, capture checks,
+[raw-completion evidence](https://github.com/Thermetery-Technology-Co-Limited/drutadrv/blob/ada-up9512r-bar0-probe/research/ADA-RAW-I2C-COMPLETION.md) (private repository) for exact binary bindings, capture checks,
 and the remaining interpretation limits. That capture round did not change
 application write support.
 
-An offline [firmware preparation follow-up](https://github.com/Thermetery-Technology-Co-Limited/drutadrv/blob/ada-up9512r-bar0-probe/research/ADA-PMU-IMAGE-PREPARATION.md)
+An offline [firmware preparation follow-up](https://github.com/Thermetery-Technology-Co-Limited/drutadrv/blob/ada-up9512r-bar0-probe/research/ADA-PMU-IMAGE-PREPARATION.md) (private repository)
 confirmed the static Ada PMU archive bindings in 581.42, supplementing the
 617.42 image identification. Neither older stored image contains ELF magic.
 The 617.42 Ada preparation and upload method bindings are also statically
@@ -486,7 +502,7 @@ still update bookkeeping before failing. Live eligibility, transfer mode and
 other possible image transformations remain unobserved. This static work made
 no hardware requests or runtime changes and did not recover the I2C predicate.
 
-A separate [bounded PMU status observation](https://github.com/Thermetery-Technology-Co-Limited/drutadrv/blob/ada-up9512r-bar0-probe/research/ADA-PMU-STATUS-VISIBILITY.md)
+A separate [bounded PMU status observation](https://github.com/Thermetery-Technology-Co-Limited/drutadrv/blob/ada-up9512r-bar0-probe/research/ADA-PMU-STATUS-VISIBILITY.md) (private repository)
 on 617.42 read three statically derived BAR0 locations through the signed default
 reader: BCR_CTRL `111`, CPUCTL `80`, and ICD_CMD `7`. The decoded fields show
 RISC-V selected and active, HALTED clear, and ICD BUSY/ERROR clear. All replies
@@ -511,7 +527,7 @@ after matched, the helper unloaded, and boot time stayed unchanged.
 
 This does not establish debugger-memory access, a firmware policy unlock or
 accepted uP9512R writes. It changes no application controls or packaged
-binaries. See the [RSTAT4 research record](https://github.com/Thermetery-Technology-Co-Limited/drutadrv/blob/ada-up9512r-bar0-probe/research/ADA-PMU-RSTAT4.md)
+binaries. See the [RSTAT4 research record](https://github.com/Thermetery-Technology-Co-Limited/drutadrv/blob/ada-up9512r-bar0-probe/research/ADA-PMU-RSTAT4.md) (private repository)
 for the exact static proof, scoped live evidence and ownership limitations.
 
 ### Raw I2C block follow-up
@@ -526,7 +542,7 @@ requests, zero direct research MMIO requests, and no lock/enable writes.
 617.42 and the verified EXE were restored with exact controller state and
 research services stopped. The user manually rebooted during the interruption;
 boot continuity applies only to the resumed test interval. No application code
-or packaged binary changed. See the [alternative-route evidence](https://github.com/Thermetery-Technology-Co-Limited/drutadrv/blob/ada-up9512r-bar0-probe/research/ADA-I2C-ALTERNATE-ROUTES.md)
+or packaged binary changed. See the [alternative-route evidence](https://github.com/Thermetery-Technology-Co-Limited/drutadrv/blob/ada-up9512r-bar0-probe/research/ADA-I2C-ALTERNATE-ROUTES.md) (private repository)
 for the response-format validation, static route limits and PMU memory-read
 boundary. The exact firmware predicate and a supported unlock remain unresolved.
 
@@ -537,7 +553,7 @@ to PMGR token and per-port hardware mutex operations. Its token-acquire
 register read is stateful. The live owner, mapped port, and firmware policy
 remain unobserved; this is not an unlock or successful-write result. No
 hardware operation, application change, or packaged-binary change was made
-for this follow-up. See the [ownership effects and limits](https://github.com/Thermetery-Technology-Co-Limited/drutadrv/blob/ada-up9512r-bar0-probe/research/I2C-POLICY.md#ownership-callback-hardware-effects-61742-offline).
+for this follow-up. See the [ownership effects and limits](https://github.com/Thermetery-Technology-Co-Limited/drutadrv/blob/ada-up9512r-bar0-probe/research/I2C-POLICY.md#ownership-callback-hardware-effects-61742-offline) (private repository).
 
 ### Native read ownership observation (617.42)
 
@@ -557,7 +573,7 @@ boot/service state unchanged and no selected event or event-query error in the
 test windows. No full controller-state readback or sustained RAM-stability
 claim follows. That observation round changed neither application code nor the
 packaged EXE. See the
-[capture evidence and limitations](https://github.com/Thermetery-Technology-Co-Limited/drutadrv/blob/ada-up9512r-bar0-probe/research/ADA-I2C-OWNER-OBSERVATION.md).
+[capture evidence and limitations](https://github.com/Thermetery-Technology-Co-Limited/drutadrv/blob/ada-up9512r-bar0-probe/research/ADA-I2C-OWNER-OBSERVATION.md) (private repository).
 
 ### Write-time ownership comparison, both drivers
 
@@ -574,7 +590,7 @@ seven-register readback matched, and the tracer was absent. Totals: two rejected
 unchanged-value writes, 35 explicit reads, no direct research MMIO or explicit
 token acquisition. No reboot was required or observed, and the full monitored
 interval had no selected fault event or query error. That round changed neither
-application code nor the packaged EXE. See the [write ownership evidence](https://github.com/Thermetery-Technology-Co-Limited/drutadrv/blob/ada-up9512r-bar0-probe/research/ADA-I2C-WRITE-OWNERSHIP.md).
+application code nor the packaged EXE. See the [write ownership evidence](https://github.com/Thermetery-Technology-Co-Limited/drutadrv/blob/ada-up9512r-bar0-probe/research/ADA-I2C-WRITE-OWNERSHIP.md) (private repository).
 
 ### Request configuration follow-up, 617.42
 
@@ -583,4 +599,4 @@ An offline follow-up identifies the previously unnamed request field at
 per-port association mask controls request bit 19; its firmware meaning
 remains unresolved. Neither finding establishes a supported write unlock.
 No hardware request, registry change, driver switch or runtime code change
-was made for this follow-up. See the [configuration analysis](https://github.com/Thermetery-Technology-Co-Limited/drutadrv/blob/ada-up9512r-bar0-probe/research/I2C-POLICY.md#request-configuration-follow-up-61742-offline).
+was made for this follow-up. See the [configuration analysis](https://github.com/Thermetery-Technology-Co-Limited/drutadrv/blob/ada-up9512r-bar0-probe/research/I2C-POLICY.md#request-configuration-follow-up-61742-offline) (private repository).

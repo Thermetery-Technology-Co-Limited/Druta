@@ -1,17 +1,17 @@
 {
   "format": 1,
   "date": "2026-10-09",
-  "scope": "One user-described Manli RTX 4080 SUPER; PCI10DE:2702/subsystem41401458, VBIOS95.03.44.40.09, port2/address0x25. No compatibility allowlist.",
+  "scope": "One user-described Manli RTX 4080 SUPER; PCI 10DE:2702/subsystem 41401458, VBIOS 95.03.44.40.09, port 2/address 0x25. No compatibility allowlist.",
   "transport": "Product NvAPI I2CReadEx V3, two-byte command/value prefix, one-byte response; independent ordinary one-byte complete-control readback.",
   "limits": [
-    "FB ADC is controller input telemetry in 10mV quanta, not calibrated physical rail voltage.",
+    "FB ADC is controller input telemetry in 10 mV quanta, not calibrated physical rail voltage.",
     "Requested offset and observed FB change are distinct; no fixed transfer gain is established.",
-    "Max runs use the real Druta oc_max callback, actual fans100%, maximum reported power limit, boost100%, de-flattened curve and owned V/F P0 hold.",
-    "The 1125mV-cap run was clamped by the1100mV rail ceiling; automatic headroom refused. Later1100mV-cap runs applied a session-only26mV margin; persistent default25mV remained unchanged.",
-    "No3D/heavy load; private harness checks measured low-load condition and software voltage readings within1200mV.",
+    "Max runs use the real Druta oc_max callback, actual fans 100%, maximum reported power limit, boost 100%, de-flattened curve and owned V/F P0 hold.",
+    "The 1125 mV-cap run was clamped by the 1100 mV rail ceiling; automatic headroom refused. Later 1100 mV-cap runs applied a session-only 26 mV margin; persistent default 25 mV remained unchanged.",
+    "No 3D/heavy load; private harness checks measured low-load condition and software voltage readings within 1200 mV.",
     "Historical strict-clock runs remain inconclusive. Current uP9512R verification treats core and memory frequencies as diagnostic only, including missing values, and skips CUDA/frequency settling. P0, exact held-voltage ownership, voltage noise/rise/reversal and restoration remain checked.",
-    "v1 58142 Max preflight stopped before writes on an incorrect expectation that saved headroom was26mV; corrected to session-only26mV.",
-    "A five-rung default staircase stays within the existing normal50mV offset range and1200mV verification ceiling, filtering steps against current offsets/baseline."
+    "v1 58142 Max preflight stopped before writes on an incorrect expectation that saved headroom was 26 mV; corrected to session-only 26 mV.",
+    "A five-rung default staircase stays within the existing normal 50 mV offset range and 1200 mV verification ceiling, filtering steps against current offsets/baseline."
   ],
   "regression_tests": {
     "passed": 1708,
