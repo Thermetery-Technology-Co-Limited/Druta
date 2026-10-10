@@ -335,7 +335,7 @@ class RailProfileTests(unittest.TestCase):
         self.assertTrue(gpu.set_volt_rail_limits(0, reliability=1000)[0])
 
     def test_unknown_generation_does_not_borrow_blackwell_conversions(self):
-        gpu = fake_gpu(architecture=8)
+        gpu = fake_gpu(architecture=9)
         fields = gpu.read_volt_rail_limits()[0]
         self.assertTrue(math.isnan(gpu.abs_limit_mv(fields, "reliability")))
         self.assertTrue(math.isnan(gpu.rail_ceiling_mv(fields)))

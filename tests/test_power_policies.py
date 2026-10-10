@@ -247,10 +247,12 @@ class PolicyListTests(unittest.TestCase):
             self.assertEqual(r["requested"], r["default"], p)
 
     def test_a_generation_without_current_policies_lists_nothing(self):
-        gpu = policy_gpu(self.card, arch=8)
+        gpu = policy_gpu(self.card, arch=9)                   # Hopper remains unsupported
         rows, error = gpu.read_power_policies()
         self.assertEqual(rows, [])
         self.assertIn("not validated", error)
+        gpu._capture_current_limit_transport.assert_not_called()
+        self.assertEqual(self.card.sets, [])
 
 
 class PolicyProfileTests(unittest.TestCase):
@@ -384,7 +386,7 @@ class PolicyProfileTests(unittest.TestCase):
         self.assertIn((False, "power policies NOT restored: policy request failed "
                               "(NTSTATUS 0, RM 0x1A)"), results)
         # a generation this build has no policy table for: the same, not a refusal
-        other = policy_gpu(PolicyCard(), arch=8)
+        other = policy_gpu(PolicyCard(), arch=9)              # Hopper, not supported Ada
         self.assertIsNone(profiles.preflight(other, saved))
         results = profiles.restore(other, saved, apply_curve=False)
         self.assertIn((True, "power limit configured to 290 W"), results)

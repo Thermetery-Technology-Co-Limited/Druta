@@ -2,11 +2,12 @@
 
 **Version 1.7.0** — [release notes](RELEASE-NOTES-1.7.0.md).
 
-Package-refactor validation: [Maxwell/Pascal](MAXWELL-PASCAL-VALIDATION.md)
-and [RTX 5080 / Blackwell](BLACKWELL-VALIDATION.md), including controlled
+Hardware validation: [Maxwell/Pascal](MAXWELL-PASCAL-VALIDATION.md),
+[RTX 5080 / Blackwell](BLACKWELL-VALIDATION.md) and
+[RTX 4080 SUPER / Ada](ADA-VALIDATION.md), including controlled
 writes, readbacks, restoration and the limits of the tested coverage.
 
-A monitor and tuner for Kepler, Maxwell, Pascal, Turing, Ampere and Blackwell NVIDIA cards,
+A monitor and tuner for Kepler, Maxwell, Pascal, Turing, Ampere, Ada and Blackwell NVIDIA cards,
 driven through NVAPI/NVML private interfaces. Available controls depend on the
 generation and the current adapter's runtime capabilities. It edits supported V/F curves
 with planners built around how the boost arbiter actually behaves, and reads and
@@ -51,12 +52,18 @@ both tested TITANs. Ampere uses the same recognized 1104-byte rail packet
 when the live getter echoes it. See [measurements and reproduction](VOLTAGE-RAILS-TITAN.md).
 
 **Current limits:** the Control tab exposes the runtime-validated core-current
-policy on Pascal, Turing, Ampere and Blackwell. The tested TITAN Xp and TITAN RTX allow
+policy on Pascal, Turing, Ampere, Ada and Blackwell. The tested TITAN Xp and TITAN RTX allow
 **218 A** and **390 A** respectively. Blackwell also exposes its other-rail
 policy; normal mode caps those two controls at **500 A / 200 A**, while XOC
 permits the advertised API maximum (**5,001 A** on the tested Astral). Apply,
 Stock, live readback, profiles and Reset all use these limits. See
 [controls and validation](CURRENT-LIMITS-RTX5080.md).
+
+**Ada:** the tested RTX 4080 SUPER passed ordinary controls, additional clock
+requests, NVVDD offsets/limits and a 400-to-399 A current-policy check on
+617.42 and 581.42, with restoration. Secondary engine names remain tentative.
+nvtune read timing registers and produced previews, but the RFC write failed
+readback and remained unchanged. See [scope and evidence](ADA-VALIDATION.md).
 
 **RTX 5080 Astral I2C:** the MP29816 profile exposes measured NVVDD voltage at
 port 2 / 7-bit address 0x30 and an experimental 5 mV-step offset function.

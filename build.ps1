@@ -63,7 +63,7 @@ function Get-SourceSnapshot {
         'RELEASE-NOTES-1.3.0.md', 'RELEASE-NOTES-1.5.0a.md', 'RELEASE-NOTES-1.5.1.md',
         'RELEASE-NOTES-1.6.0.md',
         'RELEASE-NOTES-1.7.0.md',
-        'MAXWELL-PASCAL-VALIDATION.md', 'BLACKWELL-VALIDATION.md',
+        'MAXWELL-PASCAL-VALIDATION.md', 'BLACKWELL-VALIDATION.md', 'ADA-VALIDATION.md',
         'CURRENT-LIMITS-RTX5080.md', 'COMPATIBILITY-GATING-AUDIT.md',
         'CURRENT-LIMITS-KEPLER-MAXWELL.md',
         'experiments/current-limits-titan-20260908.json',
@@ -151,7 +151,8 @@ function Get-SourceSnapshot {
         'experiments/hold-headroom-titan-rtx-61088-20260929.md',
         'experiments/hold-headroom-rtx-3070ti-59597.md',
         'experiments/measured-clock-sources-titan-rtx-61088-20260929.md',
-        'experiments/release-1.7.0-smoke-titan-rtx-61088.md'
+        'experiments/release-1.7.0-smoke-titan-rtx-61088.md',
+        'experiments/ada-ad103-validation.json'
     )
     # Only the explicitly public measurement files above are included
     # from experiments/. Other research/session captures remain excluded.

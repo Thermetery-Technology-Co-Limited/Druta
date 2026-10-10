@@ -549,9 +549,9 @@ def classify_domain_names(rows, core_mhz=None, mem_nvml=None,
     populated = {r["domain"]: r for r in rows
                  if r.get("kind") == PRIV_FREQ and r.get("prog_mhz")}
     legacy = architecture in (2, 3, 4)
-    # Ampere keeps GPC at domain 0 and reported memory at domain 4, the same
-    # slots Turing uses. Its other names are not the Turing table.
-    modern = architecture in (6, 7) or blackwell or architecture == 10
+    # Ampere and Ada keep GPC at domain 0 and reported memory at domain 4,
+    # the same slots Turing uses. Their other names have separate evidence.
+    modern = architecture in (6, 7, 8) or blackwell or architecture == 10
     gpc_dom, gpc_scale, mem_dom = None, 1, None
     if legacy or modern:
         slot, gpc_scale = (15, 2) if legacy else (0, 1)
@@ -662,6 +662,18 @@ def classify_domain_names(rows, core_mhz=None, mem_nvml=None,
         5: ("LTC", PRIV_LIKELY),
         21: ("Video", PRIV_CONFIRMED),
     }
+    # On AD103, restored requests establish the control-to-domain routing.
+    # A user-supplied GPU-Z 2.71 screenshot on RTX 4080 SUPER / 617.42 names
+    # Crossbar 2357.3 beside domain 1 at 2355, SYS 2246.7 beside domain 2 at
+    # 2250, and Video 2180.2 beside domain 21 at 2175. Domain 5 has no named
+    # GPU-Z counterpart and remains LTC?. This corroborates names, not the
+    # separate physical-counter API, whose indices did not track the probes.
+    ADA_NAMES = {
+        1: ("Crossbar", PRIV_CONFIRMED),
+        2: ("SYS", PRIV_CONFIRMED),
+        5: ("LTC", PRIV_LIKELY),
+        21: ("Video", PRIV_CONFIRMED),
+    }
 
     for r in rows:
         dom = r["domain"]
@@ -687,6 +699,8 @@ def classify_domain_names(rows, core_mhz=None, mem_nvml=None,
             r["scale"] = 2
         elif architecture == 7 and dom in AMPERE_NAMES:
             r["name"], r["grade"] = AMPERE_NAMES[dom]
+        elif architecture == 8 and dom in ADA_NAMES:
+            r["name"], r["grade"] = ADA_NAMES[dom]
         elif blackwell:
             r["name"], r["grade"] = BLACKWELL_NAMES.get(
                 dom, ("", PRIV_UNNAMED))
@@ -1084,6 +1098,19 @@ CLKDOM_BLACKWELL_RISKY_SCAN_CONTROLS = (0, 2)
 CLKDOM_AMPERE_CONTROLS = {1: "Crossbar", 2: "Memory", 3: "SYS",
                           5: "Video", 9: "LTC"}
 CLKDOM_PAIR_AMPERE = {1: 1, 2: 4, 3: 2, 5: 21, 9: 5}
+# One AD103 RTX 4080 SUPER, 1500 MHz lock and a memory-copy load: -60 MHz
+# requests at controls 1/3/5/9 changed programmed domains 1/2/21/5 and
+# restored; control 2 -64 MHz changed domain 4 and NVML memory by -64 MHz.
+# Control 1 also lowered domains 2 and 5 on that board. The pair identifies
+# the primary target, not every coupled clock. Field +0x10C and the original
+# complete GET buffers read back exactly. The later GPU-Z screenshot described
+# above corroborates Crossbar/SYS/Video names; LTC remains inferred.
+# Control 0 +0x110 also stored and restored +25 mV: at a 2400 MHz frequency
+# lock reported core voltage moved 915 -> 940 -> 915 mV. This is a measured operating
+# point on that board, not a universal physical response to every request.
+CLKDOM_ADA_CONTROLS = {1: "Crossbar", 2: "Memory", 3: "SYS",
+                       5: "Video", 9: "LTC?"}
+CLKDOM_PAIR_ADA = {1: 1, 2: 4, 3: 2, 5: 21, 9: 5}
 # Frequency-field candidates only.  The field probe deliberately excludes the
 # neighbouring voltage/rail dwords: discovering a frequency layout must never
 # require experimenting with NVVDD or MSVDD.
@@ -2607,6 +2634,7 @@ class GPU:
     ARCH_PASCAL = 4
     ARCH_TURING = 6
     ARCH_AMPERE = 7
+    ARCH_ADA = 8
     ARCH_NAMES = {1: "Fermi", 2: "Kepler", 3: "Maxwell", 4: "Pascal", 5: "Volta",
                   6: "Turing", 7: "Ampere", 8: "Ada", 9: "Hopper",
                   10: "Blackwell"}
@@ -2741,7 +2769,8 @@ class GPU:
     def _clkdom_candidate(self, architecture):
         if architecture == 10:
             return CLKDOM_LAYOUT_BLACKWELL
-        if architecture in (self.ARCH_PASCAL, self.ARCH_TURING, self.ARCH_AMPERE):
+        if architecture in (self.ARCH_PASCAL, self.ARCH_TURING,
+                            self.ARCH_AMPERE, self.ARCH_ADA):
             return CLKDOM_LAYOUT_TURING
         return None
 
@@ -2812,6 +2841,8 @@ class GPU:
         architecture = self.arch() if architecture is None else architecture
         if architecture == self.ARCH_AMPERE:
             return CLKDOM_AMPERE_CONTROLS
+        if architecture == self.ARCH_ADA:
+            return CLKDOM_ADA_CONTROLS
         if architecture == 10:
             return CLKDOM_BLACKWELL_CONTROLS
         return CLKDOM_NAMES
@@ -2840,6 +2871,8 @@ class GPU:
         """Human-readable control name, with an honest fallback."""
         if self.arch() == self.ARCH_AMPERE:
             return CLKDOM_AMPERE_CONTROLS.get(control, f"domain {control}")
+        if self.arch() == self.ARCH_ADA:
+            return CLKDOM_ADA_CONTROLS.get(control, f"domain {control}")
         if self.clkdom_is_blackwell():
             return CLKDOM_BLACKWELL_CONTROLS.get(
                 control, f"control {control}")
@@ -3531,6 +3564,9 @@ class GPU:
         # 2 and 21 there; the pair names only the domain it is labelled for.
         if self.arch() == self.ARCH_AMPERE:
             self._clkdom_pair = dict(CLKDOM_PAIR_AMPERE)
+            return self._clkdom_pair
+        if self.arch() == self.ARCH_ADA:
+            self._clkdom_pair = dict(CLKDOM_PAIR_ADA)
             return self._clkdom_pair
         if getattr(self, "_clkdom_pair", None):
             return self._clkdom_pair
@@ -4469,6 +4505,13 @@ class GPU:
             13: {"label": "Core current", "type": 0x0F, "channel": 19,
                  "normal_maximum_ma": 500_000},
         },
+        # AD103 policy 13 reports mA, type 0x0F, channel 19. A 1 A decrease
+        # and restoration verified stored and effective limits. Ranges and
+        # channel identity still come from each adapter's live descriptors.
+        ARCH_ADA: {
+            13: {"label": "Core current", "type": 0x0F, "channel": 19,
+                 "normal_maximum_ma": 500_000},
+        },
         10: {
             13: {"label": "Core current", "type": 0x12, "channel": 13,
                  "normal_maximum_ma": 500_000},
@@ -4511,6 +4554,15 @@ class GPU:
                       0x2080A61A: 0x18D4, 0x2080E61B: 0x18D4},
             "info": (0x58, 0xE4), "status": (0x80, 0x168C),
             "control": (0x14, 0xB8),
+        }, {
+            # The implementation DLL's A618/A619/A61A dispatch supplies these
+            # sizes. Live GETs on AD103 echoed the masks and agreed on every
+            # occupied policy's type; the two preceding info sizes returned
+            # RM 0x1F. The accepted info GET, never a driver string, selects it.
+            "sizes": {0x2080A618: 20512, 0x2080A619: 397048,
+                      0x2080A61A: 13876, 0x2080E61B: 13876},
+            "info": (0xCC, 0x104), "status": (0x9C, 0x1730),
+            "control": (0x14, 0xC4),
         },),
     }
 
@@ -5857,7 +5909,10 @@ class GPU:
     # Ampere's public getters and the 1104-byte 0x2080B213 packet match the
     # layout already recognized for Pascal, Turing and Blackwell. Voltage
     # numbers still come from the current adapter, not from those cards.
-    _VOLT_RAIL_ARCHITECTURES = (ARCH_PASCAL, ARCH_TURING, ARCH_AMPERE, 10)
+    # AD103 also accepted the recognized 1104-byte packet, with exact restored
+    # 5 mV requests in all four NVVDD fields. This admits the architecture;
+    # present rails, references and packet geometry remain runtime checks.
+    _VOLT_RAIL_ARCHITECTURES = (ARCH_PASCAL, ARCH_TURING, ARCH_AMPERE, ARCH_ADA, 10)
 
     def _volt_rail_profile(self):
         """Current-adapter references, not a generation's factory defaults.
@@ -6644,7 +6699,7 @@ class GPU:
 
         Architectural support, not a live capability read: on a supported card
         a transient read failure must stay a visible warning, while a card with
-        no rail control (e.g. Maxwell, Volta, Ada) has nothing to warn about.
+        no rail control (e.g. Maxwell, Volta, Hopper) has nothing to warn about.
         It follows _VOLT_RAIL_ARCHITECTURES rather than keeping its own list, so
         a generation that gains rail control gains the headroom with it - with
         no measurement of the clock loss on that generation implied.

@@ -1,0 +1,1206 @@
+{
+  "schema": 1,
+  "validation_date": "2026-10-07",
+  "scope": "One user-described Manli RTX 4080 SUPER; these measurements are not generation-wide constants or compatibility gates.",
+  "board": {
+    "name": "NVIDIA GeForce RTX 4080 SUPER",
+    "chip": "AD103",
+    "architecture": 8,
+    "pci_device": "10de:2702",
+    "subsystem": "41401458",
+    "vbios": "95.03.44.40.09",
+    "memory": "GDDR6X"
+  },
+  "limitations": [
+    "Stored requests, programmed clocks, and independently sampled counters are distinct observations.",
+    "A later GPU-Z screenshot corroborates Crossbar/SYS/Video names on the tested board and driver 617.42; LTC remains inferred. The separate XBAR/SYS counter probes remain unvalidated.",
+    "Voltage values are software telemetry, not external electrical measurements.",
+    "The CUDA copy workload is not a memory-integrity or stability test.",
+    "Ordinary harnesses cover profile capture/JSON roundtrip; production profile/headroom integration is recorded separately where available. Later native UI inspection confirmed displayed controls and the enabled 25 mV headroom option on 617.42, without exercising every UI callback.",
+    "Captured entry state and quantized first-read rail references are not factory defaults.",
+    "RFC write readback failed; the helper's GSP explanation was not independently proven."
+  ],
+  "gpu_z_name_corroboration": {
+    "observation_date": "2026-10-07",
+    "source": {
+      "type": "user-supplied desktop screenshot",
+      "sha256": "7c510ca5ad280167047671a3072ad94ea2a93e21c53a1ba4683be245b1841319",
+      "gpu_z_version": "2.71.0",
+      "druta_version": "1.7.0",
+      "driver": "617.42",
+      "board": "NVIDIA GeForce RTX 4080 SUPER",
+      "vbios": "95.03.44.40.09"
+    },
+    "scope": "One user-described Manli AD103 RTX 4080 SUPER and one operating point. Separately polled software telemetry visible together in one screenshot; not a synchronized trace, external frequency measurement or performance test.",
+    "named_correlations": [
+      {
+        "private_domain": 1,
+        "druta_a_mhz": 2355.0,
+        "druta_b_mhz": 2355.0,
+        "gpu_z_label": "Crossbar Clock",
+        "gpu_z_mhz": 2357.3,
+        "corroborated_name": "Crossbar"
+      },
+      {
+        "private_domain": 2,
+        "druta_a_mhz": 2250.0,
+        "druta_b_mhz": 2250.0,
+        "gpu_z_label": "SYS Clock",
+        "gpu_z_mhz": 2246.7,
+        "corroborated_name": "SYS"
+      },
+      {
+        "private_domain": 21,
+        "druta_a_mhz": 2175.0,
+        "druta_b_mhz": 2175.0,
+        "gpu_z_label": "Video Clock",
+        "gpu_z_mhz": 2180.2,
+        "corroborated_name": "Video"
+      }
+    ],
+    "unconfirmed_name": {
+      "private_domain": 5,
+      "druta_a_mhz": 1335.0,
+      "druta_b_mhz": 1335.0,
+      "druta_label": "LTC?",
+      "gpu_z_label": null,
+      "reason": "No named GPU-Z L2/LTC row. Control 9 to domain 5 routing is established, but routing and elimination among named rows do not independently establish the LTC engine identity."
+    },
+    "additional_unnamed_domains": [
+      {"private_domain": 3, "druta_a_mhz": 810.0, "druta_b_mhz": 810.0},
+      {"private_domain": 6, "druta_a_mhz": 1350.0, "druta_b_mhz": 1350.0},
+      {"private_domain": 20, "druta_a_mhz": 540.0, "druta_b_mhz": 540.0},
+      {"private_domain": 22, "druta_a_mhz": 108.0, "druta_b_mhz": 108.0}
+    ],
+    "interpretation": "Combined with the restored control-to-domain probes, these named GPU-Z frequencies corroborate Crossbar, SYS and Video labels. This does not validate the separate private clock-measurement API or establish either GetAllClocks array as an independent physical counter on Ada. Earlier per-run labels are preserved as historical evidence."
+  },
+  "drivers": {
+    "617.42": {
+      "ordinary": {
+        "status": "completed",
+        "steps": [
+          {
+            "name": "core",
+            "request": {
+              "offset_mhz": -15,
+              "change_mhz": -15
+            },
+            "status": "passed",
+            "restoration_verified": true
+          },
+          {
+            "name": "memory",
+            "request": {
+              "offset_true_mhz": -12.5,
+              "change_true_mhz": -12.5,
+              "wire_units": -200.0
+            },
+            "status": "passed",
+            "restoration_verified": true
+          },
+          {
+            "name": "power",
+            "request": {
+              "configured_mw": 319000,
+              "change_mw": -1000
+            },
+            "status": "passed",
+            "restoration_verified": true
+          },
+          {
+            "name": "fans",
+            "request": {
+              "manual_percent": 50
+            },
+            "status": "passed",
+            "restoration_verified": true
+          },
+          {
+            "name": "voltage",
+            "request": {
+              "boost_percent": 5
+            },
+            "status": "passed",
+            "restoration_verified": true
+          },
+          {
+            "name": "vf_point",
+            "request": {
+              "idx": 72,
+              "volt_mv": 900.0,
+              "delta_khz": -15000,
+              "change_physical_khz": -15000
+            },
+            "status": "passed",
+            "restoration_verified": true
+          },
+          {
+            "name": "vf_hold",
+            "request": {
+              "domain": 6,
+              "microvolts": 900000
+            },
+            "status": "passed",
+            "restoration_verified": true
+          },
+          {
+            "name": "nvml_lock",
+            "request": {
+              "minimum_mhz": 1500,
+              "maximum_mhz": 1500
+            },
+            "status": "passed",
+            "restoration_verified": true
+          }
+        ],
+        "all_entry_state_restored": true,
+        "vf_total_entries": 128,
+        "vf_gpu_points": 127,
+        "clock_grid_khz": 15000,
+        "memory_offset_wire_units_per_true_mhz": 16,
+        "memory_clock_divisor": 8,
+        "profile_json_roundtrip": true,
+        "profile_incomplete": [],
+        "profile_replay": "not exercised by this harness"
+      },
+      "clock_layout": {
+        "version": "0x000261A4",
+        "size": "0x61A4",
+        "header": "0x124",
+        "stride": "0x304",
+        "freq_khz": "0x10C",
+        "nvvdd_uv": "0x110"
+      },
+      "private": {
+        "complete": true,
+        "all_requests_verified": true,
+        "clocks_restored_exact": true,
+        "lock_restored_exact": true,
+        "steps": [
+          {
+            "kind": "clock",
+            "control": 1,
+            "verified_request": true,
+            "restored_exact": true,
+            "label": "Crossbar?",
+            "request_mhz": -60,
+            "programmed_domain": 1,
+            "phases": {
+              "before": {
+                "programmed_target_mhz_median": 1380.0,
+                "physical_probe_khz_medians": {
+                  "gpc": 1498784,
+                  "xbar": 1535462,
+                  "sys": 1533937,
+                  "memory": 11255463
+                }
+              },
+              "during": {
+                "programmed_target_mhz_median": 1320.0,
+                "physical_probe_khz_medians": {
+                  "gpc": 1500575,
+                  "xbar": 1534151,
+                  "sys": 1533625,
+                  "memory": 11245337
+                }
+              },
+              "after": {
+                "programmed_target_mhz_median": 1380.0,
+                "physical_probe_khz_medians": {
+                  "gpc": 1499227,
+                  "xbar": 1533340,
+                  "sys": 1532109,
+                  "memory": 11237285
+                }
+              }
+            }
+          },
+          {
+            "kind": "clock",
+            "control": 3,
+            "verified_request": true,
+            "restored_exact": true,
+            "label": "SYS?",
+            "request_mhz": -60,
+            "programmed_domain": 2,
+            "phases": {
+              "before": {
+                "programmed_target_mhz_median": 1320.0,
+                "physical_probe_khz_medians": {
+                  "gpc": 1502178,
+                  "xbar": 1532878,
+                  "sys": 1535886,
+                  "memory": 11250866
+                }
+              },
+              "during": {
+                "programmed_target_mhz_median": 1260.0,
+                "physical_probe_khz_medians": {
+                  "gpc": 1501103,
+                  "xbar": 1534040,
+                  "sys": 1532266,
+                  "memory": 11243579
+                }
+              },
+              "after": {
+                "programmed_target_mhz_median": 1320.0,
+                "physical_probe_khz_medians": {
+                  "gpc": 1503227,
+                  "xbar": 1534384,
+                  "sys": 1534541,
+                  "memory": 11251950
+                }
+              }
+            }
+          },
+          {
+            "kind": "clock",
+            "control": 5,
+            "verified_request": true,
+            "restored_exact": true,
+            "label": "Video?",
+            "request_mhz": -60,
+            "programmed_domain": 21,
+            "phases": {
+              "before": {
+                "programmed_target_mhz_median": 1320.0,
+                "physical_probe_khz_medians": {
+                  "gpc": 1501237,
+                  "xbar": 1534280,
+                  "sys": 1534744,
+                  "memory": 11245465
+                }
+              },
+              "during": {
+                "programmed_target_mhz_median": 1260.0,
+                "physical_probe_khz_medians": {
+                  "gpc": 1503227,
+                  "xbar": 1534654,
+                  "sys": 1535000,
+                  "memory": 11247626
+                }
+              },
+              "after": {
+                "programmed_target_mhz_median": 1320.0,
+                "physical_probe_khz_medians": {
+                  "gpc": 1499955,
+                  "xbar": 1536703,
+                  "sys": 1533843,
+                  "memory": 11242874
+                }
+              }
+            }
+          },
+          {
+            "kind": "clock",
+            "control": 9,
+            "verified_request": true,
+            "restored_exact": true,
+            "label": "LTC?",
+            "request_mhz": -60,
+            "programmed_domain": 5,
+            "phases": {
+              "before": {
+                "programmed_target_mhz_median": 1350.0,
+                "physical_probe_khz_medians": {
+                  "gpc": 1501654,
+                  "xbar": 1534740,
+                  "sys": 1534033,
+                  "memory": 11241484
+                }
+              },
+              "during": {
+                "programmed_target_mhz_median": 1290.0,
+                "physical_probe_khz_medians": {
+                  "gpc": 1499963,
+                  "xbar": 1535237,
+                  "sys": 1536331,
+                  "memory": 11243954
+                }
+              },
+              "after": {
+                "programmed_target_mhz_median": 1350.0,
+                "physical_probe_khz_medians": {
+                  "gpc": 1501012,
+                  "xbar": 1535564,
+                  "sys": 1534109,
+                  "memory": 11235224
+                }
+              }
+            }
+          },
+          {
+            "kind": "clock",
+            "control": 2,
+            "verified_request": true,
+            "restored_exact": true,
+            "label": "Memory",
+            "request_mhz": -64,
+            "programmed_domain": 4,
+            "phases": {
+              "before": {
+                "programmed_target_mhz_median": 11251.968,
+                "physical_probe_khz_medians": {
+                  "gpc": 1501053,
+                  "xbar": 1534124,
+                  "sys": 1535232,
+                  "memory": 11224125
+                }
+              },
+              "during": {
+                "programmed_target_mhz_median": 11187.96,
+                "physical_probe_khz_medians": {
+                  "gpc": 1499327,
+                  "xbar": 1533649,
+                  "sys": 1535515,
+                  "memory": 11177576
+                }
+              },
+              "after": {
+                "programmed_target_mhz_median": 11251.968,
+                "physical_probe_khz_medians": {
+                  "gpc": 1502929,
+                  "xbar": 1532505,
+                  "sys": 1532826,
+                  "memory": 11251776
+                }
+              }
+            }
+          },
+          {
+            "kind": "nvvdd_offset",
+            "verified_request": true,
+            "restored_exact": true,
+            "request_mv": 5
+          },
+          {
+            "kind": "rail",
+            "field": "reliability",
+            "request_mv": 1070.0,
+            "verified_request": true,
+            "restored_exact": true,
+            "readback_mv": 1070.0
+          },
+          {
+            "kind": "rail",
+            "field": "alt_reliability",
+            "request_mv": 1095.0,
+            "verified_request": true,
+            "restored_exact": true,
+            "readback_mv": 1095.0
+          },
+          {
+            "kind": "rail",
+            "field": "overvoltage",
+            "request_mv": 1195.0,
+            "verified_request": true,
+            "restored_exact": true,
+            "readback_mv": 1195.0
+          },
+          {
+            "kind": "rail",
+            "field": "vmin",
+            "request_mv": 910.0,
+            "verified_request": true,
+            "restored_exact": true,
+            "readback_mv": 910.0
+          },
+          {
+            "kind": "current",
+            "verified_request": true,
+            "restored_exact": true,
+            "during": [
+              {
+                "policy": 13,
+                "channel": 19,
+                "minimum_ma": 1,
+                "maximum_ma": 400000,
+                "default_ma": 400000,
+                "limit_ma": 399000,
+                "requested_ma": 399000
+              }
+            ],
+            "restored_limit_ma": 400000
+          }
+        ]
+      },
+      "current_layout": {
+        "sizes": {
+          "0x2080A618": 20512,
+          "0x2080A619": 397048,
+          "0x2080A61A": 13876,
+          "0x2080E61B": 13876
+        },
+        "info_header_stride": [
+          204,
+          260
+        ],
+        "status_header_stride": [
+          156,
+          5936
+        ],
+        "control_header_stride": [
+          20,
+          196
+        ]
+      },
+      "nvvdd_frequency_hold": {
+        "requested_offset_uv": 25000,
+        "requested_frequency_mhz": 2400,
+        "phases": {
+          "before": {
+            "core_mhz_median": 2400.0,
+            "reported_core_voltage_mv_median": 915.0,
+            "separate_rail_status_voltage_mv_median": 925.0
+          },
+          "during": {
+            "core_mhz_median": 2400.0,
+            "reported_core_voltage_mv_median": 940.0,
+            "separate_rail_status_voltage_mv_median": 950.0
+          },
+          "after": {
+            "core_mhz_median": 2400.0,
+            "reported_core_voltage_mv_median": 915.0,
+            "separate_rail_status_voltage_mv_median": 930.0
+          }
+        },
+        "control_restored_exact": true,
+        "lock_restored_exact": true
+      },
+      "timing": {
+        "status": "completed",
+        "helper": "nvtune v1.0.2-alpha",
+        "helper_sha256": "af4e5fb9d975509f908046ac37f47d1cc752c397362a6ab6fb9ac232dcda4e21",
+        "read_captures_succeeded": true,
+        "states_captured": [
+          "idle",
+          "CUDA-loaded",
+          "held P0"
+        ],
+        "register": "CONFIG0",
+        "register_address": "0x9A0290",
+        "field": "RFC",
+        "field_bits": [
+          8,
+          16
+        ],
+        "request": {
+          "RFC_before": 460,
+          "RFC_requested": 461
+        },
+        "apply": [
+          {
+            "before": 460,
+            "requested": 461,
+            "after": 460,
+            "outcome": "failed"
+          }
+        ],
+        "helper_exit_code": 1,
+        "probe_outcome": "all_active_partitions_unchanged",
+        "all_timing_registers_restored": true,
+        "locks_restored_exactly": true
+      },
+      "production_integration": {
+        "status": "completed",
+        "production_capability_gates_unchanged": true,
+        "all_entry_state_restored": true,
+        "profile_json_roundtrip": true,
+        "steps": [
+          {
+            "name": "profile_roundtrip",
+            "request": {
+              "changes": "core/VF-15MHz, memory-12.5trueMHz, fans50%, SYS-15MHz, NVVDD+5mV, current-1A, reliability-5mV; boost preserved"
+            },
+            "status": "passed",
+            "restoration_verified": true,
+            "all_profile_results_successful": true,
+            "requested_values": {
+              "core_off_mhz": -15,
+              "mem_off_true_mhz": -12.5,
+              "fan_manual": true,
+              "fan_pct": 50,
+              "clock_domain_offsets_mhz": {
+                "1": 0.0,
+                "2": 0.0,
+                "3": -15.0,
+                "5": 0.0,
+                "9": 0.0
+              },
+              "nvvdd_offset_mv": 5.0,
+              "current_limits_ma": {
+                "13": 399000
+              },
+              "rail_limits_uv": {
+                "0": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": -5000,
+                  "vmin": 0
+                }
+              }
+            },
+            "changed_vf_point_count": 127,
+            "changed_vf_delta_khz_values": [
+              -15000
+            ]
+          },
+          {
+            "name": "headroom",
+            "request": {
+              "hold_mv": 900.0,
+              "margin_mv": 25.0,
+              "temporary_ceiling_mv": 925.0
+            },
+            "status": "passed",
+            "restoration_verified": true,
+            "lowered_ceiling_request_mv": {
+              "reliability": 900.0,
+              "alt_reliability": 900.0,
+              "overvoltage": 900.0
+            },
+            "above_ceiling_hold_refused": true,
+            "headroom_apply_successful": true,
+            "live_guard_checks": [
+              {
+                "live_mv": 915.0,
+                "accepted": true
+              },
+              {
+                "live_mv": 915.0,
+                "accepted": true
+              },
+              {
+                "live_mv": 915.0,
+                "accepted": true
+              },
+              {
+                "live_mv": 915.0,
+                "accepted": true
+              }
+            ],
+            "profile_excludes_temporary_headroom": true,
+            "headroom_restore_successful": true
+          }
+        ]
+      }
+    },
+    "581.42": {
+      "ordinary": {
+        "status": "completed",
+        "steps": [
+          {
+            "name": "core",
+            "request": {
+              "offset_mhz": -15,
+              "change_mhz": -15
+            },
+            "status": "passed",
+            "restoration_verified": true
+          },
+          {
+            "name": "memory",
+            "request": {
+              "offset_true_mhz": -12.5,
+              "change_true_mhz": -12.5,
+              "wire_units": -200.0
+            },
+            "status": "passed",
+            "restoration_verified": true
+          },
+          {
+            "name": "power",
+            "request": {
+              "configured_mw": 319000,
+              "change_mw": -1000
+            },
+            "status": "passed",
+            "restoration_verified": true
+          },
+          {
+            "name": "fans",
+            "request": {
+              "manual_percent": 50
+            },
+            "status": "passed",
+            "restoration_verified": true
+          },
+          {
+            "name": "voltage",
+            "request": {
+              "boost_percent": 5
+            },
+            "status": "passed",
+            "restoration_verified": true
+          },
+          {
+            "name": "vf_point",
+            "request": {
+              "idx": 72,
+              "volt_mv": 900.0,
+              "delta_khz": -15000,
+              "change_physical_khz": -15000
+            },
+            "status": "passed",
+            "restoration_verified": true
+          },
+          {
+            "name": "vf_hold",
+            "request": {
+              "domain": 6,
+              "microvolts": 900000
+            },
+            "status": "passed",
+            "restoration_verified": true
+          },
+          {
+            "name": "nvml_lock",
+            "request": {
+              "minimum_mhz": 1500,
+              "maximum_mhz": 1500
+            },
+            "status": "passed",
+            "restoration_verified": true
+          }
+        ],
+        "all_entry_state_restored": true,
+        "vf_total_entries": 128,
+        "vf_gpu_points": 127,
+        "clock_grid_khz": 15000,
+        "memory_offset_wire_units_per_true_mhz": 16,
+        "memory_clock_divisor": 8,
+        "profile_json_roundtrip": true,
+        "profile_incomplete": [],
+        "profile_replay": "not exercised by this harness"
+      },
+      "clock_layout": {
+        "version": "0x000261A4",
+        "size": "0x61A4",
+        "header": "0x124",
+        "stride": "0x304",
+        "freq_khz": "0x10C",
+        "nvvdd_uv": "0x110"
+      },
+      "private": {
+        "complete": true,
+        "all_requests_verified": true,
+        "clocks_restored_exact": true,
+        "lock_restored_exact": true,
+        "steps": [
+          {
+            "kind": "clock",
+            "control": 1,
+            "verified_request": true,
+            "restored_exact": true,
+            "label": "Crossbar?",
+            "request_mhz": -60,
+            "programmed_domain": 1,
+            "phases": {
+              "before": {
+                "programmed_target_mhz_median": 1380.0,
+                "physical_probe_khz_medians": {
+                  "gpc": 1501789,
+                  "xbar": 1533573,
+                  "sys": 1533565,
+                  "memory": 11210163
+                }
+              },
+              "during": {
+                "programmed_target_mhz_median": 1320.0,
+                "physical_probe_khz_medians": {
+                  "gpc": 1498801,
+                  "xbar": 1531933,
+                  "sys": 1534199,
+                  "memory": 11240888
+                }
+              },
+              "after": {
+                "programmed_target_mhz_median": 1380.0,
+                "physical_probe_khz_medians": {
+                  "gpc": 1500059,
+                  "xbar": 1530227,
+                  "sys": 1531363,
+                  "memory": 11233524
+                }
+              }
+            }
+          },
+          {
+            "kind": "clock",
+            "control": 3,
+            "verified_request": true,
+            "restored_exact": true,
+            "label": "SYS?",
+            "request_mhz": -60,
+            "programmed_domain": 2,
+            "phases": {
+              "before": {
+                "programmed_target_mhz_median": 1320.0,
+                "physical_probe_khz_medians": {
+                  "gpc": 1494950,
+                  "xbar": 1532106,
+                  "sys": 1536728,
+                  "memory": 11208662
+                }
+              },
+              "during": {
+                "programmed_target_mhz_median": 1260.0,
+                "physical_probe_khz_medians": {
+                  "gpc": 1500598,
+                  "xbar": 1532406,
+                  "sys": 1529636,
+                  "memory": 11225964
+                }
+              },
+              "after": {
+                "programmed_target_mhz_median": 1320.0,
+                "physical_probe_khz_medians": {
+                  "gpc": 1500703,
+                  "xbar": 1529983,
+                  "sys": 1533407,
+                  "memory": 11223366
+                }
+              }
+            }
+          },
+          {
+            "kind": "clock",
+            "control": 5,
+            "verified_request": true,
+            "restored_exact": true,
+            "label": "Video?",
+            "request_mhz": -60,
+            "programmed_domain": 21,
+            "phases": {
+              "before": {
+                "programmed_target_mhz_median": 1320.0,
+                "physical_probe_khz_medians": {
+                  "gpc": 1500725,
+                  "xbar": 1533063,
+                  "sys": 1531748,
+                  "memory": 11247570
+                }
+              },
+              "during": {
+                "programmed_target_mhz_median": 1260.0,
+                "physical_probe_khz_medians": {
+                  "gpc": 1501314,
+                  "xbar": 1528740,
+                  "sys": 1535741,
+                  "memory": 11239122
+                }
+              },
+              "after": {
+                "programmed_target_mhz_median": 1320.0,
+                "physical_probe_khz_medians": {
+                  "gpc": 1501907,
+                  "xbar": 1531023,
+                  "sys": 1530665,
+                  "memory": 11246801
+                }
+              }
+            }
+          },
+          {
+            "kind": "clock",
+            "control": 9,
+            "verified_request": true,
+            "restored_exact": true,
+            "label": "LTC?",
+            "request_mhz": -60,
+            "programmed_domain": 5,
+            "phases": {
+              "before": {
+                "programmed_target_mhz_median": 1350.0,
+                "physical_probe_khz_medians": {
+                  "gpc": 1502165,
+                  "xbar": 1532988,
+                  "sys": 1533842,
+                  "memory": 11255763
+                }
+              },
+              "during": {
+                "programmed_target_mhz_median": 1275.0,
+                "physical_probe_khz_medians": {
+                  "gpc": 1514857,
+                  "xbar": 1521556,
+                  "sys": 1522486,
+                  "memory": 11235832
+                }
+              },
+              "after": {
+                "programmed_target_mhz_median": 1335.0,
+                "physical_probe_khz_medians": {
+                  "gpc": 1537528,
+                  "xbar": 1523923,
+                  "sys": 1520234,
+                  "memory": 11246056
+                }
+              }
+            }
+          },
+          {
+            "kind": "clock",
+            "control": 2,
+            "verified_request": true,
+            "restored_exact": true,
+            "label": "Memory",
+            "request_mhz": -64,
+            "programmed_domain": 4,
+            "phases": {
+              "before": {
+                "programmed_target_mhz_median": 11251.968,
+                "physical_probe_khz_medians": {
+                  "gpc": 1535349,
+                  "xbar": 1520907,
+                  "sys": 1522219,
+                  "memory": 11241539
+                }
+              },
+              "during": {
+                "programmed_target_mhz_median": 11187.96,
+                "physical_probe_khz_medians": {
+                  "gpc": 1538845,
+                  "xbar": 1521858,
+                  "sys": 1520742,
+                  "memory": 11176040
+                }
+              },
+              "after": {
+                "programmed_target_mhz_median": 11251.968,
+                "physical_probe_khz_medians": {
+                  "gpc": 1537678,
+                  "xbar": 1521344,
+                  "sys": 1521173,
+                  "memory": 11224767
+                }
+              }
+            }
+          },
+          {
+            "kind": "nvvdd_offset",
+            "verified_request": true,
+            "restored_exact": true,
+            "request_mv": 5
+          },
+          {
+            "kind": "rail",
+            "field": "reliability",
+            "request_mv": 1070.0,
+            "verified_request": true,
+            "restored_exact": true,
+            "readback_mv": 1070.0
+          },
+          {
+            "kind": "rail",
+            "field": "alt_reliability",
+            "request_mv": 1095.0,
+            "verified_request": true,
+            "restored_exact": true,
+            "readback_mv": 1095.0
+          },
+          {
+            "kind": "rail",
+            "field": "overvoltage",
+            "request_mv": 1195.0,
+            "verified_request": true,
+            "restored_exact": true,
+            "readback_mv": 1195.0
+          },
+          {
+            "kind": "rail",
+            "field": "vmin",
+            "request_mv": 905.0,
+            "verified_request": true,
+            "restored_exact": true,
+            "readback_mv": 905.0
+          },
+          {
+            "kind": "current",
+            "verified_request": true,
+            "restored_exact": true,
+            "during": [
+              {
+                "policy": 13,
+                "channel": 19,
+                "minimum_ma": 1,
+                "maximum_ma": 400000,
+                "default_ma": 400000,
+                "limit_ma": 399000,
+                "requested_ma": 399000
+              }
+            ],
+            "restored_limit_ma": 400000
+          }
+        ]
+      },
+      "current_layout": {
+        "sizes": {
+          "0x2080A618": 8620,
+          "0x2080A619": 172080,
+          "0x2080A61A": 4432,
+          "0x2080E61B": 4432
+        },
+        "info_header_stride": [
+          88,
+          228
+        ],
+        "status_header_stride": [
+          112,
+          5204
+        ],
+        "control_header_stride": [
+          20,
+          124
+        ]
+      },
+      "nvvdd_frequency_hold": {
+        "requested_offset_uv": 25000,
+        "requested_frequency_mhz": 2400,
+        "phases": {
+          "before": {
+            "core_mhz_median": 2400.0,
+            "reported_core_voltage_mv_median": 915.0,
+            "separate_rail_status_voltage_mv_median": 925.0
+          },
+          "during": {
+            "core_mhz_median": 2400.0,
+            "reported_core_voltage_mv_median": 940.0,
+            "separate_rail_status_voltage_mv_median": 950.0
+          },
+          "after": {
+            "core_mhz_median": 2400.0,
+            "reported_core_voltage_mv_median": 915.0,
+            "separate_rail_status_voltage_mv_median": 930.0
+          }
+        },
+        "control_restored_exact": true,
+        "lock_restored_exact": true
+      },
+      "timing": {
+        "status": "completed",
+        "helper": "nvtune v1.0.2-alpha",
+        "helper_sha256": "af4e5fb9d975509f908046ac37f47d1cc752c397362a6ab6fb9ac232dcda4e21",
+        "read_captures_succeeded": true,
+        "states_captured": [
+          "idle",
+          "CUDA-loaded",
+          "held P0"
+        ],
+        "register": "CONFIG0",
+        "register_address": "0x9A0290",
+        "field": "RFC",
+        "field_bits": [
+          8,
+          16
+        ],
+        "request": {
+          "RFC_before": 460,
+          "RFC_requested": 461
+        },
+        "apply": [
+          {
+            "before": 460,
+            "requested": 461,
+            "after": 460,
+            "outcome": "failed"
+          }
+        ],
+        "helper_exit_code": 1,
+        "probe_outcome": "all_active_partitions_unchanged",
+        "all_timing_registers_restored": true,
+        "locks_restored_exactly": true
+      },
+      "production_integration": {
+        "status": "completed",
+        "production_capability_gates_unchanged": true,
+        "all_entry_state_restored": true,
+        "profile_json_roundtrip": true,
+        "steps": [
+          {
+            "name": "profile_roundtrip",
+            "request": {
+              "changes": "core/VF-15MHz, memory-12.5trueMHz, fans50%, SYS-15MHz, NVVDD+5mV, current-1A, reliability-5mV; boost preserved"
+            },
+            "status": "passed",
+            "restoration_verified": true,
+            "all_profile_results_successful": true,
+            "requested_values": {
+              "core_off_mhz": -15,
+              "mem_off_true_mhz": -12.5,
+              "fan_manual": true,
+              "fan_pct": 50,
+              "clock_domain_offsets_mhz": {
+                "1": 0.0,
+                "2": 0.0,
+                "3": -15.0,
+                "5": 0.0,
+                "9": 0.0
+              },
+              "nvvdd_offset_mv": 5.0,
+              "current_limits_ma": {
+                "13": 399000
+              },
+              "rail_limits_uv": {
+                "0": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": -5000,
+                  "vmin": 0
+                }
+              }
+            },
+            "changed_vf_point_count": 127,
+            "changed_vf_delta_khz_values": [
+              -15000
+            ]
+          },
+          {
+            "name": "headroom",
+            "request": {
+              "hold_mv": 900.0,
+              "margin_mv": 25.0,
+              "temporary_ceiling_mv": 925.0
+            },
+            "status": "passed",
+            "restoration_verified": true,
+            "lowered_ceiling_request_mv": {
+              "reliability": 900.0,
+              "alt_reliability": 900.0,
+              "overvoltage": 900.0
+            },
+            "above_ceiling_hold_refused": true,
+            "headroom_apply_successful": true,
+            "live_guard_checks": [
+              {
+                "live_mv": 915.0,
+                "accepted": true
+              },
+              {
+                "live_mv": 920.0,
+                "accepted": true
+              },
+              {
+                "live_mv": 920.0,
+                "accepted": true
+              },
+              {
+                "live_mv": 920.0,
+                "accepted": true
+              }
+            ],
+            "profile_excludes_temporary_headroom": true,
+            "headroom_restore_successful": true
+          }
+        ]
+      }
+    }
+  },
+  "software_validation": {
+    "python": "3.12.15",
+    "pytest_passed": 1570,
+    "synthetic_dearpygui_renderer_tests": "passed in the full suite",
+    "desktop_ui_callback_inspection": "not performed"
+  },
+  "extra_clock_exploration_617.42": {
+    "controls": [
+      {
+        "control": 4,
+        "request_mhz": -60,
+        "request_readback_exact": true,
+        "programmed_effect_observed": false,
+        "restored_exact": true
+      },
+      {
+        "control": 6,
+        "request_mhz": -60,
+        "request_readback_exact": false,
+        "programmed_effect_observed": false,
+        "restored_exact": true
+      },
+      {
+        "control": 7,
+        "request_mhz": -60,
+        "request_readback_exact": true,
+        "programmed_effect_observed": false,
+        "restored_exact": true
+      },
+      {
+        "control": 8,
+        "request_mhz": -60,
+        "request_readback_exact": true,
+        "programmed_effect_observed": false,
+        "restored_exact": true
+      }
+    ],
+    "clocks_restored_exact": true,
+    "lock_restored_exact": true
+  },
+  "nvvdd_voltage_hold_617.42": {
+    "requested_voltage_mv": 1000,
+    "requested_offset_uv": 25000,
+    "phases": {
+      "before": {
+        "core_mhz_median": 2640.0,
+        "reported_core_voltage_mv_median": 1000.0
+      },
+      "during": {
+        "core_mhz_median": 2580.0,
+        "reported_core_voltage_mv_median": 1000.0
+      },
+      "after": {
+        "core_mhz_median": 2640.0,
+        "reported_core_voltage_mv_median": 1000.0
+      }
+    },
+    "control_restored_exact": true,
+    "lock_restored_exact": true
+  },
+  "abi_static_evidence": {
+    "sha256": "c6a2014763c3662512b5d420dfc7632b777338881a13aeab3f21d8033eae6c71",
+    "bytes": 5688768,
+    "sizes": {
+      "A618": 20512,
+      "A619": 397048,
+      "A61A": 13876,
+      "E61B": 13876
+    }
+  },
+  "i2c_discovery": {
+    "617.42": {
+      "mode": "production read-only discovery",
+      "completed_route_controller_probes": 2736,
+      "total_route_controller_probes": 2736,
+      "complete": true,
+      "candidate_count": 0,
+      "scope": "No recognized candidates in this sweep; does not prove absence of every I2C device or route."
+    },
+    "581.42": {
+      "mode": "production read-only discovery",
+      "completed_route_controller_probes": 2736,
+      "total_route_controller_probes": 2736,
+      "complete": true,
+      "candidate_count": 0,
+      "scope": "No recognized candidates in this sweep; does not prove absence of every I2C device or route."
+    }
+  },
+  "local_source_report_sha256": {
+    "ada-current-read-617.42.json": "b5c8a0a753208fce6f0bb54832823464e5777fbafc803f596cf02f7a9a6ded7e",
+    "ada-extra-clocks-617.42.json": "82ae940ebf3663c022fb328b6ce45380a770e6f99be14698ec7ee81d790a1973",
+    "ada-i2c-581.42.json": "a48b7548cf19ea72f25c7246fff3abb6e85955bf6cc6751ac2786b6514c37c55",
+    "ada-i2c-617.42.json": "a8b408f8f63b1db732b3eabc22601ea032b08774a8430053234a0e689363c727",
+    "ada-integration-581.42.json": "5ce3aa025e4f445a67f5e54203667f04067fadbde1fba45892da1506fd5bba30",
+    "ada-integration-617.42.json": "708538c8eb98b7bcb76160338392286c25f787ab7de3f167d08746739180fbcc",
+    "ada-nvvdd-617.42.json": "b7b166537cb2cf9ca4f955542dd5b8d03e3072dee225b5ea09db61383cab281d",
+    "ada-nvvdd-freq-581.42.json": "bc6f1e609a5c51e7e5ba958fde89a381dfb2e815b6cfbc83cc1d2fa79f69e074",
+    "ada-nvvdd-freq-617.42.json": "fcb729d7bd8acd4860270c540303fe8e895a3266849b0404b58eae73f4683d7f",
+    "ada-ordinary-581.42.json": "ead39adc17634e783d7d9cd8270c76806587c7e581f0c75dfbeb4002831a0bee",
+    "ada-ordinary-617.42.json": "964d0ea8de2c4c463ece62e7fb307440b5e7ce22be5bf47b44d059ead986f8d9",
+    "ada-private-581.42.json": "a854900884c892e7a55108838f86eed1df228b36ee92b43dbd78c747f9474ab9",
+    "ada-private-617.42.json": "c0df4f23b908287853b486754686c389b68f1b5f091b419c60d30d44dc759224",
+    "ada-read-581.42.json": "3ec0b827a685a00d44bca3bcb36599054a1d9a3789e6677990554a315041b18a",
+    "ada-read-617.42.json": "6ae575af24c94b4f7d0e05723bc313b47cdfb23bdb99ab763520b9bdfb93e269",
+    "ada-timing-581.42.json": "1a28339fb9e7d0ab4c20bf519d1c53d44ec173359f64dc07db89d809b39fff64",
+    "ada-timing-617.42.json": "608ee398f2be83a8c2e6837397d5c0c8a057987f6d41c2313fd24967f1849b64"
+  }
+}
