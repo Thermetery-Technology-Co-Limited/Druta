@@ -101,7 +101,7 @@ from .nvbackend import (GPU, EVENT_REASONS, PERF_DECREASE_BITS, VF_STEP_KHZ, VF_
                         PRIV_LIKELY, PRIV_N_DOMAINS, PRIV_PCIE_GEN, PRIV_SLOT,
                         PRIV_UNNAMED, PRIV_UNPOPULATED)
 
-__version__ = "1.7.0"
+__version__ = "1.8.0a"
 
 # ---- palette (ImGui takes 0-255 RGBA) ------------------------------------- #
 TEXT = (230, 232, 236)
