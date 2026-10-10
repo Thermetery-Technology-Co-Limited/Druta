@@ -669,10 +669,16 @@ class UP9512R(Rail):
                            restored_noise_mv=restored['noise_mv'], reversal_mv=reversal,
                            observed_core_clock_range_mhz=restored['observed_core_clock_range_mhz'],
                            observed_memory_clock_range_mhz=restored['observed_memory_clock_range_mhz'])
+                if log:
+                    log(f'uP9512R FB ADC restored {hit["median_mv"]:g} -> {restored["median_mv"]:g} mV; '
+                        f'reversal {reversal:g} mV; baseline {base:g} mV; band {tolerance:g} mV')
                 if abs(restored['median_mv'] - base) > tolerance:
                     raise ValueError('FB ADC did not return to the baseline noise/resolution band')
-                if reversal < 10 or reversal <= max(hit['response_noise_mv'], restored['noise_mv']):
-                    raise ValueError('FB ADC did not show a downward response above noise after restoration')
+                # Peak-to-peak already gated the rise. A one-count return inside
+                # that band is the reversal. Requiring the drop to beat the same
+                # spread made a quantized return inconclusive (issue 34).
+                if reversal < 10:
+                    raise ValueError('FB ADC did not show a downward response of at least one ADC count after restoration')
             except Exception as exc:
                 failure = str(exc)
             finally:

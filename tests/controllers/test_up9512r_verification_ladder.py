@@ -109,6 +109,86 @@ def test_largest_existing_load_state_bounds_increment_not_just_first_state(initi
     assert not any(reg == 0x2A for reg, _ in bus.writes), "An already enabled entry need not be toggled"
 
 
+def _cycling_feedback(bus, cycles):
+    """Repeat each 25-sample cycle so any aligned window has the same median."""
+    counters = defaultdict(int)
+    seen_trial = {"yes": False}
+
+    def feedback(reg, packet):
+        if reg != 0x2D:
+            return None
+        raw = controls(bus)
+        if raw[3] & 0x40:
+            seen_trial["yes"] = True
+            step = (raw[0] >> 4) * 10
+            cycle = cycles[step]
+        else:
+            cycle = cycles["restore" if seen_trial["yes"] else "baseline"]
+        key = ("restore" if seen_trial["yes"] and not raw[3] & 0x40
+               else step if raw[3] & 0x40 else "baseline")
+        packet.pbData[0] = cycle[counters[key] % len(cycle)] // 10
+        counters[key] += 1
+        return 0
+
+    return feedback
+
+
+def test_one_count_reversal_inside_baseline_band_confirms_issue_34():
+    """A rise above peak-to-peak, then a smaller drop back inside the band, passes.
+
+    Issue 34's failing run qualified at +40 mV (1100 -> 1140 against 30 mV
+    variation) and then rejected the downward check. A restored median inside
+    the baseline band, one or more ADC counts below the elevated median, is
+    enough. The rise gate stays strict.
+    """
+    bus = Bus()
+    rail = u.UP9512R(bus)
+    original = controls(bus)
+    spread = [1100] * 23 + [1090, 1120]
+    bus.read_hook = _cycling_feedback(bus, {
+        "baseline": spread,
+        10: [1100] * 25,
+        20: [1110] * 25,
+        30: [1130] * 25,
+        40: [1140] * 23 + [1130, 1160],
+        "restore": [1120] * 23 + [1110, 1130],
+    })
+    with patch("druta.controllers.up9512r.time.sleep"):
+        ok, message, ladder = rail.verify(
+            acknowledged=True, operating_point=lambda: (0, 2820, 11501))
+
+    assert ok, message
+    assert [row["offset_increment_mv"] for row in ladder] == [10, 20, 30, 40]
+    assert [row["moved"] for row in ladder] == [False, False, False, True]
+    hit = ladder[-1]
+    assert hit["delta_mv"] == 40 and hit["response_noise_mv"] == 30
+    assert hit["reversal_mv"] == 20
+    assert abs(hit["restored_vout_mv"] - hit["baseline_mv"]) <= 30
+    assert hit["reversal_mv"] <= hit["response_noise_mv"]
+    assert controls(bus) == original
+    assert rail._verification_restore_ok
+
+
+def test_noisy_restore_window_cannot_invent_a_downward_response():
+    bus = Bus()
+    rail = u.UP9512R(bus)
+    original = controls(bus)
+    bus.read_hook = _cycling_feedback(bus, {
+        "baseline": [1100] * 23 + [1090, 1120],
+        10: [1160] * 25,
+        "restore": [1160] * 23 + [1100, 1200],
+    })
+    with patch("druta.controllers.up9512r.time.sleep"):
+        ok, message, ladder = rail.verify(
+            acknowledged=True, operating_point=lambda: (0, 2820, 11501))
+
+    assert not ok
+    assert "one ADC count" in message
+    assert ladder[0]["moved"] and ladder[0]["reversal_mv"] == 0
+    assert controls(bus) == original
+    assert rail._verification_restore_ok
+
+
 def test_first_qualifying_rung_stops_before_any_larger_request():
     bus = Bus()
     bus.response = True

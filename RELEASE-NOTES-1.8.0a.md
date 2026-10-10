@@ -1,5 +1,7 @@
 # Druta 1.8.0a
 
+**Superseded by [1.8.0b](RELEASE-NOTES-1.8.0b.md).** The 1.8.0a package is unchanged.
+
 **Pre-release.** Druta 1.8.0a opens tuning controls on Ada (RTX 40 series)
 and adds voltage offsets for the uPI uP9512R I2C controller. Everything
 Ada-specific here was measured on one card: a Manli RTX 4080 SUPER (AD103) on

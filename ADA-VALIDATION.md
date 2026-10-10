@@ -5,7 +5,8 @@ register/value prefix through `I2CReadEx` on Ada, with independent ordinary read
 for exact state verification and guarded recovery. **Core and memory frequency
 are diagnostic only during uP9512R Verify, including its P0 preparation.**
 Physical P0, the captured voltage hold, controller identity, exact stored state,
-FB rise/reversal above noise and restoration remain required. **The current
+an FB rise above peak-to-peak variation, a one-count reversal back inside the
+baseline band, and restoration remain required. **The current
 verifier passed on both drivers after Max it / P0 de-flatten-and-hold, first
 qualifying at +40 mV: controller FB was 1130 -> 1150 -> 1130 mV on 617.42 and
 1120 -> 1150 -> 1110 mV on 581.42.** Both restored controller/GPU state exactly;
@@ -13,6 +14,21 @@ the 581.42 restored voltage median was within the measured baseline noise band.
 Its core frequency varied from 2865 to 2880 MHz without failing verification.
 Earlier strict-clock results retain their original outcomes;
 they are not reclassified by the later change in verification criteria.
+On 2026-10-10 the reversal rule itself was relaxed: a drop of one 10 mV ADC
+count back inside the baseline band is enough, after a rise that already
+cleared peak-to-peak variation. Issue 34's 617.42 run moved FB 1100 -> 1140 mV
+against 30 mV variation and was inconclusive only on the old drop-versus-spread
+check. That run is not reclassified. A quieter retry the same session passed
+at 1110 -> 1140 mV against 20 mV variation.
+
+The relaxed verifier was then run on this 4080 SUPER, driver 617.42, at low
+load, with the entry bytes `00 00 00 20` and an open SMBus lock. Both runs
+confirmed the write path and restored those bytes. No V/F lock remained.
+The live-voltage hold (idle FB 930 mV) continued past +10 mV (930 -> 920 mV)
+and past +20 mV (930 -> 940 mV, equal to the 10 mV spread), then qualified at
++30 mV: 930 -> 950 -> 930 mV. A temporary 1100 mV V/F hold qualified at +10 mV
+with zero observed spread: 1080 -> 1090 -> 1080 mV, reversal 10 mV. These
+windows were quieter than issue 34. They do not reclassify it.
 The [product evidence](experiments/ada-up9512r-product-2026-10-09.json)
 records the completed tests; [the controller documentation](i2c/UP9512R.md)
 describes transport and recovery behavior. Earlier results below retain their
