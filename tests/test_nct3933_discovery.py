@@ -27,6 +27,7 @@ class NCT3933DiscoveryTests(unittest.TestCase):
         for target, kwargs in (
                 ("druta.railctl.load_profiles", {"return_value": []}),
                 ("druta.controllers.ncp4206.DISCOVERY_PORTS", {"new": ()}),
+                ("druta.controllers.up9512r.DISCOVERY_PORTS", {"new": ()}),
                 ("druta.controllers.nct3933.NCT3933U.read",
                  {"autospec": True, "side_effect": read}),
                 ("druta.controllers.nct3933.NCT3933U._raw_write",

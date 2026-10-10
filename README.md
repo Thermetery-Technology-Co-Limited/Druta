@@ -1,12 +1,14 @@
 # Druta
 
-**Version 1.7.0** — [release notes](RELEASE-NOTES-1.7.0.md).
+**Version 1.8.0b** (pre-release) — [release notes](RELEASE-NOTES-1.8.0b.md).
+Supersedes 1.8.0a.
 
-Package-refactor validation: [Maxwell/Pascal](MAXWELL-PASCAL-VALIDATION.md)
-and [RTX 5080 / Blackwell](BLACKWELL-VALIDATION.md), including controlled
+Hardware validation: [Maxwell/Pascal](MAXWELL-PASCAL-VALIDATION.md),
+[RTX 5080 / Blackwell](BLACKWELL-VALIDATION.md) and
+[RTX 4080 SUPER / Ada](ADA-VALIDATION.md), including controlled
 writes, readbacks, restoration and the limits of the tested coverage.
 
-A monitor and tuner for Kepler, Maxwell, Pascal, Turing, Ampere and Blackwell NVIDIA cards,
+A monitor and tuner for Kepler, Maxwell, Pascal, Turing, Ampere, Ada and Blackwell NVIDIA cards,
 driven through NVAPI/NVML private interfaces. Available controls depend on the
 generation and the current adapter's runtime capabilities. It edits supported V/F curves
 with planners built around how the boost arbiter actually behaves, and reads and
@@ -51,12 +53,35 @@ both tested TITANs. Ampere uses the same recognized 1104-byte rail packet
 when the live getter echoes it. See [measurements and reproduction](VOLTAGE-RAILS-TITAN.md).
 
 **Current limits:** the Control tab exposes the runtime-validated core-current
-policy on Pascal, Turing, Ampere and Blackwell. The tested TITAN Xp and TITAN RTX allow
+policy on Pascal, Turing, Ampere, Ada and Blackwell. The tested TITAN Xp and TITAN RTX allow
 **218 A** and **390 A** respectively. Blackwell also exposes its other-rail
 policy; normal mode caps those two controls at **500 A / 200 A**, while XOC
 permits the advertised API maximum (**5,001 A** on the tested Astral). Apply,
 Stock, live readback, profiles and Reset all use these limits. See
 [controls and validation](CURRENT-LIMITS-RTX5080.md).
+
+**Ada:** the tested RTX 4080 SUPER passed ordinary controls, additional clock
+requests, NVVDD offsets/limits and a 400-to-399 A current-policy check on
+617.42 and 581.42, with restoration. Crossbar, SYS and Video names have GPU-Z
+corroboration; LTC remains tentative.
+nvtune read timing registers and produced previews, but the RFC write failed
+readback and remained unchanged. See [scope and evidence](ADA-VALIDATION.md).
+Ada also gets the default-on V/F hold headroom, because it now has rail-limit
+control; the clock loss that headroom corrects was measured on a TITAN RTX and
+an RTX 3070 Ti, not on Ada. The full Power policies list and Max all are open
+on Ada through the same packet checks. The owner set the policy sliders by
+hand on this card; there is no recorded log of that, and no recorded Max all
+run.
+
+The [uP9512R adapter](i2c/UP9512R.md) writes this controller through a
+register/value request sent with `I2CReadEx`, then reads every control byte
+back. **Verify and Apply make real VRM writes.** On this board, Verify passed
+at +40 mV on both drivers: controller FB 1130 -> 1150 -> 1130 mV on 617.42 and
+1120 -> 1150 -> 1110 mV on 581.42. FB is the controller's own uncalibrated
+10 mV ADC, and one low-load operating point does not establish a gain. Earlier
+writes through the conventional `I2CWriteEx` failed on both drivers. Apply,
+Reset and profile replay use the same transaction code as Verify but were not
+run from the UI on hardware; they have mocked coverage only.
 
 **RTX 5080 Astral I2C:** the MP29816 profile exposes measured NVVDD voltage at
 port 2 / 7-bit address 0x30 and an experimental 5 mV-step offset function.
@@ -99,7 +124,7 @@ python -m pip install -r requirements.txt
 ```
 
 The local build produces `dist\Druta\Druta.exe` and
-`dist\Druta-1.7.0-win64.zip`. Distribute the
+`dist\Druta-1.8.0b-win64.zip`. Distribute the
 whole `Druta` folder or ZIP: the EXE needs its adjacent `_internal` folder.
 
 `dist\Druta\source\` contains the matching working-tree source, including
@@ -718,9 +743,15 @@ this cap could not be raised was disproved by that measurement. See
 Start with the [I2C contribution workflow](i2c/CONTRIBUTING.md),
 [recipe and adapter reference](i2c/PROFILES.md), and
 [I2C PR template](.github/PULL_REQUEST_TEMPLATE/i2c_profile.md).
-NCP4206, MP2888A and MP29816 discovery scan actual buses without GPU board-ID filters.
-The scan starts only when **I2C rail** is checked, with probe progress and cancellation;
-it does not run at launch. I2C-bearing profiles require that manual scan first.
+NCP4206, MP2888A, MP29816 and uP9512R discovery scan actual buses without GPU
+board-ID filters. Checking **I2C rail** reveals the controls; **Connect / Scan**
+or **Full scan** starts discovery, with probe progress and cancellation.
+Since 1.8.0a, Full scan on every generation also probes the uP9512R identity
+on every address of ports 0-7: 896 more single-byte reads, about a third more
+than before, and no writes. A board that answers as both a uP9512R and another
+controller now lists both and needs an explicit selection.
+Launch, checking the box and switching GPUs do not start a scan. I2C-bearing
+profiles require that manual scan first.
 Another board with one of these controllers usually needs discovery and
 Verify/restore evidence, rather than a duplicate TOML profile. Druta lists
 matching candidates by port/address; an ambiguous scan requires selection.
@@ -746,8 +777,9 @@ experimental XOC requirement; stored readback is not proof of physical VOUT.
 **Initial** restores first-read rail controls, which may contain prior tuning,
 rather than claiming another board's factory defaults.
 
-I2C tuning profiles save the controller state (MP2888A offset or NCP4206
-absolute target/Auto), its port/address, and a fingerprint of the bound register
+I2C tuning profiles save the controller state (such as an MP2888A offset,
+NCP4206 absolute target/Auto, or all five uP9512R offsets and their enable bit),
+its port/address, and a fingerprint of the bound register
 recipe, including its limits. They do not save or replay
 arbitrary VRM registers or replace that recipe's whitelist/envelope. Loading
 restores the saved XOC mode and enables the required rail controls. Values that
@@ -755,7 +787,10 @@ need XOC (including above-normal carryover left after unticking XOC and a nonzer
 Additional Memory Clock Offset) mark the saved profile as XOC so it can restore
 those requests after reboot. An I2C load
 automatically runs the existing verification under load if this session has not
-verified the regulator yet, then executes its dry run and checked write.
+verified the regulator yet, then executes its dry run and checked write. A
+saved uP9512R state that already matches the controller writes nothing and
+needs no Verify. A uP9512R whose SMBus lock is closed is read-only to Druta,
+so profiles and undo points do not capture it.
 
 Private-control profiles must match the GPU, VBIOS and driver. If these change,
 save a fresh profile after validating the settings on that configuration.

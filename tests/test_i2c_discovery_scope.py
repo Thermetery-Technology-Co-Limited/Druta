@@ -26,7 +26,7 @@ class ScopedDiscoveryTests(unittest.TestCase):
         with patch("druta.railctl.load_profiles",
                    return_value=[self.mp, self.mp, self.mp2, self.generic]):
             self.assertEqual(railctl.controller_names(),
-                             ["Nuvoton NCT3933U", "NCP4206", "MPS MP2888A",
+                             ["Nuvoton NCT3933U", "NCP4206", "uPI uP9512R", "MPS MP2888A",
                               "MPS MP29816", "Generic board regulator"])
 
     def test_nct_scope_visits_only_exact_pairs_and_keeps_all_hits(self):

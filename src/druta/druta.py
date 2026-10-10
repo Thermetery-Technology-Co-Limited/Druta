@@ -101,7 +101,7 @@ from .nvbackend import (GPU, EVENT_REASONS, PERF_DECREASE_BITS, VF_STEP_KHZ, VF_
                         PRIV_LIKELY, PRIV_N_DOMAINS, PRIV_PCIE_GEN, PRIV_SLOT,
                         PRIV_UNNAMED, PRIV_UNPOPULATED)
 
-__version__ = "1.7.0"
+__version__ = "1.8.0b"
 
 # ---- palette (ImGui takes 0-255 RGBA) ------------------------------------- #
 TEXT = (230, 232, 236)
@@ -3676,7 +3676,7 @@ class Druta:
         if getattr(self.rail, "current_dac", False):
             return
         try:
-            if not self.rail.present():
+            if not self.rail_present():
                 return
         except Exception as exc:
             self.log(f"i2c telemetry unavailable: {exc}", False)
@@ -3701,15 +3701,18 @@ class Druta:
         rp = self.rail.p
         tel = self.rail.telemetry()
         absolute = getattr(self.rail, "absolute_voltage", False)
+        multi = getattr(self.rail, "multi_state_offset", False)
         self.slider_row(
-            "i2crail", (f"{rp.rail} voltage target (mV)" if absolute
+            "i2crail", ("Offset (all load states) (mV)" if multi else
+                        f"{rp.rail} voltage target (mV)" if absolute
                         else f"{rp.rail} offset at VRM (mV)"),
             rp.env_min, rp.env_max,
             ((tel.get("target_mv") or tel.get("vout_mv") or rp.env_min)
              if absolute else (tel.get("offset_mv") or 0)),
             self.apply_i2c_rail,
             extra=[("Verify", self.verify_i2c_rail),
-                   ("Auto" if absolute else "Stock", lambda: self.stock_knob("i2crail"))],
+                   ("Reset" if multi else "Auto" if absolute else "Stock",
+                    lambda: self.stock_knob("i2crail"))],
             color=BAD, xoc_lo=rp.hw_min_mv, xoc_hi=rp.hw_max_mv)
         if not absolute:
             with dpg.tooltip("sl_i2crail"):
@@ -3722,9 +3725,24 @@ class Druta:
             dpg.add_text("")
             dpg.add_text("")
         self._i2c_status_built = True
+        if multi:
+            with dpg.table_row():
+                dpg.add_text("")
+                dpg.add_text("", tag="i2c_offset_state", color=DIM,
+                             wrap=self.s(self.KNOB_COLS[1] - 10))
+                dpg.add_text("")
+                dpg.add_text("")
+            self.sync_i2c_offset_state(tel)
         self.sync_i2c_write_status()
 
     def i2c_verify_description(self):
+        if getattr(self.rail, "multi_state_offset", False):
+            return ("Stages one common positive offset for LCS0-LCS4 in 10 mV steps. "
+                    "Verify checks feedback at the sampled operating point, then restores "
+                    "all five offset fields and the enable state. Apply requires "
+                    "verification on this controller in this session. Reset clears "
+                    "the offsets. A locked controller stays read-only; Druta does "
+                    "not unlock it. IMON is an input voltage, not calibrated amps.")
         rungs = ", ".join(f"{v:+g}" for v in self.rail.p.rungs)
         return (f"Verify tests {rungs} mV relative to the entry offset under "
                 "load, stopping once a rail response is measured. The exact "
@@ -3736,9 +3754,50 @@ class Druta:
             return
         if dpg.does_item_exist("i2c_write_status"):
             verified = self.i2c_verified()
-            dpg.set_value("i2c_write_status", "Write path verified this session"
-                          if verified else "Write path unverified - Verify first")
-            dpg.configure_item("i2c_write_status", color=TEXT if verified else DIM)
+            status = ("Write path verified this session" if verified
+                      else "Write path unverified - Verify first")
+            failed = False
+            if getattr(self.rail, "multi_state_offset", False):
+                owner, tel = getattr(self, "_i2c_offset_telemetry", (None, {}))
+                locked = tel.get("write_locked") if owner is self.rail else None
+                if locked is not False:
+                    verified = False
+                    status = ("Controller locked - read-only; no unlock is issued"
+                              if locked is True else
+                              "Controller lock status unavailable - writes blocked")
+                failed_rail, detail = getattr(self, "_i2c_offset_restore_failure", (None, ""))
+                if failed_rail is self.rail:
+                    verified = False
+                    failed = True
+                    status = "Offset restore failed; state is uncertain: " + detail
+            dpg.set_value("i2c_write_status", status)
+            dpg.configure_item("i2c_write_status", color=BAD if failed else TEXT if verified else DIM)
+
+    @staticmethod
+    def i2c_offset_state_text(tel):
+        """Keep a staged common request separate from mixed programmed fields."""
+        offsets = tel.get("offsets_mv")
+        if (not isinstance(offsets, (list, tuple)) or len(offsets) != 5
+                or not all(type(v) in (int, float) and math.isfinite(v)
+                           for v in offsets)):
+            return "Load-state offset readback unavailable; staged value is not readback."
+        enabled = tel.get("offset_enabled")
+        state = ("enabled" if enabled is True else "disabled" if enabled is False
+                 else "enable state unknown")
+        if len(set(offsets)) == 1:
+            programmed = f"all load states {offsets[0]:+g} mV"
+        else:
+            programmed = "mixed: " + ", ".join(
+                f"LCS{i} {v:+g} mV" for i, v in enumerate(offsets))
+        return f"Programmed offsets ({state}): {programmed}. Staged common request uses 10 mV steps."
+
+    def sync_i2c_offset_state(self, tel):
+        self._i2c_offset_telemetry = (self.rail, tel)
+        if tel.get("write_locked") is not False:
+            self.invalidate_i2c_verification()
+        if dpg.does_item_exist("i2c_offset_state"):
+            dpg.set_value("i2c_offset_state", self.i2c_offset_state_text(tel))
+        self.sync_i2c_write_status()
 
     def i2c_rail_text(self, vc):
         """Measured rail, and its disagreement with the GPU's own reading."""
@@ -3754,6 +3813,15 @@ class Druta:
         if self._i2c_busy and not self.rail.p.read_only:
             return "verifying"
         try:
+            if getattr(self.rail, "multi_state_offset", False):
+                tel = self.rail.telemetry()
+                self.sync_i2c_offset_state(tel)
+                values = []
+                for key, label in (("vout_mv", "FB"), ("imon_mv", "IMON")):
+                    value = tel.get(key)
+                    if type(value) in (int, float) and math.isfinite(value):
+                        values.append(f"{label} {value:.9g} mV")
+                return "; ".join(values) or None
             if getattr(self.rail, "absolute_voltage", False):
                 tel = self.rail.telemetry()
                 measured = tel.get("vout_mv")
@@ -3764,6 +3832,8 @@ class Druta:
                         else f"{measured:.9g} mV")
             v = self.rail.read_vout()
         except Exception:                                       # noqa: BLE001
+            if getattr(self.rail, "multi_state_offset", False):
+                self.sync_i2c_offset_state({})
             self.invalidate_i2c_verification()
             return None
         if v is None:
@@ -4051,6 +4121,10 @@ class Druta:
         self._i2c_verified = False
         self._i2c_verified_for = None
 
+    def rail_present(self):
+        """Post-identification presence; a controller may retry failed reads."""
+        return getattr(self.rail, "still_present", self.rail.present)()
+
     def i2c_connection(self):
         if self.rail is None:
             return None
@@ -4321,10 +4395,17 @@ class Druta:
         for r in candidates:
             tel = getattr(r, "discovery_telemetry", {})
             details = []
-            for key, unit in (("vout_mv", "mV"), ("iout_a", "A"), ("vrm_temp_c", "C")):
+            fields = ((("vout_mv", "mV FB"), ("imon_mv", "mV IMON"))
+                      if getattr(r, "multi_state_offset", False) else
+                      (("vout_mv", "mV"), ("iout_a", "A"), ("vrm_temp_c", "C")))
+            for key, unit in fields:
                 value = tel.get(key)
                 if value is not None:
                     details.append(f"{value:.1f} {unit}")
+            if getattr(r, "multi_state_offset", False):
+                details.append("locked / read-only" if tel.get("write_locked") is True
+                               else "Verify required" if tel.get("write_locked") is False
+                               else "lock status unavailable")
             if details:
                 dpg.add_text(self.i2c_candidate_label(r) + " - " + ", ".join(details), color=DIM)
         if not getattr(self, "_i2c_discovery_complete", False):
@@ -4336,7 +4417,7 @@ class Druta:
                          else "No compatible controller responded to the scan.", color=WARN)
             return
         dpg.add_text(self.rail.p.name, color=DIM)
-        if not self.rail.present():
+        if not self.rail_present():
             self.invalidate_i2c_verification()
             dpg.add_text("Controller no longer responds; rescan I2C.", color=WARN)
             return
@@ -4414,8 +4495,13 @@ class Druta:
             self.cancel_i2c_discovery(clear=True)
             self.refresh_i2c_candidates()
 
-    def reset_i2c_rail(self):
-        """Allow recovery of a tried connection, never probe an untouched one."""
+    def reset_i2c_rail(self, *, autosave=True):
+        """Allow recovery of a tried connection, never probe an untouched one.
+
+        A controller whose reset can only lower the request (positive-only
+        offsets zeroed and disabled) may reset without a prior Verify, so a
+        session that starts at the envelope edge is not stuck there.
+        """
         if getattr(self, "_i2c_busy", False):
             return False, "wait for verification and restoration to finish"
         if (hasattr(self, "_i2c_discovery_complete")
@@ -4436,9 +4522,24 @@ class Druta:
             return result
         if getattr(self.rail, "requires_verification", False):
             if not (self.i2c_verified()
+                    or (getattr(self.rail, "reset_only_lowers", False)
+                        and getattr(self.rail, "multi_state_offset", False))
                     or (getattr(self, "_i2c_recovery_for", None) is not None
                         and self._i2c_recovery_for == self.i2c_connection())):
-                return False, "MP2888A candidate has not been verified; no reset write issued"
+                return False, f"{self.rail.p.regulator} has not been verified; no reset write issued"
+        if getattr(self.rail, "multi_state_offset", False):
+            ok, why = self.i2c_gate()
+            if not ok:
+                return False, why
+            try:
+                expected = self._capture_multi_state_offset_control()
+            except Exception as exc:                            # noqa: BLE001
+                return False, f"load-state offset capture failed: {exc}"
+            if autosave:
+                self.autosave_before("i2c-load-state-offset-reset")
+            result = self.rail.reset(expected=expected)
+            self._multi_state_offset_failure(result)
+            return result
         return self.rail.reset()
 
     def i2c_gate(self):
@@ -4460,12 +4561,54 @@ class Druta:
                            "tab red, and the red is the only warning this path "
                            "gets - it must not be possible to write here "
                            "without having seen it")
-        if not self.rail.present():
+        if not self.rail_present():
             self.invalidate_i2c_verification()
             return False, (f"the {self.rail.p.regulator} that identified at "
                            f"0x{self.rail.addr7:02X} is no longer answering - "
                            f"something moved on the bus, or a link came off")
+        if getattr(self.rail, "multi_state_offset", False):
+            try:
+                tel = self.rail.telemetry()
+                self.sync_i2c_offset_state(tel)
+            except Exception:
+                tel = {}
+                self.sync_i2c_offset_state(tel)
+            if tel.get("write_locked") is not False:
+                self.invalidate_i2c_verification()
+                return False, ("controller is locked; Druta does not issue an unlock"
+                               if tel.get("write_locked") is True else
+                               "controller lock status is unavailable; no write issued")
         return True, ""
+
+    def _capture_multi_state_offset_control(self):
+        """A common slider must retain every entry field for exact recovery."""
+        control = self.rail.capture_control()
+        # This is the entry state, not a new request: retain a hardware-valid
+        # offset even after XOC is unticked so Reset/lowering remains possible.
+        self.rail.validate_control(control, xoc=True)
+        self._i2c_offset_control_before = control
+        return control
+
+    def _clear_offset_restore_failure(self, rail):
+        """Exact readback has re-established the state; the session flag stays."""
+        failed_rail, _ = getattr(self, "_i2c_offset_restore_failure", (None, ""))
+        if failed_rail is rail:
+            self._i2c_offset_restore_failure = (None, "")
+
+    def _multi_state_offset_failure(self, result):
+        if result[0]:
+            self._clear_offset_restore_failure(self.rail)
+            return
+        if getattr(self.rail, "_verification_restore_ok", True):
+            return
+        self.invalidate_i2c_verification()
+        self._i2c_restore_failed = True
+        detail = getattr(self.rail, "_verification_restore_error", "") or result[1]
+        self._i2c_restore_error = detail
+        self._i2c_offset_restore_failure = (self.rail, detail)
+        if dpg.does_item_exist("i2c_write_status"):
+            dpg.set_value("i2c_write_status", "Offset restore failed: " + detail)
+            dpg.configure_item("i2c_write_status", color=BAD)
 
     def sync_verification_ui(self):
         """Keep captured modes and snapshot controls fixed while Verify owns them."""
@@ -4556,7 +4699,8 @@ class Druta:
             else:
                 self.invalidate_i2c_verification()
             return
-        avail, msg = ((True, "") if getattr(self.rail, "absolute_voltage", False)
+        avail, msg = ((True, "") if (getattr(self.rail, "absolute_voltage", False)
+                                     or self._voltage_only_verification(self.rail))
                       else gpuload.available())
         if not avail:
             self.log("verify: " + msg, False)
@@ -4594,6 +4738,12 @@ class Druta:
             self.sync_lock_ui()
             self.log(f"verify could not start: {exc}", False)
 
+    @staticmethod
+    def _voltage_only_verification(rail):
+        """The uP9512R verifier reads its own FB ADC at a held P0 point; no CUDA load."""
+        from .controllers.up9512r import UP9512R
+        return isinstance(rail, UP9512R)
+
     def _i2c_verify_worker(self, gpu=None, rail=None, connection=None, cancel=None):
         # Bound to the Rail captured at start, so a card swap mid-run cannot
         # redirect the restore write at a different board's bus.
@@ -4607,8 +4757,9 @@ class Druta:
         rail._verification_restore_ok = True
         rail._verification_restore_error = ""
         try:
+            voltage_only = self._voltage_only_verification(rail)
             voltage = None
-            if not getattr(rail, "absolute_voltage", False):
+            if not voltage_only and not getattr(rail, "absolute_voltage", False):
                 out = gpuload.induce(gpu, max_seconds=180.0,
                                     on_settled=gpu.read_vcore_mv, cancelled=cancel.is_set)
                 if out.get("error"):
@@ -4621,7 +4772,8 @@ class Druta:
                 gpu, lambda point: rail.verify(
                     acknowledged=True, log=lambda m: self.log("  " + m, None),
                     cancelled=cancel.is_set, operating_point=point),
-                cancelled=cancel.is_set, voltage_mv=voltage)
+                cancelled=cancel.is_set, voltage_mv=voltage,
+                require_stable_clocks=not voltage_only)
         except Exception as e:                                  # noqa: BLE001
             res["err"] = f"{type(e).__name__}: {e}"
         try:
@@ -4634,6 +4786,8 @@ class Druta:
                     self._i2c_restore_failed = True
                     detail = getattr(rail, "_verification_restore_error", "")
                     self._i2c_restore_error = detail or "entry setting unconfirmed"
+                    if getattr(rail, "multi_state_offset", False):
+                        self._i2c_offset_restore_failure = (rail, self._i2c_restore_error)
                     res["err"] = (res.get("err", "") + "; RESTORE FAILED: "
                                   + (detail or "entry setting unconfirmed"))
             v = res.get("v")
@@ -4649,6 +4803,8 @@ class Druta:
                   and connection == self.i2c_connection())
             self._i2c_verified = ok
             self._i2c_verified_for = connection if ok else None
+            if ok and getattr(rail, "multi_state_offset", False):
+                self._clear_offset_restore_failure(rail)
             if res.get("err"):
                 msg += f"; {res['err']}"
             self.log("verify: " + msg, ok)
@@ -4689,10 +4845,20 @@ class Druta:
         self.log("dry run: " + plan, okp)
         if not okp:
             return
+        multi = getattr(self.rail, "multi_state_offset", False)
+        if multi:
+            try:
+                expected = self._capture_multi_state_offset_control()
+            except Exception as exc:                            # noqa: BLE001
+                self.log(f"load-state offset capture failed: {exc}; nothing written", False)
+                return
         self.autosave_before("i2c-rail-offset")
         setter = (self.rail.set_voltage_mv if getattr(self.rail, "absolute_voltage", False)
                   else self.rail.set_offset_mv)
-        self.report(setter(v, acknowledged=True))
+        result = setter(v, acknowledged=True, **({"expected": expected} if multi else {}))
+        self.report(result)
+        if multi:
+            self._multi_state_offset_failure(result)
         self.sync_profile_rail_sliders()
 
     def apply_msvdd(self, value):
@@ -6284,7 +6450,7 @@ class Druta:
         # take the headroom raise off first, while the lock still holds the point.
         if not self.restore_headroom_before_unpin("Reset all"):
             return
-        self.autosave_before("reset-all")
+        captured = self.autosave_before("reset-all")
         failed = 0
         # One flag per MECHANISM. reset_all releases both, and the record may
         # only be dropped when the step matching what THIS app holds succeeded
@@ -6334,7 +6500,9 @@ class Druta:
         if (self.rail is not None
                 and (getattr(self.rail, "current_dac", False)
                      or dpg.does_item_exist("sl_i2crail"))):
-            ok, m = self.reset_i2c_rail()
+            # One undo point, taken before the GPU reset. Only if it came out
+            # incomplete does the controller reset take its own second chance.
+            ok, m = self.reset_i2c_rail(autosave=not captured)
             self.log(("current DAC outputs: " if getattr(self.rail, "current_dac", False)
                       else "VRM rail offset: ") + m, ok)
             failed += (0 if ok else 1)
@@ -8897,7 +9065,8 @@ deliberately does not put behind a button."""
                                ("i2c_mode", bool(state.get("i2c")))):
                 dpg.set_value(tag, value)
             self.sync_risk_ui()
-        if state.get("i2c") and not self.i2c_verified():
+        if (state.get("i2c") and not self.i2c_verified()
+                and profiles.i2c_replay_needed(state, self.rail)):
             self.verify_i2c_rail()
             # Current-DAC register readback is synchronous. It establishes
             # controller identity/state but never claims a physical-voltage
@@ -8951,6 +9120,8 @@ deliberately does not put behind a button."""
             self._profile_applying = False
         if getattr(self.rail, "current_dac", False):
             self._current_dac_failure(self.rail, (False, "profile current-DAC restore failed"))
+        elif getattr(self.rail, "multi_state_offset", False):
+            self._multi_state_offset_failure((False, "profile load-state offset restore failed"))
         for ok, msg in results:
             self.log(msg, ok)
         if any(not ok for ok, _ in results):
@@ -8986,6 +9157,8 @@ deliberately does not put behind a button."""
                         preserve_status=bool(getattr(self, "_i2c_restore_failed", False)))
                 else:
                     tel = self.rail.telemetry()
+                    if getattr(self.rail, "multi_state_offset", False):
+                        self.sync_i2c_offset_state(tel)
                     values["i2crail"] = ((tel.get("target_mv") or tel.get("vout_mv"))
                                          if getattr(self.rail, "absolute_voltage", False)
                                          else tel.get("offset_mv"))
@@ -9017,7 +9190,8 @@ deliberately does not put behind a button."""
                 raise ValueError("save a new, complete profile before enabling startup")
             manager.enable(name, state)
             self.log(f"'{name}' will load at Windows sign-in after a clean shutdown. "
-                     "Its saved rail/XOC settings are included; I2C is reverified under load.", True)
+                     "Its saved rail/XOC settings are included; I2C is reverified under load "
+                     "unless the controller already holds the saved state.", True)
         except Exception as e:
             self.log(f"startup profile: {e}", False)
         self.refresh_profile_list()

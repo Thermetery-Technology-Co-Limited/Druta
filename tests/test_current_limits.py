@@ -286,7 +286,7 @@ class CurrentLimitTests(unittest.TestCase):
         self.assertEqual(state.writes, [])
 
     def test_unknown_generation_or_unavailable_nvapi_never_opens_transport(self):
-        for field, value in (("arch", 8), ("ok", False)):
+        for field, value in (("arch", 9), ("ok", False)):
             g, state = fixture()
             if field == "ok":
                 g.nvapi.ok = value
