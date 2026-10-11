@@ -75,8 +75,8 @@ class NCT3933DiscoveryTests(unittest.TestCase):
                                 events.append((done, total, label)),
                                 cancelled=lambda: len(events) >= 5)
         self.assertEqual(hits, [])
-        self.assertEqual(events[0][:2], (0, 48))
-        self.assertEqual(events[-1][:2], (4, 48))
+        self.assertEqual(events[0][:2], (0, 49))
+        self.assertEqual(events[-1][:2], (4, 49))
         self.assertEqual([event[0] for event in events], list(range(5)))
         self.assertTrue(all("NCT3933U" in event[2] for event in events[1:]))
         self.assertEqual(len(self.reads), 4)
