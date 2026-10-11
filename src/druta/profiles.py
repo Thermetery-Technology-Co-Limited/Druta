@@ -426,6 +426,9 @@ def capture_rails(gpu, state, rail):
                 control = rail.capture_control()
                 state["i2c"] = dict(rail_identity(rail), control=control,
                                     display_name=rail.p.name)
+            elif getattr(rail, "icx_mcu", False):
+                # No readback, so the snapshot must not claim or replay a voltage.
+                pass
             else:
                 offset = rail.telemetry().get("offset_mv")
                 if offset is None:
@@ -874,6 +877,8 @@ def preflight(gpu, state, rail=None, *, apply_curve=True):
                 if "offset_mv" in i2c:
                     raise ValueError("absolute I2C voltage cannot load an offset")
                 rail.validate_control(i2c.get("control"), xoc=bool(state.get("xoc")))
+            elif getattr(rail, "icx_mcu", False):
+                raise ValueError("iCX voltage is not stored in a profile and cannot be replayed")
             else:
                 if "control" in i2c:
                     raise ValueError("offset I2C regulator cannot load absolute voltage")

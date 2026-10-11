@@ -338,6 +338,7 @@ class Druta:
         # would survive a link coming off.
         self._i2c_verified = False
         self._i2c_verified_for = None
+        self._icx_armed = set()
         self._i2c_busy = False
         self._i2c_thread = None
         self._i2c_cancel = threading.Event()
@@ -1955,6 +1956,9 @@ class Druta:
         """
         if getattr(self, "_profile_pending", None) or getattr(self, "_i2c_busy", False):
             return
+        if key in ("icxnv", "icxfb"):
+            self.log("iCX has no stock write. The setpoint stays until a power cycle.", False)
+            return
         if key == "i2crail" and getattr(self.rail, "requires_verification", False):
             if self.guard():
                 self.report(self.reset_i2c_rail())
@@ -3461,7 +3465,11 @@ class Druta:
         try:
             value = dpg.get_value(f"sl_{key}")
             value = self.knob_input_value(key, value)
-            if self.float_knob(key):
+            if key in ("icxnv", "icxfb"):
+                value = self._snap_icx_mv(value)
+                dpg.set_value(f"sl_{key}", value)
+                self._icx_armed.add(key)
+            elif self.float_knob(key):
                 dpg.set_value(f"sl_{key}", value)
             dpg.set_value(f"in_{key}", value)
         except (TypeError, ValueError, OverflowError) as exc:
@@ -3485,11 +3493,15 @@ class Druta:
             self.log(f"{key} input: {exc}", False)
             return
         v = max(b[0], min(b[1], value))
+        if key in ("icxnv", "icxfb"):
+            v = max(b[0], min(b[1], self._snap_icx_mv(v)))
         self._knob_sync = True
         try:
             dpg.set_value(f"sl_{key}", v)
-            if self.float_knob(key):
+            if self.float_knob(key) or key in ("icxnv", "icxfb"):
                 dpg.set_value(f"in_{key}", v)
+            if key in ("icxnv", "icxfb"):
+                self._icx_armed.add(key)
         finally:
             self._knob_sync = False
 
@@ -3636,10 +3648,11 @@ class Druta:
             dpg.set_value("sl_core", mhz)
         if dpg.does_item_exist("in_core"):
             dpg.set_value("in_core", mhz)
-        # An undo point, unlike the other sliders: this offset lands in the
-        # SAME delta table as the curve (see nvbackend.set_clock_offset),
-        # so one drag and one Apply overwrites a hand-tuned curve that is
-        # nowhere on screen. It is a curve write wearing a slider.
+        # An undo point, unlike the other sliders. The core offset lives in
+        # the same delta table as the curve. The driver flattens that table,
+        # and set_clock_offset puts the previous shape back, shifted by the
+        # change in this offset. A changed core offset still rewrites every
+        # point, so the undo point stays.
         self.autosave_before("core-offset")
         self.report(self.gpu.set_clock_offset(0, mhz))
 
@@ -3810,6 +3823,8 @@ class Druta:
         # The NCT3933U is a current DAC.  It has no regulator VOUT telemetry,
         # so never turn its output registers into an invented rail voltage.
         if getattr(self.rail, "current_dac", False):
+            return None
+        if getattr(self.rail, "icx_mcu", False):
             return None
         # The verifier owns the bus while it runs. Interleaving a refresh read
         # into its staircase would cost the measurement, and the measurement is
@@ -4331,11 +4346,16 @@ class Druta:
                    "Other controllers were not scanned. "
                    if origin == "saved" and self.rail is not None
                    else f"{scope} complete in {elapsed:.2f}s: {len(candidates)} candidate(s). ")
-        self.update_i2c_scan_ui(
-            summary + ("Read the current DAC settings before applying an adjustment."
-             if self.rail is not None and getattr(self.rail, "current_dac", False)
-             else "Select a controller and Verify before applying an adjustment.")
-            if candidates else summary + "No compatible controller responded.")
+        if not candidates:
+            follow = "No compatible controller responded."
+        elif self.rail is not None and getattr(self.rail, "icx_mcu", False):
+            follow = ("Check iCX identity before applying a voltage. "
+                      "The slider is not read from the card.")
+        elif self.rail is not None and getattr(self.rail, "current_dac", False):
+            follow = "Read the current DAC settings before applying an adjustment."
+        else:
+            follow = "Select a controller and Verify before applying an adjustment."
+        self.update_i2c_scan_ui(summary + follow)
         self.log(summary, bool(candidates))
         if self.rail is not None:
             self.remember_i2c_route()
@@ -4367,6 +4387,115 @@ class Druta:
         index = next((i + 1 for i, r in enumerate(candidates) if r is rail), 0)
         return f"{index}: {rail.p.regulator} - port {rail.p.port}, 0x{rail.addr7:02X}"
 
+    @staticmethod
+    def _snap_icx_mv(value):
+        """Nearest 5 mV. Halves round away from the lower step."""
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or (
+                isinstance(value, float) and not math.isfinite(value)):
+            raise ValueError("iCX voltage must be a finite number of millivolts")
+        return int((int(round(value)) + 2) // 5 * 5)
+
+    def _icx_status(self, text, ok):
+        self.log(text, ok)
+        if dpg.does_item_exist("icx_status"):
+            dpg.set_value("icx_status", text)
+            dpg.configure_item("icx_status", color=WARN if ok else BAD)
+
+    def build_icx_controls(self):
+        """NVVDD and FBVDD requests. The numbers are not read from the card."""
+        rail = self.rail
+        if rail is None or not getattr(rail, "icx_mcu", False):
+            return
+        dpg.add_text(
+            "EVGA iCX voltage request. These sliders start at NVVDD 950 mV and "
+            "FBVDD 1300 mV, the last labels from this session. They are not a "
+            "reading. Move a slider before Apply.",
+            color=BAD, wrap=self.s(sum(self.KNOB_COLS)))
+        dpg.add_text(
+            "Close Classified first. One writer. Apply sends the number shown. "
+            "The NVIDIA driver and GPU-Z will not show it. The request persists "
+            "until a power cycle. NVVDD is limited to 750-1150 mV and FBVDD to "
+            "1250-1450 mV, in steps of 5. There is no stock command, and this "
+            "panel does not change frequency, OCP, or loadline.",
+            color=BAD, wrap=self.s(sum(self.KNOB_COLS)))
+        with dpg.table(header_row=False, no_host_extendX=True,
+                       policy=dpg.mvTable_SizingFixedFit):
+            self.knob_cols()
+            self.slider_row("icxnv", "NVVDD voltage request (mV)",
+                            750, 1150, 950, self.apply_icx_nv, color=BAD)
+            self.slider_row("icxfb", "FBVDD voltage request (mV)",
+                            1250, 1450, 1300, self.apply_icx_fb, color=BAD)
+        self._icx_armed = set()
+        for key in ("icxnv", "icxfb"):
+            if dpg.does_item_exist(f"live_{key}"):
+                dpg.set_value(f"live_{key}", "not read back")
+        dpg.add_button(label="Check iCX identity", tag="icx_check",
+                       callback=lambda: self.check_icx_identity(),
+                       width=self.s(180))
+        dpg.add_text("", tag="icx_status", color=BAD,
+                     wrap=self.s(sum(self.KNOB_COLS)))
+
+    def check_icx_identity(self):
+        """Re-read the firmware byte string. This does not move a rail."""
+        if (getattr(self, "_i2c_busy", False)
+                or getattr(self, "_profile_applying", False)):
+            self._icx_status("iCX: wait for I2C work to finish", False)
+            return
+        if self.rail is None or not getattr(self.rail, "icx_mcu", False):
+            self._icx_status("iCX: the selected controller is not the Kingpin iCX MCU", False)
+            return
+        ok, why = self.i2c_gate()
+        if not ok:
+            self._icx_status("iCX: " + why, False)
+            return
+        self._i2c_verified = True
+        self._i2c_verified_for = self.i2c_connection()
+        self._icx_status(
+            "iCX firmware matches this 3090 Ti Kingpin. This checks identity "
+            "only. The NVIDIA driver VID will not move, and Apply still sends "
+            "the slider number.", True)
+
+    def apply_icx_nv(self, value):
+        self._apply_icx("icxnv", value, "set_nvvdd_mv", "NVVDD")
+
+    def apply_icx_fb(self, value):
+        self._apply_icx("icxfb", value, "set_fbvdd_mv", "FBVDD")
+
+    def _apply_icx(self, key, value, setter_name, rail_name):
+        if not self.guard():
+            return
+        if self.rail is None or not getattr(self.rail, "icx_mcu", False):
+            self._icx_status(f"iCX {rail_name}: the selected controller is not the Kingpin iCX MCU", False)
+            return
+        ok, why = self.i2c_gate()
+        if not ok:
+            self._icx_status(f"iCX {rail_name}: {why}", False)
+            return
+        if not self.i2c_verified():
+            self._icx_status(f"iCX {rail_name}: check iCX identity before Apply", False)
+            return
+        if key not in self._icx_armed:
+            self._icx_status(
+                f"iCX {rail_name}: move the slider first; the number is not "
+                "the card's current voltage", False)
+            return
+        try:
+            snapped = self._snap_icx_mv(value)
+            bounds = self.knob_bounds(key)
+            if bounds is not None:
+                snapped = max(int(bounds[0]), min(int(bounds[1]), snapped))
+        except (TypeError, ValueError, OverflowError) as exc:
+            self._icx_status(f"iCX {rail_name}: {exc}", False)
+            return
+        self._knob_sync = True
+        try:
+            for prefix in ("sl_", "in_"):
+                if dpg.does_item_exist(prefix + key):
+                    dpg.set_value(prefix + key, snapped)
+        finally:
+            self._knob_sync = False
+        result = getattr(self.rail, setter_name)(snapped, acknowledged=True)
+        self._icx_status(result[1], result[0])
 
     def build_i2c_candidates(self):
         """Only rebuild the regulator controls, preserving other staged edits."""
@@ -4416,14 +4545,25 @@ class Druta:
             return
         if self.rail is None:
             current_only = candidates and all(getattr(r, "current_dac", False) for r in candidates)
-            dpg.add_text(("Select a current DAC, then Read settings."
-                          if current_only else "Select a controller, then Verify its voltage response.") if candidates
-                         else "No compatible controller responded to the scan.", color=WARN)
+            icx_only = candidates and all(getattr(r, "icx_mcu", False) for r in candidates)
+            if not candidates:
+                prompt = "No compatible controller responded to the scan."
+            elif icx_only:
+                prompt = ("Select the iCX controller, then check its identity. "
+                          "The voltage is not read back.")
+            elif current_only:
+                prompt = "Select a current DAC, then Read settings."
+            else:
+                prompt = "Select a controller, then Verify its voltage response."
+            dpg.add_text(prompt, color=WARN)
             return
         dpg.add_text(self.rail.p.name, color=DIM)
         if not self.rail_present():
             self.invalidate_i2c_verification()
             dpg.add_text("Controller no longer responds; rescan I2C.", color=WARN)
+            return
+        if getattr(self.rail, "icx_mcu", False):
+            self.build_icx_controls()
             return
         if getattr(self.rail, "current_dac", False):
             self.build_current_dac_controls()
@@ -4437,9 +4577,14 @@ class Druta:
         if not dpg.does_item_exist("i2c_candidates"):
             return
         self._ctl_widgets = [t for t in self._ctl_widgets
-                             if "i2crail" not in str(t) and not str(t).startswith("nct_")]
+                             if "i2crail" not in str(t) and not str(t).startswith("nct_")
+                             and "icx" not in str(t)]
         self._slider_ranges.pop("i2crail", None)
         self._knob_cb.pop("i2crail", None)
+        for key in ("icxnv", "icxfb"):
+            self._slider_ranges.pop(key, None)
+            self._knob_cb.pop(key, None)
+        getattr(self, "_icx_armed", set()).clear()
         getattr(self, "_carryover_hi", {}).pop("i2crail", None)
         dpg.delete_item("i2c_candidates", children_only=True)
         with dpg.group(parent="i2c_candidates"):
@@ -4468,6 +4613,8 @@ class Druta:
         self.refresh_i2c_candidates()
         self.log(("I2C current DAC selected; use Read settings before applying an adjustment"
                   if getattr(chosen, "current_dac", False)
+                  else "iCX identity must be checked before a voltage request"
+                  if getattr(chosen, "icx_mcu", False)
                   else "I2C controller selected; press Verify before applying an adjustment"), True)
         return True
 
@@ -4513,6 +4660,8 @@ class Druta:
             return False, "I2C detection has not completed; no reset write issued"
         if self.rail is None:
             return False, "no I2C controller has been detected; no reset write issued"
+        if getattr(self.rail, "icx_mcu", False):
+            return False, "iCX voltage has no stock command; nothing was written"
         if getattr(self.rail, "current_dac", False):
             ok, why = self.i2c_gate()
             if not ok:
@@ -4686,6 +4835,9 @@ class Druta:
         if getattr(self, "_tim_busy", False):
             self.log("wait for the timing capture or GPU load before verifying the rail", False)
             return
+        if self.rail is not None and getattr(self.rail, "icx_mcu", False):
+            self.check_icx_identity()
+            return
         if not self.guard():
             return
         ok, why = self.i2c_gate()
@@ -4825,6 +4977,9 @@ class Druta:
         # write on this path happened because a ceiling was reasoned about
         # instead of being asked for.
         if not self.guard():
+            return
+        if getattr(self.rail, "icx_mcu", False):
+            self.log("iCX voltage uses the NVVDD and FBVDD rows", False)
             return
         if getattr(self.rail, "current_dac", False):
             self.log("current DAC uses OUT1/OUT2/OUT3 native current controls, not a voltage offset", False)
@@ -9156,7 +9311,10 @@ deliberately does not put behind a button."""
                 if knob.ctrl in (domains or {}):
                     values[knob.key] = domains[knob.ctrl]["freq_khz"] / 1000
             if self.rail:
-                if getattr(self.rail, "current_dac", False):
+                if getattr(self.rail, "icx_mcu", False):
+                    # The setpoint is not readable. Leave the request sliders alone.
+                    pass
+                elif getattr(self.rail, "current_dac", False):
                     self.refresh_current_dac_settings(
                         preserve_status=bool(getattr(self, "_i2c_restore_failed", False)))
                 else:
