@@ -4415,14 +4415,18 @@ class Druta:
             "Close Classified first. One writer. Apply sends the number shown. "
             "The NVIDIA driver and GPU-Z will not show it. The request persists "
             "until a power cycle. NVVDD is limited to 750-1150 mV and FBVDD to "
-            "1250-1450 mV, in steps of 5. There is no stock command, and this "
-            "panel does not change frequency, OCP, or loadline.",
+            "1250-1450 mV, in steps of 5. Stock on the NVVDD row sends the "
+            "Classified Auto packet 09 00 96 and then the 0E 01 trailer. That "
+            "is not a manual 750 mV write, and a manual 750 mV Apply is 09 01 96. "
+            "FBVDD has no stock "
+            "command. This panel does not change frequency, OCP, or loadline.",
             color=BAD, wrap=self.s(sum(self.KNOB_COLS)))
         with dpg.table(header_row=False, no_host_extendX=True,
                        policy=dpg.mvTable_SizingFixedFit):
             self.knob_cols()
             self.slider_row("icxnv", "NVVDD voltage request (mV)",
-                            750, 1150, 950, self.apply_icx_nv, color=BAD)
+                            750, 1150, 950, self.apply_icx_nv, color=BAD,
+                            extra=("Stock", self.apply_icx_stock))
             self.slider_row("icxfb", "FBVDD voltage request (mV)",
                             1250, 1450, 1300, self.apply_icx_fb, color=BAD)
         self._icx_armed = set()
@@ -4457,6 +4461,23 @@ class Druta:
 
     def apply_icx_nv(self, value):
         self._apply_icx("icxnv", value, "set_nvvdd_mv", "NVVDD")
+
+    def apply_icx_stock(self):
+        """Send the Auto packet. The slider number is not part of this write."""
+        if not self.guard():
+            return
+        if self.rail is None or not getattr(self.rail, "icx_mcu", False):
+            self._icx_status("iCX NVVDD: the selected controller is not the Kingpin iCX MCU", False)
+            return
+        ok, why = self.i2c_gate()
+        if not ok:
+            self._icx_status("iCX NVVDD: " + why, False)
+            return
+        if not self.i2c_verified():
+            self._icx_status("iCX NVVDD: check iCX identity before Stock", False)
+            return
+        result = self.rail.set_nvvdd_auto(acknowledged=True)
+        self._icx_status(result[1], result[0])
 
     def apply_icx_fb(self, value):
         self._apply_icx("icxfb", value, "set_fbvdd_mv", "FBVDD")

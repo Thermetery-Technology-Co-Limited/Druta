@@ -22,6 +22,7 @@ class Bus:
         self.cb_size = len(firmware) if cb_size is None else cb_size
         self.status = status
         self.write_status = write_status
+        self.write_statuses = None
         self.reads = []
         self.writes = []
         self.calls = 0
@@ -54,6 +55,8 @@ class Bus:
             "command": packet.pbI2cRegAddress[0], "size": packet.cbSize,
             "data": data, "speed": packet.i2cSpeed, "version": packet.version,
         })
+        if self.write_statuses:
+            return self.write_statuses.pop(0)
         return self.write_status
 
 
@@ -148,6 +151,36 @@ class TransportTests(unittest.TestCase):
                 self.assertEqual(write["version"], railctl.VER3)
                 self.assertEqual([item[4] for item in bus.reads], [icx.FIRMWARE_REG])
                 self.assertNotIn(bytes((0x0E, 0x01)), [write["data"]])
+
+    def test_auto_packet_is_not_a_manual_750_mv_write(self):
+        self.assertEqual(icx.nvvdd_payload(750), bytes((0x09, 0x01, 0x96)))
+        self.assertEqual(icx.NVVDD_AUTO_PAYLOAD, bytes((0x09, 0x00, 0x96)))
+        mcu, bus = self._pair()
+        ok, message = mcu.set_nvvdd_auto(acknowledged=True)
+        self.assertTrue(ok, message)
+        self.assertIn("not a manual 750 mV write", message)
+        self.assertEqual([item["command"] for item in bus.writes], [icx.COMMAND, icx.COMMAND])
+        self.assertEqual([item["data"] for item in bus.writes], [
+            bytes((0x09, 0x00, 0x96)), bytes((0x0E, 0x01))])
+        self.assertEqual([item["size"] for item in bus.writes], [3, 2])
+        self.assertEqual([item[4] for item in bus.reads], [icx.FIRMWARE_REG])
+
+        mcu, bus = self._pair()
+        ok, _message = mcu.set_nvvdd_auto(acknowledged=False)
+        self.assertFalse(ok)
+        self.assertEqual(bus.writes, [])
+        mcu, bus = self._pair(firmware=bytes(6))
+        ok, message = mcu.set_nvvdd_auto(acknowledged=True)
+        self.assertFalse(ok)
+        self.assertIn("identity", message)
+        self.assertEqual(bus.writes, [])
+        mcu, bus = self._pair()
+        bus.write_statuses = [0, -1]
+        ok, message = mcu.set_nvvdd_auto(acknowledged=True)
+        self.assertFalse(ok)
+        self.assertIn("trailer", message)
+        self.assertEqual([item["data"] for item in bus.writes], [
+            bytes((0x09, 0x00, 0x96)), bytes((0x0E, 0x01))])
 
     def test_unacknowledged_wrong_length_and_rejected_writes_send_nothing(self):
         mcu, bus = self._pair()
