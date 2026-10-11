@@ -295,5 +295,141 @@ class UnchangedDomainOffsets(unittest.TestCase):
                 gpu.nvapi.ClkDomCtlSet.assert_not_called()
 
 
+class CurveKeepingOffsets(unittest.TestCase):
+    """The offset setter flattens the graphics curve. Druta puts the shape back."""
+
+    def curve_gpu(self, deltas, *, current=0, freq_div=1, flat=-510000):
+        gpu, driver = modern_gpu()
+        gpu.static["mem_div"] = 8
+        driver.current = current
+        state = {"curve": dict(deltas), "flat": flat, "applies": []}
+
+        def read_curve():
+            return ([{"idx": idx, "delta_khz": delta, "volt_mv": 0.0,
+                      "freq_mhz": 0.0} for idx, delta in state["curve"].items()],
+                    None)
+
+        def apply(new):
+            state["applies"].append(dict(new))
+            state["curve"].update({int(idx): int(delta) for idx, delta in new.items()})
+            return True, "written"
+
+        def write(handle, pointer):
+            co = ctypes.cast(pointer, ctypes.POINTER(n._ClockOffset)).contents
+            result = driver.write(handle, pointer)
+            if result == 0:
+                if co.type == 0:
+                    state["flat"] = co.off * 1000 * freq_div
+                state["curve"] = dict.fromkeys(state["curve"], state["flat"])
+            return result
+
+        gpu.nvml.dll.nvmlDeviceSetClockOffsets = write
+        gpu.read_vf_curve = read_curve
+        gpu.apply_vf_deltas = apply
+        gpu.vfp_layout = lambda: SimpleNamespace(freq_div=freq_div)
+        gpu.vf_curve_applicable = lambda: True
+        return gpu, driver, state
+
+    def test_memory_offset_puts_the_graphics_shape_back(self):
+        gpu, driver, state = self.curve_gpu({99: -510000, 120: 120000}, current=0)
+        ok, message = gpu.set_clock_offset(2, 47.125)
+        self.assertTrue(ok, message)
+        self.assertEqual(driver.writes, [(2, 0, 754)])
+        self.assertEqual(state["curve"], {99: -510000, 120: 120000})
+        self.assertEqual(len(state["applies"]), 1)
+        self.assertIn("V/F shape kept", message)
+
+    def test_core_offset_shifts_the_shape_with_the_offset(self):
+        gpu, driver, state = self.curve_gpu(
+            {99: -510000, 120: 120000}, current=-510, flat=-510000)
+        ok, message = gpu.set_clock_offset(0, -525)
+        self.assertTrue(ok, message)
+        self.assertEqual(driver.writes, [(0, 0, -525)])
+        self.assertEqual(state["curve"], {99: -525000, 120: 105000})
+        self.assertIn("V/F shape kept", message)
+
+    def test_pascal_core_shift_uses_the_delta_field_scale(self):
+        gpu, _driver, state = self.curve_gpu(
+            {1: 0, 2: 45000}, current=0, freq_div=2, flat=0)
+        ok, message = gpu.set_clock_offset(0, 15)
+        self.assertTrue(ok, message)
+        self.assertEqual(state["curve"], {1: 30000, 2: 75000})
+
+    def test_uniform_curve_is_not_written_again(self):
+        gpu, _driver, state = self.curve_gpu(
+            {99: -510000, 120: -510000}, current=-510, flat=-510000)
+        ok, message = gpu.set_clock_offset(0, -525)
+        self.assertTrue(ok, message)
+        self.assertEqual(state["applies"], [])
+        self.assertEqual(state["curve"], {99: -525000, 120: -525000})
+        self.assertNotIn("V/F shape kept", message)
+
+    def test_unchanged_offset_does_not_touch_a_shaped_curve(self):
+        for ctype, current, request in ((2, 754, 47.125), (0, -510, -510)):
+            with self.subTest(ctype=ctype):
+                gpu, driver, state = self.curve_gpu(
+                    {99: -510000, 120: 120000}, current=current, flat=-510000)
+                ok, message = gpu.set_clock_offset(ctype, request)
+                self.assertTrue(ok, message)
+                self.assertEqual(driver.writes, [])
+                self.assertEqual(state["curve"], {99: -510000, 120: 120000})
+                self.assertEqual(state["applies"], [])
+                self.assertNotIn("V/F shape kept", message)
+
+    def test_reset_can_leave_the_flattened_curve(self):
+        gpu, _driver, state = self.curve_gpu({99: -510000, 120: 120000}, current=754)
+        ok, message = gpu.set_clock_offset(2, 47.125, preserve_curve=False)
+        self.assertTrue(ok, message)
+        self.assertEqual(state["applies"], [])
+        self.assertEqual(state["curve"], {99: -510000, 120: -510000})
+        self.assertNotIn("V/F shape kept", message)
+
+    def test_unreadable_curve_still_sets_the_offset(self):
+        gpu, driver, state = self.curve_gpu({120: 120000}, current=754)
+        gpu.read_vf_curve = Mock(side_effect=RuntimeError("curve unavailable"))
+        ok, message = gpu.set_clock_offset(2, 47.125)
+        self.assertTrue(ok, message)
+        self.assertEqual(driver.writes, [(2, 0, 754)])
+        self.assertEqual(state["applies"], [])
+        self.assertNotIn("flattened", message)
+
+    def test_rejected_readback_still_puts_the_graphics_shape_back(self):
+        gpu, driver, state = self.curve_gpu(
+            {99: -510000, 120: 120000}, current=754, flat=-510000)
+        driver.quantize = lambda _value: 754
+        ok, message = gpu.set_clock_offset(2, 47.1875)
+        self.assertFalse(ok)
+        self.assertIn("reported +47.125", message)
+        self.assertIn("V/F shape kept", message)
+        self.assertEqual(driver.writes, [(2, 0, 755)])
+        self.assertEqual(state["curve"], {99: -510000, 120: 120000})
+
+    def test_failed_restore_is_not_reported_as_a_clean_offset(self):
+        gpu, driver, state = self.curve_gpu({99: -510000, 120: 120000}, current=0)
+
+        def refuse(_deltas):
+            return False, "table busy"
+
+        gpu.apply_vf_deltas = refuse
+        ok, message = gpu.set_clock_offset(2, 47.125)
+        self.assertFalse(ok)
+        self.assertIn("flattened", message)
+        self.assertIn("table busy", message)
+        self.assertEqual(driver.writes, [(2, 0, 754)])
+        self.assertEqual(state["curve"][120], -510000)
+
+    def test_rejected_offset_does_not_read_the_curve(self):
+        gpu, driver, _state = self.curve_gpu({120: 120000}, current=0)
+        gpu.read_vf_curve = Mock(side_effect=AssertionError("read"))
+        self.assertFalse(gpu.set_clock_offset(2, 1000)[0])
+        self.assertEqual(driver.writes, [])
+        gpu.read_vf_curve.assert_not_called()
+
+    def test_preserve_flag_must_be_a_bool(self):
+        gpu, driver, _state = self.curve_gpu({120: 120000}, current=0)
+        self.assertFalse(gpu.set_clock_offset(2, 0, preserve_curve=1)[0])
+        self.assertEqual(driver.writes, [])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -2505,10 +2505,83 @@ class GPU:
         self.clock_step_khz()
         return bool(getattr(self, "_clock_step_measured", False))
 
-    def set_clock_offset(self, ctype, mhz):
+    def _vf_delta_snapshot(self):
+        """Graphics V/F deltas, or None when this card has no readable curve.
+
+        A miss is not a failure. Kepler and a driver that will not return the
+        table still have clock offsets, and those writes must proceed.
+        """
+        try:
+            if not self.vf_curve_applicable():
+                return None
+            points, err = self.read_vf_curve()
+            if err or not points:
+                return None
+            lay = self.vfp_layout()
+            freq_div = getattr(lay, "freq_div", None)
+            if type(freq_div) is not int or freq_div <= 0:
+                return None
+            return {"freq_div": freq_div, "deltas": {
+                int(p["idx"]): int(p["delta_khz"]) for p in points}}
+        except Exception:
+            return None
+
+    def _keep_vf_shape(self, deltas, shift_khz):
+        """Write deltas back when an offset call flattened them.
+
+        shift_khz is 0 for memory. For a core change it is the change in the
+        graphics offset, in the delta field's own units, so a curve that was
+        already one flat offset is left as the driver wrote it.
+
+        Returns (changed, note). changed is None when nothing was written,
+        True when the shape was put back, False when it could not be.
+        """
+        if not deltas or type(shift_khz) is not int:
+            return False, "the saved V/F shape could not be shifted"
+        desired = {}
+        for idx, delta in deltas.items():
+            moved = int(delta) + shift_khz
+            if abs(moved) > self.MAX_ABS_DELTA_KHZ:
+                return False, f"point {idx} would exceed the delta limit"
+            desired[int(idx)] = moved
+        try:
+            points, err = self.read_vf_curve()
+        except Exception as exc:
+            return False, f"curve re-read failed ({exc})"
+        if err or not points:
+            return False, err or "curve re-read returned nothing"
+        current = {int(p["idx"]): int(p["delta_khz"]) for p in points}
+        if all(current.get(idx) == delta for idx, delta in desired.items()):
+            return None, None
+        try:
+            ok, msg = self.apply_vf_deltas(desired)
+        except Exception as exc:
+            return False, str(exc)
+        if not ok:
+            return False, msg
+        try:
+            points, err = self.read_vf_curve()
+        except Exception as exc:
+            return False, f"curve write was sent but the re-read failed ({exc})"
+        if err or not points:
+            return False, err or "curve write was sent but the re-read returned nothing"
+        current = {int(p["idx"]): int(p["delta_khz"]) for p in points}
+        missing = [idx for idx, delta in desired.items() if current.get(idx) != delta]
+        if missing:
+            shown = ", ".join(str(idx) for idx in missing[:8])
+            return False, f"curve write was sent but points {shown} did not stick"
+        return True, "V/F shape kept"
+
+    def set_clock_offset(self, ctype, mhz, preserve_curve=True):
         """ctype 0=GRAPHICS (mhz in MHz, snapped to THIS CARD's clock grid),
         2=MEM (mhz in TRUE memory MHz for a known GDDR type, else raw/effective).
-        The method converts to the driver's internal units. Reset via 0."""
+        The method converts to the driver's internal units. Reset via 0.
+
+        preserve_curve puts the graphics V/F shape back after the driver
+        flattens it, shifting that shape when the core offset changed. Reset
+        passes False and zeros the table on its own later step."""
+        if type(preserve_curve) is not bool:
+            return False, "preserve_curve must be a bool"
         if type(ctype) is not int or ctype not in (0, 2):
             return False, "clock offset type must be 0 (core) or 2 (memory)"
         if type(mhz) not in (int, float):
@@ -2569,21 +2642,64 @@ class GPU:
         if not (lo <= units <= hi):
             elo, ehi = lo / scale, hi / scale
             return False, f"{dom} offset {mhz:+g} {unit} out of range [{elo:g}..{ehi:g}]"
+        # Measured on an EVGA RTX 3090 Ti, driver 617.42, idle, V/F lock still
+        # requesting 1200 mV and the rail limits still reading 1200. Both
+        # nvmlDeviceSetClockOffsets calls (core, then memory) rewrote the
+        # graphics delta table onto the uniform core offset. Point 120 went
+        # from +120 MHz (2235 at 1200 mV) to -510 MHz, the peak then existed
+        # from 1070 mV up, and the arbiter ran 1070 mV / 1605 MHz. Putting the
+        # previous points back, shifted only when the core offset changed,
+        # is what keeps that hold. A curve that was already flat matches the
+        # driver's write and is not sent again. Snapshot only after the request
+        # is known to be legal, so a rejected offset does not read the table.
+        shape = self._vf_delta_snapshot() if preserve_curve else None
+        old_core = rng[2] if (shape is not None and ctype == 0 and rng is not None) else None
+        if shape is not None and ctype == 0 and old_core is None:
+            shape = None
+        # Re-sending the offset already stored is what flattened this card.
+        # Leave the table alone. A real change still has to go through the
+        # driver, which flattens, and the shape is put back afterwards.
+        if shape is not None and rng is not None and rng[2] == units:
+            return True, f"{dom} offset set to {mhz:+g} {unit}"
         if not modern:
-            return self._set_pstate20_offset(ctype, units, mhz, unit)
-        co = _ClockOffset(version=nv.ver(_ClockOffset, 1), type=ctype,
-                          pstate=0, off=units)
-        st = nv.dll.nvmlDeviceSetClockOffsets(nv.dev, ctypes.byref(co))
-        if st == 0:
-            if ctype == 2:
+            ok, message = self._set_pstate20_offset(ctype, units, mhz, unit)
+        else:
+            co = _ClockOffset(version=nv.ver(_ClockOffset, 1), type=ctype,
+                              pstate=0, off=units)
+            st = nv.dll.nvmlDeviceSetClockOffsets(nv.dev, ctypes.byref(co))
+            if st != 0:
+                ok, message = False, f"{dom} offset failed: {nv.errstr(st)}"
+            elif ctype == 2:
                 readback = self._offset_range(ctype)
                 if readback is None:
-                    return False, "memory offset was sent, but readback failed"
-                if readback[2] != units:
-                    return False, (f"mem offset requested {mhz:+g} {unit}, but the driver "
-                                   f"reported {readback[2] / scale:+g} {unit}")
-            return True, f"{dom} offset set to {mhz:+g} {unit}"
-        return False, f"{dom} offset failed: {nv.errstr(st)}"
+                    ok, message = False, "memory offset was sent, but readback failed"
+                elif readback[2] != units:
+                    ok, message = False, (
+                        f"mem offset requested {mhz:+g} {unit}, but the driver "
+                        f"reported {readback[2] / scale:+g} {unit}")
+                else:
+                    ok, message = True, f"{dom} offset set to {mhz:+g} {unit}"
+            else:
+                ok, message = True, f"{dom} offset set to {mhz:+g} {unit}"
+        if shape is None:
+            return ok, message
+        # A call the driver then refuses can still flatten the table. On this
+        # 3090 Ti a +0.0625 MHz memory step came back unchanged and point 120
+        # had already been rewritten to the flat core offset. Put the saved
+        # points back either way. Shift only when the core offset was accepted;
+        # a refused core write must not move the shape on its own.
+        shift = 0
+        if ok and ctype == 0:
+            shift = (int(mhz) - int(old_core)) * 1000 * shape["freq_div"]
+        changed, note = self._keep_vf_shape(shape["deltas"], shift)
+        if changed is False:
+            extra = f"the V/F curve was flattened and could not be restored: {note}"
+            if ok:
+                return False, f"{message}, but {extra}"
+            return False, f"{message}; {extra}"
+        if note:
+            message = f"{message}; {note}"
+        return ok, message
 
     def _set_pstate20_offset(self, ctype, units, mhz, unit):
         """Set one ordinary P0 clock offset, with no voltage/other-domain rows."""
@@ -8194,8 +8310,11 @@ class GPU:
         # Stock means the driver's own values: nothing set by hand is kept or
         # re-applied past this point (see _reapply_power_policy_pins).
         self._power_policy_pins = {}
-        steps = [ResetStep("core offset", self.set_clock_offset(0, 0)),
-                 ResetStep("mem offset", self.set_clock_offset(2, 0))]
+        # preserve_curve would shift a shaped table up by whatever offset is
+        # being cleared, and the curve reset below has not run yet. Stock must
+        # not recreate that shape on the way to zero.
+        steps = [ResetStep("core offset", self.set_clock_offset(0, 0, preserve_curve=False)),
+                 ResetStep("mem offset", self.set_clock_offset(2, 0, preserve_curve=False))]
         # The per-domain offsets are a THIRD mechanism: neither set_clock_offset
         # above nor the curve reset below touches them, so a reset that skipped
         # this would report a stock card while XBAR was still carrying an
