@@ -53,9 +53,18 @@ def _millivolts(value, low, high, rail):
 
 
 def nvvdd_payload(mv):
-    """Three data bytes for an NVVDD request. The command byte is separate."""
+    """Three data bytes for a manual NVVDD request. The command byte is separate."""
     value = _millivolts(mv, NVVDD_MIN_MV, NVVDD_MAX_MV, "NVVDD")
     return bytes((0x09, 0x01, value // STEP_MV))
+
+
+# Classified Auto / the second Default click. The middle byte is 0x00, not the
+# manual 0x01, and 0x96 is the 750 mV caption that tool shows for Auto. A
+# manual Apply of 750 mV is 09 01 96 and is a different packet. The 0E 01
+# trailer is the next transaction on the same command, two bytes, not a third
+# data byte of the Auto packet.
+NVVDD_AUTO_PAYLOAD = bytes((0x09, 0x00, 0x96))
+NVVDD_AUTO_TRAILER = bytes((0x0E, 0x01))
 
 
 def fbvdd_payload(mv):
@@ -122,15 +131,15 @@ class EVGAICx(Rail):
         return False, "iCX voltage is not an offset register; nothing was written"
 
     def reset(self):
-        return False, "iCX voltage has no stock command; nothing was written"
+        return False, "iCX stock is the NVVDD Auto packet, not this reset path; nothing was written"
 
     def verify(self, *, acknowledged=False, log=None, ref=None,
                allow_idle=False, cancelled=None, operating_point=None):
         return False, "iCX voltage has no driver readback; nothing was written", []
 
     def _write_payload(self, payload):
-        if len(payload) != 3 or COMMAND != 0xC8:
-            raise ValueError("refusing an iCX write outside the 3-byte command 0xC8 payload")
+        if COMMAND != 0xC8 or (len(payload) != 3 and payload != NVVDD_AUTO_TRAILER):
+            raise ValueError("refusing an iCX write outside the captured command 0xC8 payloads")
         fn = self.nvapi._i(I2C_WRITE_EX, PTR, PTR, PTR)
         if fn is None:
             return False
@@ -149,6 +158,25 @@ class EVGAICx(Rail):
             return True, (f"iCX {rail} request {mv} mV sent "
                           f"(command 0x{COMMAND:02X}, {payload.hex(' ')}). "
                           "The NVIDIA driver does not read this setpoint back.")
+
+    def set_nvvdd_auto(self, *, acknowledged=False):
+        """Send the Auto packet, then the trailer. Not a manual 750 mV request."""
+        if not acknowledged:
+            return False, "I2C voltage writes require acknowledgment"
+        with self._mutex:
+            if not self.present():
+                return False, "EVGA iCX identity no longer matches this 3090 Ti Kingpin"
+            if not self._write_payload(NVVDD_AUTO_PAYLOAD):
+                return False, "EVGA iCX NVVDD Auto write was not acknowledged"
+            if not self._write_payload(NVVDD_AUTO_TRAILER):
+                return False, (
+                    "iCX NVVDD Auto packet was sent, but the 0E 01 trailer "
+                    "was not acknowledged")
+            return True, (
+                "iCX NVVDD Auto packet sent, then the trailer "
+                f"(command 0x{COMMAND:02X}, {NVVDD_AUTO_PAYLOAD.hex(' ')}, "
+                f"then {NVVDD_AUTO_TRAILER.hex(' ')}). This is not a manual "
+                "750 mV write. The NVIDIA driver does not read this setpoint back.")
 
     def set_nvvdd_mv(self, mv, *, acknowledged=False):
         if not acknowledged:
