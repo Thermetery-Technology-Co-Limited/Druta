@@ -170,8 +170,8 @@ class I2cDiscoveryUiTests(FakeUiTest):
                 patch("druta.controllers.ncp4206.DISCOVERY_ADDRESSES", (0x20, 0x21)):
             railctl.discover(nvapi, progress=lambda *event: events.append(event),
                              cancelled=lambda: len(events) >= 2)
-        self.assertEqual(events[0], (0, 2, "Preparing controller probes"))
-        self.assertEqual(events[1], (1, 2, "NCP4206 port 2, 0x20"))
+        self.assertEqual(events[0], (0, 3, "Preparing controller probes"))
+        self.assertEqual(events[1], (1, 3, "NCP4206 port 2, 0x20"))
         probe.assert_called_once()
 
 
