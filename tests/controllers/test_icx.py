@@ -92,6 +92,16 @@ class PayloadTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     encode(value)
 
+    def test_xoc_extends_the_byte_and_refuses_past_it(self):
+        self.assertEqual(icx.nvvdd_payload(1200, xoc=True), bytes((0x09, 0x01, 0xF0)))
+        self.assertEqual(icx.nvvdd_payload(1275, xoc=True), bytes((0x09, 0x01, 0xFF)))
+        for mv in (1280, 1600, 1605):
+            with self.subTest(mv=mv):
+                with self.assertRaises(ValueError):
+                    icx.nvvdd_payload(mv, xoc=True)
+        with self.assertRaises(ValueError):
+            icx.nvvdd_payload(1200, xoc=False)
+
 
 class TransportTests(unittest.TestCase):
     def _pair(self, **kwargs):
@@ -188,8 +198,13 @@ class TransportTests(unittest.TestCase):
         self.assertFalse(ok)
         ok, _message = mcu.set_fbvdd_mv(1300)
         self.assertFalse(ok)
-        ok, _message = mcu.set_nvvdd_mv(1200, acknowledged=True)
+        ok, message = mcu.set_nvvdd_mv(1200, acknowledged=True)
         self.assertFalse(ok)
+        self.assertIn("750..1150", message)
+        ok, message = mcu.set_nvvdd_mv(1600, acknowledged=True, xoc=True)
+        self.assertFalse(ok)
+        self.assertIn("stops at 1275", message)
+        self.assertEqual(bus.writes, [])
         ok, _message = mcu.set_nvvdd_mv(float("nan"), acknowledged=True)
         self.assertFalse(ok)
         for payload in (b"", b"\x09\x01", b"\x09\x01\xbe\x0e"):
@@ -197,6 +212,14 @@ class TransportTests(unittest.TestCase):
                 mcu._write_payload(payload)
         self.assertEqual(bus.calls, 0)
         self.assertEqual(bus.writes, [])
+
+    def test_xoc_1200_uses_the_same_one_byte_command(self):
+        mcu, bus = self._pair()
+        ok, message = mcu.set_nvvdd_mv(1200, acknowledged=True, xoc=True)
+        self.assertTrue(ok, message)
+        self.assertEqual([item["data"] for item in bus.writes], [bytes((0x09, 0x01, 0xF0))])
+        self.assertEqual(bus.writes[0]["command"], icx.COMMAND)
+        self.assertEqual(len(bus.reads), 1)
 
     def test_identity_loss_and_a_rejected_status_do_not_report_success(self):
         mcu, bus = self._pair(firmware=bytes(6))

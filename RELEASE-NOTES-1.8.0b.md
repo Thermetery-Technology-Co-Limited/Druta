@@ -1,6 +1,6 @@
 # Druta 1.8.0b
 
-**Superseded by [1.8.0c](RELEASE-NOTES-1.8.0c.md).** The 1.8.0b package is unchanged.
+**Superseded by [1.8.0](RELEASE-NOTES-1.8.0.md).** The 1.8.0b package is unchanged.
 
 **Pre-release.** Supersedes [1.8.0a](RELEASE-NOTES-1.8.0a.md). 1.8.0b is that
 build plus a less brittle uP9512R Verify reversal check, from issue 34. Ada

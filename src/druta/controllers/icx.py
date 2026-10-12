@@ -37,6 +37,12 @@ NVVDD_MAX_MV = 1150
 FBVDD_MIN_MV = 1250
 FBVDD_MAX_MV = 1450
 STEP_MV = 5
+# XOC widens the slider to 1600. The captured command is still one byte,
+# VV = millivolts / 5, so 255 * 5 = 1275 is the highest request that byte
+# can represent. 1280..1600 stay selectable under XOC and are refused
+# before any write.
+NVVDD_XOC_MAX_MV = 1600
+NVVDD_BYTE_MAX_MV = 255 * STEP_MV
 
 
 def _millivolts(value, low, high, rail):
@@ -52,9 +58,17 @@ def _millivolts(value, low, high, rail):
     return mv
 
 
-def nvvdd_payload(mv):
-    """Three data bytes for a manual NVVDD request. The command byte is separate."""
-    value = _millivolts(mv, NVVDD_MIN_MV, NVVDD_MAX_MV, "NVVDD")
+def nvvdd_payload(mv, *, xoc=False):
+    """Three data bytes for a manual NVVDD request. The command byte is separate.
+
+    xoc widens the accepted range to NVVDD_XOC_MAX_MV. Values the one-byte
+    command cannot represent still raise, and nothing is written.
+    """
+    high = NVVDD_XOC_MAX_MV if xoc else NVVDD_MAX_MV
+    value = _millivolts(mv, NVVDD_MIN_MV, high, "NVVDD")
+    if value > NVVDD_BYTE_MAX_MV:
+        raise ValueError(
+            f"NVVDD command is one byte and stops at {NVVDD_BYTE_MAX_MV} mV")
     return bytes((0x09, 0x01, value // STEP_MV))
 
 
@@ -178,11 +192,11 @@ class EVGAICx(Rail):
                 f"then {NVVDD_AUTO_TRAILER.hex(' ')}). This is not a manual "
                 "750 mV write. The NVIDIA driver does not read this setpoint back.")
 
-    def set_nvvdd_mv(self, mv, *, acknowledged=False):
+    def set_nvvdd_mv(self, mv, *, acknowledged=False, xoc=False):
         if not acknowledged:
             return False, "I2C voltage writes require acknowledgment"
         try:
-            payload = nvvdd_payload(mv)
+            payload = nvvdd_payload(mv, xoc=xoc)
         except ValueError as exc:
             return False, str(exc)
         return self._send(int(round(mv)), payload, "NVVDD")

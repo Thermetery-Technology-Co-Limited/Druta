@@ -1,6 +1,6 @@
 # Druta
 
-**Version 1.8.0c** (pre-release) — [release notes](RELEASE-NOTES-1.8.0c.md).
+**Version 1.8.0** — [release notes](RELEASE-NOTES-1.8.0.md).
 Supersedes 1.8.0b.
 
 Hardware validation: [Maxwell/Pascal](MAXWELL-PASCAL-VALIDATION.md),
@@ -124,7 +124,7 @@ python -m pip install -r requirements.txt
 ```
 
 The local build produces `dist\Druta\Druta.exe` and
-`dist\Druta-1.8.0c-win64.zip`. Distribute the
+`dist\Druta-1.8.0-win64.zip`. Distribute the
 whole `Druta` folder or ZIP: the EXE needs its adjacent `_internal` folder.
 
 `dist\Druta\source\` contains the matching working-tree source, including
