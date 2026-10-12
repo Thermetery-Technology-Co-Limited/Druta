@@ -82,6 +82,35 @@ class ClkDomUnitTests(unittest.TestCase):
                 gpu._clkdom_get = fake_get
                 self.assertEqual(gpu.clkdom_layout(), CLKDOM_LAYOUT_TURING)
 
+    def test_pascal_names_xbar_and_sys_and_hides_their_frequency_sliders(self):
+        rows = [dict(domain=dom, kind=PRIV_FREQ, name="", grade="unnamed",
+                     prog_khz=int(mhz * 1000), meas_khz=int(mhz * 1000),
+                     prog_mhz=mhz, meas_mhz=mhz, delta_mhz=0, flags=0x19,
+                     srcid=15, scale=1)
+                for dom, mhz in ((15, 4024), (16, 3898), (17, 3619))]
+        named = {row["domain"]: row for row in classify_domain_names(
+            rows, 2012, 4513.5, architecture=GPU.ARCH_PASCAL)}
+        self.assertEqual(named[15]["name"], "GPC2CLK")
+        self.assertEqual(named[16]["name"], "XBAR2CLK")
+        self.assertEqual(named[17]["name"], "SYS2CLK")
+        for domain in (16, 17):
+            self.assertEqual(named[domain]["grade"], PRIV_LIKELY)
+            self.assertEqual(named[domain]["scale"], 2)
+        gpu = self.gpu_arch(GPU.ARCH_PASCAL)
+        self.assertFalse(gpu.clkdom_offset_slider_offered(1))
+        self.assertFalse(gpu.clkdom_offset_slider_offered(3))
+        self.assertFalse(gpu.clkdom_offset_slider_offered(5))
+        self.assertFalse(gpu.clkdom_offset_slider_offered(9))
+        self.assertTrue(gpu.clkdom_offset_slider_offered(2))
+        self.assertTrue(gpu.clkdom_delta_inert(1))
+        self.assertTrue(gpu.clkdom_delta_inert(3))
+        self.assertTrue(gpu.clkdom_delta_inert(5))
+        self.assertFalse(gpu.clkdom_delta_inert(2))
+        self.assertIsNone(gpu.clkdom_delta_inert(9))
+        turing = self.gpu_arch(GPU.ARCH_TURING)
+        self.assertTrue(turing.clkdom_offset_slider_offered(1))
+        self.assertTrue(turing.clkdom_offset_slider_offered(3))
+
     def test_ampere_gpu_z_names_match_the_live_domains(self):
         rows = [dict(domain=dom, kind=PRIV_FREQ, name="", grade="unnamed",
                      prog_khz=int(mhz * 1000), meas_khz=int(mhz * 1000),

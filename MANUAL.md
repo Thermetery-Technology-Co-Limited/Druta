@@ -45,6 +45,71 @@ be verified, automatic loading is skipped for that boot. You can still load a
 profile manually. Reopening Druta does not bypass the skipped boot. After a
 clean shutdown and boot, automatic loading can resume.
 
+## EVGA iCX voltage and controller settings
+
+Select the EVGA iCX controller on the target Ampere adapter and check its
+identity. The displayed controller requests are not physical voltage readings.
+Close other tools that write to the same controller before applying changes.
+Enable the I2C rail controls, Unlock, edit the desired request, then Apply.
+Druta enables the controller's write gate if necessary and checks the returned
+request before reporting success. A successful driver call alone is not enough.
+
+NVVDD requests are 750-1150 mV, extended to 1600 mV with XOC; FBVDD requests
+are 1250-1450 mV. Both use 5 mV steps. **NVVDD Auto affects only NVVDD.**
+You can adjust FBVDD while NVVDD remains on Auto. The Auto action does not
+change FBVDD, and its placeholder count is not a measured 750 mV rail.
+FBVDD has no inferred Auto or factory-reset action. Use an external meter to
+confirm physical voltage.
+
+Five additional controls have their own staged choice and Apply button:
+
+| Control | Choices |
+| --- | --- |
+| NVVDD switching frequency | 300-1000 kHz in 100 kHz steps |
+| FBVDD switching frequency | 300-1000 kHz in 100 kHz steps |
+| NVVDD overcurrent protection (OCP) | Enable or Disable |
+| FBVDD overcurrent protection (OCP) | Enable or Disable |
+| NVVDD loadline | Level0 through Level15 |
+
+Selecting a choice does not write it. Each Apply verifies that setting and
+preserves its sibling and other readable controller settings. Missing readback
+in one group does not remove the others. A previously confirmed value marked
+`*` is stale; check the readback status before applying. Unknown selected
+encodings or malformed responses refuse the operation. Transient read failures
+have bounded recovery; an uncertain write is never automatically resent.
+
+Voltage Apply, NVVDD Auto, setting Apply, and preset Apply first hold the
+graphics clock at the driver's minimum lockable frequency. Release or quitting
+clears that clock lock. Closing Druta does not undo the controller requests;
+use NVVDD Auto explicitly and confirm FBVDD and the other settings separately.
+
+The preset controls use Druta's JSON format:
+
+- **Save current iCX preset** saves complete current controller readback to a
+  JSON file. It does not save unapplied row edits.
+- **Load iCX preset** validates the file and displays all eight setting fields
+  in a separate preview. Loading does not write the controller or replace row
+  edits.
+- **Apply iCX preset** deliberately applies the preview after fresh identity,
+  write-gate, XOC-range, and clock-clamp checks. Only settings that differ from
+  complete current readback are sent, and the final settings are verified.
+- **Restore captured connection settings** stages the first complete read from
+  this controller connection through the same preview and Apply path. These
+  are captured settings, not factory defaults. A controller or GPU change
+  clears the captured and pending presets.
+
+A partially failed preset stops immediately. Earlier verified changes remain
+applied, and the failed operation may also have applied. Druta reports the
+partial result without automatically retrying or rolling back. Refresh the
+readback before choosing the next action. These presets are never automatically
+replayed at startup, and saving a preset does not write controller EEPROM.
+
+The command formats and returned states were established with black-box
+Classified captures on one EVGA RTX 3090 Ti Kingpin. This verifies controller
+setting readback, not physical PWM frequency, OCP trip behavior, or the
+loadline's electrical effect. The displayed ranges are input policy, not
+measured safe operating ranges.
+
 ## 1. `De-flatten`:
 When two or more points on the VF curve land on the same frequency, only the one with the lowest voltage will ever be used. For example, if 1081, 1087, and 1093mv all correspond to 2000mhz, the card will always run at 1081mv, 2000mhz. Deflatten makes sure that every point on the the V/F curve between 1000mv to 1091mv (adjustable) are *mathematically strictly increasing*. That way, you can run 1091mv immediately without a hard voltage mod. 
 

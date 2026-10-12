@@ -48,18 +48,19 @@ class PanicButtonUiTests(unittest.TestCase):
 
     def test_body_builds_shared_recovery_header_before_every_tab(self):
         self.app.build_shared_header = Mock()
+        self.app.build_gate_bar = Mock()
         self.app.build_control = Mock()
         self.app.build_monitor = Mock()
         self.app.build_timings = Mock()
         self.app.build_body()
         self.app.build_shared_header.assert_called_once_with()
+        self.app.build_gate_bar.assert_called_once_with()
         self.app.build_control.assert_called_once_with()
         self.app.build_monitor.assert_called_once_with()
         self.app.build_timings.assert_called_once_with()
-        self.ui.child_window.assert_called_once_with(
-            tag="tab_content", parent="root", width=-1, height=-1, border=False
-        )
-        self.ui.tab_bar.assert_called_once_with(tag="tabs")
+        child_tags = [call.kwargs.get("tag") for call in self.ui.child_window.call_args_list]
+        self.assertNotIn("tab_content", child_tags)
+        self.ui.tab_bar.assert_called_once_with(tag="tabs", parent="root")
 
     def test_card_rebuild_removes_the_fixed_row_and_tab_viewport_together(self):
         self.app._orphans = []
@@ -76,7 +77,9 @@ class PanicButtonUiTests(unittest.TestCase):
         self.app.build_ui(rebuild=True)
         deleted = self.ui.delete_item.call_args_list
         self.assertIn(call("hdr_row"), deleted)
-        self.assertIn(call("tab_content"), deleted)
+        self.assertIn(call("gate_bar"), deleted)
+        self.assertIn(call("tabs"), deleted)
+        self.assertIn(call("win_page_monitor"), deleted)
         self.app.build_body.assert_called_once_with()
 
 

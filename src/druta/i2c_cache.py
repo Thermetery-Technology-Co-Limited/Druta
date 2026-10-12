@@ -92,6 +92,10 @@ def _finite_number(value):
 
 def _readable(candidate):
     """Check live control state; read-only recipes need any known telemetry."""
+    if getattr(candidate, "icx_mcu", False):
+        # Keep the identity-checked route hint through transient request-state reads.
+        # Each acknowledged setter independently validates its live state.
+        return True
     capture = getattr(candidate, "capture_control", None)
     if callable(capture):
         control = capture()

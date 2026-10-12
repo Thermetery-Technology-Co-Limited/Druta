@@ -1022,7 +1022,7 @@ class Rail:
 
 def controller_names(log=None):
     """Controller families offered for an explicit, read-only scoped scan."""
-    names = ["Nuvoton NCT3933U", "NCP4206", "uPI uP9512R"]
+    names = ["Nuvoton NCT3933U", "NCP4206", "uPI uP9512R", "EVGA iCX"]
     for profile in load_profiles(log=log):
         if profile.regulator not in names:
             names.append(profile.regulator)
@@ -1075,11 +1075,12 @@ def discover(nvapi, dev_id=None, subsys=None, log=None, *, architecture=None,
     from .mp29816 import (DISCOVERY_ADDRESSES as MP29816_ADDRESSES,
                           DISCOVERY_PORTS as MP29816_PORTS,
                           discover as discover_mp29816)
+    from .controllers.icx import ADDR7 as ICX_ADDR7, EVGAICx, PORT as ICX_PORT
     selected_routes = _normalize_routes(routes)
     cooperative = progress is not None or cancelled is not None
     cancelled = cancelled or (lambda: False)
     profiles = load_profiles(log=log)
-    names = ["Nuvoton NCT3933U", "NCP4206", "uPI uP9512R"]
+    names = ["Nuvoton NCT3933U", "NCP4206", "uPI uP9512R", "EVGA iCX"]
     for p in profiles:
         if p.regulator not in names:
             names.append(p.regulator)
@@ -1096,6 +1097,11 @@ def discover(nvapi, dev_id=None, subsys=None, log=None, *, architecture=None,
         ncp_routes = []
     if controller != "uPI uP9512R" and controller is not None:
         up9512r_routes = []
+    icx_routes = [(ICX_PORT, ICX_ADDR7)]
+    if controller != "EVGA iCX" and controller is not None:
+        icx_routes = []
+    if selected_routes is not None:
+        icx_routes = [pair for pair in icx_routes if pair in selected_routes]
     selected = getattr(nvapi, "selected", None) or {}
     conflict = any(supplied is not None and selected.get(key) is not None
                    and supplied != selected[key]
@@ -1104,7 +1110,7 @@ def discover(nvapi, dev_id=None, subsys=None, log=None, *, architecture=None,
         dev_id = selected.get("devid")
     if subsys is None:
         subsys = selected.get("subsys")
-    total = (len(ncp_routes) + len(nct_routes) + len(up9512r_routes)
+    total = (len(ncp_routes) + len(nct_routes) + len(up9512r_routes) + len(icx_routes)
              if getattr(nvapi, "ok", False) else 0)
     eligible = {}
     for p in profiles:
@@ -1168,6 +1174,17 @@ def discover(nvapi, dev_id=None, subsys=None, log=None, *, architecture=None,
             except Exception:
                 pass
             advance(f"uP9512R port {port}, 0x{addr7:02X}")
+        for port, addr7 in icx_routes:
+            if cancelled():
+                return hits
+            try:
+                icx = EVGAICx(nvapi, architecture=architecture, port=port, addr7=addr7)
+                if icx.present():
+                    icx.discovery_telemetry = icx.telemetry()
+                    hits.append(icx)
+            except Exception:
+                pass
+            advance(f"EVGA iCX port {port}, 0x{addr7:02X}")
     for p in profiles:
         if cancelled():
             return hits

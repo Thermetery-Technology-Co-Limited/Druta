@@ -101,7 +101,7 @@ from .nvbackend import (GPU, EVENT_REASONS, PERF_DECREASE_BITS, VF_STEP_KHZ, VF_
                         PRIV_LIKELY, PRIV_N_DOMAINS, PRIV_PCIE_GEN, PRIV_SLOT,
                         PRIV_UNNAMED, PRIV_UNPOPULATED)
 
-__version__ = "1.8.0b"
+__version__ = "1.8.0"
 
 # ---- palette (ImGui takes 0-255 RGBA) ------------------------------------- #
 TEXT = (230, 232, 236)
@@ -338,6 +338,7 @@ class Druta:
         # would survive a link coming off.
         self._i2c_verified = False
         self._i2c_verified_for = None
+        self._icx_armed = set()
         self._i2c_busy = False
         self._i2c_thread = None
         self._i2c_cancel = threading.Event()
@@ -630,6 +631,15 @@ class Druta:
     # ====================================================================== #
     # The clock tiles' big number is the PROGRAMMED figure (what GPU-Z and
     # NVML show); the line under it is the measured one (REAL_TILES).
+    # Dragging a Control, Monitor, or Timings label tears that page into a
+    # floating window. Dear PyGui has one OS viewport, so the page stays in
+    # this process instead of becoming a second taskbar window.
+    TEAR_PAGES = (
+        ("tab_control", "page_control", "Control"),
+        ("tab_monitor", "page_monitor", "Monitor"),
+        ("tab_tim", "page_timings", "Timings"),
+    )
+
     TILES = [("core", "CORE CLOCK", "MHz programmed", ACCENT),
              ("xbar", "XBAR CLOCK", "MHz programmed", VIOLET),
              ("mem", "MEM CLOCK", "MHz programmed", ACCENT),
@@ -683,7 +693,11 @@ class Druta:
                 dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, self.s(8), self.s(self.TILE_PAD))
                 # text lines advance by their own height only
                 dpg.add_theme_style(dpg.mvStyleVar_FramePadding, self.s(4), 0)
-        with dpg.tab(label="  Monitor  "):
+        dpg.add_tab(label="  Monitor  ", tag="tab_monitor")
+        dpg.add_child_window(tag="page_monitor", parent="tab_monitor",
+                             width=-1, height=-1, border=False)
+        dpg.push_container_stack("page_monitor")
+        try:
             with dpg.group(horizontal=True, tag="tile_row"):
                 for key, label, unit, col in self.TILES:
                     # no_scrollbar: the tile is sized to its content in
@@ -762,6 +776,8 @@ class Druta:
                     dpg.add_text("STATE", color=ACCENT)
                     dpg.add_separator()
                     dpg.add_text("--", tag="state", wrap=self.s(400))
+        finally:
+            dpg.pop_container_stack()
 
     def bar_theme(self, col):
         with dpg.theme() as th:
@@ -1347,6 +1363,9 @@ class Druta:
         if dpg.does_item_exist("menu_pad"):
             dpg.configure_item("menu_pad", height=mh)
         H -= mh
+        # Header, unlock strip, and the tab selector sit above the page.
+        # Panel heights are shares of the page, not of the whole viewport.
+        H -= self.pinned_chrome_h()
         pad = self.s(10)
         # six tiles across the full width
         tw = max(self.s(120), (W - pad * (len(self.TILES) + 2)) // len(self.TILES))
@@ -1431,7 +1450,272 @@ class Druta:
                            ("pan_div", div_h)):
                 if h and dpg.does_item_exist(tag):
                     dpg.configure_item(tag, height=h)
+        self.layout_torn_pages()
         self.size_plan_banner()
+
+    def pinned_chrome_h(self):
+        """Height of the header and unlock strip already taken above the page."""
+        extra = self.s(28)  # Control / Monitor / Timings selector
+        for tag in ("hdr_row", "gate_bar"):
+            if not dpg.does_item_exist(tag):
+                continue
+            size = dpg.get_item_state(tag).get("rect_size")
+            if size:
+                extra += int(size[1])
+        return extra
+
+    def _parent_is(self, item, tag):
+        parent = dpg.get_item_info(item).get("parent")
+        if parent == tag:
+            return True
+        try:
+            return dpg.get_item_alias(parent) == tag
+        except Exception:
+            return False
+
+    def layout_torn_pages(self):
+        """Keep each page filling the space under the pinned selector, or its float."""
+        try:
+            client_h = dpg.get_viewport_client_height()
+        except Exception:
+            return
+        for tab, page, _title in self.TEAR_PAGES:
+            if not (dpg.does_item_exist(page) and dpg.does_item_exist(tab)):
+                continue
+            if self._parent_is(page, tab):
+                if not dpg.is_item_shown(tab):
+                    continue
+                y = dpg.get_item_pos(page)[1]
+                # Right after a dock, the page can still report the float's
+                # position. A y above the tab label is that stale value, and
+                # sizing from it makes the root window scroll.
+                label = dpg.get_item_state(tab).get("rect_max")
+                if label and y < label[1]:
+                    y = int(label[1]) + self.s(6)
+                # A couple of pixels short of the client edge. Filling it
+                # exactly makes the root window scroll and the pinned strip
+                # moves with that scroll.
+                height = max(self.s(160), client_h - y - self.s(14))
+                self._set_page_box(page, height)
+                continue
+            win = dpg.get_item_info(page).get("parent")
+            if not dpg.does_item_exist(win):
+                continue
+            state = dpg.get_item_state(win)
+            avail = state.get("content_region_avail") or state.get("rect_size")
+            if not avail:
+                continue
+            chrome = self.s(8)
+            for tag in ("dock_" + page, "tear_note_" + page):
+                if dpg.does_item_exist(tag):
+                    size = dpg.get_item_state(tag).get("rect_size")
+                    if size:
+                        chrome += int(size[1]) + self.s(4)
+            self._set_page_box(page, max(self.s(120), int(avail[1]) - chrome))
+
+    def _set_page_box(self, page, height):
+        """Resize a page only when the height actually changes.
+
+        configure_item every frame resets the page's own scroll position.
+        """
+        height = int(height)
+        try:
+            current = dpg.get_item_configuration(page).get("height")
+        except Exception:
+            current = None
+        if current is None or abs(int(current) - height) > 2:
+            dpg.configure_item(page, height=height, width=-1)
+
+    def _page_triple(self, tab):
+        for triple in self.TEAR_PAGES:
+            if triple[0] == tab:
+                return triple
+        return None
+
+    def tear_page(self, tab):
+        """Float one tab's page. The selector and unlock strip stay put."""
+        triple = self._page_triple(tab)
+        if triple is None or not dpg.does_item_exist(tab):
+            return False
+        _tab, page, title = triple
+        if not dpg.does_item_exist(page):
+            return False
+        if not self._parent_is(page, tab):
+            return False
+        win = "win_" + page
+        if dpg.does_item_exist(win):
+            dpg.delete_item(win)
+        try:
+            pos = dpg.get_mouse_pos(local=False)
+        except Exception:
+            pos = (80, 80)
+        with dpg.window(tag=win, label=title, width=self.s(760), height=self.s(640),
+                        pos=[int(pos[0]), int(pos[1])], user_data=tab,
+                        no_scrollbar=True, no_scroll_with_mouse=True,
+                        no_saved_settings=True,
+                        on_close=self._float_closed):
+            dpg.add_button(label="Dock back", tag="dock_" + page, user_data=tab,
+                           callback=self._dock_clicked)
+            dpg.add_text("Floating inside this Druta window. Dock back returns "
+                         "the page to the selector.",
+                         tag="tear_note_" + page, color=DIM, wrap=self.s(720))
+        dpg.set_item_user_data(win, tab)
+        dpg.move_item(page, parent=win)
+        dpg.configure_item(tab, show=False)
+        self._select_remaining_tab(tab)
+        self.layout_torn_pages()
+        return True
+
+    def _float_closed(self, sender, app_data, user_data):
+        tab = user_data or dpg.get_item_user_data(sender)
+        self.dock_page(tab, from_close=True)
+
+    def _dock_clicked(self, sender, app_data, user_data):
+        self.dock_page(user_data)
+
+    def dock_page(self, tab, from_close=False):
+        """Put a floating page back on the pinned selector."""
+        if getattr(self, "_docking", False):
+            return False
+        triple = self._page_triple(tab)
+        if triple is None:
+            return False
+        _tab, page, _title = triple
+        win = "win_" + page
+        self._docking = True
+        try:
+            if dpg.does_item_exist(page) and dpg.does_item_exist(tab):
+                dpg.move_item(page, parent=tab)
+                dpg.configure_item(tab, show=True)
+                if dpg.does_item_exist("tabs"):
+                    dpg.set_value("tabs", tab)
+            if dpg.does_item_exist(win) and not from_close:
+                dpg.delete_item(win)
+        finally:
+            self._docking = False
+        self.layout_torn_pages()
+        return True
+
+    def _select_remaining_tab(self, leaving):
+        if not dpg.does_item_exist("tabs"):
+            return
+        for tab, page, _title in self.TEAR_PAGES:
+            if tab == leaving or not dpg.does_item_exist(tab):
+                continue
+            if not dpg.is_item_shown(tab):
+                continue
+            if dpg.does_item_exist(page) and self._parent_is(page, tab):
+                dpg.set_value("tabs", tab)
+                return
+
+    def poll_tab_tear(self):
+        """A drag that starts on a tab label and leaves it floats that page.
+
+        The label's rectangle is only the selector, not the page, so scrolling
+        the page cannot tear it. A click without a drag still changes tabs.
+        """
+        if not dpg.does_item_exist("tabs"):
+            return
+        down = dpg.is_mouse_button_down(dpg.mvMouseButton_Left)
+        was = getattr(self, "_tab_mouse_down", False)
+        self._tab_mouse_down = down
+        if not down:
+            self._tab_press = None
+            return
+        if not was:
+            self._tab_press = None
+            for tab, _page, _title in self.TEAR_PAGES:
+                if not dpg.does_item_exist(tab) or not dpg.is_item_shown(tab):
+                    continue
+                if dpg.get_item_state(tab).get("hovered"):
+                    self._tab_press = (tab, tuple(dpg.get_mouse_pos(local=False)))
+                    break
+            return
+        press = getattr(self, "_tab_press", None)
+        if not press:
+            return
+        tab, origin = press
+        pos = tuple(dpg.get_mouse_pos(local=False))
+        if abs(pos[0] - origin[0]) + abs(pos[1] - origin[1]) < 16:
+            return
+        self._tab_press = None
+        self.tear_page(tab)
+
+    _GATE_FLASH_S = 0.9
+
+    def gate_is_off(self, tag):
+        """True only when that checkbox is on screen and clear."""
+        return bool(dpg.does_item_exist(tag) and not dpg.get_value(tag))
+
+    def flash_gate(self, checkbox, boxes=()):
+        """Pulse the checkbox and the text boxes the user just tried."""
+        until = time.perf_counter() + self._GATE_FLASH_S
+        flashes = getattr(self, "_gate_flashes", None)
+        if flashes is None:
+            flashes = {}
+            self._gate_flashes = flashes
+        for tag in (checkbox, *boxes):
+            if tag and dpg.does_item_exist(tag):
+                flashes[tag] = until
+
+    def _gate_flash_theme(self):
+        theme = getattr(self, "_gate_flash_theme_id", None)
+        if theme is not None:
+            return theme
+        with dpg.theme() as theme:
+            with dpg.theme_component(dpg.mvAll):
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBg, BAD)
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, (255, 130, 130))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, (220, 60, 60))
+                dpg.add_theme_color(dpg.mvThemeCol_Border, BAD)
+                dpg.add_theme_color(dpg.mvThemeCol_CheckMark, (255, 255, 255))
+                dpg.add_theme_style(dpg.mvStyleVar_FrameBorderSize, 1)
+        self._gate_flash_theme_id = theme
+        return theme
+
+    def tick_gate_flashes(self):
+        flashes = getattr(self, "_gate_flashes", None)
+        if not flashes:
+            return
+        now = time.perf_counter()
+        lit = int(now * 8) % 2 == 0
+        theme = self._gate_flash_theme() if lit else 0
+        done = []
+        for tag, until in flashes.items():
+            if now >= until or not dpg.does_item_exist(tag):
+                done.append(tag)
+                if dpg.does_item_exist(tag):
+                    dpg.bind_item_theme(tag, 0)
+                continue
+            dpg.bind_item_theme(tag, theme)
+        for tag in done:
+            flashes.pop(tag, None)
+
+    def note_nct_typed(self, channel):
+        """Flicker the current-DAC box. Typing does not write."""
+        if self.gate_is_off("i2c_mode"):
+            self.flash_gate("i2c_mode", (f"nct_current_{channel}",))
+
+    def note_gated_knob(self, key):
+        """Flicker when an I2C or rail-limit knob is used with its box clear.
+
+        Does not write, and does not apply to Stock.
+        """
+        if key in ("i2crail", "icxnv", "icxfb"):
+            if self.gate_is_off("i2c_mode"):
+                self.flash_gate("i2c_mode", (f"in_{key}",))
+                return True
+        elif str(key).startswith("vlim") and self.gate_is_off("vlim_mode"):
+            self.flash_gate("vlim_mode", (f"in_{key}",))
+            return True
+        return False
+
+    def _vlim_input_tags(self, rail, limits):
+        suffix = {"reliability": "rel", "alt_reliability": "alt",
+                  "overvoltage": "ov", "vmin": "lo"}
+        prefix = "vlim1_" if rail == 1 else "vlim_"
+        return tuple("in_" + prefix + suffix[field]
+                     for field in limits if field in suffix)
 
     def layout_shared_header(self, viewport_width):
         """Reserve the right column for recovery; wrap card details on the left."""
@@ -1887,6 +2171,10 @@ class Druta:
         if rail not in getattr(self, "_rail_writable", set()):
             self.log("rail controls are unavailable; use Retry detection before writing", False)
             return
+        if self.gate_is_off("vlim_mode"):
+            self.flash_gate("vlim_mode", self._vlim_input_tags(rail, limits))
+            self.log("tick 'Rail limits' first. Nothing was written.", False)
+            return
         if not self.guard():
             return
         try:
@@ -1954,6 +2242,9 @@ class Druta:
         slider end up disagreeing about what was written.
         """
         if getattr(self, "_profile_pending", None) or getattr(self, "_i2c_busy", False):
+            return
+        if key in ("icxnv", "icxfb"):
+            self.log("Use NVVDD Auto to release its manual request. FBVDD has a separate request.", False)
             return
         if key == "i2crail" and getattr(self.rail, "requires_verification", False):
             if self.guard():
@@ -2740,6 +3031,12 @@ class Druta:
         """Total risk points for everything currently live."""
         return sum(RISK_WEIGHT[f] for f in self.risk_features())
 
+    def _bind_risk_theme(self, theme):
+        """Tint the pinned strip and the Control page together."""
+        for tag in ("gate_bar", "tab_control"):
+            if dpg.does_item_exist(tag):
+                dpg.bind_item_theme(tag, theme)
+
     def sync_risk_ui(self):
         """Tint the Control tab and raise the banner for the current score."""
         if getattr(self, "_i2c_busy", False) or getattr(self, "_profile_pending", None):
@@ -2768,14 +3065,17 @@ class Druta:
         # it cannot outlive the state that justified it. Nothing but Druta
         # bounds this value, so it must never be on by default.
         self.gpu.volt_limits_write_enabled = "volt_limits" in live
+        # The text box, slider, and Apply stay clickable while Rail limits is
+        # unticked, so the attempt can flicker and refuse. The checkbox still
+        # owns the write: apply_vlim will not call the driver without it.
+        # Stock stays out of this list on purpose.
         for k in ("vlim_rel", "vlim_alt", "vlim_ov", "vlim_lo",
                   "vlim1_rel", "vlim1_alt", "vlim1_ov", "vlim1_lo"):
             rail = 1 if k.startswith("vlim1") else 0
+            writable = rail in getattr(self, "_rail_writable", set())
             for pre in ("sl_", "in_", "go_"):
                 if dpg.does_item_exist(pre + k):
-                    dpg.configure_item(pre + k,
-                                       enabled=("volt_limits" in live
-                                                and rail in getattr(self, "_rail_writable", set())))
+                    dpg.configure_item(pre + k, enabled=self.unlocked() and writable)
         # The eight per-row Stock buttons are deliberately NOT in that list.
         # reset_volt_rail_limits is documented as ungated on purpose - putting
         # a rail back to its power-on value is the one write that is safe
@@ -2811,7 +3111,7 @@ class Druta:
 
         if band == RISK_STOCK:
             dpg.configure_item("risk_banner", show=False)
-            dpg.bind_item_theme("tab_control", 0)
+            self._bind_risk_theme(0)
             return
 
         bg, border, text = RISK_TINT[band]
@@ -2824,7 +3124,7 @@ class Druta:
                     dpg.add_theme_color(dpg.mvThemeCol_Border, border)
                     dpg.add_theme_color(dpg.mvThemeCol_TitleBgActive, bg)
             self._risk_themes[band] = th
-        dpg.bind_item_theme("tab_control", th)
+        self._bind_risk_theme(th)
         # Headline the band and the score, then say what each live feature is
         # doing, heaviest first. A user who has ticked two things needs to read
         # both reasons, not just the one that happened to name the colour.
@@ -2835,9 +3135,19 @@ class Druta:
         dpg.configure_item("risk_banner", show=True, color=text,
                            default_value="  ".join(parts))
 
-    def build_control(self):
-        st = self.gpu.static
-        with dpg.tab(label="  Control  ", tag="tab_control"):
+    def build_gate_bar(self):
+        """Unlock, XOC, I2C, rail limits, and reset, pinned above the tabs.
+
+        This strip is a child of the root window, not of a scrolling page.
+        Scrolling Control, Monitor, or Timings must not carry it away.
+        """
+        widgets = getattr(self, "_ctl_widgets", None)
+
+        def track(tag):
+            if widgets is not None:
+                widgets.append(tag)
+
+        with dpg.group(tag="gate_bar", parent="root"):
             # Banner first, above every knob, so the state is read before a
             # slider is touched rather than after.
             dpg.add_text("", tag="risk_banner", show=False,
@@ -2858,7 +3168,8 @@ class Druta:
                 dpg.add_checkbox(label="I2C rail", tag="i2c_mode",
                                  default_value=False,
                                  show=(railctl is not None and
-                                       (self.rail is None or not self.rail.p.read_only)),
+                                       (getattr(self, "rail", None) is None
+                                        or not self.rail.p.read_only)),
                                  callback=self.on_i2c_mode)
                 # A readable block alone does not establish working writes or
                 # the bases needed to translate its deltas into millivolts.
@@ -2868,7 +3179,7 @@ class Druta:
                                  callback=lambda s, a, u: self.sync_risk_ui())
                 dpg.add_spacer(width=self.s(16))
                 # sits with the gate, not inside a knob group: it undoes every
-                # group at once (and the curve), so it belongs to the tab
+                # group at once (and the curve), so it stays on the pinned strip
                 dpg.add_button(label="Reset controls", callback=self.reset_all,
                                width=self.s(200), height=self.s(28))
                 dpg.add_spacer(width=self.s(20))
@@ -2893,7 +3204,7 @@ class Druta:
                                                 (238, 138, 34))
                             dpg.add_theme_color(dpg.mvThemeCol_Text, (24, 16, 6))
                     dpg.bind_item_theme("go_ocmax", ocmax_th)
-                    self._ctl_widgets.append("go_ocmax")
+                    track("go_ocmax")
                     with dpg.tooltip(dpg.last_item()):
                         dpg.add_text(
                             "The four things done by hand at the start of every\n"
@@ -2939,7 +3250,7 @@ class Druta:
                             dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (205, 174, 20))
                             dpg.add_theme_color(dpg.mvThemeCol_Text, (24, 16, 6))
                     dpg.bind_item_theme("go_p0fan", p0_th)
-                    self._ctl_widgets.append("go_p0fan")
+                    track("go_p0fan")
                     with dpg.tooltip("go_p0fan"):
                         dpg.add_text(
                             "Holds P0, verifies the hold, then sets fan duty to 100%.\n"
@@ -2955,7 +3266,7 @@ class Druta:
                     dpg.add_button(label="Release P0", tag="go_p0release",
                                    callback=self.release_p0,
                                    width=self.s(110), height=self.s(28))
-                    self._ctl_widgets.append("go_p0release")
+                    track("go_p0release")
             with dpg.group(horizontal=True):
                 dpg.add_text("Checking whether this GPU can safely use rail limits…",
                              tag="vlim_status", color=DIM,
@@ -2967,243 +3278,255 @@ class Druta:
             dpg.add_text("writes ENABLED - untick for read-only. "
                          "I2C changes can persist through reboot; use Reset or power off",
                          tag="unlock_note", color=DIM)
-            dpg.add_separator()
+            dpg.add_text("Drag a Control, Monitor, or Timings tab off the selector "
+                         "to float that page in this window. Dock back returns it.",
+                         tag="tear_hint", color=DIM, wrap=self.s(980))
 
-            # OUTSIDE the collapsing groups on purpose: this line is the only
-            # in-app confirmation that an applied offset or clock lock actually
-            # took effect, so it has to stay on screen whatever is collapsed.
-            dpg.add_text("", tag="ctl_clocks", color=TEXT)
-            self.bind("ctl_clocks", "mono")
-            # Outside the collapsing groups for the same reason as ctl_clocks,
-            # and one more: Ctrl+H is a window-wide key, so a hold can be taken
-            # and released with the V/F header that owns the feature collapsed.
-            # This is then the only thing on screen saying the clock is pinned.
-            dpg.add_text("", tag="hold_info", color=GOOD)
-            dpg.add_separator()
+    def build_control(self):
+        st = self.gpu.static
+        with dpg.tab(label="  Control  ", tag="tab_control"):
+            # The page scrolls. The tab selector and the unlock strip do not.
+            dpg.add_child_window(tag="page_control", width=-1, height=-1,
+                                 border=False)
+            dpg.push_container_stack("page_control")
+            try:
+                # OUTSIDE the collapsing groups on purpose: this line is the only
+                # in-app confirmation that an applied offset or clock lock actually
+                # took effect, so it has to stay on screen whatever is collapsed.
+                dpg.add_text("", tag="ctl_clocks", color=TEXT)
+                self.bind("ctl_clocks", "mono")
+                # Outside the collapsing groups for the same reason as ctl_clocks,
+                # and one more: Ctrl+H is a window-wide key, so a hold can be taken
+                # and released with the V/F header that owns the feature collapsed.
+                # This is then the only thing on screen saying the clock is pinned.
+                dpg.add_text("", tag="hold_info", color=GOOD)
+                dpg.add_separator()
 
-            # TWO COLUMNS. Everything below stacked vertically and the tab
-            # had to be scrolled to reach knobs that are used together. Rails
-            # sits BESIDE the clock and budget knobs rather than under them,
-            # because tuning a rail is something you do while watching a clock,
-            # not after finishing with it.
-            #
-            # PLAIN GROUPS, not child windows. A child window with
-            # autosize_y does NOT shrink to its contents - in ImGui that means
-            # "fill the remaining parent height" - so both columns claimed the
-            # whole tab and left roughly 800 px of dead space above the V/F
-            # editor. A group sizes to what is inside it, which is the actual
-            # requirement, and it also avoids giving each column its own
-            # scroll region. Widths come from the knob table itself, so a
-            # column can never be narrower than the rows it holds.
-            # A TABLE, not a horizontal group of two groups. DearPyGui's
-            # collapsing_header ignores the width of a group it sits in and
-            # spans the whole window, so the left column's "Clock offsets" and
-            # "Limits" bars were drawn straight across the right column: they
-            # covered the Rails header, which is why it could not be clicked,
-            # and toggling one of them appeared to take the rail knobs with it.
-            # Setting a width on the groups did not help, because the header was
-            # never obeying the group in the first place.
-            #
-            # A table CELL clips what is inside it. That is the property being
-            # bought here - each header now spans its own column and nothing
-            # else - and it is why this is a table rather than a tidier group.
-            with dpg.table(header_row=False, no_host_extendX=True,
-                           policy=dpg.mvTable_SizingFixedFit):
-                for _col in range(2):
-                    dpg.add_table_column(
-                        width_fixed=True,
-                        init_width_or_weight=self.knob_col_width())
-                with dpg.table_row():
-                    # EXPLICIT WIDTH, and it is load-bearing rather than tidy. A
-                    # DearPyGui collapsing_header inside a group with no width
-                    # expands to the whole window, not to its column: the left
-                    # column's "Limits" and "Clock offsets" bars were being drawn
-                    # clean across the right column and landing on top of the
-                    # NVVDD rail rows, so a header on one side highlighted a
-                    # voltage knob on the other. Constraining the group is what
-                    # stops it - the header has no width argument of its own.
-                    with dpg.group(width=self.knob_col_width()):
-                        with dpg.collapsing_header(label="Clock offsets", default_open=True):
-                            with dpg.table(header_row=False, no_host_extendX=True,
-                                           policy=dpg.mvTable_SizingFixedFit,
-                                           tag="clock_offset_table"):
-                                self.knob_cols()
-                                core_lo, core_hi = -200, 300
-                                if st.get("core_off_range"):
-                                    core_lo = st["core_off_range"][0]
-                                    core_hi = st["core_off_range"][1]
-                                # ---- XOC bounds for the two NVML offsets ---------------
-                                # These two are the ONLY knobs on the tab with a hard
-                                # software ceiling underneath them, and it is not Druta's:
-                                # set_clock_offset checks every request against this exact
-                                # envelope - the driver's own range from
-                                # nvmlDeviceGetClockOffsets, or its documented
-                                # (-1000, 1000) / (-2000, 6000) fallback - and REFUSES
-                                # outside it. So the XOC bound is that envelope and not one
-                                # unit further: a slider reaching past it could only ever
-                                # produce a refused Apply, which is the "knob keeps showing
-                                # a value the card never took" failure clamped=True exists
-                                # to prevent (see slider_row).
-                                #
-                                # On a card whose driver answers, the normal bounds ALREADY
-                                # are the envelope and XOC widens nothing here. That is the
-                                # honest result, and it is why the envelope is stated as a
-                                # range rather than as a multiplier of the normal one. The
-                                # widening is real only where the driver stays silent and
-                                # the normal bounds above are the conservative guesses
-                                # -200..300 and -500..1500.
-                                core_xlo, core_xhi = -1000, 1000
-                                if st.get("core_off_range"):
-                                    core_xlo = st["core_off_range"][0]
-                                    core_xhi = st["core_off_range"][1]
-                                # Apply snaps DOWN to this card's
-                                # {self.step_khz()/1000:.4g} MHz grid, then shows what
-                                # was written
-                                self.slider_row("core", "Core clock offset (MHz)",
-                                                core_lo, core_hi, 0, self.apply_core,
-                                                xoc_lo=core_xlo, xoc_hi=core_xhi,
-                                                extra=("Stock", lambda _k="core": self.stock_knob(_k)))
+                # TWO COLUMNS. Everything below stacked vertically and the tab
+                # had to be scrolled to reach knobs that are used together. Rails
+                # sits BESIDE the clock and budget knobs rather than under them,
+                # because tuning a rail is something you do while watching a clock,
+                # not after finishing with it.
+                #
+                # PLAIN GROUPS, not child windows. A child window with
+                # autosize_y does NOT shrink to its contents - in ImGui that means
+                # "fill the remaining parent height" - so both columns claimed the
+                # whole tab and left roughly 800 px of dead space above the V/F
+                # editor. A group sizes to what is inside it, which is the actual
+                # requirement, and it also avoids giving each column its own
+                # scroll region. Widths come from the knob table itself, so a
+                # column can never be narrower than the rows it holds.
+                # A TABLE, not a horizontal group of two groups. DearPyGui's
+                # collapsing_header ignores the width of a group it sits in and
+                # spans the whole window, so the left column's "Clock offsets" and
+                # "Limits" bars were drawn straight across the right column: they
+                # covered the Rails header, which is why it could not be clicked,
+                # and toggling one of them appeared to take the rail knobs with it.
+                # Setting a width on the groups did not help, because the header was
+                # never obeying the group in the first place.
+                #
+                # A table CELL clips what is inside it. That is the property being
+                # bought here - each header now spans its own column and nothing
+                # else - and it is why this is a table rather than a tidier group.
+                with dpg.table(header_row=False, no_host_extendX=True,
+                               policy=dpg.mvTable_SizingFixedFit):
+                    for _col in range(2):
+                        dpg.add_table_column(
+                            width_fixed=True,
+                            init_width_or_weight=self.knob_col_width())
+                    with dpg.table_row():
+                        # EXPLICIT WIDTH, and it is load-bearing rather than tidy. A
+                        # DearPyGui collapsing_header inside a group with no width
+                        # expands to the whole window, not to its column: the left
+                        # column's "Limits" and "Clock offsets" bars were being drawn
+                        # clean across the right column and landing on top of the
+                        # NVVDD rail rows, so a header on one side highlighted a
+                        # voltage knob on the other. Constraining the group is what
+                        # stops it - the header has no width argument of its own.
+                        with dpg.group(width=self.knob_col_width()):
+                            with dpg.collapsing_header(label="Clock offsets", default_open=True):
+                                with dpg.table(header_row=False, no_host_extendX=True,
+                                               policy=dpg.mvTable_SizingFixedFit,
+                                               tag="clock_offset_table"):
+                                    self.knob_cols()
+                                    core_lo, core_hi = -200, 300
+                                    if st.get("core_off_range"):
+                                        core_lo = st["core_off_range"][0]
+                                        core_hi = st["core_off_range"][1]
+                                    # ---- XOC bounds for the two NVML offsets ---------------
+                                    # These two are the ONLY knobs on the tab with a hard
+                                    # software ceiling underneath them, and it is not Druta's:
+                                    # set_clock_offset checks every request against this exact
+                                    # envelope - the driver's own range from
+                                    # nvmlDeviceGetClockOffsets, or its documented
+                                    # (-1000, 1000) / (-2000, 6000) fallback - and REFUSES
+                                    # outside it. So the XOC bound is that envelope and not one
+                                    # unit further: a slider reaching past it could only ever
+                                    # produce a refused Apply, which is the "knob keeps showing
+                                    # a value the card never took" failure clamped=True exists
+                                    # to prevent (see slider_row).
+                                    #
+                                    # On a card whose driver answers, the normal bounds ALREADY
+                                    # are the envelope and XOC widens nothing here. That is the
+                                    # honest result, and it is why the envelope is stated as a
+                                    # range rather than as a multiplier of the normal one. The
+                                    # widening is real only where the driver stays silent and
+                                    # the normal bounds above are the conservative guesses
+                                    # -200..300 and -500..1500.
+                                    core_xlo, core_xhi = -1000, 1000
+                                    if st.get("core_off_range"):
+                                        core_xlo = st["core_off_range"][0]
+                                        core_xhi = st["core_off_range"][1]
+                                    # Apply snaps DOWN to this card's
+                                    # {self.step_khz()/1000:.4g} MHz grid, then shows what
+                                    # was written
+                                    self.slider_row("core", "Core clock offset (MHz)",
+                                                    core_lo, core_hi, 0, self.apply_core,
+                                                    xoc_lo=core_xlo, xoc_hi=core_xhi,
+                                                    extra=("Stock", lambda _k="core": self.stock_knob(_k)))
 
-                                mscale, munit = self.gpu.mem_offset_scale()
-                                mlo, mhi = -500, 1500
-                                if st.get("mem_off_range"):
-                                    mlo = st["mem_off_range"][0] / mscale
-                                    mhi = st["mem_off_range"][1] / mscale
-                                # Same envelope, through the same scale conversion the
-                                # normal bounds use - the backend compares NVML units, so
-                                # the bound has to be divided down into the units this
-                                # slider is labelled in or it would mean 8x what it says on
-                                # a GDDR6 card.
-                                mem_xlo, mem_xhi = -2000, 6000
-                                if st.get("mem_off_range"):
-                                    mem_xlo = st["mem_off_range"][0]
-                                    mem_xhi = st["mem_off_range"][1]
-                                self.slider_row("mem", f"Memory offset ({munit})",
-                                                mlo, mhi, 0, self.apply_mem,
-                                                xoc_lo=mem_xlo / mscale,
-                                                xoc_hi=mem_xhi / mscale,
-                                                extra=("Stock",
-                                                       lambda: self.stock_knob("mem")))
+                                    mscale, munit = self.gpu.mem_offset_scale()
+                                    mlo, mhi = -500, 1500
+                                    if st.get("mem_off_range"):
+                                        mlo = st["mem_off_range"][0] / mscale
+                                        mhi = st["mem_off_range"][1] / mscale
+                                    # Same envelope, through the same scale conversion the
+                                    # normal bounds use - the backend compares NVML units, so
+                                    # the bound has to be divided down into the units this
+                                    # slider is labelled in or it would mean 8x what it says on
+                                    # a GDDR6 card.
+                                    mem_xlo, mem_xhi = -2000, 6000
+                                    if st.get("mem_off_range"):
+                                        mem_xlo = st["mem_off_range"][0]
+                                        mem_xhi = st["mem_off_range"][1]
+                                    self.slider_row("mem", f"Memory offset ({munit})",
+                                                    mlo, mhi, 0, self.apply_mem,
+                                                    xoc_lo=mem_xlo / mscale,
+                                                    xoc_hi=mem_xhi / mscale,
+                                                    extra=("Stock",
+                                                           lambda: self.stock_knob("mem")))
 
-                                # XBAR reaches a domain NVIDIA does not expose publicly at
-                                # all: NV_GPU_PUBLIC_CLOCK_ID has no crossbar member, and
-                                # both NVML and Pstates20 enumerate only GRAPHICS and
-                                # MEMORY on this card. The row appears only where the
-                                # private control block answers, so a card without it shows
-                                # no dead knob.
-                                self.build_domain_offset_rows(st, mscale, core_xlo, core_xhi)
-                        # Voltage boost is grouped with the limits, not the offsets: it moves
-                        # no clock at all, it raises a ceiling the arbiter is allowed to
-                        # reach - the same shape of knob as the power limit.
-                        with dpg.collapsing_header(label="Limits", default_open=True):
-                            with dpg.table(header_row=False, no_host_extendX=True,
-                                           policy=dpg.mvTable_SizingFixedFit):
-                                self.knob_cols()
-                                if all(k in st for k in ("pl_min_mw", "pl_max_mw", "pl_def_mw")):
-                                    self.slider_row("pl", "Power limit (W)",
-                                                    st["pl_min_mw"] / 1000,
-                                                    st["pl_max_mw"] / 1000,
-                                                    st["pl_def_mw"] / 1000, self.apply_pl,
-                                                    extra=("Stock", lambda: self.stock_knob("pl")))
+                                    # XBAR reaches a domain NVIDIA does not expose publicly at
+                                    # all: NV_GPU_PUBLIC_CLOCK_ID has no crossbar member, and
+                                    # both NVML and Pstates20 enumerate only GRAPHICS and
+                                    # MEMORY on this card. The row appears only where the
+                                    # private control block answers, so a card without it shows
+                                    # no dead knob.
+                                    self.build_domain_offset_rows(st, mscale, core_xlo, core_xhi)
+                            # Voltage boost is grouped with the limits, not the offsets: it moves
+                            # no clock at all, it raises a ceiling the arbiter is allowed to
+                            # reach - the same shape of knob as the power limit.
+                            with dpg.collapsing_header(label="Limits", default_open=True):
+                                with dpg.table(header_row=False, no_host_extendX=True,
+                                               policy=dpg.mvTable_SizingFixedFit):
+                                    self.knob_cols()
+                                    if all(k in st for k in ("pl_min_mw", "pl_max_mw", "pl_def_mw")):
+                                        self.slider_row("pl", "Power limit (W)",
+                                                        st["pl_min_mw"] / 1000,
+                                                        st["pl_max_mw"] / 1000,
+                                                        st["pl_def_mw"] / 1000, self.apply_pl,
+                                                        extra=("Stock", lambda: self.stock_knob("pl")))
 
-                                self.build_current_limits_rows()
+                                    self.build_current_limits_rows()
 
-                                vb = self.gpu.read_voltage_boost()
-                                # raises the reliability-voltage ceiling
-                                if vb is not None:
-                                    self.slider_row("volt", "Core voltage boost (%)", 0, 100,
-                                                    max(0, min(100, int(vb))), self.apply_volt,
-                                                    extra=("Stock", lambda: self.stock_knob("volt")))
+                                    vb = self.gpu.read_voltage_boost()
+                                    # raises the reliability-voltage ceiling
+                                    if vb is not None:
+                                        self.slider_row("volt", "Core voltage boost (%)", 0, 100,
+                                                        max(0, min(100, int(vb))), self.apply_volt,
+                                                        extra=("Stock", lambda: self.stock_knob("volt")))
 
-                                # The ceiling the boost slider above is actually
-                                # working against. Worth showing rather than
-                                # leaving implicit: the power-on value is NOT zero
-                                # on every rail, so it cannot be inferred, and
-                                # anything outside Druta that has moved these would
-                                # otherwise be invisible from in here.
-                                fan_floor = st.get("fan_min", 30)
-                                self.slider_row("fan", "Fan duty (%)", fan_floor, 100,
-                                                fan_floor, self.apply_fan,
-                                                extra=("Auto", self.fan_auto))
+                                    # The ceiling the boost slider above is actually
+                                    # working against. Worth showing rather than
+                                    # leaving implicit: the power-on value is NOT zero
+                                    # on every rail, so it cannot be inferred, and
+                                    # anything outside Druta that has moved these would
+                                    # otherwise be invisible from in here.
+                                    fan_floor = st.get("fan_min", 30)
+                                    self.slider_row("fan", "Fan duty (%)", fan_floor, 100,
+                                                    fan_floor, self.apply_fan,
+                                                    extra=("Auto", self.fan_auto))
 
-                    with dpg.group(width=self.knob_col_width()):
-                        # RAILS GET THEIR OWN SECTION. The tab had grown past a screen and
-                        # needed scrolling to reach knobs that matter, and these belong
-                        # together on their own terms anyway: everything here acts on a
-                        # VOLTAGE RAIL rather than on a clock or a budget, and two of them
-                        # reach hardware by routes the driver never sees.
-                        with dpg.collapsing_header(label="Rails", default_open=True):
-                            with dpg.table(header_row=False, no_host_extendX=True,
-                                           policy=dpg.mvTable_SizingFixedFit):
-                                self.knob_cols()
-                                self.build_volt_limits_rows()
+                        with dpg.group(width=self.knob_col_width()):
+                            # RAILS GET THEIR OWN SECTION. The tab had grown past a screen and
+                            # needed scrolling to reach knobs that matter, and these belong
+                            # together on their own terms anyway: everything here acts on a
+                            # VOLTAGE RAIL rather than on a clock or a budget, and two of them
+                            # reach hardware by routes the driver never sees.
+                            with dpg.collapsing_header(label="Rails", default_open=True):
+                                with dpg.table(header_row=False, no_host_extendX=True,
+                                               policy=dpg.mvTable_SizingFixedFit):
+                                    self.knob_cols()
+                                    self.build_volt_limits_rows()
 
-                                # A SECOND mechanism on the same rail as the boost above,
-                                # and the note says so: they are different calls, neither
-                                # reads or clears the other, and their combination has not
-                                # been measured. Measured 1:1 on its own with the core
-                                # clock pinned by FREQUENCY - pinning by voltage instead
-                                # gives a smaller, wrong answer (see set_rail_offset_mv).
-                                rv = self.gpu.read_rail_offset_mv(0)
-                                if rv is not None:
-                                    # Adds to NVVDD on the card's 6.25 mV grid. Measured
-                                    # 1:1 on TU102 with the clock pinned; the response can
-                                    # be far smaller elsewhere - on GP102 at idle, 100 mV
-                                    # requested moved vcore 31.25 mV. Watch the live value
-                                    # rather than trusting the number you set. SEPARATE
-                                    # from the boost above - both act on this rail and
-                                    # their interaction is unmeasured. A V/F HOLD MASKS IT:
-                                    # a held point pins the voltage, so the offset applies
-                                    # and nothing moves.
-                                    self.slider_row(
-                                        "rail", "NVVDD offset (mV)", -100,
-                                        int(self.gpu.RAIL_OFFSET_MAX_MV),
-                                        rv, self.apply_rail,
-                                        # The backend enforces the same positive
-                                        # request maxima: +200 normal, +500 XOC.
-                                        # These offsets need not translate 1:1
-                                        # into the live voltage on every card.
-                                        xoc_lo=-500,
-                                        xoc_hi=int(self.gpu.RAIL_OFFSET_XOC_MAX_MV),
-                                        extra=("Stock",
-                                               lambda: self.stock_knob("rail")))
+                                    # A SECOND mechanism on the same rail as the boost above,
+                                    # and the note says so: they are different calls, neither
+                                    # reads or clears the other, and their combination has not
+                                    # been measured. Measured 1:1 on its own with the core
+                                    # clock pinned by FREQUENCY - pinning by voltage instead
+                                    # gives a smaller, wrong answer (see set_rail_offset_mv).
+                                    rv = self.gpu.read_rail_offset_mv(0)
+                                    if rv is not None:
+                                        # Adds to NVVDD on the card's 6.25 mV grid. Measured
+                                        # 1:1 on TU102 with the clock pinned; the response can
+                                        # be far smaller elsewhere - on GP102 at idle, 100 mV
+                                        # requested moved vcore 31.25 mV. Watch the live value
+                                        # rather than trusting the number you set. SEPARATE
+                                        # from the boost above - both act on this rail and
+                                        # their interaction is unmeasured. A V/F HOLD MASKS IT:
+                                        # a held point pins the voltage, so the offset applies
+                                        # and nothing moves.
+                                        self.slider_row(
+                                            "rail", "NVVDD offset (mV)", -100,
+                                            int(self.gpu.RAIL_OFFSET_MAX_MV),
+                                            rv, self.apply_rail,
+                                            # The backend enforces the same positive
+                                            # request maxima: +200 normal, +500 XOC.
+                                            # These offsets need not translate 1:1
+                                            # into the live voltage on every card.
+                                            xoc_lo=-500,
+                                            xoc_hi=int(self.gpu.RAIL_OFFSET_XOC_MAX_MV),
+                                            extra=("Stock",
+                                                   lambda: self.stock_knob("rail")))
 
-                                capability = self.gpu.rail_offset_capability(rail=1)
-                                self._msvdd_domain = capability.get("domain") if capability["available"] else None
-                                if self._msvdd_domain is not None:
-                                    self.slider_row(
-                                        "msvdd", "MSVDD requested offset (mV)", -500, 500,
-                                        capability["value_mv"], self.apply_msvdd,
-                                        color=WARN, xoc_lo=-500, xoc_hi=500,
-                                        extra=("Zero", self.zero_msvdd))
-                                    with dpg.tooltip("sl_msvdd"):
-                                        dpg.add_text(
-                                            "Experimental; enable XOC to write. This is a stored "
-                                            "request, not a measured voltage. An inert result on one "
-                                            "5080/580.97 does not establish behavior on your board.",
-                                            wrap=self.s(400))
-            # Every limit in the driver's power-policy table, not only the ones
-            # above. Closed by default: most are derived from the board limit.
-            if callable(getattr(self.gpu, "read_power_policies", None)):
-                with dpg.collapsing_header(label="Power policies", tag="power_policy_header",
-                                           default_open=False):
-                    self.build_power_policy_section()
-            if railctl is not None:
-                with dpg.collapsing_header(label="I2C regulator", tag="i2c_regulator_header",
-                                           default_open=bool(getattr(self, "_rail_candidates", []))):
-                    with dpg.group(tag="i2c_candidates"):
-                        self.build_i2c_candidates()
+                                    capability = self.gpu.rail_offset_capability(rail=1)
+                                    self._msvdd_domain = capability.get("domain") if capability["available"] else None
+                                    if self._msvdd_domain is not None:
+                                        self.slider_row(
+                                            "msvdd", "MSVDD requested offset (mV)", -500, 500,
+                                            capability["value_mv"], self.apply_msvdd,
+                                            color=WARN, xoc_lo=-500, xoc_hi=500,
+                                            extra=("Zero", self.zero_msvdd))
+                                        with dpg.tooltip("sl_msvdd"):
+                                            dpg.add_text(
+                                                "Experimental; enable XOC to write. This is a stored "
+                                                "request, not a measured voltage. An inert result on one "
+                                                "5080/580.97 does not establish behavior on your board.",
+                                                wrap=self.s(400))
+                # Every limit in the driver's power-policy table, not only the ones
+                # above. Closed by default: most are derived from the board limit.
+                if callable(getattr(self.gpu, "read_power_policies", None)):
+                    with dpg.collapsing_header(label="Power policies", tag="power_policy_header",
+                                               default_open=False):
+                        self.build_power_policy_section()
+                if railctl is not None:
+                    with dpg.collapsing_header(label="I2C regulator", tag="i2c_regulator_header",
+                                               default_open=bool(getattr(self, "_rail_candidates", []))):
+                        with dpg.group(tag="i2c_candidates"):
+                            self.build_i2c_candidates()
 
-            if self.vf_applicable():
-                with dpg.collapsing_header(label="V/F curve editor",
-                                           default_open=True):
-                    self.build_vf()
+                if self.vf_applicable():
+                    with dpg.collapsing_header(label="V/F curve editor",
+                                               default_open=True):
+                        self.build_vf()
 
-            dpg.add_separator()
-            dpg.add_text("log  (newest line first)", color=DIM)
-            dpg.add_input_text(tag="log", multiline=True, readonly=True,
-                               width=-1, height=self.s(150))
-            self.bind("log", "mono")
+                dpg.add_separator()
+                dpg.add_text("log  (newest line first)", color=DIM)
+                dpg.add_input_text(tag="log", multiline=True, readonly=True,
+                                   width=-1, height=self.s(150))
+                self.bind("log", "mono")
+            finally:
+                dpg.pop_container_stack()
 
     def build_domain_offset_rows(self, st, mscale, core_xlo, core_xhi,
                                  only_missing=False):
@@ -3246,6 +3569,10 @@ class Druta:
             # Including the additional-memory knob. It is shown only when this
             # generation's measured control set includes its control index.
             if kn.ctrl not in controls:
+                continue
+            # Pascal stores XBAR/SYS/VIDEO requests and the measured clock
+            # does not follow. Additional memory is the one that does.
+            if not self.gpu.clkdom_offset_slider_offered(kn.ctrl):
                 continue
             request = cur.get(kn.ctrl)
             if not isinstance(request, dict) or "freq_khz" not in request:
@@ -3453,11 +3780,16 @@ class Druta:
     def knob_dragged(self, key):
         if self._knob_sync or not dpg.does_item_exist(f"in_{key}"):
             return
+        self.note_gated_knob(key)
         self._knob_sync = True
         try:
             value = dpg.get_value(f"sl_{key}")
             value = self.knob_input_value(key, value)
-            if self.float_knob(key):
+            if key in ("icxnv", "icxfb"):
+                value = self._snap_icx_mv(value)
+                dpg.set_value(f"sl_{key}", value)
+                self._icx_armed.add(key)
+            elif self.float_knob(key):
                 dpg.set_value(f"sl_{key}", value)
             dpg.set_value(f"in_{key}", value)
         except (TypeError, ValueError, OverflowError) as exc:
@@ -3471,6 +3803,7 @@ class Druta:
         able to catch a half-typed 5000 in between."""
         if self._knob_sync or not dpg.does_item_exist(f"sl_{key}"):
             return
+        self.note_gated_knob(key)
         b = self.knob_bounds(key)
         if b is None:
             return
@@ -3481,11 +3814,15 @@ class Druta:
             self.log(f"{key} input: {exc}", False)
             return
         v = max(b[0], min(b[1], value))
+        if key in ("icxnv", "icxfb"):
+            v = max(b[0], min(b[1], self._snap_icx_mv(v)))
         self._knob_sync = True
         try:
             dpg.set_value(f"sl_{key}", v)
-            if self.float_knob(key):
+            if self.float_knob(key) or key in ("icxnv", "icxfb"):
                 dpg.set_value(f"in_{key}", v)
+            if key in ("icxnv", "icxfb"):
+                self._icx_armed.add(key)
         finally:
             self._knob_sync = False
 
@@ -3590,6 +3927,8 @@ class Druta:
                              if tag == "go_p0fan"
                              else frequency_lock if tag in (
                                  "lock_min", "lock_max", "go_lock", "go_lockmax")
+                             else bool(getattr(self, "_icx_pending_preset", None))
+                             if tag == "icx_apply_preset"
                              else True)
                 dpg.configure_item(tag, enabled=on and available)
         if dpg.does_item_exist("unlock_note"):
@@ -3632,10 +3971,11 @@ class Druta:
             dpg.set_value("sl_core", mhz)
         if dpg.does_item_exist("in_core"):
             dpg.set_value("in_core", mhz)
-        # An undo point, unlike the other sliders: this offset lands in the
-        # SAME delta table as the curve (see nvbackend.set_clock_offset),
-        # so one drag and one Apply overwrites a hand-tuned curve that is
-        # nowhere on screen. It is a curve write wearing a slider.
+        # An undo point, unlike the other sliders. The core offset lives in
+        # the same delta table as the curve. The driver flattens that table,
+        # and set_clock_offset puts the previous shape back, shifted by the
+        # change in this offset. A changed core offset still rewrites every
+        # point, so the undo point stays.
         self.autosave_before("core-offset")
         self.report(self.gpu.set_clock_offset(0, mhz))
 
@@ -3807,6 +4147,8 @@ class Druta:
         # so never turn its output registers into an invented rail voltage.
         if getattr(self.rail, "current_dac", False):
             return None
+        if getattr(self.rail, "icx_mcu", False):
+            return None
         # The verifier owns the bus while it runs. Interleaving a refresh read
         # into its staircase would cost the measurement, and the measurement is
         # the only thing standing between this knob and an unproven write path.
@@ -3937,8 +4279,11 @@ class Druta:
                 with dpg.table_row():
                     dpg.add_text(nct3933_board.output_label(channel, mode),
                                  tag=f"nct_label_{channel}")
+                    def _typed(ch):
+                        return lambda: self.note_nct_typed(ch)
+
                     dpg.add_input_int(tag=f"nct_current_{channel}", default_value=0,
-                                      width=self.s(115), step=0)
+                                      width=self.s(115), step=0, callback=_typed(channel))
                     dpg.add_text("mV" if mapped else "µA", tag=f"nct_unit_{channel}", color=DIM)
                     dpg.add_text("register settings unread", tag=f"nct_range_{channel}", color=DIM)
 
@@ -4069,6 +4414,8 @@ class Druta:
             return
         ok, why = self.i2c_gate()
         if not ok:
+            if self.gate_is_off("i2c_mode"):
+                self.flash_gate("i2c_mode", (f"nct_current_{channel}",))
             self.log("current DAC: " + why, False)
             return
         rail = self._current_dac()
@@ -4099,6 +4446,9 @@ class Druta:
             return
         ok, why = self.i2c_gate()
         if not ok:
+            if self.gate_is_off("i2c_mode"):
+                self.flash_gate("i2c_mode", tuple(
+                    f"nct_current_{channel}" for channel in nct3933_board.OUTPUT_ORDER))
             self.log("current DAC: " + why, False)
             return
         rail = self._current_dac()
@@ -4203,15 +4553,16 @@ class Druta:
                                         "Preparing probes…") if busy else "")
         if dpg.does_item_exist("i2c_scan_spinner"):
             dpg.configure_item("i2c_scan_spinner", show=busy)
-        checked = dpg.does_item_exist("i2c_mode") and dpg.get_value("i2c_mode")
         other_work = (getattr(self, "_i2c_busy", False)
                       or getattr(self, "_profile_pending", None)
                       or getattr(self, "_profile_applying", False))
+        # Leave Connect / Scan clickable while I2C rail is unticked. The click
+        # flickers the checkbox and does not touch the bus.
         for tag in ("i2c_rescan", "i2c_full_scan", "i2c_controller"):
             if dpg.does_item_exist(tag):
-                dpg.configure_item(tag, enabled=bool(checked and not busy and not other_work))
+                dpg.configure_item(tag, enabled=bool(not busy and not other_work))
         if dpg.does_item_exist("i2c_candidate"):
-            dpg.configure_item("i2c_candidate", enabled=bool(checked and not busy and not other_work))
+            dpg.configure_item("i2c_candidate", enabled=bool(not busy and not other_work))
 
     def start_i2c_discovery(self, *, controller=None, prefer_saved=True):
         """Start opt-in controller detection against the currently selected GPU."""
@@ -4228,7 +4579,9 @@ class Druta:
             self.log("wait for I2C/profile work to finish before scanning", False)
             return False
         if not (dpg.does_item_exist("i2c_mode") and dpg.get_value("i2c_mode")):
-            self.log("tick I2C rail before scanning this GPU's regulator buses", False)
+            if self.gate_is_off("i2c_mode"):
+                self.flash_gate("i2c_mode", ("in_i2crail", "in_icxnv", "in_icxfb"))
+            self.log("tick 'I2C rail' before scanning this GPU's regulator buses", False)
             return False
         self.clear_i2c_discovery()
         self._i2c_scan_scope = controller
@@ -4327,11 +4680,16 @@ class Druta:
                    "Other controllers were not scanned. "
                    if origin == "saved" and self.rail is not None
                    else f"{scope} complete in {elapsed:.2f}s: {len(candidates)} candidate(s). ")
-        self.update_i2c_scan_ui(
-            summary + ("Read the current DAC settings before applying an adjustment."
-             if self.rail is not None and getattr(self.rail, "current_dac", False)
-             else "Select a controller and Verify before applying an adjustment.")
-            if candidates else summary + "No compatible controller responded.")
+        if not candidates:
+            follow = "No compatible controller responded."
+        elif self.rail is not None and getattr(self.rail, "icx_mcu", False):
+            follow = ("Check iCX identity before applying a voltage. "
+                      "Controller request readback is separate from measured voltage.")
+        elif self.rail is not None and getattr(self.rail, "current_dac", False):
+            follow = "Read the current DAC settings before applying an adjustment."
+        else:
+            follow = "Select a controller and Verify before applying an adjustment."
+        self.update_i2c_scan_ui(summary + follow)
         self.log(summary, bool(candidates))
         if self.rail is not None:
             self.remember_i2c_route()
@@ -4363,6 +4721,581 @@ class Druta:
         index = next((i + 1 for i, r in enumerate(candidates) if r is rail), 0)
         return f"{index}: {rail.p.regulator} - port {rail.p.port}, 0x{rail.addr7:02X}"
 
+    @staticmethod
+    def _snap_icx_mv(value):
+        """Nearest 5 mV. Halves round away from the lower step."""
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or (
+                isinstance(value, float) and not math.isfinite(value)):
+            raise ValueError("iCX voltage must be a finite number of millivolts")
+        return int((int(round(value)) + 2) // 5 * 5)
+
+    def _icx_status(self, text, ok):
+        self.log(text, ok)
+        if dpg.does_item_exist("icx_status"):
+            dpg.set_value("icx_status", text)
+            dpg.configure_item("icx_status", color=WARN if ok else BAD)
+
+    # Label, telemetry field/group, displayed choices, setter, optional rail.
+    ICX_SETTINGS = {
+        "icx_nv_frequency": ("NVVDD switching frequency", "nvvdd_frequency_khz",
+                             "frequency_state_available", tuple((f"{n} kHz", n) for n in range(300, 1001, 100)),
+                             "set_switching_frequency_khz", "NVVDD"),
+        "icx_fb_frequency": ("FBVDD switching frequency", "fbvdd_frequency_khz",
+                             "frequency_state_available", tuple((f"{n} kHz", n) for n in range(300, 1001, 100)),
+                             "set_switching_frequency_khz", "FBVDD"),
+        "icx_nv_ocp": ("NVVDD overcurrent protection", "nvvdd_ocp_enabled", "ocp_state_available",
+                       (("Enable", True), ("Disable", False)), "set_ocp_enabled", "NVVDD"),
+        "icx_fb_ocp": ("FBVDD overcurrent protection", "fbvdd_ocp_enabled", "ocp_state_available",
+                       (("Enable", True), ("Disable", False)), "set_ocp_enabled", "FBVDD"),
+        "icx_loadline": ("NVVDD loadline", "loadline_level", "loadline_state_available",
+                         tuple((f"Level{n}", n) for n in range(16)), "set_loadline", None),
+    }
+
+    def _icx_setting_row(self, key, staged):
+        label, _field, _group, choices, _setter, _rail = self.ICX_SETTINGS[key]
+
+        def stage(sender=None, app_data=None, user_data=None):
+            self.stage_icx_setting(key, app_data)
+
+        def apply():
+            self.apply_icx_setting(key)
+
+        with dpg.table_row():
+            dpg.add_text(label, color=BAD, wrap=self.s(self.KNOB_COLS[0] - 10))
+            dpg.add_combo([text for text, _ in choices], tag="in_" + key,
+                          default_value=staged.get(key, "Select"), width=-1, callback=stage)
+            dpg.add_text("")
+            dpg.add_text("unavailable", tag="live_" + key, color=DIM,
+                         wrap=self.s(self.KNOB_COLS[3] - 10))
+            dpg.add_button(label="Apply", tag="go_" + key, width=-1, callback=apply)
+        self._ctl_widgets += ["in_" + key, "go_" + key]
+
+    def stage_icx_setting(self, key, choice):
+        """A choice stages only this field; it never applies a controller setting."""
+        if getattr(self, "_knob_sync", False):
+            return
+        spec = self.ICX_SETTINGS.get(key)
+        if spec is None or not isinstance(choice, str) or choice not in dict(spec[3]):
+            self._icx_status("Select a supported iCX setting before Apply.", False)
+            return
+        self._icx_armed.add(key)
+        if self.gate_is_off("i2c_mode"):
+            self.flash_gate("i2c_mode", ("in_" + key,))
+
+    def build_icx_controls(self):
+        """Stage requests separately from controller readback and physical voltage."""
+        rail = self.rail
+        if rail is None or not getattr(rail, "icx_mcu", False):
+            return
+        same_rail = getattr(self, "_icx_ui_rail", None) is rail
+        staged = getattr(self, "_icx_staged", {}) if same_rail else {}
+        if not same_rail:
+            self._icx_armed = set()
+            self._icx_last_requests = {}
+            self._icx_last_settings = {}
+        self._icx_ui_rail = rail
+        dpg.add_text(
+            "iCX readback shows the controller's voltage request, not a voltage "
+            "measurement. Move a slider before Apply. NVVDD Auto releases only "
+            "the NVVDD manual request; FBVDD is independent. When NVVDD is Auto, "
+            "its slider is a staged manual value (initially 950 mV). An unread "
+            "FBVDD slider initially stages 1300 mV.",
+            color=WARN, wrap=self.s(sum(self.KNOB_COLS)))
+        dpg.add_text(
+            "Close Classified before applying. Requests use 5 mV steps: "
+            "NVVDD 750-1150 mV (up to 1600 mV with XOC), FBVDD 1250-1450 mV. "
+            "Apply and Auto first hold the graphics clock at the driver's "
+            "minimum. Release or quitting clears that clock lock; use NVVDD "
+            "Auto explicitly to release its manual voltage request. Verify "
+            "physical voltage with a meter; driver voltage readings may differ.",
+            color=BAD, wrap=self.s(sum(self.KNOB_COLS)))
+        with dpg.table(header_row=False, no_host_extendX=True,
+                       policy=dpg.mvTable_SizingFixedFit):
+            self.knob_cols()
+            self.slider_row("icxnv", "NVVDD voltage request (mV)",
+                            750, 1150, staged.get("icxnv", 950), self.apply_icx_nv, color=BAD,
+                            xoc_lo=750, xoc_hi=1600,
+                            extra=("Auto", self.apply_icx_stock))
+            self.slider_row("icxfb", "FBVDD voltage request (mV)",
+                            1250, 1450, staged.get("icxfb", 1300), self.apply_icx_fb, color=BAD)
+        dpg.add_text("", tag="icx_requests", color=DIM,
+                     wrap=self.s(sum(self.KNOB_COLS)))
+        dpg.add_text("Select a setting, then Apply that row. Frequency, overcurrent "
+                     "protection and loadline changes are independent of the voltage requests.",
+                     color=WARN, wrap=self.s(sum(self.KNOB_COLS)))
+        with dpg.table(header_row=False, no_host_extendX=True,
+                       policy=dpg.mvTable_SizingFixedFit):
+            self.knob_cols()
+            for key in self.ICX_SETTINGS:
+                self._icx_setting_row(key, staged)
+        dpg.add_text("", tag="icx_setting_requests", color=DIM,
+                     wrap=self.s(sum(self.KNOB_COLS)))
+        with dpg.group(horizontal=True):
+            dpg.add_button(label="Save current iCX preset", tag="icx_save_preset",
+                           callback=lambda: self.open_icx_preset(save=True))
+            dpg.add_button(label="Load iCX preset", tag="icx_load_preset",
+                           callback=lambda: self.open_icx_preset(save=False))
+            dpg.add_button(label="Restore captured iCX settings", tag="icx_restore_captured",
+                           callback=lambda: self.stage_captured_icx_preset())
+        dpg.add_text("Restore stages the first complete settings captured in this connection; "
+                     "these are not factory defaults. Loading or restoring only prepares a preview.",
+                     tag="icx_capture_note", color=DIM, wrap=self.s(sum(self.KNOB_COLS)))
+        dpg.add_text("No iCX preset staged.", tag="icx_preset_preview", color=WARN,
+                     wrap=self.s(sum(self.KNOB_COLS)))
+        dpg.add_button(label="Apply iCX preset", tag="icx_apply_preset", enabled=False,
+                       callback=lambda: self.apply_icx_preset())
+        self._ctl_widgets.append("icx_apply_preset")
+        dpg.add_button(label="Check iCX identity", tag="icx_check",
+                       callback=lambda: self.check_icx_identity(),
+                       width=self.s(180))
+        dpg.add_text("", tag="icx_status", color=BAD,
+                     wrap=self.s(sum(self.KNOB_COLS)))
+        self.refresh_icx_requests()
+
+    def refresh_icx_requests(self):
+        """Keep staged edits and last confirmed requests through unreadable refreshes."""
+        rail = self.rail
+        if rail is None or not getattr(rail, "icx_mcu", False):
+            return
+        if getattr(self, "_icx_ui_rail", None) is not rail:
+            self._icx_ui_rail = rail
+            self._icx_last_requests = {}
+            self._icx_last_settings = {}
+        previous = getattr(self, "_icx_last_requests", {})
+        try:
+            tel = rail.telemetry()
+        except Exception:
+            tel = {}
+        if not isinstance(tel, dict):
+            tel = {}
+        available = tel.get("state_available") is True
+        mode = tel.get("nvvdd_mode")
+        nv = tel.get("nvvdd_request_mv")
+        fb = tel.get("fbvdd_request_mv")
+        def finite(value):
+            return type(value) in (int, float) and math.isfinite(value)
+
+        valid = {
+            "icxnv": available and (mode == "auto" or (mode == "manual" and finite(nv))),
+            "icxfb": available and finite(fb),
+        }
+        readings = {"icxnv": None if mode == "auto" else nv, "icxfb": fb}
+        self._knob_sync = True
+        try:
+            for key, value in readings.items():
+                if not valid[key]:
+                    continue
+                previous[key] = value
+                if value is not None and key not in getattr(self, "_icx_armed", set()):
+                    for prefix in ("sl_", "in_"):
+                        if dpg.does_item_exist(prefix + key):
+                            dpg.set_value(prefix + key, int(value))
+        finally:
+            self._knob_sync = False
+        self._icx_last_requests = previous
+        labels = []
+        for key, name in (("icxnv", "NVVDD"), ("icxfb", "FBVDD")):
+            if key in previous:
+                value = previous[key]
+                text = "Auto" if value is None else f"{value:g} mV"
+                label = f"{name} {text}"
+                if not valid[key]:
+                    label += " (last confirmed; readback unavailable)"
+                live = ("Auto req" if value is None else f"{value:g} req")
+                if not valid[key]:
+                    live += " *"
+            else:
+                label, live = f"{name} request unavailable", "unavailable"
+            labels.append(label)
+            if dpg.does_item_exist("live_" + key):
+                dpg.set_value("live_" + key, live)
+        if dpg.does_item_exist("icx_requests"):
+            dpg.set_value("icx_requests", "Controller requests: " + "; ".join(labels) +
+                          ". These are not physical voltage measurements.")
+            dpg.configure_item("icx_requests", color=DIM if all(valid.values()) else WARN)
+        self._refresh_icx_settings(tel)
+        self._capture_icx_connection_preset(tel)
+
+    def _icx_preset_connection(self):
+        if self.rail is None or not getattr(self.rail, "icx_mcu", False):
+            return None
+        return (id(self.gpu), id(self.rail), getattr(self, "_gpu_gen", 0))
+
+    def _icx_preset_context(self):
+        connection = self._icx_preset_connection()
+        if connection != getattr(self, "_icx_preset_for", None):
+            self._icx_preset_for = connection
+            self._icx_captured_preset = None
+            self._icx_captured_time = None
+            self._icx_pending_preset = None
+            self._icx_preset_revision = getattr(self, "_icx_preset_revision", 0) + 1
+        return connection
+
+    def _capture_icx_connection_preset(self, telemetry):
+        """Keep the first complete read for this connection, never assumed defaults."""
+        from . import icx_presets
+        if self._icx_preset_context() is None:
+            return
+        if getattr(self, "_icx_captured_preset", None) is None:
+            try:
+                self._icx_captured_preset = icx_presets.make_preset(
+                    telemetry, origin="First complete controller settings read in this Druta connection")
+                self._icx_captured_time = time.strftime("%H:%M:%S")
+            except ValueError:
+                pass  # A later complete read may establish the connection baseline.
+        self._sync_icx_preset_ui()
+
+    def _sync_icx_preset_ui(self):
+        from . import icx_presets
+        captured = getattr(self, "_icx_captured_preset", None)
+        pending = getattr(self, "_icx_pending_preset", None)
+        if dpg.does_item_exist("icx_restore_captured"):
+            dpg.configure_item("icx_restore_captured", enabled=captured is not None)
+        if dpg.does_item_exist("icx_capture_note"):
+            text = (f"First complete connection settings captured at {self._icx_captured_time}"
+                    ". Restore stages those captured settings, not factory defaults."
+                    if captured is not None else
+                    "A complete read is needed to capture this connection's initial settings. "
+                    "No factory defaults are assumed.")
+            dpg.set_value("icx_capture_note", text)
+        if dpg.does_item_exist("icx_preset_preview"):
+            text = (f"Preset preview ({pending['label']}): " +
+                    icx_presets.describe_settings(pending["document"]) +
+                    " Apply iCX preset applies the settings in this preview. Row edits are separate."
+                    if pending else "No iCX preset staged. Load or Restore prepares a preview without applying it.")
+            dpg.set_value("icx_preset_preview", text)
+        if dpg.does_item_exist("icx_apply_preset"):
+            enabled = (bool(pending) and self.unlocked()
+                       and not getattr(self, "_i2c_busy", False)
+                       and not getattr(self, "_profile_pending", None))
+            dpg.configure_item("icx_apply_preset", enabled=enabled)
+
+    def stage_icx_preset(self, document, label="Loaded preset"):
+        """Validate and preview a separate preset; never write or replace row edits."""
+        from . import icx_presets
+        if self._icx_preset_context() is None:
+            self._icx_status("Select an iCX controller before staging a preset.", False)
+            return False
+        try:
+            settings = icx_presets.validate_preset(document, xoc=True)
+            canonical = {"schema": document["schema"], "origin": document["origin"],
+                         "settings": dict(settings)}
+        except (ValueError, KeyError, TypeError) as exc:
+            self._icx_status(f"iCX preset: {exc}", False)
+            return False
+        self._icx_pending_preset = {"connection": self._icx_preset_for,
+                                    "document": canonical, "label": str(label)}
+        self._icx_preset_revision = getattr(self, "_icx_preset_revision", 0) + 1
+        self._sync_icx_preset_ui()
+        self._icx_status("iCX preset staged. Review every setting, then use Apply iCX preset.", True)
+        return True
+
+    def stage_captured_icx_preset(self):
+        self._icx_preset_context()
+        captured = getattr(self, "_icx_captured_preset", None)
+        if captured is None:
+            self._icx_status("No complete settings were captured for this iCX connection.", False)
+            return False
+        return self.stage_icx_preset(captured, "Captured connection settings")
+
+    def open_icx_preset(self, *, save):
+        """Freeze readback for Save; file selection and Load issue no GPU writes."""
+        from . import icx_presets
+        if getattr(self, "_icx_preset_dialog", False):
+            return
+        if (getattr(self, "_i2c_busy", False) or getattr(self, "_i2c_scan_busy", False)
+                or getattr(self, "_profile_pending", None) or getattr(self, "_profile_applying", False)
+                or getattr(self, "_closing", False)):
+            self._icx_status("Wait for I2C and profile work before choosing a preset file.", False)
+            return
+        connection = self._icx_preset_context()
+        rail = self.rail
+        if connection is None or rail is None:
+            self._icx_status("Select an iCX controller before saving or loading a preset.", False)
+            return
+        try:
+            document = icx_presets.make_preset(rail.telemetry()) if save else None
+            folder = paths.profile_dir() / "icx"
+            folder.mkdir(parents=True, exist_ok=True)
+        except (ValueError, OSError) as exc:
+            self._icx_status(f"iCX preset: {exc}", False)
+            return
+        revision = getattr(self, "_icx_preset_revision", 0)
+        self._icx_preset_dialog = True
+        self._icx_status("Choose an iCX preset file...", True)
+
+        def worker():
+            try:
+                path, error = self.pick_file_native(
+                    "Save current iCX preset" if save else "Load iCX preset", str(folder),
+                    "icx-preset.json" if save else "", (("iCX presets (*.json)", "*.json"),), save=save)
+                loaded = icx_presets.read_preset(path) if path and not error and not save else document
+                self._icx_preset_result = (connection, revision, save, path, error, loaded)
+            except Exception as exc:
+                self._icx_preset_result = (connection, revision, save, "", str(exc), None)
+
+        threading.Thread(target=worker, daemon=True, name="Druta-iCX-preset").start()
+
+    def poll_icx_preset(self):
+        result = getattr(self, "_icx_preset_result", None)
+        if result is None:
+            return
+        from . import icx_presets
+        self._icx_preset_result = None
+        self._icx_preset_dialog = False
+        connection, revision, save, path, error, document = result
+        if connection != self._icx_preset_connection() or getattr(self, "_closing", False):
+            self.log("iCX preset dialog belonged to a previous connection; no preset saved or loaded.", False)
+            return
+        if error:
+            self._icx_status(f"iCX preset: {error}", False)
+        elif not path:
+            self._icx_status("iCX preset file selection cancelled.", True)
+        elif save:
+            try:
+                icx_presets.write_preset(path, document)
+                self._icx_status(f"Saved current iCX request readback: {path}", True)
+            except (ValueError, OSError) as exc:
+                self._icx_status(f"iCX preset could not be saved: {exc}", False)
+        elif revision != getattr(self, "_icx_preset_revision", 0):
+            self._icx_status("The preset preview changed while the picker was open; load again to replace it.", False)
+        else:
+            self.stage_icx_preset(document, str(path))
+
+    def apply_icx_preset(self):
+        """Explicitly apply the complete preview using fresh operation checks."""
+        from . import icx_presets
+        if not self.guard():
+            return
+        connection = self._icx_preset_context()
+        pending = getattr(self, "_icx_pending_preset", None)
+        if connection is None or pending is None or pending["connection"] != connection:
+            self._icx_status("Load or Restore an iCX preset for this connection before Apply.", False)
+            self._sync_icx_preset_ui()
+            return
+        xoc = bool(getattr(self, "_xoc_bounds", False))
+        try:
+            icx_presets.validate_preset(pending["document"], xoc=xoc)
+        except ValueError as exc:
+            self._icx_status(f"iCX preset: {exc}", False)
+            return
+        ok, why = self.i2c_gate()
+        if not ok:
+            self._icx_status("iCX preset: " + why, False)
+            return
+        if not self.i2c_verified():
+            self._icx_status("Check iCX identity before applying a preset.", False)
+            return
+        clamped, message = self.clamp_usage_for_voltage(request="preset")
+        if not clamped:
+            self._icx_status(message, False)
+            return
+        result = icx_presets.apply_preset(self.rail, pending["document"], acknowledged=True, xoc=xoc)
+        self._icx_status(self._icx_after_clamp(message, result), result[0])
+        self.refresh_icx_requests()
+
+    def _refresh_icx_settings(self, tel):
+        """Refresh independent groups without replacing intentional staged choices."""
+        previous = getattr(self, "_icx_last_settings", {})
+        unavailable = []
+        self._knob_sync = True
+        try:
+            for key, (label, field, group, choices, _setter, _rail) in self.ICX_SETTINGS.items():
+                value = tel.get(field)
+                choice = next((text for text, encoded in choices
+                               if type(value) is type(encoded) and value == encoded), None)
+                available = tel.get(group) is True and choice is not None
+                if available:
+                    previous[key] = choice
+                    if key not in getattr(self, "_icx_armed", set()) and dpg.does_item_exist("in_" + key):
+                        dpg.set_value("in_" + key, choice)
+                else:
+                    unavailable.append(label)
+                live = previous.get(key, "unavailable")
+                if not available and key in previous:
+                    live += " *"
+                if dpg.does_item_exist("live_" + key):
+                    dpg.set_value("live_" + key, live)
+        finally:
+            self._knob_sync = False
+        self._icx_last_settings = previous
+        if dpg.does_item_exist("icx_setting_requests"):
+            text = ("Controller setting readback confirmed. Staged choices are applied only by their own Apply button."
+                    if not unavailable else
+                    "Readback unavailable: " + ", ".join(unavailable) +
+                    ". Values marked * are the last confirmed settings.")
+            dpg.set_value("icx_setting_requests", text)
+            dpg.configure_item("icx_setting_requests", color=WARN if unavailable else DIM)
+
+    def apply_icx_setting(self, key):
+        """Apply exactly one supported choice through the normal iCX write gates."""
+        spec = self.ICX_SETTINGS.get(key)
+        if spec is None:
+            self._icx_status("Unknown iCX setting; nothing was written.", False)
+            return
+        if not self.guard():
+            return
+        rail = self.rail
+        if rail is None or not getattr(rail, "icx_mcu", False):
+            self._icx_status("The selected controller is not an iCX MCU.", False)
+            return
+        ok, why = self.i2c_gate()
+        if not ok:
+            if self.gate_is_off("i2c_mode"):
+                self.flash_gate("i2c_mode", ("in_" + key,))
+            self._icx_status("iCX: " + why, False)
+            return
+        if not self.i2c_verified():
+            self._icx_status("Check iCX identity before applying a setting.", False)
+            return
+        if key not in getattr(self, "_icx_armed", set()):
+            self._icx_status("Select the intended iCX setting before Apply.", False)
+            return
+        label, _field, _group, choices, setter, target = spec
+        choice = dpg.get_value("in_" + key)
+        options = dict(choices)
+        if not isinstance(choice, str) or choice not in options:
+            self._icx_status(f"{label}: select a supported value; nothing was written.", False)
+            return
+        value = options[choice]
+        clamped, clamp_msg = self.clamp_usage_for_voltage(request="setting")
+        if not clamped:
+            self._icx_status(clamp_msg, False)
+            return
+        arguments = (target, value) if target is not None else (value,)
+        result = getattr(rail, setter)(*arguments, acknowledged=True)
+        self._icx_status(self._icx_after_clamp(clamp_msg, result), result[0])
+        self.refresh_icx_requests()
+
+    def check_icx_identity(self):
+        """Check controller identity and refresh requests without changing a rail."""
+        if (getattr(self, "_i2c_busy", False)
+                or getattr(self, "_profile_applying", False)):
+            self._icx_status("iCX: wait for I2C work to finish", False)
+            return
+        if self.rail is None or not getattr(self.rail, "icx_mcu", False):
+            self._icx_status("iCX: the selected controller is not an iCX MCU", False)
+            return
+        ok, why = self.i2c_gate()
+        if not ok:
+            if self.gate_is_off("i2c_mode"):
+                self.flash_gate("i2c_mode", ("in_icxnv", "in_icxfb"))
+            self._icx_status("iCX: " + why, False)
+            self.refresh_icx_requests()
+            return
+        self._i2c_verified = True
+        self._i2c_verified_for = self.i2c_connection()
+        self._icx_status(
+            "iCX controller identity checked. Apply sends the staged request; "
+            "request readback does not measure physical voltage.", True)
+        self.refresh_icx_requests()
+
+    def apply_icx_nv(self, value):
+        self._apply_icx("icxnv", value, "set_nvvdd_mv", "NVVDD")
+
+    def apply_icx_stock(self):
+        """Release the NVVDD manual request; leave FBVDD independent."""
+        if not self.guard():
+            return
+        if self.rail is None or not getattr(self.rail, "icx_mcu", False):
+            self._icx_status("iCX NVVDD: the selected controller is not an iCX MCU", False)
+            return
+        ok, why = self.i2c_gate()
+        if not ok:
+            self._icx_status("iCX NVVDD: " + why, False)
+            return
+        if not self.i2c_verified():
+            self._icx_status("iCX NVVDD: check iCX identity before Auto", False)
+            return
+        clamped, clamp_msg = self.clamp_usage_for_voltage()
+        if not clamped:
+            self._icx_status(clamp_msg, False)
+            return
+        result = self.rail.set_nvvdd_auto(acknowledged=True)
+        self._icx_status(self._icx_after_clamp(clamp_msg, result), result[0])
+        self.refresh_icx_requests()
+
+    def apply_icx_fb(self, value):
+        self._apply_icx("icxfb", value, "set_fbvdd_mv", "FBVDD")
+
+    def _apply_icx(self, key, value, setter_name, rail_name):
+        if not self.guard():
+            return
+        if self.rail is None or not getattr(self.rail, "icx_mcu", False):
+            self._icx_status(f"iCX {rail_name}: the selected controller is not an iCX MCU", False)
+            return
+        ok, why = self.i2c_gate()
+        if not ok:
+            if self.gate_is_off("i2c_mode"):
+                self.flash_gate("i2c_mode", (f"in_{key}",))
+            self._icx_status(f"iCX {rail_name}: {why}", False)
+            return
+        if not self.i2c_verified():
+            self._icx_status(f"iCX {rail_name}: check iCX identity before Apply", False)
+            return
+        if key not in self._icx_armed:
+            self._icx_status(
+                f"iCX {rail_name}: move the slider first; the number is not "
+                "the card's current voltage", False)
+            return
+        try:
+            snapped = self._snap_icx_mv(value)
+            # Validate before taking the clock lock: refusal must not drop an
+            # existing lock or silently substitute an in-range request.
+            from .controllers.icx import fbvdd_payload, nvvdd_payload
+            xoc = bool(getattr(self, "_xoc_bounds", False))
+            if setter_name == "set_nvvdd_mv":
+                nvvdd_payload(value, xoc=xoc)
+            else:
+                fbvdd_payload(value)
+        except (TypeError, ValueError, OverflowError) as exc:
+            self._icx_status(f"iCX {rail_name}: {exc}", False)
+            return
+        self._knob_sync = True
+        try:
+            for prefix in ("sl_", "in_"):
+                if dpg.does_item_exist(prefix + key):
+                    dpg.set_value(prefix + key, snapped)
+        finally:
+            self._knob_sync = False
+        kwargs = {"acknowledged": True}
+        if setter_name == "set_nvvdd_mv":
+            kwargs["xoc"] = xoc
+        clamped, clamp_msg = self.clamp_usage_for_voltage()
+        if not clamped:
+            self._icx_status(clamp_msg, False)
+            return
+        result = getattr(self.rail, setter_name)(snapped, **kwargs)
+        self._icx_status(self._icx_after_clamp(clamp_msg, result), result[0])
+        self.refresh_icx_requests()
+
+    def clamp_usage_for_voltage(self, *, request="voltage"):
+        """Hold graphics at the driver's lowest lockable clock.
+
+        A negative offset still lets the boost curve run. This pins both
+        ends of the NVML lock to that floor, which at idle leaves memory in
+        its low state. The iCX write is refused when the lock cannot be
+        taken. Release and quitting Druta clear the lock. They do not clear
+        an iCX setpoint.
+        """
+        floor = (getattr(self.gpu, "static", None) or {}).get("gfx_min")
+        if not floor:
+            return False, (f"iCX {request} was not sent: the driver reported "
+                           "no minimum lockable clock")
+        if not self.handover(self.LOCK_NVML):
+            return False, (f"iCX {request} was not sent: the current lock "
+                           "could not be released")
+        ok, message = self.gpu.lock_gpu_clocks(floor, floor)
+        if not ok:
+            return False, f"iCX {request} was not sent: " + message
+        self.record_clock_lock()
+        return True, message
+
+    @staticmethod
+    def _icx_after_clamp(clamp_msg, result):
+        if result[0]:
+            return clamp_msg + ". " + result[1]
+        return result[1]
 
     def build_i2c_candidates(self):
         """Only rebuild the regulator controls, preserving other staged edits."""
@@ -4412,11 +5345,24 @@ class Druta:
             return
         if self.rail is None:
             current_only = candidates and all(getattr(r, "current_dac", False) for r in candidates)
-            dpg.add_text(("Select a current DAC, then Read settings."
-                          if current_only else "Select a controller, then Verify its voltage response.") if candidates
-                         else "No compatible controller responded to the scan.", color=WARN)
+            icx_only = candidates and all(getattr(r, "icx_mcu", False) for r in candidates)
+            if not candidates:
+                prompt = "No compatible controller responded to the scan."
+            elif icx_only:
+                prompt = ("Select the iCX controller, then check its identity. "
+                          "Readback confirms requests, not physical voltage.")
+            elif current_only:
+                prompt = "Select a current DAC, then Read settings."
+            else:
+                prompt = "Select a controller, then Verify its voltage response."
+            dpg.add_text(prompt, color=WARN)
             return
         dpg.add_text(self.rail.p.name, color=DIM)
+        if getattr(self.rail, "icx_mcu", False):
+            # An identified controller keeps its controls through a transient
+            # read failure. Refresh marks unavailable fields; Apply rechecks.
+            self.build_icx_controls()
+            return
         if not self.rail_present():
             self.invalidate_i2c_verification()
             dpg.add_text("Controller no longer responds; rescan I2C.", color=WARN)
@@ -4432,10 +5378,25 @@ class Druta:
     def refresh_i2c_candidates(self):
         if not dpg.does_item_exist("i2c_candidates"):
             return
+        same_icx = (self.rail is not None and getattr(self.rail, "icx_mcu", False)
+                    and getattr(self, "_icx_ui_rail", None) is self.rail)
+        self._icx_staged = ({key: dpg.get_value("sl_" + key)
+                             for key in ("icxnv", "icxfb")
+                             if dpg.does_item_exist("sl_" + key)} if same_icx else {})
+        if same_icx:
+            self._icx_staged.update({key: dpg.get_value("in_" + key)
+                                     for key in self.ICX_SETTINGS
+                                     if dpg.does_item_exist("in_" + key)})
         self._ctl_widgets = [t for t in self._ctl_widgets
-                             if "i2crail" not in str(t) and not str(t).startswith("nct_")]
+                             if "i2crail" not in str(t) and not str(t).startswith("nct_")
+                             and "icx" not in str(t)]
         self._slider_ranges.pop("i2crail", None)
         self._knob_cb.pop("i2crail", None)
+        for key in ("icxnv", "icxfb"):
+            self._slider_ranges.pop(key, None)
+            self._knob_cb.pop(key, None)
+        if not same_icx:
+            getattr(self, "_icx_armed", set()).clear()
         getattr(self, "_carryover_hi", {}).pop("i2crail", None)
         dpg.delete_item("i2c_candidates", children_only=True)
         with dpg.group(parent="i2c_candidates"):
@@ -4464,6 +5425,8 @@ class Druta:
         self.refresh_i2c_candidates()
         self.log(("I2C current DAC selected; use Read settings before applying an adjustment"
                   if getattr(chosen, "current_dac", False)
+                  else "iCX identity must be checked before a voltage request"
+                  if getattr(chosen, "icx_mcu", False)
                   else "I2C controller selected; press Verify before applying an adjustment"), True)
         return True
 
@@ -4474,7 +5437,9 @@ class Druta:
             self.log("wait for I2C/profile work to finish before rescanning", False)
             return False
         if not (dpg.does_item_exist("i2c_mode") and dpg.get_value("i2c_mode")):
-            self.log("tick I2C rail before scanning this GPU's regulator buses", False)
+            if self.gate_is_off("i2c_mode"):
+                self.flash_gate("i2c_mode", ("in_i2crail", "in_icxnv", "in_icxfb"))
+            self.log("tick 'I2C rail' before scanning this GPU's regulator buses", False)
             return False
         choice = getattr(self, "_i2c_controller_choice", "Unknown -- Full Scan")
         return self.start_i2c_discovery(
@@ -4509,6 +5474,8 @@ class Druta:
             return False, "I2C detection has not completed; no reset write issued"
         if self.rail is None:
             return False, "no I2C controller has been detected; no reset write issued"
+        if getattr(self.rail, "icx_mcu", False):
+            return False, "Use NVVDD Auto explicitly; FBVDD has a separate request. Nothing was written."
         if getattr(self.rail, "current_dac", False):
             ok, why = self.i2c_gate()
             if not ok:
@@ -4682,6 +5649,9 @@ class Druta:
         if getattr(self, "_tim_busy", False):
             self.log("wait for the timing capture or GPU load before verifying the rail", False)
             return
+        if self.rail is not None and getattr(self.rail, "icx_mcu", False):
+            self.check_icx_identity()
+            return
         if not self.guard():
             return
         ok, why = self.i2c_gate()
@@ -4822,11 +5792,16 @@ class Druta:
         # instead of being asked for.
         if not self.guard():
             return
+        if getattr(self.rail, "icx_mcu", False):
+            self.log("iCX voltage uses the NVVDD and FBVDD rows", False)
+            return
         if getattr(self.rail, "current_dac", False):
             self.log("current DAC uses OUT1/OUT2/OUT3 native current controls, not a voltage offset", False)
             return
         ok, why = self.i2c_gate()
         if not ok:
+            if self.gate_is_off("i2c_mode"):
+                self.flash_gate("i2c_mode", ("in_i2crail",))
             self.log("rail: " + why, False)
             return
         if not self.i2c_verified():
@@ -9152,7 +10127,9 @@ deliberately does not put behind a button."""
                 if knob.ctrl in (domains or {}):
                     values[knob.key] = domains[knob.ctrl]["freq_khz"] / 1000
             if self.rail:
-                if getattr(self.rail, "current_dac", False):
+                if getattr(self.rail, "icx_mcu", False):
+                    self.refresh_icx_requests()
+                elif getattr(self.rail, "current_dac", False):
                     self.refresh_current_dac_settings(
                         preserve_status=bool(getattr(self, "_i2c_restore_failed", False)))
                 else:
@@ -10027,7 +11004,11 @@ deliberately does not put behind a button."""
         # P0 one. Both were written when P0 was hard to reach. Ctrl+H holds it
         # directly now, so the argument is gone and the buttons have moved down
         # beside the edit controls - one block of actions instead of two.
-        with dpg.tab(label="  Timings  (needs nvtune)  ", tag="tab_tim"):
+        dpg.add_tab(label="  Timings  (needs nvtune)  ", tag="tab_tim")
+        dpg.add_child_window(tag="page_timings", parent="tab_tim",
+                             width=-1, height=-1, border=False)
+        dpg.push_container_stack("page_timings")
+        try:
             dpg.add_text("", tag="tim_busy", color=ACCENT)
             # THE headline. A capture taken at idle is the same class of error
             # as a capture taken across a reclock - an authoritative-looking
@@ -10282,6 +11263,8 @@ deliberately does not put behind a button."""
                                   no_host_extendX=True,
                                   policy=dpg.mvTable_SizingFixedFit,
                                   borders_innerH=True, borders_innerV=True)
+        finally:
+            dpg.pop_container_stack()
 
     def tim_columns(self):
         # parent named explicitly: these columns are re-created on every
@@ -12357,7 +13340,11 @@ deliberately does not put behind a button."""
             self._current_limits = {}
             self._knob_cb = {}
             self._xoc_bounds = False
-            for tag in ("hdr_row", "tab_content", "tabs", "menubar", "win_device", "win_save",
+            self._gate_flashes = {}
+            self._tab_press = None
+            for tag in ("hdr_row", "gate_bar", "tab_content", "tabs",
+                        "win_page_control", "win_page_monitor", "win_page_timings",
+                        "menubar", "win_device", "win_save",
                         "win_profiles", "win_keys", "win_about",
                         "win_licence", "win_testsign", "win_ts_done",
                         "win_shunt"):
@@ -12397,21 +13384,18 @@ deliberately does not put behind a button."""
         leaving it in place keeps these two rebuilt in the right order after
         root's other children."""
         self.build_shared_header()
-        # The root window must never become the page scroller: scrolling it
-        # hides the selected-GPU header and recovery action. Each tab keeps its
-        # own existing panels, while this child owns any whole-page overflow.
-        # Negative height uses ImGui's remaining content region on every frame,
-        # including after a resize or header wrap. Windows expose `pos`, not
-        # `rect_min`: manually querying the latter left this child at 480px.
-        with dpg.child_window(tag="tab_content", parent="root", width=-1,
-                              height=-1, border=False):
-            with dpg.tab_bar(tag="tabs"):
-                # Control first: it is what the app is opened to do. Monitor
-                # second. Timings last and labelled, because it is the only tab
-                # that needs a separate tool installed to do anything at all.
-                self.build_control()      # the V/F editor lives inside this tab
-                self.build_monitor()
-                self.build_timings()
+        # The unlock strip and the Control / Monitor / Timings selector are
+        # siblings of the header, outside every page. Each tab body is its own
+        # height=-1 child, so scrolling a page cannot move either of them.
+        # Root itself must not scroll: that would hide the header.
+        self.build_gate_bar()
+        with dpg.tab_bar(tag="tabs", parent="root"):
+            # Control first: it is what the app is opened to do. Monitor
+            # second. Timings last and labelled, because it is the only tab
+            # that needs a separate tool installed to do anything at all.
+            self.build_control()      # the V/F editor lives inside this tab
+            self.build_monitor()
+            self.build_timings()
 
     def build_shared_header(self):
         """Keep card identity on the left and immediate recovery at upper right."""
@@ -12602,6 +13586,7 @@ deliberately does not put behind a button."""
                 self.poll_i2c_discovery()
                 self.poll_profile_load()
                 self.poll_timing_profile()
+                self.poll_icx_preset()
                 now = time.perf_counter()
                 if now - last >= 0.25:
                     last = now
@@ -12647,6 +13632,12 @@ deliberately does not put behind a button."""
                 # the same tick.
                 try:
                     self.drag_watchdog()
+                    self.poll_tab_tear()
+                    self.tick_gate_flashes()
+                    # Docking reports the page position a frame late. The
+                    # next frame is what pins the selector by keeping root
+                    # from growing a scrollbar.
+                    self.layout_torn_pages()
                     self.update_vf_corner()
                     self.clear_once("corner")
                 except Exception as e:

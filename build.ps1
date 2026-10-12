@@ -65,6 +65,8 @@ function Get-SourceSnapshot {
         'RELEASE-NOTES-1.7.0.md',
         'RELEASE-NOTES-1.8.0a.md',
         'RELEASE-NOTES-1.8.0b.md',
+        'RELEASE-NOTES-1.8.0c.md',
+        'RELEASE-NOTES-1.8.0.md',
         'MAXWELL-PASCAL-VALIDATION.md', 'BLACKWELL-VALIDATION.md', 'ADA-VALIDATION.md',
         'CURRENT-LIMITS-RTX5080.md', 'COMPATIBILITY-GATING-AUDIT.md',
         'CURRENT-LIMITS-KEPLER-MAXWELL.md',
