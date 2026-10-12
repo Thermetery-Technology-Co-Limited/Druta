@@ -41,8 +41,18 @@ Initial development boards (measurements describe these configurations, not univ
 
 | | die | arch | memory | board |
 |---|---|---|---|---|
+| **RTX 5080** | GB203 | Blackwell | GDDR7 | ASUS Strix, shunt modded |
+| **RTX 4080 Super** | AD103 | Ada | GDDR6X | Manli Polar White |
+| **RTX 3090Ti** | GA102 | Ampere | GDDR6X | EVGA Kingpin |
+| **RTX 3070Ti** | GA104 | Ampere | GDDR6X | ASUS Strix OC |
 | **Titan RTX** | TU102 | Turing | GDDR6 | die transplanted onto an ASUS RTX 2080 Ti Strix PCB |
 | **Titan Xp** | GP102 | Pascal | GDDR5X | stock, unmodified |
+| **GTX 1060 9Gbps** | GP106 | Pascal | GDDR5 | Gigabyte AORUS Xtreme|
+| **Titan X** | GM200 | Maxwell | GDDR5 | die transplanted onto a GALAX GOC LN2 |
+| **GTX 745** | GM107 | Maxwell | GDDR5 | Dell OEM (no 8-pin) |
+| **GTX 770** | GK104 (A2) | Kepler | GDDR5 | PNY Reference |
+| **GTX 690** | GK104 (A1) | Kepler | GDDR5 | EVGA Reference |
+
 
 **Per-rail voltage update, 2026-09-06:** both TITANs passed repeated tests
 above their default 1093.75 mV NVVDD cap. With the ceiling raised to 1125 mV
