@@ -1178,7 +1178,7 @@ def discover(nvapi, dev_id=None, subsys=None, log=None, *, architecture=None,
             if cancelled():
                 return hits
             try:
-                icx = EVGAICx(nvapi, port=port, addr7=addr7)
+                icx = EVGAICx(nvapi, architecture=architecture, port=port, addr7=addr7)
                 if icx.present():
                     icx.discovery_telemetry = icx.telemetry()
                     hits.append(icx)

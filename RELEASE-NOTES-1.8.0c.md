@@ -1,6 +1,7 @@
 # Druta 1.8.0c
 
-**Pre-release.** Supersedes [1.8.0b](RELEASE-NOTES-1.8.0b.md). 1.8.0b remains
+**Not published. Superseded by [1.8.0](RELEASE-NOTES-1.8.0.md).** The text
+below is the note prepared for 1.8.0c. 1.8.0b remains
 the less brittle uP9512R Verify build. 1.8.0c adds the commits below. Ada
 controls are unchanged.
 

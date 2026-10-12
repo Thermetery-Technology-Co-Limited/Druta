@@ -427,7 +427,8 @@ def capture_rails(gpu, state, rail):
                 state["i2c"] = dict(rail_identity(rail), control=control,
                                     display_name=rail.p.name)
             elif getattr(rail, "icx_mcu", False):
-                # No readback, so the snapshot must not claim or replay a voltage.
+                # Requested-state readback does not define a complete profile replay
+                # contract. Keep iCX voltages out of saved and startup profiles.
                 pass
             else:
                 offset = rail.telemetry().get("offset_mv")

@@ -25,7 +25,9 @@ class CallbackThreadTests(unittest.TestCase):
         events = []
         for name in ("load_fonts", "build_ui", "relayout", "poll_loop",
                      "sync_lock_ui", "log", "vf_read", "timings_capture",
-                     "clear_once", "set_stale", "drag_watchdog", "update_vf_corner"):
+                     "clear_once", "set_stale", "drag_watchdog",
+                     "poll_tab_tear", "tick_gate_flashes", "layout_torn_pages",
+                     "update_vf_corner"):
             setattr(app, name, Mock())
         app.poll_profile_load = Mock(side_effect=lambda: events.append("refresh"))
         app.release_on_exit = Mock(side_effect=lambda: events.append("release"))
