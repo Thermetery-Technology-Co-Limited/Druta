@@ -47,6 +47,7 @@ Initial development boards (measurements describe these configurations, not univ
 | **RTX 3070Ti** | GA104 | Ampere | GDDR6X | ASUS Strix OC |
 | **Titan RTX** | TU102 | Turing | GDDR6 | die transplanted onto an ASUS RTX 2080 Ti Strix PCB |
 | **Titan Xp** | GP102 | Pascal | GDDR5X | stock, unmodified |
+| **Titan Xp** | GP102 | Pascal | GDDR5X | die transplanted onto an ASUS 1080Ti Poseidon |
 | **GTX 1060 9Gbps** | GP106 | Pascal | GDDR5 | Gigabyte AORUS Xtreme|
 | **Titan X** | GM200 | Maxwell | GDDR5 | die transplanted onto a GALAX GOC LN2 |
 | **GTX 745** | GM107 | Maxwell | GDDR5 | Dell OEM (no 8-pin) |
