@@ -154,15 +154,18 @@ class ProfilePreflightTests(unittest.TestCase):
         state["device"]["uuid"] = "different"
         self.assertIn("uuid", self.assert_rejected_without_writes(state))
 
-    def test_mp_offset_checks_actual_recipe_before_bus_access_or_other_writes(self):
+    def test_legacy_mp_offsets_are_rejected_before_bus_access_or_other_writes(self):
         discovery = mp_discovery.DiscoveryTests()
         discovery.setUp()
         discovery.bus.add()
         [rail] = discovery.scan()
         state = profiles.capture(self.gpu, rail)
+        self.assertIsNone(state['i2c'])  # Manual PMBus voltage is session-only.
+        state['i2c'] = dict(profiles.rail_identity(rail), offset_mv=43.75)
         state["xoc"] = False
-        # 800 mV would wrap the signed offset field; 150 exceeds normal mode.
-        for value in (9000, 800, 150, -700, float("inf"), True, "18.75", None):
+        # Even a formerly valid offset must never become an absolute command.
+        # Malformed and out-of-range old values still stop before any bus I/O.
+        for value in (43.75, 9000, 800, 150, -700, float("inf"), True, "18.75", None):
             with self.subTest(value=value):
                 state["i2c"]["offset_mv"] = value
                 discovery.bus.reads.clear()

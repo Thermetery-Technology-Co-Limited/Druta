@@ -614,10 +614,12 @@ class Rail:
             restored, undo = self._restore_word(cur_raw)
             status = "restored original word" if restored else "RESTORE FAILED; rail state unknown"
             return False, f"{failure}. {status}: {undo}"
+        vout_label = getattr(self, 'vout_readback_label', 'rail')
+        vout_note = getattr(self, 'vout_readback_note', '')
         return True, (f"{p.rail} offset {applied:+.2f} mV (raw {steps:+d}), "
-                      f"rail now {'?' if now is None else f'{now:.0f}'} mV. "
+                      f"{vout_label} now {'?' if now is None else f'{now:.0f}'} mV. "
                       f"This does NOT clear on reboot - only 'Reset all to "
-                      f"stock' or a power cycle.{tag}")
+                      f"stock' or a power cycle.{tag}{vout_note}")
 
     def _restore_word(self, original):
         """Restore a captured word, preserving its field and factory bits.

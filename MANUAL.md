@@ -264,6 +264,23 @@ controllers, and cannot pass if restoration fails. NCT3933U current-DAC controls
 instead use **Read settings** and register readback; they cannot measure rail
 voltage. See [NCT3933U.md](i2c/NCT3933U.md).
 
+MP2888A uses **manual PMBus voltage**. Its value is the nominal command, in
+6.25 mV steps, with the controller's existing coarse and fine trims retained.
+The controller-reported voltage is displayed separately; it is not a calibrated
+physical reading. Use an independent meter to establish physical core voltage.
+
+Before Apply or Verify, Druta takes its own minimum graphics-clock clamp and
+checks that the clock has settled. It refuses an unreadable lock state or a
+lock held by another application. Verify checks two PMBus commands and their
+reversal at that clock. It does not validate stability at an overclocked point.
+
+**Auto** selects GPU PWMVID control. Release, exit and controller changes restore
+the captured controller state before releasing Druta's clock clamp. A failed
+restoration keeps the clamp and the recovery state. Other controller fields,
+protection, calibration, EEPROM, phase count and switching frequency are retained.
+Manual PMBus voltage is session-only: profiles omit it and cannot replay legacy
+MP2888A offset settings. Return to Auto before loading a clock profile.
+
 While Verify is running, the selected controller and risk modes stay fixed.
 Closing Druta cancels verification and waits for the original control state's
 restoration attempt to finish before the process exits. Cancellation cannot

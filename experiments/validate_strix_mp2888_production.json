@@ -1,0 +1,824 @@
+{
+  "scope": "Local production-backend/UI-lifecycle validation; requests <=1125mV.\n\nThe GUI rendering/persistence hooks are replaced with journal hooks, while\ncontroller methods, Apply normalization, clamp ownership, observed settling,\nAuto and Release are the production implementations. No screenshot/UI claim.\nOnly the root agent runs this on the selected, previously identified adapter.\n",
+  "source_sha256": {
+    "src/druta/controllers/mp2888.py": "84824c342eb92a2347e8d3627034427d660ebabfe2340d762965a3db8d0ce77f",
+    "src/druta/druta.py": "58d975f2dacf171e56668350d0a00df7d569b9ae3312b01bfbb4e324b30f0fd2",
+    "src/druta/nvbackend.py": "172e713866534d5c3e71957844a2d52032a4e260a4b9f69c24d06e1a8c69e91f",
+    "src/druta/profiles.py": "89a1eb445ba8b583557cbb9f960d594a418599888f9581bc593640f0c03bafb8"
+  },
+  "entry": {
+    "kind": "mp2888-pmbus-v1",
+    "page": 0,
+    "address": 160,
+    "command": 126,
+    "mode_word": 49898,
+    "operation": 128,
+    "pwm_config": 4120,
+    "offset_word": 0,
+    "sense_config": 8736,
+    "fine_trim": 0,
+    "vout_min": 48,
+    "vout_max": 208,
+    "enabled": false
+  },
+  "fans_entry": {
+    "source": "nvml",
+    "fans": [
+      {
+        "id": 0,
+        "level": 30,
+        "policy": 0,
+        "default_policy": 0,
+        "manual": false,
+        "min": 30,
+        "max": 100
+      },
+      {
+        "id": 1,
+        "level": 30,
+        "policy": 0,
+        "default_policy": 0,
+        "manual": false,
+        "min": 30,
+        "max": 100
+      }
+    ]
+  },
+  "stages": [
+    {
+      "label": "production Apply 1100mV",
+      "median_mv": 1066.0,
+      "control": {
+        "kind": "mp2888-pmbus-v1",
+        "page": 0,
+        "address": 160,
+        "command": 176,
+        "mode_word": 49914,
+        "operation": 128,
+        "pwm_config": 4120,
+        "offset_word": 0,
+        "sense_config": 8736,
+        "fine_trim": 0,
+        "vout_min": 48,
+        "vout_max": 208,
+        "enabled": true
+      },
+      "samples": [
+        {
+          "vout_mv": 1066.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 32
+        },
+        {
+          "vout_mv": 1066.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 32
+        },
+        {
+          "vout_mv": 1066.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 32
+        },
+        {
+          "vout_mv": 1066.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 32
+        },
+        {
+          "vout_mv": 1066.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 32
+        },
+        {
+          "vout_mv": 1066.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 32
+        },
+        {
+          "vout_mv": 1066.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 32
+        },
+        {
+          "vout_mv": 1066.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 32
+        },
+        {
+          "vout_mv": 1066.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 32
+        },
+        {
+          "vout_mv": 1067.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 32
+        },
+        {
+          "vout_mv": 1066.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 32
+        },
+        {
+          "vout_mv": 1066.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 32
+        },
+        {
+          "vout_mv": 1066.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 32
+        },
+        {
+          "vout_mv": 1066.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 32
+        },
+        {
+          "vout_mv": 1066.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 32
+        }
+      ]
+    },
+    {
+      "label": "production Apply 1125mV",
+      "median_mv": 1091.0,
+      "control": {
+        "kind": "mp2888-pmbus-v1",
+        "page": 0,
+        "address": 160,
+        "command": 180,
+        "mode_word": 49914,
+        "operation": 128,
+        "pwm_config": 4120,
+        "offset_word": 0,
+        "sense_config": 8736,
+        "fine_trim": 0,
+        "vout_min": 48,
+        "vout_max": 208,
+        "enabled": true
+      },
+      "samples": [
+        {
+          "vout_mv": 1091.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 32
+        },
+        {
+          "vout_mv": 1091.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 32
+        },
+        {
+          "vout_mv": 1091.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 32
+        },
+        {
+          "vout_mv": 1091.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 32
+        },
+        {
+          "vout_mv": 1091.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 32
+        },
+        {
+          "vout_mv": 1091.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 32
+        },
+        {
+          "vout_mv": 1091.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 32
+        },
+        {
+          "vout_mv": 1091.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 32
+        },
+        {
+          "vout_mv": 1091.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 32
+        },
+        {
+          "vout_mv": 1091.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 32
+        },
+        {
+          "vout_mv": 1091.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 32
+        },
+        {
+          "vout_mv": 1091.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 32
+        },
+        {
+          "vout_mv": 1091.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 32
+        },
+        {
+          "vout_mv": 1091.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 32
+        },
+        {
+          "vout_mv": 1091.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 32
+        }
+      ]
+    },
+    {
+      "label": "production Apply 1100mV",
+      "median_mv": 1066.0,
+      "control": {
+        "kind": "mp2888-pmbus-v1",
+        "page": 0,
+        "address": 160,
+        "command": 176,
+        "mode_word": 49914,
+        "operation": 128,
+        "pwm_config": 4120,
+        "offset_word": 0,
+        "sense_config": 8736,
+        "fine_trim": 0,
+        "vout_min": 48,
+        "vout_max": 208,
+        "enabled": true
+      },
+      "samples": [
+        {
+          "vout_mv": 1066.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 31
+        },
+        {
+          "vout_mv": 1066.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 31
+        },
+        {
+          "vout_mv": 1067.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 31
+        },
+        {
+          "vout_mv": 1067.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 31
+        },
+        {
+          "vout_mv": 1066.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 31
+        },
+        {
+          "vout_mv": 1066.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 32
+        },
+        {
+          "vout_mv": 1066.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 32
+        },
+        {
+          "vout_mv": 1067.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 32
+        },
+        {
+          "vout_mv": 1066.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 32
+        },
+        {
+          "vout_mv": 1066.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 31
+        },
+        {
+          "vout_mv": 1067.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 31
+        },
+        {
+          "vout_mv": 1066.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 31
+        },
+        {
+          "vout_mv": 1067.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 31
+        },
+        {
+          "vout_mv": 1066.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 31
+        },
+        {
+          "vout_mv": 1066.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 31
+        }
+      ]
+    },
+    {
+      "label": "manual1100mV with deliberate1500MHz clock",
+      "median_mv": 1066.0,
+      "control": {
+        "kind": "mp2888-pmbus-v1",
+        "page": 0,
+        "address": 160,
+        "command": 176,
+        "mode_word": 49914,
+        "operation": 128,
+        "pwm_config": 4120,
+        "offset_word": 0,
+        "sense_config": 8736,
+        "fine_trim": 0,
+        "vout_min": 48,
+        "vout_max": 208,
+        "enabled": true
+      },
+      "samples": [
+        {
+          "vout_mv": 1066.0,
+          "core_mhz": 1500,
+          "gpu_vid_mv": 800.0,
+          "temp_c": 31
+        },
+        {
+          "vout_mv": 1066.0,
+          "core_mhz": 1500,
+          "gpu_vid_mv": 800.0,
+          "temp_c": 31
+        },
+        {
+          "vout_mv": 1066.0,
+          "core_mhz": 1500,
+          "gpu_vid_mv": 800.0,
+          "temp_c": 31
+        },
+        {
+          "vout_mv": 1066.0,
+          "core_mhz": 1500,
+          "gpu_vid_mv": 800.0,
+          "temp_c": 31
+        },
+        {
+          "vout_mv": 1066.0,
+          "core_mhz": 1500,
+          "gpu_vid_mv": 800.0,
+          "temp_c": 32
+        },
+        {
+          "vout_mv": 1066.0,
+          "core_mhz": 1500,
+          "gpu_vid_mv": 800.0,
+          "temp_c": 32
+        },
+        {
+          "vout_mv": 1066.0,
+          "core_mhz": 1500,
+          "gpu_vid_mv": 800.0,
+          "temp_c": 32
+        },
+        {
+          "vout_mv": 1066.0,
+          "core_mhz": 1500,
+          "gpu_vid_mv": 800.0,
+          "temp_c": 32
+        },
+        {
+          "vout_mv": 1066.0,
+          "core_mhz": 1500,
+          "gpu_vid_mv": 800.0,
+          "temp_c": 32
+        },
+        {
+          "vout_mv": 1066.0,
+          "core_mhz": 1500,
+          "gpu_vid_mv": 800.0,
+          "temp_c": 31
+        },
+        {
+          "vout_mv": 1066.0,
+          "core_mhz": 1500,
+          "gpu_vid_mv": 800.0,
+          "temp_c": 31
+        },
+        {
+          "vout_mv": 1066.0,
+          "core_mhz": 1500,
+          "gpu_vid_mv": 800.0,
+          "temp_c": 31
+        },
+        {
+          "vout_mv": 1066.0,
+          "core_mhz": 1500,
+          "gpu_vid_mv": 800.0,
+          "temp_c": 31
+        },
+        {
+          "vout_mv": 1066.0,
+          "core_mhz": 1500,
+          "gpu_vid_mv": 800.0,
+          "temp_c": 31
+        },
+        {
+          "vout_mv": 1066.0,
+          "core_mhz": 1500,
+          "gpu_vid_mv": 800.0,
+          "temp_c": 32
+        }
+      ]
+    },
+    {
+      "label": "next Apply reacquired405MHz before voltage change",
+      "median_mv": 1091.0,
+      "control": {
+        "kind": "mp2888-pmbus-v1",
+        "page": 0,
+        "address": 160,
+        "command": 180,
+        "mode_word": 49914,
+        "operation": 128,
+        "pwm_config": 4120,
+        "offset_word": 0,
+        "sense_config": 8736,
+        "fine_trim": 0,
+        "vout_min": 48,
+        "vout_max": 208,
+        "enabled": true
+      },
+      "samples": [
+        {
+          "vout_mv": 1091.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 31
+        },
+        {
+          "vout_mv": 1091.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 31
+        },
+        {
+          "vout_mv": 1091.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 31
+        },
+        {
+          "vout_mv": 1091.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 31
+        },
+        {
+          "vout_mv": 1091.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 31
+        },
+        {
+          "vout_mv": 1091.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 31
+        },
+        {
+          "vout_mv": 1091.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 31
+        },
+        {
+          "vout_mv": 1091.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 31
+        },
+        {
+          "vout_mv": 1091.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 31
+        },
+        {
+          "vout_mv": 1091.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 31
+        },
+        {
+          "vout_mv": 1091.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 31
+        },
+        {
+          "vout_mv": 1091.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 31
+        },
+        {
+          "vout_mv": 1091.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 31
+        },
+        {
+          "vout_mv": 1091.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 31
+        },
+        {
+          "vout_mv": 1091.0,
+          "core_mhz": 405,
+          "gpu_vid_mv": 662.5,
+          "temp_c": 31
+        }
+      ]
+    }
+  ],
+  "events": [
+    {
+      "message": "MP2888A A: nominal PMBus 900 mV; controller-reported VOUT 870.0 mV; noise 2.0 mV",
+      "ok": null
+    },
+    {
+      "message": "MP2888A B: nominal PMBus 925 mV; controller-reported VOUT 891.0 mV; noise 0.0 mV",
+      "ok": null
+    },
+    {
+      "message": "MP2888A A-return: nominal PMBus 900 mV; controller-reported VOUT 870.0 mV; noise 2.0 mV",
+      "ok": null
+    },
+    {
+      "message": "dry run: MP2888A nominal PMBus target 1100 mV; captured coarse/fine trim retained",
+      "ok": true
+    },
+    {
+      "message": "journal snapshot before i2c-rail-offset",
+      "ok": null
+    },
+    {
+      "message": "GPU clock locked to [405..405] MHz",
+      "ok": true
+    },
+    {
+      "message": "MP2888A nominal PMBus target 1100 mV read back exactly",
+      "ok": true
+    },
+    {
+      "message": "dry run: MP2888A nominal PMBus target 1125 mV; captured coarse/fine trim retained",
+      "ok": true
+    },
+    {
+      "message": "journal snapshot before i2c-rail-offset",
+      "ok": null
+    },
+    {
+      "message": "GPU clock locked to [405..405] MHz",
+      "ok": true
+    },
+    {
+      "message": "MP2888A nominal PMBus target 1125 mV read back exactly",
+      "ok": true
+    },
+    {
+      "message": "dry run: MP2888A nominal PMBus target 1100 mV; captured coarse/fine trim retained",
+      "ok": true
+    },
+    {
+      "message": "journal snapshot before i2c-rail-offset",
+      "ok": null
+    },
+    {
+      "message": "GPU clock locked to [405..405] MHz",
+      "ok": true
+    },
+    {
+      "message": "MP2888A nominal PMBus target 1100 mV read back exactly",
+      "ok": true
+    },
+    {
+      "message": "dry run: MP2888A nominal PMBus target 1125 mV; captured coarse/fine trim retained",
+      "ok": true
+    },
+    {
+      "message": "journal snapshot before i2c-rail-offset",
+      "ok": null
+    },
+    {
+      "message": "GPU clock locked to [405..405] MHz",
+      "ok": true
+    },
+    {
+      "message": "MP2888A nominal PMBus target 1125 mV read back exactly",
+      "ok": true
+    },
+    {
+      "message": "dry run: MP2888A nominal PMBus target 1100 mV; captured coarse/fine trim retained",
+      "ok": true
+    },
+    {
+      "message": "journal snapshot before i2c-rail-offset",
+      "ok": null
+    },
+    {
+      "message": "GPU clock locked to [405..405] MHz",
+      "ok": true
+    },
+    {
+      "message": "MP2888A nominal PMBus target 1100 mV read back exactly",
+      "ok": true
+    }
+  ],
+  "verification": {
+    "ok": true,
+    "message": "MP2888A PMBus command response and reversal verified from controller-reported VOUT; captured entry restored exactly. Physical voltage requires an independent measurement.",
+    "rows": [
+      {
+        "stage": "A",
+        "target_mv": 900.0,
+        "samples_mv": [
+          869.0,
+          870.0,
+          870.0,
+          870.0,
+          870.0,
+          870.0,
+          870.0,
+          868.0,
+          870.0,
+          870.0,
+          869.0,
+          870.0,
+          870.0,
+          870.0,
+          868.0
+        ],
+        "median_mv": 870.0,
+        "noise_mv": 2.0,
+        "delta_mv": 21.0,
+        "response_noise_mv": 2.0
+      },
+      {
+        "stage": "B",
+        "target_mv": 925.0,
+        "samples_mv": [
+          891.0,
+          891.0,
+          891.0,
+          891.0,
+          891.0,
+          891.0,
+          891.0,
+          891.0,
+          891.0,
+          891.0,
+          891.0,
+          891.0,
+          891.0,
+          891.0,
+          891.0
+        ],
+        "median_mv": 891.0,
+        "noise_mv": 0.0,
+        "delta_mv": 21.0,
+        "response_noise_mv": 2.0
+      },
+      {
+        "stage": "A-return",
+        "target_mv": 900.0,
+        "samples_mv": [
+          869.0,
+          870.0,
+          870.0,
+          868.0,
+          870.0,
+          870.0,
+          870.0,
+          869.0,
+          870.0,
+          870.0,
+          870.0,
+          870.0,
+          870.0,
+          870.0,
+          870.0
+        ],
+        "median_mv": 870.0,
+        "noise_mv": 2.0,
+        "delta_mv": 21.0,
+        "response_noise_mv": 2.0
+      }
+    ]
+  },
+  "release_exact_entry": true,
+  "auto": {
+    "kind": "mp2888-pmbus-v1",
+    "page": 0,
+    "address": 160,
+    "command": 176,
+    "mode_word": 49898,
+    "operation": 128,
+    "pwm_config": 4120,
+    "offset_word": 0,
+    "sense_config": 8736,
+    "fine_trim": 0,
+    "vout_min": 48,
+    "vout_max": 208,
+    "enabled": false
+  },
+  "final": {
+    "kind": "mp2888-pmbus-v1",
+    "page": 0,
+    "address": 160,
+    "command": 126,
+    "mode_word": 49898,
+    "operation": 128,
+    "pwm_config": 4120,
+    "offset_word": 0,
+    "sense_config": 8736,
+    "fine_trim": 0,
+    "vout_min": 48,
+    "vout_max": 208,
+    "enabled": false
+  },
+  "clock_final": [
+    null,
+    null
+  ],
+  "vf_final": [
+    null,
+    null
+  ],
+  "source_unchanged": true,
+  "clean": true,
+  "fans_restore": [
+    true,
+    "fan control state restored"
+  ]
+}
