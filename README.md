@@ -8,7 +8,7 @@ Hardware validation: [Maxwell/Pascal](MAXWELL-PASCAL-VALIDATION.md),
 [RTX 4080 SUPER / Ada](ADA-VALIDATION.md), including controlled
 writes, readbacks, restoration and the limits of the tested coverage.
 
-A monitor and tuner for Kepler, Maxwell, Pascal, Turing, Ampere, Ada and Blackwell NVIDIA cards,
+A monitor and tuner for NVIDIA cards from Kepler to Blackwell,
 driven through NVAPI/NVML private interfaces. Available controls depend on the
 generation and the current adapter's runtime capabilities. It edits supported V/F curves
 with planners built around how the boost arbiter actually behaves, and reads and
@@ -53,52 +53,6 @@ Initial development boards (measurements describe these configurations, not univ
 | **GTX 745** | GM107 | Maxwell | GDDR5 | Dell OEM (no 8-pin) |
 | **GTX 770** | GK104 (A2) | Kepler | GDDR5 | PNY Reference |
 | **GTX 690** | GK104 (A1) | Kepler | GDDR5 | EVGA Reference |
-
-
-**Per-rail voltage update, 2026-09-06:** both TITANs passed repeated tests
-above their default 1093.75 mV NVVDD cap. With the ceiling raised to 1125 mV
-and the V/F curve requesting it, both reported **1112.5 mV**. Druta now exposes
-NVVDD limit controls by GPU generation plus runtime layout validation; no
-non-I2C slider is gated by device ID or VBIOS. MSVDD remains unavailable on
-both tested TITANs. Ampere uses the same recognized 1104-byte rail packet
-when the live getter echoes it. See [measurements and reproduction](VOLTAGE-RAILS-TITAN.md).
-
-**Current limits:** the Control tab exposes the runtime-validated core-current
-policy on Pascal, Turing, Ampere, Ada and Blackwell. The tested TITAN Xp and TITAN RTX allow
-**218 A** and **390 A** respectively. Blackwell also exposes its other-rail
-policy; normal mode caps those two controls at **500 A / 200 A**, while XOC
-permits the advertised API maximum (**5,001 A** on the tested Astral). Apply,
-Stock, live readback, profiles and Reset all use these limits. See
-[controls and validation](CURRENT-LIMITS-RTX5080.md).
-
-**Ada:** the tested RTX 4080 SUPER passed ordinary controls, additional clock
-requests, NVVDD offsets/limits and a 400-to-399 A current-policy check on
-617.42 and 581.42, with restoration. Crossbar, SYS and Video names have GPU-Z
-corroboration; LTC remains tentative.
-nvtune read timing registers and produced previews, but the RFC write failed
-readback and remained unchanged. See [scope and evidence](ADA-VALIDATION.md).
-Ada also gets the default-on V/F hold headroom, because it now has rail-limit
-control; the clock loss that headroom corrects was measured on a TITAN RTX and
-an RTX 3070 Ti, not on Ada. The full Power policies list and Max all are open
-on Ada through the same packet checks. The owner set the policy sliders by
-hand on this card; there is no recorded log of that, and no recorded Max all
-run.
-
-The [uP9512R adapter](i2c/UP9512R.md) writes this controller through a
-register/value request sent with `I2CReadEx`, then reads every control byte
-back. **Verify and Apply make real VRM writes.** On this board, Verify passed
-at +40 mV on both drivers: controller FB 1130 -> 1150 -> 1130 mV on 617.42 and
-1120 -> 1150 -> 1110 mV on 581.42. FB is the controller's own uncalibrated
-10 mV ADC, and one low-load operating point does not establish a gain. Earlier
-writes through the conventional `I2CWriteEx` failed on both drivers. Apply,
-Reset and profile replay use the same transaction code as Verify but were not
-run from the UI on hardware; they have mocked coverage only.
-
-**RTX 5080 Astral I2C:** the MP29816 profile exposes measured NVVDD voltage at
-port 2 / 7-bit address 0x30 and an experimental 5 mV-step offset function.
-Identity, PAGE and scaling are checked around transactions. The tested driver
-rejects offset writes; Apply requires successful loaded verification each session.
-See [supported profiles](i2c/PROFILES.md) and [bench results](experiments/power-5080-20260908/MP29816-VALIDATION.md).
 
 ---
 
@@ -223,7 +177,7 @@ that is currently tuned.
 
 # Monitor
 
-Should be self explainatory. 
+Should be self-explainatory. 
 
 I included seven tiles: 
 - core clock, 
@@ -312,6 +266,8 @@ Each name is now correlated against figures the driver reports independently:
 Four grades: **CONFIRMED** (correlated against ground truth), **ALMOST CERTAIN** (amber,
 with a `?` — behaviour established, the *word* is an analogy), **unnamed**
 (index only), **unpopulated**.
+
+For example: 
 
 | domain | TU102 | GP102 |
 |---|---|---|
