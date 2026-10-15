@@ -83,7 +83,9 @@ backup keyed by the card's UUID.
 
 - **Can hang the machine and CANNOT be cleared by a reboot**: I2C voltage misapplications. However, this can be cleared by a full and clean power cycle, as in completely discharging the GPU of power. We recommend plugging the PSU and powering on the machine to bleed the capacitors. This clears all I2C writes. 
 
-- **Can PERMANENTLY DAMAGE YOUR HARDWARE**: out of bound I2C writes, especially in the XOC mode. Druta rejects any voltage above 2V even in the XOC mode because any voltage above it is certainly a typo, but 1.8V is only conditionally workable under LN2 depending on the generations, and never with a stock air cooler. *You can break your GPU core/VRAM/both, permanently and irreversibly.*
+- **Can degrade your hardware and accelerate its aging**: excessive rail voltages, especially for later generations. Experience tells us that Ada GPUs are extremely susceptible to degradation, especially AD102 series. 
+
+- **Can PERMANENTLY DAMAGE YOUR HARDWARE**: out of bound I2C writes, especially in the XOC mode. Druta rejects any voltage above 2V even in the XOC mode because any voltage above it is certainly a typo, but 1.8V is only conditionally workable under LN2 depending on the generations, never with a stock air cooler for your daily 3070. *You can break your GPU core/VRAM/VRM, or any combination of the above, permanently and irreversibly.*
 --- 
 # Build
 
@@ -435,7 +437,7 @@ of XBAR/SYSCLK/etc. are "NAFLL (noise-aware frequency locked loops)"s for Pascal
 The name tempted me to say that the "locked loops" are why I couldn't manupulate 
 the clocks, because a natural read was that it would be hard coded.
 
-I was inveigled by that thought and was gonna write it off, but then I 
+I was inveigled by that thought and was going to write it off, but then I 
 dug into the BIOS and found that Turing BIOSes also classified XBAR/SYS/etc. 
 as NAFLLs in the BIOS. 
 
@@ -516,26 +518,11 @@ monitor but is not yet implemented.
 
 ## NCT3933U current-DAC outputs
 
-Checking **I2C rail** reveals manual discovery controls without scanning or
-reconnecting. Choose **Unknown -- Full Scan** or a known controller, then use
-**Connect / Scan**: it first tries a compatible remembered route and otherwise
-scans only the selected scope. **Full scan** bypasses route memory and scope.
-Launch, checking the box, and changing cards never start I2C discovery. Cached
-routes are read/verify hints only; a miss, failure, or corrupt cache falls back
-to the selected scan and never authorizes a write.
+This is somewhat different than your typical I2C control. NCT3933U is used 
+by many ASUS Strix GPUs to do what is effectively a feedback mod via automated
+I2C controll. 
 
-After discovery, Druta can read NCT3933U output commands, write an explicitly
-selected output, zero all outputs, and preserve exact raw control in profiles
-and undo snapshots. **Raw outputs (µA)** is the default: OUT1/OUT2/OUT3,
-signed source/sink current and raw bytes, with no assumption about board wiring
-or live rail voltage.
-
-After meter verification, a user can explicitly select **GPU / memory /
-PEX-PLL (mV)** for a matching local adapter/controller route. It shows an mV
-offset from the register command while retaining the raw current and hex byte;
-it is not an absolute or live-voltage reading. The selection is stored locally
-by adapter UUID, port and address (session-only when UUID is unavailable), not
-as a shipped board allowlist. The current ASUS CG611P / Strix-Poseidon route
+The current ASUS CG611P / Strix-Poseidon route
 uses OUT3 GPU and OUT1 memory at 10 mV per normal negative 10 µA command, and
 OUT2 PEX/PLL at 66 mV; doubled commands are 20/20/132 mV. Positive current
 lowers these measured rails. Other boards remain raw until their owner verifies
@@ -1004,7 +991,7 @@ actual write only from Apply.
 
 # Scope
 
-Research software, developed against the two cards named at the top. Struct
+Research software, developed against the cards named at the top. Struct
 layouts, NVAPI ids and the empirical laws above were verified against those;
 nothing here should be assumed to generalise to a third card without
 re-verifying. 
