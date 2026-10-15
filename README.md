@@ -16,25 +16,29 @@ writes the framebuffer-partition memory timing registers.
 
 > ### ⚠ Read before running
 >
+> Druta is meant to be maximally transparent and revelatory, giving you the owner as much control to your hardware as possible. We aren't here to adjudicate what you do to your GPU; that's your call as the owner, but part of being transparent is to clearly communicate to you the risks involved. Thermetery is not selling you anything here, and there is no in-house version of Druta that is more powerful or unlocked. 
+>
 > Druta writes GPU voltage, clock and memory-controller registers directly into the API.
-> **Memory-timing writes can hang the machine and corrupt the contents of
-> VRAM.** V/F curve edits can crash the display driver. Read
-> [Safety](#safety-first-what-can-go-wrong) before enabling any write path.
+> Read [Safety](#safety-first-what-can-go-wrong) before enabling any write path.
 >
 > Druta ships dangerous low-level I2C writing capabilities COMPLETELY IMPERVIOUS TO ANY DRIVER/BIOS SAFEGUARDS. This can be useful for overclocking, but that also means that there is ABSOLUTELY NOTHING BETWEEN YOU AND A PAPERWEIGHT GPU.
 >
 > Windows, NVIDIA Falcon, VBIOS, drivers, etc. cannot stop a I2C write. We tried to ship guardrails, but you need to understand the risk before enabling I2C voltage control, which is by default *disabled*. 
 >
 > This program comes with **ABSOLUTELY NO WARRANTY** — see sections 15 and 16
-> of [COPYING](COPYING). You assume all risk of running it.
+> of [COPYING](COPYING). You assume all risk of running it. We are not selling you anything. If you "purchased" a copy of Druta, please contact your local authorities and your bank for scams, because Druta is completely and forever free.  
 
-**DRUTA IS AN INDEPENDENT, UNOFFICIAL TOOL. IT IS NOT AFFILIATED WITH,
-SPONSORED BY, OR ENDORSED BY NVIDIA CORPORATION, ASUSTEK COMPUTER INC., OR
+**DRUTA IS AN INDEPENDENT, UNOFFICIAL TOOL. IT IS *NOT* AFFILIATED WITH,
+SPONSORED BY, OR ENDORSED BY NVIDIA CORPORATION, ASUSTEK COMPUTER INC., GIGA-BYTE TECHNOLOGY CO., LTD., 
+MANLI TECHNOLOGY GROUP LTD. DELL TECHNOLOGIES INC., GALAXY MICROSYSTEMS, PNY TECHNOLOGIES INC., OR
 MICRO-STAR INTERNATIONAL CO., LTD.**
 
 **NVIDIA, GEFORCE, RTX, QUADRO AND TITAN ARE TRADEMARKS OF NVIDIA CORPORATION.
 ASUS AND STRIX ARE TRADEMARKS OF ASUSTEK COMPUTER INC. AFTERBURNER IS A
-TRADEMARK OF MICRO-STAR INTERNATIONAL CO., LTD. THESE NAMES APPEAR HERE SOLELY
+TRADEMARK OF MICRO-STAR INTERNATIONAL CO., LTD. AORUS IS A TRADEMARK OF GIGA-BYTE TECHNOLOGY CO., LID. 
+MANLI IS A TRADEMARK OF MANLI TECHNOLOGY GROUP Ltd. GALAX IS A TRADEMARK OF GALAXY MICROSYSTEMS, AND PNY IS A 
+TRADEMARK OF PNY TECHNOLOGIES INC.
+THESE NAMES APPEAR HERE SOLELY
 TO IDENTIFY HARDWARE AND SOFTWARE THAT DRUTA WORKS WITH OR IS COMPARABLE TO.**
 
 Initial development boards (measurements describe these configurations, not universal defaults):
