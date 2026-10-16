@@ -1,7 +1,8 @@
 # Druta
 
-**Version 1.8.0** — [release notes](RELEASE-NOTES-1.8.0.md).
-Supersedes 1.8.0b.
+**Version 1.8.1** — [release notes](RELEASE-NOTES-1.8.1.md).
+Supersedes 1.8.0. Adds explicit MP2888A manual PMBus control for the tested
+ASUS Strix RTX 3070 Ti while preserving the original ASUS Turing offset method.
 
 Hardware validation: [Maxwell/Pascal](MAXWELL-PASCAL-VALIDATION.md),
 [RTX 5080 / Blackwell](BLACKWELL-VALIDATION.md) and
@@ -95,7 +96,7 @@ python -m pip install -r requirements.txt
 ```
 
 The local build produces `dist\Druta\Druta.exe` and
-`dist\Druta-1.8.0-win64.zip`. Distribute the
+`dist\Druta-1.8.1-win64.zip`. Distribute the
 whole `Druta` folder or ZIP: the EXE needs its adjacent `_internal` folder.
 
 `dist\Druta\source\` contains the matching working-tree source, including
@@ -749,6 +750,14 @@ verified the regulator yet, then executes its dry run and checked write. A
 saved uP9512R state that already matches the controller writes nothing and
 needs no Verify. A uP9512R whose SMBus lock is closed is read-only to Druta,
 so profiles and undo points do not capture it.
+
+MP2888A offers **ASUS Turing** (the original VID offset recipe) and **ASUS
+Ampere** (manual nominal PMBus voltage). These are selectable control methods,
+not board-identity restrictions. Manual PMBus Verify and Apply use an owned,
+observed minimum graphics-clock clamp. Manual requests are session-only and
+are omitted from profiles; return to Auto before loading a profile. Existing
+offset profiles retain their original recipe and verification path. See the
+[manual](MANUAL.md#i2c-controller-selection) and [1.8.1 notes](RELEASE-NOTES-1.8.1.md).
 
 Private-control profiles must match the GPU, VBIOS and driver. If these change,
 save a fresh profile after validating the settings on that configuration.
