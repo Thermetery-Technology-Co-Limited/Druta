@@ -264,13 +264,25 @@ controllers, and cannot pass if restoration fails. NCT3933U current-DAC controls
 instead use **Read settings** and register readback; they cannot measure rail
 voltage. See [NCT3933U.md](i2c/NCT3933U.md).
 
-MP2888A uses **manual PMBus voltage**. Its value is the nominal command, in
-6.25 mV steps, with the controller's existing coarse and fine trims retained.
-The controller-reported voltage is displayed separately; it is not a calibrated
-physical reading. Use an independent meter to establish physical core voltage.
+MP2888A has two selectable control recipes for the same physical controller:
 
-Before Apply or Verify, Druta takes its own minimum graphics-clock clamp and
-checks that the clock has settled. It refuses an unreadable lock state or a
+- **MP2888A (ASUS Turing)** retains the original GPU VID offset method through
+  register 23h, including Stock and existing saved offset profiles. It remains
+  the default. This is the recorded working method on the TITAN RTX die fitted
+  to an ASUS RTX 2080 Ti Strix PCB.
+- **MP2888A (ASUS Ampere)** uses manual PMBus voltage through nominal command
+  21h and the E1h mode bit. This method was measured on the ASUS Strix RTX 3070 Ti.
+  Its value is a nominal command in 6.25 mV steps; existing coarse and fine
+  trims are retained.
+
+The names identify control recipes, without restricting discovery by GPU or
+board identity. Selecting a recipe changes no controller register. Each needs
+its own Verify. Controller-reported voltage is displayed separately; it is not
+a calibrated physical reading. Use an independent meter to establish physical
+core voltage.
+
+Before manual PMBus Apply or Verify, Druta takes its own minimum graphics-clock
+clamp and checks that the clock has settled. It refuses an unreadable lock state or a
 lock held by another application. Verify checks two PMBus commands and their
 reversal at that clock. It does not validate stability at an overclocked point.
 
@@ -278,8 +290,9 @@ reversal at that clock. It does not validate stability at an overclocked point.
 the captured controller state before releasing Druta's clock clamp. A failed
 restoration keeps the clamp and the recovery state. Other controller fields,
 protection, calibration, EEPROM, phase count and switching frequency are retained.
-Manual PMBus voltage is session-only: profiles omit it and cannot replay legacy
-MP2888A offset settings. Return to Auto before loading a clock profile.
+Manual PMBus voltage is session-only: profiles omit an active manual request.
+Return to Auto before loading a profile. Existing MP2888A offset profiles still
+replay through the original offset recipe, with fresh verification as needed.
 
 While Verify is running, the selected controller and risk modes stay fixed.
 Closing Druta cancels verification and waits for the original control state's

@@ -82,7 +82,7 @@ class TestPMBus(unittest.TestCase):
         with (Path(__file__).resolve().parents[2] / 'i2c/rtx2080ti-mp2888a.toml').open('rb') as source:
             profile = railctl.Profile(tomllib.load(source), 'original')
         self.bus = PMBus()
-        self.rail = mp2888.MP2888Candidate(profile, self.bus, 1, 0x20)
+        self.rail = mp2888.MP2888Candidate(profile, self.bus, 1, 0x20).for_control_method('pmbus')
         sleeper = patch.object(mp2888.time, 'sleep')
         sleeper.start()
         self.addCleanup(sleeper.stop)
@@ -403,6 +403,125 @@ class TestPMBus(unittest.TestCase):
     def test_verifier_can_use_consistently_missing_unrelated_point_readings(self):
         ok, message, _ = self.rail.verify(acknowledged=True, operating_point=lambda: (None, 405, None))
         self.assertTrue(ok, message)
+
+    def test_autonomous_auto_vid_shift_does_not_invalidate_manual_command_response(self):
+        entry = self.rail.capture_control()
+        voltage = self.bus.voltage
+        self.bus.regs[0x8B] = lambda: (850 if self.bus.writes and not self.bus.regs[0xE1] & 0x10 else voltage())
+        ok, message, rows = self.verify()
+        self.assertTrue(ok, message)
+        self.assertEqual([row['target_mv'] for row in rows], [900, 925, 900])
+        evidence = rows[0]['verification_evidence']
+        self.assertIs(evidence, self.rail._verification_evidence)
+        self.assertEqual(evidence['entry']['median_mv'], 676)
+        self.assertEqual(evidence['restored']['median_mv'], 850)
+        self.assertFalse(evidence['entry']['enabled'])
+        self.assertFalse(evidence['restored']['enabled'])
+        self.assertEqual(self.rail.capture_control(), entry)
+        self.assertTrue(self.rail._verification_restore_ok)
+
+    def test_returned_auto_vid_noise_is_diagnostic_while_manual_plateaus_are_stable(self):
+        voltage = self.bus.voltage
+        reads = 0
+
+        def autonomous_auto():
+            nonlocal reads
+            if self.bus.regs[0xE1] & 0x10:
+                return voltage()
+            if not self.bus.writes:
+                return 676
+            reads += 1
+            return 750 if reads % 2 else 900
+
+        self.bus.regs[0x8B] = autonomous_auto
+        ok, message, rows = self.verify()
+        self.assertTrue(ok, message)
+        self.assertEqual(rows[0]['verification_evidence']['entry']['noise_mv'], 0)
+        self.assertEqual(rows[0]['verification_evidence']['restored']['noise_mv'], 150)
+        self.assertTrue(all(row['noise_mv'] == 0 for row in rows))
+
+    def test_original_manual_target_still_requires_repeatable_return_voltage(self):
+        self.bus.regs.update({0xE1: 0x8213, 0x21: 160})
+        entry = self.rail.capture_control()
+        voltage = self.bus.voltage
+        self.bus.regs[0x8B] = lambda: voltage() + (12 if len(self.bus.writes) >= 4 and self.bus.regs[0x21] == 160 else 0)
+        ok, message, rows = self.verify()
+        self.assertFalse(ok)
+        self.assertIn('did not return to the entry range', message)
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(self.rail.capture_control(), entry)
+        self.assertTrue(self.rail._verification_restore_ok)
+
+    def test_optional_pstate_and_memory_transitions_are_recorded_without_weakening_core_check(self):
+        reads = 0
+
+        def point():
+            nonlocal reads
+            reads += 1
+            return (0 if reads < 3 else 3), 405, (5001 if not self.bus.regs[0xE1] & 0x10 else 9251)
+
+        ok, message, rows = self.rail.verify(acknowledged=True, operating_point=point)
+        self.assertTrue(ok, message)
+        transitions = rows[0]['verification_evidence']['operating_point_transitions']
+        self.assertEqual(transitions[0], {'stage': 'entry', 'point': [0, 405, 5001]})
+        self.assertIn({'stage': 'entry', 'point': [3, 405, 5001]}, transitions)
+        self.assertIn({'stage': 'A', 'point': [3, 405, 9251]}, transitions)
+        self.assertIn({'stage': 'restored', 'point': [3, 405, 5001]}, transitions)
+
+    def test_invalid_optional_numeric_shapes_still_refuse_before_writes(self):
+        for point in ((float('nan'), 405, 810), ('unknown', 405, 810), (8, 405, float('inf'))):
+            with self.subTest(point=point):
+                self.assertFalse(self.rail.verify(acknowledged=True, operating_point=lambda p=point: p)[0])
+        self.assertEqual(self.bus.writes, [])
+
+    def test_optional_idle_transitions_during_manual_commands_are_diagnostic(self):
+        def point():
+            high = self.bus.regs[0x21] == 148 and self.bus.regs[0xE1] & 0x10
+            return (2 if high else 8), 405, (9251 if high else 810)
+
+        ok, message, rows = self.rail.verify(acknowledged=True, operating_point=point)
+        self.assertTrue(ok, message)
+        evidence = rows[0]['verification_evidence']
+        self.assertIn({'stage': 'B', 'point': [2, 405, 9251]}, evidence['operating_point_transitions'])
+        self.assertIn({'stage': 'A-return', 'point': [8, 405, 810]}, evidence['operating_point_transitions'])
+        self.assertEqual([row['median_mv'] for row in rows], [868, 893, 868])
+
+    def test_auto_entry_noise_still_refuses_before_a_trial(self):
+        count = 0
+
+        def noisy():
+            nonlocal count
+            count += 1
+            return 676 if count % 2 else 700
+
+        self.bus.regs[0x8B] = noisy
+        ok, message, _ = self.verify()
+        self.assertFalse(ok)
+        self.assertIn('entry controller-reported VOUT is too noisy', message)
+        self.assertEqual(self.bus.writes, [])
+
+    def test_restored_auto_voltage_must_still_be_readable_and_within_ceiling(self):
+        for failed in (None, 1250):
+            with self.subTest(failed=failed):
+                self.setUp()
+                entry = self.rail.capture_control()
+                voltage = self.bus.voltage
+                self.bus.regs[0x8B] = lambda v=failed, read=voltage: (
+                    v if self.bus.writes and not self.bus.regs[0xE1] & 0x10 else read())
+                ok, message, rows = self.verify()
+                self.assertFalse(ok)
+                self.assertEqual(len(rows), 3)
+                self.assertEqual(self.rail.capture_control(), entry)
+                self.assertTrue(self.rail._verification_restore_ok, message)
+
+    def test_missing_observed_core_after_trial_fails_and_restores(self):
+        entry = self.rail.capture_control()
+        ok, message, _ = self.rail.verify(
+            acknowledged=True, operating_point=lambda: (8, None if self.bus.writes else 405, 810))
+        self.assertFalse(ok)
+        self.assertIn('observed core clock', message)
+        self.assertEqual(self.rail.capture_control(), entry)
+        self.assertTrue(self.rail._verification_restore_ok)
 
     def test_verifier_ack_clock_and_headroom_refusals_do_not_write(self):
         self.assertFalse(self.rail.verify(operating_point=lambda: (8, 405, 810))[0])

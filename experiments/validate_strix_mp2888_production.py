@@ -25,7 +25,11 @@ def main():
     hashes = {name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in sources}
     gpu = GPU()
     profile = next(p for p in railctl.load_profiles() if p.regulator == 'MPS MP2888A')
-    rail = MP2888Candidate(profile, gpu.nvapi, 1, 0x20)
+    candidate = MP2888Candidate(profile, gpu.nvapi, 1, 0x20)
+    assert candidate.present()
+    # Discovery retains the legacy offset method. Select the manual recipe
+    # explicitly, just as the user does in the control-recipe combo.
+    rail = candidate.for_control_method('pmbus')
     assert rail.present()
     assert gpu.read_vf_lock_status() == (None, None)
     assert gpu.read_clk_lock_status() == (None, None)
@@ -45,6 +49,15 @@ def main():
         result['events'].append({'message': message, 'ok': ok})
         save()
         print(message, flush=True)
+
+    def operating_point():
+        point = app._manual_voltage_point(gpu)
+        transitions = result.setdefault('operating_point_transitions', [])
+        if not transitions or transitions[-1]['point'] != list(point):
+            transitions.append({'time_monotonic': time.monotonic(), 'point': list(point),
+                                'control': rail.capture_control()})
+            save()
+        return point
 
     dpg.create_context()
     app = Druta.__new__(Druta)
@@ -93,7 +106,7 @@ def main():
         ok, message = app._prepare_manual_voltage()
         assert ok, message
         verified, message, rows = rail.verify(
-            acknowledged=True, log=log, operating_point=lambda: app._manual_voltage_point(gpu))
+            acknowledged=True, log=log, operating_point=operating_point)
         result['verification'] = {'ok': verified, 'message': message, 'rows': rows}
         save()
         assert verified, message

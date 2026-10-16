@@ -4114,6 +4114,11 @@ class Druta:
             verified = self.i2c_verified()
             status = ("Write path verified this session" if verified
                       else "Write path unverified - Verify first")
+            method = getattr(self.rail, "control_method", None)
+            if method in self.I2C_VOLTAGE_METHODS:
+                name = "GPU VID offset" if method == "offset" else "Manual PMBus"
+                status = (f"{name} method verified this session" if verified
+                          else f"{name} method unverified - Verify first")
             failed = False
             if (getattr(self.rail, "requires_voltage_clamp", False)
                     and getattr(self, "_i2c_manual_restore_error", None)):
@@ -4597,7 +4602,7 @@ class Druta:
                       or getattr(self, "_profile_applying", False))
         # Leave Connect / Scan clickable while I2C rail is unticked. The click
         # flickers the checkbox and does not touch the bus.
-        for tag in ("i2c_rescan", "i2c_full_scan", "i2c_controller"):
+        for tag in ("i2c_rescan", "i2c_full_scan", "i2c_controller", "i2c_control_method"):
             if dpg.does_item_exist(tag):
                 dpg.configure_item(tag, enabled=bool(not busy and not other_work))
         if dpg.does_item_exist("i2c_candidate"):
@@ -4739,7 +4744,7 @@ class Druta:
         """Save only a selected, published route; never settings or verification."""
         try:
             if self.rail is not None:
-                i2c_cache.remember(self.gpu, self.rail)
+                i2c_cache.remember(self.gpu, self.i2c_discovery_candidate(self.rail))
         except Exception as exc:                                # noqa: BLE001
             self.log(f"I2C route could not be saved: {exc}", False)
 
@@ -4756,7 +4761,16 @@ class Druta:
             return
         self._i2c_controller_choice = app_data
 
+    @staticmethod
+    def i2c_discovery_candidate(rail):
+        """Different control recipes remain one physical discovery result."""
+        return getattr(rail, "discovery_candidate", rail)
+
+    I2C_VOLTAGE_METHODS = {"offset": "MP2888A (ASUS Turing)",
+                          "pmbus": "MP2888A (ASUS Ampere)"}
+
     def i2c_candidate_label(self, rail):
+        rail = self.i2c_discovery_candidate(rail)
         candidates = getattr(self, "_rail_candidates", [])
         index = next((i + 1 for i, r in enumerate(candidates) if r is rail), 0)
         return f"{index}: {rail.p.regulator} - port {rail.p.port}, 0x{rail.addr7:02X}"
@@ -5590,6 +5604,7 @@ class Druta:
             dpg.add_text(prompt, color=WARN)
             return
         dpg.add_text(self.rail.p.name, color=DIM)
+        self.build_i2c_control_method()
         if getattr(self.rail, "icx_mcu", False):
             # An identified controller keeps its controls through a transient
             # read failure. Refresh marks unavailable fields; Apply rechecks.
@@ -5637,6 +5652,67 @@ class Druta:
         self.sync_risk_ui()
         self.relayout()
 
+    def build_i2c_control_method(self):
+        """Expose control recipes separately from the selected physical route."""
+        method = getattr(self.rail, "control_method", None)
+        candidate = self.i2c_discovery_candidate(self.rail)
+        if method not in self.I2C_VOLTAGE_METHODS or not callable(
+                getattr(candidate, "for_control_method", None)):
+            return
+        dpg.add_combo(list(self.I2C_VOLTAGE_METHODS.values()), label="Control recipe",
+                      default_value=self.I2C_VOLTAGE_METHODS[method],
+                      tag="i2c_control_method", width=self.s(260),
+                      callback=self.select_i2c_control_method)
+        description = ("GPU VID offset in mV. Uses the existing offset register; "
+                       "Verify checks this method separately." if method == "offset" else
+                       "Manual nominal PMBus voltage in mV. Verify/Apply first clamp graphics "
+                       "clocks; Auto restores GPU VID.")
+        dpg.add_text(description, color=DIM, wrap=self.s(sum(self.KNOB_COLS)))
+        with dpg.tooltip("i2c_control_method"):
+            dpg.add_text("These are selectable control recipes for the same controller. "
+                         "Selecting a recipe does not activate it or change the bus route. "
+                         "Each recipe needs its own Verify. Leaving a manual request first "
+                         "restores this session's captured entry before releasing its clamp.",
+                         wrap=self.s(340))
+
+    def select_i2c_control_method(self, sender=None, app_data=None, user_data=None):
+        candidate = self.i2c_discovery_candidate(self.rail)
+        factory = getattr(candidate, "for_control_method", None)
+        current = getattr(self.rail, "control_method", None)
+        method = next((key for key, label in self.I2C_VOLTAGE_METHODS.items()
+                       if label == app_data), None)
+        if not callable(factory) or method is None or current == method:
+            return False
+
+        def revert():
+            if dpg.does_item_exist("i2c_control_method") and current in self.I2C_VOLTAGE_METHODS:
+                dpg.set_value("i2c_control_method", self.I2C_VOLTAGE_METHODS[current])
+
+        if (getattr(self, "_i2c_busy", False) or getattr(self, "_i2c_scan_busy", False)
+                or getattr(self, "_profile_pending", None)
+                or getattr(self, "_profile_applying", False)):
+            self.log("wait for I2C/profile work before changing the control recipe", False)
+            revert()
+            return False
+        try:
+            chosen = factory(method)
+        except Exception as exc:                                # noqa: BLE001
+            self.log(f"control recipe unavailable: {exc}", False)
+            revert()
+            return False
+        ok, message = self._finish_manual_voltage("changing the control recipe")
+        if not ok:
+            self.log(message, False)
+            revert()
+            return False
+        self.invalidate_i2c_verification()
+        self._i2c_recovery_for = None
+        self.rail = chosen
+        self.refresh_i2c_candidates()
+        self.log(self.I2C_VOLTAGE_METHODS[method] + " selected; press Verify for this method "
+                 "before applying a request", True)
+        return True
+
     def select_i2c_candidate(self, sender=None, app_data=None, user_data=None):
         if (getattr(self, "_i2c_busy", False) or getattr(self, "_i2c_scan_busy", False)
                 or getattr(self, "_profile_pending", None)
@@ -5648,7 +5724,7 @@ class Druta:
             return False
         chosen = next((r for r in self._rail_candidates
                        if self.i2c_candidate_label(r) == app_data), None)
-        if chosen is None or chosen is self.rail:
+        if chosen is None or chosen is self.i2c_discovery_candidate(self.rail):
             return False
         ok, message = self._finish_manual_voltage("selecting another controller")
         if not ok:
@@ -5851,6 +5927,10 @@ class Druta:
         # this I2C controller.
         if dpg.does_item_exist("nct_read_settings"):
             dpg.configure_item("nct_read_settings", enabled=not busy)
+        if dpg.does_item_exist("i2c_control_method"):
+            dpg.configure_item("i2c_control_method", enabled=not busy
+                               and not getattr(self, "_i2c_scan_busy", False)
+                               and not getattr(self, "_profile_applying", False))
 
     def shutdown_is_clean(self):
         worker = getattr(self, "_i2c_thread", None)
@@ -10304,8 +10384,9 @@ deliberately does not put behind a button."""
         """A saved exact connection can disambiguate discovery without a write."""
         saved = state.get("i2c")
         if not isinstance(saved, dict) or not saved:
-            return self.rail
-        candidates = getattr(self, "_rail_candidates", [self.rail] if self.rail else [])
+            return self.i2c_discovery_candidate(self.rail)
+        candidates = getattr(self, "_rail_candidates",
+                             [self.i2c_discovery_candidate(self.rail)] if self.rail else [])
         matching = [r for r in candidates
                     if all(saved.get(k) == v for k, v in profiles.rail_identity(r).items())]
         return matching[0] if len(matching) == 1 else None

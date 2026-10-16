@@ -462,7 +462,7 @@ class PmbusUiTests(FakeUiTest):
         with (Path(__file__).resolve().parents[1] / "i2c/rtx2080ti-mp2888a.toml").open("rb") as source:
             profile = railctl.Profile(tomllib.load(source), "original")
         bus = PMBus()
-        self.app.rail = MP2888Candidate(profile, bus, 1, 0x20)
+        self.app.rail = MP2888Candidate(profile, bus, 1, 0x20).for_control_method("pmbus")
         self.app._i2c_verified_for = self.app.i2c_connection()
         return bus
 

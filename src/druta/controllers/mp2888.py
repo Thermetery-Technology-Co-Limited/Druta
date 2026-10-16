@@ -1,13 +1,13 @@
 # Copyright (C) 2026 Thermetery Technology Co Limited
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""MP2888A discovery and session-only PMBus voltage control.
+"""MP2888A discovery with independent offset and manual PMBus methods.
 
 The address register is not a model ID. These checks establish a candidate
 register layout, not a unique controller identity; the UI must still Verify
-its bounded voltage response before enabling Apply. VOUT_COMMAND is a nominal
-VID, not a calibrated physical voltage. Only 0x21 and E1 bit 4 are written;
-coarse/fine offsets, sense configuration, protection and buffer-update commands
-are never changed.
+its bounded voltage response before enabling Apply. The default adapter retains
+the original VOUT_OFFSET recipe and saved-profile identity. The explicit PMBus
+adapter uses nominal VOUT_COMMAND and E1 bit 4, preserving all captured trims.
+Neither method changes protection, sense gain, or buffer-update commands.
 
 MPS MP2888A Rev.1.11: pp.30/86 address, p.43 offset/limit, pp.71-72
 telemetry. Linux drivers/hwmon/pmbus/mp2888.c documents 0x44 bit3 for
@@ -26,6 +26,7 @@ DISCOVERY_PORTS = tuple(range(8))
 DISCOVERY_ADDRESSES = (0x20,) + tuple(a for a in range(0x08, 0x78) if a != 0x20)
 FINGERPRINT_VERSION = 1
 CONTROL_KIND = 'mp2888-pmbus-v1'
+CONTROL_METHOD_LABELS = {'offset': 'MP2888A (ASUS Turing)', 'pmbus': 'MP2888A (ASUS Ampere)'}
 NORMAL_MAX_MV = 1200.0
 XOC_MAX_MV = 2000.0
 CONTROL_REGISTERS = {
@@ -49,7 +50,7 @@ class _VoltageProfile(Profile):
         return self.hardware_max_mv
 
 
-def _bound_profile(profile, port, addr7):
+def _bound_profile(profile, port, addr7, *, absolute=False):
     """Copy the register recipe; keep the legacy saved-profile identity at home."""
     data = deepcopy(profile.src)
     original = (port == profile.port and addr7 == profile.addr7)
@@ -60,8 +61,12 @@ def _bound_profile(profile, port, addr7):
                              'value': addr7, 'fingerprint': True}]
         data['discovery'] = {'controller': 'MP2888A candidate',
                              'fingerprint_version': FINGERPRINT_VERSION}
-    p = _VoltageProfile(data, profile.path)
-    p.profile_name = profile.name
+    if absolute:
+        # The manual command has different semantics from a saved coarse
+        # offset, even when both adapters address the same physical controller.
+        data['control_method'] = {'kind': CONTROL_KIND, 'method': 'pmbus'}
+    p = (_VoltageProfile if absolute else Profile)(data, profile.path)
+    p.profile_name = getattr(profile, 'profile_name', profile.name)
     p.profile_rail = p.rail  # Saved profiles used the original recipe's NVVDD label.
     p.rail = 'Controller output'
     p.name = (f'MP2888A candidate (port {port}, 0x{addr7:02X}; '
@@ -69,7 +74,8 @@ def _bound_profile(profile, port, addr7):
     p.port, p.addr7, p.addrs = port, addr7, [addr7]
     p.pci_device = p.pci_subsys = set()
     p.weak_id = True
-    p.env_min, p.env_max, p.hardware_max_mv = 300.0, NORMAL_MAX_MV, NORMAL_MAX_MV
+    if absolute:
+        p.env_min, p.env_max, p.hardware_max_mv = 300.0, NORMAL_MAX_MV, NORMAL_MAX_MV
     # Runtime presentation/decoding can evolve without invalidating old saved
     # offsets on the original connection. present() never trusts that old ID.
     p.telemetry_specs = deepcopy(p.telemetry_specs)
@@ -79,13 +85,10 @@ def _bound_profile(profile, port, addr7):
     return p
 
 
-class MP2888Candidate(Rail):
-    """A location-bound candidate; every write rechecks the read-only layout."""
+class _MP2888Device(Rail):
+    """Shared read-only identification and transport, with no write policy."""
 
     requires_verification = True
-    absolute_voltage = True
-    requires_voltage_clamp = True
-    session_only_voltage = True
     controller_reported_vout = True
     vout_readback_label = 'controller-reported VOUT'
     vout_readback_note = ' Physical voltage requires an independent measurement.'
@@ -99,19 +102,27 @@ class MP2888Candidate(Rail):
         if (ctypes.sizeof(_V3) != 64
                 or tuple(getattr(_V3, name).offset for name, *_ in _V3._fields_) != offsets):
             raise ValueError('MP2888A NVAPI V3 packet geometry is unsupported')
-        super().__init__(_bound_profile(profile, port, addr7), nvapi, addr7)
+        super().__init__(_bound_profile(profile, port, addr7,
+                                      absolute=getattr(self, 'absolute_voltage', False)), nvapi, addr7)
         self._bound_handle = self._gpu_handle()
         self._bound_selection = deepcopy(getattr(nvapi, 'selected', None))
+        self._bound_route = (port, addr7)
+        self._bound_nvapi = nvapi
         self._mutex = threading.RLock()
+        self.discovery_candidate = self
+        self._method_adapters = {self.control_method: self}
+        self._has_fingerprint = False
         self.discovery_telemetry = {}
         self.discovery_diagnostics = {}
         self.last_written_control = None
         self.last_control_restore_ok = True
         self.last_control_restore_error = ''
         self._pending_recovery_states = []
+        self._control_inflight = False
         self._verification_write_attempted = False
         self._verification_restore_ok = True
         self._verification_restore_error = ''
+        self._verification_evidence = {}
 
     def _gpu_handle(self):
         value = getattr(self.nvapi, 'gpu', None)
@@ -119,6 +130,8 @@ class MP2888Candidate(Rail):
 
     def _binding(self):
         if (self.nvapi is None or not getattr(self.nvapi, 'ok', False)
+                or self.nvapi is not self._bound_nvapi
+                or (self.p.port, self.addr7) != self._bound_route
                 or not self._bound_handle or self._gpu_handle() != self._bound_handle
                 or getattr(self.nvapi, 'selected', None) != self._bound_selection):
             raise ValueError('selected GPU/handle changed or NVAPI is unavailable')
@@ -164,20 +177,28 @@ class MP2888Candidate(Rail):
                 time.sleep(.01)
         return None
 
-    def _raw_write(self, cmd, value, nbytes):
-        if (cmd not in (0x21, 0xE1) or nbytes != 2 or type(value) is not int
-                or not 0 <= value <= 0xFFFF):
-            raise ValueError('MP2888A permits only word writes to 0x21 and E1 bit 4')
-        if cmd == 0x21 and value & ~0x1FF:
-            raise ValueError('MP2888A VOUT_COMMAND has reserved bits set')
-        page, address = self._read_retry(0x00, 1), self._read_retry(0xBE, 1)
-        if page != 0 or address is None or address & 0x7F != self.addr7:
-            raise ValueError('MP2888A PAGE/address changed before write')
-        if cmd == 0xE1:
-            current = self._read_retry(cmd, 2)
-            if current is None or (current ^ value) & ~0x10:
-                raise ValueError('MP2888A E1 non-mode bits changed or are unavailable')
-        return self._transfer(cmd, nbytes, value) is True
+    def for_control_method(self, method):
+        """Return a cached adapter without reading or writing the controller."""
+        if method not in CONTROL_METHOD_LABELS:
+            raise ValueError(f'unknown MP2888A control method: {method!r}')
+        candidate = self.discovery_candidate
+        with candidate._mutex:
+            if method not in candidate._method_adapters:
+                candidate._method_adapters[method] = MP2888PMBus(
+                    candidate.p, candidate.nvapi, candidate.p.port, candidate.addr7,
+                    _candidate=candidate)
+            return candidate._method_adapters[method]
+
+    def has_owned_manual_control(self):
+        """Inspect our cached ownership without probing manual-only registers."""
+        candidate = self.discovery_candidate
+        with candidate._mutex:
+            manual = candidate._method_adapters.get('pmbus')
+            if manual is None:
+                return False
+            written = manual.last_written_control
+            return bool(manual._control_inflight or manual._pending_recovery_states
+                        or (isinstance(written, dict) and written.get('enabled')))
 
     def _fingerprint_sample(self):
         # Test address first so absent devices cost just one read.
@@ -228,7 +249,115 @@ class MP2888Candidate(Rail):
         self.discovery_telemetry = {k: median(s[k] for s in samples)
                                     for k in first}
         self.discovery_telemetry['offset_raw'] = last['offset_raw']
+        self._has_fingerprint = True
         return True
+
+
+class MP2888Candidate(_MP2888Device):
+    """The original 0x23 offset method, retained as the discovery default."""
+
+    control_method = 'offset'
+    control_method_label = CONTROL_METHOD_LABELS[control_method]
+    absolute_voltage = False
+    requires_voltage_clamp = False
+    session_only_voltage = False
+
+    def read(self, cmd, n):
+        # Empty discovery routes still cost one read. Once the complete layout
+        # is established, tolerate a bounded transient on required reads.
+        attempts = 3 if self._has_fingerprint else 1
+        for attempt in range(attempts):
+            try:
+                value = super().read(cmd, n)
+            except OSError:
+                value = None
+            if value is not None:
+                return value
+            if attempt + 1 < attempts:
+                time.sleep(.01)
+        return None
+
+    def _raw_write(self, cmd, value, nbytes):
+        p = self.p
+        if (cmd != 0x23 or nbytes != 2 or p.wreg != 0x23 or p.wbytes != 2
+                or p.wbits != (7, 0) or p.lsb_mv != 6.25
+                or cmd not in p.writable or cmd in p.never
+                or type(value) is not int or not 0 <= value <= 0xFF
+                or not -111 <= _signed(value, 8) <= 112):
+            raise ValueError('MP2888A offset method permits only the declared 0x23 signed-byte field in a word')
+        return self._transfer(cmd, nbytes, value) is True
+
+    def set_offset_mv(self, mv, *, acknowledged=False, dry_run=False, _xoc=None):
+        with self._mutex:
+            if self.has_owned_manual_control():
+                return False, 'MP2888A manual PMBus control/recovery is owned; restore it to Auto before changing offsets'
+            return super().set_offset_mv(mv, acknowledged=acknowledged, dry_run=dry_run, _xoc=_xoc)
+
+    def _restore_word(self, original):
+        with self._mutex:
+            if self.has_owned_manual_control():
+                return False, 'MP2888A owned manual PMBus control must be restored before legacy offset recovery'
+            return super()._restore_word(original)
+
+    def reset(self):
+        with self._mutex:
+            return super().reset()
+
+    def verify(self, *, acknowledged=False, log=None, ref=None, allow_idle=False,
+               cancelled=None, operating_point=None):
+        with self._mutex:
+            if self.has_owned_manual_control():
+                return False, 'MP2888A manual PMBus control/recovery is owned; restore it to Auto before offset Verify', []
+            return super().verify(acknowledged=acknowledged, log=log, ref=ref,
+                                  allow_idle=allow_idle, cancelled=cancelled,
+                                  operating_point=operating_point)
+
+    def set_voltage_mv(self, mv, *, acknowledged=False, expected=None):
+        return False, 'select the explicit MP2888A manual PMBus method before requesting an absolute voltage'
+
+    def telemetry(self):
+        if not self.present():
+            return {}
+        return dict(self.discovery_telemetry)
+
+
+class MP2888PMBus(_MP2888Device):
+    """Explicit manual voltage, separate from the original offset recipe."""
+
+    control_method = 'pmbus'
+    control_method_label = CONTROL_METHOD_LABELS[control_method]
+    absolute_voltage = True
+    requires_voltage_clamp = True
+    session_only_voltage = True
+
+    def __init__(self, profile, nvapi, port, addr7, *, _candidate=None):
+        super().__init__(profile, nvapi, port, addr7)
+        candidate = _candidate if _candidate is not None else MP2888Candidate(profile, nvapi, port, addr7)
+        self.discovery_candidate = candidate
+        self._mutex = candidate._mutex
+        self._bound_handle = candidate._bound_handle
+        self._bound_selection = deepcopy(candidate._bound_selection)
+        self._bound_route = candidate._bound_route
+        self._bound_nvapi = candidate._bound_nvapi
+        self._method_adapters = candidate._method_adapters
+        self._method_adapters['pmbus'] = self
+        self.discovery_telemetry = deepcopy(candidate.discovery_telemetry)
+        self.discovery_diagnostics = deepcopy(candidate.discovery_diagnostics)
+
+    def _raw_write(self, cmd, value, nbytes):
+        if (cmd not in (0x21, 0xE1) or nbytes != 2 or type(value) is not int
+                or not 0 <= value <= 0xFFFF):
+            raise ValueError('MP2888A permits only word writes to 0x21 and E1 bit 4')
+        if cmd == 0x21 and value & ~0x1FF:
+            raise ValueError('MP2888A VOUT_COMMAND has reserved bits set')
+        page, address = self._read_retry(0x00, 1), self._read_retry(0xBE, 1)
+        if page != 0 or address is None or address & 0x7F != self.addr7:
+            raise ValueError('MP2888A PAGE/address changed before write')
+        if cmd == 0xE1:
+            current = self._read_retry(cmd, 2)
+            if current is None or (current ^ value) & ~0x10:
+                raise ValueError('MP2888A E1 non-mode bits changed or are unavailable')
+        return self._transfer(cmd, nbytes, value) is True
 
     @staticmethod
     def normalize_voltage_mv(mv):
@@ -417,6 +546,15 @@ class MP2888Candidate(Rail):
 
     def restore_control(self, state, *, recovery=False, expected=None):
         with self._mutex:
+            previous_inflight = self._control_inflight
+            self._control_inflight = True
+            try:
+                return self._restore_control_transaction(state, recovery=recovery, expected=expected)
+            finally:
+                self._control_inflight = previous_inflight
+
+    def _restore_control_transaction(self, state, *, recovery=False, expected=None):
+        with self._mutex:
             self._control_dispatched = False
             before, observed = None, []
             try:
@@ -544,8 +682,8 @@ class MP2888Candidate(Rail):
         """Prove two PMBus commands and reversal at a caller-owned clock clamp.
 
         READ_VOUT is the controller's report, not independent physical voltage.
-        The callback must confirm a stable P-state/core/memory clock triple;
-        P-state and memory readings may be consistently unavailable (None).
+        The callback confirms the owned clamp and a stable observed core clock.
+        P-state and memory readings are diagnostic and may be unavailable (None).
         Unlike load-based offset verification this does not require P0.
         """
         if self._pending_recovery_states:
@@ -553,19 +691,23 @@ class MP2888Candidate(Rail):
         self._verification_write_attempted = False
         self._verification_restore_ok = True
         self._verification_restore_error = ''
+        evidence = {'proof': 'manual-pmbus-a-b-a', 'entry': None, 'restored': None,
+                    'operating_point_transitions': []}
+        self._verification_evidence = evidence
         if not acknowledged:
             return False, 'MP2888A verification requires acknowledgment; nothing written', []
         if not callable(operating_point):
             return False, 'MP2888A verification requires a stable low-clock operating-point callback; nothing written', []
         cancelled = cancelled or (lambda: False)
         with self._mutex:
-            rows, point = [], None
+            rows, point, core_clock = [], None, None
+            stage = 'entry'
             entry_xoc = bool(self.xoc)
             original = expected = None
             entry_status = None
 
             def check():
-                nonlocal point
+                nonlocal point, core_clock
                 if cancelled():
                     raise ValueError('verification cancelled')
                 if bool(self.xoc) != entry_xoc:
@@ -579,10 +721,13 @@ class MP2888Candidate(Rail):
                         or (current[2] is not None and current[2] <= 0)):
                     raise ValueError('GPU observed core clock or optional operating-point readings are invalid')
                 current = tuple(current)
-                if point is None:
+                if current != point:
+                    evidence['operating_point_transitions'].append({'stage': stage, 'point': list(current)})
                     point = current
-                elif point != current:
-                    raise ValueError('GPU P-state or core/memory clocks changed during verification')
+                if core_clock is None:
+                    core_clock = current[1]
+                elif core_clock != current[1]:
+                    raise ValueError('GPU observed core clock changed during verification')
 
             def sample(control):
                 values = []
@@ -617,6 +762,8 @@ class MP2888Candidate(Rail):
                 self.validate_control(self._desired(original, enabled=True, command=int(first / 6.25)), xoc=False)
                 entry_status = self._activation_status()
                 entry = sample(original)
+                evidence['entry'] = dict(entry, enabled=original['enabled'],
+                                         target_mv=original['command'] * 6.25 if original['enabled'] else None)
                 if entry['noise_mv'] > 6.25:
                     raise ValueError('entry controller-reported VOUT is too noisy for a bounded verification')
             except Exception as exc:
@@ -639,6 +786,8 @@ class MP2888Candidate(Rail):
                     self._verification_restore_ok = False
                     time.sleep(.15)
                     row = {'stage': stage, 'target_mv': target, **sample(expected)}
+                    if not rows:
+                        row['verification_evidence'] = evidence
                     rows.append(row)
                     if log:
                         log(f'MP2888A {stage}: nominal PMBus {target:g} mV; controller-reported '
@@ -679,12 +828,17 @@ class MP2888Candidate(Rail):
                 return False, f'MP2888A INCONCLUSIVE - {failure or "trial finished"}; RESTORE FAILED: {self._verification_restore_error}', rows
             if failure:
                 return False, f'MP2888A INCONCLUSIVE - {failure}; captured entry restored exactly', rows
-            # Also prove return to the entry operating voltage, independently of
-            # the command reversal. Cancellation here cannot undo restoration.
+            # Returning to Auto restores the GPU's authority over VID, not its
+            # previous voltage. Identical clocks do not pin the GPU's VID. Keep
+            # that reading as evidence; a captured manual command still has a
+            # fixed-voltage return check. Cancellation cannot undo restoration.
             try:
+                stage = 'restored'
                 time.sleep(.15)
                 restored = sample(original)
-                if (restored['noise_mv'] > 6.25
+                evidence['restored'] = dict(restored, enabled=original['enabled'],
+                                            target_mv=original['command'] * 6.25 if original['enabled'] else None)
+                if original['enabled'] and (restored['noise_mv'] > 6.25
                         or abs(restored['median_mv'] - entry['median_mv']) > max(7.0, entry['noise_mv'])):
                     raise ValueError('controller-reported VOUT did not return to the entry range')
             except Exception as exc:
