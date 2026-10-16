@@ -24,8 +24,9 @@ behaviour = "measured under gpuload bandwidth load at NVVDD 1050 mV, 2026-09-04"
 hardware  = "the two SMBus links to the core VRM fitted by hand on the authoring card; regulator identity then confirmed on the bus"
 
 # Historical authoring-board provenance. MP2888A discovery ignores these
-# filters and scans the selected GPU using mp2888.py. Retained in the recipe
-# so existing saved profiles at port 1/address 0x20 remain compatible.
+# filters and scans the selected GPU using mp2888.py. Discovery retains this
+# offset recipe and its saved-profile identity. The separate manual PMBus
+# recipe uses nominal voltage commands and is session-only.
 [match]
 pci_device = ["0x1E02"]        # this die is a TITAN RTX on a 2080 Ti board, so
 pci_subsys = ["0x12A310DE"]    # the subsys is the honest discriminator

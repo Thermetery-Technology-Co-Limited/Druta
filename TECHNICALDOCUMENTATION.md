@@ -1209,12 +1209,18 @@ controller output without assuming its physical rail. These scanners do not use 
 other generic TOML recipes retain optional PCI matching and fixed bus settings.
 
 Candidate selection and Verify are separate steps. Verify makes bounded writes
-under load, measures response and checks restoration. Failed restoration cannot
-authorize Apply. Verification is bound to the current GPU/controller/recipe;
+at the recipe's required operating point, measures response and checks
+restoration. The original MP2888A offset recipe uses its existing loaded Verify;
+manual PMBus Verify uses an owned, observed minimum graphics-clock clamp.
+Failed restoration cannot authorize Apply. Verification is bound to the
+current GPU/controller/recipe;
 rescans and selection changes invalidate it. Tuning profiles also capture
 per-rail limits and controller state, including NCP target/Auto or MP offset,
 with the exact connection and recipe fingerprint. An exact unique saved identity
 can resolve multiple candidates but does not replace fresh verification.
+MP2888A manual PMBus requests are session-only and are omitted from profiles;
+profile loading requires returning that method to Auto first. Existing offset
+profiles retain their original identity and register-23h replay path.
 
 See [CONTRIBUTING.md](i2c/CONTRIBUTING.md) for evidence requirements and
 [PROFILES.md](i2c/PROFILES.md) for recipe fields, adapter responsibilities and

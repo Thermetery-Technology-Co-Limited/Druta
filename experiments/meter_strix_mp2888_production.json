@@ -1,0 +1,813 @@
+{
+  "scope": "User-present DMM A-B-A check of nominal1100/1125/1100 PMBus requests.\n\nProduction controller API, owned/observed minimum frequency clamp, no V/F\nhold, ten-minute inactivity timeout, exact entry restoration before release.\nOnly root controls hardware; the operator supplies independent meter values.\n",
+  "entry": {
+    "kind": "mp2888-pmbus-v1",
+    "page": 0,
+    "address": 160,
+    "command": 126,
+    "mode_word": 49898,
+    "operation": 128,
+    "pwm_config": 4120,
+    "offset_word": 0,
+    "sense_config": 8736,
+    "fine_trim": 0,
+    "vout_min": 48,
+    "vout_max": 208,
+    "enabled": false
+  },
+  "stages": [
+    {
+      "phase": "A1",
+      "nominal_mv": 1100,
+      "control": {
+        "kind": "mp2888-pmbus-v1",
+        "page": 0,
+        "address": 160,
+        "command": 176,
+        "mode_word": 49914,
+        "operation": 128,
+        "pwm_config": 4120,
+        "offset_word": 0,
+        "sense_config": 8736,
+        "fine_trim": 0,
+        "vout_min": 48,
+        "vout_max": 208,
+        "enabled": true
+      },
+      "median_reported_mv": 1066.0,
+      "samples": [
+        {
+          "time": "2026-10-16T10:45:30.955740+00:00",
+          "reported_mv": 1066.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 810,
+          "pstate": 5,
+          "temp_c": 36,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:45:31.126438+00:00",
+          "reported_mv": 1066.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 810,
+          "pstate": 5,
+          "temp_c": 36,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:45:31.277853+00:00",
+          "reported_mv": 1066.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 810,
+          "pstate": 5,
+          "temp_c": 36,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:45:31.429379+00:00",
+          "reported_mv": 1066.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 810,
+          "pstate": 5,
+          "temp_c": 36,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:45:31.680276+00:00",
+          "reported_mv": 1066.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 405,
+          "pstate": 5,
+          "temp_c": 36,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:45:31.855109+00:00",
+          "reported_mv": 1066.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 810,
+          "pstate": 5,
+          "temp_c": 36,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:45:32.013459+00:00",
+          "reported_mv": 1066.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 810,
+          "pstate": 5,
+          "temp_c": 36,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:45:32.182202+00:00",
+          "reported_mv": 1066.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 810,
+          "pstate": 5,
+          "temp_c": 36,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:45:32.353588+00:00",
+          "reported_mv": 1066.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 810,
+          "pstate": 5,
+          "temp_c": 36,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:45:32.514168+00:00",
+          "reported_mv": 1066.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 810,
+          "pstate": 5,
+          "temp_c": 36,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:45:32.695617+00:00",
+          "reported_mv": 1066.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 810,
+          "pstate": 5,
+          "temp_c": 36,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:45:32.920959+00:00",
+          "reported_mv": 1066.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 810,
+          "pstate": 5,
+          "temp_c": 36,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:45:33.069906+00:00",
+          "reported_mv": 1066.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 810,
+          "pstate": 5,
+          "temp_c": 36,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:45:33.250864+00:00",
+          "reported_mv": 1066.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 810,
+          "pstate": 5,
+          "temp_c": 36,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:45:33.430266+00:00",
+          "reported_mv": 1066.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 810,
+          "pstate": 5,
+          "temp_c": 36,
+          "status": 0
+        }
+      ]
+    },
+    {
+      "phase": "B",
+      "nominal_mv": 1125,
+      "control": {
+        "kind": "mp2888-pmbus-v1",
+        "page": 0,
+        "address": 160,
+        "command": 180,
+        "mode_word": 49914,
+        "operation": 128,
+        "pwm_config": 4120,
+        "offset_word": 0,
+        "sense_config": 8736,
+        "fine_trim": 0,
+        "vout_min": 48,
+        "vout_max": 208,
+        "enabled": true
+      },
+      "median_reported_mv": 1091.0,
+      "samples": [
+        {
+          "time": "2026-10-16T10:46:29.436593+00:00",
+          "reported_mv": 1091.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 405,
+          "pstate": 8,
+          "temp_c": 37,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:46:29.627586+00:00",
+          "reported_mv": 1091.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 405,
+          "pstate": 8,
+          "temp_c": 37,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:46:29.882202+00:00",
+          "reported_mv": 1091.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 405,
+          "pstate": 8,
+          "temp_c": 37,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:46:30.075755+00:00",
+          "reported_mv": 1091.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 405,
+          "pstate": 8,
+          "temp_c": 37,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:46:30.253257+00:00",
+          "reported_mv": 1091.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 405,
+          "pstate": 8,
+          "temp_c": 37,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:46:30.444496+00:00",
+          "reported_mv": 1091.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 405,
+          "pstate": 8,
+          "temp_c": 37,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:46:30.625152+00:00",
+          "reported_mv": 1091.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 405,
+          "pstate": 8,
+          "temp_c": 37,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:46:30.829616+00:00",
+          "reported_mv": 1091.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 405,
+          "pstate": 8,
+          "temp_c": 37,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:46:31.009588+00:00",
+          "reported_mv": 1091.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 405,
+          "pstate": 8,
+          "temp_c": 37,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:46:31.192897+00:00",
+          "reported_mv": 1091.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 405,
+          "pstate": 8,
+          "temp_c": 37,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:46:31.396330+00:00",
+          "reported_mv": 1091.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 405,
+          "pstate": 8,
+          "temp_c": 37,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:46:31.589056+00:00",
+          "reported_mv": 1091.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 405,
+          "pstate": 8,
+          "temp_c": 37,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:46:31.786938+00:00",
+          "reported_mv": 1091.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 405,
+          "pstate": 8,
+          "temp_c": 37,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:46:31.979981+00:00",
+          "reported_mv": 1091.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 405,
+          "pstate": 8,
+          "temp_c": 37,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:46:32.143851+00:00",
+          "reported_mv": 1091.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 405,
+          "pstate": 8,
+          "temp_c": 37,
+          "status": 0
+        }
+      ]
+    },
+    {
+      "phase": "A2",
+      "nominal_mv": 1100,
+      "control": {
+        "kind": "mp2888-pmbus-v1",
+        "page": 0,
+        "address": 160,
+        "command": 176,
+        "mode_word": 49914,
+        "operation": 128,
+        "pwm_config": 4120,
+        "offset_word": 0,
+        "sense_config": 8736,
+        "fine_trim": 0,
+        "vout_min": 48,
+        "vout_max": 208,
+        "enabled": true
+      },
+      "median_reported_mv": 1066.0,
+      "samples": [
+        {
+          "time": "2026-10-16T10:47:38.635064+00:00",
+          "reported_mv": 1066.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 405,
+          "pstate": 8,
+          "temp_c": 38,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:47:38.819255+00:00",
+          "reported_mv": 1066.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 405,
+          "pstate": 8,
+          "temp_c": 38,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:47:39.018157+00:00",
+          "reported_mv": 1066.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 405,
+          "pstate": 8,
+          "temp_c": 38,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:47:39.204609+00:00",
+          "reported_mv": 1066.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 405,
+          "pstate": 8,
+          "temp_c": 38,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:47:39.388048+00:00",
+          "reported_mv": 1066.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 405,
+          "pstate": 8,
+          "temp_c": 38,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:47:39.623768+00:00",
+          "reported_mv": 1066.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 405,
+          "pstate": 8,
+          "temp_c": 38,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:47:39.826727+00:00",
+          "reported_mv": 1066.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 405,
+          "pstate": 8,
+          "temp_c": 38,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:47:40.026524+00:00",
+          "reported_mv": 1066.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 405,
+          "pstate": 8,
+          "temp_c": 38,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:47:40.215493+00:00",
+          "reported_mv": 1066.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 405,
+          "pstate": 8,
+          "temp_c": 38,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:47:40.413017+00:00",
+          "reported_mv": 1066.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 405,
+          "pstate": 8,
+          "temp_c": 38,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:47:40.602190+00:00",
+          "reported_mv": 1066.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 405,
+          "pstate": 8,
+          "temp_c": 38,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:47:40.812865+00:00",
+          "reported_mv": 1066.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 405,
+          "pstate": 8,
+          "temp_c": 38,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:47:41.010727+00:00",
+          "reported_mv": 1066.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 405,
+          "pstate": 8,
+          "temp_c": 39,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:47:41.196800+00:00",
+          "reported_mv": 1066.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 405,
+          "pstate": 8,
+          "temp_c": 39,
+          "status": 0
+        },
+        {
+          "time": "2026-10-16T10:47:41.361771+00:00",
+          "reported_mv": 1066.0,
+          "gpu_vid_mv": 662.5,
+          "core_mhz": 405,
+          "mem_mhz": 405,
+          "pstate": 8,
+          "temp_c": 39,
+          "status": 0
+        }
+      ]
+    }
+  ],
+  "events": [
+    {
+      "time": "2026-10-16T10:45:30.370343+00:00",
+      "message": "request",
+      "phase": "A1",
+      "nominal_mv": 1100
+    },
+    {
+      "time": "2026-10-16T10:45:33.472607+00:00",
+      "message": "READY FOR METER",
+      "phase": "A1",
+      "nominal_mv": 1100,
+      "median_reported_mv": 1066.0,
+      "core_mhz": 405
+    },
+    {
+      "time": "2026-10-16T10:45:33.474012+00:00",
+      "message": "Commands: meter <volts>, raise, back, status, exit; 600s inactivity watchdog"
+    },
+    {
+      "time": "2026-10-16T10:46:03.531573+00:00",
+      "message": "active",
+      "phase": "A1",
+      "snapshot": {
+        "time": "2026-10-16T10:46:03.530817+00:00",
+        "reported_mv": 1066.0,
+        "gpu_vid_mv": 662.5,
+        "core_mhz": 405,
+        "mem_mhz": 405,
+        "pstate": 8,
+        "temp_c": 37,
+        "status": 0
+      }
+    },
+    {
+      "time": "2026-10-16T10:46:25.025099+00:00",
+      "message": "user DMM reading",
+      "phase": "A1",
+      "meter_v": 1.049,
+      "snapshot": {
+        "time": "2026-10-16T10:46:25.024639+00:00",
+        "reported_mv": 1066.0,
+        "gpu_vid_mv": 662.5,
+        "core_mhz": 405,
+        "mem_mhz": 405,
+        "pstate": 8,
+        "temp_c": 37,
+        "status": 0
+      }
+    },
+    {
+      "time": "2026-10-16T10:46:28.815522+00:00",
+      "message": "request",
+      "phase": "B",
+      "nominal_mv": 1125
+    },
+    {
+      "time": "2026-10-16T10:46:32.185776+00:00",
+      "message": "READY FOR METER",
+      "phase": "B",
+      "nominal_mv": 1125,
+      "median_reported_mv": 1091.0,
+      "core_mhz": 405
+    },
+    {
+      "time": "2026-10-16T10:46:34.482159+00:00",
+      "message": "active",
+      "phase": "B",
+      "snapshot": {
+        "time": "2026-10-16T10:46:34.481545+00:00",
+        "reported_mv": 1091.0,
+        "gpu_vid_mv": 662.5,
+        "core_mhz": 405,
+        "mem_mhz": 405,
+        "pstate": 8,
+        "temp_c": 37,
+        "status": 0
+      }
+    },
+    {
+      "time": "2026-10-16T10:47:04.698751+00:00",
+      "message": "active",
+      "phase": "B",
+      "snapshot": {
+        "time": "2026-10-16T10:47:04.691009+00:00",
+        "reported_mv": 1091.0,
+        "gpu_vid_mv": 662.5,
+        "core_mhz": 405,
+        "mem_mhz": 405,
+        "pstate": 8,
+        "temp_c": 38,
+        "status": 0
+      }
+    },
+    {
+      "time": "2026-10-16T10:47:34.964359+00:00",
+      "message": "active",
+      "phase": "B",
+      "snapshot": {
+        "time": "2026-10-16T10:47:34.963772+00:00",
+        "reported_mv": 1091.0,
+        "gpu_vid_mv": 662.5,
+        "core_mhz": 405,
+        "mem_mhz": 405,
+        "pstate": 8,
+        "temp_c": 38,
+        "status": 0
+      }
+    },
+    {
+      "time": "2026-10-16T10:47:36.774452+00:00",
+      "message": "user DMM reading",
+      "phase": "B",
+      "meter_v": 1.074,
+      "snapshot": {
+        "time": "2026-10-16T10:47:36.773803+00:00",
+        "reported_mv": 1091.0,
+        "gpu_vid_mv": 662.5,
+        "core_mhz": 405,
+        "mem_mhz": 405,
+        "pstate": 8,
+        "temp_c": 38,
+        "status": 0
+      }
+    },
+    {
+      "time": "2026-10-16T10:47:38.034025+00:00",
+      "message": "request",
+      "phase": "A2",
+      "nominal_mv": 1100
+    },
+    {
+      "time": "2026-10-16T10:47:41.403160+00:00",
+      "message": "READY FOR METER",
+      "phase": "A2",
+      "nominal_mv": 1100,
+      "median_reported_mv": 1066.0,
+      "core_mhz": 405
+    },
+    {
+      "time": "2026-10-16T10:48:05.716428+00:00",
+      "message": "active",
+      "phase": "A2",
+      "snapshot": {
+        "time": "2026-10-16T10:48:05.715824+00:00",
+        "reported_mv": 1066.0,
+        "gpu_vid_mv": 662.5,
+        "core_mhz": 405,
+        "mem_mhz": 405,
+        "pstate": 8,
+        "temp_c": 39,
+        "status": 0
+      }
+    },
+    {
+      "time": "2026-10-16T10:48:36.045499+00:00",
+      "message": "active",
+      "phase": "A2",
+      "snapshot": {
+        "time": "2026-10-16T10:48:36.044618+00:00",
+        "reported_mv": 1066.0,
+        "gpu_vid_mv": 662.5,
+        "core_mhz": 405,
+        "mem_mhz": 405,
+        "pstate": 8,
+        "temp_c": 39,
+        "status": 0
+      }
+    },
+    {
+      "time": "2026-10-16T10:49:06.270686+00:00",
+      "message": "active",
+      "phase": "A2",
+      "snapshot": {
+        "time": "2026-10-16T10:49:06.270255+00:00",
+        "reported_mv": 1066.0,
+        "gpu_vid_mv": 662.5,
+        "core_mhz": 405,
+        "mem_mhz": 810,
+        "pstate": 5,
+        "temp_c": 40,
+        "status": 0
+      }
+    },
+    {
+      "time": "2026-10-16T10:49:37.097597+00:00",
+      "message": "active",
+      "phase": "A2",
+      "snapshot": {
+        "time": "2026-10-16T10:49:37.097073+00:00",
+        "reported_mv": 1066.0,
+        "gpu_vid_mv": 662.5,
+        "core_mhz": 405,
+        "mem_mhz": 405,
+        "pstate": 8,
+        "temp_c": 39,
+        "status": 0
+      }
+    },
+    {
+      "time": "2026-10-16T10:50:08.084749+00:00",
+      "message": "active",
+      "phase": "A2",
+      "snapshot": {
+        "time": "2026-10-16T10:50:08.084209+00:00",
+        "reported_mv": 1066.0,
+        "gpu_vid_mv": 662.5,
+        "core_mhz": 405,
+        "mem_mhz": 405,
+        "pstate": 8,
+        "temp_c": 40,
+        "status": 0
+      }
+    },
+    {
+      "time": "2026-10-16T10:52:29.189142+00:00",
+      "message": "user DMM reading",
+      "phase": "A2",
+      "meter_v": 1.049,
+      "snapshot": {
+        "reported_mv": 1066.0,
+        "control": {
+          "kind": "mp2888-pmbus-v1",
+          "page": 0,
+          "address": 160,
+          "command": 176,
+          "mode_word": 49914,
+          "operation": 128,
+          "pwm_config": 4120,
+          "offset_word": 0,
+          "sense_config": 8736,
+          "fine_trim": 0,
+          "vout_min": 48,
+          "vout_max": 208,
+          "enabled": true
+        }
+      },
+      "note": "Reading received in the next chat turn; active A2 state independently rechecked."
+    },
+    {
+      "time": "2026-10-16T10:52:29.330859+00:00",
+      "message": "finished by supervised recovery after exec session was lost",
+      "controller_restored": "MP2888A Auto: GPU PWM VID selected; captured command retained",
+      "owned_clock_release": "GPU clock lock released"
+    }
+  ],
+  "final": {
+    "kind": "mp2888-pmbus-v1",
+    "page": 0,
+    "address": 160,
+    "command": 126,
+    "mode_word": 49898,
+    "operation": 128,
+    "pwm_config": 4120,
+    "offset_word": 0,
+    "sense_config": 8736,
+    "fine_trim": 0,
+    "vout_min": 48,
+    "vout_max": 208,
+    "enabled": false
+  },
+  "clock_final": [
+    null,
+    null
+  ],
+  "vf_final": [
+    null,
+    null
+  ],
+  "clean": true,
+  "meter_result": {
+    "A1_v": 1.049,
+    "B_v": 1.074,
+    "A2_v": 1.049,
+    "rise_mv": 25,
+    "return_error_mv": 0
+  }
+}

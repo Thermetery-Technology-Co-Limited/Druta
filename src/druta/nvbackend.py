@@ -4459,6 +4459,52 @@ class GPU:
             return self._read_legacy_clk_lock()
         return (lo // 1000, hi // 1000)
 
+    def read_clk_lock_status(self):
+        """Return (frequency range, error), distinguishing unlocked from unknown.
+
+        Manual regulator control must establish that another client has not
+        already constrained the card before taking its own frequency clamp.
+        The historical read_clk_lock() API intentionally merges getter failure
+        and unlocked state; it cannot answer that ownership question.
+        """
+        cl = self._vf_lock_read_raw()
+        if cl is None:
+            legacy = self._read_legacy_clk_lock()
+            if legacy is not None:
+                return legacy, None
+            return None, "frequency-lock getter failed; current ownership is unknown"
+        if not 0 < cl.count <= 32:
+            return None, "frequency-lock table has an invalid count"
+        entries = self._vf_lock_entries(cl)
+        by_domain = {}
+        for entry in entries:
+            if entry.domain in by_domain:
+                return None, "frequency-lock table repeats a domain"
+            by_domain[entry.domain] = entry
+        if any(domain not in by_domain for domain in (CLK_LOCK_DOMAIN_MIN, CLK_LOCK_DOMAIN_MAX)):
+            return None, "frequency-lock domains are missing; current ownership is unknown"
+        low, high = (by_domain[domain] for domain in (CLK_LOCK_DOMAIN_MIN, CLK_LOCK_DOMAIN_MAX))
+        if low.lockMode == high.lockMode == 0:
+            # Older Turing drivers expose a separate live frequency request
+            # in RM even while the modern records report mode0. Never mistake
+            # that independent channel for free ownership.
+            legacy = self._read_legacy_clk_lock()
+            if legacy is not None:
+                return legacy, None
+            if self.arch() == self.ARCH_TURING:
+                records = self._legacy_clk_limit_records()
+                if (records is None or len(records) != 2
+                        or any(len(row) != 82 or row[0] != ident or row[1] != 0 or row[4] != 1
+                               for row, ident in zip(records, (0x4C, 0x4B), strict=True))):
+                    return None, "legacy frequency-lock state is unreadable or ambiguous"
+            return None, None
+        if low.lockMode != VF_LOCK_MODE_FREQ or high.lockMode != VF_LOCK_MODE_FREQ:
+            return None, "frequency-lock domains have an unsupported or conflicting mode"
+        lo, hi = low.volt_uV, high.volt_uV  # Mode2 fields are kHz, not voltage.
+        if not (0 < lo <= hi <= 10_000_000) or lo % 1000 or hi % 1000:
+            return None, "frequency-lock range has invalid units or bounds"
+        return (lo // 1000, hi // 1000), None
+
     def _read_legacy_clk_lock(self):
         # This private ABI is a Turing-generation fallback. Runtime record
         # identifiers, modes, units and lengths below decide whether the live
@@ -8590,7 +8636,8 @@ for _m in ("read", "read_clock_domains", "read_vf_curve", "apply_vf_deltas",
            "hold_legacy_p0", "release_legacy_p0",
            "read_fan_control_state", "restore_fan_control_state",
            "read_fan_manual", "fan_capabilities",
-           "read_vf_lock", "read_vf_lock_status", "read_clk_lock", "set_vf_lock", "clear_vf_lock",
+           "read_vf_lock", "read_vf_lock_status", "read_clk_lock", "read_clk_lock_status",
+           "set_vf_lock", "clear_vf_lock",
            "recover_vf_lock",
            "vf_lock_self_test",
            "set_voltage_boost", "read_voltage_boost", "reset_all",

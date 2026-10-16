@@ -101,7 +101,7 @@ from .nvbackend import (GPU, EVENT_REASONS, PERF_DECREASE_BITS, VF_STEP_KHZ, VF_
                         PRIV_LIKELY, PRIV_N_DOMAINS, PRIV_PCIE_GEN, PRIV_SLOT,
                         PRIV_UNNAMED, PRIV_UNPOPULATED)
 
-__version__ = "1.8.0"
+__version__ = "1.8.1"
 
 # ---- palette (ImGui takes 0-255 RGBA) ------------------------------------- #
 TEXT = (230, 232, 236)
@@ -297,6 +297,11 @@ class Druta:
         # it, and because releasing the WRONG mechanism returns OK while the
         # card stays pinned.
         self._clk_lock = None
+        # Session-only PMBus manual requests retain their entry control and
+        # the exact command this window owns. Restore the controller before
+        # allowing its protective clock clamp to be released.
+        self._i2c_manual_voltage = None
+        self._i2c_manual_clock_for = None
         # V/F hold headroom (GPU.apply_hold_headroom). Per-user, default on:
         # a hold on the effective voltage ceiling runs below its programmed
         # clock, so the protection must not depend on the user finding it.
@@ -3748,6 +3753,9 @@ class Druta:
             raise ValueError("value must be finite")
         if key == "i2crail":
             if getattr(self.rail, "absolute_voltage", False):
+                normalize = getattr(self.rail, "normalize_voltage_mv", None)
+                if callable(normalize):
+                    return normalize(value)
                 # NCP4206 floors the requested voltage onto its VID grid.
                 from .controllers.ncp4206 import decode_vid, encode_vid
                 return decode_vid(encode_vid(value))
@@ -4044,6 +4052,8 @@ class Druta:
         multi = getattr(self.rail, "multi_state_offset", False)
         self.slider_row(
             "i2crail", ("Offset (all load states) (mV)" if multi else
+                        f"{rp.rail} nominal PMBus request (mV)"
+                        if getattr(self.rail, "requires_voltage_clamp", False) else
                         f"{rp.rail} voltage target (mV)" if absolute
                         else f"{rp.rail} offset at VRM (mV)"),
             rp.env_min, rp.env_max,
@@ -4054,7 +4064,7 @@ class Druta:
                    ("Reset" if multi else "Auto" if absolute else "Stock",
                     lambda: self.stock_knob("i2crail"))],
             color=BAD, xoc_lo=rp.hw_min_mv, xoc_hi=rp.hw_max_mv)
-        if not absolute:
+        if not absolute or getattr(self.rail, "requires_voltage_clamp", False):
             with dpg.tooltip("sl_i2crail"):
                 dpg.add_text(self.i2c_verify_description(), wrap=self.s(340))
         with dpg.table_row():
@@ -4076,6 +4086,14 @@ class Druta:
         self.sync_i2c_write_status()
 
     def i2c_verify_description(self):
+        if getattr(self.rail, "requires_voltage_clamp", False):
+            return ("Manual PMBus control bypasses the GPU's VID request. Apply and Verify "
+                    "first clamp graphics to the driver's minimum lockable clock and "
+                    "wait for observed clocks to settle. Auto returns control to GPU VID; "
+                    "Release and exit restore the captured controller entry before "
+                    "releasing this window's clamp. The nominal request and controller "
+                    "report are not calibrated physical voltage. Profiles do not save "
+                    "this session-only manual setting.")
         if getattr(self.rail, "multi_state_offset", False):
             return ("Stages one common positive offset for LCS0-LCS4 in 10 mV steps. "
                     "Verify checks feedback at the sampled operating point, then restores "
@@ -4096,7 +4114,17 @@ class Druta:
             verified = self.i2c_verified()
             status = ("Write path verified this session" if verified
                       else "Write path unverified - Verify first")
+            method = getattr(self.rail, "control_method", None)
+            if method in self.I2C_VOLTAGE_METHODS:
+                name = "GPU VID offset" if method == "offset" else "Manual PMBus"
+                status = (f"{name} method verified this session" if verified
+                          else f"{name} method unverified - Verify first")
             failed = False
+            if (getattr(self.rail, "requires_voltage_clamp", False)
+                    and getattr(self, "_i2c_manual_restore_error", None)):
+                verified = False
+                failed = True
+                status = self._i2c_manual_restore_error
             if getattr(self.rail, "multi_state_offset", False):
                 owner, tel = getattr(self, "_i2c_offset_telemetry", (None, {}))
                 locked = tel.get("write_locked") if owner is self.rail else None
@@ -4140,7 +4168,7 @@ class Druta:
         self.sync_i2c_write_status()
 
     def i2c_rail_text(self, vc):
-        """Measured rail, and its disagreement with the GPU's own reading."""
+        """Controller voltage report, with an optional driver comparison."""
         if self.rail is None or not dpg.does_item_exist("live_i2crail"):
             return None
         # The NCT3933U is a current DAC.  It has no regulator VOUT telemetry,
@@ -4170,6 +4198,9 @@ class Druta:
                 if measured is None:
                     self.invalidate_i2c_verification()
                     return None
+                if getattr(self.rail, "controller_reported_vout", False):
+                    mode = "Auto; " if tel.get("target_mv") is None else ""
+                    return f"{mode}controller reported {measured:.9g} mV"
                 return (f"Auto {measured:.9g}" if tel.get("target_mv") is None
                         else f"{measured:.9g} mV")
             v = self.rail.read_vout()
@@ -4181,6 +4212,8 @@ class Druta:
         if v is None:
             self.invalidate_i2c_verification()
             return None
+        if getattr(self.rail, "controller_reported_vout", False):
+            return f"controller reported {v:.9g} mV"
         if not vc or self.rail.p.read_only or not self.i2c_verified():
             return f"{v:.9g} mV"
         return f"{v:.9g} mV  ({v - vc:+.9g} vs GPU)"
@@ -4489,7 +4522,8 @@ class Druta:
 
     def find_rail(self):
         """Compatibility synchronous scan for callers outside the interactive UI."""
-        self.clear_i2c_discovery()
+        if self.clear_i2c_discovery() is False:
+            return
         if railctl is None:
             return
         try:
@@ -4502,6 +4536,15 @@ class Druta:
 
     def clear_i2c_discovery(self):
         """Discard a scan result; it never belongs to a different GPU or mode."""
+        if getattr(self, "_i2c_busy", False):
+            self.log("wait for I2C verification and restoration before disconnecting", False)
+            return False
+        if (getattr(self, "_i2c_manual_voltage", None)
+                or getattr(self, "_i2c_manual_clock_for", None)):
+            ok, message = self._finish_manual_voltage("disconnecting I2C")
+            self.log(message, ok)
+            if not ok:
+                return False
         self.rail = None
         self._i2c_recovery_for = None
         self._rail_candidates = []
@@ -4509,6 +4552,7 @@ class Druta:
         self._i2c_scan_work = (0, 0, "")
         self._i2c_discovery_complete = False
         self.invalidate_i2c_verification()
+        return True
 
     def cancel_i2c_discovery(self, *, clear=False):
         """Cancel publication of a read-only scan without waiting for its bus reads."""
@@ -4558,7 +4602,7 @@ class Druta:
                       or getattr(self, "_profile_applying", False))
         # Leave Connect / Scan clickable while I2C rail is unticked. The click
         # flickers the checkbox and does not touch the bus.
-        for tag in ("i2c_rescan", "i2c_full_scan", "i2c_controller"):
+        for tag in ("i2c_rescan", "i2c_full_scan", "i2c_controller", "i2c_control_method"):
             if dpg.does_item_exist(tag):
                 dpg.configure_item(tag, enabled=bool(not busy and not other_work))
         if dpg.does_item_exist("i2c_candidate"):
@@ -4583,7 +4627,8 @@ class Druta:
                 self.flash_gate("i2c_mode", ("in_i2crail", "in_icxnv", "in_icxfb"))
             self.log("tick 'I2C rail' before scanning this GPU's regulator buses", False)
             return False
-        self.clear_i2c_discovery()
+        if self.clear_i2c_discovery() is False:
+            return False
         self._i2c_scan_scope = controller
         self._i2c_scan_busy = True
         self._i2c_scan_started = time.monotonic()
@@ -4699,7 +4744,7 @@ class Druta:
         """Save only a selected, published route; never settings or verification."""
         try:
             if self.rail is not None:
-                i2c_cache.remember(self.gpu, self.rail)
+                i2c_cache.remember(self.gpu, self.i2c_discovery_candidate(self.rail))
         except Exception as exc:                                # noqa: BLE001
             self.log(f"I2C route could not be saved: {exc}", False)
 
@@ -4716,7 +4761,16 @@ class Druta:
             return
         self._i2c_controller_choice = app_data
 
+    @staticmethod
+    def i2c_discovery_candidate(rail):
+        """Different control recipes remain one physical discovery result."""
+        return getattr(rail, "discovery_candidate", rail)
+
+    I2C_VOLTAGE_METHODS = {"offset": "MP2888A (ASUS Turing)",
+                          "pmbus": "MP2888A (ASUS Ampere)"}
+
     def i2c_candidate_label(self, rail):
+        rail = self.i2c_discovery_candidate(rail)
         candidates = getattr(self, "_rail_candidates", [])
         index = next((i + 1 for i, r in enumerate(candidates) if r is rail), 0)
         return f"{index}: {rail.p.regulator} - port {rail.p.port}, 0x{rail.addr7:02X}"
@@ -5269,7 +5323,8 @@ class Druta:
         self._icx_status(self._icx_after_clamp(clamp_msg, result), result[0])
         self.refresh_icx_requests()
 
-    def clamp_usage_for_voltage(self, *, request="voltage"):
+    def clamp_usage_for_voltage(self, *, request="voltage", controller="iCX",
+                                settle=False, cancelled=None):
         """Hold graphics at the driver's lowest lockable clock.
 
         A negative offset still lets the boost curve run. This pins both
@@ -5280,16 +5335,207 @@ class Druta:
         """
         floor = (getattr(self.gpu, "static", None) or {}).get("gfx_min")
         if not floor:
-            return False, (f"iCX {request} was not sent: the driver reported "
+            return False, (f"{controller} {request} was not sent: the driver reported "
                            "no minimum lockable clock")
         if not self.handover(self.LOCK_NVML):
-            return False, (f"iCX {request} was not sent: the current lock "
+            return False, (f"{controller} {request} was not sent: the current lock "
                            "could not be released")
         ok, message = self.gpu.lock_gpu_clocks(floor, floor)
         if not ok:
-            return False, f"iCX {request} was not sent: " + message
+            return False, f"{controller} {request} was not sent: " + message
         self.record_clock_lock()
+        if settle:
+            self._i2c_manual_clock_for = {"gpu": self.gpu,
+                                          "requested": (self._clk_lock.get("lo"),
+                                                        self._clk_lock.get("hi"))}
+            try:
+                self._manual_voltage_point(self.gpu, cancelled=cancelled, settle=True)
+            except Exception as exc:                            # noqa: BLE001
+                return False, f"{controller} {request} was not sent: {exc}; the clock clamp is kept"
         return True, message
+
+    def _manual_voltage_point(self, gpu, *, cancelled=None, settle=False):
+        """Observe the owned floor lock and physical clocks before a manual write."""
+        lock = getattr(self, "_clk_lock", None) or {}
+        floor = lock.get("hi")
+        if (gpu is not self.gpu or lock.get("kind") != self.LOCK_NVML
+                or not lock.get("verified") or lock.get("lo") != floor
+                or type(floor) is not int or floor <= 0):
+            raise RuntimeError("the owned minimum-clock clamp is unavailable")
+        deadline, stable, last = time.monotonic() + 3.0, 0, None
+        while True:
+            if cancelled is not None and cancelled():
+                raise RuntimeError("manual voltage operation cancelled")
+            requested, error = gpu.read_clk_lock_status()
+            if error or requested != (floor, floor):
+                raise RuntimeError(error or "the owned clock clamp changed")
+            sample = gpu.read()
+            point = tuple(sample.get(k) for k in ("pstate", "core", "mem"))
+            core = point[1]
+            valid = type(core) in (int, float) and math.isfinite(core) and 0 < core <= floor
+            if valid and (not settle or core == last):
+                stable += 1
+                if not settle or stable >= 3:
+                    return point
+            else:
+                stable = 0
+            last = core
+            if not settle or time.monotonic() >= deadline:
+                raise RuntimeError("observed GPU clocks did not settle at the minimum clock")
+            time.sleep(0.1)
+
+    def _prepare_manual_voltage(self, *, recovery=False):
+        """Capture controller ownership, then acquire an observed low-clock clamp."""
+        rail, gpu = self.rail, self.gpu
+        owned = getattr(self, "_i2c_manual_voltage", None)
+        try:
+            control = rail.capture_control()
+            if not recovery:
+                rail.validate_control(control, xoc=True)
+            if owned and (owned["gpu"] is not gpu or owned["rail"] is not rail
+                          or owned["connection"] != self.i2c_connection()
+                          or control != owned["expected"]):
+                raise RuntimeError("the owned controller state changed; no new request issued")
+            held, error = gpu.read_vf_lock_status()
+            if error:
+                raise RuntimeError(error)
+            lock = getattr(self, "_clk_lock", None) or {}
+            if held is not None and not (
+                    lock.get("kind") == self.LOCK_VF and lock.get("verified", True)
+                    and held.get("volt_uV") == int(round(lock.get("req_mv", 0) * 1000))):
+                raise RuntimeError("another client's V/F hold is active; release it in that client first")
+            requested, error = gpu.read_clk_lock_status()
+            if error:
+                raise RuntimeError(error)
+            if requested is not None and not (
+                    lock.get("kind") == self.LOCK_NVML and lock.get("verified")
+                    and requested == (lock.get("lo"), lock.get("hi"))):
+                raise RuntimeError("another client's frequency lock is active; release it in that client first")
+        except Exception as exc:                                # noqa: BLE001
+            return False, f"manual PMBus request blocked: {exc}"
+        ok, message = self.clamp_usage_for_voltage(controller=rail.p.regulator, settle=True)
+        if not ok:
+            return ok, message
+        # Handover may have restored an earlier manual request before moving
+        # from a V/F hold. Retain the actual entry at this newly owned clamp.
+        try:
+            current = rail.capture_control()
+            if not recovery:
+                rail.validate_control(current, xoc=True)
+            if current != control:
+                raise RuntimeError("controller state changed while acquiring the clock clamp")
+        except Exception as exc:                                # noqa: BLE001
+            return False, f"manual PMBus request blocked: {exc}; the clock clamp is kept"
+        if owned is None:
+            self._i2c_manual_voltage = {"gpu": gpu, "rail": rail,
+                                        "connection": self.i2c_connection(),
+                                        "entry": dict(control), "expected": dict(control)}
+        return True, message
+
+    def _manual_voltage_failure(self, message):
+        self.invalidate_i2c_verification()
+        self._i2c_restore_failed = True
+        self._i2c_restore_error = message
+        self._i2c_manual_restore_error = message
+
+    def _restore_manual_voltage(self, reason, *, auto=False):
+        """Restore the captured controller before any owned clock is released.
+
+        Controller recovery deliberately needs no GPU temperature or current
+        clock sample. Its backend compares the owned controller command and
+        all captured context, so another client's replacement is not undone.
+        """
+        owned = getattr(self, "_i2c_manual_voltage", None)
+        if owned is None:
+            return True, "no session manual PMBus request to restore"
+        try:
+            rail = owned["rail"]
+            result = (rail.reset(expected=owned["expected"]) if auto else
+                      rail.restore_control(owned["entry"], expected=owned["expected"], recovery=True))
+            recover = getattr(rail, "recover_control", None)
+            if (not result[0] and callable(recover)
+                    and getattr(rail, "pending_recovery_states", ())):
+                # The backend retains only this transaction's exact captured
+                # and attempted states. It refuses any foreign replacement;
+                # the UI never adopts an arbitrary fresh controller read.
+                recovered = recover(owned["entry"])
+                if recovered[0]:
+                    owned["expected"] = dict(owned["entry"])
+                    result = rail.reset(expected=owned["expected"]) if auto else recovered
+                else:
+                    result = False, result[1] + "; owned recovery: " + recovered[1]
+        except Exception as exc:                                # noqa: BLE001
+            result = False, f"{type(exc).__name__}: {exc}"
+        if not result[0]:
+            message = f"{reason}: PMBus controller restoration failed: {result[1]}; the clock clamp is kept"
+            self._manual_voltage_failure(message)
+            return False, message
+        self._i2c_manual_voltage = None
+        previous = getattr(self, "_i2c_manual_restore_error", None)
+        if previous and getattr(self, "_i2c_restore_error", None) == previous:
+            self._i2c_restore_failed = False
+            self._i2c_restore_error = ""
+        self._i2c_manual_restore_error = None
+        return True, f"{reason}: {result[1]}"
+
+    def _release_manual_voltage_clock(self, *, explicit=False):
+        """Release only the unchanged frequency request recorded by this window."""
+        owned = getattr(self, "_i2c_manual_clock_for", None)
+        if owned is None:
+            return None
+        gpu = owned["gpu"]
+        lock = getattr(self, "_clk_lock", None) or {}
+        if gpu is not self.gpu or lock.get("kind") != self.LOCK_NVML or not lock.get("verified"):
+            return False, "the manual-voltage clock ownership is unconfirmed; nothing released", False
+        try:
+            requested, error = gpu.read_clk_lock_status()
+        except Exception as exc:                                # noqa: BLE001
+            requested, error = None, str(exc)
+        if error:
+            return False, f"clock clamp release blocked: {error}", False
+        if requested is not None and requested != (lock.get("lo"), lock.get("hi")):
+            self._i2c_manual_clock_for = None
+            return True, "the owned clock request was replaced; the other client's lock is untouched", True
+        if (not explicit and requested is not None
+                and requested != owned["requested"]):
+            return True, "the newer clock request taken by this window is kept", False
+        previous = owned.get("restore")
+        if previous is not None and not explicit and requested is not None:
+            result = gpu.lock_gpu_clocks(previous["lo"], previous["hi"])
+            if not result[0]:
+                return False, "previous clock request could not be restored: " + result[1], False
+            self._clk_lock = dict(previous, verified=False)
+            self._i2c_manual_clock_ui_pending = True
+            try:
+                current, error = gpu.read_clk_lock_status()
+            except Exception as exc:                            # noqa: BLE001
+                current, error = None, str(exc)
+            if error or current != (previous["lo"], previous["hi"]):
+                return False, "previous clock request readback failed: " + (error or "request changed"), False
+            self._clk_lock = dict(previous)
+            self._i2c_manual_clock_for = None
+            self._i2c_manual_clock_ui_pending = True
+            return True, "previous owned frequency lock restored", False
+        result = ((True, "the owned clock clamp is already released") if requested is None
+                  else gpu.reset_gpu_clocks())
+        if result[0]:
+            self._i2c_manual_clock_for = None
+        return result[0], result[1], bool(result[0])
+
+    def _finish_manual_voltage(self, reason, *, auto=False, sync=True):
+        ok, message = self._restore_manual_voltage(reason, auto=auto)
+        if not ok:
+            return ok, message
+        released = self._release_manual_voltage_clock()
+        if released is not None:
+            if released[0] and released[2]:
+                if sync:
+                    self.set_lock_state(None)
+                else:
+                    self._clk_lock = None  # worker publishes UI refresh after restoration
+                    self._i2c_manual_clock_ui_pending = True
+            return released[0], message + "; " + released[1]
+        return ok, message
 
     @staticmethod
     def _icx_after_clamp(clamp_msg, result):
@@ -5358,6 +5604,7 @@ class Druta:
             dpg.add_text(prompt, color=WARN)
             return
         dpg.add_text(self.rail.p.name, color=DIM)
+        self.build_i2c_control_method()
         if getattr(self.rail, "icx_mcu", False):
             # An identified controller keeps its controls through a transient
             # read failure. Refresh marks unavailable fields; Apply rechecks.
@@ -5405,6 +5652,67 @@ class Druta:
         self.sync_risk_ui()
         self.relayout()
 
+    def build_i2c_control_method(self):
+        """Expose control recipes separately from the selected physical route."""
+        method = getattr(self.rail, "control_method", None)
+        candidate = self.i2c_discovery_candidate(self.rail)
+        if method not in self.I2C_VOLTAGE_METHODS or not callable(
+                getattr(candidate, "for_control_method", None)):
+            return
+        dpg.add_combo(list(self.I2C_VOLTAGE_METHODS.values()), label="Control recipe",
+                      default_value=self.I2C_VOLTAGE_METHODS[method],
+                      tag="i2c_control_method", width=self.s(260),
+                      callback=self.select_i2c_control_method)
+        description = ("GPU VID offset in mV. Uses the existing offset register; "
+                       "Verify checks this method separately." if method == "offset" else
+                       "Manual nominal PMBus voltage in mV. Verify/Apply first clamp graphics "
+                       "clocks; Auto restores GPU VID.")
+        dpg.add_text(description, color=DIM, wrap=self.s(sum(self.KNOB_COLS)))
+        with dpg.tooltip("i2c_control_method"):
+            dpg.add_text("These are selectable control recipes for the same controller. "
+                         "Selecting a recipe does not activate it or change the bus route. "
+                         "Each recipe needs its own Verify. Leaving a manual request first "
+                         "restores this session's captured entry before releasing its clamp.",
+                         wrap=self.s(340))
+
+    def select_i2c_control_method(self, sender=None, app_data=None, user_data=None):
+        candidate = self.i2c_discovery_candidate(self.rail)
+        factory = getattr(candidate, "for_control_method", None)
+        current = getattr(self.rail, "control_method", None)
+        method = next((key for key, label in self.I2C_VOLTAGE_METHODS.items()
+                       if label == app_data), None)
+        if not callable(factory) or method is None or current == method:
+            return False
+
+        def revert():
+            if dpg.does_item_exist("i2c_control_method") and current in self.I2C_VOLTAGE_METHODS:
+                dpg.set_value("i2c_control_method", self.I2C_VOLTAGE_METHODS[current])
+
+        if (getattr(self, "_i2c_busy", False) or getattr(self, "_i2c_scan_busy", False)
+                or getattr(self, "_profile_pending", None)
+                or getattr(self, "_profile_applying", False)):
+            self.log("wait for I2C/profile work before changing the control recipe", False)
+            revert()
+            return False
+        try:
+            chosen = factory(method)
+        except Exception as exc:                                # noqa: BLE001
+            self.log(f"control recipe unavailable: {exc}", False)
+            revert()
+            return False
+        ok, message = self._finish_manual_voltage("changing the control recipe")
+        if not ok:
+            self.log(message, False)
+            revert()
+            return False
+        self.invalidate_i2c_verification()
+        self._i2c_recovery_for = None
+        self.rail = chosen
+        self.refresh_i2c_candidates()
+        self.log(self.I2C_VOLTAGE_METHODS[method] + " selected; press Verify for this method "
+                 "before applying a request", True)
+        return True
+
     def select_i2c_candidate(self, sender=None, app_data=None, user_data=None):
         if (getattr(self, "_i2c_busy", False) or getattr(self, "_i2c_scan_busy", False)
                 or getattr(self, "_profile_pending", None)
@@ -5416,7 +5724,11 @@ class Druta:
             return False
         chosen = next((r for r in self._rail_candidates
                        if self.i2c_candidate_label(r) == app_data), None)
-        if chosen is None or chosen is self.rail:
+        if chosen is None or chosen is self.i2c_discovery_candidate(self.rail):
+            return False
+        ok, message = self._finish_manual_voltage("selecting another controller")
+        if not ok:
+            self.log(message, False)
             return False
         self.invalidate_i2c_verification()
         self._i2c_recovery_for = None
@@ -5450,7 +5762,17 @@ class Druta:
 
     def on_i2c_mode(self, sender=None, app_data=None, user_data=None):
         """Reveal manual scan controls; checking this never accesses the bus."""
+        if (getattr(self, "_i2c_busy", False) or getattr(self, "_profile_pending", None)
+                or getattr(self, "_profile_applying", False)):
+            self.sync_verification_ui()
+            return
         enabled = bool(app_data) if app_data is not None else bool(dpg.get_value("i2c_mode"))
+        if not enabled:
+            ok, message = self._finish_manual_voltage("disabling I2C")
+            if not ok:
+                self.log(message, False)
+                dpg.set_value("i2c_mode", True)
+                return
         self.sync_risk_ui()
         if enabled:
             if dpg.does_item_exist("i2c_regulator_header"):
@@ -5476,6 +5798,16 @@ class Druta:
             return False, "no I2C controller has been detected; no reset write issued"
         if getattr(self.rail, "icx_mcu", False):
             return False, "Use NVVDD Auto explicitly; FBVDD has a separate request. Nothing was written."
+        if getattr(self.rail, "requires_voltage_clamp", False):
+            if getattr(self, "_i2c_manual_voltage", None) is None:
+                # Explicit Auto can recover a known manual-mode controller
+                # without first authorizing a new voltage request.
+                if autosave:
+                    self.autosave_before("i2c-voltage-auto")
+                ok, message = self._prepare_manual_voltage(recovery=True)
+                if not ok:
+                    return ok, message
+            return self._finish_manual_voltage("Auto", auto=True)
         if getattr(self.rail, "current_dac", False):
             ok, why = self.i2c_gate()
             if not ok:
@@ -5595,6 +5927,10 @@ class Druta:
         # this I2C controller.
         if dpg.does_item_exist("nct_read_settings"):
             dpg.configure_item("nct_read_settings", enabled=not busy)
+        if dpg.does_item_exist("i2c_control_method"):
+            dpg.configure_item("i2c_control_method", enabled=not busy
+                               and not getattr(self, "_i2c_scan_busy", False)
+                               and not getattr(self, "_profile_applying", False))
 
     def shutdown_is_clean(self):
         worker = getattr(self, "_i2c_thread", None)
@@ -5603,6 +5939,8 @@ class Druta:
                     or getattr(self, "_i2c_restore_failed", False)
                     or getattr(self, "_profile_pending", None)
                     or getattr(self, "_profile_applying", False)
+                    or getattr(self, "_i2c_manual_voltage", None)
+                    or getattr(self, "_i2c_manual_clock_for", None)
                     or getattr(self, "_clk_lock", None)
                     or getattr(self.gpu, "legacy_p0_owned", lambda: False)()
                     or self.vf_recovery_pending())
@@ -5675,6 +6013,24 @@ class Druta:
         if not avail:
             self.log("verify: " + msg, False)
             return
+        manual = bool(getattr(self.rail, "requires_voltage_clamp", False))
+        if manual:
+            current = getattr(self, "_clk_lock", None) or {}
+            if current and current.get("kind") != self.LOCK_NVML:
+                self.log("verify: release this window's V/F or P0 hold before manual PMBus verification", False)
+                return
+            ok, message = self._finish_manual_voltage("preparing Verify")
+            if ok:
+                previous = getattr(self, "_clk_lock", None)
+                previous = dict(previous) if previous else None
+                ok, message = self._prepare_manual_voltage()
+                if previous and getattr(self, "_i2c_manual_clock_for", None):
+                    self._i2c_manual_clock_for["restore"] = previous
+            if not ok:
+                self.log("verify: " + message, False)
+                restored, cleanup = self._finish_manual_voltage("Verify preparation failed")
+                self.log(cleanup, restored)
+                return
         self._i2c_busy = True
         self._i2c_ui_pending = True
         self.invalidate_i2c_verification()
@@ -5705,6 +6061,9 @@ class Druta:
         except Exception as exc:
             self._i2c_busy = False
             self._i2c_thread = None
+            if manual:
+                restored, message = self._finish_manual_voltage("Verify could not start")
+                self.log(message, restored)
             self.sync_lock_ui()
             self.log(f"verify could not start: {exc}", False)
 
@@ -5726,6 +6085,7 @@ class Druta:
         rail._verification_write_attempted = False
         rail._verification_restore_ok = True
         rail._verification_restore_error = ""
+        manual = bool(getattr(rail, "requires_voltage_clamp", False))
         try:
             voltage_only = self._voltage_only_verification(rail)
             voltage = None
@@ -5737,16 +6097,32 @@ class Druta:
                 voltage = out.get("result")
                 if voltage is None:
                     raise RuntimeError("loaded operating voltage is unavailable; nothing written")
-            self.log("verify: acquiring a temporary hold and waiting for confirmed P0", None)
-            res["v"] = gpuload.verify_in_p0(
-                gpu, lambda point: rail.verify(
+            if manual:
+                self.log("verify: using the observed minimum-clock clamp; nominal PMBus requests "
+                         "and controller reports do not establish physical calibration", None)
+                res["v"] = rail.verify(
                     acknowledged=True, log=lambda m: self.log("  " + m, None),
-                    cancelled=cancel.is_set, operating_point=point),
-                cancelled=cancel.is_set, voltage_mv=voltage,
-                require_stable_clocks=not voltage_only)
+                    cancelled=cancel.is_set, operating_point=lambda:
+                    self._manual_voltage_point(gpu, cancelled=cancel.is_set))
+            else:
+                self.log("verify: acquiring a temporary hold and waiting for confirmed P0", None)
+                res["v"] = gpuload.verify_in_p0(
+                    gpu, lambda point: rail.verify(
+                        acknowledged=True, log=lambda m: self.log("  " + m, None),
+                        cancelled=cancel.is_set, operating_point=point),
+                    cancelled=cancel.is_set, voltage_mv=voltage,
+                    require_stable_clocks=not voltage_only)
         except Exception as e:                                  # noqa: BLE001
             res["err"] = f"{type(e).__name__}: {e}"
         try:
+            if manual:
+                if not getattr(rail, "_verification_restore_ok", False):
+                    detail = getattr(rail, "_verification_restore_error", "entry setting unconfirmed")
+                    self._manual_voltage_failure(detail)
+                else:
+                    restored, message = self._finish_manual_voltage("Verify cleanup", sync=False)
+                    if not restored:
+                        res["err"] = (res.get("err", "") + "; " + message).lstrip("; ")
             if getattr(rail, "_verification_write_attempted", False):
                 if connection == self.i2c_connection():
                     self._i2c_recovery_for = connection
@@ -5828,9 +6204,33 @@ class Druta:
                 self.log(f"load-state offset capture failed: {exc}; nothing written", False)
                 return
         self.autosave_before("i2c-rail-offset")
+        manual = bool(getattr(self.rail, "requires_voltage_clamp", False))
+        if manual:
+            ok, message = self._prepare_manual_voltage()
+            self.log(message, ok)
+            if not ok:
+                return
+            expected = self._i2c_manual_voltage["expected"]
         setter = (self.rail.set_voltage_mv if getattr(self.rail, "absolute_voltage", False)
                   else self.rail.set_offset_mv)
-        result = setter(v, acknowledged=True, **({"expected": expected} if multi else {}))
+        try:
+            if manual:
+                self._manual_voltage_point(self.gpu)
+            result = setter(v, acknowledged=True,
+                            **({"expected": expected} if multi or manual else {}))
+            if manual and result[0]:
+                written = getattr(self.rail, "last_written_control", None)
+                if not isinstance(written, dict):
+                    raise RuntimeError("the confirmed manual request is unavailable; clock clamp kept")
+                self._i2c_manual_voltage["expected"] = dict(written)
+        except Exception as exc:                                # noqa: BLE001
+            if not manual:
+                raise
+            result = False, f"manual voltage request failed: {exc}"
+            if manual:
+                self._manual_voltage_failure(result[1])
+        if manual and not result[0] and not getattr(self.rail, "_verification_restore_ok", True):
+            self._manual_voltage_failure(result[1])
         self.report(result)
         if multi:
             self._multi_state_offset_failure(result)
@@ -6237,6 +6637,14 @@ class Druta:
         an unrecorded V/F lock - that one is almost certainly another tuner's
         (this card was found holding Afterburner's), and taking someone else's
         lock away because a button was nearby is not this app's business."""
+        if getattr(self, "_i2c_busy", False):
+            return False, "wait for I2C verification and restoration before releasing the clock"
+        ok, message = self._restore_manual_voltage("releasing the clock")
+        if not ok:
+            return ok, message
+        released = self._release_manual_voltage_clock(explicit=True)
+        if released is not None:
+            return released[:2]
         if self.vf_recovery_pending():
             pending = getattr(self.gpu, "_vf_lock_recovery", {}) or {}
             previous = (self._clk_lock if pending.get("verification") else
@@ -6277,6 +6685,11 @@ class Druta:
         Returns False when the old lock could NOT be released, in which case
         the new one must not be taken either: the record has to keep describing
         what the card is really doing."""
+        if kind != self.LOCK_NVML:
+            ok, message = self._restore_manual_voltage("changing clock mechanism")
+            if not ok:
+                self.log(message, False)
+                return False
         if self.vf_recovery_pending():
             self.log("V/F lock recovery is pending; use Release before taking another lock", False)
             return False
@@ -6408,6 +6821,11 @@ class Druta:
         # be taken off, the V/F lock is KEPT: an idle card held in P0 costs
         # power, but an unpinned card under a raised ceiling can run above the
         # user's voltage limit. The crash marker stays, so the next start says so.
+        ok, message = self._restore_manual_voltage("exit")
+        if not ok:
+            print(message)
+            self.log(message, False)
+            return
         vf_held = (self._clk_lock or {}).get("kind") == self.LOCK_VF
         if self.headroom_raise_pending():
             # guarded: nothing here may stop the lock release below from running
@@ -7421,6 +7839,13 @@ class Druta:
                      "and resets the V/F curve - press again to confirm", False)
             return
         self._reset_armed = False
+        manual_reset = bool(self.rail is not None
+                            and getattr(self.rail, "requires_voltage_clamp", False))
+        if manual_reset:
+            ok, message = self.reset_i2c_rail()
+            self.log(message, ok)
+            if not ok:
+                return
         # The backend reset clears the V/F lock even when its rail step fails;
         # take the headroom raise off first, while the lock still holds the point.
         if not self.restore_headroom_before_unpin("Reset all"):
@@ -7472,7 +7897,7 @@ class Druta:
         # thing on this tab a reboot will not undo, so it gets its own line
         # rather than being folded into the general success count - somebody
         # reading the log needs to see that this specific undo happened.
-        if (self.rail is not None
+        if (not manual_reset and self.rail is not None
                 and (getattr(self.rail, "current_dac", False)
                      or dpg.does_item_exist("sl_i2crail"))):
             # One undo point, taken before the GPU reset. Only if it came out
@@ -9959,8 +10384,9 @@ deliberately does not put behind a button."""
         """A saved exact connection can disambiguate discovery without a write."""
         saved = state.get("i2c")
         if not isinstance(saved, dict) or not saved:
-            return self.rail
-        candidates = getattr(self, "_rail_candidates", [self.rail] if self.rail else [])
+            return self.i2c_discovery_candidate(self.rail)
+        candidates = getattr(self, "_rail_candidates",
+                             [self.i2c_discovery_candidate(self.rail)] if self.rail else [])
         matching = [r for r in candidates
                     if all(saved.get(k) == v for k, v in profiles.rail_identity(r).items())]
         return matching[0] if len(matching) == 1 else None
@@ -9997,6 +10423,10 @@ deliberately does not put behind a button."""
     def begin_profile_load(self, name, state, automatic=False):
         if not self.guard() or self._i2c_busy:
             self.profile_failure("profile load blocked by another operation or locked controls", automatic)
+            return
+        ok, message = self._finish_manual_voltage("loading a profile")
+        if not ok:
+            self.profile_failure(message, automatic)
             return
         if (state.get("i2c") and hasattr(self, "_i2c_discovery_complete")
                 and not self._i2c_discovery_complete):
@@ -10064,6 +10494,13 @@ deliberately does not put behind a button."""
     def poll_profile_load(self):
         if getattr(self, "_i2c_ui_pending", False) and not self._i2c_busy:
             self._i2c_ui_pending = False
+            if getattr(self, "_i2c_manual_clock_ui_pending", False):
+                self._i2c_manual_clock_ui_pending = False
+                lock = getattr(self, "_clk_lock", None) or {}
+                self.set_lock_state(lock or None)
+                for tag, field in (("lock_min", "lo"), ("lock_max", "hi")):
+                    if lock.get(field) is not None and dpg.does_item_exist(tag):
+                        dpg.set_value(tag, lock[field])
             self.sync_i2c_write_status()
             self.sync_lock_ui()
         pending = self._profile_pending
@@ -11915,7 +12352,9 @@ deliberately does not put behind a button."""
         than by blocking, because an induce can hold the card for 25 s and
         refusing to switch for that long would be worse than dropping its
         result."""
-        if (getattr(self, "_clk_lock", None) or self.vf_recovery_pending()
+        if (getattr(self, "_i2c_manual_voltage", None)
+                or getattr(self, "_i2c_manual_clock_for", None)
+                or getattr(self, "_clk_lock", None) or self.vf_recovery_pending()
                 or getattr(self.gpu, "legacy_p0_owned", lambda: False)()):
             self.log("release the current card's hold or pending V/F recovery before switching", False)
             return False

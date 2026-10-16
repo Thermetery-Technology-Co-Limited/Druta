@@ -328,6 +328,7 @@ def clock_controls(gpu):
 
 
 def capture_rails(gpu, state, rail):
+    captured_rail = rail
     state.update(rail_limits_mv={}, rail_limits_uv={}, nvvdd_offset_mv=None, msvdd_offsets_mv={},
                  clock_domain_offsets_mhz={}, i2c=None,
                  xoc=bool(getattr(gpu, "voltage_xoc_enabled", False)))
@@ -406,7 +407,10 @@ def capture_rails(gpu, state, rail):
             missing.append(f"MSVDD requests NOT captured ({e})")
     if rail is not None and not rail.p.read_only:
         try:
-            if getattr(rail, "current_dac", False):
+            owned_manual = getattr(rail, "has_owned_manual_control", None)
+            if callable(owned_manual) and owned_manual():
+                missing.append(f"{rail.p.regulator} manual voltage is session-only; not saved")
+            elif getattr(rail, "current_dac", False):
                 control = rail.capture_control()
                 rail.validate_control(control, xoc=None)
                 state["i2c"] = dict(rail_identity(rail), format=CURRENT_DAC_FORMAT,
@@ -422,6 +426,24 @@ def capture_rails(gpu, state, rail):
                     control = rail.capture_control()
                     state["i2c"] = dict(rail_identity(rail), format=MULTI_STATE_OFFSET_FORMAT,
                                         control=control, display_name=rail.p.name)
+            elif getattr(rail, "session_only_voltage", False):
+                # Manual PMBus voltage needs an owned frequency clamp and a
+                # controller-before-clock handback. A serialized command alone
+                # does not carry that lifetime or its recovery ownership.
+                if rail.capture_control().get("enabled"):
+                    missing.append(f"{rail.p.regulator} manual voltage is session-only; not saved")
+                else:
+                    # Choosing the manual recipe does not change hardware.
+                    # In Auto, retain any existing legacy coarse offset and
+                    # its original saved-profile identity/envelope.
+                    canonical = getattr(rail, "discovery_candidate", None)
+                    if canonical is not None and canonical is not rail:
+                        offset = canonical.telemetry().get("offset_mv")
+                        if offset is None:
+                            raise ValueError("legacy offset read failed")
+                        captured_rail = canonical
+                        state["i2c"] = dict(rail_identity(canonical), offset_mv=offset,
+                                            display_name=canonical.p.name)
             elif getattr(rail, "absolute_voltage", False):
                 control = rail.capture_control()
                 state["i2c"] = dict(rail_identity(rail), control=control,
@@ -438,7 +460,8 @@ def capture_rails(gpu, state, rail):
                                     display_name=rail.p.name)
         except Exception as e:
             label = ("I2C current DAC control" if getattr(rail, "current_dac", False)
-                     else "I2C offset")
+                     else ("I2C manual voltage" if getattr(rail, "session_only_voltage", False)
+                           else "I2C offset"))
             missing.append(f"{label} NOT captured ({e})")
     # Unticking XOC does not undo above-normal values already in the card.
     # Replaying that carryover after reboot still needs the wider envelope.
@@ -455,13 +478,13 @@ def capture_rails(gpu, state, rail):
             pass
         elif "control" in state["i2c"]:
             try:
-                rail.validate_control(state["i2c"]["control"], xoc=False)
+                captured_rail.validate_control(state["i2c"]["control"], xoc=False)
             except ValueError:
                 required = True
         else:
             offset = state["i2c"]["offset_mv"]
-            required = required or not (getattr(rail.p, "env_min", -200) <= offset
-                                       <= getattr(rail.p, "env_max", 100))
+            required = required or not (getattr(captured_rail.p, "env_min", -200) <= offset
+                                       <= getattr(captured_rail.p, "env_max", 100))
     state["xoc"] = state["xoc"] or required
 
 
@@ -846,6 +869,18 @@ def preflight(gpu, state, rail=None, *, apply_curve=True):
         i2c = state.get("i2c")
         nvvdd = state.get("nvvdd_offset_mv")
         msvdd = state.get("msvdd_offsets_mv") or {}
+        owned_manual = getattr(rail, "has_owned_manual_control", None)
+        if callable(owned_manual) and owned_manual():
+            raise ValueError("return the owned manual PMBus control to Auto before loading a profile")
+        if rail is not None and getattr(rail, "session_only_voltage", False):
+            if i2c:
+                raise ValueError(
+                    f"{rail.p.regulator} manual voltage is session-only; "
+                    "saved I2C controls and legacy offsets cannot be replayed")
+            control = rail.capture_control()
+            if control.get("enabled"):
+                raise ValueError(
+                    f"return {rail.p.regulator} to Auto before loading a clock profile")
         if not (limits or offsets or i2c or msvdd or nvvdd is not None):
             return None
         error = strict_device_error(state, gpu)
