@@ -162,6 +162,59 @@ builds were then rebuilt from commit `8ff7fdd`. Each frozen
 `Druta.exe --smoke-test` exited 0, parsed both bundled regulator profiles and
 rendered three frames.
 
+## Shared feature update (2026-10-19)
+
+The draft now carries the shared Druta 1.8.1 source (main `81094be`, pull
+requests #28 through #37). From 1.7.0 it gains Ampere rail-limit,
+clock-domain and core-current controls, voltage-limit headroom for V/F holds,
+a slider for every power policy and the measured clock on the Monitor tab.
+From 1.8.0 it gains the Ada controls, uP9512R I2C voltage offsets, the EVGA
+RTX 3090 Ti Kingpin iCX controls and presets, graphics V/F shape preservation
+and the Pascal frequency-slider hide. From 1.8.1 it gains the two MP2888A
+control methods. Each keeps main's capability, packet, identity and readback
+checks. The measurements in their release notes come from the named cards on
+Windows 10; none of them is a Windows 7 hardware result.
+
+Two new code paths needed Python 3.8 changes. Saving an iCX preset called
+`Path.write_text(newline=)`, which is Python 3.10+, so it raised before
+writing anything; it now writes through `open()` with the same UTF-8 encoding
+and LF newlines. The Turing frequency-lock check passed `strict=True` to
+`zip()`, which 3.8 rejects whenever both legacy records are present; the
+lengths are checked first, so a plain `zip()` gives the same result. Four new
+MP2888A and uP9512R test modules use the Tomli fallback, and the source
+package lists the 18 public files main's build now publishes. Every new NVML,
+NVAPI and CUDA call goes through the existing export-presence guards, and the
+Windows 7 spec needs no new modules, data or excludes.
+
+Two 1.8.1 features depend on Windows APIs that Windows 7 lacks. Main's
+refusals are unchanged:
+
+- **MP2888A (ASUS Ampere) on a Turing card.** Before taking its own clock
+  clamp, the explicit PMBus method checks that no other client holds a
+  frequency lock. On an unlocked Turing card that check needs the RM
+  frequency-limit records, which Druta reads through `gdi32`'s
+  `D3DKMTEnumAdapters2`. Windows 7 does not export it, so Verify, Apply and
+  Auto recovery for that method are always refused on Turing here. The
+  refusal names the missing export rather than the driver's lock state. The
+  MP2888A (ASUS Turing) offset method does not take a clamp and is
+  unaffected, and Ampere cards do not use this channel.
+- **GPU device restart (PnP).** It needs Windows 10 version 2004 or later,
+  and the recovery helper checks that only after Druta has closed. 1.7.0's
+  "Voltage limits still raised" dialog, shown after a session ended without
+  restoring the headroom it raised, offers this restart. On Windows 7,
+  choosing it, the Panic button or the Device menu entry closes Druta,
+  restarts nothing and reopens it. A startup profile that was waiting does
+  not run, and the dialog returns. Choose **Keep them for now** instead.
+
+On a Windows 10 host, the merged source passed 2,140 tests with stock CPython
+3.8.10, where the three wheel and sdist tests skip, and 2,143 with Python
+3.14.7. Under 3.8.10, the source `druta.py --smoke-test` exited 0, parsed both
+bundled regulator profiles and rendered three frames. The full-interface
+fixture rendered Control, Monitor and Timings (1,063 items, nine frames) with
+no worker or subprocess attempts. The compact and portable Windows 7 packages
+were not rebuilt for this update; the packages described above predate it.
+The Windows 7 guest and physical-GPU checks were not repeated.
+
 ## Verification
 
 Run this on the target Windows 7 installation:
