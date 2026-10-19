@@ -51,8 +51,8 @@ particular GPU. No NVIDIA driver binary is included in the Druta package.
 
 Per-rail voltage-limit writes follow the shared build on every driver. No
 driver version is consulted. They are offered by GPU architecture (Pascal,
-Turing and Blackwell) when the driver resolves and answers the rail-control
-and absolute-status getters, and stay off until the write toggle is
+Turing, Ampere, Ada and Blackwell) when the driver resolves and answers the
+rail-control and absolute-status getters, and stay off until the write toggle is
 selected. Each write also needs the current voltage-boost setting, starts
 from a native RM packet whose layout Druta recognizes exactly, and is
 checked by reading back every rail field and the voltage-boost setting. An
@@ -174,29 +174,37 @@ The draft now carries the shared Druta 1.8.1 source (main `81094be`) through
 the Windows 7 update. Its application code under `src\druta`, outside
 `src\druta\tools`, is still identical to the Windows 7 branch. The new
 features, the two Python 3.8 fixes (iCX preset saving and the Turing
-frequency-lock check) and the Windows 7 differences are described in
-[the Windows 7 record](WINDOWS7.md#shared-feature-update-2026-10-19). Both
-differences apply on Vista too. Vista's `gdi32` does not export
-`D3DKMTEnumAdapters2` either, so the explicit MP2888A PMBus method is refused
-on Turing and the refusal names that export. GPU device restart (PnP) still
-needs Windows 10 version 2004: choosing it, including from 1.7.0's
-"Voltage limits still raised" dialog, closes Druta, restarts nothing and
-reopens it, so choose **Keep them for now** in that dialog instead. Every new
-NVML, NVAPI and CUDA call goes through the existing export-presence guards,
-including for the exports the 365.19 audit lists as absent. The new code adds
-no Win32 call that Vista lacks; its process and timer calls are available
-from Vista on.
+frequency-lock check) and the three Windows API differences are described in
+[the Windows 7 record](WINDOWS7.md#shared-feature-update-2026-10-19). All
+three apply on Vista too:
 
-On a Windows 10 host, the merged source passed 2,158 tests with stock CPython
-3.8.10, where the three wheel and sdist tests skip, and 2,161 with Python
-3.14.7. The patched Vista runtime was not available on that host, so this
-update was not tested under it. Under stock 3.8.10, the source
-`druta.py --smoke-test` exited 0, parsed both bundled regulator profiles and
-rendered three frames. The full-interface fixture rendered Control, Monitor
-and Timings (1,063 items, nine frames) with no worker or subprocess attempts.
-The portable Vista package was not rebuilt for this update; the packages
-described above predate it. The Vista guest and physical NVIDIA checks were
-not repeated.
+- Vista's `gdi32` does not export `D3DKMTEnumAdapters2` either. The
+  current-limit sliders and the power-policy list therefore stay unavailable
+  and report why. That now counts as an unsupported capability rather than a
+  failed read, so profiles stay complete and Reset all does not fail. The
+  explicit MP2888A PMBus method is refused on Turing, and the refusal names
+  that export.
+- GPU device restart (PnP) still needs Windows 10 version 2004. Choosing it,
+  including from 1.7.0's "Voltage limits still raised" dialog, closes Druta,
+  restarts nothing and reopens it, so choose **Keep them for now** in that
+  dialog instead.
+
+Every new NVML, NVAPI and CUDA call goes through the existing export-presence
+guards, including for the exports the 365.19 audit lists as absent. The new
+code adds no Win32 call that Vista lacks; its process and timer calls are
+available from Vista on.
+
+On a Windows 10 host, the merged source passed 2,160 tests with stock CPython
+3.8.10, where the three wheel and sdist tests skip, and 2,163 with Python
+3.14.7. The 3.8.10 run was repeated with a simulated `gdi32` that lacks
+`D3DKMTEnumAdapters2`, with the same result. The patched Vista runtime was
+not available on that host, so this update was not tested under it. Under
+stock 3.8.10, the source `druta.py --smoke-test` exited 0, parsed both
+bundled regulator profiles and rendered three frames. The full-interface
+fixture rendered Control, Monitor and Timings (1,063 items, nine frames) with
+no worker or subprocess attempts. The portable Vista package was not rebuilt
+for this update; the packages described above predate it. The Vista guest
+and physical NVIDIA checks were not repeated.
 
 ## Required Windows components
 
