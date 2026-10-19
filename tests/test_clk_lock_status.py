@@ -46,7 +46,7 @@ class ClockLockStatusTests(unittest.TestCase):
         g._legacy_clk_limit_records = Mock(return_value=None)
         self.assertIsNotNone(g.read_clk_lock_status()[1])
         rows = [[0] * 82 for _ in range(2)]
-        for row, ident in zip(rows, (0x4C, 0x4B), strict=True):
+        for row, ident in zip(rows, (0x4C, 0x4B)):  # zip(strict=True) is 3.10+
             row[0], row[4] = ident, 1
         g._legacy_clk_limit_records.return_value = rows
         self.assertEqual(g.read_clk_lock_status(), (None, None))
