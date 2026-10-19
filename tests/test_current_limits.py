@@ -76,6 +76,7 @@ def fixture(arch=10, newer=False, legacy=False, ampere_layout=False):
     header[12:14] = [1234, 5678]
     fields = dict(hAdapter=3, hDevice=0, Type=0, Flags=8, hContext=0)
     g._capture_current_limit_transport = Mock(return_value=(header, fields))
+    g._legacy_clk_gdi = Mock(return_value=object())  # host-independent: adapter APIs present
 
     def escape(packet, observed_fields):
         assert observed_fields == fields

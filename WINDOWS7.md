@@ -164,16 +164,17 @@ rendered three frames.
 
 ## Shared feature update (2026-10-19)
 
-The draft now carries the shared Druta 1.8.1 source (main `81094be`, pull
-requests #28 through #37). From 1.7.0 it gains Ampere rail-limit,
-clock-domain and core-current controls, voltage-limit headroom for V/F holds,
-a slider for every power policy and the measured clock on the Monitor tab.
-From 1.8.0 it gains the Ada controls, uP9512R I2C voltage offsets, the EVGA
-RTX 3090 Ti Kingpin iCX controls and presets, graphics V/F shape preservation
-and the Pascal frequency-slider hide. From 1.8.1 it gains the two MP2888A
-control methods. Each keeps main's capability, packet, identity and readback
-checks. The measurements in their release notes come from the named cards on
-Windows 10; none of them is a Windows 7 hardware result.
+The draft now carries the shared Druta 1.8.1 source (main `81094be`, through
+#37). From 1.7.0 it gains Ampere rail-limit and clock-domain controls,
+voltage-limit headroom for V/F holds and the measured clock on the Monitor
+tab. From 1.8.0 it gains the Ada controls, uP9512R I2C voltage offsets, the
+EVGA RTX 3090 Ti Kingpin iCX controls and presets, graphics V/F shape
+preservation and the Pascal frequency-slider hide. From 1.8.1 it gains the
+MP2888A explicit PMBus method beside the existing offset method. Each keeps
+main's capability, packet, identity and readback checks. The measurements in
+the release notes come from the cards and drivers named there; none of them
+is a Windows 7 hardware result. 1.7.0's power-policy sliders and Ampere core
+current are carried too, but Windows 7 cannot run them, as described below.
 
 Two new code paths needed Python 3.8 changes. Saving an iCX preset called
 `Path.write_text(newline=)`, which is Python 3.10+, so it raised before
@@ -186,34 +187,47 @@ package lists the 18 public files main's build now publishes. Every new NVML,
 NVAPI and CUDA call goes through the existing export-presence guards, and the
 Windows 7 spec needs no new modules, data or excludes.
 
-Two 1.8.1 features depend on Windows APIs that Windows 7 lacks. Main's
+Three shared features depend on Windows APIs that Windows 7 lacks. Main's
 refusals are unchanged:
 
-- **MP2888A (ASUS Ampere) on a Turing card.** Before taking its own clock
+- **Current limits and power policies.** Every current-limit slider (Pascal
+  and Turing since the 1.6.0 port, Ampere and Ada core current since 1.7.0
+  and 1.8.0) and 1.7.0's power-policy list read and write the driver's policy
+  table through an adapter handle from `gdi32`'s `D3DKMTEnumAdapters2`.
+  Windows 7 does not export it, so these controls stay unavailable here and
+  report why. Until this update that missing export counted as a failed read:
+  every profile saved on those cards was incomplete, so sign-in loading could
+  not be enabled, and Reset all always recorded a failed current-limits step.
+  It now counts as an unsupported capability, as main does for a policy
+  interface it does not understand. Rail limits and V/F hold headroom use a
+  different path and are unaffected.
+- **MP2888A explicit PMBus on a Turing card.** Before taking its own clock
   clamp, the explicit PMBus method checks that no other client holds a
   frequency lock. On an unlocked Turing card that check needs the RM
-  frequency-limit records, which Druta reads through `gdi32`'s
-  `D3DKMTEnumAdapters2`. Windows 7 does not export it, so Verify, Apply and
-  Auto recovery for that method are always refused on Turing here. The
-  refusal names the missing export rather than the driver's lock state. The
-  MP2888A (ASUS Turing) offset method does not take a clamp and is
-  unaffected, and Ampere cards do not use this channel.
+  frequency-limit records, which are read through the same `gdi32` export.
+  Verify, Apply and Auto recovery for that method are therefore always
+  refused on Turing here, and the refusal names the missing export rather
+  than the driver's lock state. The offset method does not take a clamp and
+  is unaffected, and Ampere cards do not use this channel.
 - **GPU device restart (PnP).** It needs Windows 10 version 2004 or later,
-  and the recovery helper checks that only after Druta has closed. 1.7.0's
+  and the recovery helper checks that only after Druta has closed. The Panic
+  button and Device menu entry have offered it since the 1.6.0 port; 1.7.0's
   "Voltage limits still raised" dialog, shown after a session ended without
-  restoring the headroom it raised, offers this restart. On Windows 7,
-  choosing it, the Panic button or the Device menu entry closes Druta,
-  restarts nothing and reopens it. A startup profile that was waiting does
-  not run, and the dialog returns. Choose **Keep them for now** instead.
+  restoring the headroom it raised, now offers it too. On Windows 7, choosing
+  any of them closes Druta, restarts nothing and reopens it. A startup
+  profile that was waiting does not run, and the dialog returns. Choose
+  **Keep them for now** instead.
 
-On a Windows 10 host, the merged source passed 2,140 tests with stock CPython
-3.8.10, where the three wheel and sdist tests skip, and 2,143 with Python
-3.14.7. Under 3.8.10, the source `druta.py --smoke-test` exited 0, parsed both
-bundled regulator profiles and rendered three frames. The full-interface
-fixture rendered Control, Monitor and Timings (1,063 items, nine frames) with
-no worker or subprocess attempts. The compact and portable Windows 7 packages
-were not rebuilt for this update; the packages described above predate it.
-The Windows 7 guest and physical-GPU checks were not repeated.
+On a Windows 10 host, the merged source passed 2,142 tests with stock CPython
+3.8.10, where the three wheel and sdist tests skip, and 2,145 with Python
+3.14.7. The 3.8.10 run was repeated with a simulated Windows 7 `gdi32`, which
+lacks `D3DKMTEnumAdapters2`, with the same result. Under 3.8.10, the source
+`druta.py --smoke-test` exited 0, parsed both bundled regulator profiles and
+rendered three frames. The full-interface fixture rendered Control, Monitor
+and Timings (1,063 items, nine frames) with no worker or subprocess attempts.
+The compact and portable Windows 7 packages were not rebuilt for this update;
+the packages described above predate it. The Windows 7 guest and
+physical-GPU checks were not repeated.
 
 ## Verification
 
