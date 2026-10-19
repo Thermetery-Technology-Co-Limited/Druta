@@ -70,6 +70,19 @@ class RailDiagnosticsUiTests(FakeUiTest):
         self.app.gpu.set_volt_rail_limits.assert_not_called()
         self.assertIn("Retry detection", self.app.log.call_args.args[0])
 
+    def test_unchecked_rail_limits_flash_and_do_not_write(self):
+        self.values.update(vlim_mode=False, in_vlim_rel=1000)
+        self.app.gpu = SimpleNamespace(set_volt_rail_limits=Mock())
+        self.app._rail_writable = {0}
+        self.app.guard = Mock(return_value=True)
+        self.app.unlocked = Mock(return_value=True)
+        self.app.apply_vlim(0, reliability=1000)
+        self.app.gpu.set_volt_rail_limits.assert_not_called()
+        self.app.guard.assert_not_called()
+        self.assertIn("vlim_mode", self.app._gate_flashes)
+        self.assertIn("in_vlim_rel", self.app._gate_flashes)
+        self.assertIn("tick 'Rail limits'", self.app.log.call_args.args[0])
+
     def test_copy_info_handles_backend_without_diagnostics(self):
         self.app.gpu = SimpleNamespace()
         self.app._rail_writable = set()

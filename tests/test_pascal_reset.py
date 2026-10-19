@@ -31,6 +31,8 @@ class PascalStockResetTests(unittest.TestCase):
         self.assertIn("not applicable to Pascal", steps[GPU.LOCK_STEP][1])
         self.assertEqual(steps[GPU.VF_LOCK_STEP], (True, "point released"))
         gpu.clear_vf_lock.assert_called_once()
+        gpu.set_clock_offset.assert_any_call(0, 0, preserve_curve=False)
+        gpu.set_clock_offset.assert_any_call(2, 0, preserve_curve=False)
 
     def test_other_errors_and_other_or_unknown_architectures_remain_failures(self):
         for status, arch in ((4, 4), (15, 4), (999, 4), (3, 6), (3, 0)):

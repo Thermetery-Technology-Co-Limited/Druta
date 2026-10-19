@@ -165,12 +165,13 @@ class I2cDiscoveryUiTests(FakeUiTest):
         with patch.object(railctl, "load_profiles", return_value=[]), \
                 patch("druta.controllers.ncp4206.NCP4206", return_value=ncp) as probe, \
                 patch("druta.controllers.nct3933.DISCOVERY_PORTS", ()), \
+                patch("druta.controllers.up9512r.DISCOVERY_PORTS", ()), \
                 patch("druta.controllers.ncp4206.DISCOVERY_PORTS", (2,)), \
                 patch("druta.controllers.ncp4206.DISCOVERY_ADDRESSES", (0x20, 0x21)):
             railctl.discover(nvapi, progress=lambda *event: events.append(event),
                              cancelled=lambda: len(events) >= 2)
-        self.assertEqual(events[0], (0, 2, "Preparing controller probes"))
-        self.assertEqual(events[1], (1, 2, "NCP4206 port 2, 0x20"))
+        self.assertEqual(events[0], (0, 3, "Preparing controller probes"))
+        self.assertEqual(events[1], (1, 3, "NCP4206 port 2, 0x20"))
         probe.assert_called_once()
 
 

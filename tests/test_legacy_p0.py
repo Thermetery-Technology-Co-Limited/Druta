@@ -144,5 +144,7 @@ class LegacyP0Backend(unittest.TestCase):
    self.assertIsNone(g.clkdom_delta_inert(19))
   g.arch.return_value=4
   self.assertTrue(g.clkdom_delta_inert(1));self.assertFalse(g.clkdom_delta_inert(2))
+  self.assertTrue(g.clkdom_delta_inert(3));self.assertTrue(g.clkdom_delta_inert(5))
+  self.assertIsNone(g.clkdom_delta_inert(9))
 
 if __name__=='__main__':unittest.main()

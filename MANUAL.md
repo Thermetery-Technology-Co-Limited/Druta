@@ -16,7 +16,9 @@ Druta is from Sanskrit *druta* meaning fast. In Hindu performing art, it can als
 
 **Profiles > Save profile** captures the applied curve, clocks, power, fan policy,
 confirmed per-rail limits and voltage offsets, the Additional Memory Clock
-Offset, and the identified I2C regulator's offset. The Load profile list shows
+Offset, the identified I2C regulator's offset, and (since 1.7.0) every
+writable power policy with the values set by hand and the channel notes. The
+Load profile list shows
 these settings. Loading also restores XOC mode and enables the rail controls
 needed by the tune; I2C verification runs under load in each new session.
 
@@ -43,6 +45,71 @@ be verified, automatic loading is skipped for that boot. You can still load a
 profile manually. Reopening Druta does not bypass the skipped boot. After a
 clean shutdown and boot, automatic loading can resume.
 
+## EVGA iCX voltage and controller settings
+
+Select the EVGA iCX controller on the target Ampere adapter and check its
+identity. The displayed controller requests are not physical voltage readings.
+Close other tools that write to the same controller before applying changes.
+Enable the I2C rail controls, Unlock, edit the desired request, then Apply.
+Druta enables the controller's write gate if necessary and checks the returned
+request before reporting success. A successful driver call alone is not enough.
+
+NVVDD requests are 750-1150 mV, extended to 1600 mV with XOC; FBVDD requests
+are 1250-1450 mV. Both use 5 mV steps. **NVVDD Auto affects only NVVDD.**
+You can adjust FBVDD while NVVDD remains on Auto. The Auto action does not
+change FBVDD, and its placeholder count is not a measured 750 mV rail.
+FBVDD has no inferred Auto or factory-reset action. Use an external meter to
+confirm physical voltage.
+
+Five additional controls have their own staged choice and Apply button:
+
+| Control | Choices |
+| --- | --- |
+| NVVDD switching frequency | 300-1000 kHz in 100 kHz steps |
+| FBVDD switching frequency | 300-1000 kHz in 100 kHz steps |
+| NVVDD overcurrent protection (OCP) | Enable or Disable |
+| FBVDD overcurrent protection (OCP) | Enable or Disable |
+| NVVDD loadline | Level0 through Level15 |
+
+Selecting a choice does not write it. Each Apply verifies that setting and
+preserves its sibling and other readable controller settings. Missing readback
+in one group does not remove the others. A previously confirmed value marked
+`*` is stale; check the readback status before applying. Unknown selected
+encodings or malformed responses refuse the operation. Transient read failures
+have bounded recovery; an uncertain write is never automatically resent.
+
+Voltage Apply, NVVDD Auto, setting Apply, and preset Apply first hold the
+graphics clock at the driver's minimum lockable frequency. Release or quitting
+clears that clock lock. Closing Druta does not undo the controller requests;
+use NVVDD Auto explicitly and confirm FBVDD and the other settings separately.
+
+The preset controls use Druta's JSON format:
+
+- **Save current iCX preset** saves complete current controller readback to a
+  JSON file. It does not save unapplied row edits.
+- **Load iCX preset** validates the file and displays all eight setting fields
+  in a separate preview. Loading does not write the controller or replace row
+  edits.
+- **Apply iCX preset** deliberately applies the preview after fresh identity,
+  write-gate, XOC-range, and clock-clamp checks. Only settings that differ from
+  complete current readback are sent, and the final settings are verified.
+- **Restore captured connection settings** stages the first complete read from
+  this controller connection through the same preview and Apply path. These
+  are captured settings, not factory defaults. A controller or GPU change
+  clears the captured and pending presets.
+
+A partially failed preset stops immediately. Earlier verified changes remain
+applied, and the failed operation may also have applied. Druta reports the
+partial result without automatically retrying or rolling back. Refresh the
+readback before choosing the next action. These presets are never automatically
+replayed at startup, and saving a preset does not write controller EEPROM.
+
+The command formats and returned states were established with black-box
+Classified captures on one EVGA RTX 3090 Ti Kingpin. This verifies controller
+setting readback, not physical PWM frequency, OCP trip behavior, or the
+loadline's electrical effect. The displayed ranges are input policy, not
+measured safe operating ranges.
+
 ## 1. `De-flatten`:
 When two or more points on the VF curve land on the same frequency, only the one with the lowest voltage will ever be used. For example, if 1081, 1087, and 1093mv all correspond to 2000mhz, the card will always run at 1081mv, 2000mhz. Deflatten makes sure that every point on the the V/F curve between 1000mv to 1091mv (adjustable) are *mathematically strictly increasing*. That way, you can run 1091mv immediately without a hard voltage mod. 
 
@@ -64,6 +131,11 @@ This mode is actually the opposite of deflatten. It flattens everything after 80
 ## 3. (my favorite function) `Max it`: 
 
 Had enough with boring sliders to the maximum? Click "max it". It does the V/F deflatten, maxes out the voltage boost, power limit, fan, and holds at 1093mv all in one click. You click it once, and the rest is the actual part of overclocking: changing the frequency. 
+
+While the hold lasts, Druta also raises the voltage limits to the held point +
+25 mV (Clocks > Keep headroom above a held point, on by default), because a
+point held on the voltage ceiling runs below the clock it shows. 25 mV is a
+fixed safe margin for every card. The limits go back when the hold ends.
 
 Kepler and Maxwell cards with the legacy P0 API instead have a yellow
 **Lock P0 and max fan** button here. Availability is based on generation and API support, without device, subsystem,
@@ -191,6 +263,36 @@ preserves staged curve edits. Verification is repeated after changing GPUs or
 controllers, and cannot pass if restoration fails. NCT3933U current-DAC controls
 instead use **Read settings** and register readback; they cannot measure rail
 voltage. See [NCT3933U.md](i2c/NCT3933U.md).
+
+MP2888A has two selectable control recipes for the same physical controller:
+
+- **MP2888A (ASUS Turing)** retains the original GPU VID offset method through
+  register 23h, including Stock and existing saved offset profiles. It remains
+  the default. This is the recorded working method on the TITAN RTX die fitted
+  to an ASUS RTX 2080 Ti Strix PCB.
+- **MP2888A (ASUS Ampere)** uses manual PMBus voltage through nominal command
+  21h and the E1h mode bit. This method was measured on the ASUS Strix RTX 3070 Ti.
+  Its value is a nominal command in 6.25 mV steps; existing coarse and fine
+  trims are retained.
+
+The names identify control recipes, without restricting discovery by GPU or
+board identity. Selecting a recipe changes no controller register. Each needs
+its own Verify. Controller-reported voltage is displayed separately; it is not
+a calibrated physical reading. Use an independent meter to establish physical
+core voltage.
+
+Before manual PMBus Apply or Verify, Druta takes its own minimum graphics-clock
+clamp and checks that the clock has settled. It refuses an unreadable lock state or a
+lock held by another application. Verify checks two PMBus commands and their
+reversal at that clock. It does not validate stability at an overclocked point.
+
+**Auto** selects GPU PWMVID control. Release, exit and controller changes restore
+the captured controller state before releasing Druta's clock clamp. A failed
+restoration keeps the clamp and the recovery state. Other controller fields,
+protection, calibration, EEPROM, phase count and switching frequency are retained.
+Manual PMBus voltage is session-only: profiles omit an active manual request.
+Return to Auto before loading a profile. Existing MP2888A offset profiles still
+replay through the original offset recipe, with fresh verification as needed.
 
 While Verify is running, the selected controller and risk modes stay fixed.
 Closing Druta cancels verification and waits for the original control state's

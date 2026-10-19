@@ -186,8 +186,11 @@ is not proof of a direct I2C VOUT change.
 - GP102/TU102 timing-band equivalence is measured locally; other chips retain
   timing controls at their highest enumerated band. Broader P2/P0 equivalence
   requires timing-register evidence.
-- `tools/probe_volt_rails*.py` exact TITAN/driver checks bound invasive research
-  scripts, which are not part of application control discovery.
+- `src/druta/tools/probe_volt_rails*.py` are invasive research scripts, not
+  part of application control discovery. They run only on the two measured
+  TITAN boards. They do not compare driver versions. Before any write they
+  check the exact rail packet geometry, record type, boost word and
+  absolute-status record.
 - Ordinary fan, board power, core/memory offsets and voltage boost use API and
   readback capability rather than developer board/VBIOS lists.
 - `src/druta/app.py` is the historical Tk UI; current entry points use
