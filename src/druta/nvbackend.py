@@ -4548,6 +4548,13 @@ class GPU:
                 return legacy, None
             if self.arch() == self.ARCH_TURING:
                 records = self._legacy_clk_limit_records()
+                if records is None and self._legacy_clk_gdi() is None:
+                    # Windows 7 and Vista gdi32 lack the adapter APIs the
+                    # RM reader needs. Ownership stays unknown, as below,
+                    # but the refusal names the missing capability.
+                    return None, ("legacy frequency-lock state cannot be read: gdi32 lacks "
+                                  "D3DKMTEnumAdapters2 or the other adapter APIs on this "
+                                  "Windows version; current ownership is unknown")
                 if (records is None or len(records) != 2
                         or any(len(row) != 82 or row[0] != ident or row[1] != 0 or row[4] != 1
                                # length checked above; zip(strict=True) is 3.10+
