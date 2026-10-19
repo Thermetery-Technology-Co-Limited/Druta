@@ -194,8 +194,8 @@ guards, including for the exports the 365.19 audit lists as absent. The new
 code adds no Win32 call that Vista lacks; its process and timer calls are
 available from Vista on.
 
-On a Windows 10 host, the merged source passed 2,160 tests with stock CPython
-3.8.10, where the three wheel and sdist tests skip, and 2,163 with Python
+On a Windows 10 host, the merged source passed 2,161 tests with stock CPython
+3.8.10, where the three wheel and sdist tests skip, and 2,164 with Python
 3.14.7. The 3.8.10 run was repeated with a simulated `gdi32` that lacks
 `D3DKMTEnumAdapters2`, with the same result. The patched Vista runtime was
 not available on that host, so this update was not tested under it. Under
