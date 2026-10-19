@@ -22,6 +22,13 @@ rather than a component, is not bundled, and so is not covered by this file.
 
 ## Summary
 
+The table and versioned notices below describe the regular current-Windows
+build. The separate **Windows 7** bundle uses CPython 3.8.10, Dear PyGui
+2.3.1, Tomli 2.0.1, and the PyInstaller 6.16.0 bootloader. Its `licenses/`
+directory contains the complete notices copied from those exact distributions,
+including Python 3.8's incorporated-software licenses and Tomli's MIT license.
+See [WINDOWS7.md](WINDOWS7.md) and the bundle's `BUILD-DEPENDENCIES.txt`.
+
 | Component | Version | License | Redistributed in the EXE |
 |---|---|---|---|
 | Dear PyGui | 2.3.1 | MIT | yes |
@@ -1621,3 +1628,13 @@ distributed under Microsoft's redistribution terms for Visual Studio and the
 Windows SDK. They are Operating-System components within the meaning of
 GPL-3.0 section 1 ("System Libraries") and their source is not part of Druta's
 Corresponding Source.
+
+The optional portable Windows 7 distribution also includes the Windows SDK
+`D3DCompiler_47.dll`. The UCRT and shader compiler come from SDK redistributable
+directories, with the SDK licenses, notices and per-file manifest under
+`licenses/Microsoft-Windows-SDK`. No Windows system-directory files are copied.
+
+The self-extracting portable EXE uses the unmodified 7-Zip 26.03 SFXWin source
+by Igor Pavlov, under LGPL-2.1-or-later. Its license, complete corresponding
+source archive and build/relink instructions accompany that EXE's extracted
+payload under `licenses/7-Zip`. The extractor only unpacks files.

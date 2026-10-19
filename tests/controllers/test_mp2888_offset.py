@@ -7,7 +7,10 @@ experiments/i2c-direct-vout-worker-titan-47212-20260909.json. It is a regression
 fixture, not a response curve or hardware identity gate for other controllers.
 """
 import ctypes
-import tomllib
+try:
+    import tomllib
+except ImportError:  # Python 3.8 is the Windows 7 runtime.
+    import tomli as tomllib
 import unittest
 from pathlib import Path
 from unittest.mock import patch

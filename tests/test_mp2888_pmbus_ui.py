@@ -3,7 +3,10 @@
 """Session-only PMBus control owns its command and restores before unpinning."""
 import math
 import threading
-import tomllib
+try:
+    import tomllib
+except ImportError:  # Python 3.8 is the Windows 7 runtime.
+    import tomli as tomllib
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch

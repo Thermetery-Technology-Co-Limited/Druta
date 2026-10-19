@@ -4,7 +4,10 @@
 from pathlib import Path
 from contextlib import nullcontext
 import threading
-import tomllib
+try:
+    import tomllib
+except ImportError:  # Python 3.8 is the Windows 7 runtime.
+    import tomli as tomllib
 import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
