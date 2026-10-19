@@ -168,6 +168,36 @@ parsed both bundled regulator profiles and rendered three frames. The Vista
 guest, the full-interface fixture and physical NVIDIA checks were not
 repeated for this follow-up.
 
+## Shared feature update (2026-10-19)
+
+The draft now carries the shared Druta 1.8.1 source (main `81094be`) through
+the Windows 7 update. Its application code under `src\druta`, outside
+`src\druta\tools`, is still identical to the Windows 7 branch. The new
+features, the two Python 3.8 fixes (iCX preset saving and the Turing
+frequency-lock check) and the Windows 7 differences are described in
+[the Windows 7 record](WINDOWS7.md#shared-feature-update-2026-10-19). Both
+differences apply on Vista too. Vista's `gdi32` does not export
+`D3DKMTEnumAdapters2` either, so the explicit MP2888A PMBus method is refused
+on Turing and the refusal names that export. GPU device restart (PnP) still
+needs Windows 10 version 2004: choosing it, including from 1.7.0's
+"Voltage limits still raised" dialog, closes Druta, restarts nothing and
+reopens it, so choose **Keep them for now** in that dialog instead. Every new
+NVML, NVAPI and CUDA call goes through the existing export-presence guards,
+including for the exports the 365.19 audit lists as absent. The new code adds
+no Win32 call that Vista lacks; its process and timer calls are available
+from Vista on.
+
+On a Windows 10 host, the merged source passed 2,158 tests with stock CPython
+3.8.10, where the three wheel and sdist tests skip, and 2,161 with Python
+3.14.7. The patched Vista runtime was not available on that host, so this
+update was not tested under it. Under stock 3.8.10, the source
+`druta.py --smoke-test` exited 0, parsed both bundled regulator profiles and
+rendered three frames. The full-interface fixture rendered Control, Monitor
+and Timings (1,063 items, nine frames) with no worker or subprocess attempts.
+The portable Vista package was not rebuilt for this update; the packages
+described above predate it. The Vista guest and physical NVIDIA checks were
+not repeated.
+
 ## Required Windows components
 
 - Windows Vista **Service Pack 2, x64**.
