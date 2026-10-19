@@ -4945,6 +4945,13 @@ class GPU:
                                  not in self._CURRENT_LIMIT_LAYOUTS):
                     # a power GET WAS seen, and its geometry is not one Druta knows
                     raise CurrentLimitUnsupported("unsupported current-policy transport: " + seen)
+                if not observed and self._legacy_clk_gdi() is None:
+                    # Windows 7 and Vista gdi32 lack the adapter APIs the
+                    # capture and every policy escape need: a missing
+                    # capability, not a failed read to retry
+                    raise CurrentLimitUnsupported(
+                        "unsupported current-policy transport: gdi32 lacks "
+                        "D3DKMTEnumAdapters2 or the other adapter APIs on this Windows version")
                 # nothing seen, or a known power GET whose getter then failed:
                 # a failed read, retried on the next one
                 raise ValueError("unsupported current-policy transport: "

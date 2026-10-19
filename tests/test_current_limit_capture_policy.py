@@ -156,6 +156,46 @@ class MoreNotUnderstoodTests(NotUnderstoodCase):
         self.assertEqual(profiles.incomplete(snap), [])
 
 
+class PolicyView(ProfileView):
+    """ProfileView that also forwards the full power-policy list."""
+
+    def __getattr__(self, name):
+        if name == "read_power_policies":
+            return getattr(self._gpu, name)
+        return super().__getattr__(name)
+
+
+class MissingAdapterApisTests(NotUnderstoodCase):
+    """Windows 7 and Vista gdi32 have no D3DKMTEnumAdapters2, so the policy
+    transport can never be captured there: a missing capability, which must
+    not make every profile incomplete or every Reset all fail."""
+
+    def test_missing_adapter_apis_are_unsupported_not_a_failed_read(self):
+        for kwargs in ({"arch": n.GPU.ARCH_PASCAL},
+                       {"arch": n.GPU.ARCH_TURING, "newer": True},
+                       {"ampere_layout": True}):
+            with self.subTest(**kwargs):
+                gpu, _ = fixture(**kwargs)
+                del gpu._capture_current_limit_transport           # the real capture
+                gpu.nvapi.PowerPolInfo = Mock()
+                gpu._legacy_clk_gdi = Mock(return_value=None)
+                self.assert_not_blocking(gpu, "D3DKMTEnumAdapters2")
+                gpu.nvapi.PowerPolInfo.assert_not_called()          # no hook installed
+                rows, problem = gpu.read_power_policies()
+                self.assertEqual(rows, [])
+                self.assertIn("D3DKMTEnumAdapters2", problem)
+                snap = profiles.capture(PolicyView(gpu))
+                self.assertEqual(profiles.incomplete(snap), [])
+                self.assertIn("D3DKMTEnumAdapters2", snap["current_limits_note"])
+
+    def test_with_adapter_apis_a_capture_that_saw_nothing_still_blocks(self):
+        gpu, _ = fixture(ampere_layout=True)
+        gpu._capture_current_limit_transport = Mock(return_value=None)
+        gpu.get_current_limits()
+        self.assertIn("no recognized power GET captured", gpu._current_limit_read_error)
+        self.assertNotIn("D3DKMTEnumAdapters2", gpu._current_limit_error)
+
+
 class FailedReadsStillBlockTests(unittest.TestCase):
     def assert_blocking(self, gpu, reason):
         gpu.get_current_limits()
