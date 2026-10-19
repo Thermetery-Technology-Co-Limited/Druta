@@ -4550,7 +4550,8 @@ class GPU:
                 records = self._legacy_clk_limit_records()
                 if (records is None or len(records) != 2
                         or any(len(row) != 82 or row[0] != ident or row[1] != 0 or row[4] != 1
-                               for row, ident in zip(records, (0x4C, 0x4B), strict=True))):
+                               # length checked above; zip(strict=True) is 3.10+
+                               for row, ident in zip(records, (0x4C, 0x4B)))):
                     return None, "legacy frequency-lock state is unreadable or ambiguous"
             return None, None
         if low.lockMode != VF_LOCK_MODE_FREQ or high.lockMode != VF_LOCK_MODE_FREQ:
