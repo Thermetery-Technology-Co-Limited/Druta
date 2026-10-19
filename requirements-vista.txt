@@ -1,0 +1,4 @@
+# Build-host baseline only. The Vista assembly replaces CPython's core,
+# Dear PyGui's extension and PyInstaller's bootloaders with the source builds
+# described in VISTA.md; installing these wheels alone does not support Vista.
+-r requirements-win7.txt

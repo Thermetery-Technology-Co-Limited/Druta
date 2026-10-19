@@ -42,6 +42,59 @@ def legacy_gpu(kind="turing", **identity):
 
 
 class LegacyRailReadTests(unittest.TestCase):
+    # Druta resolves the rail getters at run time through nvapi_QueryInterface.
+    # The static 365.19 audit (experiments/vista-driver-36519-exports.json)
+    # finds that entry point but cannot show which function IDs it resolves,
+    # so these tests model the driver's answers, not its version.
+    def test_unresolved_rail_getter_keeps_rail_writes_off(self):
+        for kind in ("turing", "pascal"):
+            for getter in ("VoltRailsCtlGet", "VoltRailsAbs"):
+                with self.subTest(kind=kind, getter=getter):
+                    gpu = fake_gpu(kind)
+                    setattr(gpu.nvapi, getter, None)
+                    gpu.volt_limits_write_enabled = True
+                    self.assertFalse(gpu.volt_rail_limits_supported())
+                    diagnostic = gpu.volt_rail_diagnostics()
+                    self.assertFalse(diagnostic["available"])
+                    self.assertIn("The driver did not return", diagnostic["reason"])
+                    self.assertFalse(gpu.set_volt_rail_limits(0, reliability=1125)[0])
+                    self.assertFalse(gpu.set_volt_rail_limits_raw(0, reliability=0)[0])
+                    self.assertFalse(gpu.reset_volt_rail_limits()[0])
+                    gpu._write_rail_records.assert_not_called()
+
+    def test_unresolved_voltage_boost_getter_refuses_rail_writes(self):
+        # Every rail SET carries the current boost, so it must be readable.
+        for kind in ("turing", "pascal"):
+            with self.subTest(kind=kind):
+                gpu = fake_gpu(kind)
+                del gpu.read_voltage_boost  # The real reader, not the fixture's.
+                gpu.nvapi.VoltCtrlGet = None
+                gpu.volt_limits_write_enabled = True
+                self.assertTrue(gpu.volt_rail_limits_supported())
+                ok, message = gpu.set_volt_rail_limits(0, reliability=1125)
+                self.assertFalse(ok)
+                self.assertIn("voltage boost", message)
+                self.assertFalse(gpu.reset_volt_rail_limits()[0])
+                gpu._write_rail_records.assert_not_called()
+
+    def test_driver_version_does_not_decide_rail_limit_support(self):
+        # The same getter answers give the same result whatever version string
+        # the adapter reports, including Vista's last driver and no version.
+        for kind in ("turing", "pascal"):
+            for driver in ("365.19", "368.81", "472.12", "580.97", "?", ""):
+                with self.subTest(kind=kind, driver=driver):
+                    gpu = fake_gpu(kind, driver=driver)
+                    gpu.volt_limits_write_enabled = True
+                    self.assertTrue(gpu.volt_rail_diagnostics()["available"])
+                    self.assertTrue(gpu.set_volt_rail_limits(0, reliability=1125)[0])
+                    gpu._write_rail_records.assert_called_once()
+                    unresolved = fake_gpu(kind, driver=driver)
+                    unresolved.nvapi.VoltRailsCtlGet = None
+                    unresolved.volt_limits_write_enabled = True
+                    self.assertFalse(unresolved.volt_rail_limits_supported())
+                    self.assertFalse(unresolved.set_volt_rail_limits(0, reliability=1125)[0])
+                    unresolved._write_rail_records.assert_not_called()
+
     def test_profile_bases_and_boost_follow_generation_and_runtime_version(self):
         for kind, overvoltage in (("turing", 1125), ("pascal", 1200)):
             with self.subTest(kind=kind):

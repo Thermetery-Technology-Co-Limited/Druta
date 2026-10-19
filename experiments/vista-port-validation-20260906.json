@@ -1,0 +1,51 @@
+{
+  "format": 1,
+  "date": "2026-09-06",
+  "scope": "Vista compatibility port validation; no physical NVIDIA GPU tests in the guest",
+  "host": {
+    "python": "3.8.10, Vista-patched",
+    "application_tests": 158,
+    "compatibility_package_tests": 54,
+    "source_startup": "passed; three frames",
+    "frozen_startup": "passed; exit 0, three frames",
+    "full_ui_construction": "passed; 985 items, nine frame-loop iterations, three tabs; unavailable GPU backends, workers and subprocesses blocked"
+  },
+  "guest": {
+    "os": "Windows Vista Ultimate SP2 x64, 6.0.6002",
+    "ram_gb": 8,
+    "display": "VMware SVGA 8.16.07.0005",
+    "session": "signed out; noninteractive VMware process session",
+    "python": "3.8.10, Vista-patched",
+    "application_tests": 158,
+    "compatibility_package_tests": 54,
+    "frozen_startup": "passed; exit 0, fresh report, three frames",
+    "normal_startup": "exit 1; NVIDIA unavailable on VMware adapter",
+    "list_gpus": "exit 1; NVIDIA unavailable on VMware adapter",
+    "full_ui_construction": {
+      "result": "passed",
+      "items": 983,
+      "frame_loop_iterations": 9,
+      "tab_selections": 3,
+      "dpi_scale": 1.0,
+      "forbidden_attempts": []
+    },
+    "warp_unicode_dialog": {
+      "result": "passed and visually inspected",
+      "rendered_frames": 89,
+      "visible_entries": [
+        "subfolder-café",
+        "file-café.txt",
+        "visible-ascii.txt"
+      ]
+    },
+    "hardware_dialog_capture": "blank framebuffer; rejected, not an interactive visual test",
+    "instrumented_full_ui_capture": "blank 1x1 images; rejected as visual evidence"
+  },
+  "limits": [
+    "No current interactive hardware-rendering or full-UI visual pass claimed for the signed-out guest.",
+    "No physical NVIDIA telemetry, clock/fan/voltage operations, V/F curves or timing-register access validated on Vista.",
+    "Official365.19 driver DLLs were statically audited only, never executed or installed.",
+    "Unvalidated365.19 TITAN per-rail voltage writes remain disabled.",
+    "Earlier interactive runtime and nvtune evidence in VISTA.md is historical, not part of this port rerun."
+  ]
+}
