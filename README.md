@@ -1,12 +1,15 @@
 # Druta
 
-**Version 1.6.0** — [release notes](RELEASE-NOTES-1.6.0.md).
+**Version 1.8.1** — [release notes](RELEASE-NOTES-1.8.1.md).
+Supersedes 1.8.0. Adds explicit MP2888A manual PMBus control for the tested
+ASUS Strix RTX 3070 Ti while preserving the original ASUS Turing offset method.
 
-Package-refactor validation: [Maxwell/Pascal](MAXWELL-PASCAL-VALIDATION.md)
-and [RTX 5080 / Blackwell](BLACKWELL-VALIDATION.md), including controlled
+Hardware validation: [Maxwell/Pascal](MAXWELL-PASCAL-VALIDATION.md),
+[RTX 5080 / Blackwell](BLACKWELL-VALIDATION.md) and
+[RTX 4080 SUPER / Ada](ADA-VALIDATION.md), including controlled
 writes, readbacks, restoration and the limits of the tested coverage.
 
-A monitor and tuner for Kepler, Maxwell, Pascal, Turing and Blackwell NVIDIA cards,
+A monitor and tuner for NVIDIA cards from Kepler to Blackwell,
 driven through NVAPI/NVML private interfaces. Available controls depend on the
 generation and the current adapter's runtime capabilities. It edits supported V/F curves
 with planners built around how the boost arbiter actually behaves, and reads and
@@ -14,54 +17,47 @@ writes the framebuffer-partition memory timing registers.
 
 > ### ⚠ Read before running
 >
+> Druta is meant to be maximally transparent and revelatory, giving you the owner as much control to your hardware as possible. We aren't here to adjudicate what you do to your GPU; that's your call as the owner, but part of being transparent is to clearly communicate to you the risks involved. Thermetery is not selling you anything here, and there is no in-house version of Druta that is more powerful or unlocked. 
+>
 > Druta writes GPU voltage, clock and memory-controller registers directly into the API.
-> **Memory-timing writes can hang the machine and corrupt the contents of
-> VRAM.** V/F curve edits can crash the display driver. Read
-> [Safety](#safety-first-what-can-go-wrong) before enabling any write path.
+> Read [Safety](#safety-first-what-can-go-wrong) before enabling any write path.
 >
 > Druta ships dangerous low-level I2C writing capabilities COMPLETELY IMPERVIOUS TO ANY DRIVER/BIOS SAFEGUARDS. This can be useful for overclocking, but that also means that there is ABSOLUTELY NOTHING BETWEEN YOU AND A PAPERWEIGHT GPU.
 >
 > Windows, NVIDIA Falcon, VBIOS, drivers, etc. cannot stop a I2C write. We tried to ship guardrails, but you need to understand the risk before enabling I2C voltage control, which is by default *disabled*. 
 >
 > This program comes with **ABSOLUTELY NO WARRANTY** — see sections 15 and 16
-> of [COPYING](COPYING). You assume all risk of running it.
+> of [COPYING](COPYING). You assume all risk of running it. We are not selling you anything. If you "purchased" a copy of Druta, please contact your local authorities and your bank for scams, because Druta is completely and forever free.  
 
-**DRUTA IS AN INDEPENDENT, UNOFFICIAL TOOL. IT IS NOT AFFILIATED WITH,
-SPONSORED BY, OR ENDORSED BY NVIDIA CORPORATION, ASUSTEK COMPUTER INC., OR
+**DRUTA IS AN INDEPENDENT, UNOFFICIAL TOOL. IT IS *NOT* AFFILIATED WITH,
+SPONSORED BY, OR ENDORSED BY NVIDIA CORPORATION, ASUSTEK COMPUTER INC., GIGA-BYTE TECHNOLOGY CO., LTD., 
+MANLI TECHNOLOGY GROUP LTD. DELL TECHNOLOGIES INC., GALAXY MICROSYSTEMS, PNY TECHNOLOGIES INC., OR
 MICRO-STAR INTERNATIONAL CO., LTD.**
 
 **NVIDIA, GEFORCE, RTX, QUADRO AND TITAN ARE TRADEMARKS OF NVIDIA CORPORATION.
 ASUS AND STRIX ARE TRADEMARKS OF ASUSTEK COMPUTER INC. AFTERBURNER IS A
-TRADEMARK OF MICRO-STAR INTERNATIONAL CO., LTD. THESE NAMES APPEAR HERE SOLELY
+TRADEMARK OF MICRO-STAR INTERNATIONAL CO., LTD. AORUS IS A TRADEMARK OF GIGA-BYTE TECHNOLOGY CO., LID. 
+MANLI IS A TRADEMARK OF MANLI TECHNOLOGY GROUP Ltd. GALAX IS A TRADEMARK OF GALAXY MICROSYSTEMS, AND PNY IS A 
+TRADEMARK OF PNY TECHNOLOGIES INC.
+THESE NAMES APPEAR HERE SOLELY
 TO IDENTIFY HARDWARE AND SOFTWARE THAT DRUTA WORKS WITH OR IS COMPARABLE TO.**
 
 Initial development boards (measurements describe these configurations, not universal defaults):
 
 | | die | arch | memory | board |
 |---|---|---|---|---|
+| **RTX 5080** | GB203 | Blackwell | GDDR7 | ASUS Strix, shunt modded |
+| **RTX 4080 Super** | AD103 | Ada | GDDR6X | Manli Polar White |
+| **RTX 3090Ti** | GA102 | Ampere | GDDR6X | EVGA Kingpin |
+| **RTX 3070Ti** | GA104 | Ampere | GDDR6X | ASUS Strix OC |
 | **Titan RTX** | TU102 | Turing | GDDR6 | die transplanted onto an ASUS RTX 2080 Ti Strix PCB |
 | **Titan Xp** | GP102 | Pascal | GDDR5X | stock, unmodified |
-
-**Per-rail voltage update, 2026-09-06:** both TITANs passed repeated tests
-above their default 1093.75 mV NVVDD cap. With the ceiling raised to 1125 mV
-and the V/F curve requesting it, both reported **1112.5 mV**. Druta now exposes
-NVVDD limit controls by GPU generation plus runtime layout validation; no
-non-I2C slider is gated by device ID or VBIOS. MSVDD remains unavailable on
-both tested TITANs. See [measurements and reproduction](VOLTAGE-RAILS-TITAN.md).
-
-**Current limits:** the Control tab exposes the runtime-validated core-current
-policy on Pascal, Turing and Blackwell. The tested TITAN Xp and TITAN RTX allow
-**218 A** and **390 A** respectively. Blackwell also exposes its other-rail
-policy; normal mode caps those two controls at **500 A / 200 A**, while XOC
-permits the advertised API maximum (**5,001 A** on the tested Astral). Apply,
-Stock, live readback, profiles and Reset all use these limits. See
-[controls and validation](CURRENT-LIMITS-RTX5080.md).
-
-**RTX 5080 Astral I2C:** the MP29816 profile exposes measured NVVDD voltage at
-port 2 / 7-bit address 0x30 and an experimental 5 mV-step offset function.
-Identity, PAGE and scaling are checked around transactions. The tested driver
-rejects offset writes; Apply requires successful loaded verification each session.
-See [supported profiles](i2c/PROFILES.md) and [bench results](experiments/power-5080-20260908/MP29816-VALIDATION.md).
+| **Titan Xp** | GP102 | Pascal | GDDR5X | die transplanted onto an ASUS 1080Ti Poseidon |
+| **GTX 1060 9Gbps** | GP106 | Pascal | GDDR5 | Gigabyte AORUS Xtreme|
+| **Titan X** | GM200 | Maxwell | GDDR5 | die transplanted onto a GALAX GOC LN2 |
+| **GTX 745** | GM107 | Maxwell | GDDR5 | Dell OEM (no 8-pin) |
+| **GTX 770** | GK104 (A2) | Kepler | GDDR5 | PNY Reference |
+| **GTX 690** | GK104 (A1) | Kepler | GDDR5 | EVGA Reference |
 
 ---
 
@@ -88,7 +84,9 @@ backup keyed by the card's UUID.
 
 - **Can hang the machine and CANNOT be cleared by a reboot**: I2C voltage misapplications. However, this can be cleared by a full and clean power cycle, as in completely discharging the GPU of power. We recommend plugging the PSU and powering on the machine to bleed the capacitors. This clears all I2C writes. 
 
-- **Can PERMANENTLY DAMAGE YOUR HARDWARE**: out of bound I2C writes, especially in the XOC mode. Druta rejects any voltage above 2V even in the XOC mode because any voltage above it is certainly a typo, but 1.8V is only conditionally workable under LN2 depending on the generations, and never with a stock air cooler. *You can break your GPU core/VRAM/both, permanently and irreversibly.*
+- **Can degrade your hardware and accelerate its aging**: excessive rail voltages, especially for later generations. Experience tells us that Ada GPUs are extremely susceptible to degradation, especially AD102 series. 
+
+- **Can PERMANENTLY DAMAGE YOUR HARDWARE**: out of bound I2C writes, especially in the XOC mode. Druta rejects any voltage above 2V even in the XOC mode because any voltage above it is certainly a typo, but 1.8V is only conditionally workable under LN2 depending on the generations, never with a stock air cooler for your daily 3070. *You can break your GPU core/VRAM/VRM, or any combination of the above, permanently and irreversibly.*
 --- 
 # Build
 
@@ -100,7 +98,7 @@ python -m pip install -r requirements.txt
 ```
 
 The local build produces `dist\Druta\Druta.exe` and
-`dist\Druta-1.6.0-win64.zip`. Distribute the
+`dist\Druta-1.8.1-win64.zip`. Distribute the
 whole `Druta` folder or ZIP: the EXE needs its adjacent `_internal` folder.
 
 `dist\Druta\source\` contains the matching working-tree source, including
@@ -192,7 +190,7 @@ that is currently tuned.
 
 # Monitor
 
-Should be self explainatory. 
+Should be self-explainatory. 
 
 I included seven tiles: 
 - core clock, 
@@ -203,6 +201,14 @@ the memory type is known),
 - hotspot, 
 - power, 
 - vcore. 
+
+The clock tiles show the **programmed** clock (on my TITAN RTX that is what
+GPU-Z and NVML show) with the **measured** one right under it and the gap
+between them, e.g. `measured 2087  Δ -27.9`. The core line turns amber at one
+clock bin and red at three, either way (running above counts too), only under
+load and once the reading has settled; hover it for the raw numbers. XBAR and
+memory are shown but not coloured. On a card whose second clock array just
+copies the first, it says so instead of showing a number.
 
 Within the subtitle there are:
 - the p-state, 
@@ -273,6 +279,8 @@ Each name is now correlated against figures the driver reports independently:
 Four grades: **CONFIRMED** (correlated against ground truth), **ALMOST CERTAIN** (amber,
 with a `?` — behaviour established, the *word* is an analogy), **unnamed**
 (index only), **unpopulated**.
+
+For example: 
 
 | domain | TU102 | GP102 |
 |---|---|---|
@@ -436,7 +444,7 @@ of XBAR/SYSCLK/etc. are "NAFLL (noise-aware frequency locked loops)"s for Pascal
 The name tempted me to say that the "locked loops" are why I couldn't manupulate 
 the clocks, because a natural read was that it would be hard coded.
 
-I was inveigled by that thought and was gonna write it off, but then I 
+I was inveigled by that thought and was going to write it off, but then I 
 dug into the BIOS and found that Turing BIOSes also classified XBAR/SYS/etc. 
 as NAFLLs in the BIOS. 
 
@@ -517,26 +525,11 @@ monitor but is not yet implemented.
 
 ## NCT3933U current-DAC outputs
 
-Checking **I2C rail** reveals manual discovery controls without scanning or
-reconnecting. Choose **Unknown -- Full Scan** or a known controller, then use
-**Connect / Scan**: it first tries a compatible remembered route and otherwise
-scans only the selected scope. **Full scan** bypasses route memory and scope.
-Launch, checking the box, and changing cards never start I2C discovery. Cached
-routes are read/verify hints only; a miss, failure, or corrupt cache falls back
-to the selected scan and never authorizes a write.
+This is somewhat different than your typical I2C control. NCT3933U is used 
+by many ASUS Strix GPUs to do what is effectively a feedback mod via automated
+I2C controll. 
 
-After discovery, Druta can read NCT3933U output commands, write an explicitly
-selected output, zero all outputs, and preserve exact raw control in profiles
-and undo snapshots. **Raw outputs (µA)** is the default: OUT1/OUT2/OUT3,
-signed source/sink current and raw bytes, with no assumption about board wiring
-or live rail voltage.
-
-After meter verification, a user can explicitly select **GPU / memory /
-PEX-PLL (mV)** for a matching local adapter/controller route. It shows an mV
-offset from the register command while retaining the raw current and hex byte;
-it is not an absolute or live-voltage reading. The selection is stored locally
-by adapter UUID, port and address (session-only when UUID is unavailable), not
-as a shipped board allowlist. The current ASUS CG611P / Strix-Poseidon route
+The current ASUS CG611P / Strix-Poseidon route
 uses OUT3 GPU and OUT1 memory at 10 mV per normal negative 10 µA command, and
 OUT2 PEX/PLL at 66 mV; doubled commands are 20/20/132 mV. Positive current
 lowers these measured rails. Other boards remain raw until their owner verifies
@@ -552,6 +545,9 @@ Had enough with boring sliders to the maximum? Click "max it". It does the V/F d
 If you undo here, it undoes the four changes but *not* the hold because the hold is a
 driver state, not a profile value, so `Undo last write` still leaves the card pinned. 
 
+While that hold lasts, Druta also raises the voltage limits to the held
+point plus 25 mV, so the point does not sit on the voltage ceiling (see
+"Voltage-limit headroom" below). The limits go back when the hold ends.
 
 Core and memory clock offsets, power limit, voltage boost, fan duty (with an
 Auto button that restores the curve), and the GPU clock lock. All writes sit
@@ -559,6 +555,46 @@ behind the **Unlock controls** checkbox — untick it to make the app read-only.
 
 Core offsets snap **down** onto the card's own grid before being sent, because
 they land in the same per-point V/F delta table the curve editor uses.
+
+## Voltage-limit headroom for V/F holds
+
+A V/F point held on the effective voltage ceiling runs below the clock it
+shows, and GPU-Z and Druta's header both show the programmed clock, so nobody
+sees it. One TITAN RTX lost 15-28 MHz depending on the held point, and one RTX
+3070 Ti lost one 15 MHz step. 25 mV of headroom removed the loss on both.
+
+**Clocks > Keep headroom above a held point (strongly recommended)** is on by
+default. While a hold (Ctrl+H or Max it) is in force, Druta raises
+reliability, alt-reliability and overvoltage to the held voltage + margin and
+puts them back when the hold ends.
+
+- 25 mV is a fixed safe margin for every card, not tuned per card or
+  generation. You can change it (6.25-100 mV).
+- This is the one rail-limit write that does not need the **Rail limits**
+  box: it only ever raises those three terms, to exactly the held point +
+  margin, for as long as the hold lasts. Untick Keep headroom to stop it.
+- The held point's voltage stays the same, but the rail may run up to the
+  margin higher. The TITAN RTX ran up to 18.75 mV higher; the 3070 Ti ran the
+  full 25 mV higher.
+- If the live rail reads above the raised ceiling, the raise comes off. It
+  also comes off if another tool replaces the V/F lock.
+- If Druta dies during a raise, the next session says so and offers a GPU
+  device restart (PnP).
+
+## Power policies
+
+The Control tab's **Power policies** section lists every policy in the
+driver's power-policy table as a slider, bounded by the card's own range.
+
+- On the two cards measured, every board-limit write made the driver recompute
+  several of them from the board limit. A value you set here is applied
+  again after every board-limit write Druta makes, and marked `*` while the
+  card holds it.
+- **Stock** hands a policy back to the driver; **Max all** raises the board
+  limit and every writable policy to its maximum.
+- You can note each channel with its connector. Current rows on a noted cable
+  are coloured by the current per 12 V wire, and the PCIe slot as a whole.
+- Beware of your PSU's rating as you change power limit.
 
 ---
 
@@ -672,9 +708,15 @@ this cap could not be raised was disproved by that measurement. See
 Start with the [I2C contribution workflow](i2c/CONTRIBUTING.md),
 [recipe and adapter reference](i2c/PROFILES.md), and
 [I2C PR template](.github/PULL_REQUEST_TEMPLATE/i2c_profile.md).
-NCP4206, MP2888A and MP29816 discovery scan actual buses without GPU board-ID filters.
-The scan starts only when **I2C rail** is checked, with probe progress and cancellation;
-it does not run at launch. I2C-bearing profiles require that manual scan first.
+NCP4206, MP2888A, MP29816 and uP9512R discovery scan actual buses without GPU
+board-ID filters. Checking **I2C rail** reveals the controls; **Connect / Scan**
+or **Full scan** starts discovery, with probe progress and cancellation.
+Since 1.8.0a, Full scan on every generation also probes the uP9512R identity
+on every address of ports 0-7: 896 more single-byte reads, about a third more
+than before, and no writes. A board that answers as both a uP9512R and another
+controller now lists both and needs an explicit selection.
+Launch, checking the box and switching GPUs do not start a scan. I2C-bearing
+profiles require that manual scan first.
 Another board with one of these controllers usually needs discovery and
 Verify/restore evidence, rather than a duplicate TOML profile. Druta lists
 matching candidates by port/address; an ambiguous scan requires selection.
@@ -689,15 +731,20 @@ every V/F delta, as readable JSON in `profiles/`. New profiles also capture
 the **NVVDD/MSVDD limit fields as exact signed microvolt deltas**, estimated
 absolute values for display, the NVVDD voltage offset, experimental MSVDD
 requests, per-domain clock requests (including **Additional Memory Clock
-Offset**), the identified I2C regulator's controls and XOC mode. The profile
+Offset**), the identified I2C regulator's controls and XOC mode. Since 1.7.0
+they also save every writable power policy, the values you set by hand and
+your channel notes; on load each saved policy is matched against the live
+table by channel, record type and range, and a profile from before 1.7.0
+leaves this session's values set by hand alone. The profile
 list names these values, and loading reports each control's result. Each rail
 requires its own understood runtime interface. MSVDD requests retain their
 experimental XOC requirement; stored readback is not proof of physical VOUT.
 **Initial** restores first-read rail controls, which may contain prior tuning,
 rather than claiming another board's factory defaults.
 
-I2C tuning profiles save the controller state (MP2888A offset or NCP4206
-absolute target/Auto), its port/address, and a fingerprint of the bound register
+I2C tuning profiles save the controller state (such as an MP2888A offset,
+NCP4206 absolute target/Auto, or all five uP9512R offsets and their enable bit),
+its port/address, and a fingerprint of the bound register
 recipe, including its limits. They do not save or replay
 arbitrary VRM registers or replace that recipe's whitelist/envelope. Loading
 restores the saved XOC mode and enables the required rail controls. Values that
@@ -705,7 +752,18 @@ need XOC (including above-normal carryover left after unticking XOC and a nonzer
 Additional Memory Clock Offset) mark the saved profile as XOC so it can restore
 those requests after reboot. An I2C load
 automatically runs the existing verification under load if this session has not
-verified the regulator yet, then executes its dry run and checked write.
+verified the regulator yet, then executes its dry run and checked write. A
+saved uP9512R state that already matches the controller writes nothing and
+needs no Verify. A uP9512R whose SMBus lock is closed is read-only to Druta,
+so profiles and undo points do not capture it.
+
+MP2888A offers **ASUS Turing** (the original VID offset recipe) and **ASUS
+Ampere** (manual nominal PMBus voltage). These are selectable control methods,
+not board-identity restrictions. Manual PMBus Verify and Apply use an owned,
+observed minimum graphics-clock clamp. Manual requests are session-only and
+are omitted from profiles; return to Auto before loading a profile. Existing
+offset profiles retain their original recipe and verification path. See the
+[manual](MANUAL.md#i2c-controller-selection) and [1.8.1 notes](RELEASE-NOTES-1.8.1.md).
 
 Private-control profiles must match the GPU, VBIOS and driver. If these change,
 save a fresh profile after validating the settings on that configuration.
@@ -948,7 +1006,7 @@ actual write only from Apply.
 
 # Scope
 
-Research software, developed against the two cards named at the top. Struct
+Research software, developed against the cards named at the top. Struct
 layouts, NVAPI ids and the empirical laws above were verified against those;
 nothing here should be assumed to generalise to a third card without
 re-verifying. 

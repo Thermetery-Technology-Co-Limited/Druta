@@ -101,6 +101,14 @@ class CapabilityRefreshUiTests(FakeUiTest):
         self.app.build_ui = Mock(side_effect=lambda **_: self.values.update(
             xoc_mode=False, sl_msvdd=0, in_msvdd=0, rfloor=800))
 
+    def test_refresh_redraws_the_hold_banner_and_rearms_a_waiting_raise(self):
+        self.app.draw_hold_banner = Mock()
+        self.app._headroom_note = ("unread", "the rails did not answer")
+        self.app._headroom_unread_left = 0
+        self.app.refresh_capabilities()
+        self.app.draw_hold_banner.assert_called_once()
+        self.assertEqual(self.app._headroom_unread_left, self.app.HEADROOM_UNREAD_RETRIES)
+
     def test_refresh_preserves_staged_slider_precision_and_hold_and_ramp(self):
         hold = self.app._clk_lock
         generation = getattr(self.app, "_ui_gen", 0)
@@ -174,7 +182,8 @@ class CapabilityRefreshUiTests(FakeUiTest):
             read_clk_domain_offsets=lambda: ({knob.ctrl: {"freq_khz": 125000}}, ""),
             read=lambda: (_ for _ in ()).throw(RuntimeError("telemetry")),
             clkdom_controls_for_ui=lambda _rows: [knob.ctrl],
-            clkdom_domains=lambda: [knob.ctrl])
+            clkdom_domains=lambda: [knob.ctrl],
+            clkdom_offset_slider_offered=lambda _control: True)
         self.app.domain_knob_label = Mock(return_value=("Recovered XBAR", (1, 2, 3), True))
         self.app.slider_row = Mock()
         self.assertEqual(self.app.build_domain_offset_rows(

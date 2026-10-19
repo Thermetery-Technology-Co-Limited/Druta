@@ -111,14 +111,18 @@ operating state.
 
 ## Druta behavior and reproduction
 
-Pascal, Turing and Blackwell use understood register layouts, but each present
+Pascal, Turing, Ampere and Blackwell use understood register layouts, but each present
 rail obtains its voltage reference from that adapter's first stable paired
 control/status readings. The current boost contribution is removed from the
 reliability reference. Displayed absolute limits are estimates because driver
 status can be quantized; signed control deltas are preserved exactly. No board's
 measured bases are applied to another board by generation. Device ID, subsystem
 ID, driver string and VBIOS are not slider gates, and a missing second rail does
-not suppress the first. Rail-write opt-in is local to each selected GPU.
+not suppress the first. Rail-write opt-in is local to each selected GPU. The
+one rail-limit write that does not need it is the V/F hold headroom raise
+(Clocks > Keep headroom above a held point, on by default): only reliability,
+alt-reliability and overvoltage, upward, to exactly the held point + margin,
+for as long as the hold lasts.
 The user-selected rail request bounds are **1200 mV normally / 1500 mV
 with XOC**, including overvoltage. NVVDD offset permits **+200 / +500 mV**
 respectively. These are software request limits, not verified hardware maxima.
@@ -142,7 +146,10 @@ python tools/probe_volt_rails.py --gpu 0000:02:00.0 --raise-ceiling --output doc
 ```
 
 The write experiment requires the measured board identity, original zero rail
-deltas and 100% boost. It saves exact recovery data before writing. Run it
+deltas and 100% boost. It does not check the driver version. Before writing, it
+also requires the understood 1104-byte `0x2080B213` rail packet with a native
+type-2 record, a boost word matching the NVAPI voltage boost and a valid
+absolute NVVDD record. It saves exact recovery data before writing. Run it
 without another tuner changing the card concurrently.
 
 Sample-level results, identity data, restoration checks and hashes of the

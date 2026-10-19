@@ -36,6 +36,19 @@ adapter. Developer-owned device IDs, subsystem IDs, VBIOS versions and driver
 versions must not become compatibility allowlists or denylists merely because
 those combinations were tested locally.
 
+Never add a driver whitelist, allowlist or denylist, and never make a decision
+using only the NVIDIA driver version (version strings, R-branch numbers,
+version comparisons). Use the lower-level checks instead: capability probes,
+export presence, transport and packet-geometry validation, and exact request
+readback. An export-presence fallback (for example NVML v1 versus v2 entry
+points) is fine, because it tests a capability, not a version.
+
+On the legacy-OS branches (`codex/windows-7-support`,
+`codex/windows-vista-support`), main's refusal and validation logic takes
+precedence over the branches' older refusals, which rejected things at the
+wrong time. Report any remaining difference to the user instead of carrying an
+old refusal forward as a legacy necessity.
+
 No developer's hardware is a universal source of truth. A successful or failed
 local experiment establishes evidence only for the tested device, configuration
 and operating point. Do not generalize its voltage bases, factory defaults,
@@ -57,6 +70,12 @@ validation, exact request readback and restoration. These checks must validate
 the operation itself, not whether the user owns a developer's tested hardware.
 Regression coverage for capability changes must include alternate identities,
 partial capabilities and transient failures beyond the local hardware profile.
+
+# Instruction files
+
+This file is shared by Codex, Grok and Claude Code (`CLAUDE.md` imports it).
+Work on this repo alternates between those agents, so when either file gains a
+newer standing instruction, bring the other one up to date.
 
 # Process management
 

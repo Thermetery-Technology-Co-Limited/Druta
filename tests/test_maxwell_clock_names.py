@@ -106,8 +106,14 @@ class MaxwellClockNamesTests(unittest.TestCase):
         for architecture in (GPU.ARCH_PASCAL, 6):
             with self.subTest(architecture=architecture):
                 rows = self.classify(self.HELD_P0, 539, 900, architecture)
-                for domain in (6, 17, 18, 20):
+                for domain in (6, 18, 20):
                     self.assertEqual(rows[domain]['name'], '')
+                if architecture == GPU.ARCH_PASCAL:
+                    self.assertEqual(rows[17]['name'], 'SYS2CLK')
+                    self.assertEqual(rows[17]['grade'], PRIV_LIKELY)
+                    self.assertEqual(rows[17]['scale'], 2)
+                else:
+                    self.assertEqual(rows[17]['name'], '')
 
     def test_switching_kepler_rows_to_maxwell_clears_l2c_and_msd(self):
         rows = list(self.classify(

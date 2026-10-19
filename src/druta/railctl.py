@@ -617,10 +617,12 @@ class Rail:
             restored, undo = self._restore_word(cur_raw)
             status = "restored original word" if restored else "RESTORE FAILED; rail state unknown"
             return False, f"{failure}. {status}: {undo}"
+        vout_label = getattr(self, 'vout_readback_label', 'rail')
+        vout_note = getattr(self, 'vout_readback_note', '')
         return True, (f"{p.rail} offset {applied:+.2f} mV (raw {steps:+d}), "
-                      f"rail now {'?' if now is None else f'{now:.0f}'} mV. "
+                      f"{vout_label} now {'?' if now is None else f'{now:.0f}'} mV. "
                       f"This does NOT clear on reboot - only 'Reset all to "
-                      f"stock' or a power cycle.{tag}")
+                      f"stock' or a power cycle.{tag}{vout_note}")
 
     def _restore_word(self, original):
         """Restore a captured word, preserving its field and factory bits.
@@ -1025,7 +1027,7 @@ class Rail:
 
 def controller_names(log=None):
     """Controller families offered for an explicit, read-only scoped scan."""
-    names = ["Nuvoton NCT3933U", "NCP4206"]
+    names = ["Nuvoton NCT3933U", "NCP4206", "uPI uP9512R", "EVGA iCX"]
     for profile in load_profiles(log=log):
         if profile.regulator not in names:
             names.append(profile.regulator)
@@ -1061,7 +1063,7 @@ def discover(nvapi, dev_id=None, subsys=None, log=None, *, architecture=None,
              progress=None, cancelled=None, controller=None, routes=None):
     """Read-only candidate discovery on the selected GPU's actual I2C buses.
 
-    NCT3933U, NCP4206, MP2888A and MP29816 use controller evidence, without board-ID gates.
+    NCT3933U, NCP4206, uP9512R, MP2888A and MP29816 use controller evidence, without board-ID gates.
     Other TOML recipes retain their explicit board constraints. Return every
     candidate: a caller must never silently resolve an ambiguous bus map.
     """
@@ -1069,17 +1071,21 @@ def discover(nvapi, dev_id=None, subsys=None, log=None, *, architecture=None,
     from .controllers.nct3933 import (DISCOVERY_PORTS as NCT3933_PORTS,
                                      DISCOVERY_ADDRESSES as NCT3933_ADDRESSES,
                                      NCT3933U)
+    from .controllers.up9512r import (DISCOVERY_PORTS as UP9512R_PORTS,
+                                     DISCOVERY_ADDRESSES as UP9512R_ADDRESSES,
+                                     UP9512R)
     from .controllers.mp2888 import (DISCOVERY_ADDRESSES as MP2888_ADDRESSES,
                                      DISCOVERY_PORTS as MP2888_PORTS,
                                      discover as discover_mp2888)
     from .mp29816 import (DISCOVERY_ADDRESSES as MP29816_ADDRESSES,
                           DISCOVERY_PORTS as MP29816_PORTS,
                           discover as discover_mp29816)
+    from .controllers.icx import ADDR7 as ICX_ADDR7, EVGAICx, PORT as ICX_PORT
     selected_routes = _normalize_routes(routes)
     cooperative = progress is not None or cancelled is not None
     cancelled = cancelled or (lambda: False)
     profiles = load_profiles(log=log)
-    names = ["Nuvoton NCT3933U", "NCP4206"]
+    names = ["Nuvoton NCT3933U", "NCP4206", "uPI uP9512R", "EVGA iCX"]
     for p in profiles:
         if p.regulator not in names:
             names.append(p.regulator)
@@ -1087,12 +1093,20 @@ def discover(nvapi, dev_id=None, subsys=None, log=None, *, architecture=None,
         raise ValueError("unknown I2C controller scan scope")
     nct_routes = _route_pairs(NCT3933_ADDRESSES, NCT3933_PORTS, selected_routes)
     ncp_routes = _route_pairs(DISCOVERY_ADDRESSES, DISCOVERY_PORTS, selected_routes)
+    up9512r_routes = _route_pairs(UP9512R_ADDRESSES, UP9512R_PORTS, selected_routes)
     mp2888_routes = _route_pairs(MP2888_ADDRESSES, MP2888_PORTS, selected_routes)
     mp29816_routes = _route_pairs(MP29816_ADDRESSES, MP29816_PORTS, selected_routes)
     if controller != "Nuvoton NCT3933U" and controller is not None:
         nct_routes = []
     if controller != "NCP4206" and controller is not None:
         ncp_routes = []
+    if controller != "uPI uP9512R" and controller is not None:
+        up9512r_routes = []
+    icx_routes = [(ICX_PORT, ICX_ADDR7)]
+    if controller != "EVGA iCX" and controller is not None:
+        icx_routes = []
+    if selected_routes is not None:
+        icx_routes = [pair for pair in icx_routes if pair in selected_routes]
     selected = getattr(nvapi, "selected", None) or {}
     conflict = any(supplied is not None and selected.get(key) is not None
                    and supplied != selected[key]
@@ -1101,7 +1115,7 @@ def discover(nvapi, dev_id=None, subsys=None, log=None, *, architecture=None,
         dev_id = selected.get("devid")
     if subsys is None:
         subsys = selected.get("subsys")
-    total = (len(ncp_routes) + len(nct_routes)
+    total = (len(ncp_routes) + len(nct_routes) + len(up9512r_routes) + len(icx_routes)
              if getattr(nvapi, "ok", False) else 0)
     eligible = {}
     for p in profiles:
@@ -1154,6 +1168,28 @@ def discover(nvapi, dev_id=None, subsys=None, log=None, *, architecture=None,
             except Exception:
                 pass
             advance(f"NCP4206 port {port}, 0x{addr7:02X}")
+        for port, addr7 in up9512r_routes:
+            if cancelled():
+                return hits
+            try:
+                controller_rail = UP9512R(nvapi, port=port, addr7=addr7)
+                if controller_rail.present():
+                    controller_rail.discovery_telemetry = controller_rail.telemetry()
+                    hits.append(controller_rail)
+            except Exception:
+                pass
+            advance(f"uP9512R port {port}, 0x{addr7:02X}")
+        for port, addr7 in icx_routes:
+            if cancelled():
+                return hits
+            try:
+                icx = EVGAICx(nvapi, architecture=architecture, port=port, addr7=addr7)
+                if icx.present():
+                    icx.discovery_telemetry = icx.telemetry()
+                    hits.append(icx)
+            except Exception:
+                pass
+            advance(f"EVGA iCX port {port}, 0x{addr7:02X}")
     for p in profiles:
         if cancelled():
             return hits

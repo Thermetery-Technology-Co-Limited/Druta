@@ -70,6 +70,20 @@ class I2cRiskUiTests(FakeUiTest):
                 self.assertIn("CRIMSON (risk 3)", self._banner_text())
                 self.rail.present.assert_not_called()
 
+    def test_unchecked_i2c_apply_flashes_the_box_and_does_not_write(self):
+        self.values.update(i2c_mode=False, in_i2crail=10)
+        self.app.guard = Mock(return_value=True)
+        self.app._i2c_discovery_complete = True
+        self.rail.icx_mcu = False
+        self.rail.current_dac = False
+        self.rail.plan = Mock()
+        self.rail.set_offset_mv = Mock()
+        self.app.apply_i2c_rail(10)
+        self.rail.plan.assert_not_called()
+        self.rail.set_offset_mv.assert_not_called()
+        self.assertIn("i2c_mode", self.app._gate_flashes)
+        self.assertIn("in_i2crail", self.app._gate_flashes)
+
     def test_actual_current_dac_apply_still_refuses_before_capture_or_write(self):
         self.rail.present.return_value = False
         self.app.guard = Mock(return_value=True)
