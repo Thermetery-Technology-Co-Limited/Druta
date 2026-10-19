@@ -5,8 +5,9 @@ must not make profiles incomplete or Reset all fail; a failed READ still must.
 
 Runs the real current-limit backend on the repo's modelled driver
 (tests/test_current_limits.fixture). Nothing touches NVAPI or hardware."""
+from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from druta import nvbackend as n
 from druta import profiles
@@ -187,6 +188,25 @@ class MissingAdapterApisTests(NotUnderstoodCase):
                 snap = profiles.capture(PolicyView(gpu))
                 self.assertEqual(profiles.incomplete(snap), [])
                 self.assertIn("D3DKMTEnumAdapters2", snap["current_limits_note"])
+
+    def test_real_export_check_without_enum_adapters2(self):
+        # Windows 7's gdi32 has the other three adapter exports but not
+        # D3DKMTEnumAdapters2; the real export-presence check must see that.
+        gdi = SimpleNamespace(D3DKMTQueryAdapterInfo=Mock(), D3DKMTCloseAdapter=Mock(),
+                              D3DKMTEscape=Mock())
+        gpu, _ = fixture(n.GPU.ARCH_TURING, newer=True)
+        del gpu._capture_current_limit_transport               # the real capture
+        del gpu._legacy_clk_gdi                                 # the real export check
+        gpu.nvapi.PowerPolInfo = Mock()
+        with patch.object(n.ctypes, "WinDLL", return_value=gdi) as loader:
+            self.assertEqual(gpu.get_current_limits(), [])
+        self.assertTrue(loader.call_args_list)
+        self.assertTrue(all(c.args == ("gdi32.dll",) for c in loader.call_args_list))
+        self.assertIn("D3DKMTEnumAdapters2", gpu._current_limit_error)
+        self.assertEqual(gpu._current_limit_read_error, "")
+        gpu.nvapi.PowerPolInfo.assert_not_called()
+        for function in vars(gdi).values():
+            function.assert_not_called()
 
     def test_with_adapter_apis_a_capture_that_saw_nothing_still_blocks(self):
         gpu, _ = fixture(ampere_layout=True)
