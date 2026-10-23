@@ -573,7 +573,7 @@ puts them back when the hold ends.
 - If the live rail reads above the raised ceiling, the raise comes off. It
   also comes off if another tool replaces the V/F lock.
 - If Druta dies during a raise, the next session says so and offers a GPU
-  device restart (PnP).
+  device restart (PnP) on Windows 10 version 2004 or later.
 
 ## Power policies
 
@@ -918,7 +918,8 @@ Use this as a recovery attempt after a driver/timing failure. The display can go
 blank and other GPU applications can lose their device; close other workloads
 first. Unsaved edits in Druta are discarded. This does not guarantee recovery
 from a hardware hang or restoration of every setting to stock. It requires
-administrator rights and Windows 10 version 2004 or later. Ambiguous device
+administrator rights and Windows 10 version 2004 or later; on an older Windows
+version Druta stays open and logs that requirement. Ambiguous device
 locations and nonzero PCI segments are refused.
 
 If the GUI is unusable, the same recovery path can be launched from an elevated

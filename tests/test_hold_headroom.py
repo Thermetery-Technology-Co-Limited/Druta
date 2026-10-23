@@ -1212,6 +1212,112 @@ class CrashMarkerTests(AppTestCase):
         self.assertTrue(nxt._closing)
         self.assertIsNotNone(vfheadroom.active_record(self.UUID))
 
+    def show_stale_dialog(self, nxt, version, others=0):
+        """check_stale_headroom on a given Windows build, with the dialog's
+        widgets present; returns the restart button's settings and the text."""
+        configured, texts = [], []
+        with patch("druta.devicereset.platform.system", return_value="Windows"), \
+                patch("druta.devicereset.platform.version", return_value=version), \
+                patch("druta.vfheadroom.other_instances", return_value=others), \
+                patch("druta.druta.dpg.does_item_exist", return_value=True), \
+                patch("druta.druta.dpg.configure_item",
+                      side_effect=lambda tag, **kw: configured.append((tag, kw))), \
+                patch("druta.druta.dpg.set_value",
+                      side_effect=lambda tag, value: texts.append(value)
+                      if tag == "hrs_text" else None):
+            nxt.check_stale_headroom()
+        nxt.show_win.assert_called_once_with(user_data="win_headroom_stale")
+        return configured, texts[-1]
+
+    def test_windows_without_pnp_restart_offers_no_restart_and_keeps_druta_open(self):
+        from druta import devicerecovery
+        nxt = self.crash()
+        nxt._held_startup_request = {"name": "p", "profile": {}}
+        configured, text = self.show_stale_dialog(nxt, "6.1.7601", others=1)
+        self.assertEqual(configured, [("hrs_restart", {"enabled": False}),
+                                      ("hrs_admin_hint", {"show": False})])
+        self.assertIn("Druta cannot restart the GPU device on this Windows version", text)
+        self.assertIn("Windows 10 version 2004", text)
+        self.assertNotIn("Druta will close", text)
+        self.assertNotIn("other Druta window", text)          # no restart to block
+        self.assertIn("is waiting for this answer and runs after it", text)
+        # Even if the restart were requested, Druta must not close: the card
+        # resolves, so only the build check can stop the helper here.
+        nxt._closing, nxt._stop = False, Mock()
+        nxt.gpu.slot = lambda: "0000:03:00.0"
+        with patch("druta.devicereset.platform.system", return_value="Windows"), \
+                patch("druta.devicereset.platform.version", return_value="6.1.7601"), \
+                patch("druta.vfheadroom.other_instances", return_value=0), \
+                patch("druta.druta.is_admin", return_value=True), \
+                patch("druta.devicereset.resolve_target", return_value=Mock()) as resolve, \
+                patch.object(devicerecovery, "launch_helper") as helper, \
+                patch("druta.druta.dpg.stop_dearpygui") as stop:
+            nxt.stale_headroom_restart()
+        resolve.assert_not_called()
+        helper.assert_not_called()
+        stop.assert_not_called()
+        self.assertFalse(nxt._closing)
+        self.assertTrue(self.logged_by(nxt, "Windows 10 version 2004"))
+        self.assertFalse(self.logged_by(nxt, "cannot identify the GPU"))
+        self.assertIsNotNone(vfheadroom.active_record(self.UUID))
+        nxt.begin_profile_load = Mock()
+        with patch("druta.devicereset.platform.system", return_value="Windows"), \
+                patch("druta.devicereset.platform.version", return_value="6.1.7601"):
+            nxt.stale_headroom_dismiss()
+        nxt.begin_profile_load.assert_called_once_with("p", {}, automatic=True)
+        self.assertTrue(self.logged_by(nxt, "Druta cannot restart the GPU device"))
+        self.assertFalse(self.logged_by(nxt, "Device menu"))
+
+    def test_startup_profile_held_after_the_dialog_is_drawn_is_shown_in_it(self):
+        # run() checks the card first and holds the startup profile after,
+        # so the open dialog must be redrawn to mention it.
+        nxt = self.crash()
+        texts = []
+        with patch("druta.devicereset.platform.system", return_value="Windows"), \
+                patch("druta.devicereset.platform.version", return_value="6.1.7601"), \
+                patch("druta.druta.dpg.does_item_exist", return_value=True), \
+                patch("druta.druta.dpg.configure_item"), \
+                patch("druta.druta.dpg.set_value",
+                      side_effect=lambda tag, value: texts.append(value)
+                      if tag == "hrs_text" else None):
+            nxt.check_stale_headroom()
+            self.assertNotIn("startup profile", texts[-1])
+            nxt._held_startup_request = {"name": "p", "profile": {}}
+            nxt.refresh_stale_headroom_text()
+        self.assertIn("The startup profile 'p' is waiting for this answer and runs after it",
+                      texts[-1])
+
+    def test_windows_with_pnp_restart_keeps_the_restart_offer(self):
+        nxt = self.crash()
+        nxt._held_startup_request = {"name": "p", "profile": {}}
+        configured, text = self.show_stale_dialog(nxt, "10.0.19045", others=1)
+        self.assertEqual(configured, [("hrs_restart", {"enabled": True}),
+                                      ("hrs_admin_hint", {"show": True})])
+        self.assertIn("Druta will close", text)
+        self.assertIn("does not run again this boot", text)
+        self.assertIn("other Druta window", text)
+        # and the restart really starts there
+        from druta import devicerecovery
+        nxt._closing, nxt._stop = False, Mock()
+        nxt.gpu.slot = lambda: "0000:03:00.0"
+        target = Mock()
+        with patch("druta.devicereset.platform.system", return_value="Windows"), \
+                patch("druta.devicereset.platform.version", return_value="10.0.19045"), \
+                patch("druta.vfheadroom.other_instances", return_value=0), \
+                patch("druta.druta.is_admin", return_value=True), \
+                patch("druta.devicereset.resolve_target", return_value=target), \
+                patch.object(devicerecovery, "launch_helper") as helper, \
+                patch("druta.druta.dpg.stop_dearpygui") as stop:
+            nxt.stale_headroom_restart()
+        helper.assert_called_once_with(target)
+        stop.assert_called_once()
+        self.assertTrue(nxt._closing)
+        self.assertIsNotNone(vfheadroom.active_record(self.UUID))   # judged after the restart
+
+    @staticmethod
+    def logged_by(app, text):
+        return any(text in str(c) for c in app.log.call_args_list)
+
     def test_restart_is_skipped_when_the_raise_is_already_gone(self):
         nxt = self.crash()
         nxt.check_stale_headroom()
