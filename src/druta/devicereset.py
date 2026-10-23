@@ -144,6 +144,9 @@ def _windows_build() -> int | None:
     return numbers[2]
 
 
+PNP_RESTART_REQUIREMENT = "PnP device restart requires Windows 10 version 2004 or later"
+
+
 def pnputil_restart_supported() -> bool:
     """``/restart-device`` was introduced in Windows 10 version 2004 (build 19041)."""
     build = _windows_build()
@@ -331,7 +334,7 @@ def _pnputil_diagnostics(completed: subprocess.CompletedProcess) -> str:
 def restart_target(target: DeviceTarget, timeout: float = 30) -> RestartResult:
     """Restart exactly ``target`` once; this function never requests an OS reboot."""
     if not pnputil_restart_supported():
-        return RestartResult(False, False, "PnP device restart requires Windows 10 version 2004 or later", None)
+        return RestartResult(False, False, PNP_RESTART_REQUIREMENT, None)
     if not is_admin():
         return RestartResult(False, False, "Administrator rights are required to restart this GPU device", None)
     try:

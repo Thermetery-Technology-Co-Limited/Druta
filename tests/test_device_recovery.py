@@ -11,6 +11,8 @@ import unittest
 from druta import devicerecovery, devicereset, druta
 from tests.test_arch_ui_regressions import FakeUiTest
 
+REAL_PNP_CHECK = devicereset.pnputil_restart_supported
+
 
 @dataclass
 class Result:
@@ -112,6 +114,10 @@ class DeviceRestartUiTests(FakeUiTest):
         self.target = SimpleNamespace(slot="0000:03:00.0", instance_id="PCI\\EXACT", name="GPU")
         self.app._stop = Mock()
         self.app._closing = False
+        # These cases are about the restart itself, not the host's build.
+        supported = patch.object(devicereset, "pnputil_restart_supported", return_value=True)
+        supported.start()
+        self.addCleanup(supported.stop)
 
     def test_action_launches_helper_immediately_before_closing_without_applying_profile(self):
         with patch.object(druta, "is_admin", return_value=True), \
@@ -158,6 +164,41 @@ class DeviceRestartUiTests(FakeUiTest):
             helper.assert_not_called()
             resolve.assert_not_called()
         self.ui.stop_dearpygui.assert_not_called()
+
+    def test_windows_without_pnp_restart_keeps_druta_open(self):
+        # Windows 7, Vista and Windows 10 before 2004 have no pnputil
+        # /restart-device. The helper would restart nothing after Druta had
+        # closed, so the request must stop while the window is still open.
+        for version in ("6.1.7601", "6.0.6002", "10.0.18363"):
+            self.app._closing = False
+            self.app._stop.reset_mock()
+            self.ui.stop_dearpygui.reset_mock()
+            with self.subTest(version=version), \
+                    patch.object(devicereset, "pnputil_restart_supported", REAL_PNP_CHECK), \
+                    patch.object(devicereset.platform, "system", return_value="Windows"), \
+                    patch.object(devicereset.platform, "version", return_value=version), \
+                    patch.object(druta, "is_admin", return_value=True), \
+                    patch.object(devicereset, "resolve_target") as resolve, \
+                    patch.object(devicerecovery, "launch_helper") as helper:
+                self.app.log.reset_mock()
+                self.app.open_device_restart()
+                resolve.assert_not_called()
+                helper.assert_not_called()
+                self.ui.stop_dearpygui.assert_not_called()
+                self.app._stop.set.assert_not_called()
+                self.assertFalse(self.app._closing)
+                self.assertIn("Windows 10 version 2004", self.app.log.call_args.args[0])
+        self.app._closing = False
+        self.ui.stop_dearpygui.reset_mock()
+        with patch.object(devicereset, "pnputil_restart_supported", REAL_PNP_CHECK), \
+                patch.object(devicereset.platform, "system", return_value="Windows"), \
+                patch.object(devicereset.platform, "version", return_value="10.0.19041"), \
+                patch.object(druta, "is_admin", return_value=True), \
+                patch.object(devicereset, "resolve_target", return_value=self.target), \
+                patch.object(devicerecovery, "launch_helper") as helper:
+            self.app.open_device_restart()
+        helper.assert_called_once_with(self.target)
+        self.assertTrue(self.app._closing)
 
     def test_resolve_failure_never_starts_helper_and_no_confirm_entrypoint_remains(self):
         with patch.object(druta, "is_admin", return_value=True), \
