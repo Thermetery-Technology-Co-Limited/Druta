@@ -93,6 +93,7 @@ class DistributionAssets(unittest.TestCase):
         self.assertTrue((source / "tests/__init__.py").is_file())
         self.assertTrue((source / "build.ps1").is_file())
         self.assertTrue((source / "RELEASE-NOTES-1.9.0a.md").is_file())
+        self.assertTrue((source / "RELEASE-NOTES-1.9.0b.md").is_file())
         self.run_build(source, "build_wheel")
         self.assert_wheel_assets(self.direct_wheel)
 
