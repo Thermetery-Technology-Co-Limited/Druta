@@ -576,7 +576,7 @@ historical.
 ## Power slider extensions
 
 On GPUs exposing the live client-power interface, **XOC** extends the same
-slider to positive requests up to 999 W (or the current BIOS maximum if
+slider to positive requests up to 1999 W (or the current BIOS maximum if
 higher). This is a software request range. It does not change BIOS limits,
 and firmware can still enforce a lower limit. Ordinary requests keep the
 existing driver path. Extended requests take effect without restarting the
@@ -590,6 +590,14 @@ control records and re-applies values pinned in this session. Arbitration-vote
 details and original-BIOS-range coloring may be unavailable independently of
 the live request control. The reported limit is not a measurement of actual
 power draw.
+
+Very high requests can produce a lower native effective limit. On one RTX
+3070 Ti, a 1,024 W request reported a 7.424 W native board limit, while a
+1,999 W request reported 1,012.893 W; NVML retained the complete requests and
+the linked current limits kept increasing. These observations fit a wrap in
+the native status path. Raising the request therefore does not guarantee a
+higher effective limit. See the measured policy table in
+`experiments/ampere-live-client-power-20261027.md` for scope and details.
 
 Turning XOC off retains an already configured extended request and allows
 movement back toward the normal range. Profiles that capture such a request

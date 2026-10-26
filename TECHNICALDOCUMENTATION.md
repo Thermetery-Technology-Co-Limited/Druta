@@ -2641,7 +2641,7 @@ power STATUS is diagnostic; it never replaces accepted-request readback.
 extensions, a return from an active extended request, and an unavailable NVML
 setter use the paired live controller. No second setter is attempted after a
 live dispatch fails. The existing XOC switch admits positive whole mW requests
-up to Druta's 999 W software cap, widened to retain a higher ordinary maximum
+up to Druta's 1999 W software cap, widened to retain a higher ordinary maximum
 or observed endpoint. This is not a physical ceiling or a claim of PMU bypass.
 With XOC off, only the normal range and the observed extended endpoint remain.
 A prior capability can retain its UI range after a transient observation failure;
@@ -2654,6 +2654,17 @@ its selected default and verifies the board request stayed exact; it reports
 that host-derived limits were not recomputed. It does not send an intermediate
 ordinary board request. Profiles validate against the same bounds, and capture
 marks an extended carryover as requiring XOC for later replay.
+
+The 1999 W request envelope does not imply a monotonic native effective limit.
+An eight-point idle sweep on one RTX 3070 Ti exactly fit
+`round_half_up(request_mW * 33 / 32) modulo 2^20` for settled native board
+status, while NVML retained the complete request and eight coupled peers
+continued extrapolating from their advertised endpoints. The 1999 W hold lasted
+thirty seconds and restored the complete baseline. This is evidence of a wrap
+along the native status path; the conversion site and physical enforcement
+remain unproven. The observations do not select an architecture-wide cap or
+alter decoder widths. See `experiments/ampere-live-client-power-20261027.md`
+and its sanitized numerical summary for the full scope and timings.
 
 The root production controller trial on RTX 5080 / 621.01 accepted 249 W,
 451 W and 999 W and restored the exact original 360 W request after every

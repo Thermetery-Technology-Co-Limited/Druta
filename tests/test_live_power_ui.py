@@ -13,7 +13,7 @@ class LivePowerUiTests(unittest.TestCase):
         self.app.gpu = SimpleNamespace(
             static={"pl_min_mw": 180000, "pl_max_mw": 420000, "pl_def_mw": 300000},
             read_power_limit_mw=Mock(return_value=300000),
-            power_limit_bounds_mw=Mock(return_value=(1, 999000)),
+            power_limit_bounds_mw=Mock(return_value=(1, 1999000)),
             set_power_limit_mw=Mock(return_value=(True, "accepted request")),
         )
         self.app._slider_ranges = {"pl": KnobRange("Power", 180, 420, None, None)}
@@ -59,11 +59,11 @@ class LivePowerUiTests(unittest.TestCase):
 
     def test_probe_preserves_normal_range_and_supplies_xoc_wire_bounds(self):
         self.app.refresh_power_request_range()
-        self.assertEqual(self.app._slider_ranges["pl"], KnobRange("Power", 180, 420, 0.001, 999))
+        self.assertEqual(self.app._slider_ranges["pl"], KnobRange("Power", 180, 420, 0.001, 1999))
         self.app.sync_slider_ranges(False)
         self.assertEqual(self.config["sl_pl"], {"min_value": 180, "max_value": 420})
         self.app.sync_slider_ranges(True)
-        self.assertEqual(self.config["sl_pl"], {"min_value": 0.001, "max_value": 999})
+        self.assertEqual(self.config["sl_pl"], {"min_value": 0.001, "max_value": 1999})
 
     def test_missing_or_failed_probe_preserves_existing_control(self):
         normal = self.app._slider_ranges["pl"]
@@ -76,9 +76,24 @@ class LivePowerUiTests(unittest.TestCase):
         self.app.refresh_power_request_range()
         self.assertEqual(self.app._slider_ranges["pl"], normal)
 
+    def test_four_digit_typed_power_applies_exact_milliwatts_and_clamps_to_xoc_ceiling(self):
+        self.app.note_gated_knob = Mock()
+        self.app.refresh_power_request_range()
+        self.app.sync_slider_ranges(True)
+        self.values["in_pl"] = 1999
+        self.app.knob_typed("pl")
+        self.assertEqual(self.values, {"sl_pl": 1999, "in_pl": 1999})
+        self.app.gpu.read_power_limit_mw.return_value = 1999000
+        self.app.apply_pl(self.values["sl_pl"])
+        self.app.gpu.set_power_limit_mw.assert_called_once_with(1999000)
+        self.values["in_pl"] = 2000
+        self.app.knob_typed("pl")
+        self.assertEqual(self.values, {"sl_pl": 1999, "in_pl": 1999})
+
     def test_xoc_off_carryover_tracks_the_observed_endpoint_both_directions(self):
         for value, bounds in (
             (600000, (180, 600)),
+            (1999000, (180, 1999)),
             (599999, (180, 599.999)),
             (150000, (150, 420)),
             (300000, (180, 420)),

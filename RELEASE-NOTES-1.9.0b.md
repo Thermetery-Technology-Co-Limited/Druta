@@ -6,6 +6,11 @@ draft while the remaining hardware and packaged-UI validation is completed.
 
 ## Changes since 1.9.0a
 
+- **1999 W XOC request ceiling:** qualified live power requests now extend to
+  1,999 W through the existing Power control, numeric input and profiles. Turning
+  XOC off retains the observed request and permits movement toward the ordinary
+  range. Larger requests can wrap native effective limits; see the measurements
+  below before treating a larger request as more effective headroom.
 - **Ampere live power requests:** on adapters exposing the understood smaller
   client-power layout, the existing XOC Power limit control can request values
   outside the driver's ordinary range without a driver restart. Adapter pairing,
@@ -29,6 +34,15 @@ requests were verified and the latter survived a repeated board request. Each
 test restored the complete captured client and native control state. Reported
 power is uncalibrated on this card; these tests do not establish physical power
 or current-limit enforcement under load.
+
+An extended eight-point idle sweep also accepted 1,000 through 1,999 W, including
+a thirty-second 1,999 W hold. The native board status exactly followed a 33/32
+adjustment wrapped modulo 2^20 milliwatts: it reported 7.424 W at a 1,024 W
+request and 1,012.893 W at 1,999 W. NVML retained the complete requests, while
+linked policies kept scaling; core current reached 894.474 A at 1,999 W. The
+conversion site and physical enforcement are unproven. Every trial restored
+the complete captured baseline. The measured table and sanitized summary are
+included under `source/experiments/` in the Windows package.
 
 Support depends on the current adapter and driver interfaces. The tested card's
 values are not universal. Ada's full live-write path has not been validated by

@@ -9,7 +9,7 @@
   },
   "method": {
     "maximum_requested_w": 1999,
-    "software_envelope": "Expanded in the experimental process only; released XOC ceiling remains 999 W",
+    "software_envelope": "Expanded in the experimental process only; released XOC ceiling was 999 W at capture time",
     "independent_watchdog_seconds": 45,
     "restoration": "Every trial restores the full independently captured client/native INFO and CONTROL buffers exactly"
   },
@@ -1500,6 +1500,6 @@
     "No physical enforcement or sensor calibration demonstrated",
     "Channel numbers do not establish connector identities",
     "Policy 0 remains dynamic and its rail/algorithm is unresolved",
-    "No product ceiling or release asset changed"
+    "The sweep itself changed no product ceiling or release asset"
   ]
 }

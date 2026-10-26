@@ -87,7 +87,7 @@ current-control path. No voltage or workload change was made.
 
 Two brief P8 trials requested 1,999 W using the production setter with its
 software envelope expanded **only inside the experimental process**. The
-released application retains its 999 W XOC software ceiling. Both requests were
+released application at capture time retained its 999 W XOC software ceiling. Both requests were
 accepted and read back; the core-current policy reported 894.474 A as its
 derived request and effective limit. In the second trial, NVML's enforced
 reading was initially 310 W and became 1,999 W after approximately 0.6 seconds.
@@ -102,7 +102,7 @@ exactly after each trial, with an independent eight-second watchdog armed.
 A hardware-free Dear PyGui callback check with an experimentally widened slider
 range preserved typed 999, 1,000 and 1,999 W, passed 1,999,000 mW to its mocked
 Apply setter, and clamped 2,000 to 1,999. It did not visually inspect the
-rendered field or change the released GUI's 999 W ceiling.
+rendered field or change the then-released GUI's 999 W ceiling.
 
 ## Longer four-digit policy sweep
 
@@ -178,7 +178,11 @@ connector identification.
 
 These remain idle software observations on one shunt-modified card. No physical
 power or current enforcement, current-sensor calibration, or behavior under a
-workload was measured. The product's 999 W XOC envelope and published release
-assets were not changed. After the sweep, NVML configured/enforced values were
+workload was measured. The sweep itself did not change the product's then-current 999 W XOC envelope
+or published release assets. After the sweep, NVML configured/enforced values were
 310 W, native board status was 319.688 W, core current was 243 A, and every
 policy request was back at its original default.
+
+The subsequent 1.9.0b rebuild raises the product XOC request envelope to
+1,999 W and documents the native wrap observations. The experimental results
+above retain their original scope and operating conditions.
