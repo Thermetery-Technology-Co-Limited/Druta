@@ -851,6 +851,13 @@ class RegistryPanel:
                     "An unsupported controller has an unavailable mask, not a zero mask. "
                     "Physical residency and power savings are unmeasured."
                 )
+            elif field["key"].startswith("lpwr.gr_pg."):
+                field["detail"] = (
+                    "Disable a captured enabled GR power-gating entry in a separate transaction. "
+                    "Apply and Restore verify configured P-state eligibility and preserve the other low-power controllers. "
+                    "Keep an enabled entry and the existing shared capability flags; removing their last contributor "
+                    "needs further validation. Physical residency and power savings are unmeasured."
+                )
             groups[field["group"]].append(field)
         with dpg.group(parent="reg_fields"):
             dpg.add_text(
@@ -1018,6 +1025,20 @@ class RegistryPanel:
                 "DIFR: loaded P-state routing and configured DFPR/MS DIFR support and masks must match after GPU restart. "
                 "Unsupported controllers have unavailable state masks. Restore verifies the original configuration. "
                 "This checks configuration; physical residency and power savings remain unmeasured."
+            )
+        if receipt.get("grpg_contracts"):
+            contract = receipt["grpg_contracts"]
+            before = contract["before"]["controllers"]["0"]["configured_pstate_mask"]
+            after = contract["after"]["0"]["configured_pstate_mask"]
+
+            def states(mask):
+                return "/".join(f"P{i}" for i in range(32) if mask >> i & 1) or "none"
+
+            lines.append(
+                f"GR power gating: configured P-state eligibility {states(before)} -> {states(after)}. "
+                "Loaded routing, controller support and the other low-power masks must stay unchanged. "
+                "Shared capability flags are retained. Restore verifies the original configuration. "
+                "Physical residency and power savings remain unmeasured."
             )
         if receipt.get("voltage_startup_contracts"):
             lines.append(

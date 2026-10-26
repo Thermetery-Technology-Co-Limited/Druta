@@ -490,6 +490,19 @@ original frequencies reported by the current adapter, while preserving existing
 clock offsets and VF tuning requests. These values describe rated metadata;
 they do not force an operating frequency or prove a performance increase.
 
+**GR power-gating entry disables** use the existing **Idle power management**
+registry fields in a separate transaction. Preview shows the configured
+P-state eligibility before and after the change. Apply checks that selected
+P-state memberships were removed, while loaded routing, controller support
+and other available low-power masks remain unchanged. Restore checks the
+original configuration.
+
+This path requires an enabled entry consumed by the loaded P-state map and
+retains the shared capability flags and at least one enabled entry. Removing
+their last contributor affects additional dependency groups and remains
+unqualified. Preview reports that limitation before a write. Configured
+eligibility does not establish actual power-gating residency or power savings.
+
 **DIFR entry disables** use the existing **Idle power management** registry
 fields. Disable a currently enabled DIFR entry in its own transaction, preview,
 then apply with a GPU restart. The supported path checks the loaded P-state to

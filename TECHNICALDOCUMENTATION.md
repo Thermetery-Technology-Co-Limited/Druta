@@ -2030,6 +2030,19 @@ not establish that both operations execute in every firmware mode. PMU
 serialization/submission is traced, but the actual timer/wait consumer and
 physical settling latency remain unproved.
 
+A later trace identifies the legacy PWM timing consumer. Windows PWM class3
+binds device+8A0 to C40680; after changed PWM programming succeeds, C4081D
+multiplies device+5C by1000 and calls the OBJTMR delay method. Unchanged duty
+and period skip both programming and this wait. The corresponding GSP class3
+factory binds 1680A18, which performs the same multiplication and calls the
+PTIMER-style timer at16F4ED8. This corroborates a real microsecond-to-nanosecond
+consumer, not a timing measurement. The identified Windows caller5009A0 and
+GSP caller16848A8 reject VOLT+16A!=0, whereas the working modern B207 getter
+requires that member nonzero. These opposite gates prevent attributing the
+legacy consumer to ordinary voltage switches on the tested modern path.
+Its actual PMU consumer, composition with policy delay, and separate power-up
+and power-down WORD consumers/readbacks remain unresolved.
+
 `lpwr_runtime.py` adds a configuration contract for disabling captured enabled
 DIFR entries. Native **0x2080A0A7** is the callable loaded P-state INFO getter:
 17676 bytes, a 12-byte header and 32 rows of 552 bytes. The output inventory mask
@@ -2085,6 +2098,57 @@ so an unsupported LPWR getter does not gate unrelated registry controls.
 Raw INFO bytes are retained diagnostically, while the activation contract uses
 the loaded routing fields and controller states; it does not turn evaluated
 clock data into universal frequency-equality requirements.
+
+The adjacent `grpg_runtime.py` contract covers disable-only GR PG entries that
+retain their shared capability contributions. The owned layouts are BIT P+74
+index v10/header6/stride18/owner24 and P+80 GR PG v10/header10/stride5/owner39,
+each with1..5 rows. Actual A7 selectors route through index-row byte1:
+7A9230 reads LPWR+2FD+index*18h;770A19 reads the selected GR PG enable byte at
+LPWR+39C+entry*0Ch. Configured controller0 P-state IDs are read through A801
+attribute36, separately from attribute39 support.
+
+The host HAL at AE8C90 can populate all six GR PG slots, including fallback5.
+The contract therefore retains captured fallback and unselected membership;
+it does not assume that fallback is zero. Selected entries must be enabled,
+consumed by the actual loaded map, and present in controller0's before mask.
+After-mask is the captured mask with only those routed P-state ID bits removed.
+Ignored activation fails the exact readback and invokes Undo, without using
+GPU or driver identity allowlists. The populated PERF v70 aggregation path,
+loaded routing, support and other available controller masks remain checked.
+
+Clearing the last enabled entry is outside this initial contract: BEEC17..27
+calls771730 for controller0, which recursively clears its group+F8 dependency
+mask. Constructor76E4E0 can add controllers4/2 and invoke another HAL callback;
+the existing configuration getters do not expose that dependency mask.
+The OR-presence of raw bits1,3,4 among enabled GR PG entries must also remain
+unchanged. Their aggregates feed separate feature-group operations92A650,
+927470 and92B350 respectively; they are not aliases for controller0. Removing
+the last contributor to one of those groups needs separate qualification.
+
+On the tested5080, clearing only GR PG row1 bit0 changed its configured mask
+120h(P5/P8) to100h(P8). Independent full A7 and all22 support/mask reply bytes
+matched the projection, as did the image, registry and other configured
+requests. Undo restored the original mask and full baseline. This research
+trial used the generic image transaction; its success is separate from the
+production GR PG contract's automatic verification and does not establish
+physical power-gating execution or savings.
+
+The subsequent production GR PG trial passed normal preview/Apply and durable
+Undo with the same independent complete-packet projection. Both transactions
+reported `lpwr.gr_pg.1.enabled` as runtime verified, and the full original
+baseline was restored. The actual production preview callback also used real
+driver GETs with substituted text storage and showed P5/P8 to P8 eligibility;
+it changed neither registry nor active transaction while preparing that view.
+
+The candidate A801 activity attributes26h/28h are not used as residency
+telemetry. They select DWORDs at statistics offsets28h/2Ch and can include
+host accumulation. Their pre/post hooks perform per-query cache refresh, not
+an established sampling-registration protocol. A failed firmware-memory read
+at76FD2A is logged without propagating failure to the row-valid result; the
+refresh hook also ignores its helper's status. Outer RM success and a stable
+valid row cannot distinguish a fresh zero from an internal read failure.
+Producer units, reset epoch and reliable freshness remain unresolved. These
+limitations do not apply to the separately traced39h/36h configuration paths.
 
 `voltage_bios_runtime.py` adds independent effective-policy contracts for
 constant VMIN equations. It binds each BIOS rail to the existing singleton-mask

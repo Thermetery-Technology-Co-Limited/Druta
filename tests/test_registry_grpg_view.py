@@ -1,0 +1,75 @@
+# Copyright (C) 2026 Thermetery Technology Co Limited
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""The existing GR PG checkbox previews configured eligibility and its scope."""
+
+import pytest
+from dearpygui import dearpygui as dpg
+
+from tests.test_registry_panel import bios_field, enabled
+from tests.test_registry_panel import harness as harness
+
+
+def setup_field(h, *, index=1, before=0x120, after=0x100, contract=True):
+    key = f"lpwr.gr_pg.{index}.enabled"
+    h.mocks.inspect.return_value["fields"] = [
+        bios_field(
+            key,
+            label=f"GR_PG entry {index} enabled",
+            group="Idle power management",
+            units="",
+            current=True,
+            mask=1,
+            minimum=0,
+            maximum=1,
+        )
+    ]
+    if contract:
+        h.mocks.prepare.return_value["grpg_contracts"] = {
+            "before": {"controllers": {"0": {"configured_pstate_mask": before}}},
+            "after": {"0": {"configured_pstate_mask": after}},
+        }
+    h.panel.refresh()
+    dpg.set_value("reg_field_" + key, False)
+    return key
+
+
+@pytest.mark.parametrize(
+    "index,before,after,wanted",
+    [(1, 0x120, 0x100, "P5/P8 -> P8"), (3, 0x201, 0x200, "P0/P9 -> P9"), (2, 0x20, 0, "P5 -> none")],
+)
+def test_existing_checkbox_previews_actual_pstate_ids_and_configuration_scope(harness, index, before, after, wanted):
+    h = harness
+    key = setup_field(h, index=index, before=before, after=after)
+    h.panel.prepare()
+    h.mocks.prepare.assert_called_once_with(h.app.gpu, {key: False}, named_changes={}, flag_changes={})
+    text = dpg.get_value("reg_preview")
+    assert "configured P-state eligibility " + wanted in text
+    assert "Loaded routing, controller support and the other low-power masks must stay unchanged" in text
+    assert "Shared capability flags are retained" in text
+    assert "Physical residency and power savings remain unmeasured" in text
+    assert enabled("reg_apply_button")
+
+
+def test_unqualified_dependency_transition_keeps_apply_disabled(harness):
+    h = harness
+    setup_field(h)
+    h.mocks.prepare.side_effect = RuntimeError("Removing the last shared capability contributor is unqualified")
+    h.panel.prepare()
+    assert h.panel.preview is None
+    assert not enabled("reg_apply_button")
+    h.mocks.launch.assert_not_called()
+    assert "last shared capability contributor" in dpg.get_value("reg_status")
+
+
+def test_field_explains_the_shared_capability_boundary(harness):
+    key = setup_field(harness)
+    detail = harness.panel.fields[key]["detail"]
+    assert "separate transaction" in detail
+    assert "last contributor" in detail
+
+
+def test_unrelated_preview_does_not_claim_grpg_verification(harness):
+    h = harness
+    setup_field(h, contract=False)
+    h.panel.prepare()
+    assert "GR power gating: configured P-state eligibility" not in dpg.get_value("reg_preview")
