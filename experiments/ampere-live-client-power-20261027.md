@@ -36,3 +36,31 @@ not establish physical enforcement, all-Ampere or Ada write support, or the
 behavior of other firmware and current limits. No registry override, BIOS
 flash, workload, or voltage change was made. No Hydra or mVolt material was
 used to derive this implementation.
+
+## Peer policies and core current
+
+On the same card, at 310 W versus 381 W, the following native policy requests
+changed. These are driver values, not measurements of physical limits. Channel
+numbers do not establish connector identity.
+
+| Policy | Channel | Unit | 310 W request | Advertised maximum | 381 W request |
+| --- | --- | --- | ---: | ---: | ---: |
+| 5 | 4 | W | 66 | 78 | 78.173 |
+| 6, 7 | 5, 6 | W | 150 each | 175 | 175.360 each |
+| 9, 10 | 5, 6 | A | 22.750 each | 24.820 | 24.850 each |
+| 13, core current | 19 | A | 243 | 270 | 270.389 |
+| 16 | 18 | W | 85 | 92.800 | 92.912 |
+| 17 | 18 | W | 66 | 72 | 72.086 |
+
+The driver-derived values above the advertised maxima made the existing current
+getter reject policy 13. At 381 W, a bounded 242 A native current request was
+accepted and read back as effective; the existing named setter then accepted
+241 A, and Druta re-applied that pin when 381 W was requested again. After the
+fix, a second guarded test read the derived 270.389 A value and used the named
+setter directly for 242 A and 241 A, with the same pin reapplication result.
+Both runs restored the complete independent client and native INFO/CONTROL
+baseline exactly. Tests were at P8 with reported power below 11 W, not under a
+stress workload; the shunt modification means reported power is not calibrated.
+Neither run establishes actual current enforcement or current-sensor accuracy.
+New current requests remain limited to the policy's advertised maximum; these
+tests do not establish a way to request a higher core-current ceiling.
