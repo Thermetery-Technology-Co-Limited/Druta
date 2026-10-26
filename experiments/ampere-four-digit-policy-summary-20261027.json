@@ -1,0 +1,1505 @@
+{
+  "schema": 1,
+  "scope": {
+    "gpu": "ASUS Strix RTX 3070 Ti",
+    "driver": "595.97",
+    "vbios": "94.04.5a.00.56",
+    "reported_shunt_modification": true,
+    "operating_point": "P8 idle; no workload or voltage changes"
+  },
+  "method": {
+    "maximum_requested_w": 1999,
+    "software_envelope": "Expanded in the experimental process only; released XOC ceiling remains 999 W",
+    "independent_watchdog_seconds": 45,
+    "restoration": "Every trial restores the full independently captured client/native INFO and CONTROL buffers exactly"
+  },
+  "models": {
+    "native_board": "round_half_up(request_mW * 33 / 32) modulo 1048576; matches every settled sample in these eight trials",
+    "coupled_peers": "default_i + (request_mW - board_default_mW) * (maximum_i - default_i) / (board_maximum_mW - board_default_mW), with small driver rounding residuals",
+    "interpretation": "Native board status has an empirical 20-bit wrap pattern. The exact conversion site and physical enforcement are unproven; this is not a verified hardware register width.",
+    "maximum_peer_residual_mW_or_mA": 2.714286
+  },
+  "runs": [
+    {
+      "requested_w": 999,
+      "last_sample_seconds": 6.021,
+      "samples": 8,
+      "nvml_requested_mw": 999000,
+      "nvml_enforced_mw": 999000,
+      "board_native_effective_mw": 1030219,
+      "native_model_residual_mw": 0,
+      "peers": [
+        {
+          "policy": 5,
+          "type": 3,
+          "channel": 4,
+          "unit": "mW",
+          "default": 66000,
+          "maximum": 78000,
+          "requested": 184113,
+          "limit": 184113,
+          "linear_model_residual": -1.285714
+        },
+        {
+          "policy": 6,
+          "type": 3,
+          "channel": 5,
+          "unit": "mW",
+          "default": 150000,
+          "maximum": 175000,
+          "requested": 396069,
+          "limit": 396069,
+          "linear_model_residual": -2.428571
+        },
+        {
+          "policy": 7,
+          "type": 3,
+          "channel": 6,
+          "unit": "mW",
+          "default": 150000,
+          "maximum": 175000,
+          "requested": 396069,
+          "limit": 396069,
+          "linear_model_residual": -2.428571
+        },
+        {
+          "policy": 9,
+          "type": 4,
+          "channel": 5,
+          "unit": "mA",
+          "default": 22750,
+          "maximum": 24820,
+          "requested": 43125,
+          "limit": 43125,
+          "linear_model_residual": 0.285714
+        },
+        {
+          "policy": 10,
+          "type": 4,
+          "channel": 6,
+          "unit": "mA",
+          "default": 22750,
+          "maximum": 24820,
+          "requested": 43125,
+          "limit": 43125,
+          "linear_model_residual": 0.285714
+        },
+        {
+          "policy": 13,
+          "type": 15,
+          "channel": 19,
+          "unit": "mA",
+          "default": 243000,
+          "maximum": 270000,
+          "requested": 508755,
+          "limit": 508755,
+          "linear_model_residual": -2.142857
+        },
+        {
+          "policy": 16,
+          "type": 4,
+          "channel": 18,
+          "unit": "mW",
+          "default": 85000,
+          "maximum": 92800,
+          "requested": 161774,
+          "limit": 161774,
+          "linear_model_residual": -0.285714
+        },
+        {
+          "policy": 17,
+          "type": 4,
+          "channel": 18,
+          "unit": "mW",
+          "default": 66000,
+          "maximum": 72000,
+          "requested": 125057,
+          "limit": 125057,
+          "linear_model_residual": -0.142857
+        }
+      ],
+      "unchanged_request_policies": [
+        0,
+        1,
+        3,
+        4,
+        8,
+        11,
+        12,
+        14,
+        15,
+        18
+      ],
+      "policy0_effective_range_after_one_second": [
+        130077,
+        135208
+      ],
+      "telemetry": {
+        "max_temperature_c": 55,
+        "max_reported_power_mw": 11511,
+        "max_reported_core_current_ma": 12600
+      },
+      "restoration": "exact independent baseline",
+      "board_and_core_timeline": [
+        {
+          "seconds": 0.045,
+          "nvml_enforced_mw": 310000,
+          "native_board_mw": 999000,
+          "core_ma": 508755,
+          "policy0_mw": 47415
+        },
+        {
+          "seconds": 0.123,
+          "nvml_enforced_mw": 310000,
+          "native_board_mw": 1030219,
+          "core_ma": 508755,
+          "policy0_mw": 133748
+        },
+        {
+          "seconds": 0.28,
+          "nvml_enforced_mw": 999000,
+          "native_board_mw": 1030219,
+          "core_ma": 508755,
+          "policy0_mw": 129318
+        },
+        {
+          "seconds": 0.521,
+          "nvml_enforced_mw": 999000,
+          "native_board_mw": 1030219,
+          "core_ma": 508755,
+          "policy0_mw": 124876
+        },
+        {
+          "seconds": 1.021,
+          "nvml_enforced_mw": 999000,
+          "native_board_mw": 1030219,
+          "core_ma": 508755,
+          "policy0_mw": 130077
+        },
+        {
+          "seconds": 2.021,
+          "nvml_enforced_mw": 999000,
+          "native_board_mw": 1030219,
+          "core_ma": 508755,
+          "policy0_mw": 130392
+        },
+        {
+          "seconds": 4.021,
+          "nvml_enforced_mw": 999000,
+          "native_board_mw": 1030219,
+          "core_ma": 508755,
+          "policy0_mw": 135208
+        },
+        {
+          "seconds": 6.021,
+          "nvml_enforced_mw": 999000,
+          "native_board_mw": 1030219,
+          "core_ma": 508755,
+          "policy0_mw": 132148
+        }
+      ]
+    },
+    {
+      "requested_w": 1000,
+      "last_sample_seconds": 6.021,
+      "samples": 8,
+      "nvml_requested_mw": 1000000,
+      "nvml_enforced_mw": 1000000,
+      "board_native_effective_mw": 1031250,
+      "native_model_residual_mw": 0,
+      "peers": [
+        {
+          "policy": 5,
+          "type": 3,
+          "channel": 4,
+          "unit": "mW",
+          "default": 66000,
+          "maximum": 78000,
+          "requested": 184286,
+          "limit": 184286,
+          "linear_model_residual": 0.285714
+        },
+        {
+          "policy": 6,
+          "type": 3,
+          "channel": 5,
+          "unit": "mW",
+          "default": 150000,
+          "maximum": 175000,
+          "requested": 396429,
+          "limit": 396429,
+          "linear_model_residual": 0.428571
+        },
+        {
+          "policy": 7,
+          "type": 3,
+          "channel": 6,
+          "unit": "mW",
+          "default": 150000,
+          "maximum": 175000,
+          "requested": 396429,
+          "limit": 396429,
+          "linear_model_residual": 0.428571
+        },
+        {
+          "policy": 9,
+          "type": 4,
+          "channel": 5,
+          "unit": "mA",
+          "default": 22750,
+          "maximum": 24820,
+          "requested": 43154,
+          "limit": 43154,
+          "linear_model_residual": -0.285714
+        },
+        {
+          "policy": 10,
+          "type": 4,
+          "channel": 6,
+          "unit": "mA",
+          "default": 22750,
+          "maximum": 24820,
+          "requested": 43154,
+          "limit": 43154,
+          "linear_model_residual": -0.285714
+        },
+        {
+          "policy": 13,
+          "type": 15,
+          "channel": 19,
+          "unit": "mA",
+          "default": 243000,
+          "maximum": 270000,
+          "requested": 509144,
+          "limit": 509144,
+          "linear_model_residual": 1.142857
+        },
+        {
+          "policy": 16,
+          "type": 4,
+          "channel": 18,
+          "unit": "mW",
+          "default": 85000,
+          "maximum": 92800,
+          "requested": 161886,
+          "limit": 161886,
+          "linear_model_residual": 0.285714
+        },
+        {
+          "policy": 17,
+          "type": 4,
+          "channel": 18,
+          "unit": "mW",
+          "default": 66000,
+          "maximum": 72000,
+          "requested": 125143,
+          "limit": 125143,
+          "linear_model_residual": 0.142857
+        }
+      ],
+      "unchanged_request_policies": [
+        0,
+        1,
+        3,
+        4,
+        8,
+        11,
+        12,
+        14,
+        15,
+        18
+      ],
+      "policy0_effective_range_after_one_second": [
+        126187,
+        132792
+      ],
+      "telemetry": {
+        "max_temperature_c": 55,
+        "max_reported_power_mw": 11876,
+        "max_reported_core_current_ma": 12536
+      },
+      "restoration": "exact independent baseline",
+      "board_and_core_timeline": [
+        {
+          "seconds": 0.048,
+          "nvml_enforced_mw": 310000,
+          "native_board_mw": 1000000,
+          "core_ma": 509144,
+          "policy0_mw": 48464
+        },
+        {
+          "seconds": 0.125,
+          "nvml_enforced_mw": 1000000,
+          "native_board_mw": 1031250,
+          "core_ma": 509144,
+          "policy0_mw": 131329
+        },
+        {
+          "seconds": 0.283,
+          "nvml_enforced_mw": 1000000,
+          "native_board_mw": 1031250,
+          "core_ma": 509144,
+          "policy0_mw": 124869
+        },
+        {
+          "seconds": 0.525,
+          "nvml_enforced_mw": 1000000,
+          "native_board_mw": 1031250,
+          "core_ma": 509144,
+          "policy0_mw": 128483
+        },
+        {
+          "seconds": 1.025,
+          "nvml_enforced_mw": 1000000,
+          "native_board_mw": 1031250,
+          "core_ma": 509144,
+          "policy0_mw": 132792
+        },
+        {
+          "seconds": 2.024,
+          "nvml_enforced_mw": 1000000,
+          "native_board_mw": 1031250,
+          "core_ma": 509144,
+          "policy0_mw": 129339
+        },
+        {
+          "seconds": 4.021,
+          "nvml_enforced_mw": 1000000,
+          "native_board_mw": 1031250,
+          "core_ma": 509144,
+          "policy0_mw": 131592
+        },
+        {
+          "seconds": 6.021,
+          "nvml_enforced_mw": 1000000,
+          "native_board_mw": 1031250,
+          "core_ma": 509144,
+          "policy0_mw": 126187
+        }
+      ]
+    },
+    {
+      "requested_w": 1024,
+      "last_sample_seconds": 6.02,
+      "samples": 8,
+      "nvml_requested_mw": 1024000,
+      "nvml_enforced_mw": 1024000,
+      "board_native_effective_mw": 7424,
+      "native_model_residual_mw": 0,
+      "peers": [
+        {
+          "policy": 5,
+          "type": 3,
+          "channel": 4,
+          "unit": "mW",
+          "default": 66000,
+          "maximum": 78000,
+          "requested": 188399,
+          "limit": 188399,
+          "linear_model_residual": -1.0
+        },
+        {
+          "policy": 6,
+          "type": 3,
+          "channel": 5,
+          "unit": "mW",
+          "default": 150000,
+          "maximum": 175000,
+          "requested": 404999,
+          "limit": 404999,
+          "linear_model_residual": -1.0
+        },
+        {
+          "policy": 7,
+          "type": 3,
+          "channel": 6,
+          "unit": "mW",
+          "default": 150000,
+          "maximum": 175000,
+          "requested": 404999,
+          "limit": 404999,
+          "linear_model_residual": -1.0
+        },
+        {
+          "policy": 9,
+          "type": 4,
+          "channel": 5,
+          "unit": "mA",
+          "default": 22750,
+          "maximum": 24820,
+          "requested": 43864,
+          "limit": 43864,
+          "linear_model_residual": 0.0
+        },
+        {
+          "policy": 10,
+          "type": 4,
+          "channel": 6,
+          "unit": "mA",
+          "default": 22750,
+          "maximum": 24820,
+          "requested": 43864,
+          "limit": 43864,
+          "linear_model_residual": 0.0
+        },
+        {
+          "policy": 13,
+          "type": 15,
+          "channel": 19,
+          "unit": "mA",
+          "default": 243000,
+          "maximum": 270000,
+          "requested": 518399,
+          "limit": 518399,
+          "linear_model_residual": -1.0
+        },
+        {
+          "policy": 16,
+          "type": 4,
+          "channel": 18,
+          "unit": "mW",
+          "default": 85000,
+          "maximum": 92800,
+          "requested": 164560,
+          "limit": 164560,
+          "linear_model_residual": 0.0
+        },
+        {
+          "policy": 17,
+          "type": 4,
+          "channel": 18,
+          "unit": "mW",
+          "default": 66000,
+          "maximum": 72000,
+          "requested": 127200,
+          "limit": 127200,
+          "linear_model_residual": 0.0
+        }
+      ],
+      "unchanged_request_policies": [
+        0,
+        1,
+        3,
+        4,
+        8,
+        11,
+        12,
+        14,
+        15,
+        18
+      ],
+      "policy0_effective_range_after_one_second": [
+        20000,
+        20000
+      ],
+      "telemetry": {
+        "max_temperature_c": 55,
+        "max_reported_power_mw": 11325,
+        "max_reported_core_current_ma": 12464
+      },
+      "restoration": "exact independent baseline",
+      "board_and_core_timeline": [
+        {
+          "seconds": 0.048,
+          "nvml_enforced_mw": 310000,
+          "native_board_mw": 1024000,
+          "core_ma": 518399,
+          "policy0_mw": 49125
+        },
+        {
+          "seconds": 0.128,
+          "nvml_enforced_mw": 310000,
+          "native_board_mw": 7424,
+          "core_ma": 518399,
+          "policy0_mw": 20000
+        },
+        {
+          "seconds": 0.271,
+          "nvml_enforced_mw": 310000,
+          "native_board_mw": 7424,
+          "core_ma": 518399,
+          "policy0_mw": 20000
+        },
+        {
+          "seconds": 0.523,
+          "nvml_enforced_mw": 1024000,
+          "native_board_mw": 7424,
+          "core_ma": 518399,
+          "policy0_mw": 20000
+        },
+        {
+          "seconds": 1.052,
+          "nvml_enforced_mw": 1024000,
+          "native_board_mw": 7424,
+          "core_ma": 518399,
+          "policy0_mw": 20000
+        },
+        {
+          "seconds": 2.021,
+          "nvml_enforced_mw": 1024000,
+          "native_board_mw": 7424,
+          "core_ma": 518399,
+          "policy0_mw": 20000
+        },
+        {
+          "seconds": 4.02,
+          "nvml_enforced_mw": 1024000,
+          "native_board_mw": 7424,
+          "core_ma": 518399,
+          "policy0_mw": 20000
+        },
+        {
+          "seconds": 6.02,
+          "nvml_enforced_mw": 1024000,
+          "native_board_mw": 7424,
+          "core_ma": 518399,
+          "policy0_mw": 20000
+        }
+      ]
+    },
+    {
+      "requested_w": 1100,
+      "last_sample_seconds": 6.028,
+      "samples": 8,
+      "nvml_requested_mw": 1100000,
+      "nvml_enforced_mw": 1100000,
+      "board_native_effective_mw": 85799,
+      "native_model_residual_mw": 0,
+      "peers": [
+        {
+          "policy": 5,
+          "type": 3,
+          "channel": 4,
+          "unit": "mW",
+          "default": 66000,
+          "maximum": 78000,
+          "requested": 201428,
+          "limit": 201428,
+          "linear_model_residual": -0.571429
+        },
+        {
+          "policy": 6,
+          "type": 3,
+          "channel": 5,
+          "unit": "mW",
+          "default": 150000,
+          "maximum": 175000,
+          "requested": 432141,
+          "limit": 432141,
+          "linear_model_residual": -1.857143
+        },
+        {
+          "policy": 7,
+          "type": 3,
+          "channel": 6,
+          "unit": "mW",
+          "default": 150000,
+          "maximum": 175000,
+          "requested": 432141,
+          "limit": 432141,
+          "linear_model_residual": -1.857143
+        },
+        {
+          "policy": 9,
+          "type": 4,
+          "channel": 5,
+          "unit": "mA",
+          "default": 22750,
+          "maximum": 24820,
+          "requested": 46111,
+          "limit": 46111,
+          "linear_model_residual": -0.428571
+        },
+        {
+          "policy": 10,
+          "type": 4,
+          "channel": 6,
+          "unit": "mA",
+          "default": 22750,
+          "maximum": 24820,
+          "requested": 46111,
+          "limit": 46111,
+          "linear_model_residual": -0.428571
+        },
+        {
+          "policy": 13,
+          "type": 15,
+          "channel": 19,
+          "unit": "mA",
+          "default": 243000,
+          "maximum": 270000,
+          "requested": 547712,
+          "limit": 547712,
+          "linear_model_residual": -2.285714
+        },
+        {
+          "policy": 16,
+          "type": 4,
+          "channel": 18,
+          "unit": "mW",
+          "default": 85000,
+          "maximum": 92800,
+          "requested": 173028,
+          "limit": 173028,
+          "linear_model_residual": -0.571429
+        },
+        {
+          "policy": 17,
+          "type": 4,
+          "channel": 18,
+          "unit": "mW",
+          "default": 66000,
+          "maximum": 72000,
+          "requested": 133714,
+          "limit": 133714,
+          "linear_model_residual": -0.285714
+        }
+      ],
+      "unchanged_request_policies": [
+        0,
+        1,
+        3,
+        4,
+        8,
+        11,
+        12,
+        14,
+        15,
+        18
+      ],
+      "policy0_effective_range_after_one_second": [
+        77780,
+        77983
+      ],
+      "telemetry": {
+        "max_temperature_c": 55,
+        "max_reported_power_mw": 11540,
+        "max_reported_core_current_ma": 12656
+      },
+      "restoration": "exact independent baseline",
+      "board_and_core_timeline": [
+        {
+          "seconds": 0.048,
+          "nvml_enforced_mw": 310000,
+          "native_board_mw": 1100000,
+          "core_ma": 547712,
+          "policy0_mw": 49719
+        },
+        {
+          "seconds": 0.123,
+          "nvml_enforced_mw": 310000,
+          "native_board_mw": 85799,
+          "core_ma": 547712,
+          "policy0_mw": 78183
+        },
+        {
+          "seconds": 0.271,
+          "nvml_enforced_mw": 1100000,
+          "native_board_mw": 85799,
+          "core_ma": 547712,
+          "policy0_mw": 77312
+        },
+        {
+          "seconds": 0.532,
+          "nvml_enforced_mw": 1100000,
+          "native_board_mw": 85799,
+          "core_ma": 547712,
+          "policy0_mw": 77986
+        },
+        {
+          "seconds": 1.022,
+          "nvml_enforced_mw": 1100000,
+          "native_board_mw": 85799,
+          "core_ma": 547712,
+          "policy0_mw": 77935
+        },
+        {
+          "seconds": 2.023,
+          "nvml_enforced_mw": 1100000,
+          "native_board_mw": 85799,
+          "core_ma": 547712,
+          "policy0_mw": 77901
+        },
+        {
+          "seconds": 4.022,
+          "nvml_enforced_mw": 1100000,
+          "native_board_mw": 85799,
+          "core_ma": 547712,
+          "policy0_mw": 77780
+        },
+        {
+          "seconds": 6.028,
+          "nvml_enforced_mw": 1100000,
+          "native_board_mw": 85799,
+          "core_ma": 547712,
+          "policy0_mw": 77983
+        }
+      ]
+    },
+    {
+      "requested_w": 1250,
+      "last_sample_seconds": 6.042,
+      "samples": 8,
+      "nvml_requested_mw": 1250000,
+      "nvml_enforced_mw": 1250000,
+      "board_native_effective_mw": 240487,
+      "native_model_residual_mw": 0,
+      "peers": [
+        {
+          "policy": 5,
+          "type": 3,
+          "channel": 4,
+          "unit": "mW",
+          "default": 66000,
+          "maximum": 78000,
+          "requested": 227142,
+          "limit": 227142,
+          "linear_model_residual": -0.857143
+        },
+        {
+          "policy": 6,
+          "type": 3,
+          "channel": 5,
+          "unit": "mW",
+          "default": 150000,
+          "maximum": 175000,
+          "requested": 485712,
+          "limit": 485712,
+          "linear_model_residual": -2.285714
+        },
+        {
+          "policy": 7,
+          "type": 3,
+          "channel": 6,
+          "unit": "mW",
+          "default": 150000,
+          "maximum": 175000,
+          "requested": 485712,
+          "limit": 485712,
+          "linear_model_residual": -2.285714
+        },
+        {
+          "policy": 9,
+          "type": 4,
+          "channel": 5,
+          "unit": "mA",
+          "default": 22750,
+          "maximum": 24820,
+          "requested": 50547,
+          "limit": 50547,
+          "linear_model_residual": -0.142857
+        },
+        {
+          "policy": 10,
+          "type": 4,
+          "channel": 6,
+          "unit": "mA",
+          "default": 22750,
+          "maximum": 24820,
+          "requested": 50547,
+          "limit": 50547,
+          "linear_model_residual": -0.142857
+        },
+        {
+          "policy": 13,
+          "type": 15,
+          "channel": 19,
+          "unit": "mA",
+          "default": 243000,
+          "maximum": 270000,
+          "requested": 605569,
+          "limit": 605569,
+          "linear_model_residual": -2.428571
+        },
+        {
+          "policy": 16,
+          "type": 4,
+          "channel": 18,
+          "unit": "mW",
+          "default": 85000,
+          "maximum": 92800,
+          "requested": 189742,
+          "limit": 189742,
+          "linear_model_residual": -0.857143
+        },
+        {
+          "policy": 17,
+          "type": 4,
+          "channel": 18,
+          "unit": "mW",
+          "default": 66000,
+          "maximum": 72000,
+          "requested": 146571,
+          "limit": 146571,
+          "linear_model_residual": -0.428571
+        }
+      ],
+      "unchanged_request_policies": [
+        0,
+        1,
+        3,
+        4,
+        8,
+        11,
+        12,
+        14,
+        15,
+        18
+      ],
+      "policy0_effective_range_after_one_second": [
+        136484,
+        156331
+      ],
+      "telemetry": {
+        "max_temperature_c": 55,
+        "max_reported_power_mw": 11520,
+        "max_reported_core_current_ma": 12716
+      },
+      "restoration": "exact independent baseline",
+      "board_and_core_timeline": [
+        {
+          "seconds": 0.083,
+          "nvml_enforced_mw": 1250000,
+          "native_board_mw": 1250000,
+          "core_ma": 605569,
+          "policy0_mw": 48613
+        },
+        {
+          "seconds": 0.12,
+          "nvml_enforced_mw": 1250000,
+          "native_board_mw": 240487,
+          "core_ma": 605569,
+          "policy0_mw": 147651
+        },
+        {
+          "seconds": 0.273,
+          "nvml_enforced_mw": 1250000,
+          "native_board_mw": 240487,
+          "core_ma": 605569,
+          "policy0_mw": 161367
+        },
+        {
+          "seconds": 0.52,
+          "nvml_enforced_mw": 1250000,
+          "native_board_mw": 240487,
+          "core_ma": 605569,
+          "policy0_mw": 151311
+        },
+        {
+          "seconds": 1.035,
+          "nvml_enforced_mw": 1250000,
+          "native_board_mw": 240487,
+          "core_ma": 605569,
+          "policy0_mw": 148600
+        },
+        {
+          "seconds": 2.052,
+          "nvml_enforced_mw": 1250000,
+          "native_board_mw": 240487,
+          "core_ma": 605569,
+          "policy0_mw": 156331
+        },
+        {
+          "seconds": 4.042,
+          "nvml_enforced_mw": 1250000,
+          "native_board_mw": 240487,
+          "core_ma": 605569,
+          "policy0_mw": 136484
+        },
+        {
+          "seconds": 6.042,
+          "nvml_enforced_mw": 1250000,
+          "native_board_mw": 240487,
+          "core_ma": 605569,
+          "policy0_mw": 155676
+        }
+      ]
+    },
+    {
+      "requested_w": 1500,
+      "last_sample_seconds": 6.027,
+      "samples": 8,
+      "nvml_requested_mw": 1500000,
+      "nvml_enforced_mw": 1500000,
+      "board_native_effective_mw": 498299,
+      "native_model_residual_mw": 0,
+      "peers": [
+        {
+          "policy": 5,
+          "type": 3,
+          "channel": 4,
+          "unit": "mW",
+          "default": 66000,
+          "maximum": 78000,
+          "requested": 270000,
+          "limit": 270000,
+          "linear_model_residual": 0.0
+        },
+        {
+          "policy": 6,
+          "type": 3,
+          "channel": 5,
+          "unit": "mW",
+          "default": 150000,
+          "maximum": 175000,
+          "requested": 575000,
+          "limit": 575000,
+          "linear_model_residual": 0.0
+        },
+        {
+          "policy": 7,
+          "type": 3,
+          "channel": 6,
+          "unit": "mW",
+          "default": 150000,
+          "maximum": 175000,
+          "requested": 575000,
+          "limit": 575000,
+          "linear_model_residual": 0.0
+        },
+        {
+          "policy": 9,
+          "type": 4,
+          "channel": 5,
+          "unit": "mA",
+          "default": 22750,
+          "maximum": 24820,
+          "requested": 57940,
+          "limit": 57940,
+          "linear_model_residual": 0.0
+        },
+        {
+          "policy": 10,
+          "type": 4,
+          "channel": 6,
+          "unit": "mA",
+          "default": 22750,
+          "maximum": 24820,
+          "requested": 57940,
+          "limit": 57940,
+          "linear_model_residual": 0.0
+        },
+        {
+          "policy": 13,
+          "type": 15,
+          "channel": 19,
+          "unit": "mA",
+          "default": 243000,
+          "maximum": 270000,
+          "requested": 702000,
+          "limit": 702000,
+          "linear_model_residual": 0.0
+        },
+        {
+          "policy": 16,
+          "type": 4,
+          "channel": 18,
+          "unit": "mW",
+          "default": 85000,
+          "maximum": 92800,
+          "requested": 217600,
+          "limit": 217600,
+          "linear_model_residual": 0.0
+        },
+        {
+          "policy": 17,
+          "type": 4,
+          "channel": 18,
+          "unit": "mW",
+          "default": 66000,
+          "maximum": 72000,
+          "requested": 168000,
+          "limit": 168000,
+          "linear_model_residual": 0.0
+        }
+      ],
+      "unchanged_request_policies": [
+        0,
+        1,
+        3,
+        4,
+        8,
+        11,
+        12,
+        14,
+        15,
+        18
+      ],
+      "policy0_effective_range_after_one_second": [
+        179385,
+        186406
+      ],
+      "telemetry": {
+        "max_temperature_c": 55,
+        "max_reported_power_mw": 11655,
+        "max_reported_core_current_ma": 12480
+      },
+      "restoration": "exact independent baseline",
+      "board_and_core_timeline": [
+        {
+          "seconds": 0.052,
+          "nvml_enforced_mw": 310000,
+          "native_board_mw": 1500000,
+          "core_ma": 702000,
+          "policy0_mw": 48382
+        },
+        {
+          "seconds": 0.128,
+          "nvml_enforced_mw": 310000,
+          "native_board_mw": 498299,
+          "core_ma": 702000,
+          "policy0_mw": 176323
+        },
+        {
+          "seconds": 0.27,
+          "nvml_enforced_mw": 310000,
+          "native_board_mw": 498299,
+          "core_ma": 702000,
+          "policy0_mw": 187497
+        },
+        {
+          "seconds": 0.566,
+          "nvml_enforced_mw": 1500000,
+          "native_board_mw": 498299,
+          "core_ma": 702000,
+          "policy0_mw": 168651
+        },
+        {
+          "seconds": 1.027,
+          "nvml_enforced_mw": 1500000,
+          "native_board_mw": 498299,
+          "core_ma": 702000,
+          "policy0_mw": 179385
+        },
+        {
+          "seconds": 2.027,
+          "nvml_enforced_mw": 1500000,
+          "native_board_mw": 498299,
+          "core_ma": 702000,
+          "policy0_mw": 184118
+        },
+        {
+          "seconds": 4.027,
+          "nvml_enforced_mw": 1500000,
+          "native_board_mw": 498299,
+          "core_ma": 702000,
+          "policy0_mw": 186406
+        },
+        {
+          "seconds": 6.027,
+          "nvml_enforced_mw": 1500000,
+          "native_board_mw": 498299,
+          "core_ma": 702000,
+          "policy0_mw": 185020
+        }
+      ]
+    },
+    {
+      "requested_w": 1750,
+      "last_sample_seconds": 6.021,
+      "samples": 8,
+      "nvml_requested_mw": 1750000,
+      "nvml_enforced_mw": 1750000,
+      "board_native_effective_mw": 756112,
+      "native_model_residual_mw": 0,
+      "peers": [
+        {
+          "policy": 5,
+          "type": 3,
+          "channel": 4,
+          "unit": "mW",
+          "default": 66000,
+          "maximum": 78000,
+          "requested": 312858,
+          "limit": 312858,
+          "linear_model_residual": 0.857143
+        },
+        {
+          "policy": 6,
+          "type": 3,
+          "channel": 5,
+          "unit": "mW",
+          "default": 150000,
+          "maximum": 175000,
+          "requested": 664288,
+          "limit": 664288,
+          "linear_model_residual": 2.285714
+        },
+        {
+          "policy": 7,
+          "type": 3,
+          "channel": 6,
+          "unit": "mW",
+          "default": 150000,
+          "maximum": 175000,
+          "requested": 664288,
+          "limit": 664288,
+          "linear_model_residual": 2.285714
+        },
+        {
+          "policy": 9,
+          "type": 4,
+          "channel": 5,
+          "unit": "mA",
+          "default": 22750,
+          "maximum": 24820,
+          "requested": 65333,
+          "limit": 65333,
+          "linear_model_residual": 0.142857
+        },
+        {
+          "policy": 10,
+          "type": 4,
+          "channel": 6,
+          "unit": "mA",
+          "default": 22750,
+          "maximum": 24820,
+          "requested": 65333,
+          "limit": 65333,
+          "linear_model_residual": 0.142857
+        },
+        {
+          "policy": 13,
+          "type": 15,
+          "channel": 19,
+          "unit": "mA",
+          "default": 243000,
+          "maximum": 270000,
+          "requested": 798431,
+          "limit": 798431,
+          "linear_model_residual": 2.428571
+        },
+        {
+          "policy": 16,
+          "type": 4,
+          "channel": 18,
+          "unit": "mW",
+          "default": 85000,
+          "maximum": 92800,
+          "requested": 245458,
+          "limit": 245458,
+          "linear_model_residual": 0.857143
+        },
+        {
+          "policy": 17,
+          "type": 4,
+          "channel": 18,
+          "unit": "mW",
+          "default": 66000,
+          "maximum": 72000,
+          "requested": 189429,
+          "limit": 189429,
+          "linear_model_residual": 0.428571
+        }
+      ],
+      "unchanged_request_policies": [
+        0,
+        1,
+        3,
+        4,
+        8,
+        11,
+        12,
+        14,
+        15,
+        18
+      ],
+      "policy0_effective_range_after_one_second": [
+        212243,
+        230172
+      ],
+      "telemetry": {
+        "max_temperature_c": 55,
+        "max_reported_power_mw": 11514,
+        "max_reported_core_current_ma": 12560
+      },
+      "restoration": "exact independent baseline",
+      "board_and_core_timeline": [
+        {
+          "seconds": 0.046,
+          "nvml_enforced_mw": 310000,
+          "native_board_mw": 1750000,
+          "core_ma": 798431,
+          "policy0_mw": 49574
+        },
+        {
+          "seconds": 0.121,
+          "nvml_enforced_mw": 310000,
+          "native_board_mw": 756112,
+          "core_ma": 798431,
+          "policy0_mw": 215232
+        },
+        {
+          "seconds": 0.271,
+          "nvml_enforced_mw": 1750000,
+          "native_board_mw": 756112,
+          "core_ma": 798431,
+          "policy0_mw": 223167
+        },
+        {
+          "seconds": 0.522,
+          "nvml_enforced_mw": 1750000,
+          "native_board_mw": 756112,
+          "core_ma": 798431,
+          "policy0_mw": 230784
+        },
+        {
+          "seconds": 1.021,
+          "nvml_enforced_mw": 1750000,
+          "native_board_mw": 756112,
+          "core_ma": 798431,
+          "policy0_mw": 218254
+        },
+        {
+          "seconds": 2.022,
+          "nvml_enforced_mw": 1750000,
+          "native_board_mw": 756112,
+          "core_ma": 798431,
+          "policy0_mw": 230172
+        },
+        {
+          "seconds": 4.02,
+          "nvml_enforced_mw": 1750000,
+          "native_board_mw": 756112,
+          "core_ma": 798431,
+          "policy0_mw": 212243
+        },
+        {
+          "seconds": 6.021,
+          "nvml_enforced_mw": 1750000,
+          "native_board_mw": 756112,
+          "core_ma": 798431,
+          "policy0_mw": 225095
+        }
+      ]
+    },
+    {
+      "requested_w": 1999,
+      "last_sample_seconds": 30.028,
+      "samples": 14,
+      "nvml_requested_mw": 1999000,
+      "nvml_enforced_mw": 1999000,
+      "board_native_effective_mw": 1012893,
+      "native_model_residual_mw": 0,
+      "peers": [
+        {
+          "policy": 5,
+          "type": 3,
+          "channel": 4,
+          "unit": "mW",
+          "default": 66000,
+          "maximum": 78000,
+          "requested": 355544,
+          "limit": 355544,
+          "linear_model_residual": 1.142857
+        },
+        {
+          "policy": 6,
+          "type": 3,
+          "channel": 5,
+          "unit": "mW",
+          "default": 150000,
+          "maximum": 175000,
+          "requested": 753217,
+          "limit": 753217,
+          "linear_model_residual": 2.714286
+        },
+        {
+          "policy": 7,
+          "type": 3,
+          "channel": 6,
+          "unit": "mW",
+          "default": 150000,
+          "maximum": 175000,
+          "requested": 753217,
+          "limit": 753217,
+          "linear_model_residual": 2.714286
+        },
+        {
+          "policy": 9,
+          "type": 4,
+          "channel": 5,
+          "unit": "mA",
+          "default": 22750,
+          "maximum": 24820,
+          "requested": 72696,
+          "limit": 72696,
+          "linear_model_residual": -0.142857
+        },
+        {
+          "policy": 10,
+          "type": 4,
+          "channel": 6,
+          "unit": "mA",
+          "default": 22750,
+          "maximum": 24820,
+          "requested": 72696,
+          "limit": 72696,
+          "linear_model_residual": -0.142857
+        },
+        {
+          "policy": 13,
+          "type": 15,
+          "channel": 19,
+          "unit": "mA",
+          "default": 243000,
+          "maximum": 270000,
+          "requested": 894474,
+          "limit": 894474,
+          "linear_model_residual": 2.571429
+        },
+        {
+          "policy": 16,
+          "type": 4,
+          "channel": 18,
+          "unit": "mW",
+          "default": 85000,
+          "maximum": 92800,
+          "requested": 273204,
+          "limit": 273204,
+          "linear_model_residual": 1.142857
+        },
+        {
+          "policy": 17,
+          "type": 4,
+          "channel": 18,
+          "unit": "mW",
+          "default": 66000,
+          "maximum": 72000,
+          "requested": 210772,
+          "limit": 210772,
+          "linear_model_residual": 0.571429
+        }
+      ],
+      "unchanged_request_policies": [
+        0,
+        1,
+        3,
+        4,
+        8,
+        11,
+        12,
+        14,
+        15,
+        18
+      ],
+      "policy0_effective_range_after_one_second": [
+        226460,
+        236063
+      ],
+      "telemetry": {
+        "max_temperature_c": 55,
+        "max_reported_power_mw": 11719,
+        "max_reported_core_current_ma": 12392
+      },
+      "restoration": "exact independent baseline",
+      "board_and_core_timeline": [
+        {
+          "seconds": 0.043,
+          "nvml_enforced_mw": 310000,
+          "native_board_mw": 1999000,
+          "core_ma": 894474,
+          "policy0_mw": 47225
+        },
+        {
+          "seconds": 0.175,
+          "nvml_enforced_mw": 310000,
+          "native_board_mw": 1012893,
+          "core_ma": 894474,
+          "policy0_mw": 223001
+        },
+        {
+          "seconds": 0.277,
+          "nvml_enforced_mw": 310000,
+          "native_board_mw": 1012893,
+          "core_ma": 894474,
+          "policy0_mw": 231544
+        },
+        {
+          "seconds": 0.523,
+          "nvml_enforced_mw": 1999000,
+          "native_board_mw": 1012893,
+          "core_ma": 894474,
+          "policy0_mw": 231344
+        },
+        {
+          "seconds": 1.024,
+          "nvml_enforced_mw": 1999000,
+          "native_board_mw": 1012893,
+          "core_ma": 894474,
+          "policy0_mw": 229206
+        },
+        {
+          "seconds": 2.024,
+          "nvml_enforced_mw": 1999000,
+          "native_board_mw": 1012893,
+          "core_ma": 894474,
+          "policy0_mw": 234443
+        },
+        {
+          "seconds": 4.031,
+          "nvml_enforced_mw": 1999000,
+          "native_board_mw": 1012893,
+          "core_ma": 894474,
+          "policy0_mw": 230790
+        },
+        {
+          "seconds": 6.022,
+          "nvml_enforced_mw": 1999000,
+          "native_board_mw": 1012893,
+          "core_ma": 894474,
+          "policy0_mw": 234766
+        },
+        {
+          "seconds": 8.023,
+          "nvml_enforced_mw": 1999000,
+          "native_board_mw": 1012893,
+          "core_ma": 894474,
+          "policy0_mw": 232032
+        },
+        {
+          "seconds": 10.022,
+          "nvml_enforced_mw": 1999000,
+          "native_board_mw": 1012893,
+          "core_ma": 894474,
+          "policy0_mw": 226460
+        },
+        {
+          "seconds": 15.023,
+          "nvml_enforced_mw": 1999000,
+          "native_board_mw": 1012893,
+          "core_ma": 894474,
+          "policy0_mw": 232115
+        },
+        {
+          "seconds": 20.023,
+          "nvml_enforced_mw": 1999000,
+          "native_board_mw": 1012893,
+          "core_ma": 894474,
+          "policy0_mw": 234928
+        },
+        {
+          "seconds": 25.022,
+          "nvml_enforced_mw": 1999000,
+          "native_board_mw": 1012893,
+          "core_ma": 894474,
+          "policy0_mw": 236063
+        },
+        {
+          "seconds": 30.028,
+          "nvml_enforced_mw": 1999000,
+          "native_board_mw": 1012893,
+          "core_ma": 894474,
+          "policy0_mw": 229559
+        }
+      ]
+    }
+  ],
+  "limits": [
+    "Empirical only for this card/firmware/driver and idle point",
+    "No physical enforcement or sensor calibration demonstrated",
+    "Channel numbers do not establish connector identities",
+    "Policy 0 remains dynamic and its rail/algorithm is unresolved",
+    "No product ceiling or release asset changed"
+  ]
+}

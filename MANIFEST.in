@@ -51,6 +51,7 @@ include experiments/measured-clock-sources-titan-rtx-61088-20260929.md
 include experiments/release-1.7.0-smoke-titan-rtx-61088.md
 include experiments/strix-3070ti-mp2888-20261015.md
 include experiments/ampere-live-client-power-20261027.md
+include experiments/ampere-four-digit-policy-summary-20261027.json
 include experiments/validate_strix_mp2888_production.py
 include experiments/validate_strix_mp2888_production.json
 include experiments/meter_strix_mp2888_production.json

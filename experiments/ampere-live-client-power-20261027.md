@@ -103,3 +103,82 @@ A hardware-free Dear PyGui callback check with an experimentally widened slider
 range preserved typed 999, 1,000 and 1,999 W, passed 1,999,000 mW to its mocked
 Apply setter, and clamped 2,000 to 1,999. It did not visually inspect the
 rendered field or change the released GUI's 999 W ceiling.
+
+## Longer four-digit policy sweep
+
+Eight independent P8 trials held 999, 1,000, 1,024, 1,100, 1,250, 1,500 and
+1,750 W for six seconds each, and 1,999 W for thirty seconds. Each trial armed
+an independent 45-second restoration watchdog and restored the full baseline
+before the next trial. Every restoration verified exactly. These observations
+supersede the earlier suggestion that 1,012.893 W might be a fixed ceiling.
+The [sanitized numerical summary](ampere-four-digit-policy-summary-20261027.json)
+contains the sample timing, final policies, model residuals and restoration
+results. Raw driver buffers remain private.
+
+### Native board status wraps while requests and peer limits keep scaling
+
+For all eight trials, every sample after one second exactly fits this empirical
+model, with `P` in integer milliwatts:
+
+```text
+native_board_limit_mW = floor(P * 33 / 32 + 0.5) mod 1,048,576
+```
+
+The full unmasked 32-bit native STATUS word contains the wrapped value; Druta's
+decoder does not impose a 20-bit mask. This strongly suggests a 20-bit value or
+fixed-point conversion along the driver's native status path. Its actual
+conversion site and physical enforcement are not established. In particular,
+the formula is an empirical fit, not a proven hardware-register definition.
+It predicts a first wrap at an approximately 1,016.801 W request on this card.
+Neither that threshold nor the 33/32 adjustment is a universal Ampere constant.
+
+NVML's configured and enforced getters instead settled to the complete requested
+value at every setting. The native board field settled within the first few
+tenths of a second. At 1,999 W, both this native value and the coupled peer
+limits remained stable through the thirty-second hold.
+
+| Board request, W | Native board limit, W | P5, W | P6/P7 each, W | P9/P10 each, A | Core P13, A | P16, W | P17, W |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 999 | 1030.219 | 184.113 | 396.069 | 43.125 | 508.755 | 161.774 | 125.057 |
+| 1000 | 1031.250 | 184.286 | 396.429 | 43.154 | 509.144 | 161.886 | 125.143 |
+| 1024 | 7.424 | 188.399 | 404.999 | 43.864 | 518.399 | 164.560 | 127.200 |
+| 1100 | 85.799 | 201.428 | 432.141 | 46.111 | 547.712 | 173.028 | 133.714 |
+| 1250 | 240.487 | 227.142 | 485.712 | 50.547 | 605.569 | 189.742 | 146.571 |
+| 1500 | 498.299 | 270.000 | 575.000 | 57.940 | 702.000 | 217.600 | 168.000 |
+| 1750 | 756.112 | 312.858 | 664.288 | 65.333 | 798.431 | 245.458 | 189.429 |
+| 1999 | 1012.893 | 355.544 | 753.217 | 72.696 | 894.474 | 273.204 | 210.772 |
+
+For the eight coupled peers, each table entry is both its stored request and
+effective status limit. Those values follow the **unwrapped board request**:
+
+```text
+peer(P) ~= peer_default
+           + (P - board_default) * (peer_maximum - peer_default)
+             / (board_maximum - board_default)
+```
+
+On this adapter, `board_default = 310,000 mW` and `board_maximum = 380,000 mW`.
+The largest residual over these eight points and eight peers is less than
+3 mW or 3 mA. This establishes extrapolation beyond the advertised endpoints
+with driver quantization; it does not establish the exact rounding algorithm.
+For core current, the approximate local relation in A and W is
+`243 + (P_W - 310) * 27 / 70`. Its scaling is separate from the wrapped native
+board status. No independent current policy was written during this sweep.
+
+### Policies that did not follow this simple relation
+
+Policies 0, 1, 3, 4, 8, 11, 12, 14, 15 and 18 kept their original requests.
+Policy 11 also kept its 150 W request / 154.688 W effective limit. Policy 0,
+type 0x10 on channel 11, retained its 5,001 W request but had a dynamic effective
+limit: it reached its advertised 20 W minimum at the 1,024 W setting, and varied
+roughly from 223 to 236 W after settling at 1,999 W. Its behavior therefore
+cannot be described solely by the peer interpolation formula. The physical rail
+and feedback algorithm remain unresolved; a channel index alone is not a
+connector identification.
+
+These remain idle software observations on one shunt-modified card. No physical
+power or current enforcement, current-sensor calibration, or behavior under a
+workload was measured. The product's 999 W XOC envelope and published release
+assets were not changed. After the sweep, NVML configured/enforced values were
+310 W, native board status was 319.688 W, core current was 243 A, and every
+policy request was back at its original default.
