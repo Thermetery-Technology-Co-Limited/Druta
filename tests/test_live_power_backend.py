@@ -130,24 +130,24 @@ def test_bounds_default_to_existing_xoc_flag_and_override_does_not_change_it():
     gpu = BackendGpu()
     assert gpu.power_limit_bounds_mw() == (200000, 550000)
     assert not gpu.calls
-    assert gpu.power_limit_bounds_mw(xoc=True) == (1, 999000)
+    assert gpu.power_limit_bounds_mw(xoc=True) == (1, 1999000)
     assert not gpu.voltage_xoc_enabled
     gpu.voltage_xoc_enabled = True
-    assert gpu.power_limit_bounds_mw() == (1, 999000)
+    assert gpu.power_limit_bounds_mw() == (1, 1999000)
     assert gpu.power_limit_bounds_mw(xoc=False) == (200000, 550000)
     assert gpu.voltage_xoc_enabled
 
 
 def test_software_xoc_cap_never_shrinks_a_larger_normal_range():
     gpu = BackendGpu()
-    gpu.limits(180001, 321000, 1200123)
-    assert gpu.power_limit_bounds_mw(xoc=True) == (1, 1200123)
-    assert gpu.power_limit_bounds_mw(xoc=False) == (180001, 1200123)
+    gpu.limits(180001, 321000, 2200123)
+    assert gpu.power_limit_bounds_mw(xoc=True) == (1, 2200123)
+    assert gpu.power_limit_bounds_mw(xoc=False) == (180001, 2200123)
 
 
 def test_transient_live_read_returns_error_not_stale_observation_but_retains_range():
     gpu = BackendGpu()
-    assert gpu.power_limit_bounds_mw(xoc=True) == (1, 999000)
+    assert gpu.power_limit_bounds_mw(xoc=True) == (1, 1999000)
     baseline = gpu._live_power_last
     next_read = gpu.counts[cp.INFO] + 1
     gpu.faults[(cp.INFO, next_read)] = gpu.faults[(cp.INFO, next_read + 1)] = {"nt": -1}
@@ -155,7 +155,7 @@ def test_transient_live_read_returns_error_not_stale_observation_but_retains_ran
     assert gpu._live_power_last is baseline
     next_read = gpu.counts[cp.INFO] + 1
     gpu.faults[(cp.INFO, next_read)] = gpu.faults[(cp.INFO, next_read + 1)] = {"nt": -1}
-    assert gpu.power_limit_bounds_mw(xoc=True) == (1, 999000)
+    assert gpu.power_limit_bounds_mw(xoc=True) == (1, 1999000)
     assert gpu._live_power_error_kind == "transient"
 
 
@@ -165,7 +165,7 @@ def test_transient_first_probe_recovers_and_optional_status_does_not_gate_extens
     gpu.faults[(cp.INFO, 1)] = {"nt": -1}
     for occurrence in range(1, 9):
         gpu.faults[(cp.NATIVE_STATUS, occurrence)] = {"rm": 0x56}
-    assert gpu.power_limit_bounds_mw() == (1, 999000)
+    assert gpu.power_limit_bounds_mw() == (1, 1999000)
     ok, message = gpu.set_power_limit_mw(600001)
     assert ok, message
     assert gpu._live_power_last["arbitration"] is None
@@ -183,7 +183,7 @@ def test_unrestorable_fe_keeps_normal_bounds_and_prevents_extended_set(prior):
     assert not gpu.nvml_writes and not gpu.set_payloads
 
 
-@pytest.mark.parametrize("requested", [1, 199999, 550001, 999000])
+@pytest.mark.parametrize("requested", [1, 199999, 550001, 999000, 1000000, 1999000])
 def test_xoc_extended_request_changes_only_source_and_never_reapplies_pins(requested):
     gpu = BackendGpu()
     gpu.voltage_xoc_enabled = True
@@ -214,7 +214,7 @@ def test_legacy_live_request_reapplies_user_pins_and_reports_failure(pin_result)
     gpu._reapply_power_policy_pins.assert_called_once_with(board_mw=600000)
 
 
-@pytest.mark.parametrize("requested", [199999, 550001, 999000])
+@pytest.mark.parametrize("requested", [199999, 550001, 999000, 1999000])
 def test_first_extension_requires_existing_xoc_opt_in(requested):
     gpu = BackendGpu()
     ok, message = gpu.set_power_limit_mw(requested)
@@ -222,7 +222,7 @@ def test_first_extension_requires_existing_xoc_opt_in(requested):
     assert not gpu.nvml_writes and not gpu.set_payloads
 
 
-@pytest.mark.parametrize("requested", [999001, 0xFFFFFFFE, 0xFFFFFFFF])
+@pytest.mark.parametrize("requested", [1999001, 0xFFFFFFFE, 0xFFFFFFFF])
 def test_requests_above_software_envelope_do_not_dispatch(requested):
     gpu = BackendGpu()
     gpu.voltage_xoc_enabled = True
@@ -239,7 +239,9 @@ def test_malformed_requests_make_no_calls(value):
 
 @pytest.mark.parametrize(
     "current,bounds,allowed,denied",
-    [(800000, (200000, 800000), 700000, 800001), (100000, (100000, 550000), 150000, 99999)],
+    [(800000, (200000, 800000), 700000, 800001),
+     (1999000, (200000, 1999000), 1500000, 1999001),
+     (100000, (100000, 550000), 150000, 99999)],
 )
 def test_xoc_off_carryover_allows_only_staying_or_moving_toward_normal(current, bounds, allowed, denied):
     gpu = BackendGpu(requested=current)
@@ -344,7 +346,7 @@ def test_failed_live_rollback_is_reported_without_an_extra_nvml_write():
 def test_transient_write_preflight_does_not_use_cached_capability_as_a_request():
     gpu = BackendGpu()
     gpu.voltage_xoc_enabled = True
-    assert gpu.power_limit_bounds_mw() == (1, 999000)
+    assert gpu.power_limit_bounds_mw() == (1, 1999000)
     next_read = gpu.counts[cp.INFO] + 1
     gpu.faults[(cp.INFO, next_read)] = gpu.faults[(cp.INFO, next_read + 1)] = {"nt": -1}
     ok, message = gpu.set_power_limit_mw(600000)

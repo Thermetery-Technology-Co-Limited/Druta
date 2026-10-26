@@ -4091,7 +4091,7 @@ class GPU:
         return True, (f"{name} offset {was/1000:+.0f} -> {khz/1000:+.0f} MHz "
                       f"(requested; the driver floors to whole clock bins)")
 
-    POWER_LIMIT_XOC_MAX_MW = 999000  # Software request envelope, not a physical ceiling.
+    POWER_LIMIT_XOC_MAX_MW = 1999000  # Software request envelope, not a physical ceiling.
 
     def _normal_power_bounds_mw(self):
         low, high = self.static.get("pl_min_mw"), self.static.get("pl_max_mw")

@@ -174,7 +174,8 @@ RISK_FEATURE_TEXT = {
     "xoc": (
         "XOC: expanded voltage and clock ranges; current limits use the "
         "API ceilings. Supported GPUs also expose live extended power requests; "
-        "the 999 W software request cap does not raise firmware limits."),
+        "the 1999 W software request cap does not raise firmware limits. "
+        "Native policy limits can wrap at high requests."),
     "volt_limits": (
         "RAIL LIMITS: the driver-held per-rail voltage ceilings are being "
         "written directly. EXPERIMENTAL."),
