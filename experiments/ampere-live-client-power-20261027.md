@@ -64,3 +64,21 @@ stress workload; the shunt modification means reported power is not calibrated.
 Neither run establishes actual current enforcement or current-sensor accuracy.
 New current requests remain limited to the policy's advertised maximum; these
 tests do not establish a way to request a higher core-current ceiling.
+
+## 999 W request and independent core-current probe
+
+At P8 and approximately 11 W of uncalibrated reported power, a brief 999 W
+board request was accepted and read back on the same card. The driver's core
+current policy then reported a 508.755 A request and effective limit, compared
+with the policy's advertised 270 A maximum. Peer policies 5, 6, 7, 9, 10, 16,
+and 17 were also recalculated. This is driver readback at idle; it does not
+establish actual board power or physical current-limit enforcement under load.
+
+A native policy SET requesting 508.855 A, only 0.1 A above that derived value,
+was rejected with RM 0x1F. A compensating native SET of the original 508.755 A
+was also rejected, but the fresh policy read still reported 508.755 A. The
+board request was then restored to 310 W and the complete client and native
+INFO/CONTROL buffers matched the independent baseline exactly. An independent
+eight-second watchdog was armed throughout; the parent restored successfully.
+This single rejected request does not rule out every possible independent
+current-control path. No voltage or workload change was made.
