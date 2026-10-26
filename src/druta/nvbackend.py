@@ -5200,6 +5200,28 @@ class GPU:
                           and control[record] == type_id)
             in_range = (minimum <= control[record + 1] <= maximum
                         and minimum <= dynamic[state + 1] <= maximum)
+            if understood and not in_range:
+                # A legacy FE board request above its ordinary maximum can
+                # make the driver derive a peer current above that peer's
+                # advertised maximum. Accept this *observation* only when a
+                # fresh paired FE snapshot confirms the same native table and
+                # the stored/effective current agree. The setter still bounds
+                # every new request by the current policy's own maximum.
+                requested, effective = control[record + 1], dynamic[state + 1]
+                if (self.arch() == self.ARCH_AMPERE and maximum < requested < 0xFFFFFFFF
+                        and effective == requested):
+                    observed, error = self.read_live_power_request()
+                    if not error and observed is not None:
+                        binding = observed.get("binding", {})
+                        in_range = (
+                            binding.get("layout") == "legacy32"
+                            and type(observed.get("requested_mw")) is int
+                            and type(binding.get("maximum_mw")) is int
+                            and observed["requested_mw"] > binding["maximum_mw"]
+                            and observed.get("native_info_hex") == struct.pack(
+                                f"<{len(info)}I", *info).hex()
+                            and observed.get("native_control_hex") == struct.pack(
+                                f"<{len(control)}I", *control).hex())
             if not (understood and in_range):
                 self._current_limit_unavailable.append({
                     "policy": policy, "label": spec["label"], "present": True,
