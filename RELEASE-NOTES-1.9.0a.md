@@ -40,12 +40,20 @@ or universal values. See [the manual](MANUAL.md) for individual operations and
 
 ## Validation and limits
 
-The full regression suite passes **5,971 tests**. Production Apply/Undo and
+The full regression suite passes **6,130 tests**. Production Apply/Undo and
 independent driver readbacks were exercised on the current RTX 5080, including
 selected registry controls, live client-power requests through 999 W, live VF
 policies, voltage-device delay requests and DIFR disables. The final original
 image, registry settings and captured configuration were restored. Activation
 used GPU-only restarts where required; Windows was not rebooted.
+
+The live client-power path now also accepts an understood smaller layout. On
+one shunt-modified RTX 3070 Ti / 595.97, a 381 W request read back against a
+380 W reported maximum; a pinned peer was re-applied, and the full original
+control state was restored. This was an idle test, not a physical-power test.
+Ada has an independent smaller-INFO observation; its complete live write path
+has not been tested here. Original-range coloring and arbitration-vote details
+can be unavailable for the smaller layout without disabling the live request.
 
 A successful request or configuration readback is not a physical power,
 voltage, timing or residency measurement. In particular, the tested 999 W live
