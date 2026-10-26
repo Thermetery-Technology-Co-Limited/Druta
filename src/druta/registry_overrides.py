@@ -34,6 +34,7 @@ from . import (
     fan_policy_runtime,
     fan_runtime,
     fan_stop_runtime,
+    grpg_runtime,
     linked_current_runtime,
     lpwr_runtime,
     model_registry,
@@ -772,6 +773,44 @@ def _validate_lpwr_receipt(receipt, target, *, restore=False):
     return saved
 
 
+def _grpg_separate(changes, **other_changes):
+    selected = {key: value for key, value in changes.items() if grpg_runtime.KEY.fullmatch(key)}
+    if selected and (len(selected) != len(changes) or any(other_changes.values())):
+        raise OverrideError("Apply GRPG entry disables separately from other controls")
+    return selected
+
+
+def _validate_grpg_receipt(receipt, target, *, restore=False):
+    """Bind qualified GRPG receipts without preventing legacy image-only undo."""
+    names = {"grpg_contract_version", "grpg_contracts"}
+    selected = {key: value for key, value in receipt["changes"].items() if grpg_runtime.KEY.fullmatch(key)}
+    if not names.intersection(receipt):
+        if selected and not restore:
+            raise OverrideError("This GRPG preview needs fresh runtime contracts; prepare it again")
+        return {}
+    if not names.issubset(receipt) or not registry_flags._same_state(receipt["grpg_contract_version"], 1):
+        raise OverrideError("Missing or unrecognized GRPG contracts")
+    saved = receipt["grpg_contracts"]
+    grpg_runtime.validate_contracts(receipt["changes"], saved)
+    if not saved:
+        return {}
+    _grpg_separate(
+        receipt["changes"],
+        **{
+            name: receipt.get(name)
+            for name in ("named_changes", "flag_changes", "pstate_changes", "clock_vf_changes", "startup_changes")
+        },
+    )
+    if saved["before"]["identity"]["slot"] != target.slot:
+        raise OverrideError("Saved GRPG contract does not match the selected GPU")
+    if (
+        not receipt.get("verify_bios", bool(receipt["plan"]["patches"]))
+        or saved["before_image_sha256"] != receipt["before_image_sha256"]
+    ):
+        raise OverrideError("Saved GRPG contract does not match the captured BIOS image")
+    return saved
+
+
 def prepare(
     gpu,
     changes,
@@ -793,6 +832,14 @@ def prepare(
     clock_vf_changes = clock_vf_changes or {}
     startup_changes = startup_changes or {}
     _lpwr_separate(
+        changes,
+        named_changes=named_changes,
+        flag_changes=flag_changes,
+        pstate_changes=pstate_changes,
+        clock_vf_changes=clock_vf_changes,
+        startup_changes=startup_changes,
+    )
+    _grpg_separate(
         changes,
         named_changes=named_changes,
         flag_changes=flag_changes,
@@ -844,6 +891,7 @@ def prepare(
         raise OverrideError("Apply linked-current limits separately from other registry controls")
     linked_current = linked_current_runtime.contracts(gpu, inspection, changes)
     lpwr = lpwr_runtime.contracts(gpu, image, changes)
+    grpg = grpg_runtime.contracts(gpu, image, changes)
     clocks = bios_runtime.clock_contracts(gpu, inspection, changes)
     clock_version, clock_changes = _clock_bios_scope(inspection, changes)
     clock_bios = clock_bios_runtime.contracts(gpu, inspection, changes)
@@ -957,6 +1005,8 @@ def prepare(
         "linked_current_contracts": linked_current,
         "lpwr_contract_version": 1,
         "lpwr_contracts": lpwr,
+        "grpg_contract_version": 1,
+        "grpg_contracts": grpg,
         "voltage_replay_contract_version": 1,
         "voltage_replay_contracts": voltage_replay,
         "fan_policy_contracts": fan_policies,
@@ -974,6 +1024,7 @@ def prepare(
         "message": "Prepared; registry unchanged",
     }
     _validate_lpwr_receipt(receipt, target)
+    _validate_grpg_receipt(receipt, target)
     startup.atomic_json(path, receipt)
     # The exact source image makes restoration auditable without an external ROM.
     if image is not None:
@@ -1158,6 +1209,25 @@ def _execute(
             raise OverrideError(error)
         return observation
 
+    def grpg_observation(gpu):
+        # GRPG is read only for its selected transaction, not every snapshot.
+        if isinstance(gpu, dict):
+            if "grpg" in gpu:
+                if gpu.get("grpg_error"):
+                    raise OverrideError(gpu["grpg_error"])
+                return gpu["grpg"]
+            if gpu.get("target") != target:
+                raise OverrideError("Fresh GRPG observation has no validated selected target")
+            from .nvbackend import GPU
+
+            gpu = GPU(target.slot)
+            if bind_target(gpu) != target:
+                raise OverrideError("Selected GPU or its driver mapping changed before GRPG readback")
+        observation, error = grpg_runtime.read(gpu)
+        if error:
+            raise OverrideError(error)
+        return observation
+
     def startup_observation(gpu):
         if not isinstance(gpu, dict):
             return voltage_startup_runtime.read_checked(gpu)
@@ -1204,6 +1274,7 @@ def _execute(
         # Valid undo must not require a working GPU before registry cleanup.
         _validate_clock_bios_receipt(receipt, target)
         lpwr_contracts = _validate_lpwr_receipt(receipt, target, restore=restore)
+        grpg_contracts = _validate_grpg_receipt(receipt, target, restore=restore)
         startup_contracts = _validate_startup_receipt(receipt, target)
         factory_contracts = receipt.get("factory_clock_contracts", {})
         factory_version = "factory_clock_contract_version" in receipt
@@ -1524,6 +1595,8 @@ def _execute(
                 )
             if lpwr_contracts:
                 lpwr_runtime.verify(lpwr_observation(gpu), lpwr_contracts, restore=True)
+            if grpg_contracts:
+                grpg_runtime.verify(grpg_observation(gpu), grpg_contracts, restore=True)
             if saved_requests:
                 current_requests = voltage_request_replay.validate(capture_requests())
                 if not registry_flags._same_state(current_requests, saved_requests["before"]):
@@ -1658,6 +1731,10 @@ def _execute(
             receipt.setdefault("runtime_verified_fields", []).extend(
                 lpwr_runtime.verify(lpwr_observation(fresh), lpwr_contracts, restore=restore)
             )
+        if grpg_contracts:
+            receipt.setdefault("runtime_verified_fields", []).extend(
+                grpg_runtime.verify(grpg_observation(fresh), grpg_contracts, restore=restore)
+            )
         if startup_contracts:
             startup_actual = startup_observation(fresh)
             receipt.setdefault("runtime_verified_fields", []).extend(
@@ -1780,6 +1857,8 @@ def _execute(
                     )
                 if lpwr_contracts:
                     lpwr_runtime.verify(lpwr_observation(rollback), lpwr_contracts, restore=True)
+                if grpg_contracts:
+                    grpg_runtime.verify(grpg_observation(rollback), grpg_contracts, restore=True)
                 if startup_contracts:
                     voltage_startup_runtime.verify(startup_observation(rollback), startup_contracts, restore=True)
                 receipt["state"] = "rolled-back"
