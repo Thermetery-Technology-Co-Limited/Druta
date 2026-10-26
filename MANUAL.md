@@ -301,3 +301,290 @@ authorize Apply, and a failed restoration leaves the session marked unclean for
 automatic startup loading. A forced process termination or power loss cannot
 run this cleanup. Ordinary reboot does not necessarily clear I2C settings;
 use the controller's Stock/Auto action or a full power cycle as appropriate.
+
+## Registry and BIOS overrides
+
+Open **Controls > Registry / BIOS overrides**, then **Read current fields**.
+The panel shows understood BIOS fields and sensed silicon-model inputs for the
+selected adapter. Direct Speedo and IDDQ substitutions are writable when their
+live input identity, range and effective readback are available. IDDQ values
+are raw model integers; their physical units remain unresolved. They are not
+current-limit settings or measured current.
+
+Edit values, choose **Preview changes**, and review the saved transaction before
+**Apply and restart GPU**. Apply closes Druta, stages the selected adapter's
+registry values, restarts that GPU through Windows PnP, and reopens Druta with
+fresh driver handles. It never restarts Windows or reapplies a startup tuning
+profile. Changes persist across application exits until restored.
+New BIOS patch transactions preserve the existing GPU-firmware selector.
+
+**Restore previous registry settings** undoes the latest transaction. Undo keeps
+the original value types and absence of values, preserves unrelated external
+changes, and reports conflicts instead of replacing externally changed values.
+Receipts are stored under `%LOCALAPPDATA%\Druta\registry-overrides`. If the GPU
+backend cannot start, run the independent recovery command as administrator:
+
+```powershell
+.\Druta.exe --registry-recover 0000:01:00.0
+```
+
+Use your adapter's PCI slot. The saved Windows device identity must still match.
+The helper can restore registry values without a live NVAPI/NVML connection;
+success also requires the GPU to restart and the selected readbacks to return.
+
+BIOS activation is checked against the exact expected running image. Understood
+power/current policy metadata, core/memory offset ranges, fan duty/RPM bounds, PWM frequency and
+the operating temperature limit also require matching driver readback. Some
+Blackwell power/current policies derive their active maximum from the default
+limit; the preview explains this relationship and rejects ineffective maximum
+edits. Fan bounds use the driver's underlying duty/RPM fields; its public
+30-100 percent range can remain unchanged. PWM readback verifies the loaded Hz
+setting; the hardware derives an integer period, so it is not an electrical
+frequency measurement. The operating-temperature
+control accepts whole Celsius values and currently supports lowering the limit;
+supported slowdown and shutdown thresholds must remain unchanged. Other decoded
+BIOS fields are experimental: loading their bytes does not establish a physical
+effect. Increasing a board-power maximum does not automatically increase every
+other power/current policy or prove that the board draws the requested wattage.
+Speedo and IDDQ change software model inputs while the raw hardware fuses stay
+intact. IDDQ transactions also verify the other model inputs and configuration;
+an ignored, rounded or otherwise mismatched value triggers undo.
+
+**Linked current limits** configure a current limit carried by another power
+policy. Druta resolves the BIOS relationship to its target policy and verifies
+the loaded cache and firmware-reported value after a GPU restart. Other power
+definitions and requests must remain exact. A lower firmware vote can keep the
+effective current below this limit. Apply these separately from other registry
+controls. Undo checks the original cache, reported value and requests; an
+unverified restoration stays marked **recovery required**. These checks do not
+measure physical overcurrent protection or enforcement under load.
+
+**Driver behavior > Cache limit-conversion results** controls reuse of cached limit
+calculations. Disabling it requests recalculation; it does not disable power-limit
+enforcement. Its selected value, peer flags and registered limit inventory must
+agree with fresh driver readback after activation and undo.
+
+**Skip driver performance-limit updates** suppresses host-initiated updates.
+The active switch and exact undo have been verified; its effect on autonomous
+firmware enforcement remains unverified. Both driver-behavior controls require
+a GPU restart and can be changed independently or together.
+
+**Expose all-P-state overclocking editability** enables the driver's override for
+supported non-P0 clock domains. Clearing it removes the override and requires
+fresh readback to show disabled editability; if the driver default remains
+enabled, the transaction rolls back. The override itself changes no offset.
+Reported editability does not establish that every state-specific setter works.
+Apply this control separately from BIOS clock-range edits. Underlying offsets,
+ranges, peer metadata and adapter identity are checked after activation and undo.
+
+**Enforce VF curve monotonicity** and **Enforce VF curve smoothing** control two
+driver policy flags through `RMClkVfOverride`. Apply restarts the selected GPU
+and verifies both flags and the other returned configuration fields. Disabling
+either also changes a derived VF processing mode. These controls do not write
+a curve or request a voltage. Their effect on the firmware's curve-processing
+algorithm remains uncharacterized. Apply them separately from BIOS clock-range
+edits; **Restore previous registry settings** restores the captured flags.
+
+**Constant VMIN** changes an understood, unshared BIOS minimum-voltage equation
+for the selected rail. Preview requires agreement with its independently
+reported effective VMIN and retains existing voltage offsets. The target must
+fit the rail's current reported upper limits. After restart, the effective VMIN
+must match exactly and the other captured rail policies must remain unchanged.
+If the driver rounds to another voltage step, Druta restores the previous
+settings. The supported step is device-specific; the current upper limits do
+not establish behavior at every operating point or measure physical voltage.
+
+**OV constants and ALT addends** change understood constant voltage equations.
+OV is an absolute BIOS constant, with the current rail offset retained. ALT is
+an addend to that rail's complete REL equation; its displayed value is not an
+absolute ceiling. Druta edits all three constant words together and checks the
+entire loaded equation configuration after a GPU restart. The selected reported
+limit must match exactly; rounding or an unexpected change triggers undo.
+Complete rail-control requests must read back unchanged. When complete request
+replay is available, Druta restores the captured rail offsets and voltage-boost
+percentage after each GPU restart, including Undo and rollback. Each replay is
+verified independently. If complete replay is unavailable, set boost to 0% before
+applying OV, ALT or REL BIOS changes. An ignored request fails verification.
+Changing ALT can change the shared boost contribution and the computed REL and
+effective limits on both rails. OV can change the selected rail's effective
+limit. These computed outputs are recorded without assuming a firmware formula.
+This checks loaded settings and reported limits, not measured regulator voltage
+or enforcement under load. Apply these separately from other registry controls.
+
+**REL upper clamps** change the maximum of an understood multivariate voltage
+equation. Druta checks the complete loaded definition and changes only its upper
+clamp; the lower bound, coefficients and linked equations stay unchanged.
+The reported REL can remain below the clamp or be rounded to a voltage step.
+Linked ALT limits and effective limits can change. With 0% requested boost,
+unrelated rail limits and the boost contribution must stay unchanged. A missing
+readback for an affected rail prevents applying; an unrelated missing rail does
+not. Apply REL separately from other BIOS or registry controls. Undo restores
+the captured definition and reported state. These checks establish loaded
+configuration, without measuring physical voltage or enforcement under load.
+
+**Fixed REL equation bounds** set the selected equation's lower and upper bounds
+to the same value. Check **Set** to include this control in the preview; editing
+its number alone does not select it. The initial number is the stored upper
+bound, and the preview shows both original bounds. Polynomial terms, linked
+equations and rail offsets are retained, so the reported REL can differ from
+this equation value. Druta verifies both loaded bounds exactly and records the
+reported result separately. Apply and Undo use the same request preservation
+and GPU restart checks as the REL upper clamp.
+
+**Startup REL adjustment** selects an explicit driver startup setting for the
+currently affected rails. **Force -50 mV startup adjustment** requests that REL
+offset; **Suppress startup adjustment** requests zero. **Leave unchanged** keeps
+the current registry selection. An inherited setting is not labeled enabled or
+disabled from its current offset alone.
+
+Apply this separately from other controls. After GPU restart, Druta checks the
+startup effect before replaying captured rail requests and boost. Undo restores
+the exact previous registry value or absence and verifies the original requests.
+Current drivers can ignore runtime offset writes; if a captured custom offset
+cannot be restored, the transaction stays marked **recovery required**. A saved
+registry value alone is not reported as complete restoration.
+
+**Fan curves and zero-RPM thresholds** use the driver's current per-policy
+configuration for readback. Temperatures use steps of 1/32 C; duty coordinates
+use whole percent and RPM coordinates use whole RPM. The preview identifies a
+stored coordinate that is inactive in the current RPM or duty mode.
+Druta binds each policy to its reported cooler routes and preserves other
+curve points, stop flags, duty/RPM values, cooler bounds and PWM settings.
+Zero-RPM thresholds require an already supported and enabled stop policy.
+A final curve point derived from a thermal-table limit cannot be changed
+through its unused stored temperature. Temperatures and curve coordinates can
+be changed together; apply them separately from zero-RPM enablement and
+cooler-setting changes. These checks
+verify loaded configuration; they do not measure physical fan response or
+identify which of several routed policies currently controls fan speed.
+
+**Global zero-RPM enablement** changes the support and enable flags in every
+affected fan policy. Preview requires an understood binding for every edited
+policy. Apply verifies the full loaded policy, routing and cooler configuration;
+unsupported activation or any unexpected change triggers undo. Apply this
+separately from fan-curve, threshold and cooler edits. This verifies the loaded
+configuration; physical fan-stop behavior remains dependent on the active policy.
+
+**Clock offset ranges** on understood v50 BIOS tables also use the driver's
+typed domain table. This covers auxiliary domains such as XBAR, SYS and video
+when their current bindings are available. Apply preserves other domain metadata
+and current user-clock requests, and requires exact bound readback after restart.
+Changing a range does not itself request a new clock offset.
+
+**Factory clock offsets** change the loaded core or memory factory delta on
+understood v10 factory/v50 clock tables. Apply checks the exact factory delta
+after the GPU restart, including the core offset copied to an eligible XBAR
+domain. Existing per-domain offsets, VF tuning requests and other clock metadata
+are preserved. Zero disables the selected factory record. Apply factory offsets
+separately from other registry or BIOS controls. Evaluated VF and P-state
+frequencies can change; readback verifies the loaded configuration, without
+establishing clock behavior under load.
+
+**Rated base/boost clocks** change the stored absolute core frequency on
+understood v10 factory/v50 clock tables. Apply one rated clock per transaction,
+in whole MHz. A stored value of zero means that record is inactive; enter a
+positive value to enable it and use **Restore** to undo the saved change.
+After the GPU restart, Druta checks the public rated-clock query and both loaded
+copies of every affected record. It derives linked-record changes from the
+original frequencies reported by the current adapter, while preserving existing
+clock offsets and VF tuning requests. These values describe rated metadata;
+they do not force an operating frequency or prove a performance increase.
+
+**DIFR entry disables** use the existing **Idle power management** registry
+fields. Disable a currently enabled DIFR entry in its own transaction, preview,
+then apply with a GPU restart. The supported path checks the loaded P-state to
+LPWR routing and the resulting configured DFPR/MS DIFR support and state masks.
+**Restore previous registry settings** restores the captured original entry and
+verifies its original configuration. Enabling an originally disabled entry
+remains unavailable because its captured bytes do not establish support.
+
+**DIFR configured state > Read DIFR configuration** shows the loaded mapping
+and controller support. A supported controller with a zero mask has no configured
+P-states; an unsupported controller has an unavailable mask. These are distinct
+results. The read does not measure the executing P-state, feature residency or
+physical power savings. Table layouts and routing that cannot be qualified are
+reported before a DIFR write; unrelated controls retain their own capabilities.
+
+**Runtime VF policy control** reads the active monotonicity and smoothing checks.
+After **Read VF policies**, use **Apply policies now** to change either check
+without restarting the GPU. **Restore initial policies** restores the values
+from the first successful read for this adapter in the current application
+session. A failed change attempts to restore the immediately preceding values
+and reports whether that restoration was verified.
+
+Some startup modes reject disabling these checks. In that case, apply the
+corresponding registry setting with a GPU restart first. A live change retains
+the startup processing mode and leaves the stored registry settings unchanged;
+restarting the driver reloads the registry policies. Restore the initial live
+values before using registry Undo. The controls verify
+the driver's active policy flags. They do not write a VF curve or request a
+voltage, and physical firmware enforcement remains unmeasured.
+
+**Runtime voltage-request control** reads the driver's current admission switch.
+After reading it, **Apply gate now** allows or suppresses driver voltage requests
+immediately. **Restore initial gate** returns to the state captured by the first
+successful read for this adapter in the application session. Each change checks
+fresh readback; a failed change attempts to restore the state immediately
+preceding it. This switch does
+not request a voltage or raise a voltage ceiling. It uses no registry entry and
+does not restart the GPU. A failed read disables its Apply action until a fresh
+read succeeds.
+
+**Voltage switch-delay requests** reads the supported PWM devices and their
+current delay requests in microseconds. Select the device by its displayed
+domain and operation, enter a positive whole number, then use **Apply delay
+now**. DEFAULT and IPC_VMIN are separate device roles. **Restore initial delay**
+returns the selected device to the value from its first successful read in this
+application session. Other devices' requests are preserved; a failed write
+attempts an exact restoration and reports its verified result.
+
+These live changes use no registry entry or GPU restart and are reloaded when
+the driver restarts. The field is a positive 32-bit request; its representable
+range is not a measured timing range. Readback verifies configuration, while
+physical switching latency and firmware scheduling remain unmeasured. The
+separate power-up/down delay words are not controlled here. A missing or
+unrecognized peer device does not remove an independently supported control.
+
+**Power/current arbitration > Read arbitration** separates the requested limit,
+host votes, firmware votes and effective limit for each understood policy. A
+lower firmware vote can keep the effective limit below the host request. Client
+numbers remain numeric until their roles are established. These reads do not
+change settings; a failed refresh labels any retained result as historical.
+The fields are read sequentially, and firmware votes can lag a recent change.
+Refresh again before concluding that a request has propagated to dependent limits.
+
+**Driver policy diagnostics > Read driver policies** shows registered performance
+limit slots, feedback-controller flags and registry-selected feedback policies.
+Registered slots are an inventory; their presence does not show that they are
+currently limiting the GPU. Unknown flags stay labeled as raw values. Each group
+is read independently, and retained values after a failed refresh are labeled
+historical.
+
+## Power slider extensions
+
+On GPUs exposing the live client-power interface, **XOC** extends the same
+slider to positive requests up to 999 W (or the current BIOS maximum if
+higher). This is a software request range. It does not change BIOS limits,
+and firmware can still enforce a lower limit. Ordinary requests keep the
+existing driver path. Extended requests take effect without restarting the
+GPU or Windows. The configured request and measured draw remain separate;
+**Registry / BIOS overrides > Power/current arbitration** shows host and
+firmware votes and effective limits.
+
+Turning XOC off retains an already configured extended request and allows
+movement back toward the normal range. Profiles that capture such a request
+carry XOC for replay. Stock beside Power limit restores its rated request.
+Stock beside another power policy restores that policy's default while
+retaining an extended board request; its result states that host-derived
+limits were not recomputed.
+
+The existing **Power limit (W)** slider keeps the original BIOS range in its
+usual color. When a BIOS override extends the range, the added portion is tinted
+amber. The number in the adjacent input box also turns amber whenever it is
+outside the original range; values exactly on the original endpoints keep the
+normal color. Typing, dragging, profile updates and Stock use the same rule.
+
+Druta reads the original limits from its saved original BIOS when an override is
+active. If the original image cannot be established, the slider tooltip explains
+that extension coloring is unavailable. A higher requested value can still be
+limited by another power or current policy.
