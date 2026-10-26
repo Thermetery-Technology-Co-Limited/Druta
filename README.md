@@ -1,6 +1,6 @@
 # Druta
 
-**Version 1.9.0a prerelease** — [release notes](RELEASE-NOTES-1.9.0a.md).
+**Version 1.9.0b prerelease** — [release notes](RELEASE-NOTES-1.9.0b.md).
 Work in progress: registry-backed NVIDIA overrides, live power/VF/voltage-device
 controls, and DIFR configuration. See the release notes for explicit pending
 tasks, hardware coverage and limits before treating this as stable support.
@@ -102,7 +102,7 @@ python -m pip install -r requirements.txt
 ```
 
 The local build produces `dist\Druta\Druta.exe` and
-`dist\Druta-1.9.0a-win64.zip`. Distribute the
+`dist\Druta-1.9.0b-win64.zip`. Distribute the
 whole `Druta` folder or ZIP: the EXE needs its adjacent `_internal` folder.
 
 `dist\Druta\source\` contains the matching working-tree source, including
