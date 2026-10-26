@@ -82,3 +82,24 @@ INFO/CONTROL buffers matched the independent baseline exactly. An independent
 eight-second watchdog was armed throughout; the parent restored successfully.
 This single rejected request does not rule out every possible independent
 current-control path. No voltage or workload change was made.
+
+## Four-digit board request
+
+Two brief P8 trials requested 1,999 W using the production setter with its
+software envelope expanded **only inside the experimental process**. The
+released application retains its 999 W XOC software ceiling. Both requests were
+accepted and read back; the core-current policy reported 894.474 A as its
+derived request and effective limit. In the second trial, NVML's enforced
+reading was initially 310 W and became 1,999 W after approximately 0.6 seconds.
+The native board-policy status instead changed from an initial 1,999 W to
+1,012.893 W by approximately 0.32 seconds and stayed there for the remaining
+samples through 1.18 seconds. These are distinct software readbacks: no physical
+power or current enforcement was measured, and the source of the lower native
+value is not established. The shunt-modified card reported approximately 11 W
+at idle. All captured client and native INFO/CONTROL buffers were restored
+exactly after each trial, with an independent eight-second watchdog armed.
+
+A hardware-free Dear PyGui callback check with an experimentally widened slider
+range preserved typed 999, 1,000 and 1,999 W, passed 1,999,000 mW to its mocked
+Apply setter, and clamped 2,000 to 1,999. It did not visually inspect the
+rendered field or change the released GUI's 999 W ceiling.
