@@ -4230,6 +4230,12 @@ class GPU:
                 return False, f"live power request failed: {exc}"
             self._live_power_last = result["after"]
             self._board_policy = result["after"]["binding"]["native_index"]
+            if result["after"]["binding"].get("layout") == "legacy32":
+                ok, note = self._reapply_power_policy_pins(board_mw=mw)
+                return ok, (f"power request configured to {mw/1000:g} W; "
+                            "the driver may recalculate other policies; "
+                            "downstream power/current limits can be lower"
+                            + (f"; {note}" if note else ""))
             # E633 verifies every peer CONTROL byte unchanged. Reapplying
             # session pins here would add unrelated writes from old bookkeeping.
             return True, (f"power request configured to {mw/1000:g} W; "

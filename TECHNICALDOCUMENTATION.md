@@ -2603,12 +2603,37 @@ not infer the active registry selection from a voltage number.
 
 ## Live client power requests
 
+When the modern INFO packet is rejected with INVALID_ARGUMENT, an Ampere
+adapter may expose a smaller 32-row client layout. Druta tries that known
+read-only layout and requires an exact semantic-role/native-INFO binding, a
+stable restorable FE request, matching native CONTROL, and PCI pairing before
+enabling a SET. Packet sizes are capability checks, not driver-version or
+device-ID allowlists. Ada's smaller INFO packet has an independent trace, but
+the complete alternate layout and SET have only been validated here on the
+RTX 3070 Ti; packet rejection remains an independent unsupported result.
+
+For the smaller layout, a board SET can recalculate other occupied policies.
+Druta validates their understood type, units, bounds and changed request words
+while preserving all other bytes; it re-applies this session's user-pinned
+values. A failed SET compensates the board request and restores any changed
+peer requests, reporting whether the complete captured state was recovered.
+Legacy-layout arbitration votes and original-BIOS-range provenance may be
+unavailable without disabling the independent request path.
+
+On the ASUS Strix RTX 3070 Ti / 595.97, the production setter accepted and
+read back 381 W against a reported 380 W maximum at idle. A 65.9 W pinned
+peer survived the board request after reapplication. The original 310 W board
+request and complete captured controls were restored. No physical board-power
+or downstream firmware enforcement measurement was made; this board is shunt
+modified. See `experiments/ampere-live-client-power-20261027.md`.
+
 `client_power_runtime.py` binds the unique milliwatt client-role1 inventory to
 semantic-role INFO and an identical occupied native policy row. The external
 client index and native policy index are distinct namespaces. Two complete
 stable INFO/CONTROL observations establish the existing FE request. The live
-`0x2080E633` setter changes that request once and verifies the exact projected
-client/native CONTROL while preserving every other byte. A dispatched failure
+`0x2080E633` setter changes that request once and verifies the exact client and
+selected native CONTROL; other native bytes are preserved except for the
+validated legacy peer request words described above. A dispatched failure
 attempts one compensating original SET and exact restoration readback. Optional
 power STATUS is diagnostic; it never replaces accepted-request readback.
 
@@ -2623,8 +2648,8 @@ A prior capability can retain its UI range after a transient observation failure
 any SET still requires fresh complete readback. Missing NVML range metadata can
 be populated from the live binding; absent unrelated STATUS does not remove it.
 
-The live route preserves full peer CONTROL and existing pin bookkeeping without
-adding pin writes. A policy Stock action under an extended board request writes
+The modern layout preserves full peer CONTROL and existing pin bookkeeping
+without adding pin writes. A policy Stock action under an extended board request writes
 its selected default and verifies the board request stayed exact; it reports
 that host-derived limits were not recomputed. It does not send an intermediate
 ordinary board request. Profiles validate against the same bounds, and capture

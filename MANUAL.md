@@ -584,6 +584,13 @@ GPU or Windows. The configured request and measured draw remain separate;
 **Registry / BIOS overrides > Power/current arbitration** shows host and
 firmware votes and effective limits.
 
+On adapters using the older client-power layout, changing the board request can
+also recalculate other power and current requests. Druta checks the resulting
+control records and re-applies values pinned in this session. Arbitration-vote
+details and original-BIOS-range coloring may be unavailable independently of
+the live request control. The reported limit is not a measurement of actual
+power draw.
+
 Turning XOC off retains an already configured extended request and allows
 movement back toward the normal range. Profiles that capture such a request
 carry XOC for replay. Stock beside Power limit restores its rated request.
