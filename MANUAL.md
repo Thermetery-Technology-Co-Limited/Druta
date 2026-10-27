@@ -404,7 +404,11 @@ Complete rail-control requests must read back unchanged. When complete request
 replay is available, Druta restores the captured rail offsets and voltage-boost
 percentage after each GPU restart, including Undo and rollback. Each replay is
 verified independently. If complete replay is unavailable, set boost to 0% before
-applying OV, ALT or REL BIOS changes. An ignored request fails verification.
+applying OV, ALT or REL BIOS changes. Arbitrary offset replay is not yet
+qualified: a driver can report SET success while leaving an offset unchanged.
+Druta reports the rail, affected field, requested and observed values, and any
+separate boost or metadata discrepancy. An ignored request fails verification;
+if the captured requests cannot be restored, recovery remains required.
 Changing ALT can change the shared boost contribution and the computed REL and
 effective limits on both rails. OV can change the selected rail's effective
 limit. These computed outputs are recorded without assuming a firmware formula.

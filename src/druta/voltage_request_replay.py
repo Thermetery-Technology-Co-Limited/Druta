@@ -315,6 +315,36 @@ def _opaque(state):
     return result
 
 
+def _readback_difference(before, desired, after, status):
+    """Describe request mismatches without dropping independent metadata failures."""
+    names = ("reliability", "alternate_reliability", "overvoltage", "minimum_voltage", "offset[4]", "offset[5]")
+    differences = []
+    for index in sorted(set(desired["public"]) & set(after["public"]), key=int):
+        at = controls.ROW_OFFSET + int(index) * controls.ROW_STRIDE
+        wanted = _six(bytes.fromhex(desired["public"][index]), at)
+        actual = _six(bytes.fromhex(after["public"][index]), at)
+        prior = _six(bytes.fromhex(before["public"][index]), at) if index in before["public"] else None
+        rail = desired["rail_identity"][index]["name"]
+        for position, (requested, observed) in enumerate(zip(wanted, actual, strict=True)):
+            if requested != observed:
+                unchanged = type(status) is int and status == 0 and prior is not None and observed == prior[position]
+                suffix = " (SET returned 0; unchanged from before)" if unchanged else ""
+                unit = " uV" if position < 4 else ""
+                differences.append(
+                    f"{rail} {names[position]}: requested {requested}{unit}, observed {observed}{unit}{suffix}"
+                )
+    if desired["boost_percent"] != after["boost_percent"]:
+        suffix = (
+            " (SET returned 0; unchanged from before)"
+            if type(status) is int and status == 0 and after["boost_percent"] == before["boost_percent"]
+            else ""
+        )
+        differences.append(f"boost: requested {desired['boost_percent']}%, observed {after['boost_percent']}%{suffix}")
+    if _opaque(after) != _opaque(desired):
+        differences.append("routing, INFO, inventory or opaque metadata differs")
+    return "Rail replay readback differs: " + "; ".join(differences or ["request metadata differs"])
+
+
 def _packet(state):
     raw = bytearray(controls.SIZE)
     struct.pack_into("<II", raw, 0, controls.V2, sum(1 << int(i) for i in state["public"]))
@@ -388,7 +418,7 @@ def replay(gpu, saved):
                 _fail("Rail replay readback target changed", "identity")
             result["after"] = _read(gpu, reader)
             if _requested(result["after"]) != _requested(desired):
-                _fail("Rail replay request or preserved metadata readback differs", "readback")
+                _fail(_readback_difference(before, desired, result["after"], result["status"]), "readback")
             result["verified"] = not result["write_error"]
         except Exception as exc:
             result["readback_error"] = f"{type(exc).__name__}: {exc}"
@@ -398,6 +428,9 @@ def replay(gpu, saved):
             raise interrupted
         if not result["verified"]:
             raise ReplayError(
-                "partial", result["write_error"] or result["readback_error"], attempted=True, result=result
+                "partial",
+                "; ".join(error for error in (result["write_error"], result["readback_error"]) if error),
+                attempted=True,
+                result=result,
             )
         return result

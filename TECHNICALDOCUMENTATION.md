@@ -2631,6 +2631,10 @@ inventory mask; the row-tail byte is GET-only. Neither is copied as a SET input.
 The setter can update boost or some rows before failing. Success status can also
 accompany ignored offsets. Every attempt therefore requires independent complete
 request readback; status and caller-buffer integrity alone are insufficient.
+Readback errors identify each differing rail and offset, requested and observed
+values, whether a zero-status SET left that word unchanged, and separate boost
+or metadata differences. The two unnamed words are reported as signed raw
+values. This diagnostic does not establish that arbitrary offset replay works.
 
 `voltage_replay_worker.py` performs each capture or replay in a fresh process.
 It verifies the Windows device mapping and exact running BIOS hash before SET,
@@ -2662,6 +2666,22 @@ skips offset copies when PERF+0x32C is set, and generated HAL initialization
 selects that flag for the inspected chip family. No active flag GET is known.
 This is distinct from the existing A030/A031 admission switch at PERF+0x2E5;
 changing that switch is not a demonstrated way to enable the offset copies.
+
+In a later no-restart trial on the same RTX5080 / 621.01, a SET returned zero
+while NVVDD REL remained 0 instead of the requested -5000 uV; boost changed
+from 0% to the requested 1%. The updated error identified the ignored word.
+The original requests, policy, image, registry and peers were restored exactly;
+there was no registry write or workload. The [sanitized report](experiments/voltage-replay-routing-20261027.json)
+records the trial and its scope. Arbitrary changing-offset replay and recovery
+remain unqualified.
+
+Static inspection found public and direct native rail SET routes converge on
+the same gated row callback. Pstates20 writes different records. Native legacy
+arbiter controls own different requests and reject the modern VOLT+0x16A path;
+the public escape's association with those native commands is not proven.
+F208 controls voltage-device fields and F212 controls voltage-policy fields;
+neither is established as an equivalent six-word replay. F219 subtype ownership
+and effects remain under investigation.
 
 ## FixBlackScreenIssue startup adjustment research
 
