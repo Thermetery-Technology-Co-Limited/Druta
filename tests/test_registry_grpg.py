@@ -14,7 +14,7 @@ from tests import test_grpg_runtime as fixtures
 from tests.test_registry_overrides import digest, transaction
 
 
-def configured(monkeypatch, *, multiple=False, slot=None, device=0xC321, auxiliary=False, bit1=False):
+def configured(monkeypatch, *, multiple=False, slot=None, device=0xC321, auxiliary=False, bit1=False, combined=False):
     inspect, plan = vbios_fields.inspect, vbios_fields.plan
     receipt, registry, snapshot, restarts, kwargs = transaction(monkeypatch)
     monkeypatch.setattr(vbios_fields, "inspect", inspect)
@@ -22,12 +22,22 @@ def configured(monkeypatch, *, multiple=False, slot=None, device=0xC321, auxilia
     if slot is not None:
         receipt["target"]["slot"] = slot
     target = ro.Target(**receipt["target"])
-    flags = {"flags": (0x69, 0x6B, 0x61)} if bit1 else {"flags": (0x1B, 0x13, 0x13)} if auxiliary else {}
+    flags = (
+        {"flags": (0x1B, 0x11, 0x11)}
+        if combined
+        else {"flags": (0x69, 0x6B, 0x61)}
+        if bit1
+        else {"flags": (0x1B, 0x13, 0x13)}
+        if auxiliary
+        else {}
+    )
     image = fixtures.bios(device=device, **flags)
     changes = {f"lpwr.gr_pg.{1 if bit1 else 0}.enabled": False}
     if multiple:
         changes["lpwr.gr_pg.2.enabled"] = False
-    if bit1:
+    if combined:
+        observe, make_contract = fixtures.combined_observation, fixtures.make_combined_contract
+    elif bit1:
         observe, make_contract = fixtures.bit1_observation, fixtures.make_bit1_contract
     elif auxiliary:
         observe, make_contract = fixtures.auxiliary_observation, fixtures.make_aux_contract
@@ -375,10 +385,14 @@ def test_saved_grpg_receipt_cannot_mix_difr(monkeypatch, restore):
     assert not result["ok"] and not reg.operations and not restarts
 
 
-@pytest.mark.parametrize("scope", ["ordinary", "auxiliary", "bit1"])
+@pytest.mark.parametrize("scope", ["ordinary", "auxiliary", "bit1", "combined"])
 def test_prepare_durable_reload_apply_and_undo_keep_exact_runtime_binding(monkeypatch, tmp_path, scope):
     original, reg, snap, restarts, kwargs, before, _ = configured(
-        monkeypatch, multiple=scope != "bit1", auxiliary=scope == "auxiliary", bit1=scope == "bit1"
+        monkeypatch,
+        multiple=scope in ("ordinary", "auxiliary"),
+        auxiliary=scope == "auxiliary",
+        bit1=scope == "bit1",
+        combined=scope == "combined",
     )
     target = ro.Target(**original["target"])
     monkeypatch.setattr(ro, "bind_target", lambda gpu: target)
@@ -471,12 +485,12 @@ def test_auxiliary_receipt_binding_precedes_any_read_or_cleanup(monkeypatch, res
     assert not result["ok"] and not reg.operations and not restarts
 
 
-@pytest.mark.parametrize("scope", ["ordinary", "auxiliary", "bit1"])
+@pytest.mark.parametrize("scope", ["ordinary", "auxiliary", "bit1", "combined"])
 def test_scoped_reader_requests_only_contract_selected_capability(monkeypatch, scope):
     from druta import nvbackend
 
     receipt, reg, snap, _, kwargs, before, after = configured(
-        monkeypatch, auxiliary=scope == "auxiliary", bit1=scope == "bit1"
+        monkeypatch, auxiliary=scope == "auxiliary", bit1=scope == "bit1", combined=scope == "combined"
     )
     snap.pop("grpg")
     gpu, calls = SimpleNamespace(), []
@@ -485,7 +499,9 @@ def test_scoped_reader_requests_only_contract_selected_capability(monkeypatch, s
 
     def read(value, **options):
         assert value is gpu
-        assert options == ({scope: True} if scope != "ordinary" else {})
+        assert options == (
+            {"auxiliary": True, "bit1": True} if scope == "combined" else {scope: True} if scope != "ordinary" else {}
+        )
         calls.append(bool(reg.values))
         return copy.deepcopy(after if reg.values else before), None
 
@@ -640,6 +656,76 @@ def test_bit1_preflight_lost_peer_is_refused_without_mutation(monkeypatch):
     result = ro.execute(receipt, **kwargs)
     assert result["state"] == "failed" and not result["ok"]
     assert not reg.operations and not restarts
+
+
+def test_combined_apply_and_undo_preserve_all_peers_and_witnesses(monkeypatch):
+    receipt, reg, snap, restarts, kwargs, before, after = configured(monkeypatch, combined=True)
+    assert receipt["grpg_contract_version"] == 1 and receipt["grpg_contracts"]["schema"] == 4
+    assert {k: v for k, v in after["controllers"].items() if k != "0"} == {
+        k: v for k, v in before["controllers"].items() if k != "0"
+    }
+    assert after["bit1"]["roles"]["0"] == {"available": False, "supported": None}
+    assert {k: v for k, v in after["bit1"]["roles"].items() if k != "0"} == {
+        k: v for k, v in before["bit1"]["roles"].items() if k != "0"
+    }
+    result = ro.execute(receipt, **kwargs)
+    assert result["state"] == "active", result["message"]
+    assert result["runtime_verified_fields"] == sorted(receipt["changes"])
+    assert snap["grpg"] == after
+    kwargs["gpu_factory"] = lambda slot: snap if not reg.values else pytest.fail("GET before Undo cleanup")
+    result = ro.execute(receipt, restore=True, **kwargs)
+    assert result["state"] == "restored", result["message"]
+    assert snap["grpg"] == before and not reg.values and len(restarts) == 2
+
+
+@pytest.mark.parametrize("ignored", ["auxiliary", "bit1"])
+def test_combined_ignored_block_rolls_back_with_scoped_reads(monkeypatch, ignored):
+    from druta import nvbackend
+
+    receipt, reg, snap, restarts, kwargs, before, after = configured(monkeypatch, combined=True)
+    snap.pop("grpg")
+    gpu, calls = SimpleNamespace(), []
+    monkeypatch.setattr(nvbackend, "GPU", lambda slot: gpu)
+    monkeypatch.setattr(ro, "bind_target", lambda value: snap["target"])
+    incomplete = copy.deepcopy(after)
+    incomplete[ignored] = copy.deepcopy(before[ignored])
+
+    def read(value, **options):
+        assert value is gpu and options == {"auxiliary": True, "bit1": True}
+        calls.append(bool(reg.values))
+        return copy.deepcopy(incomplete if reg.values else before), None
+
+    monkeypatch.setattr(gr, "read", read)
+    restart = kwargs["restart"]
+
+    def without_injection(device):
+        result = restart(device)
+        snap.pop("grpg")
+        return result
+
+    kwargs["restart"] = without_injection
+    result = ro.execute(receipt, **kwargs)
+    assert result["state"] == "rolled-back", result["message"]
+    assert calls == [False, True, False] and not reg.values and len(restarts) == 2
+    assert reg.operations == [receipt["after"], receipt["before"]]
+
+
+@pytest.mark.parametrize("restore", [False, True])
+@pytest.mark.parametrize("mutation", ["before_auxiliary", "before_bit1", "after_auxiliary", "after_bit1", "schema"])
+def test_combined_malformed_receipt_fails_before_read_or_cleanup(monkeypatch, restore, mutation):
+    receipt, reg, _, restarts, kwargs, _, _ = configured(monkeypatch, combined=True)
+    saved = receipt["grpg_contracts"]
+    if mutation.startswith("before_"):
+        saved["before"].pop(mutation.removeprefix("before_"))
+    elif mutation == "schema":
+        saved["schema"] = 3
+    else:
+        saved.pop(mutation)
+    if restore:
+        reg.values = copy.deepcopy(receipt["after"])
+    kwargs["gpu_factory"] = lambda slot: pytest.fail("Malformed combined receipt caused GPU access")
+    result = ro.execute(receipt, restore=restore, **kwargs)
+    assert not result["ok"] and not reg.operations and not restarts
 
 
 def test_bit1_scoped_reader_is_also_used_for_automatic_recovery(monkeypatch):

@@ -1047,6 +1047,13 @@ class RegistryPanel:
                     "Its support query must become unavailable while another supported role remains readable. "
                     "A separate per-P-state mask for this role is unavailable. "
                 )
+            elif contract.get("schema") == 4:
+                shared = (
+                    "The last contributors to two shared auxiliary roles will be removed. "
+                    "One role's support, configured P-state mask and controller feature must match the preview. "
+                    "The other role's support query must become unavailable while another supported role remains readable. "
+                    "Both checks must pass; the other auxiliary roles remain unchanged. "
+                )
             else:
                 shared = "Shared capability flags are retained. "
             lines.append(

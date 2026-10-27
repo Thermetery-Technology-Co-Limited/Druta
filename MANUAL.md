@@ -503,7 +503,8 @@ their last contributor when the corresponding driver readbacks are available.
 For one, Druta checks its support, P-state mask and controller feature. For the
 other, it checks that the role's support query becomes unavailable while another
 supported role remains readable; no separate per-P-state mask is established.
-Preview explains the applicable check, and Restore verifies the original state.
+These two removals may be combined when both checks are available. Preview
+explains the applicable checks, and Restore verifies the original state.
 Removing the final main entry or the remaining shared capability still needs
 qualification and is refused before a write. Configured eligibility does not
 establish actual power-gating residency or power savings.

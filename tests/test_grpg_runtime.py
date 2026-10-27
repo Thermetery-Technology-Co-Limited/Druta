@@ -160,6 +160,21 @@ def make_bit1_contract(monkeypatch, *, image=None, obs=None, changes=None):
     )
 
 
+def combined_observation(**kwargs):
+    result = auxiliary_observation(**kwargs)
+    result["bit1"] = bit1_observation(**kwargs)["bit1"]
+    return result
+
+
+def make_combined_contract(monkeypatch, *, image=None, obs=None, changes=None):
+    return make_contract(
+        monkeypatch,
+        image=bios(flags=(0x1B, 0x11, 0x11)) if image is None else image,
+        obs=combined_observation() if obs is None else obs,
+        changes=changes,
+    )
+
+
 def observed(saved, *, restore=False):
     result = copy.deepcopy(saved["before"])
     controllers = result["controllers"] if restore else saved["after"]
@@ -167,10 +182,10 @@ def observed(saved, *, restore=False):
     result["support_hex"] = _attribute_reply(lp.SUPPORT, gr.CONTROLLERS, controllers).hex()
     indices = tuple(i for i in gr.CONTROLLERS if controllers[str(i)]["supported"] is True)
     result["states_hex"] = _attribute_reply(lp.STATES, indices, controllers).hex() if indices else None
-    if saved["schema"] == 2 and not restore:
+    if saved["schema"] in (2, 4) and not restore:
         auxiliary = copy.deepcopy(saved["after_auxiliary"])
         result["auxiliary"] = _aux_packets(auxiliary["feature"], auxiliary["group"])
-    elif saved["schema"] == 3 and not restore:
+    if saved["schema"] in (3, 4) and not restore:
         result["bit1"] = _bit1_packet(saved["after_bit1"]["roles"])
     return result
 
@@ -627,8 +642,8 @@ def test_last_contributor_requires_independent_available_affected_fields(monkeyp
         make_aux_contract(monkeypatch, obs=source)
 
 
-def test_additional_main_bit1_bit4_loss_remains_unqualified_with_auxiliary_available(monkeypatch):
-    for flags in ((0x1B,), (0x1B, 1, 1), (0x1B, 0x11, 0x11), (0x1B, 3, 3)):
+def test_main_and_bit4_loss_remain_unqualified_with_auxiliary_available(monkeypatch):
+    for flags in ((0x1B,), (0x1B, 1, 1), (0x1B, 3, 3)):
         with pytest.raises(gr.GrpgError, match="unqualified auxiliary|last enabled"):
             make_aux_contract(monkeypatch, image=bios(flags=flags))
 
@@ -775,8 +790,8 @@ def test_schema3_admission_needs_target_and_independent_supported_witness(monkey
         make_bit1_contract(monkeypatch, obs=source)
 
 
-@pytest.mark.parametrize("flags", [(0x6B, 0x61, 0x61), (0x6B,), (0x1B, 1, 1), (0x1B, 9, 9)])
-def test_schema3_cannot_admit_combined_main_bit3_or_bit4_loss(monkeypatch, flags):
+@pytest.mark.parametrize("flags", [(0x6B,), (0x1B, 1, 1), (0x1B, 9, 9)])
+def test_schema3_cannot_admit_main_or_bit4_loss(monkeypatch, flags):
     with pytest.raises(gr.GrpgError, match="last enabled|unqualified auxiliary"):
         make_bit1_contract(monkeypatch, image=bios(flags=flags), changes=DEFAULT_CHANGES)
 
@@ -851,9 +866,116 @@ def test_bit1_reader_queries_only_support_and_preserves_unavailable_roles():
     assert gpu.calls[7][1:] == (9, tuple(range(11)))
     assert result["bit1"]["roles"]["3"] == {"available": False, "supported": None}
     assert "auxiliary" not in result
-    rejected = FakeGPU(obs=bit1_observation())
-    assert gr.read(rejected, bit1=True, auxiliary=True)[0] is None
-    assert not rejected.calls
+
+
+def test_combined_projection_and_undo_preserve_each_groups_reply_semantics(monkeypatch):
+    saved = make_combined_contract(monkeypatch)
+    assert saved["schema"] == 4
+    assert saved["after"]["0"] == controller(True, 0x8502)
+    assert saved["after_auxiliary"]["feature"]["value"] == saved["before"]["auxiliary"]["feature"]["value"] & ~0x10
+    assert saved["after_auxiliary"]["group"]["800:0"] == {"available": True, "value": 0}
+    assert saved["after_auxiliary"]["group"]["806:0"] == {"available": True, "value": 0}
+    assert saved["after_bit1"]["roles"]["0"] == {"available": False, "supported": None}
+    assert saved["after_bit1"]["roles"]["4"] == {"available": True, "supported": True}
+    assert saved["after_auxiliary"]["group"]["806:1"] == {"available": True, "value": 0x100}
+    assert gr.verify(observed(saved), saved) == list(DEFAULT_CHANGES)
+    assert gr.verify(observed(saved, restore=True), saved, restore=True) == list(DEFAULT_CHANGES)
+    gr.validate_contracts(DEFAULT_CHANGES, json.loads(json.dumps(saved)))
+
+
+def test_combined_multiple_contributors_use_actual_routes_and_alternate_identity(monkeypatch):
+    source = combined_observation(slot="0000:19:04.1", architecture=7, device=0xDE91)
+    source["auxiliary"]["group"]["806:0"]["value"] = 0x42
+    source["auxiliary"] = _aux_packets(source["auxiliary"]["feature"], source["auxiliary"]["group"])
+    changes = {**DEFAULT_CHANGES, "lpwr.gr_pg.1.enabled": False}
+    saved = make_combined_contract(monkeypatch, image=bios(flags=(0x1B, 0x1B, 0x11)), obs=source, changes=changes)
+    assert saved["after"]["0"]["configured_pstate_mask"] == 0x8500
+    assert gr.verify(observed(saved), saved) == sorted(changes)
+
+
+@pytest.mark.parametrize("missing", ["auxiliary", "bit1", "feature", "target", "witness"])
+def test_combined_admission_requires_both_independent_readbacks(monkeypatch, missing):
+    source = combined_observation()
+    if missing in ("auxiliary", "bit1"):
+        source.pop(missing)
+    elif missing == "feature":
+        source["auxiliary"]["feature"]["value"] &= ~0x10
+        source["auxiliary"] = _aux_packets(source["auxiliary"]["feature"], source["auxiliary"]["group"])
+    else:
+        roles = source["bit1"]["roles"]
+        for key in roles:
+            if (missing == "target" and key == "0") or (missing == "witness" and key != "0"):
+                roles[key] = {"available": False, "supported": None}
+        source["bit1"] = _bit1_packet(roles)
+    with pytest.raises(gr.GrpgError):
+        make_combined_contract(monkeypatch, obs=source)
+
+
+@pytest.mark.parametrize("extra", [0x400, 0x8000])
+def test_combined_admission_does_not_erase_fallback_or_unowned_auxiliary_bits(monkeypatch, extra):
+    source = combined_observation()
+    source["auxiliary"]["group"]["806:0"]["value"] |= extra
+    source["auxiliary"] = _aux_packets(source["auxiliary"]["feature"], source["auxiliary"]["group"])
+    with pytest.raises(gr.GrpgError, match="Untouched or fallback"):
+        make_combined_contract(monkeypatch, obs=source)
+
+
+@pytest.mark.parametrize("failure", ["bit3_ignored", "bit1_ignored", "witness_lost", "auxiliary_peer", "feature_peer"])
+def test_combined_active_readback_requires_both_changes_and_every_peer(monkeypatch, failure):
+    saved = make_combined_contract(monkeypatch)
+    current = observed(saved)
+    if failure == "bit3_ignored":
+        current["auxiliary"] = copy.deepcopy(saved["before"]["auxiliary"])
+    elif failure == "bit1_ignored":
+        current["bit1"] = copy.deepcopy(saved["before"]["bit1"])
+    elif failure == "witness_lost":
+        for key in current["bit1"]["roles"]:
+            current["bit1"]["roles"][key] = {"available": False, "supported": None}
+        current["bit1"] = _bit1_packet(current["bit1"]["roles"])
+    else:
+        aux = current["auxiliary"]
+        if failure == "auxiliary_peer":
+            aux["group"]["806:1"]["value"] ^= 1
+        else:
+            aux["feature"]["value"] ^= 1
+        current["auxiliary"] = _aux_packets(aux["feature"], aux["group"])
+    with pytest.raises(gr.GrpgError, match="expected state"):
+        gr.verify(current, saved)
+
+
+@pytest.mark.parametrize(
+    "mutation", ["schema", "missing_auxiliary", "missing_bit1", "auxiliary_projection", "bit1_false"]
+)
+def test_combined_receipt_validation_is_pure_and_recomputes_both_projections(monkeypatch, mutation):
+    saved = make_combined_contract(monkeypatch)
+    if mutation == "schema":
+        saved["schema"] = 3
+    elif mutation == "missing_auxiliary":
+        saved["before"].pop("auxiliary")
+    elif mutation == "missing_bit1":
+        saved.pop("after_bit1")
+    elif mutation == "auxiliary_projection":
+        saved["after_auxiliary"]["feature"]["value"] |= 0x10
+    else:
+        saved["after_bit1"]["roles"]["0"]["supported"] = False
+    monkeypatch.setattr(gr, "read", lambda *args, **kwargs: pytest.fail("Pure validation must not GET"))
+    with pytest.raises(gr.GrpgError):
+        gr.validate_contracts(DEFAULT_CHANGES, saved)
+
+
+def test_combined_reader_gets_two_stable_observations_and_bounded_recovery():
+    gpu = FakeGPU(obs=combined_observation())
+    result, error = gr.read(gpu, auxiliary=True, bit1=True)
+    assert not error and result["auxiliary"] == gpu.observation["auxiliary"]
+    assert result["bit1"] == gpu.observation["bit1"] and len(gpu.calls) == 12
+    assert gpu.calls[3][1:] == (0x38, (0,))
+    assert gpu.calls[4][1] == 1 and gpu.calls[5][1:] == (9, tuple(range(11)))
+    gpu = FakeGPU(obs=combined_observation(), actions=(None, None, None, None, None, status(0x40)))
+    assert gr.read(gpu, auxiliary=True, bit1=True)[0] is not None and len(gpu.calls) == 18
+    gpu = FakeGPU(obs=combined_observation(), actions=(None, None, None, None, None, status(0x40), status(0x40)))
+    assert gr.read(gpu, auxiliary=True, bit1=True)[0] is None and len(gpu.calls) == 7
+    gpu = FakeGPU(obs=combined_observation(), actions=(None, None, None, None, None, status(0x56)))
+    assert gr.read(gpu, auxiliary=True, bit1=True)[0] is None and len(gpu.calls) == 6
 
 
 def test_bit1_transient_retries_are_bounded_and_unsupported_scope_stays_independent():

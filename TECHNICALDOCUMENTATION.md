@@ -2101,7 +2101,8 @@ clock data into universal frequency-equality requirements.
 
 The adjacent `grpg_runtime.py` contract covers disable-only GR PG entries. Its
 original schema retains shared capability contributions; scoped schemas2/3
-qualify removal of the final raw-bit3 or raw-bit1 contributor respectively.
+qualify removal of the final raw-bit3 or raw-bit1 contributor respectively,
+and schema4 verifies their combined removal.
 The owned layouts are BIT P+74
 index v10/header6/stride18/owner24 and P+80 GR PG v10/header10/stride5/owner39,
 each with1..5 rows. Actual A7 selectors route through index-row byte1:
@@ -2130,7 +2131,7 @@ data rather than additional dependency edges. The configuration getters do not
 expose the dependency mask or these constructor predicates. No universal
 controller4 disappearance is inferred.
 The OR-presence of raw bit4 among enabled GR PG entries must still remain
-unchanged; losing bit1 and bit3 in the same transaction is also unqualified.
+unchanged.
 Raw bits1/3/4 feed separate feature-group operations92A650,927470 and92B350
 respectively; their numeric role0 is not controller0.
 
@@ -2174,6 +2175,28 @@ The subsequent schema3 production Apply and durable Undo verified the selected
 entry through the normal transaction path. Undo restored the temporary setup,
 then the experiment restored and independently checked the full original image,
 registry and requests. No temporary setup patches remained active.
+
+Schema4 composes the independently established bit1 and bit3 projections for
+enabled-row aggregate XOR0Ah while retaining main support and bit4 presence.
+Only this schema reads both auxiliary blocks. Both projections are recomputed
+from the captured before state and bounded BIOS tables; Apply, Undo and recovery
+verify both independently. The bit3 contract still refuses unowned/fallback
+configured membership, and the bit1 contract still requires a supported peer
+as a query witness. A change that affects only one group is not accepted as a
+successful combined activation. Existing schema1/2/3 receipts keep their scopes.
+
+On the current5080, a temporary research setup cleared only row2's bit1, leaving
+all main and other flags intact. Disabling rows0/1 then changed the aggregate
+0Bh to01h: controller0 eligibility120h to0, bit3 role0 support/mask1/120h to0/0,
+controller feature10h cleared, and bit1 role0 became unavailable while its
+supported peers remained readable. Main controller support and all other
+captured peers/configuration matched the projection. The full original image,
+registry and requests were restored. Raw setup patches remain research-only;
+these observations do not establish physical residency or a bit4 enable path.
+The subsequent schema4 production Apply and durable Undo verified both selected
+entries. Independent captures checked both auxiliary groups and all controller
+peers, first after activation, then after Undo to the temporary baseline, and
+finally after restoration of the full original baseline. All checks passed.
 
 On the current5080, a separate research trial cleared rows0/1 while row2 retained
 main support and rawbit1. Controller0 eligibility changed120h to0, feature10h
