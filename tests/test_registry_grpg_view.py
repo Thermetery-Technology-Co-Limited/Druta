@@ -111,6 +111,32 @@ def test_combined_preview_discloses_both_independent_auxiliary_checks(harness):
     assert enabled("reg_apply_button")
 
 
+@pytest.mark.parametrize(
+    "cleared,expected",
+    [
+        ([[0]], (False, False)),
+        ([[0], [0, 2]], (True, False)),
+        ([[0], [0, 4]], (False, True)),
+        ([[0], [0, 2], [0, 4], [0, 2, 4]], (True, True)),
+    ],
+)
+def test_main_support_loss_preview_describes_candidate_profiles(harness, cleared, expected):
+    h = harness
+    setup_field(h, before=0x120)
+    contract = h.mocks.prepare.return_value["grpg_contracts"]
+    contract.update(schema=5, after_profiles=[{"cleared": row} for row in cleared])
+    del contract["after"]
+    h.panel.prepare()
+    text = dpg.get_value("reg_preview")
+    assert "main controller 0 support enabled -> unsupported" in text
+    assert "eligibility P5/P8 -> unavailable" in text
+    assert ("controller 2 (GR RG)" in text) is expected[0]
+    assert ("controller 4 (MS CG)" in text) is expected[1]
+    assert "may also become unsupported" in text if any(expected) else "may also become unsupported" not in text
+    assert "controller support and the other low-power controller masks must stay unchanged" not in text
+    assert enabled("reg_apply_button")
+
+
 def test_unrelated_preview_does_not_claim_grpg_verification(harness):
     h = harness
     setup_field(h, contract=False)

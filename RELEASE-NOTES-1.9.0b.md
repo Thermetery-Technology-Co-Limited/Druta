@@ -63,3 +63,13 @@ licenses, release notes, regression tests, and matching source under `source/`.
 The source manifest records SHA-256 hashes; a ZIP checksum accompanies the
 release. Extract the complete directory and run `Druta.exe`, keeping its
 adjacent files together. Python and the NVIDIA App are not required.
+
+## Post-release branch continuation
+
+Development after this prerelease adds a qualified path for disabling all
+enabled GR power-gating entries, including unused entries. It verifies main
+controller support and mask, independent controller feature and type 7
+configuration readbacks, and a finite set of known peer outcomes; unexpected
+peer changes fail verification and invoke restoration. Final raw bit 4 BIOS
+contributor removal and broader hardware qualification remain open. These
+configuration checks do not measure physical power-gating residency.

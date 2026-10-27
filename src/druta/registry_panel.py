@@ -1030,11 +1030,30 @@ class RegistryPanel:
         if receipt.get("grpg_contracts"):
             contract = receipt["grpg_contracts"]
             before = contract["before"]["controllers"]["0"]["configured_pstate_mask"]
-            after = contract["after"]["0"]["configured_pstate_mask"]
 
             def states(mask):
                 return "/".join(f"P{i}" for i in range(32) if mask >> i & 1) or "none"
 
+            if contract.get("schema") == 5:
+                cleared = {index for profile in contract["after_profiles"] for index in profile["cleared"]}
+                optional = []
+                if 2 in cleared:
+                    optional.append("controller 2 (GR RG)")
+                if 4 in cleared:
+                    optional.append("controller 4 (MS CG)")
+                possible_loss = (
+                    " Depending on the accepted readback, " + " and ".join(optional) + " may also become unsupported."
+                    if optional
+                    else ""
+                )
+                lines.append(
+                    f"GR power gating: main controller 0 support enabled -> unsupported; configured P-state "
+                    f"eligibility {states(before)} -> unavailable.{possible_loss} "
+                    "The readback must match an accepted support and configuration profile. "
+                    "Restore verifies the original configuration."
+                )
+            else:
+                after = contract["after"]["0"]["configured_pstate_mask"]
             if contract.get("schema") == 2:
                 shared = (
                     "The last contributor to one shared auxiliary role will be removed. "
@@ -1054,15 +1073,16 @@ class RegistryPanel:
                     "The other role's support query must become unavailable while another supported role remains readable. "
                     "Both checks must pass; the other auxiliary roles remain unchanged. "
                 )
-            else:
+            elif contract.get("schema") != 5:
                 shared = "Shared capability flags are retained. "
-            lines.append(
-                f"GR power gating: configured P-state eligibility {states(before)} -> {states(after)}. "
-                "Loaded routing, controller support and the other low-power controller masks must stay unchanged. "
-                + shared
-                + "Restore verifies the original configuration. "
-                "Physical residency and power savings remain unmeasured."
-            )
+            if contract.get("schema") != 5:
+                lines.append(
+                    f"GR power gating: configured P-state eligibility {states(before)} -> {states(after)}. "
+                    "Loaded routing, controller support and the other low-power controller masks must stay unchanged. "
+                    + shared
+                    + "Restore verifies the original configuration. "
+                    "Physical residency and power savings remain unmeasured."
+                )
         if receipt.get("voltage_startup_contracts"):
             lines.append(
                 "The selected REL adjustment must take effect during GPU startup before boost replay. "
