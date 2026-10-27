@@ -497,11 +497,14 @@ P-state memberships were removed, while loaded routing, controller support
 and other available low-power masks remain unchanged. Restore checks the
 original configuration.
 
-This path requires an enabled entry consumed by the loaded P-state map and
-retains the shared capability flags and at least one enabled entry. Removing
-their last contributor affects additional dependency groups and remains
-unqualified. Preview reports that limitation before a write. Configured
-eligibility does not establish actual power-gating residency or power savings.
+This path requires enabled entries consumed by the loaded P-state map and
+retains at least one enabled entry. One shared auxiliary capability can also
+lose its last contributor when fresh driver reads establish its support,
+configured P-state mask and controller feature. Preview explains that removal;
+Apply and Restore check those additional fields and preserve the other roles.
+Removing the final main entry or the remaining shared capabilities still needs
+qualification and is refused before a write. Configured eligibility does not
+establish actual power-gating residency or power savings.
 
 **DIFR entry disables** use the existing **Idle power management** registry
 fields. Disable a currently enabled DIFR entry in its own transaction, preview,

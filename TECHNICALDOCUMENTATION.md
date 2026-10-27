@@ -2099,15 +2099,20 @@ Raw INFO bytes are retained diagnostically, while the activation contract uses
 the loaded routing fields and controller states; it does not turn evaluated
 clock data into universal frequency-equality requirements.
 
-The adjacent `grpg_runtime.py` contract covers disable-only GR PG entries that
-retain their shared capability contributions. The owned layouts are BIT P+74
+The adjacent `grpg_runtime.py` contract covers disable-only GR PG entries. Its
+original schema retains shared capability contributions; a scoped schema2
+additionally qualifies removal of the final raw-bit3 contributor. The owned layouts are BIT P+74
 index v10/header6/stride18/owner24 and P+80 GR PG v10/header10/stride5/owner39,
 each with1..5 rows. Actual A7 selectors route through index-row byte1:
 7A9230 reads LPWR+2FD+index*18h;770A19 reads the selected GR PG enable byte at
 LPWR+39C+entry*0Ch. Configured controller0 P-state IDs are read through A801
 attribute36, separately from attribute39 support.
 
-The host HAL at AE8C90 can populate all six GR PG slots, including fallback5.
+The host HAL at AE8C90 can populate all six GR PG slots, including fallback5,
+on the constructor branches that install it. The traced generated bindings
+select that callback for ChipHal indices3D/3E, whereas the current GB203 mapping
+is42; the overwrite is not a universal active path. These are static evidence,
+not runtime device allowlists.
 The contract therefore retains captured fallback and unselected membership;
 it does not assume that fallback is zero. Selected entries must be enabled,
 consumed by the actual loaded map, and present in controller0's before mask.
@@ -2118,12 +2123,38 @@ loaded routing, support and other available controller masks remain checked.
 
 Clearing the last enabled entry is outside this initial contract: BEEC17..27
 calls771730 for controller0, which recursively clears its group+F8 dependency
-mask. Constructor76E4E0 can add controllers4/2 and invoke another HAL callback;
-the existing configuration getters do not expose that dependency mask.
-The OR-presence of raw bits1,3,4 among enabled GR PG entries must also remain
-unchanged. Their aggregates feed separate feature-group operations92A650,
-927470 and92B350 respectively; they are not aliases for controller0. Removing
-the last contributor to one of those groups needs separate qualification.
+mask. Constructor76E4E0 adds controller4 when group+E1 is clear and controller2
+when LPWR+2D8 bit100h is set. Its traced group+C0 callbacks write software-filter
+data rather than additional dependency edges. The configuration getters do not
+expose the dependency mask or these constructor predicates. No universal
+controller4 disappearance is inferred.
+The OR-presence of raw bits1/4 among enabled GR PG entries must still remain
+unchanged. Raw bits1/3/4 feed separate feature-group operations92A650,927470
+and92B350 respectively; their numeric role0 is not controller0.
+
+For the raw-bit3 transition,927470 clears controller0's available feature bit10h
+at group+138 and role0's bit in the separate LPWR+12F8 group support mask+5C.
+A801 type3 attribute38h reads the controller feature word directly. Type1
+attribute1 reads whether the auxiliary group has any support;800h reads a
+bounded role's support;806h returns its configured P-state-ID mask. Unsupported
+roles return a valid zero here, so support and configured mask are captured
+separately. These getters do not invoke the26h/28h statistics refresh hooks.
+Nearby type1 attributes802h..804h are not used for this configuration readback.
+Schema2 captures these extra fields only for the selected auxiliary transition,
+preserves the other roles and verifies the exact projected feature/support/mask
+change through Apply, Undo and recovery. Schema1 receipts retain their original
+read scope and Undo behavior.
+
+On the current5080, a separate research trial cleared rows0/1 while row2 retained
+main support and rawbit1. Controller0 eligibility changed120h to0, feature10h
+cleared and auxiliary role0 support/mask changed1/120h to0/0. Role1 retained
+support1 and mask120h. All22 controller support/other masks, other captured
+feature words, image, registry and remaining configuration matched the planned
+projection; Undo restored the complete baseline. This is configuration evidence
+on that adapter, not an Ampere mapping or a physical-residency measurement.
+The subsequent schema2 production preview, Apply and durable Undo passed the
+same independent projection. Both selected fields were reported as runtime
+verified on Apply and Undo; the complete original baseline was restored.
 
 On the tested5080, clearing only GR PG row1 bit0 changed its configured mask
 120h(P5/P8) to100h(P8). Independent full A7 and all22 support/mask reply bytes

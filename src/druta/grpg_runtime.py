@@ -11,6 +11,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import re
+import struct
 from collections.abc import Mapping
 
 from . import lpwr_runtime as lp
@@ -22,6 +23,7 @@ from .registry_flags import _same_state
 KEY = re.compile(r"lpwr\.gr_pg\.(0|[1-9][0-9]*)\.enabled\Z")
 CONTROLLERS = tuple(range(22))
 _TABLES = (("index", 0x74, 0x24, 6, 18), ("grpg", 0x80, 0x39, 10, 5))
+_AUX_KEYS = ((0, 1), *((role, 0x800) for role in range(4)), *((role, 0x806) for role in range(4)))
 
 
 class GrpgError(RuntimeError):
@@ -66,8 +68,44 @@ def _controllers(support_raw, states_raw):
     return result
 
 
+def _aux_request():
+    request = bytearray(lp.ATTRIBUTE_SIZE)
+    struct.pack_into("<I", request, 0, len(_AUX_KEYS))
+    for ordinal, (role, attribute) in enumerate(_AUX_KEYS):
+        struct.pack_into("<HHH", request, 4 + 16 * ordinal, 1, role, attribute)
+    return bytes(request)
+
+
+def _aux_group(raw):
+    request, untouched, result = _aux_request(), bytearray(raw), {}
+    if len(raw) != lp.ATTRIBUTE_SIZE:
+        raise GrpgError("Malformed GRPG auxiliary packet size")
+    for ordinal, (role, attribute) in enumerate(_AUX_KEYS):
+        at = 4 + 16 * ordinal
+        flags, value = struct.unpack_from("<HI", raw, at + 6)
+        if flags not in (0, 1) or flags and attribute != 0x806 and value not in (0, 1):
+            raise GrpgError("Malformed GRPG auxiliary support response")
+        result[f"{attribute:x}:{role}"] = {"available": bool(flags), "value": value if flags else None}
+        untouched[at + 6 : at + 12] = request[at + 6 : at + 12]
+    if untouched != request:
+        raise GrpgError("GRPG auxiliary GET changed routing or opaque bytes")
+    return result
+
+
+def _auxiliary(value):
+    if not isinstance(value, dict) or set(value) != {"feature_hex", "feature", "group_hex", "group"}:
+        raise GrpgError("Missing GRPG auxiliary readback")
+    feature_raw = lp._hex(value["feature_hex"], lp.ATTRIBUTE_SIZE)
+    available, number = lp._attributes(feature_raw, 0x38, (0,))["0"]
+    feature = {"available": available, "value": number}
+    group = _aux_group(lp._hex(value["group_hex"], lp.ATTRIBUTE_SIZE))
+    if not _same_state(feature, value["feature"]) or not _same_state(group, value["group"]):
+        raise GrpgError("Typed GRPG auxiliary observation differs from its reply bytes")
+    return {"feature": feature, "group": group}
+
+
 def _observation(value):
-    if not isinstance(value, dict) or set(value) != lp._OBS_KEYS:
+    if not isinstance(value, dict) or set(value) not in (lp._OBS_KEYS, lp._OBS_KEYS | {"auxiliary"}):
         raise GrpgError("Malformed GRPG observation")
     if type(value["schema"]) is not int or value["schema"] != 1:
         raise GrpgError("Unknown GRPG observation schema")
@@ -80,10 +118,13 @@ def _observation(value):
     controllers = _controllers(support, states)
     if not _same_state(pstates, value["pstates"]) or not _same_state(controllers, value["controllers"]):
         raise GrpgError("Typed GRPG observation differs from its reply bytes")
-    return {"identity": identity, "pstates": pstates, "controllers": controllers}
+    result = {"identity": identity, "pstates": pstates, "controllers": controllers}
+    if "auxiliary" in value:
+        result["auxiliary"] = _auxiliary(value["auxiliary"])
+    return result
 
 
-def _once(reader, identity):
+def _once(reader, identity, *, auxiliary=False):
     info = lp._get(reader, identity, lp.PSTATE_COMMAND, lp.PSTATE_SIZE)
     pstates = lp._pstates(info)
     support = lp._get(reader, identity, lp.ATTRIBUTE_COMMAND, lp.ATTRIBUTE_SIZE, lp._request(lp.SUPPORT, CONTROLLERS))
@@ -106,11 +147,21 @@ def _once(reader, identity):
         "states_hex": states.hex() if states is not None else None,
         "controllers": _controllers(support, states),
     }
+    if auxiliary:
+        feature = lp._get(reader, identity, lp.ATTRIBUTE_COMMAND, lp.ATTRIBUTE_SIZE, lp._request(0x38, (0,)))
+        group = lp._get(reader, identity, lp.ATTRIBUTE_COMMAND, lp.ATTRIBUTE_SIZE, _aux_request())
+        available, value = lp._attributes(feature, 0x38, (0,))["0"]
+        result["auxiliary"] = {
+            "feature_hex": feature.hex(),
+            "feature": {"available": available, "value": value},
+            "group_hex": group.hex(),
+            "group": _aux_group(group),
+        }
     _observation(result)
     return result
 
 
-def read(gpu):
+def read(gpu, *, auxiliary=False):
     """Read all known controller support/masks; unavailable peers stay diagnostic."""
     reader = PerfDiagnosticsReader(gpu)
     try:
@@ -118,7 +169,8 @@ def read(gpu):
             identity = lp.clock._binding(reader)
             for attempt in range(2):
                 try:
-                    first, second = _once(reader, identity), _once(reader, identity)
+                    first = _once(reader, identity, auxiliary=auxiliary)
+                    second = _once(reader, identity, auxiliary=auxiliary)
                     if not _same_state(_observation(first), _observation(second)):
                         raise PerfDiagnosticError(
                             "unstable", "GRPG routes or controller configuration changed between reads"
@@ -216,6 +268,55 @@ def _aggregate(flags):
     return result
 
 
+def _aggregate_change(changes, tables):
+    grpg = _table_data(tables)["grpg"]
+    flags = [grpg[10 + 5 * i] for i in range(grpg[3])]
+    disabled = {int(KEY.fullmatch(key)[1]) for key in selected(changes)}
+    if any(i >= len(flags) or not flags[i] & 1 for i in disabled):
+        raise GrpgError("Selected GRPG entry is absent or already disabled")
+    after = [value & ~1 if i in disabled else value for i, value in enumerate(flags)]
+    loss = _aggregate(flags) ^ _aggregate(after)
+    if loss not in (0, 8):
+        raise GrpgError("GRPG disable would remove the last enabled entry or an unqualified auxiliary capability")
+    return loss
+
+
+def _aux_projection(core, flags, routes, removed):
+    auxiliary = core.get("auxiliary")
+    if auxiliary is None:
+        raise GrpgError("Last GRPG auxiliary contributor requires independent auxiliary readback")
+    feature, group = auxiliary["feature"], auxiliary["group"]
+    if (
+        not feature["available"]
+        or not feature["value"] & 0x10
+        or group["1:0"] != {"available": True, "value": 1}
+        or group["800:0"] != {"available": True, "value": 1}
+        or not group["806:0"]["available"]
+    ):
+        raise GrpgError("GRPG auxiliary role, configured mask and controller feature must be available and active")
+    mask = group["806:0"]["value"]
+    for slot, ids in routes:
+        if slot < len(flags):
+            expected = ids if flags[slot] & 9 == 9 else 0
+            if mask & ids != expected:
+                raise GrpgError("Loaded GRPG auxiliary membership differs from a consumed BIOS entry")
+    if mask & ~removed:
+        raise GrpgError("Untouched or fallback auxiliary membership prevents removing role support")
+    survivors = [group[f"800:{i}"] for i in range(1, 4)]
+    if any(value == {"available": True, "value": 1} for value in survivors):
+        any_supported = 1
+    elif all(value["available"] for value in survivors):
+        any_supported = 0
+    else:
+        raise GrpgError("Unavailable auxiliary support prevents determining the remaining group support")
+    after = copy.deepcopy(auxiliary)
+    after["feature"]["value"] &= ~0x10
+    after["group"]["800:0"] = {"available": True, "value": 0}
+    after["group"]["806:0"] = {"available": True, "value": 0}
+    after["group"]["1:0"] = {"available": True, "value": any_supported}
+    return after
+
+
 def _derive(changes, before, tables):
     requested = selected(changes)
     core, data = _observation(before), _table_data(tables)
@@ -240,11 +341,9 @@ def _derive(changes, before, tables):
             "after_byte": value & ~1,
         }
         disabled.add(ordinal)
-    after_flags = [value & ~1 if i in disabled else value for i, value in enumerate(flags)]
-    if _aggregate(flags) != _aggregate(after_flags):
-        raise GrpgError("GRPG disable would remove the last enabled entry or an auxiliary capability")
+    loss = _aggregate_change(requested, tables)
     routed = dict.fromkeys(disabled, 0)
-    untouched = 0
+    untouched, routes = 0, []
     for row in core["pstates"]["rows"]:
         selector = row["lpwr_index"]
         slot = 5
@@ -253,6 +352,7 @@ def _derive(changes, before, tables):
                 raise GrpgError("A valid LPWR selector addresses an unloaded index row")
             slot = index[6 + 18 * selector + 1]
             slot = slot if slot < 6 else 5
+        routes.append((slot, row["pstate_id_mask"]))
         if slot < len(flags):
             mask = row["pstate_id_mask"]
             expected = mask if flags[slot] & 1 else 0
@@ -271,7 +371,8 @@ def _derive(changes, before, tables):
         raise GrpgError("Selected GRPG routes overlap untouched Pstate membership")
     after = copy.deepcopy(core["controllers"])
     after["0"]["configured_pstate_mask"] = live_mask & ~removed
-    return bindings, after
+    auxiliary = _aux_projection(core, flags, routes, removed) if loss == 8 else None
+    return bindings, after, auxiliary
 
 
 def contracts(gpu, image_bytes, changes):
@@ -279,12 +380,13 @@ def contracts(gpu, image_bytes, changes):
     if not selected(changes):
         return {}
     tables = _tables(image_bytes)
-    before, error = read(gpu)
+    auxiliary = _aggregate_change(changes, tables) == 8
+    before, error = read(gpu, auxiliary=True) if auxiliary else read(gpu)
     if error or before is None:
         raise GrpgError("GRPG configuration is unavailable: " + str(error))
-    bindings, after = _derive(changes, before, tables)
-    return {
-        "schema": 1,
+    bindings, after, after_auxiliary = _derive(changes, before, tables)
+    result = {
+        "schema": 2 if auxiliary else 1,
         "kind": "lpwr_grpg_disable",
         "before_image_sha256": hashlib.sha256(image_bytes).hexdigest(),
         "before": copy.deepcopy(before),
@@ -292,6 +394,10 @@ def contracts(gpu, image_bytes, changes):
         "selected": bindings,
         "after": after,
     }
+    if auxiliary:
+        result["after_auxiliary"] = after_auxiliary
+    validate_contracts(changes, result)
+    return result
 
 
 def validate_contracts(changes, saved):
@@ -302,17 +408,30 @@ def validate_contracts(changes, saved):
     if (
         not requested
         or not isinstance(saved, dict)
-        or set(saved) != {"schema", "kind", "before_image_sha256", "before", "tables", "selected", "after"}
+        or type(saved.get("schema")) is not int
+        or saved["schema"] not in (1, 2)
     ):
         raise GrpgError("Missing or malformed GRPG disable contract")
-    if type(saved["schema"]) is not int or saved["schema"] != 1 or saved["kind"] != "lpwr_grpg_disable":
+    keys = {"schema", "kind", "before_image_sha256", "before", "tables", "selected", "after"}
+    if saved["schema"] == 2:
+        keys.add("after_auxiliary")
+    if set(saved) != keys or saved["kind"] != "lpwr_grpg_disable":
         raise GrpgError("Unknown GRPG disable contract")
     digest = saved["before_image_sha256"]
     if not isinstance(digest, str) or not lp._HEX256.fullmatch(digest):
         raise GrpgError("Invalid GRPG before-image binding")
-    bindings, after = _derive(requested, saved["before"], saved["tables"])
+    auxiliary = _aggregate_change(requested, saved["tables"]) == 8
+    if (
+        saved["schema"] != (2 if auxiliary else 1)
+        or not isinstance(saved["before"], dict)
+        or ("auxiliary" in saved["before"]) != auxiliary
+    ):
+        raise GrpgError("GRPG contract schema does not match its auxiliary scope")
+    bindings, after, after_auxiliary = _derive(requested, saved["before"], saved["tables"])
     if not _same_state(bindings, saved["selected"]) or not _same_state(after, saved["after"]):
         raise GrpgError("Saved GRPG projection differs from selected fields or BIOS model")
+    if auxiliary and not _same_state(after_auxiliary, saved["after_auxiliary"]):
+        raise GrpgError("Saved GRPG auxiliary projection differs from its consumed BIOS model")
 
 
 def verify(observation, saved, restore=False):
@@ -329,4 +448,8 @@ def verify(observation, saved, restore=False):
     expected = before["controllers"] if restore else saved["after"]
     if not _same_state(actual["controllers"], expected):
         raise GrpgError("Loaded GRPG support or configured masks differ from the expected state")
+    if saved["schema"] == 2:
+        expected = before["auxiliary"] if restore else saved["after_auxiliary"]
+        if not _same_state(actual.get("auxiliary"), expected):
+            raise GrpgError("Loaded GRPG auxiliary support, feature or configured masks differ from the expected state")
     return sorted(changes)

@@ -855,8 +855,9 @@ class RegistryPanel:
                 field["detail"] = (
                     "Disable a captured enabled GR power-gating entry in a separate transaction. "
                     "Apply and Restore verify configured P-state eligibility and preserve the other low-power controllers. "
-                    "Keep an enabled entry and the existing shared capability flags; removing their last contributor "
-                    "needs further validation. Physical residency and power savings are unmeasured."
+                    "A qualified removal of the last shared auxiliary contributor also verifies its support and state masks. "
+                    "Removing the last enabled entry or other shared contributors needs further validation. "
+                    "Physical residency and power savings are unmeasured."
                 )
             groups[field["group"]].append(field)
         with dpg.group(parent="reg_fields"):
@@ -1034,10 +1035,18 @@ class RegistryPanel:
             def states(mask):
                 return "/".join(f"P{i}" for i in range(32) if mask >> i & 1) or "none"
 
+            shared = (
+                "The last contributor to one shared auxiliary role will be removed. "
+                "Its support, configured P-state mask and controller feature must match the preview; "
+                "the other auxiliary roles remain unchanged. "
+                if contract.get("schema") == 2
+                else "Shared capability flags are retained. "
+            )
             lines.append(
                 f"GR power gating: configured P-state eligibility {states(before)} -> {states(after)}. "
                 "Loaded routing, controller support and the other low-power masks must stay unchanged. "
-                "Shared capability flags are retained. Restore verifies the original configuration. "
+                + shared
+                + "Restore verifies the original configuration. "
                 "Physical residency and power savings remain unmeasured."
             )
         if receipt.get("voltage_startup_contracts"):
