@@ -65,7 +65,22 @@ def test_field_explains_the_shared_capability_boundary(harness):
     key = setup_field(harness)
     detail = harness.panel.fields[key]["detail"]
     assert "separate transaction" in detail
-    assert "last contributor" in detail
+    assert "last shared auxiliary contributor" in detail
+    assert "last enabled entry" in detail
+
+
+def test_auxiliary_transition_preview_describes_its_additional_verification(harness):
+    h = harness
+    setup_field(h, before=0x120, after=0)
+    h.mocks.prepare.return_value["grpg_contracts"]["schema"] = 2
+    h.panel.prepare()
+    text = dpg.get_value("reg_preview")
+    assert "P5/P8 -> none" in text
+    assert "last contributor to one shared auxiliary role will be removed" in text
+    assert "support, configured P-state mask and controller feature" in text
+    assert "other auxiliary roles remain unchanged" in text
+    assert "Shared capability flags are retained" not in text
+    assert enabled("reg_apply_button")
 
 
 def test_unrelated_preview_does_not_claim_grpg_verification(harness):

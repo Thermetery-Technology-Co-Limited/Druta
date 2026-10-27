@@ -14,7 +14,7 @@ from tests import test_grpg_runtime as fixtures
 from tests.test_registry_overrides import digest, transaction
 
 
-def configured(monkeypatch, *, multiple=False, slot=None, device=0xC321):
+def configured(monkeypatch, *, multiple=False, slot=None, device=0xC321, auxiliary=False):
     inspect, plan = vbios_fields.inspect, vbios_fields.plan
     receipt, registry, snapshot, restarts, kwargs = transaction(monkeypatch)
     monkeypatch.setattr(vbios_fields, "inspect", inspect)
@@ -22,12 +22,14 @@ def configured(monkeypatch, *, multiple=False, slot=None, device=0xC321):
     if slot is not None:
         receipt["target"]["slot"] = slot
     target = ro.Target(**receipt["target"])
-    image = fixtures.bios(device=device)
+    image = fixtures.bios(device=device, **({"flags": (0x1B, 0x13, 0x13)} if auxiliary else {}))
     changes = {"lpwr.gr_pg.0.enabled": False}
     if multiple:
         changes["lpwr.gr_pg.2.enabled"] = False
-    before = fixtures.observation(slot=target.slot, device=device)
-    saved = fixtures.make_contract(monkeypatch, image=image, obs=before, changes=changes)
+    observe = fixtures.auxiliary_observation if auxiliary else fixtures.observation
+    make_contract = fixtures.make_aux_contract if auxiliary else fixtures.make_contract
+    before = observe(slot=target.slot, device=device)
+    saved = make_contract(monkeypatch, image=image, obs=before, changes=changes)
     after = fixtures.observed(saved)
     patch = plan(image, changes)
     changed = bytearray(image)
@@ -368,8 +370,9 @@ def test_saved_grpg_receipt_cannot_mix_difr(monkeypatch, restore):
     assert not result["ok"] and not reg.operations and not restarts
 
 
-def test_prepare_durable_reload_apply_and_undo_keep_exact_runtime_binding(monkeypatch, tmp_path):
-    original, reg, snap, restarts, kwargs, before, _ = configured(monkeypatch, multiple=True)
+@pytest.mark.parametrize("auxiliary", [False, True])
+def test_prepare_durable_reload_apply_and_undo_keep_exact_runtime_binding(monkeypatch, tmp_path, auxiliary):
+    original, reg, snap, restarts, kwargs, before, _ = configured(monkeypatch, multiple=True, auxiliary=auxiliary)
     target = ro.Target(**original["target"])
     monkeypatch.setattr(ro, "bind_target", lambda gpu: target)
     monkeypatch.setattr(ro, "state_directory", lambda: tmp_path)
@@ -393,3 +396,146 @@ def test_prepare_durable_reload_apply_and_undo_keep_exact_runtime_binding(monkey
     assert result["state"] == "restored", result["message"]
     assert ro.load_receipt(path) == result and ro.active_receipt(target) is None
     assert not reg.values and snap["grpg"] == before and len(restarts) == 2
+
+
+@pytest.mark.parametrize("slot,device", [("0000:17:04.2", 0xDA31), ("0000:82:1e.1", 0x9B42)])
+def test_auxiliary_transition_apply_and_undo_preserve_exact_contract(monkeypatch, slot, device):
+    receipt, reg, snap, restarts, kwargs, before, after = configured(
+        monkeypatch, auxiliary=True, slot=slot, device=device
+    )
+    assert receipt["grpg_contract_version"] == 1 and receipt["grpg_contracts"]["schema"] == 2
+    result = ro.execute(receipt, **kwargs)
+    assert result["state"] == "active", result["message"]
+    assert result["runtime_verified_fields"] == list(receipt["changes"])
+    assert snap["grpg"] == after
+    kwargs["gpu_factory"] = lambda slot: snap if not reg.values else pytest.fail("GET before Undo cleanup")
+    result = ro.execute(receipt, restore=True, **kwargs)
+    assert result["state"] == "restored", result["message"]
+    assert snap["grpg"] == before and not reg.values and len(restarts) == 2
+
+
+@pytest.mark.parametrize("failure", ["ignored_auxiliary", "missing_auxiliary", "feature_peer", "error"])
+def test_auxiliary_activation_mismatch_rolls_back_full_original(monkeypatch, failure):
+    receipt, reg, snap, restarts, kwargs, before, _ = configured(monkeypatch, auxiliary=True)
+    restart = kwargs["restart"]
+
+    def activate(device):
+        outcome = restart(device)
+        if reg.values:
+            if failure == "ignored_auxiliary":
+                snap["grpg"]["auxiliary"] = copy.deepcopy(before["auxiliary"])
+            elif failure == "missing_auxiliary":
+                snap["grpg"].pop("auxiliary")
+            elif failure == "feature_peer":
+                aux = snap["grpg"]["auxiliary"]
+                aux["feature"]["value"] ^= 1
+                raw = bytearray.fromhex(aux["feature_hex"])
+                struct.pack_into("<I", raw, 12, aux["feature"]["value"])
+                aux["feature_hex"] = raw.hex()
+            else:
+                snap["grpg_error"] = "Auxiliary getter unavailable after restart"
+        return outcome
+
+    kwargs["restart"] = activate
+    result = ro.execute(receipt, **kwargs)
+    assert result["state"] == "rolled-back", result["message"]
+    assert not result["ok"] and not reg.values and len(restarts) == 2
+    assert snap["grpg"] == before
+    assert reg.operations == [receipt["after"], receipt["before"]]
+
+
+@pytest.mark.parametrize("restore", [False, True])
+@pytest.mark.parametrize("mutation", ["missing_auxiliary", "missing_projection", "projection", "schema"])
+def test_auxiliary_receipt_binding_precedes_any_read_or_cleanup(monkeypatch, restore, mutation):
+    receipt, reg, _, restarts, kwargs, _, _ = configured(monkeypatch, auxiliary=True)
+    saved = receipt["grpg_contracts"]
+    if mutation == "missing_auxiliary":
+        saved["before"].pop("auxiliary")
+    elif mutation == "missing_projection":
+        saved.pop("after_auxiliary")
+    elif mutation == "projection":
+        saved["after_auxiliary"]["feature"]["value"] ^= 1
+    else:
+        saved["schema"] = 1
+    if restore:
+        reg.values = copy.deepcopy(receipt["after"])
+    kwargs["gpu_factory"] = lambda slot: pytest.fail("Invalid auxiliary receipt caused GPU access")
+    result = ro.execute(receipt, restore=restore, **kwargs)
+    assert not result["ok"] and not reg.operations and not restarts
+
+
+@pytest.mark.parametrize("auxiliary", [False, True])
+def test_scoped_reader_requests_auxiliary_only_for_schema_two(monkeypatch, auxiliary):
+    from druta import nvbackend
+
+    receipt, reg, snap, _, kwargs, before, after = configured(monkeypatch, auxiliary=auxiliary)
+    snap.pop("grpg")
+    gpu, calls = SimpleNamespace(), []
+    monkeypatch.setattr(nvbackend, "GPU", lambda slot: gpu)
+    monkeypatch.setattr(ro, "bind_target", lambda value: snap["target"] if value is gpu else pytest.fail("Wrong GPU"))
+
+    def read(value, **options):
+        assert value is gpu
+        assert options == ({"auxiliary": True} if auxiliary else {})
+        calls.append(bool(reg.values))
+        return copy.deepcopy(after if reg.values else before), None
+
+    monkeypatch.setattr(gr, "read", read)
+    restart = kwargs["restart"]
+
+    def without_injection(device):
+        outcome = restart(device)
+        snap.pop("grpg")
+        return outcome
+
+    kwargs["restart"] = without_injection
+    assert ro.execute(receipt, **kwargs)["state"] == "active"
+    assert ro.execute(receipt, restore=True, **kwargs)["state"] == "restored"
+    assert calls == [False, True, False]
+
+
+def test_auxiliary_reader_scope_also_applies_to_automatic_recovery(monkeypatch):
+    from druta import nvbackend
+
+    receipt, reg, snap, restarts, kwargs, before, after = configured(monkeypatch, auxiliary=True)
+    snap.pop("grpg")
+    gpu, calls = SimpleNamespace(), []
+    monkeypatch.setattr(nvbackend, "GPU", lambda slot: gpu)
+    monkeypatch.setattr(ro, "bind_target", lambda value: snap["target"])
+    ignored = copy.deepcopy(after)
+    ignored["auxiliary"] = copy.deepcopy(before["auxiliary"])
+
+    def read(value, *, auxiliary=False):
+        assert value is gpu and auxiliary is True
+        calls.append(bool(reg.values))
+        return copy.deepcopy(ignored if reg.values else before), None
+
+    monkeypatch.setattr(gr, "read", read)
+    restart = kwargs["restart"]
+
+    def without_injection(device):
+        outcome = restart(device)
+        snap.pop("grpg")
+        return outcome
+
+    kwargs["restart"] = without_injection
+    result = ro.execute(receipt, **kwargs)
+    assert result["state"] == "rolled-back", result["message"]
+    assert calls == [False, True, False] and not reg.values and len(restarts) == 2
+
+
+def test_auxiliary_unavailable_undo_does_not_reintroduce_override(monkeypatch):
+    receipt, reg, snap, restarts, kwargs, _, _ = configured(monkeypatch, auxiliary=True)
+    assert ro.execute(receipt, **kwargs)["state"] == "active"
+    restart = kwargs["restart"]
+
+    def incomplete(device):
+        outcome = restart(device)
+        snap["grpg"].pop("auxiliary")
+        return outcome
+
+    kwargs["restart"] = incomplete
+    result = ro.execute(receipt, restore=True, **kwargs)
+    assert result["state"] == "recovery-required", result["message"]
+    assert not result["ok"] and not reg.values and len(restarts) == 2
+    assert all(values == receipt["before"] for values in reg.operations[1:])

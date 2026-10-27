@@ -90,8 +90,47 @@ def make_contract(monkeypatch, *, image=None, obs=None, changes=None):
     image = bios() if image is None else image
     obs = observation() if obs is None else obs
     changes = DEFAULT_CHANGES if changes is None else changes
-    monkeypatch.setattr(gr, "read", lambda gpu: (copy.deepcopy(obs), None))
+    monkeypatch.setattr(gr, "read", lambda gpu, **kwargs: (copy.deepcopy(obs), None))
     return gr.contracts(None, image, changes)
+
+
+def _aux_packets(feature, group):
+    feature_raw = bytearray(lp._request(0x38, (0,)))
+    struct.pack_into("<HI", feature_raw, 10, int(feature["available"]), int(feature["value"] or 0))
+    group_raw = bytearray(gr._aux_request())
+    for ordinal, (role, attribute) in enumerate(gr._AUX_KEYS):
+        value = group[f"{attribute:x}:{role}"]
+        struct.pack_into("<HI", group_raw, 10 + ordinal * 16, int(value["available"]), int(value["value"] or 0))
+    return {"feature_hex": feature_raw.hex(), "feature": feature, "group_hex": group_raw.hex(), "group": group}
+
+
+def auxiliary_observation(*, group=None, feature=0x12345010, feature_available=True, **kwargs):
+    result = observation(**kwargs)
+    if group is None:
+        group = {
+            "1:0": {"available": True, "value": 1},
+            "800:0": {"available": True, "value": 1},
+            "800:1": {"available": True, "value": 1},
+            "800:2": {"available": True, "value": 0},
+            "800:3": {"available": False, "value": None},
+            "806:0": {"available": True, "value": 0x40},
+            "806:1": {"available": True, "value": 0x100},
+            "806:2": {"available": True, "value": 0},
+            "806:3": {"available": False, "value": None},
+        }
+    result["auxiliary"] = _aux_packets(
+        {"available": feature_available, "value": feature if feature_available else None}, copy.deepcopy(group)
+    )
+    return result
+
+
+def make_aux_contract(monkeypatch, *, image=None, obs=None, changes=None):
+    return make_contract(
+        monkeypatch,
+        image=bios(flags=(0x1B, 0x13, 0x13)) if image is None else image,
+        obs=auxiliary_observation() if obs is None else obs,
+        changes=changes,
+    )
 
 
 def observed(saved, *, restore=False):
@@ -101,6 +140,9 @@ def observed(saved, *, restore=False):
     result["support_hex"] = _attribute_reply(lp.SUPPORT, gr.CONTROLLERS, controllers).hex()
     indices = tuple(i for i in gr.CONTROLLERS if controllers[str(i)]["supported"] is True)
     result["states_hex"] = _attribute_reply(lp.STATES, indices, controllers).hex() if indices else None
+    if saved["schema"] == 2 and not restore:
+        auxiliary = copy.deepcopy(saved["after_auxiliary"])
+        result["auxiliary"] = _aux_packets(auxiliary["feature"], auxiliary["group"])
     return result
 
 
@@ -128,9 +170,16 @@ class FakeGPU(PairedGPU):
             count = struct.unpack_from("<I", request)[0]
             indices = tuple(struct.unpack_from("<H", request, 6 + 16 * i)[0] for i in range(count))
             selector = struct.unpack_from("<H", request, 8)[0]
-            assert request == lp._request(selector, indices)
-            assert selector in (lp.SUPPORT, lp.STATES) and set(indices) <= set(gr.CONTROLLERS)
-            raw = _attribute_reply(selector, indices, self.observation["controllers"])
+            if struct.unpack_from("<H", request, 4)[0] == 1:
+                assert request == gr._aux_request()
+                raw = bytes.fromhex(self.observation["auxiliary"]["group_hex"])
+            elif selector == 0x38:
+                assert request == lp._request(0x38, (0,))
+                raw = bytes.fromhex(self.observation["auxiliary"]["feature_hex"])
+            else:
+                assert request == lp._request(selector, indices)
+                assert selector in (lp.SUPPORT, lp.STATES) and set(indices) <= set(gr.CONTROLLERS)
+                raw = _attribute_reply(selector, indices, self.observation["controllers"])
         self.calls.append((packet[14], selector, indices))
         ctypes.memmove(ctypes.addressof(packet) + 68, raw, len(raw))
         packet[5], packet[11], packet[16] = 1, 1, 0
@@ -470,3 +519,175 @@ def test_bad_or_unstable_replies_are_not_retried_as_transients(which):
 def test_reader_has_no_board_or_driver_allowlist(architecture):
     result, error = gr.read(FakeGPU(architecture=architecture))
     assert not error and result["identity"]["architecture"] == architecture
+
+
+def test_last_bit3_projection_and_undo_preserve_other_requests(monkeypatch):
+    saved = make_aux_contract(monkeypatch)
+    assert saved["schema"] == 2
+    assert saved["after"]["0"] == controller(True, 0x8502)
+    before, after = saved["before"]["auxiliary"], saved["after_auxiliary"]
+    assert after["feature"] == {"available": True, "value": before["feature"]["value"] & ~0x10}
+    assert after["group"]["800:0"] == after["group"]["806:0"] == {"available": True, "value": 0}
+    assert after["group"]["1:0"] == {"available": True, "value": 1}
+    assert {k: v for k, v in after["group"].items() if k not in ("800:0", "806:0")} == {
+        k: v for k, v in before["group"].items() if k not in ("800:0", "806:0")
+    }
+    assert gr.verify(observed(saved), saved) == list(DEFAULT_CHANGES)
+    assert gr.verify(observed(saved, restore=True), saved, restore=True) == list(DEFAULT_CHANGES)
+    gr.validate_contracts(DEFAULT_CHANGES, json.loads(json.dumps(saved, allow_nan=False)))
+    assert len(json.dumps(saved)) < 64 * 1024
+
+
+def test_multiple_last_bit3_routes_with_alternate_identity(monkeypatch):
+    source = auxiliary_observation(slot="0000:16:03.4", architecture=6, device=0x6789)
+    source["auxiliary"]["group"]["806:0"]["value"] = 0x42
+    source["auxiliary"] = _aux_packets(source["auxiliary"]["feature"], source["auxiliary"]["group"])
+    changes = {**DEFAULT_CHANGES, "lpwr.gr_pg.1.enabled": False}
+    saved = make_aux_contract(monkeypatch, image=bios(flags=(0x1B, 0x1B, 0x13)), obs=source, changes=changes)
+    assert saved["after"]["0"]["configured_pstate_mask"] == 0x8500
+    assert gr.verify(observed(saved), saved) == sorted(changes)
+
+
+def test_auxiliary_group_any_becomes_false_only_when_all_remaining_roles_known_false(monkeypatch):
+    group = auxiliary_observation()["auxiliary"]["group"]
+    for index in range(1, 4):
+        group[f"800:{index}"] = {"available": True, "value": 0}
+        group[f"806:{index}"] = {"available": True, "value": 0}
+    saved = make_aux_contract(monkeypatch, obs=auxiliary_observation(group=group))
+    assert saved["after_auxiliary"]["group"]["1:0"] == {"available": True, "value": 0}
+    assert gr.verify(observed(saved), saved)
+    group["800:3"] = {"available": False, "value": None}
+    with pytest.raises(gr.GrpgError, match="remaining group support"):
+        make_aux_contract(monkeypatch, obs=auxiliary_observation(group=group))
+
+
+@pytest.mark.parametrize("extra", [0x400, 0x8000])
+def test_auxiliary_fallback_or_unowned_mask_cannot_be_erased_by_support_projection(monkeypatch, extra):
+    group = auxiliary_observation()["auxiliary"]["group"]
+    group["806:0"]["value"] |= extra
+    with pytest.raises(gr.GrpgError, match="Untouched or fallback"):
+        make_aux_contract(monkeypatch, obs=auxiliary_observation(group=group))
+    # The independently owned main-mask operation still preserves these bits.
+    saved = make_contract(monkeypatch)
+    assert saved["after"]["0"]["configured_pstate_mask"] & extra
+
+
+@pytest.mark.parametrize("mask", [0, 0x42, 0x140])
+def test_loaded_auxiliary_routes_must_match_raw_bit3_not_only_main_membership(monkeypatch, mask):
+    group = auxiliary_observation()["auxiliary"]["group"]
+    group["806:0"]["value"] = mask
+    with pytest.raises(gr.GrpgError, match="auxiliary membership"):
+        make_aux_contract(monkeypatch, obs=auxiliary_observation(group=group))
+
+
+@pytest.mark.parametrize("missing", ["feature", "feature_bit", "1:0", "800:0", "806:0"])
+def test_last_contributor_requires_independent_available_affected_fields(monkeypatch, missing):
+    source = auxiliary_observation()
+    feature, group = source["auxiliary"]["feature"], source["auxiliary"]["group"]
+    if missing == "feature":
+        feature.update(available=False, value=None)
+    elif missing == "feature_bit":
+        feature["value"] &= ~0x10
+    else:
+        group[missing] = {"available": False, "value": None}
+    source["auxiliary"] = _aux_packets(feature, group)
+    with pytest.raises(gr.GrpgError, match="must be available and active"):
+        make_aux_contract(monkeypatch, obs=source)
+
+
+def test_additional_main_bit1_bit4_loss_remains_unqualified_with_auxiliary_available(monkeypatch):
+    for flags in ((0x1B,), (0x1B, 1, 1), (0x1B, 0x11, 0x11), (0x1B, 3, 3)):
+        with pytest.raises(gr.GrpgError, match="unqualified auxiliary|last enabled"):
+            make_aux_contract(monkeypatch, image=bios(flags=flags))
+
+
+@pytest.mark.parametrize("changed", ["feature", "800:0", "806:0", "1:0", "800:1", "806:1", "806:3"])
+def test_ignored_aux_activation_or_peer_change_fails_exact_verification(monkeypatch, changed):
+    saved = make_aux_contract(monkeypatch)
+    current = observed(saved)
+    auxiliary = current["auxiliary"]
+    if changed == "feature":
+        auxiliary["feature"]["value"] |= 0x10
+    elif changed == "806:3":
+        auxiliary["group"][changed] = {"available": True, "value": 0}
+    else:
+        auxiliary["group"][changed]["value"] ^= 1
+    current["auxiliary"] = _aux_packets(auxiliary["feature"], auxiliary["group"])
+    with pytest.raises(gr.GrpgError, match="auxiliary.*expected state"):
+        gr.verify(current, saved)
+    with pytest.raises(gr.GrpgError, match="expected state"):
+        gr.verify(observed(saved), saved, restore=True)
+    assert gr.verify(observed(saved, restore=True), saved, restore=True)
+
+
+@pytest.mark.parametrize("which", ["downgrade", "after", "before", "typed_bool", "scope", "added_raw"])
+def test_schema2_receipt_validation_is_pure_and_recomputes_auxiliary_projection(monkeypatch, which):
+    saved = make_aux_contract(monkeypatch)
+    if which == "downgrade":
+        saved["schema"] = 1
+        saved.pop("after_auxiliary")
+    elif which == "after":
+        saved["after_auxiliary"]["feature"]["value"] |= 0x10
+    elif which == "before":
+        saved["before"].pop("auxiliary")
+    elif which == "typed_bool":
+        saved["after_auxiliary"]["group"]["800:0"]["value"] = False
+    elif which == "scope":
+        saved["tables"]["grpg"]["raw_hex"] = gr._tables(bios())["grpg"]["raw_hex"]
+    else:
+        saved["after_auxiliary"]["group_hex"] = saved["before"]["auxiliary"]["group_hex"]
+    monkeypatch.setattr(gr, "read", lambda *args, **kwargs: pytest.fail("Pure validation must not GET"))
+    with pytest.raises(gr.GrpgError):
+        gr.validate_contracts(DEFAULT_CHANGES, saved)
+
+
+def test_auxiliary_read_is_scoped_and_uses_only_two_stable_shared_configuration_gets():
+    gpu = FakeGPU(obs=auxiliary_observation())
+    result, error = gr.read(gpu, auxiliary=True)
+    assert not error and result["auxiliary"] == gpu.observation["auxiliary"]
+    assert len(gpu.calls) == 10
+    assert gpu.calls[3][1:] == (0x38, (0,))
+    assert gpu.calls[4][1] == 1
+    plain = FakeGPU(obs=auxiliary_observation())
+    result, error = gr.read(plain)
+    assert not error and "auxiliary" not in result and len(plain.calls) == 6
+
+
+def test_auxiliary_transient_recovery_remains_bounded():
+    gpu = FakeGPU(obs=auxiliary_observation(), actions=(None, None, None, status(0x40)))
+    result, error = gr.read(gpu, auxiliary=True)
+    assert not error and len(gpu.calls) == 14 and result["stable_reads"] == 2
+    gpu = FakeGPU(obs=auxiliary_observation(), actions=(None, None, None, status(0x40), status(0x40)))
+    assert gr.read(gpu, auxiliary=True)[0] is None and len(gpu.calls) == 5
+    # Unsupported auxiliary requests do not retry and do not affect ordinary read scope.
+    gpu = FakeGPU(obs=auxiliary_observation(), actions=(None, None, None, status(0x56)))
+    assert gr.read(gpu, auxiliary=True)[0] is None and len(gpu.calls) == 4
+    assert gr.read(gpu)[0] is not None
+
+
+@pytest.mark.parametrize("field", ["route", "flags", "support", "opaque", "guard", "identity", "unstable"])
+def test_auxiliary_malformed_or_changing_replies_are_rejected_without_retry(field):
+    def action(gpu, packet):
+        address = ctypes.addressof(packet) + 68
+        if field == "route":
+            ctypes.c_uint16.from_address(address + 8).value = 0x808
+        elif field == "flags":
+            ctypes.c_uint16.from_address(address + 10).value = 3
+        elif field == "support":
+            ctypes.c_uint32.from_address(address + 12).value = 2
+        elif field == "opaque":
+            ctypes.c_uint32.from_address(address + 16).value = 1
+        elif field == "guard":
+            ctypes.c_ubyte.from_address(address + packet[15]).value = 0
+        elif field == "identity":
+            gpu.nvapi.selected["devid"] ^= 1
+        else:
+            auxiliary = gpu.observation["auxiliary"]
+            auxiliary["group"]["806:1"]["value"] ^= 1
+            gpu.observation["auxiliary"] = _aux_packets(auxiliary["feature"], auxiliary["group"])
+        return 0
+
+    gpu = FakeGPU(obs=auxiliary_observation(), actions=(None, None, None, None, action))
+    result, error = gr.read(gpu, auxiliary=True)
+    assert result is None and error
+    assert len(gpu.calls) == (10 if field == "unstable" else 5)
