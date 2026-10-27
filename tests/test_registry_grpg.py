@@ -14,7 +14,9 @@ from tests import test_grpg_runtime as fixtures
 from tests.test_registry_overrides import digest, transaction
 
 
-def configured(monkeypatch, *, multiple=False, slot=None, device=0xC321, auxiliary=False, bit1=False, combined=False):
+def configured(
+    monkeypatch, *, multiple=False, slot=None, device=0xC321, auxiliary=False, bit1=False, combined=False, main=False
+):
     inspect, plan = vbios_fields.inspect, vbios_fields.plan
     receipt, registry, snapshot, restarts, kwargs = transaction(monkeypatch)
     monkeypatch.setattr(vbios_fields, "inspect", inspect)
@@ -23,7 +25,9 @@ def configured(monkeypatch, *, multiple=False, slot=None, device=0xC321, auxilia
         receipt["target"]["slot"] = slot
     target = ro.Target(**receipt["target"])
     flags = (
-        {"flags": (0x1B, 0x11, 0x11)}
+        {"flags": (0x0B, 0x0B, 0x03)}
+        if main
+        else {"flags": (0x1B, 0x11, 0x11)}
         if combined
         else {"flags": (0x69, 0x6B, 0x61)}
         if bit1
@@ -35,7 +39,10 @@ def configured(monkeypatch, *, multiple=False, slot=None, device=0xC321, auxilia
     changes = {f"lpwr.gr_pg.{1 if bit1 else 0}.enabled": False}
     if multiple:
         changes["lpwr.gr_pg.2.enabled"] = False
-    if combined:
+    if main:
+        changes = {f"lpwr.gr_pg.{index}.enabled": False for index in range(3)}
+        observe, make_contract = fixtures.main_observation, fixtures.make_main_contract
+    elif combined:
         observe, make_contract = fixtures.combined_observation, fixtures.make_combined_contract
     elif bit1:
         observe, make_contract = fixtures.bit1_observation, fixtures.make_bit1_contract
@@ -385,7 +392,7 @@ def test_saved_grpg_receipt_cannot_mix_difr(monkeypatch, restore):
     assert not result["ok"] and not reg.operations and not restarts
 
 
-@pytest.mark.parametrize("scope", ["ordinary", "auxiliary", "bit1", "combined"])
+@pytest.mark.parametrize("scope", ["ordinary", "auxiliary", "bit1", "combined", "main"])
 def test_prepare_durable_reload_apply_and_undo_keep_exact_runtime_binding(monkeypatch, tmp_path, scope):
     original, reg, snap, restarts, kwargs, before, _ = configured(
         monkeypatch,
@@ -393,6 +400,7 @@ def test_prepare_durable_reload_apply_and_undo_keep_exact_runtime_binding(monkey
         auxiliary=scope == "auxiliary",
         bit1=scope == "bit1",
         combined=scope == "combined",
+        main=scope == "main",
     )
     target = ro.Target(**original["target"])
     monkeypatch.setattr(ro, "bind_target", lambda gpu: target)
@@ -676,6 +684,107 @@ def test_combined_apply_and_undo_preserve_all_peers_and_witnesses(monkeypatch):
     result = ro.execute(receipt, restore=True, **kwargs)
     assert result["state"] == "restored", result["message"]
     assert snap["grpg"] == before and not reg.values and len(restarts) == 2
+
+
+def test_main_each_saved_profile_applies_and_undoes(monkeypatch):
+    initial, *_ = configured(monkeypatch, main=True)
+    profiles = initial["grpg_contracts"]["after_profiles"]
+    assert initial["grpg_contracts"]["schema"] == 5 and profiles
+    for index in range(len(profiles)):
+        receipt, reg, snap, restarts, kwargs, before, _ = configured(monkeypatch, main=True)
+        saved = receipt["grpg_contracts"]
+        original_restart = kwargs["restart"]
+
+        def restart(device, profile=index, original_restart=original_restart, reg=reg, snap=snap, saved=saved):
+            outcome = original_restart(device)
+            if reg.values:
+                snap["grpg"] = fixtures.observed_main(saved, profile=profile)
+            return outcome
+
+        kwargs["restart"] = restart
+        result = ro.execute(receipt, **kwargs)
+        assert result["state"] == "active", result["message"]
+        result = ro.execute(receipt, restore=True, **kwargs)
+        assert result["state"] == "restored", result["message"]
+        assert snap["grpg"] == before and not reg.values and len(restarts) == 2
+
+
+@pytest.mark.parametrize("restore", [False, True])
+def test_main_malformed_profile_fails_before_mutation_or_gpu_access(monkeypatch, restore):
+    receipt, reg, _, restarts, kwargs, _, _ = configured(monkeypatch, main=True)
+    receipt["grpg_contracts"]["after_profiles"][0].pop("main")
+    if restore:
+        reg.values = copy.deepcopy(receipt["after"])
+    kwargs["gpu_factory"] = lambda slot: pytest.fail("Malformed receipt caused GPU access")
+    result = ro.execute(receipt, restore=restore, **kwargs)
+    assert not result["ok"] and not reg.operations and not restarts
+
+
+@pytest.mark.parametrize("failure", ["main", "dfpr9_feature", "auxiliary", "peer"])
+def test_main_activation_mismatch_rolls_back(monkeypatch, failure):
+    receipt, reg, snap, restarts, kwargs, before, _ = configured(monkeypatch, main=True)
+    restart = kwargs["restart"]
+
+    def incomplete(device):
+        result = restart(device)
+        if reg.values:
+            altered = copy.deepcopy(receipt["grpg_contracts"])
+            profile = altered["after_profiles"][0]
+            if failure == "main":
+                profile["controllers"]["0"] = copy.deepcopy(before["controllers"]["0"])
+                profile["main"]["features"]["0"] = copy.deepcopy(before["main"]["features"]["0"])
+            elif failure == "dfpr9_feature":
+                profile["main"]["features"]["9"]["value"] = before["main"]["features"]["9"]["value"]
+            elif failure == "auxiliary":
+                profile["auxiliary"]["group"]["800:0"] = copy.deepcopy(before["auxiliary"]["group"]["800:0"])
+            else:
+                profile["controllers"]["9"]["supported"] = False
+                profile["controllers"]["9"]["configured_pstate_mask"] = None
+                profile["controllers"]["9"]["states_available"] = False
+                profile["main"]["features"]["9"] = {"available": False, "value": None}
+            snap["grpg"] = fixtures.observed_main(altered)
+        return result
+
+    kwargs["restart"] = incomplete
+    result = ro.execute(receipt, **kwargs)
+    assert result["state"] == "rolled-back", result["message"]
+    assert not result["ok"] and not reg.values and len(restarts) == 2
+    assert snap["grpg"] == before and reg.operations == [receipt["after"], receipt["before"]]
+
+
+@pytest.mark.parametrize("recovery", [False, True])
+def test_main_scoped_reads_cover_preflight_activation_and_restoration(monkeypatch, recovery):
+    from druta import nvbackend
+
+    receipt, reg, snap, restarts, kwargs, before, after = configured(monkeypatch, main=True)
+    snap.pop("grpg")
+    gpu, calls = SimpleNamespace(), []
+    monkeypatch.setattr(nvbackend, "GPU", lambda slot: gpu)
+    monkeypatch.setattr(ro, "bind_target", lambda value: snap["target"])
+
+    def read(value, **options):
+        assert value is gpu and options == {"main": True}
+        calls.append(bool(reg.values))
+        active = before if recovery else after
+        return copy.deepcopy(active if reg.values else before), None
+
+    monkeypatch.setattr(gr, "read", read)
+    restart = kwargs["restart"]
+
+    def without_injection(device):
+        result = restart(device)
+        snap.pop("grpg")
+        return result
+
+    kwargs["restart"] = without_injection
+    result = ro.execute(receipt, **kwargs)
+    if recovery:
+        assert result["state"] == "rolled-back", result["message"]
+    else:
+        assert result["state"] == "active", result["message"]
+        result = ro.execute(receipt, restore=True, **kwargs)
+        assert result["state"] == "restored", result["message"]
+    assert calls == [False, True, False] and not reg.values and len(restarts) == 2
 
 
 @pytest.mark.parametrize("ignored", ["auxiliary", "bit1"])

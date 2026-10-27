@@ -80,6 +80,10 @@ either way. Registry overrides are a separate persistent path described below.
 changes activate after restarting the selected GPU and survive driver/Windows
 restarts. Use **Restore previous registry settings** to undo them; restarting
 Windows alone does not remove them. These overrides do not flash the physical VBIOS.
+The development branch supports qualified GR power-gating entry disables,
+including removal of all enabled entries, with exact configuration readback and
+Restore. Final raw bit 4 removal and broader hardware qualification remain open;
+configuration readback does not measure physical residency. See the [manual](MANUAL.md).
 
 - **Can hang the machine and corrupt data held in VRAM, also cleared by a reboot:** memory timing writes.
 They are volatile — the driver reprograms these registers per clock band, so an

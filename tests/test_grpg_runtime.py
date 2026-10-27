@@ -175,7 +175,85 @@ def make_combined_contract(monkeypatch, *, image=None, obs=None, changes=None):
     )
 
 
+def _main_packets(controllers, main):
+    indices = tuple(i for i in gr.CONTROLLERS if controllers[str(i)]["supported"] is True)
+    raw = bytearray(lp._request(0x38, indices)) if indices else None
+    for ordinal, index in enumerate(indices):
+        value = main["features"][str(index)]
+        struct.pack_into("<HI", raw, 10 + ordinal * 16, int(value["available"]), int(value["value"] or 0))
+    group_raw = bytearray(gr._bit4_request())
+    for ordinal, (role, attribute) in enumerate(gr._BIT4_KEYS):
+        value = main["bit4_group"][f"{attribute:x}:{role}"]
+        struct.pack_into("<HI", group_raw, 10 + ordinal * 16, int(value["available"]), int(value["value"] or 0))
+    return {
+        "features_hex": raw.hex() if raw is not None else None,
+        "features": copy.deepcopy(main["features"]),
+        "bit4_group_hex": group_raw.hex(),
+        "bit4_group": copy.deepcopy(main["bit4_group"]),
+    }
+
+
+def main_observation(**kwargs):
+    result = auxiliary_observation(**kwargs)
+    controllers = result["controllers"]
+    controllers["2"], controllers["4"] = controller(True, 0x100), controller(True, 0x200)
+    result["support_hex"] = _attribute_reply(lp.SUPPORT, gr.CONTROLLERS, controllers).hex()
+    indices = tuple(i for i in gr.CONTROLLERS if controllers[str(i)]["supported"] is True)
+    result["states_hex"] = _attribute_reply(lp.STATES, indices, controllers).hex()
+    features = {
+        str(i): {
+            "available": controllers[str(i)]["supported"] is True,
+            "value": 0 if controllers[str(i)]["supported"] is True else None,
+        }
+        for i in gr.CONTROLLERS
+    }
+    features["0"] = copy.deepcopy(result["auxiliary"]["feature"])
+    features["9"] = {"available": True, "value": 15}
+    group = result["auxiliary"]["group"]
+    group["800:2"] = {"available": True, "value": 1}
+    result["auxiliary"] = _aux_packets(result["auxiliary"]["feature"], group)
+    roles = bit1_observation()["bit1"]["roles"]
+    for role in (2, 3):
+        roles[str(role)] = {"available": True, "supported": True}
+    result["bit1"] = _bit1_packet(roles)
+    bit4 = {
+        "1:0": {"available": True, "value": 1},
+        **{f"801:{i}": {"available": True, "value": 1} for i in range(3)},
+        "805:0": {"available": True, "value": 0x40},
+        "805:1": {"available": True, "value": 0x100},
+    }
+    result["main"] = _main_packets(controllers, {"features": features, "bit4_group": bit4})
+    return result
+
+
+def make_main_contract(monkeypatch, *, image=None, obs=None, changes=None):
+    return make_contract(
+        monkeypatch,
+        image=bios(flags=(0x0B, 0x0B, 0x03)) if image is None else image,
+        obs=main_observation() if obs is None else obs,
+        changes={f"lpwr.gr_pg.{i}.enabled": False for i in range(3)} if changes is None else changes,
+    )
+
+
+def observed_main(saved, *, profile=0, restore=False):
+    result = copy.deepcopy(saved["before"])
+    if restore:
+        return result
+    projected = saved["after_profiles"][profile]
+    controllers = copy.deepcopy(projected["controllers"])
+    result["controllers"] = controllers
+    result["support_hex"] = _attribute_reply(lp.SUPPORT, gr.CONTROLLERS, controllers).hex()
+    indices = tuple(i for i in gr.CONTROLLERS if controllers[str(i)]["supported"] is True)
+    result["states_hex"] = _attribute_reply(lp.STATES, indices, controllers).hex() if indices else None
+    result["auxiliary"] = _aux_packets(**copy.deepcopy(projected["auxiliary"]))
+    result["bit1"] = _bit1_packet(projected["bit1"]["roles"])
+    result["main"] = _main_packets(controllers, projected["main"])
+    return result
+
+
 def observed(saved, *, restore=False):
+    if saved["schema"] == 5:
+        return observed_main(saved, restore=restore)
     result = copy.deepcopy(saved["before"])
     controllers = result["controllers"] if restore else saved["after"]
     result["controllers"] = copy.deepcopy(controllers)
@@ -220,9 +298,15 @@ class FakeGPU(PairedGPU):
             elif struct.unpack_from("<H", request, 4)[0] == 4:
                 assert request == gr._bit1_request()
                 raw = bytes.fromhex(self.observation["bit1"]["support_hex"])
+            elif struct.unpack_from("<H", request, 4)[0] == 7:
+                assert request == gr._bit4_request()
+                raw = bytes.fromhex(self.observation["main"]["bit4_group_hex"])
             elif selector == 0x38:
-                assert request == lp._request(0x38, (0,))
-                raw = bytes.fromhex(self.observation["auxiliary"]["feature_hex"])
+                if indices == (0,):
+                    raw = bytes.fromhex(self.observation["auxiliary"]["feature_hex"])
+                else:
+                    assert request == lp._request(0x38, indices)
+                    raw = bytes.fromhex(self.observation["main"]["features_hex"])
             else:
                 assert request == lp._request(selector, indices)
                 assert selector in (lp.SUPPORT, lp.STATES) and set(indices) <= set(gr.CONTROLLERS)
@@ -792,7 +876,7 @@ def test_schema3_admission_needs_target_and_independent_supported_witness(monkey
 
 @pytest.mark.parametrize("flags", [(0x6B,), (0x1B, 1, 1), (0x1B, 9, 9)])
 def test_schema3_cannot_admit_main_or_bit4_loss(monkeypatch, flags):
-    with pytest.raises(gr.GrpgError, match="last enabled|unqualified auxiliary"):
+    with pytest.raises(gr.GrpgError, match="last enabled|unqualified auxiliary|independent dependency"):
         make_bit1_contract(monkeypatch, image=bios(flags=flags), changes=DEFAULT_CHANGES)
 
 
@@ -1023,3 +1107,101 @@ def test_invalid_bit1_row_does_not_become_false_from_its_payload():
     result, error = gr.read(FakeGPU(obs=source), bit1=True)
     assert not error
     assert result["bit1"]["roles"]["3"] == {"available": False, "supported": None}
+
+
+@pytest.mark.parametrize("profile", range(4))
+def test_main_profiles_verify_complete_loss_and_exact_undo(monkeypatch, profile):
+    saved = make_main_contract(monkeypatch)
+    changes = dict.fromkeys(saved["selected"], False)
+    assert saved["schema"] == 5 and "after" not in saved
+    assert [item["cleared"] for item in saved["after_profiles"]] == [[0], [0, 2], [0, 4], [0, 2, 4]]
+    after = observed_main(saved, profile=profile)
+    assert gr.verify(after, saved) == sorted(changes)
+    assert after["controllers"]["0"] == controller(False)
+    assert after["main"]["features"]["9"] == {"available": True, "value": 7}
+    assert gr.verify(observed_main(saved, restore=True), saved, restore=True) == sorted(changes)
+    gr.validate_contracts(changes, json.loads(json.dumps(saved)))
+
+
+def test_main_unconsumed_enabled_row_is_required_but_needs_no_route(monkeypatch):
+    image = bios(flags=(0x0B, 0x0B, 0x03, 0x03))
+    saved = make_main_contract(monkeypatch, image=image, changes={f"lpwr.gr_pg.{i}.enabled": False for i in range(4)})
+    assert len(saved["selected"]) == 4 and saved["schema"] == 5
+
+
+@pytest.mark.parametrize("mutation", ["extra_profile", "feature9", "peer", "typed", "missing_scope"])
+def test_main_contract_recomputes_profiles_and_validates_packet_bindings(monkeypatch, mutation):
+    saved = make_main_contract(monkeypatch)
+    if mutation == "extra_profile":
+        saved["after_profiles"].append(copy.deepcopy(saved["after_profiles"][0]))
+    elif mutation == "feature9":
+        saved["after_profiles"][0]["main"]["features"]["9"]["value"] = 15
+    elif mutation == "peer":
+        saved["after_profiles"][0]["controllers"]["13"] = controller(True, 3)
+    elif mutation == "typed":
+        saved["before"]["main"]["features"]["1"]["value"] ^= 1
+    else:
+        saved["before"].pop("main")
+    monkeypatch.setattr(gr, "read", lambda *args, **kwargs: pytest.fail("Pure validation must not GET"))
+    with pytest.raises(gr.GrpgError):
+        gr.validate_contracts(dict.fromkeys(saved["selected"], False), saved)
+
+
+def test_main_ignored_or_unmodeled_peer_changes_never_match(monkeypatch):
+    saved = make_main_contract(monkeypatch)
+    with pytest.raises(gr.GrpgError):
+        gr.verify(saved["before"], saved)
+    after = observed_main(saved)
+    after["controllers"]["13"] = controller(True, 0x20)
+    after["support_hex"] = _attribute_reply(lp.SUPPORT, gr.CONTROLLERS, after["controllers"]).hex()
+    indices = tuple(i for i in gr.CONTROLLERS if after["controllers"][str(i)]["supported"] is True)
+    after["states_hex"] = _attribute_reply(lp.STATES, indices, after["controllers"]).hex()
+    after["main"] = _main_packets(after["controllers"], after["main"])
+    with pytest.raises(gr.GrpgError, match="every qualified projection"):
+        gr.verify(after, saved)
+
+
+def test_main_reader_scopes_native_gets_to_supported_controllers_and_type7_config_only():
+    gpu = FakeGPU(obs=main_observation())
+    result, error = gr.read(gpu, main=True)
+    assert not error and gr._observation(result) == gr._observation(gpu.observation)
+    assert len(gpu.calls) == 16
+    supported = tuple(i for i in gr.CONTROLLERS if result["controllers"][str(i)]["supported"] is True)
+    assert gpu.calls[6][1:] == (0x38, supported)
+    assert gpu.calls[7][1:] == (1, (0, 0, 1, 2, 0, 1))
+    assert gr._BIT4_KEYS == ((0, 1), (0, 0x801), (1, 0x801), (2, 0x801), (0, 0x805), (1, 0x805))
+
+
+def test_main_dependency_transient_recovery_is_bounded_and_scope_is_optional():
+    gpu = FakeGPU(obs=main_observation(), actions=(*([None] * 7), status(0x40)))
+    assert gr.read(gpu, main=True)[0] is not None and len(gpu.calls) == 24
+    gpu = FakeGPU(obs=main_observation(), actions=(*([None] * 7), status(0x40), status(0x40)))
+    assert gr.read(gpu, main=True)[0] is None and len(gpu.calls) == 9
+    gpu = FakeGPU(obs=main_observation(), actions=(*([None] * 7), status(0x56)))
+    assert gr.read(gpu, main=True)[0] is None and len(gpu.calls) == 8
+    assert gr.read(gpu)[0] is not None
+
+
+@pytest.mark.parametrize("mutation", ["route", "flags", "boolean", "opaque", "identity", "unstable"])
+def test_main_type7_malformed_or_unstable_get_never_becomes_a_profile(mutation):
+    def action(gpu, packet):
+        address = ctypes.addressof(packet) + 68
+        if mutation == "route":
+            ctypes.c_uint16.from_address(address + 6).value = 9
+        elif mutation == "flags":
+            ctypes.c_uint16.from_address(address + 10).value = 3
+        elif mutation == "boolean":
+            ctypes.c_uint32.from_address(address + 12).value = 2
+        elif mutation == "opaque":
+            ctypes.c_uint32.from_address(address + 16).value = 1
+        elif mutation == "identity":
+            gpu.nvapi.selected["devid"] ^= 1
+        else:
+            main = gpu.observation["main"]
+            main["bit4_group"]["805:1"]["value"] ^= 1
+            gpu.observation["main"] = _main_packets(gpu.observation["controllers"], main)
+        return 0
+
+    gpu = FakeGPU(obs=main_observation(), actions=(*([None] * 7), action))
+    result, error = gr.read(gpu, main=True)
+    assert result is None and error and len(gpu.calls) == (16 if mutation == "unstable" else 8)

@@ -492,22 +492,29 @@ they do not force an operating frequency or prove a performance increase.
 
 **GR power-gating entry disables** use the existing **Idle power management**
 registry fields in a separate transaction. Preview shows the configured
-P-state eligibility before and after the change. Apply checks that selected
-P-state memberships were removed, while loaded routing, controller support
-and other available low-power masks remain unchanged. Restore checks the
-original configuration.
+P-state eligibility before and after the change. For ordinary entry disables,
+Apply checks that selected P-state memberships were removed while loaded
+routing, controller support and other available low-power masks remain
+unchanged. Restore checks the original configuration.
 
-This path requires enabled entries consumed by the loaded P-state map and
-retains at least one enabled entry. Two shared auxiliary capabilities can lose
+Ordinary entry disables require enabled entries consumed by the loaded P-state
+map. Two shared auxiliary capabilities can lose
 their last contributor when the corresponding driver readbacks are available.
 For one, Druta checks its support, P-state mask and controller feature. For the
 other, it checks that the role's support query becomes unavailable while another
 supported role remains readable; no separate per-P-state mask is established.
 These two removals may be combined when both checks are available. Preview
 explains the applicable checks, and Restore verifies the original state.
-Removing the final main entry or the remaining shared capability still needs
-qualification and is refused before a write. Configured eligibility does not
-establish actual power-gating residency or power savings.
+The development continuation also supports disabling every enabled entry in one
+transaction, including enabled entries unused by the loaded map. It checks that
+main controller 0 becomes unsupported with an unavailable configured mask,
+and independently checks all controller features and type 7 configuration.
+Known profiles can include loss of GRRG controller 2 or MSCG controller 4;
+other peer changes fail verification and trigger restoration. Restore checks
+the captured original configuration. Removal of the final raw bit 4 BIOS
+contributor remains unavailable. The complete dependency graph and broader
+hardware qualification remain open; configured eligibility does not establish
+actual power-gating residency or power savings.
 
 **DIFR entry disables** use the existing **Idle power management** registry
 fields. Disable a currently enabled DIFR entry in its own transaction, preview,

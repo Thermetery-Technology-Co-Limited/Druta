@@ -2102,7 +2102,8 @@ clock data into universal frequency-equality requirements.
 The adjacent `grpg_runtime.py` contract covers disable-only GR PG entries. Its
 original schema retains shared capability contributions; scoped schemas2/3
 qualify removal of the final raw-bit3 or raw-bit1 contributor respectively,
-and schema4 verifies their combined removal.
+schema4 verifies their combined removal, and schema5 covers removal of all
+enabled main entries in the development continuation.
 The owned layouts are BIT P+74
 index v10/header6/stride18/owner24 and P+80 GR PG v10/header10/stride5/owner39,
 each with1..5 rows. Actual A7 selectors route through index-row byte1:
@@ -2123,17 +2124,36 @@ Ignored activation fails the exact readback and invokes Undo, without using
 GPU or driver identity allowlists. The populated PERF v70 aggregation path,
 loaded routing, support and other available controller masks remain checked.
 
-Clearing the last enabled entry is outside this initial contract: BEEC17..27
-calls771730 for controller0, which recursively clears its group+F8 dependency
+Clearing the last enabled entry calls771730 for controller0 at BEEC17..27,
+which recursively clears its group+F8 dependency
 mask. Constructor76E4E0 adds controller4 when group+E1 is clear and controller2
 when LPWR+2D8 bit100h is set. Its traced group+C0 callbacks write software-filter
 data rather than additional dependency edges. The configuration getters do not
 expose the dependency mask or these constructor predicates. No universal
-controller4 disappearance is inferred.
-The OR-presence of raw bit4 among enabled GR PG entries must still remain
-unchanged.
+controller4 disappearance is inferred. Schema5 accepts finite, fully specified
+profiles for the traced conditional loss of controller2 (GRRG), controller4
+(MSCG), or both, and rejects any other peer changes. It requires all enabled
+entries to be disabled, including enabled entries unused by the loaded map.
+Main controller0 must become unsupported and its configured mask unavailable.
+All controller feature words and type7 configuration are independently read
+and checked along with the auxiliary and bit1 blocks. DFPR controller9 feature
+mask0x8 clears in a profile only when no surviving class0 provider (1, 2 or 20)
+supplies feature0x200000; an unresolved provider prevents that profile. Activation must match
+one complete profile; Undo verifies the captured before state. The dependency
+graph is not exhaustively known, and broader hardware qualification remains
+pending. The OR-presence of raw bit4 among enabled GR PG entries must still
+remain unchanged; its final BIOS contributor cannot yet be removed.
 Raw bits1/3/4 feed separate feature-group operations92A650,927470 and92B350
 respectively; their numeric role0 is not controller0.
+
+On one RTX 5080 GB203 with driver 621.01, a schema5 production trial used
+normal preparation, durable reload, Apply and Undo. Controller0 became
+unsupported with its mask unavailable; controller2 was already unsupported,
+controller4 stayed supported with mask120h, and DFPR9 feature Fh became 7h.
+The complete controller and auxiliary projection, image, registry and other
+requests matched, and the final baseline was restored exactly. This trial did
+not test the conditional loss of controller2 or controller4, establish broader
+hardware qualification, or measure physical residency.
 
 For the raw-bit3 transition,927470 clears controller0's available feature bit10h
 at group+138 and role0's bit in the separate LPWR+12F8 group support mask+5C.
