@@ -2622,7 +2622,10 @@ boost getter and reported voltage policy. Complete replay requires every active
 INFO rail to have an understood current identity and matching native type5 /
 public type3 requests. Partial captures remain readable. The full INFO payload,
 routing, types and opaque CONTROL bytes must match; no driver or board list is
-used. Two unnamed offset words remain preserved without invented semantics.
+used. All six signed microvolt request words are preserved. NVIDIA's legacy
+`voltDeltauV[6]` ABI names them REL, ALT REL, OV, VMIN, VCRIT low and VCRIT high;
+the installed public/native adapters preserve that ordering. Those names do not
+establish the physical threshold effects or make a suppressed SET operative.
 
 NVAPI export `0x87C55C8A` accepts a zero-initialized V2 0xAC8 request containing
 the complete rail mask, BYTE8 percentage and each selected type plus six signed
@@ -2633,8 +2636,8 @@ accompany ignored offsets. Every attempt therefore requires independent complete
 request readback; status and caller-buffer integrity alone are insufficient.
 Readback errors identify each differing rail and offset, requested and observed
 values, whether a zero-status SET left that word unchanged, and separate boost
-or metadata differences. The two unnamed words are reported as signed raw
-values. This diagnostic does not establish that arbitrary offset replay works.
+or metadata differences. All six fields use their legacy ABI names and signed
+microvolt values. This diagnostic does not establish that arbitrary offset replay works.
 
 `voltage_replay_worker.py` performs each capture or replay in a fresh process.
 It verifies the Windows device mapping and exact running BIOS hash before SET,
@@ -2680,8 +2683,12 @@ the same gated row callback. Pstates20 writes different records. Native legacy
 arbiter controls own different requests and reject the modern VOLT+0x16A path;
 the public escape's association with those native commands is not proven.
 F208 controls voltage-device fields and F212 controls voltage-policy fields;
-neither is established as an equivalent six-word replay. F219 subtype ownership
-and effects remain under investigation.
+neither is established as an equivalent six-word replay. The modern group's
+B212 inventory and B218 cached CONTROL getters were separately traced and read
+on the current adapter. Its five entries have CONTROL types2,2,2,2,4, with zero
+current flags and values. These are adapter observations, not fixed indices or
+rail names. Their units, relationship to the legacy requests and F219 firmware
+SET effects remain unresolved; no modern SET has been attempted.
 
 ## FixBlackScreenIssue startup adjustment research
 

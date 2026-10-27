@@ -4,7 +4,7 @@
   "status": "Arbitrary six-word offset replay remains unqualified; failure diagnostics improved",
   "scope": "Software request/readback and static routing; no physical voltage/enforcement claim",
   "inspected_driver_sha256": "3f8d33495cabeb2fa11ebdcf0b12705e9ccfb4e53005324bcd86e9dea8ba2ab4",
-  "identity_scope": "One RTX5080/GB203, driver621.01; hashes and identity are evidence only, never runtime compatibility lists",
+  "identity_scope": "One RTX 5080 / GB203 with driver 621.01. Hashes and adapter identity bind evidence; they are not runtime compatibility lists.",
   "known_route": {
     "public_set": "0x87C55C8A, V2 size0xAC8",
     "native_set": "0x2080F214, size0x40C",
@@ -23,7 +23,7 @@
     "nativeB203": "No matching export descriptor found in inspected voltage command inventory; no speculative live probe",
     "F208": "Voltage-device switch delay fields, not a demonstrated six-word replay",
     "F212": "Voltage-policy fields, not a demonstrated six-word replay; indirect effects not excluded",
-    "F219": "Firmware-backed E255 group; subtype ownership and full effects remain under investigation; no qualified live probe or equivalent SET established"
+    "F219": "Firmware-backed E255 group with independent read-only inventory and cached CONTROL captures. Its response can update the modern host cache. Current entries have types 2, 2, 2, 2 and 4. Units, rail binding, relationship to the old six words and firmware SET semantics remain unresolved. No modern SET was attempted."
   },
   "hardware_trial": {
     "desired_NVVDD_reliability_uv": -5000,
@@ -40,11 +40,11 @@
     "windows_reboot": false,
     "workload_started": false
   },
-  "product_change": "Readback failures identify rail/field/requested/observed values, unchanged words after status0, independent boost discrepancies and metadata discrepancies; one SET, protocol and exact recovery checks retained",
+  "product_change": "Readback failures identify all six legacy ABI names and signed microvolt values, unchanged words after status 0, and separate boost or metadata discrepancies. The single SET attempt, worker protocol and exact recovery checks are retained.",
   "remaining": [
-    "Find and qualify a distinct consumed six-word write path or per-adapter capability",
-    "Resolve F219 subtype/control ownership before probing",
-    "Demonstrate differing arbitrary requests and exact after-restart recovery on capable hardware"
+    "Find and qualify a consumed alternative write path for arbitrary captured requests.",
+    "Establish modern field meanings, rail association and firmware SET semantics before any write trial.",
+    "Demonstrate differing arbitrary requests and exact recovery after a GPU restart on capable hardware."
   ],
   "source_reports_sha256": {
     "driver-controls/replay-alternate-set-followup11.json": "ccfd5b26c1a1de72422d5b3031cf914d7c2252ee5d2a5f7355e723d74dbcfe91",
@@ -52,13 +52,61 @@
     "vbios-fields/replay-pstates-routing-followup12.json": "b8bf36a127f05b65ab576391a40c7ab54a183828a30fdca7ba03b95ba445b160",
     "vbios-fields/replay-arbiter-routing-followup12.json": "5374ca17cf42a693e0bafdb1c0b5fb7a3fc0799332a4161168f487072935ae9e",
     "driver-controls/replay-neighbor-controls-followup12.json": "f34d1d08a6fc09b1e2975d5428085b7703a4ba525e34ea153161fe9776cab457",
-    "driver-controls/replay-voltage-command-inventory-followup12.json": "2cdbde3486174651a58cd70b35bcc74d47c25f510c9a815f888d8eed113204ed"
+    "driver-controls/replay-voltage-command-inventory-followup12.json": "2cdbde3486174651a58cd70b35bcc74d47c25f510c9a815f888d8eed113204ed",
+    "driver-controls/replay-legacy-tail-semantics-followup19.json": "2c313a491b2405e54ee2bf1f6e62ab1f66bececa809a5d3b8789f11fbc03892b",
+    "driver-controls/replay-modern-inventory-binding-followup17.json": "fac2a01177fb4e4b615d81abd1a255ddd545a84d2aab0967770b7356f8c70d8d",
+    "driver-controls/replay-modern-info-callbacks-followup17.json": "d21f957324c6ed8f87a388c638a7a9515d93620182c2778db315673881d874ad",
+    "driver-controls/replay-modern-control-callbacks-followup18.json": "b356ff83c293462ecae9d3ac715b1e956736bf75247b4ffc5cf68224e8790110",
+    "driver-controls/replay-modern-type2-semantics-followup19.json": "46bbf2720fee74d24f1412fc5731488538c0fd8afd2d79757970543ce357dccb",
+    "driver-controls/replay-modern-firmware-group-followup20.json": "2f1e17d47fc711df0dc67a1498231aa13fe905923c9d37f7035fa87b00dd8c6b"
   },
   "validation": {
     "full_suite": "6337 passed in109.94s",
     "focused_replay": "85 passed",
     "independent_review": "Terra found no concrete correctness issue in diagnostics or replay behavior",
     "ruff": "check and format pass",
-    "diff_check": "pass"
+    "diff_check": "pass",
+    "label_followup": "318 focused replay, worker, registry and startup tests passed in 15.61s after the ABI label update; the full 6337-test suite passed before this wording-only change."
+  },
+  "legacy_request_abi": {
+    "indices": [
+      "reliability",
+      "alternate_reliability",
+      "overvoltage",
+      "minimum_voltage",
+      "vcrit_low",
+      "vcrit_high"
+    ],
+    "units": "signed microvolts",
+    "evidence": "NVIDIA-authored pinned ctrl2080volt.h indices and ctrl2080volt_opaque_non_privileged.h NvS32 voltDeltauV[6], matched to installed GET/SET and public/native field order.",
+    "public_header_url": "https://raw.githubusercontent.com/DeepGPU/runlist_dump/094b56092dddd81b02f9166ba3b7918160a154e8/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080volt.h",
+    "physical_threshold_effects_established": false
+  },
+  "modern_read_only_capture": {
+    "adapter_scope": "Current RTX 5080 / 621.01 only",
+    "empty_B218_reachable": true,
+    "B212_inventory_mask_words": [
+      31,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "B218_control_types": [
+      2,
+      2,
+      2,
+      2,
+      4
+    ],
+    "control_flags_and_values_zero": true,
+    "stable_rounds_each": 2,
+    "legacy_requests_and_policy_unchanged": true,
+    "modern_set_attempted": false,
+    "units_and_rail_binding_established": false,
+    "note": "INFO row 4 did not write its type byte; the CONTROL getter reports type 4. Inventory came independently from B212, without index probes."
   }
 }
