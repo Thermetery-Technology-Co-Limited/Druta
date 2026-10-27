@@ -855,7 +855,7 @@ class RegistryPanel:
                 field["detail"] = (
                     "Disable a captured enabled GR power-gating entry in a separate transaction. "
                     "Apply and Restore verify configured P-state eligibility and preserve the other low-power controllers. "
-                    "A qualified removal of the last shared auxiliary contributor also verifies its support and state masks. "
+                    "A qualified removal of the last shared auxiliary contributor also verifies its available readbacks. "
                     "Removing the last enabled entry or other shared contributors needs further validation. "
                     "Physical residency and power savings are unmeasured."
                 )
@@ -1035,16 +1035,23 @@ class RegistryPanel:
             def states(mask):
                 return "/".join(f"P{i}" for i in range(32) if mask >> i & 1) or "none"
 
-            shared = (
-                "The last contributor to one shared auxiliary role will be removed. "
-                "Its support, configured P-state mask and controller feature must match the preview; "
-                "the other auxiliary roles remain unchanged. "
-                if contract.get("schema") == 2
-                else "Shared capability flags are retained. "
-            )
+            if contract.get("schema") == 2:
+                shared = (
+                    "The last contributor to one shared auxiliary role will be removed. "
+                    "Its support, configured P-state mask and controller feature must match the preview; "
+                    "the other auxiliary roles remain unchanged. "
+                )
+            elif contract.get("schema") == 3:
+                shared = (
+                    "The last contributor to one shared auxiliary role will be removed. "
+                    "Its support query must become unavailable while another supported role remains readable. "
+                    "A separate per-P-state mask for this role is unavailable. "
+                )
+            else:
+                shared = "Shared capability flags are retained. "
             lines.append(
                 f"GR power gating: configured P-state eligibility {states(before)} -> {states(after)}. "
-                "Loaded routing, controller support and the other low-power masks must stay unchanged. "
+                "Loaded routing, controller support and the other low-power controller masks must stay unchanged. "
                 + shared
                 + "Restore verifies the original configuration. "
                 "Physical residency and power savings remain unmeasured."

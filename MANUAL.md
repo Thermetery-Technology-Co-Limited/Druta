@@ -498,11 +498,13 @@ and other available low-power masks remain unchanged. Restore checks the
 original configuration.
 
 This path requires enabled entries consumed by the loaded P-state map and
-retains at least one enabled entry. One shared auxiliary capability can also
-lose its last contributor when fresh driver reads establish its support,
-configured P-state mask and controller feature. Preview explains that removal;
-Apply and Restore check those additional fields and preserve the other roles.
-Removing the final main entry or the remaining shared capabilities still needs
+retains at least one enabled entry. Two shared auxiliary capabilities can lose
+their last contributor when the corresponding driver readbacks are available.
+For one, Druta checks its support, P-state mask and controller feature. For the
+other, it checks that the role's support query becomes unavailable while another
+supported role remains readable; no separate per-P-state mask is established.
+Preview explains the applicable check, and Restore verifies the original state.
+Removing the final main entry or the remaining shared capability still needs
 qualification and is refused before a write. Configured eligibility does not
 establish actual power-gating residency or power savings.
 

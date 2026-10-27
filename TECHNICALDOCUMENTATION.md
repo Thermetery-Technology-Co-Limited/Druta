@@ -2100,8 +2100,9 @@ the loaded routing fields and controller states; it does not turn evaluated
 clock data into universal frequency-equality requirements.
 
 The adjacent `grpg_runtime.py` contract covers disable-only GR PG entries. Its
-original schema retains shared capability contributions; a scoped schema2
-additionally qualifies removal of the final raw-bit3 contributor. The owned layouts are BIT P+74
+original schema retains shared capability contributions; scoped schemas2/3
+qualify removal of the final raw-bit3 or raw-bit1 contributor respectively.
+The owned layouts are BIT P+74
 index v10/header6/stride18/owner24 and P+80 GR PG v10/header10/stride5/owner39,
 each with1..5 rows. Actual A7 selectors route through index-row byte1:
 7A9230 reads LPWR+2FD+index*18h;770A19 reads the selected GR PG enable byte at
@@ -2128,9 +2129,10 @@ when LPWR+2D8 bit100h is set. Its traced group+C0 callbacks write software-filte
 data rather than additional dependency edges. The configuration getters do not
 expose the dependency mask or these constructor predicates. No universal
 controller4 disappearance is inferred.
-The OR-presence of raw bits1/4 among enabled GR PG entries must still remain
-unchanged. Raw bits1/3/4 feed separate feature-group operations92A650,927470
-and92B350 respectively; their numeric role0 is not controller0.
+The OR-presence of raw bit4 among enabled GR PG entries must still remain
+unchanged; losing bit1 and bit3 in the same transaction is also unqualified.
+Raw bits1/3/4 feed separate feature-group operations92A650,927470 and92B350
+respectively; their numeric role0 is not controller0.
 
 For the raw-bit3 transition,927470 clears controller0's available feature bit10h
 at group+138 and role0's bit in the separate LPWR+12F8 group support mask+5C.
@@ -2144,6 +2146,34 @@ Schema2 captures these extra fields only for the selected auxiliary transition,
 preserves the other roles and verifies the exact projected feature/support/mask
 change through Apply, Undo and recovery. Schema1 receipts retain their original
 read scope and Undo behavior.
+
+For the raw-bit1 transition,92A650 clears role0 in the separate LPWR+12F0
+support mask. A801 type4 attribute9 can read supported roles0..10, but the
+driver gates the query both on group support and on the individual role.
+An unavailable row is therefore not a reported false value. Schema3 requires
+role0 and another role to be readable before the change; it verifies role0's
+row becomes unavailable while the witness and all other observed role rows
+remain unchanged. Whole-group disappearance is unqualified. No reliable
+per-P-state mask for this auxiliary role has been identified; its configured
+membership is not claimed. These additional reads apply only to schema3,
+leaving schema1/2 transactions and older Undo receipts at their existing scope.
+BEFD81 can set a runtime bit1 subflag after BIOS loading, and the HAL can also
+overwrite entries. The post-restart role readback determines whether the
+projected support disappearance actually occurred; the BIOS aggregate alone
+does not establish it.
+
+On the current5080, a reversible research setup cleared bit1 in enabled rows0
+and2 while leaving their other flags intact. Disabling row1 then removed the
+last bit1 contributor while main support and bit3 support remained. Controller0
+and bit3 role0 configured masks changed120h to100h; bit1 role0's query became
+unavailable and roles4/5/6/7 remained readable. All captured controller peers,
+feature words and the other configuration matched the projection. The original
+image, registry and requests were restored exactly. The setup patches are
+research-only, not exposed as new raw-bit controls.
+The subsequent schema3 production Apply and durable Undo verified the selected
+entry through the normal transaction path. Undo restored the temporary setup,
+then the experiment restored and independently checked the full original image,
+registry and requests. No temporary setup patches remained active.
 
 On the current5080, a separate research trial cleared rows0/1 while row2 retained
 main support and rawbit1. Controller0 eligibility changed120h to0, feature10h
