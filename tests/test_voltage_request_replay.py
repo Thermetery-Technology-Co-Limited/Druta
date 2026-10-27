@@ -390,7 +390,7 @@ def test_ignored_offsets_with_applied_boost_identifies_each_unchanged_word():
     assert error.value.kind == "partial" and len(gpu.set_calls) == 1
     assert before["rail_identity"]["0"]["name"] in message
     assert "reliability: requested 1 uV, observed -12345 uV (SET returned 0; unchanged from before)" in message
-    assert "offset[4]: requested 5, observed -987654" in message
+    assert "vcrit_low: requested 5 uV, observed -987654 uV" in message
     assert "boost:" not in message
 
 
@@ -437,7 +437,7 @@ def test_readback_reports_opaque_mismatch_alongside_owned_mismatch(offset_mismat
     assert len(gpu.set_calls) == 1
 
 
-def test_restore_diagnostic_uses_signed_saved_and_unnamed_values():
+def test_restore_diagnostic_uses_signed_saved_vcrit_values():
     gpu = Gpu()
     saved = capture(gpu)
     gpu.offsets["0"] = [0] * 6
@@ -451,8 +451,8 @@ def test_restore_diagnostic_uses_signed_saved_and_unnamed_values():
     with pytest.raises(replay.ReplayError) as error:
         replay.replay(gpu, saved)
     message = error.value.result["readback_error"]
-    assert "offset[4]: requested -987654, observed 0 (SET returned 0; unchanged from before)" in message
-    assert "offset[5]: requested 305419896, observed -7" in message
+    assert "vcrit_low: requested -987654 uV, observed 0 uV (SET returned 0; unchanged from before)" in message
+    assert "vcrit_high: requested 305419896 uV, observed -7 uV" in message
     assert len(gpu.set_calls) == 1
 
 

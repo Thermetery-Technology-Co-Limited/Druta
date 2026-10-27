@@ -317,7 +317,8 @@ def _opaque(state):
 
 def _readback_difference(before, desired, after, status):
     """Describe request mismatches without dropping independent metadata failures."""
-    names = ("reliability", "alternate_reliability", "overvoltage", "minimum_voltage", "offset[4]", "offset[5]")
+    # NVIDIA's legacy VOLT_RAIL_CONTROL ABI names all six voltDeltauV entries.
+    names = ("reliability", "alternate_reliability", "overvoltage", "minimum_voltage", "vcrit_low", "vcrit_high")
     differences = []
     for index in sorted(set(desired["public"]) & set(after["public"]), key=int):
         at = controls.ROW_OFFSET + int(index) * controls.ROW_STRIDE
@@ -329,9 +330,8 @@ def _readback_difference(before, desired, after, status):
             if requested != observed:
                 unchanged = type(status) is int and status == 0 and prior is not None and observed == prior[position]
                 suffix = " (SET returned 0; unchanged from before)" if unchanged else ""
-                unit = " uV" if position < 4 else ""
                 differences.append(
-                    f"{rail} {names[position]}: requested {requested}{unit}, observed {observed}{unit}{suffix}"
+                    f"{rail} {names[position]}: requested {requested} uV, observed {observed} uV{suffix}"
                 )
     if desired["boost_percent"] != after["boost_percent"]:
         suffix = (
