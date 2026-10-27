@@ -44,7 +44,7 @@ def test_existing_checkbox_previews_actual_pstate_ids_and_configuration_scope(ha
     h.mocks.prepare.assert_called_once_with(h.app.gpu, {key: False}, named_changes={}, flag_changes={})
     text = dpg.get_value("reg_preview")
     assert "configured P-state eligibility " + wanted in text
-    assert "Loaded routing, controller support and the other low-power masks must stay unchanged" in text
+    assert "Loaded routing, controller support and the other low-power controller masks must stay unchanged" in text
     assert "Shared capability flags are retained" in text
     assert "Physical residency and power savings remain unmeasured" in text
     assert enabled("reg_apply_button")
@@ -79,6 +79,19 @@ def test_auxiliary_transition_preview_describes_its_additional_verification(harn
     assert "last contributor to one shared auxiliary role will be removed" in text
     assert "support, configured P-state mask and controller feature" in text
     assert "other auxiliary roles remain unchanged" in text
+    assert "Shared capability flags are retained" not in text
+    assert enabled("reg_apply_button")
+
+
+def test_bit1_auxiliary_preview_distinguishes_unavailable_support_from_false(harness):
+    h = harness
+    setup_field(h, before=0x120, after=0x100)
+    h.mocks.prepare.return_value["grpg_contracts"]["schema"] = 3
+    h.panel.prepare()
+    text = dpg.get_value("reg_preview")
+    assert "P5/P8 -> P8" in text
+    assert "support query must become unavailable while another supported role remains readable" in text
+    assert "separate per-P-state mask for this role is unavailable" in text
     assert "Shared capability flags are retained" not in text
     assert enabled("reg_apply_button")
 

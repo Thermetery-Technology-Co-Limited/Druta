@@ -14,7 +14,7 @@ from tests import test_grpg_runtime as fixtures
 from tests.test_registry_overrides import digest, transaction
 
 
-def configured(monkeypatch, *, multiple=False, slot=None, device=0xC321, auxiliary=False):
+def configured(monkeypatch, *, multiple=False, slot=None, device=0xC321, auxiliary=False, bit1=False):
     inspect, plan = vbios_fields.inspect, vbios_fields.plan
     receipt, registry, snapshot, restarts, kwargs = transaction(monkeypatch)
     monkeypatch.setattr(vbios_fields, "inspect", inspect)
@@ -22,12 +22,17 @@ def configured(monkeypatch, *, multiple=False, slot=None, device=0xC321, auxilia
     if slot is not None:
         receipt["target"]["slot"] = slot
     target = ro.Target(**receipt["target"])
-    image = fixtures.bios(device=device, **({"flags": (0x1B, 0x13, 0x13)} if auxiliary else {}))
-    changes = {"lpwr.gr_pg.0.enabled": False}
+    flags = {"flags": (0x69, 0x6B, 0x61)} if bit1 else {"flags": (0x1B, 0x13, 0x13)} if auxiliary else {}
+    image = fixtures.bios(device=device, **flags)
+    changes = {f"lpwr.gr_pg.{1 if bit1 else 0}.enabled": False}
     if multiple:
         changes["lpwr.gr_pg.2.enabled"] = False
-    observe = fixtures.auxiliary_observation if auxiliary else fixtures.observation
-    make_contract = fixtures.make_aux_contract if auxiliary else fixtures.make_contract
+    if bit1:
+        observe, make_contract = fixtures.bit1_observation, fixtures.make_bit1_contract
+    elif auxiliary:
+        observe, make_contract = fixtures.auxiliary_observation, fixtures.make_aux_contract
+    else:
+        observe, make_contract = fixtures.observation, fixtures.make_contract
     before = observe(slot=target.slot, device=device)
     saved = make_contract(monkeypatch, image=image, obs=before, changes=changes)
     after = fixtures.observed(saved)
@@ -370,9 +375,11 @@ def test_saved_grpg_receipt_cannot_mix_difr(monkeypatch, restore):
     assert not result["ok"] and not reg.operations and not restarts
 
 
-@pytest.mark.parametrize("auxiliary", [False, True])
-def test_prepare_durable_reload_apply_and_undo_keep_exact_runtime_binding(monkeypatch, tmp_path, auxiliary):
-    original, reg, snap, restarts, kwargs, before, _ = configured(monkeypatch, multiple=True, auxiliary=auxiliary)
+@pytest.mark.parametrize("scope", ["ordinary", "auxiliary", "bit1"])
+def test_prepare_durable_reload_apply_and_undo_keep_exact_runtime_binding(monkeypatch, tmp_path, scope):
+    original, reg, snap, restarts, kwargs, before, _ = configured(
+        monkeypatch, multiple=scope != "bit1", auxiliary=scope == "auxiliary", bit1=scope == "bit1"
+    )
     target = ro.Target(**original["target"])
     monkeypatch.setattr(ro, "bind_target", lambda gpu: target)
     monkeypatch.setattr(ro, "state_directory", lambda: tmp_path)
@@ -464,11 +471,13 @@ def test_auxiliary_receipt_binding_precedes_any_read_or_cleanup(monkeypatch, res
     assert not result["ok"] and not reg.operations and not restarts
 
 
-@pytest.mark.parametrize("auxiliary", [False, True])
-def test_scoped_reader_requests_auxiliary_only_for_schema_two(monkeypatch, auxiliary):
+@pytest.mark.parametrize("scope", ["ordinary", "auxiliary", "bit1"])
+def test_scoped_reader_requests_only_contract_selected_capability(monkeypatch, scope):
     from druta import nvbackend
 
-    receipt, reg, snap, _, kwargs, before, after = configured(monkeypatch, auxiliary=auxiliary)
+    receipt, reg, snap, _, kwargs, before, after = configured(
+        monkeypatch, auxiliary=scope == "auxiliary", bit1=scope == "bit1"
+    )
     snap.pop("grpg")
     gpu, calls = SimpleNamespace(), []
     monkeypatch.setattr(nvbackend, "GPU", lambda slot: gpu)
@@ -476,7 +485,7 @@ def test_scoped_reader_requests_auxiliary_only_for_schema_two(monkeypatch, auxil
 
     def read(value, **options):
         assert value is gpu
-        assert options == ({"auxiliary": True} if auxiliary else {})
+        assert options == ({scope: True} if scope != "ordinary" else {})
         calls.append(bool(reg.values))
         return copy.deepcopy(after if reg.values else before), None
 
@@ -536,6 +545,150 @@ def test_auxiliary_unavailable_undo_does_not_reintroduce_override(monkeypatch):
 
     kwargs["restart"] = incomplete
     result = ro.execute(receipt, restore=True, **kwargs)
+    assert result["state"] == "recovery-required", result["message"]
+    assert not result["ok"] and not reg.values and len(restarts) == 2
+    assert all(values == receipt["before"] for values in reg.operations[1:])
+
+
+def _set_bit1_role(observation, role, available):
+    """Change both wire and decoded support availability in a synthetic reply."""
+    item = observation["bit1"]
+    item["roles"][str(role)] = {"available": available, "supported": True if available else None}
+    raw = bytearray.fromhex(item["support_hex"])
+    struct.pack_into("<HI", raw, 4 + role * 16 + 6, int(available), int(available))
+    item["support_hex"] = raw.hex()
+
+
+@pytest.mark.parametrize("slot,device", [("0000:19:08.3", 0xDA37), ("0000:a2:1d.5", 0x8342)])
+def test_bit1_apply_and_undo_preserve_role_availability_and_peers(monkeypatch, slot, device):
+    receipt, reg, snap, restarts, kwargs, before, after = configured(monkeypatch, bit1=True, slot=slot, device=device)
+    assert receipt["grpg_contract_version"] == 1 and receipt["grpg_contracts"]["schema"] == 3
+    assert after["bit1"]["roles"]["0"] == {"available": False, "supported": None}
+    assert after["bit1"]["roles"] | {"0": before["bit1"]["roles"]["0"]} == before["bit1"]["roles"]
+    assert "auxiliary" not in before and "auxiliary" not in after
+    result = ro.execute(receipt, **kwargs)
+    assert result["state"] == "active", result["message"]
+    assert result["runtime_verified_fields"] == ["lpwr.gr_pg.1.enabled"]
+    assert snap["grpg"] == after
+    kwargs["gpu_factory"] = lambda slot: snap if not reg.values else pytest.fail("GET before Undo cleanup")
+    result = ro.execute(receipt, restore=True, **kwargs)
+    assert result["state"] == "restored", result["message"]
+    assert snap["grpg"] == before and not reg.values and len(restarts) == 2
+
+
+@pytest.mark.parametrize("failure", ["ignored", "missing", "witness_lost", "peer_gained", "identity", "error"])
+def test_bit1_ignored_or_incomplete_activation_rolls_back(monkeypatch, failure):
+    receipt, reg, snap, restarts, kwargs, before, _ = configured(monkeypatch, bit1=True)
+    restart = kwargs["restart"]
+
+    def activate(device):
+        result = restart(device)
+        if reg.values:
+            if failure == "ignored":
+                snap["grpg"]["bit1"] = copy.deepcopy(before["bit1"])
+            elif failure == "missing":
+                snap["grpg"].pop("bit1")
+            elif failure == "witness_lost":
+                for role, row in before["bit1"]["roles"].items():
+                    if role != "0" and row["available"]:
+                        _set_bit1_role(snap["grpg"], int(role), False)
+            elif failure == "peer_gained":
+                role = next(role for role, row in before["bit1"]["roles"].items() if not row["available"])
+                _set_bit1_role(snap["grpg"], int(role), True)
+            elif failure == "identity":
+                snap["grpg"]["identity"]["device_id"] += 1
+            else:
+                snap["grpg_error"] = "Bit1 support getter failed"
+        return result
+
+    kwargs["restart"] = activate
+    result = ro.execute(receipt, **kwargs)
+    assert result["state"] == "rolled-back", result["message"]
+    assert not result["ok"] and not reg.values and len(restarts) == 2
+    assert snap["grpg"] == before and digest(snap["image"]) == receipt["before_image_sha256"]
+    assert reg.operations == [receipt["after"], receipt["before"]]
+
+
+@pytest.mark.parametrize("restore", [False, True])
+@pytest.mark.parametrize("mutation", ["missing_before", "missing_after", "supported_false", "lost_witness", "schema"])
+def test_bit1_malformed_receipts_fail_before_read_or_cleanup(monkeypatch, restore, mutation):
+    receipt, reg, _, restarts, kwargs, _, _ = configured(monkeypatch, bit1=True)
+    saved = receipt["grpg_contracts"]
+    if mutation == "missing_before":
+        saved["before"].pop("bit1")
+    elif mutation == "missing_after":
+        saved.pop("after_bit1")
+    elif mutation == "supported_false":
+        saved["after_bit1"]["roles"]["0"]["supported"] = False
+    elif mutation == "lost_witness":
+        for role in range(1, 11):
+            _set_bit1_role(saved["before"], role, False)
+            saved["after_bit1"]["roles"][str(role)] = {"available": False, "supported": None}
+    else:
+        saved["schema"] = 2
+    if restore:
+        reg.values = copy.deepcopy(receipt["after"])
+    kwargs["gpu_factory"] = lambda slot: pytest.fail("Malformed bit1 receipt caused GPU access")
+    result = ro.execute(receipt, restore=restore, **kwargs)
+    assert not result["ok"] and not reg.operations and not restarts
+
+
+def test_bit1_preflight_lost_peer_is_refused_without_mutation(monkeypatch):
+    receipt, reg, snap, restarts, kwargs, before, _ = configured(monkeypatch, bit1=True)
+    role = next(role for role, row in before["bit1"]["roles"].items() if role != "0" and row["available"])
+    _set_bit1_role(snap["grpg"], int(role), False)
+    result = ro.execute(receipt, **kwargs)
+    assert result["state"] == "failed" and not result["ok"]
+    assert not reg.operations and not restarts
+
+
+def test_bit1_scoped_reader_is_also_used_for_automatic_recovery(monkeypatch):
+    from druta import nvbackend
+
+    receipt, reg, snap, restarts, kwargs, before, after = configured(monkeypatch, bit1=True)
+    snap.pop("grpg")
+    gpu, calls = SimpleNamespace(), []
+    monkeypatch.setattr(nvbackend, "GPU", lambda slot: gpu)
+    monkeypatch.setattr(ro, "bind_target", lambda value: snap["target"])
+    ignored = copy.deepcopy(after)
+    ignored["bit1"] = copy.deepcopy(before["bit1"])
+
+    def read(value, **options):
+        assert value is gpu and options == {"bit1": True}
+        calls.append(bool(reg.values))
+        return copy.deepcopy(ignored if reg.values else before), None
+
+    monkeypatch.setattr(gr, "read", read)
+    restart = kwargs["restart"]
+
+    def without_injection(device):
+        result = restart(device)
+        snap.pop("grpg")
+        return result
+
+    kwargs["restart"] = without_injection
+    result = ro.execute(receipt, **kwargs)
+    assert result["state"] == "rolled-back", result["message"]
+    assert calls == [False, True, False] and not reg.values and len(restarts) == 2
+
+
+@pytest.mark.parametrize("phase", ["undo", "automatic_recovery"])
+def test_bit1_restore_readback_failure_keeps_original_registry(monkeypatch, phase):
+    receipt, reg, snap, restarts, kwargs, before, _ = configured(monkeypatch, bit1=True)
+    if phase == "undo":
+        assert ro.execute(receipt, **kwargs)["state"] == "active"
+    restart = kwargs["restart"]
+
+    def incomplete(device):
+        outcome = restart(device)
+        if reg.values:
+            snap["grpg"]["bit1"] = copy.deepcopy(before["bit1"])
+        else:
+            snap["grpg"].pop("bit1")
+        return outcome
+
+    kwargs["restart"] = incomplete
+    result = ro.execute(receipt, restore=phase == "undo", **kwargs)
     assert result["state"] == "recovery-required", result["message"]
     assert not result["ok"] and not reg.values and len(restarts) == 2
     assert all(values == receipt["before"] for values in reg.operations[1:])

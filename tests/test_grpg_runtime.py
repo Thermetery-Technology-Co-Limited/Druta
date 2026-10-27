@@ -133,6 +133,33 @@ def make_aux_contract(monkeypatch, *, image=None, obs=None, changes=None):
     )
 
 
+def _bit1_packet(roles):
+    raw = bytearray(gr._bit1_request())
+    for ordinal, role in enumerate(gr._BIT1_ROLES):
+        value = roles[str(role)]
+        struct.pack_into("<HI", raw, 10 + 16 * ordinal, int(value["available"]), int(value["supported"] or 0))
+    return {"support_hex": raw.hex(), "roles": copy.deepcopy(roles)}
+
+
+def bit1_observation(*, roles=None, **kwargs):
+    result = observation(**kwargs)
+    if roles is None:
+        roles = {str(i): {"available": False, "supported": None} for i in gr._BIT1_ROLES}
+        for role in (0, 4, 10):
+            roles[str(role)] = {"available": True, "supported": True}
+    result["bit1"] = _bit1_packet(roles)
+    return result
+
+
+def make_bit1_contract(monkeypatch, *, image=None, obs=None, changes=None):
+    return make_contract(
+        monkeypatch,
+        image=bios(flags=(0x69, 0x6B, 0x61)) if image is None else image,
+        obs=bit1_observation() if obs is None else obs,
+        changes={"lpwr.gr_pg.1.enabled": False} if changes is None else changes,
+    )
+
+
 def observed(saved, *, restore=False):
     result = copy.deepcopy(saved["before"])
     controllers = result["controllers"] if restore else saved["after"]
@@ -143,6 +170,8 @@ def observed(saved, *, restore=False):
     if saved["schema"] == 2 and not restore:
         auxiliary = copy.deepcopy(saved["after_auxiliary"])
         result["auxiliary"] = _aux_packets(auxiliary["feature"], auxiliary["group"])
+    elif saved["schema"] == 3 and not restore:
+        result["bit1"] = _bit1_packet(saved["after_bit1"]["roles"])
     return result
 
 
@@ -173,6 +202,9 @@ class FakeGPU(PairedGPU):
             if struct.unpack_from("<H", request, 4)[0] == 1:
                 assert request == gr._aux_request()
                 raw = bytes.fromhex(self.observation["auxiliary"]["group_hex"])
+            elif struct.unpack_from("<H", request, 4)[0] == 4:
+                assert request == gr._bit1_request()
+                raw = bytes.fromhex(self.observation["bit1"]["support_hex"])
             elif selector == 0x38:
                 assert request == lp._request(0x38, (0,))
                 raw = bytes.fromhex(self.observation["auxiliary"]["feature_hex"])
@@ -248,8 +280,8 @@ def test_strict_disable_keys_values_and_category(changes):
 
 
 @pytest.mark.parametrize("flags", [(0x1B,), (0x1B, 1, 1), (0x1B, 0x19, 0x19), (0x1B, 0x13, 0x13), (0x1B, 0xB, 0xB)])
-def test_last_main_or_auxiliary_presence_loss_is_unqualified(monkeypatch, flags):
-    with pytest.raises(gr.GrpgError, match="last enabled|auxiliary"):
+def test_last_main_or_auxiliary_presence_loss_needs_qualified_scope(monkeypatch, flags):
+    with pytest.raises(gr.GrpgError, match="last enabled|auxiliary|bit1"):
         make_contract(monkeypatch, image=bios(flags=flags))
 
 
@@ -691,3 +723,181 @@ def test_auxiliary_malformed_or_changing_replies_are_rejected_without_retry(fiel
     result, error = gr.read(gpu, auxiliary=True)
     assert result is None and error
     assert len(gpu.calls) == (10 if field == "unstable" else 5)
+
+
+def test_schema3_last_bit1_contract_projects_unavailable_role_and_exact_undo(monkeypatch):
+    saved = make_bit1_contract(monkeypatch)
+    assert saved["schema"] == 3 and "after_auxiliary" not in saved
+    assert "auxiliary" not in saved["before"]
+    assert saved["after"]["0"]["configured_pstate_mask"] == 0x8540
+    assert saved["after_bit1"]["roles"]["0"] == {"available": False, "supported": None}
+    assert {k: v for k, v in saved["after_bit1"]["roles"].items() if k != "0"} == {
+        k: v for k, v in saved["before"]["bit1"]["roles"].items() if k != "0"
+    }
+    changes = {"lpwr.gr_pg.1.enabled": False}
+    assert gr.verify(observed(saved), saved) == list(changes)
+    assert gr.verify(observed(saved, restore=True), saved, restore=True) == list(changes)
+    gr.validate_contracts(changes, json.loads(json.dumps(saved, allow_nan=False)))
+    assert len(json.dumps(saved)) < 64 * 1024
+
+
+@pytest.mark.parametrize("witness", [1, 10])
+def test_schema3_accepts_any_independent_role_witness_and_alternate_identity(monkeypatch, witness):
+    roles = {str(i): {"available": False, "supported": None} for i in gr._BIT1_ROLES}
+    for role in (0, witness):
+        roles[str(role)] = {"available": True, "supported": True}
+    source = bit1_observation(roles=roles, slot="0000:23:05.7", architecture=4, device=0x1357)
+    saved = make_bit1_contract(monkeypatch, obs=source)
+    assert gr.verify(observed(saved), saved)
+    assert saved["after_bit1"]["roles"][str(witness)]["supported"] is True
+
+
+def test_schema3_multiple_selected_contributors_preserve_main_fallback_and_peer_masks(monkeypatch):
+    changes = {"lpwr.gr_pg.0.enabled": False, "lpwr.gr_pg.1.enabled": False}
+    saved = make_bit1_contract(monkeypatch, image=bios(flags=(0x6B, 0x6B, 0x69)), changes=changes)
+    assert saved["after"]["0"]["configured_pstate_mask"] == 0x8500
+    assert saved["after"]["9"] == saved["before"]["controllers"]["9"]
+    assert gr.verify(observed(saved), saved) == sorted(changes)
+
+
+@pytest.mark.parametrize("missing", ["target", "witness", "packet"])
+def test_schema3_admission_needs_target_and_independent_supported_witness(monkeypatch, missing):
+    source = bit1_observation()
+    roles = source["bit1"]["roles"]
+    if missing == "packet":
+        source.pop("bit1")
+    else:
+        for key in roles:
+            if (missing == "target" and key == "0") or (missing == "witness" and key != "0"):
+                roles[key] = {"available": False, "supported": None}
+        source["bit1"] = _bit1_packet(roles)
+    with pytest.raises(gr.GrpgError, match="role0|witness"):
+        make_bit1_contract(monkeypatch, obs=source)
+
+
+@pytest.mark.parametrize("flags", [(0x6B, 0x61, 0x61), (0x6B,), (0x1B, 1, 1), (0x1B, 9, 9)])
+def test_schema3_cannot_admit_combined_main_bit3_or_bit4_loss(monkeypatch, flags):
+    with pytest.raises(gr.GrpgError, match="last enabled|unqualified auxiliary"):
+        make_bit1_contract(monkeypatch, image=bios(flags=flags), changes=DEFAULT_CHANGES)
+
+
+@pytest.mark.parametrize("failure", ["ignored", "whole_group_missing", "peer_changed"])
+def test_schema3_active_readback_rejects_surviving_fallback_or_failed_group_query(monkeypatch, failure):
+    saved = make_bit1_contract(monkeypatch)
+    current = observed(saved)
+    roles = current["bit1"]["roles"]
+    if failure == "ignored":
+        # HAL or an unobserved runtime slot can keep the role supported.
+        roles["0"] = {"available": True, "supported": True}
+    elif failure == "whole_group_missing":
+        roles = {str(i): {"available": False, "supported": None} for i in gr._BIT1_ROLES}
+    else:
+        roles["7"] = {"available": True, "supported": True}
+    current["bit1"] = _bit1_packet(roles)
+    with pytest.raises(gr.GrpgError, match="role support or query witnesses"):
+        gr.verify(current, saved)
+    with pytest.raises(gr.GrpgError, match="expected state"):
+        gr.verify(observed(saved), saved, restore=True)
+    assert gr.verify(observed(saved, restore=True), saved, restore=True)
+
+
+@pytest.mark.parametrize("wrong", ["schema", "scope", "target_false", "witness", "selected", "extra_mask"])
+def test_schema3_pure_receipt_validation_recomputes_scope_and_availability(monkeypatch, wrong):
+    saved = make_bit1_contract(monkeypatch)
+    if wrong == "schema":
+        saved["schema"] = 2
+        saved["after_auxiliary"] = saved.pop("after_bit1")
+    elif wrong == "scope":
+        saved["before"]["auxiliary"] = auxiliary_observation()["auxiliary"]
+    elif wrong == "target_false":
+        saved["after_bit1"]["roles"]["0"]["supported"] = False
+    elif wrong == "witness":
+        saved["after_bit1"]["roles"]["4"] = {"available": False, "supported": None}
+    elif wrong == "selected":
+        saved["selected"]["lpwr.gr_pg.1.enabled"]["before_byte"] ^= 2
+    else:
+        saved["after_bit1"]["roles"]["0"]["configured_pstate_mask"] = 0
+    monkeypatch.setattr(gr, "read", lambda *args, **kwargs: pytest.fail("Pure validation must not read hardware"))
+    with pytest.raises(gr.GrpgError):
+        gr.validate_contracts({"lpwr.gr_pg.1.enabled": False}, saved)
+
+
+def test_contracts_request_only_the_selected_readback_scope(monkeypatch):
+    scopes = []
+
+    def read(gpu, **kwargs):
+        scopes.append(kwargs)
+        if kwargs.get("bit1"):
+            return bit1_observation(), None
+        if kwargs.get("auxiliary"):
+            return auxiliary_observation(), None
+        return observation(), None
+
+    monkeypatch.setattr(gr, "read", read)
+    old = gr.contracts(None, bios(), DEFAULT_CHANGES)
+    aux = gr.contracts(None, bios(flags=(0x1B, 0x13, 0x13)), DEFAULT_CHANGES)
+    bit1 = gr.contracts(None, bios(flags=(0x69, 0x6B, 0x61)), {"lpwr.gr_pg.1.enabled": False})
+    assert scopes == [{}, {"auxiliary": True}, {"bit1": True}]
+    assert [s["schema"] for s in (old, aux, bit1)] == [1, 2, 3]
+    for saved in (old, aux, bit1):
+        assert gr.verify(observed(saved, restore=True), saved, restore=True)
+
+
+def test_bit1_reader_queries_only_support_and_preserves_unavailable_roles():
+    gpu = FakeGPU(obs=bit1_observation())
+    result, error = gr.read(gpu, bit1=True)
+    assert not error and len(gpu.calls) == 8
+    assert gpu.calls[3][1:] == (9, tuple(range(11)))
+    assert gpu.calls[7][1:] == (9, tuple(range(11)))
+    assert result["bit1"]["roles"]["3"] == {"available": False, "supported": None}
+    assert "auxiliary" not in result
+    rejected = FakeGPU(obs=bit1_observation())
+    assert gr.read(rejected, bit1=True, auxiliary=True)[0] is None
+    assert not rejected.calls
+
+
+def test_bit1_transient_retries_are_bounded_and_unsupported_scope_stays_independent():
+    gpu = FakeGPU(obs=bit1_observation(), actions=(None, None, None, status(0x40)))
+    result, error = gr.read(gpu, bit1=True)
+    assert not error and len(gpu.calls) == 12 and result["stable_reads"] == 2
+    gpu = FakeGPU(obs=bit1_observation(), actions=(None, None, None, status(0x40), status(0x40)))
+    assert gr.read(gpu, bit1=True)[0] is None and len(gpu.calls) == 5
+    gpu = FakeGPU(obs=bit1_observation(), actions=(None, None, None, status(0x56)))
+    assert gr.read(gpu, bit1=True)[0] is None and len(gpu.calls) == 4
+    assert gr.read(gpu)[0] is not None
+
+
+@pytest.mark.parametrize("field", ["route", "flags", "false", "opaque", "identity", "unstable"])
+def test_bit1_malformed_or_unstable_packets_are_not_transient_retries(field):
+    def action(gpu, packet):
+        address = ctypes.addressof(packet) + 68
+        if field == "route":
+            ctypes.c_uint16.from_address(address + 6).value = 1
+        elif field == "flags":
+            ctypes.c_uint16.from_address(address + 10).value = 3
+        elif field == "false":
+            ctypes.c_uint32.from_address(address + 12).value = 0
+        elif field == "opaque":
+            ctypes.c_uint32.from_address(address + 16).value = 1
+        elif field == "identity":
+            gpu.nvapi.selected["devid"] ^= 1
+        else:
+            roles = gpu.observation["bit1"]["roles"]
+            roles["4"] = {"available": False, "supported": None}
+            gpu.observation["bit1"] = _bit1_packet(roles)
+        return 0
+
+    gpu = FakeGPU(obs=bit1_observation(), actions=(None, None, None, action))
+    result, error = gr.read(gpu, bit1=True)
+    assert result is None and error
+    assert len(gpu.calls) == (8 if field == "unstable" else 4)
+
+
+def test_invalid_bit1_row_does_not_become_false_from_its_payload():
+    source = bit1_observation()
+    raw = bytearray.fromhex(source["bit1"]["support_hex"])
+    struct.pack_into("<I", raw, 12 + 16 * 3, 0xA5A5A5A5)
+    source["bit1"]["support_hex"] = raw.hex()
+    result, error = gr.read(FakeGPU(obs=source), bit1=True)
+    assert not error
+    assert result["bit1"]["roles"]["3"] == {"available": False, "supported": None}
