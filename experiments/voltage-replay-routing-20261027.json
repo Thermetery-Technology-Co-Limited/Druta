@@ -1,0 +1,64 @@
+{
+  "schema": 1,
+  "date_utc": "2026-10-27T13:56:05.085301+00:00",
+  "status": "Arbitrary six-word offset replay remains unqualified; failure diagnostics improved",
+  "scope": "Software request/readback and static routing; no physical voltage/enforcement claim",
+  "inspected_driver_sha256": "3f8d33495cabeb2fa11ebdcf0b12705e9ccfb4e53005324bcd86e9dea8ba2ab4",
+  "identity_scope": "One RTX5080/GB203, driver621.01; hashes and identity are evidence only, never runtime compatibility lists",
+  "known_route": {
+    "public_set": "0x87C55C8A, V2 size0xAC8",
+    "native_set": "0x2080F214, size0x40C",
+    "row_callback": "CACC70",
+    "copy_gate": "PERF+0x32C; nonzero skips all six copies but returns base-validation status",
+    "independent_readbacks": [
+      "0x2080B213 native rail CONTROL",
+      "0xA3070DB0 public singleton rail CONTROL",
+      "Separate voltage policy and boost requests"
+    ]
+  },
+  "alternatives": {
+    "direct_native_and_single_row": "Converge on the same callback",
+    "Pstates20": "Traced per-state voltage and global overvoltage paths write different records, with legacy/modern gates; not established equivalent to six rail words",
+    "legacy_arbiter": "Native20802620/2621 reject modernVOLT+16A and own different legacy requests; direct public escape linkage remains an inference",
+    "nativeB203": "No matching export descriptor found in inspected voltage command inventory; no speculative live probe",
+    "F208": "Voltage-device switch delay fields, not a demonstrated six-word replay",
+    "F212": "Voltage-policy fields, not a demonstrated six-word replay; indirect effects not excluded",
+    "F219": "Firmware-backed E255 group; subtype ownership and full effects remain under investigation; no qualified live probe or equivalent SET established"
+  },
+  "hardware_trial": {
+    "desired_NVVDD_reliability_uv": -5000,
+    "observed_NVVDD_reliability_uv": 0,
+    "desired_boost_percent": 1,
+    "observed_boost_percent": 1,
+    "set_status": 0,
+    "replay_verified": false,
+    "diagnostic": "ReplayError: Rail replay readback differs: NVVDD reliability: requested -5000 uV, observed 0 uV (SET returned 0; unchanged from before)",
+    "original_requests_policy_image_registry_and_peers_restored_exactly": true,
+    "cleanup_errors": [],
+    "registry_writes": false,
+    "gpu_restart": false,
+    "windows_reboot": false,
+    "workload_started": false
+  },
+  "product_change": "Readback failures identify rail/field/requested/observed values, unchanged words after status0, independent boost discrepancies and metadata discrepancies; one SET, protocol and exact recovery checks retained",
+  "remaining": [
+    "Find and qualify a distinct consumed six-word write path or per-adapter capability",
+    "Resolve F219 subtype/control ownership before probing",
+    "Demonstrate differing arbitrary requests and exact after-restart recovery on capable hardware"
+  ],
+  "source_reports_sha256": {
+    "driver-controls/replay-alternate-set-followup11.json": "ccfd5b26c1a1de72422d5b3031cf914d7c2252ee5d2a5f7355e723d74dbcfe91",
+    "vbios-fields/replay-public-routing-followup11.json": "6a60eefba653839d3b2339b1db402bf32b4dcd0e793ce8ca61e5ab333b15e5c9",
+    "vbios-fields/replay-pstates-routing-followup12.json": "b8bf36a127f05b65ab576391a40c7ab54a183828a30fdca7ba03b95ba445b160",
+    "vbios-fields/replay-arbiter-routing-followup12.json": "5374ca17cf42a693e0bafdb1c0b5fb7a3fc0799332a4161168f487072935ae9e",
+    "driver-controls/replay-neighbor-controls-followup12.json": "f34d1d08a6fc09b1e2975d5428085b7703a4ba525e34ea153161fe9776cab457",
+    "driver-controls/replay-voltage-command-inventory-followup12.json": "2cdbde3486174651a58cd70b35bcc74d47c25f510c9a815f888d8eed113204ed"
+  },
+  "validation": {
+    "full_suite": "6337 passed in109.94s",
+    "focused_replay": "85 passed",
+    "independent_review": "Terra found no concrete correctness issue in diagnostics or replay behavior",
+    "ruff": "check and format pass",
+    "diff_check": "pass"
+  }
+}
