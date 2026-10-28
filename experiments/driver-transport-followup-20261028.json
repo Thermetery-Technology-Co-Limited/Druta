@@ -25,6 +25,10 @@
       "B21E10 supplies root+0x1920 as metadata context+0x18. C2C4B0 creates a 0x700 metadata subdescriptor from its +0x58 MemoryDescriptor, using an architecture-derived address minus wrapper+0x70, then reads and parses it. This is a metadata extent, not the entire STATUS backing allocation.",
       "On one root+0x1918 factory branch, C2DA90 creates the wrapper descriptor as a child of a parent supplied with upstream base and size. B242C0 supplies those values through GPU+0x22C0 and 30F110/30F270. Other factory branches allocate independently or return unsupported and cannot be conflated.",
       "One matching class-registry descriptor for GPU+0x22C0 selects a factory whose unchanged Boolean callback gives size0 or0x1920000. This identifies a conditional upstream extent calculation, not the actual runtime class, physical address space, firmware processor or STATUS writer."
+    ],
+    "source_owner_followup": [
+      "The same exact public class IDs identify the conditional upstream provider as KernelPmu and its MemoryManager/KernelFsp dependencies. Separately traced constructor callbacks supply 0x200000/0x220000 and 0x1000/0 to the reserved-base arithmetic; these are not STATUS-row values or the empirical 33/32 conversion.",
+      "The conditional 595.97 provider and descriptor chain remain distinct from the installed-image voltage route. Actual runtime registry/class/branch selection and the individual STATUS-data writer remain unproven."
     ]
   },
   "modern_voltage_receiver": {
@@ -45,10 +49,10 @@
     ],
     "not_proven": [
       "Execution and ordering of this construction/registration/population path on the captured adapter.",
-      "Actual kind3/category0 metadata contents and selected backing extent; the active source-factory path, original MemoryDescriptor producer/address space and later lifecycle retention.",
+      "Actual kind3/category0 metadata contents and selected backing extent; active source/provider branches, original per-section data writer and later lifecycle retention. Conditional source ownership now reaches the KernelPmu reservation, not numerical field semantics.",
       "The producer and typed interpretation of the mapped values, rail association, successful F219 effects or arbitrary six-word request replay."
     ],
-    "next": "Bind context+1948 callback and the original MemoryDescriptor supplied to1853800, then the actual data writer and typed consumers. The generic window/copy chain alone is insufficient for nonzero control.",
+    "next": "Follow the per-section schema and original data writer within the identified conditional PMU reservation, rather than interpreting generic allocation/copy helpers as numeric voltage consumers. Runtime selection still requires independent evidence before a hardware trial.",
     "population_followup": [
       "The constructed receiver selects an embedded interface at root+0x988 through CE49B0. CFF760 replaces the default population callbacks with CFF170 (metadata) and CFF510 (type2 child construction); stopping at the default error-return factory would misclassify this path.",
       "C0D960 creates selected items through those callbacks and inserts them through CFED60. That insertion stores the item pointer in the indexed array and maps item+0x34 to the index used by the receiver+0x888 selector table.",
@@ -69,6 +73,13 @@
       "8D60A0 supplies selected-entry+30 -> source-subwrapper+60 as the MemoryDescriptor for 8D4920. 8D4920 validates offset/length and uses 1BF4C0 to create a child descriptor/window. Neither helper itself reads the final data into the caller output. C99410 passes cache flag0 through C36910, so that exact window callback does not supply the optional cache pointer.",
       "8D4DA0 performs the subsequent bulk read. With no cache and other platform branches not selected, it calls 650570 with a surface containing the window descriptor and offset0. 650570 tries 650320, then 650140 only on nonzero status; 650140 retries in at most0x100000-byte blocks, using subdescriptors on its selected route.",
       "650320 route0 obtains a mapped pointer via 64EF80, copies to the caller via E39A0, then ends the transfer with 64FDA0. Other routes include 64D690/64D920 and platform branches through 657D50. No numerical voltage conversion appears in these inspected generic read/window bodies; this does not exclude conversion in unexpanded callees or the producer."
+    ],
+    "source_owner_followup": [
+      "The F33840 context constructor calls 18208B0, which conditionally installs context+0x1948=BC4C10 or an unsupported stub. BC4C10 obtains upstream base/size from GPU+0x2488; the source-wrapper factory later uses those inputs. This is a conditional constructor binding, not proof of active runtime selection.",
+      "The GPU+0x2488 registry association is a 0x2348-byte provider constructed by 17E6CC0. The earlier 0x54D0 candidate is a different class and cannot substitute for it. Its constructor selects a reserved-size callback and ACD5D0 address calculation, or zero callbacks under another class-word branch.",
+      "Exact IDs match pinned NVIDIA declarations: 0xAB9D7D=KernelPmu, 0x87FB96=KernelFsp, 0x22AD47=MemoryManager. The arithmetic branches closely match NVIDIA's KernelPmu reserved-memory offset calculation, including the 0x20000 workspace subtraction. Together with descriptor ownership this identifies a conditional PMU reserved-memory backing path; it does not identify a voltage-data producer.",
+      "On the original-descriptor factory branch, BC1190 creates descriptor metadata with address-space operand 2 and attaches the first existing MemoryManager range selected by numeric type 1. The descriptor is then retained and subviewed by the already-traced source-wrapper path. Creating or attaching that descriptor does not populate the individual voltage records.",
+      "The public implementation has SelfInit gating and differs from Windows class-selected callbacks. The modern Windows size callbacks can return 0, 0x900000 or 0xA00000; the separate 595.97 path aggregates a different extent. Those quantities describe conditional reserved-memory arithmetic, not voltage/power values or a compatibility gate."
     ]
   },
   "perf_callback": {
@@ -86,7 +97,34 @@
     "generic_memory_sources": [
       "https://github.com/NVIDIA/open-gpu-kernel-modules/blob/ca2d03e6fafd4d4b56b383497d931c25b283bfcf/src/nvidia/src/kernel/gpu/mem_mgr/mem_desc.c",
       "https://github.com/NVIDIA/open-gpu-kernel-modules/blob/ca2d03e6fafd4d4b56b383497d931c25b283bfcf/src/nvidia/src/kernel/gpu/mem_mgr/mem_utils.c"
-    ]
+    ],
+    "source_ownership_bridge": {
+      "class_ids": {
+        "0xAB9D7D": "KernelPmu",
+        "0x87FB96": "KernelFsp",
+        "0x22AD47": "MemoryManager"
+      },
+      "method": "Exact NVOC ID matches in pinned primary-source declarations, combined with independent Windows registry/constructor/descriptor dataflow and comparison of the reserved-memory offset branch structure.",
+      "scope": "Establishes the conditional reserved-memory role. Does not identify all binary symbols, layouts, current runtime branches, per-section schemas, firmware writers or voltage units.",
+      "sources": {
+        "src/nvidia/generated/g_eng_desc_nvoc.h": {
+          "sha256_git_blob_bytes": "1275b29992d6f145c78b3a14175e4aec843802320a286297cf77002dcc88176e",
+          "url": "https://github.com/NVIDIA/open-gpu-kernel-modules/blob/ca2d03e6fafd4d4b56b383497d931c25b283bfcf/src/nvidia/generated/g_eng_desc_nvoc.h"
+        },
+        "src/nvidia/src/kernel/gpu/pmu/kern_pmu.c": {
+          "sha256_git_blob_bytes": "a96b388d623cb36827edd868830a60487147eebf63cc6e9c369b0f04a87f591d",
+          "url": "https://github.com/NVIDIA/open-gpu-kernel-modules/blob/ca2d03e6fafd4d4b56b383497d931c25b283bfcf/src/nvidia/src/kernel/gpu/pmu/kern_pmu.c"
+        },
+        "src/nvidia/generated/g_kern_pmu_nvoc.h": {
+          "sha256_git_blob_bytes": "edd80fab4b6f716f33922e3f2a8b4068dc64a3de1387d5cb64c47ff1f20df871",
+          "url": "https://github.com/NVIDIA/open-gpu-kernel-modules/blob/ca2d03e6fafd4d4b56b383497d931c25b283bfcf/src/nvidia/generated/g_kern_pmu_nvoc.h"
+        },
+        "src/nvidia/generated/g_kern_fsp_nvoc.h": {
+          "sha256_git_blob_bytes": "13b0f0175c2445e07f175d30564edf189b5dea28aee33e2558b72a77e95fab2a",
+          "url": "https://github.com/NVIDIA/open-gpu-kernel-modules/blob/ca2d03e6fafd4d4b56b383497d931c25b283bfcf/src/nvidia/generated/g_kern_fsp_nvoc.h"
+        }
+      }
+    }
   },
   "product_runtime": "Unchanged. Existing live REL/OV/ALT/VMIN controls retain their qualified contracts. No modern F219 SET, nonzero variable operand, speculative command sweep, workload or physical-measurement claim is introduced.",
   "private_evidence": "Exact disassembly dumps, complete local direct-CFG extents and SHA-256 records remain local. Root reviewed the section/base population, distinct kind/category fields, descriptor ownership and generic read path, and independently checked the delegated same-manager/source/provider evidence and hashes. Indirect and unexpanded callees remain explicit boundaries.",
@@ -226,6 +264,49 @@
       "population-mapping-chain.json": "02d284454f633ce56754285fc02dc9f4a69b91ea43f9111f5d57a67ff3d536fe",
       "source-md/findings.json": "c7a90c8526553d3ff3bb6857dc8163ff214ff9b6d28d1e495cdf66c2c33f7c07",
       "source-md/provider22c0/findings.json": "6fe55bbc674dcd46393ffadf0994b88c6b46b12469cb7888aad222eff06b5112"
+    },
+    "source_owner_followup": {
+      "findings.json": "fe488b7b1ef8d4ac05bc027bc7ec3fcbbfcae3eff8e2a4d05a83fffff7d19954",
+      "reviewed_reports": {
+        "gpu2488": {
+          "sha256": "390d05c16fce431aadaa3ed8612afbe2cf16d267608c52f446739ff9ddaae628",
+          "verified_child_hashes": 8
+        },
+        "source2748": {
+          "sha256": "a05dc583169e43517781c4fddc2917dcf53f84df418b9c815365851d4d1ac078",
+          "verified_child_hashes": 8
+        },
+        "public_role_bridge": {
+          "sha256": "dd67150e63bd3d6befb7836e946998fed8636ae72d87e38d8e5f8e7a9bcf5323",
+          "verified_child_hashes": 0
+        },
+        "power_base_callbacks": {
+          "sha256": "0ad9f9abea0eb023af69ccc41209afa84108f92fd06523c5d62674310687457f",
+          "verified_child_hashes": 19
+        }
+      },
+      "reused_evidence_sha256": {
+        "experiments/registry-overrides/voltage-receiver-writer-20261028/cfg-C492D0.txt": "a26a1eff666e478631ba7cf8d2925f39cc4676145f10770520b58bf67b09f0f2",
+        "experiments/registry-overrides/voltage-receiver-writer-20261028/cfg-1820AE0.txt": "150fb8250ec772d4ff746801daa2d8338fa18f39a0c99ab16403a97e5293bba3",
+        "experiments/registry-overrides/luna-voltage-semantics-20261027/context-casts/class-F33840.txt": "3925baa33f93c19bed79782f55994d4fdf369cfdf43871edd784528e7375c3c5",
+        "experiments/registry-overrides/voltage-backing-20261028/root-cfg-BC1190.txt": "f9eb1736542ccd255a3685f51d09334605d5658144ff8166f0c948042489bb3a",
+        "experiments/registry-overrides/voltage-backing-20261028/root-cfg-BC7690.txt": "d6e7ca0005eb6a1a89653cabc3388bfb509409080d29db41cc0aa89a9c88e283",
+        "experiments/registry-overrides/voltage-backing-20261028/root-cfg-BC7C10.txt": "c0f6d3c643c5e3d8de7c8f8751403d50ee21f617f411e288c95b1b6eb180fec3"
+      },
+      "root_evidence_sha256": {
+        "root-cfg-18202F0.txt": "783ba89f2310ae0e8fbc9c1cec2c168dc2809e46c705a60d0159c0d63f4aa7a0",
+        "root-cfg-18205A0.txt": "43577315b88977d9226217721f1a6afcb88e5ad7d105c5efcd080b1321a3b947",
+        "root-cfg-18208A0.txt": "6b2df0cc1f59e4e7ee0df2113c421b20d8c282ab8aeacf46c40d2e75448df332",
+        "root-cfg-18208B0.txt": "9124ec9c32cf0138793502c4ba80149613bd7386110dd50a043b40e288a8a149",
+        "root-cfg-1BF090.txt": "e5b9d1cf1e8ec8c751cf4b3bf980ae3c564d3a9a0ec8b46270a5b2a3cbc74807",
+        "root-cfg-1BFFB0.txt": "9ff1241e9a74848798a59b6a423c07f1181981d7db3e66d9658df356ab653627",
+        "root-cfg-1C0760.txt": "7a32db5cf8b2eff00751819095ab635725fecdc7b8956b8ba88f9a3b94be2e88",
+        "root-cfg-327370.txt": "ad7f9e0ef04c437a3653081e866d4e467692731e6b04165543b5ef6fb2241d8e",
+        "root-cfg-6E2190.txt": "89581e9f42212c723deb1ba48513bd3184fa1ad38274d9630ea98689dfc6276a",
+        "root-cfg-96590.txt": "f76b7b1e197352b82b3917d41f1e6d71ac94886a86c5c655be9698418d5c1976",
+        "root-cfg-BC4C10.txt": "0bec15bdb1a7ce22d96836ce17feb6b65fd1797e1336514fe43957cc1804e24c",
+        "root-cfg-CE3D80.txt": "ce213939f31586397c0ecdcb5766fee85573a69a7459bc3447c2febfe6fee780"
+      }
     }
   }
 }

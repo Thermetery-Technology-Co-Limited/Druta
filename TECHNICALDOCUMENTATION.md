@@ -2873,8 +2873,12 @@ leads to a bounded child MemoryDescriptor. Window construction and the later
 bulk read are distinct operations; the inspected generic read path establishes
 no voltage conversion. The source wrapper has conditional independent-allocation
 and original-descriptor subview factories. Its original data writer remains
-unbound. These are conditional host paths, not proof of execution on the
-captured GPU or the mapped values' types, units, rails or firmware effects.
+unbound. Exact public NVOC class IDs and the reserved-offset branch structure
+identify the conditional source calculation as KernelPmu reserved-memory
+backing, with KernelFsp and MemoryManager dependencies. That ownership does not
+identify the writer of each voltage record. These are conditional host paths,
+not proof of execution on the captured GPU or the mapped values' types, units,
+rails or firmware effects.
 The power-status transport descriptor and response parser use the same group
 buffer, at a distinct offset within a common selected mapping on the traced
 direct path. A candidate manager was excluded after resolving a class-specific
