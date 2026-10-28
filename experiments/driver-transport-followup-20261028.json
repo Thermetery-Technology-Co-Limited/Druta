@@ -1,0 +1,80 @@
+{
+  "schema": 1,
+  "scope": "Offline control-flow and pointer-provenance investigation of two signed NVIDIA driver images. No driver execution, GPU/API/registry mutation or nonzero operand trial. Image identities identify evidence and are not runtime eligibility gates.",
+  "power_status": {
+    "image_sha256": "b3c384bf432380160189d8b031c0bf4a4bebf2cfa0613277bc69209fbabc2fc3",
+    "proven": [
+      "The native A619 serializer copies the selected source row's full DWORD at +0x10 to native status row+0x04 without conversion at that copy.",
+      "B96C30 retains the same group across its +0x108 transaction and +0x110 response callbacks. In 58F170, RSI is that group and RBX=RSI+0xC0. Descriptor+0x10 is therefore exactly group+0xD0, used for zeroing, request construction and subsequent response parsing.",
+      "Two conditional transport factories supply the common +0x30 thunk and different root implementations. The tested adapter's runtime selector is not established by this static trace.",
+      "One conditional path has a paired request/response queue. Request slots use backing offset 0x200+slot*0x800; responses use 0x8200+slot*0x800, with a 16-byte header and checksum/length checks. The inspected direct mapping branch copies between that backing and caller message buffers."
+    ],
+    "not_proven": [
+      "The mapping between that message backing and the separately addressed group status buffer.",
+      "The producer of the response bytes, its processor or physical location.",
+      "A numerical conversion establishing the empirical 33/32 modulo-2^20 pattern, UFXP20_12 representation, or physical enforcement."
+    ],
+    "next": "Resolve the status descriptor's backing allocation and its relation to the response queue, then identify the data producer. The descriptor+0x10/group+0xD0 pointer alias is closed."
+  },
+  "modern_voltage_receiver": {
+    "image_sha256": "3f8d33495cabeb2fa11ebdcf0b12705e9ccfb4e53005324bcd86e9dea8ba2ab4",
+    "proven_conditional_path": [
+      "The F219 fetch reads a receiver from config+0x60. On the established F0 allocation path config=allocation+0x10, so that receiver slot is allocation+0x70.",
+      "C492D0 registers allocation+0x08 in the cast context's +0x1988 list. The intrusive-list helpers recover that exact inserted owner by subtracting the recorded node displacement; they do not replace its identity with an unrelated group descriptor.",
+      "BC1860's conditional route passes the context+0x1988 list to BC2770. After successful C80C80 construction, BC2770 walks the list, recovers the registered owner and its +0x80 config pointer, and writes the constructed receiver into config+0x60 at BC292A.",
+      "C80C80 invokes C0D960 with C80AD0. The inspected construction chain C80AD0 -> CE4A60 -> CFEE90 -> CEA3E0 -> C0DEC0 installs the generic indexed accessor 286710 at receiver+0x38 through 286B20. That accessor checks the index and returns the corresponding array pointer. This is a construction-installed binding; retention across all generic population callbacks is not yet established."
+    ],
+    "corrections": [
+      "The exact config vtable+0x58 leads to CBD340; vtable+0x60 leads to CBD160. Earlier private lifecycle notes mislabeled the latter +0x58.",
+      "A single PE exception-table entry can describe a function fragment. Direct branches and fallthrough were followed beyond split entries before drawing the local conclusions here.",
+      "The registration helper writes through a dynamic list displacement. Its lack of a literal +0x70 store was insufficient to exclude a slot write. The later list consumer now supplies a concrete conditional receiver assignment instead of relying on that exclusion."
+    ],
+    "not_proven": [
+      "Execution and ordering of this construction/registration/population path on the captured adapter.",
+      "The final retained accessor across population callbacks and identity of the separate receiver loaded from the returned object's +0x20 owner.",
+      "The producer and typed interpretation of the mapped values, rail association, successful F219 effects or arbitrary six-word request replay."
+    ],
+    "next": "Finish the constructed receiver's population/accessor binding and the returned object's owner path, then identify a matched producer and typed representation before proposing a nonzero request."
+  },
+  "perf_callback": {
+    "scope": "The known PERF constructor, HAL initializer, three child allocation routes and selected nested helpers were inspected with direct control-flow traversal, including split fragments. Calls and indirect targets remain explicit boundaries.",
+    "result": "No actual PERF+0x588 callback target or current variable operand units were established. Local constructor coverage does not exclude later or indirect writers."
+  },
+  "product_runtime": "Unchanged. Existing live REL/OV/ALT/VMIN controls retain their qualified contracts. No modern F219 SET, nonzero variable operand, speculative command sweep, workload or physical-measurement claim is introduced.",
+  "private_evidence": "Exact disassembly dumps, CFG extents and their SHA-256 records remain local. Root reviewed the buffer alias, deferred receiver store, list-owner adjustment, receiver constructor-installed accessor and extent corrections independently.",
+  "evidence_sha256": {
+    "ampere": {
+      "b3-response-checkpoint.json": "0c8b6dd74301fb9f8445c1f8c188aae3383ab40ecb9def8facbc35af737dd6e5",
+      "transport-control-flow-coverage.json": "6772e09204c3e894ca169088e1507d3c44cc2b71756fcbeb461b0ad58fe63f1e",
+      "status-58F170.txt": "cc80e74e3769421cc4350018053f600c79bf4f669e3169ff28193413be9e7d18",
+      "producer-58df10.txt": "b3dba84a13bde364bfafdec019c98253a1a27d630705a80f3aa29d604ed3b3ed",
+      "base-status-copy.txt": "8cb422994cd5a3ce6d28ff83411098be2a5a3c16079c13002326e0303ec53135"
+    },
+    "voltage": {
+      "cfg-BC1860.txt": "99fca0966bc7c90405930b578cad39f6b133bd1db34eb5460ae51da7740790d5",
+      "cfg-BC2770.txt": "1594afd46f70f6ff9e5f68e82a2d7830730eb466b69afb1fa9873b0d512b5624",
+      "cfg-1C8860.txt": "2b72c8e96fe676b3007f323f43bdee4ad5b60e7da20ecfb6c7c15c2cec621819",
+      "cfg-1C8C70.txt": "46101005d87beab3c9b68e9aaf0c30ff5ed4f22f75c444587058f16f3f8a71e3",
+      "cfg-B090.txt": "d548432007f5ecc87e6d0adeb31dcbc1f8c39b09aa00322f9586b3da55356d10",
+      "cfg-C80C80.txt": "d3354eb6b473478dc1f337551383df2a354aa83e96450d8ae38ab30cde792b7d",
+      "cfg-C0D960.txt": "8ecf73c5709f9557921f199e4b4baff2bfb8cf903a52b3a0d137c9c20cef954f",
+      "cfg-C80AD0.txt": "29accb7f7954df82b8baadf0df9d05e38b6e4e30d32036f98ab252c3e1b038f7",
+      "cfg-CE4A60.txt": "d4339e022ee24323af63737a50dcf94e155445d6d33b416aa2c92fb08d1493e8",
+      "cfg-CFEE90.txt": "1479ce68e63907638505731f6264f6ac323f448d8f1d5294c50e81ebc65b0b38",
+      "cfg-CEA3E0.txt": "7548b59609f9e8a0a36397e7c7a61467758e73e3a2fd5f98606c04ce8be49aa8",
+      "cfg-C0DEC0.txt": "fbc8a343965bad82876e6e12d0ce5894f8616059f05a214a645b06350fa6fbb1",
+      "cfg-C0AA80.txt": "155f6ed5c26107098138de22e4a0bc23613b77b94560c4128d83e80a98ae87e2",
+      "cfg-286B20.txt": "11b83fbf0261ce334650955127a41f493c05bdf89d2fe68406605c21ad1223c0",
+      "cfg-286710.txt": "de00a6e261c09bcbf2c1b6e7aa4f03b2a967650f55997a7260559e416b0c0760",
+      "cfg-coverage-report.json": "b9856c9bc171bbdb9e437b440eb7a5250be0ce17acc33889ea50a9323be11710"
+    },
+    "perf": {
+      "root-cfg-audit.json": "b5e651eab0c8dbdd93cb82b2a6b99d46d25df24cafc80b29a1f9b90801604709",
+      "root-cfg-17D5FF0.txt": "1c5560244a3c68cffe9c0a743f41ba2ee17b22c6f24394ebe94811ec3da961bb",
+      "root-cfg-17D7610.txt": "48ab51ab9648e3049173f86955c5fdf1ea83149b7a69bcd1a186fd30e3461bda",
+      "root-cfg-18436F0.txt": "e7fe4d611be75517da6647b51bced4d48a3a2bc5ca1172cc47b84fffc5610262",
+      "root-cfg-18439D0.txt": "bcf134c4dee8d0916dded0f876b18764cdccea2d0f83dd36f2c19a4b1b4043b3",
+      "root-cfg-18334A0.txt": "1dd64ed9761e52fd533fd9d925e0701bed7d716588bb57b9b80f058218b7c995"
+    }
+  }
+}

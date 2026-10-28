@@ -2861,6 +2861,18 @@ Older NVIDIA-authored Tegra single-u32 structures differ from the current
 variable operands and six-word request replay unqualified; see the
 [follow-up evidence](experiments/voltage-vmin-live-20261028.json).
 
+A later static pass identifies the deferred assignment of the modern group's
+receiver: a list consumer recovers the registered configuration owner and fills
+the `config+0x60` slot after construction. The constructor installs a generic
+indexed accessor; its final population path and the separately loaded owner of
+the returned object still require binding. This establishes a conditional host
+path, not its execution on the captured GPU or the mapped values' types, units,
+rails or firmware effects. The power-status trace also establishes that its
+transport descriptor and response parser use the same group buffer; the
+response producer and numerical conversion remain unresolved. No new tuning
+operation follows from these transport findings. See the
+[transport checkpoint and exact remaining boundaries](experiments/driver-transport-followup-20261028.json).
+
 The public [mVolt v0.50.8 release notes](https://github.com/b00nz/mVolt/releases/tag/v0.50.8)
 describe an experimental BIOS voltage-offset option, without specifying its
 mechanism. Our inspected PERF+0x32C writer and type4/type5 rail routes have not
