@@ -611,6 +611,14 @@ details and original-BIOS-range coloring may be unavailable independently of
 the live request control. The reported limit is not a measurement of actual
 power draw.
 
+Turing adapters exposing the understood 124-byte native policy controls now
+use this path too. On one Gigabyte RTX 2080 SUPER AORUS Xtreme with driver
+581.42, idle 351 W and 400 W requests exceeded the reported 350 W ordinary
+maximum and restored the full initial state. Core current stayed readable
+after driver-derived values exceeded its advertised maximum; new independent
+current requests still use the adapter's own bounds. See
+`experiments/turing-tu104-live-power-20261028.md` for scope and measurements.
+
 Very high requests can produce a lower native effective limit. On one RTX
 3070 Ti, a 1,024 W request reported a 7.424 W native board limit, while a
 1,999 W request reported 1,012.893 W; NVML retained the complete requests and

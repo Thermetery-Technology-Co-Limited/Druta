@@ -2758,8 +2758,35 @@ read-only layout and requires an exact semantic-role/native-INFO binding, a
 stable restorable FE request, matching native CONTROL, and PCI pairing before
 enabling a SET. Packet sizes are capability checks, not driver-version or
 device-ID allowlists. Ada's smaller INFO packet has an independent trace, but
-the complete alternate layout and SET have only been validated here on the
+the 184-byte native CONTROL rows and SET have been validated here on the
 RTX 3070 Ti; packet rejection remains an independent unsupported result.
+
+Turing is also eligible to probe the smaller client layout. After explicit
+RM INVALID_ARGUMENT rejection of the 8632-byte native INFO, the controller
+tries 8620-byte INFO with the same 88-byte header / 228-byte rows, paired with
+4432-byte native CONTROL (20-byte header / 124-byte rows) and 172080-byte
+STATUS (112-byte header / 5204-byte rows). Binding retains `layout=legacy32`
+and records `native_layout=policy124`. Request projection, peer validation and
+restoration use the selected native stride. No size fallback follows a
+transient error; no board identity or driver string selects the ABI.
+
+Paired GETs on a Gigabyte RTX 2080 SUPER AORUS Xtreme / 581.42 uniquely bound
+role1 client row0 to native policy2 with 105/250/350 W bounds. Idle 349/351/400 W
+requests and production-backend current-pin replay restored the full captured
+350 W initial state after every trial. A 400 W request derived 378 A core
+current against its advertised 360 A maximum. Turing now retains that
+observation under the same exact matching-table and requested/effective checks
+as Ampere; new current requests remain bounded. These software observations do
+not establish physical enforcement under load. See the
+[Turing evidence](experiments/turing-tu104-live-power-20261028.md) and sanitized
+report for complete geometry, sample values and restoration hashes.
+
+The [offline driver ABI comparison](experiments/turing-driver-abi-review-20261028.md)
+records 431.60's distinct `26xx` wrapper packets and 621.01's modern packet
+sizes, with instruction RVAs, bytes and PE hashes. Neither supplied driver was
+activated on the P0-sensitive qualification board. Static dispatch evidence
+does not establish role layout or live acceptance on either driver; unknown
+transport geometry remains an unsupported result before SET.
 
 For the smaller layout, a board SET can recalculate other occupied policies.
 Druta validates their understood type, units, bounds and changed request words

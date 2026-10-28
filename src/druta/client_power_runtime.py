@@ -34,6 +34,12 @@ LEGACY_SIZES = {
     INFO: 1160, CONTROL: 392, SET: 392, ROLE_INFO: 232,
     NATIVE_INFO: 8632, NATIVE_CONTROL: 6356, NATIVE_STATUS: 190272,
 }
+# The smaller client group can accompany either native policy ABI. Select
+# with read-only INFO acceptance, never a device or driver version.
+TURING_SIZES = {
+    **LEGACY_SIZES,
+    NATIVE_INFO: 8620, NATIVE_CONTROL: 4432, NATIVE_STATUS: 172080,
+}
 INFO_BASE, INFO_STRIDE, CONTROL_BASE, CONTROL_STRIDE, CAPACITY = 0x24, 0x24, 0x28, 0xC, 64
 NATIVE_INFO_BASE, NATIVE_INFO_STRIDE = 0xCC, 0x104
 NATIVE_CONTROL_BASE, NATIVE_CONTROL_STRIDE = 0x14, 0xC4
@@ -92,13 +98,21 @@ def _state(observation):
     return {key: observation[key] for key in _STATE_KEYS}
 
 
+def _small_native_geometry(binding):
+    """Native control size/stride selected by the accepted INFO geometry."""
+    if binding.get("native_layout") == "policy124":
+        return TURING_SIZES[NATIVE_CONTROL], 124
+    return LEGACY_SIZES[NATIVE_CONTROL], 184
+
+
 def _project(before, mw):
     result = copy.deepcopy(_state(before))
     result["requested_mw"] = mw
     legacy = before["binding"].get("layout") == "legacy32"
+    native_stride = _small_native_geometry(before["binding"])[1] if legacy else NATIVE_CONTROL_STRIDE
     for name, base, stride, index in (
         ("control_hex", 8 if legacy else CONTROL_BASE, CONTROL_STRIDE, before["binding"]["client_index"]),
-        ("native_control_hex", NATIVE_CONTROL_BASE, 184 if legacy else NATIVE_CONTROL_STRIDE, before["binding"]["native_index"]),
+        ("native_control_hex", NATIVE_CONTROL_BASE, native_stride, before["binding"]["native_index"]),
     ):
         raw = bytearray.fromhex(before[name])
         struct.pack_into("<I", raw, base + index * stride + 4, mw)
@@ -115,7 +129,8 @@ def _matches(expected, observed):
         return False
     old, new = bytes.fromhex(expected["native_control_hex"]), bytes.fromhex(actual["native_control_hex"])
     info = bytes.fromhex(expected["native_info_hex"])
-    if len(old) != len(new) or len(old) != LEGACY_SIZES[NATIVE_CONTROL]:
+    size, stride = _small_native_geometry(expected["binding"])
+    if len(old) != len(new) or len(old) != size:
         return False
     mask = _u32(info, 4)
     selected = expected["binding"]["native_index"]
@@ -123,7 +138,7 @@ def _matches(expected, observed):
     for i in range(32):
         if not mask >> i & 1 or i == selected:
             continue
-        at, row = 20 + i * 184 + 4, 88 + i * 228
+        at, row = 20 + i * stride + 4, 88 + i * 228
         if old[at:at + 4] == new[at:at + 4]:
             continue
         minimum, rated, maximum = struct.unpack_from("<III", info, row + 8)
@@ -144,6 +159,7 @@ class ClientPowerController:
         self._reader = PerfDiagnosticsReader(gpu, attempts=2)
         self.sizes = SIZES
         self._legacy = False
+        self._native_policy124 = False
 
     def _reset_transport(self):
         self.gpu._current_limit_transport = None
@@ -225,7 +241,7 @@ class ClientPowerController:
         try:
             info = self._exchange(INFO, bytes(self.sizes[INFO]))
         except ClientPowerError as exc:
-            if self._legacy or identity["architecture"] != 7 or exc.rm_status != 0x1F:
+            if self._legacy or identity["architecture"] not in (6, 7) or exc.rm_status != 0x1F:
                 raise
             self.sizes, self._legacy = LEGACY_SIZES, True
             info = self._exchange(INFO, bytes(self.sizes[INFO]))
@@ -251,7 +267,13 @@ class ClientPowerController:
         role = self._exchange(ROLE_INFO, role_request)
         if role[:4] != role_request[:4]:
             raise ClientPowerError("malformed", "Power-role INFO changed its semantic selector")
-        native_info = self._exchange(NATIVE_INFO, bytes(self.sizes[NATIVE_INFO]))
+        try:
+            native_info = self._exchange(NATIVE_INFO, bytes(self.sizes[NATIVE_INFO]))
+        except ClientPowerError as exc:
+            if not self._legacy or self._native_policy124 or exc.rm_status != 0x1F:
+                raise
+            self.sizes, self._native_policy124 = TURING_SIZES, True
+            native_info = self._exchange(NATIVE_INFO, bytes(self.sizes[NATIVE_INFO]))
         native_mask = _u32(native_info, 4)
         matches = [
             i
@@ -282,6 +304,7 @@ class ClientPowerController:
                 "rated_mw": limits[1],
                 "maximum_mw": limits[2],
                 **({"layout": "legacy32"} if self._legacy else {}),
+                **({"native_layout": "policy124"} if self._native_policy124 else {}),
             },
             "info_hex": info.hex(),
             "role_info_hex": role.hex(),
@@ -294,7 +317,8 @@ class ClientPowerController:
         native_info = bytes.fromhex(metadata["native_info_hex"])
         source = bytes.fromhex(metadata["role_info_hex"])[4:]
         index, native_index = metadata["binding"]["client_index"], metadata["binding"]["native_index"]
-        base, control_base, native_stride = (8, 8, 184) if self._legacy else (INFO_BASE, CONTROL_BASE, NATIVE_CONTROL_STRIDE)
+        base, control_base = (8, 8) if self._legacy else (INFO_BASE, CONTROL_BASE)
+        native_stride = _small_native_geometry(metadata["binding"])[1] if self._legacy else NATIVE_CONTROL_STRIDE
         row = info[base + index * INFO_STRIDE : base + (index + 1) * INFO_STRIDE]
         request = bytearray(self.sizes[CONTROL])
         request[:base] = info[:base]
@@ -411,7 +435,7 @@ class ClientPowerController:
                     mask = _u32(bytes.fromhex(before["native_info_hex"]), 4)
                     selected = before["binding"]["native_index"]
                     for index in range(32):
-                        at = 20 + index * 184 + 4
+                        at = 20 + index * _small_native_geometry(before["binding"])[1] + 4
                         if index == selected or not mask >> index & 1 or original[at:at + 4] == current[at:at + 4]:
                             continue
                         if self._binding() != before["identity"]:
