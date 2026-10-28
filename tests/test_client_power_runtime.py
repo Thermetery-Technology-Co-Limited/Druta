@@ -612,9 +612,11 @@ def test_failed_rollback_is_reported_without_a_third_set():
 
 def test_failure_before_set_dispatch_does_not_compensate():
     gpu = FakeGpu()
-    # A complete before read uses11 transport calls; the following one belongs
-    # to SET preparation, before the native dispatch marker is set.
-    gpu.transport_faults[12] = lambda _: (_ for _ in ()).throw(RuntimeError("transport disappeared"))
+    # Fail the transport used to prepare SET, independently of how many
+    # read-only geometry checks a complete before-state capture requires.
+    probe = FakeGpu()
+    cp.ClientPowerController(probe).read()
+    gpu.transport_faults[probe.transport_reads + 1] = lambda _: (_ for _ in ()).throw(RuntimeError("transport disappeared"))
     exc = failure(lambda: cp.ClientPowerController(gpu).set_request(551000), "transient")
     assert not gpu.set_payloads and exc.rollback is None
 

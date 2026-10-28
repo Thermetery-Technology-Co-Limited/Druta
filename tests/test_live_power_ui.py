@@ -4,7 +4,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
 
-from druta.druta import Druta, KnobRange
+from druta.druta import DIM, WARN, Druta, KnobRange
 
 
 class LivePowerUiTests(unittest.TestCase):
@@ -117,10 +117,152 @@ class LivePowerUiTests(unittest.TestCase):
                 self.app.gpu.read_power_limit_mw.return_value = readback
                 self.app.apply_pl(500.001)
                 self.app.gpu.set_power_limit_mw.assert_called_with(500001)
-                self.app.report.assert_called_with(result)
+                reported = self.app.report.call_args.args[0]
+                self.assertEqual(reported[0], result[0])
+                self.assertIn(result[1], reported[1])
                 self.assertEqual(self.values["in_pl"], readback / 1000)
                 self.app._registry_panel.refresh_arbitration.assert_called()
                 self.app._power_slider_style.refresh.assert_called()
+
+    def test_rejected_request_returns_both_widgets_to_actual_configured_limit(self):
+        self.values.update(sl_pl=400, in_pl=400, power_request_status="")
+        self.app.gpu.read_power_limit_mw.return_value = 350000
+        self.app.gpu.set_power_limit_mw.return_value = (False, "driver rejected 400 W")
+        self.app.apply_pl(400)
+        self.assertEqual((self.values["sl_pl"], self.values["in_pl"]), (350, 350))
+        self.assertFalse(self.app.report.call_args.args[0][0])
+        self.assertIn("Requested 400 W did not match configured readback 350 W", self.values["power_request_status"])
+
+    def test_success_without_matching_configured_readback_is_reported_as_failure(self):
+        self.values.update(sl_pl=400, in_pl=400, power_request_status="")
+        self.app.gpu.read_power_limit_mw.return_value = 350000
+        self.app.apply_pl(400)
+        self.assertEqual((self.values["sl_pl"], self.values["in_pl"]), (350, 350))
+        ok, message = self.app.report.call_args.args[0]
+        self.assertFalse(ok)
+        self.assertIn("slider returned to readback", message)
+
+    def test_accepted_configured_request_keeps_slider_and_discloses_lower_nvml_limit(self):
+        self.values.update(sl_pl=400, in_pl=400, power_request_status="")
+        self.app.gpu.read_power_limit_mw.side_effect = [350000, 400000]
+        self.app.gpu._read_power = Mock(side_effect=lambda state: state.update(pl_now_mw=350000))
+        self.app.apply_pl(400)
+        self.assertEqual((self.values["sl_pl"], self.values["in_pl"]), (400, 400))
+        ok, message = self.app.report.call_args.args[0]
+        self.assertTrue(ok)
+        self.assertIn("configured request 400 W, NVML-reported enforced limit 350 W", message)
+        self.assertIn("Configured request: 400 W", self.values["power_request_status"])
+        self.assertIn("Below configured request; downstream limits may apply", self.values["power_request_status"])
+
+    def test_native_limit_warns_even_when_nvml_echoes_the_accepted_request(self):
+        self.values.update(sl_pl=400, in_pl=400, power_request_status="")
+        self.app.gpu.read_power_limit_mw.side_effect = [350000, 400000]
+        self.app.gpu._read_power = Mock(side_effect=lambda state: state.update(pl_now_mw=400000))
+        self.app.gpu.read_native_power_limit_mw = Mock(return_value=(350000, None))
+        self.app.apply_pl(400)
+        self.assertEqual((self.values["sl_pl"], self.values["in_pl"]), (400, 400))
+        self.assertTrue(self.app.report.call_args.args[0][0])
+        self.assertIn("NVML-reported enforced limit: 400 W", self.values["power_request_status"])
+        self.assertIn("Native effective limit: 350 W", self.values["power_request_status"])
+        self.assertIn("Native limit is below configured request", self.values["power_request_status"])
+        self.assertIn("native effective limit 350 W is below configured request 400 W",
+                      self.app.report.call_args.args[0][1])
+        self.assertEqual(self.config["power_request_status"]["color"], WARN)
+        self.app.gpu.read_native_power_limit_mw.assert_called_once_with()
+
+    def test_fresh_control_polls_resample_native_limit_and_clear_resolved_discrepancy(self):
+        self.values.update(sl_pl=400, in_pl=400, power_request_status="")
+        self.app.gpu.read_native_power_limit_mw = Mock(side_effect=[(360938, None), (400000, None)])
+        self.app.gpu.clkdom_is_blackwell = lambda: False
+        self.app.gpu.clkdom_pairing = lambda rows: {}
+        self.app.mem_fmt = Mock(return_value=("--", "MHz"))
+        self.app.refresh_rail_live = Mock()
+        self.app.i2c_rail_text = Mock(return_value=None)
+        self.app.sync_knob_boxes = Mock()
+        sample = {"pl_requested_mw": 400000, "pl_now_mw": 400000}
+        self.app.refresh_control(sample)
+        self.assertIn("Native effective limit: 360.938 W", self.values["power_request_status"])
+        self.assertEqual(self.config["power_request_status"]["color"], WARN)
+        self.app.refresh_control(sample)
+        self.assertIn("Native effective limit: 400 W", self.values["power_request_status"])
+        self.assertNotIn("below configured request", self.values["power_request_status"])
+        self.assertEqual(self.config["power_request_status"]["color"], DIM)
+        self.assertEqual(self.app.gpu.read_native_power_limit_mw.call_count, 2)
+        self.assertEqual((self.values["sl_pl"], self.values["in_pl"]), (400, 400))
+
+    def test_native_unavailable_or_malformed_never_turns_nvml_echo_into_native_proof(self):
+        self.values["power_request_status"] = ""
+        self.app.gpu.read_power_limit_mw.return_value = 400000
+        self.app.gpu._read_power = Mock(side_effect=lambda state: state.update(pl_now_mw=400000))
+        for result in ((None, "not available"), (True, None), ("350000", None),
+                       (-1, None), (0xFFFFFFFF, None), OSError("native getter failed")):
+            with self.subTest(result=result):
+                self.app.gpu.read_native_power_limit_mw = (
+                    Mock(side_effect=result) if isinstance(result, Exception) else Mock(return_value=result))
+                self.app.apply_pl(400)
+                self.assertEqual((self.values["sl_pl"], self.values["in_pl"]), (400, 400))
+                self.assertTrue(self.app.report.call_args.args[0][0])
+                self.assertIn("Native effective limit unavailable", self.values["power_request_status"])
+                self.assertIn("NVML readback does not verify it", self.values["power_request_status"])
+
+    def test_unavailable_postwrite_readback_restores_last_known_and_stays_unverified_until_fresh_poll(self):
+        self.values.update(sl_pl=400, in_pl=400, power_request_status="")
+        self.app.gpu.read_power_limit_mw.side_effect = [350000, None]
+        self.app.apply_pl(400)
+        self.assertEqual((self.values["sl_pl"], self.values["in_pl"]), (350, 350))
+        self.assertFalse(self.app.report.call_args.args[0][0])
+        self.assertIn("last verified 350 W", self.values["power_request_status"])
+        self.assertIn("not a confirmed current setting", self.values["power_request_status"])
+        self.app.refresh_power_request_status(None, 350000)
+        self.assertIn("unverified", self.values["power_request_status"])
+        # A later accepted write may become readable. Only then claim 400 W.
+        self.app.refresh_power_request_status(400000, 350000)
+        self.assertEqual((self.values["sl_pl"], self.values["in_pl"]), (400, 400))
+        self.assertNotIn("unverified", self.values["power_request_status"])
+        self.assertIn("Below configured request", self.values["power_request_status"])
+
+    def test_unknown_state_never_borrows_last_verified_value_from_another_gpu(self):
+        self.values.update(sl_pl=400, in_pl=400, power_request_status="")
+        self.app._verified_power_request = (object(), 350000)
+        self.app.gpu.read_power_limit_mw.return_value = None
+        self.app.apply_pl(400)
+        self.assertIn("Slider value is an unverified proposal", self.values["power_request_status"])
+        self.assertNotIn("350 W", self.values["power_request_status"])
+        self.assertFalse(self.app.report.call_args.args[0][0])
+
+    def test_setter_exception_still_reconciles_widgets_and_refreshes_peers(self):
+        self.values.update(sl_pl=400, in_pl=400, power_request_status="")
+        self.app.gpu.read_power_limit_mw.return_value = 350000
+        self.app.gpu.set_power_limit_mw.side_effect = OSError("driver unavailable")
+        self.app.apply_pl(400)
+        self.assertEqual((self.values["sl_pl"], self.values["in_pl"]), (350, 350))
+        self.assertIn("driver unavailable", self.app.report.call_args.args[0][1])
+        self.app.refresh_current_limits.assert_called_once_with(sync=True)
+        self.app.refresh_power_policies.assert_called_once_with(force=True)
+
+    def test_failed_peer_reapply_still_shows_configured_request_that_took_effect(self):
+        self.values.update(sl_pl=400, in_pl=400, power_request_status="")
+        self.app.gpu.read_power_limit_mw.side_effect = [350000, 400000]
+        self.app.gpu.set_power_limit_mw.return_value = (False, "peer reapply failed")
+        self.app.apply_pl(400)
+        self.assertEqual((self.values["sl_pl"], self.values["in_pl"]), (400, 400))
+        self.assertFalse(self.app.report.call_args.args[0][0])
+        self.assertIn("peer reapply failed", self.app.report.call_args.args[0][1])
+        self.assertIn("Configured request: 400 W", self.values["power_request_status"])
+
+    def test_noninteger_or_failed_readback_never_confirms_a_numeric_setting(self):
+        self.values["power_request_status"] = ""
+        self.app.sync_power_slider_from_card()
+        for value in (None, 0, -1, True, "350000", 350000.5, 10**1000, OSError("unreadable")):
+            with self.subTest(value=value):
+                self.app.gpu.read_power_limit_mw.side_effect = (
+                    value if isinstance(value, Exception) else None)
+                self.app.gpu.read_power_limit_mw.return_value = value
+                self.values.update(sl_pl=400, in_pl=400)
+                self.app.apply_pl(400)
+                self.assertEqual((self.values["sl_pl"], self.values["in_pl"]), (300, 300))
+                self.assertFalse(self.app.report.call_args.args[0][0])
+                self.assertIn("unverified", self.values["power_request_status"])
 
     def test_locked_apply_never_dispatches_or_refreshes(self):
         self.app.guard.return_value = False

@@ -1,6 +1,25 @@
 # Druta
 
-**Version 1.9.0b prerelease** — [release notes](RELEASE-NOTES-1.9.0b.md).
+**Version 1.9.05 prerelease** — [release notes](RELEASE-NOTES-1.9.05.md).
+Supersedes published 1.9.03 and includes the Turing power-control work from the
+unpublished 1.9.04 build. Clock offsets can use the validated Pstates20 fallback
+when an exported NVML setter reports that the capability is unsupported.
+Rejected or unmatched power requests return the slider to configured readback;
+unavailable readback stays explicitly unverified. The control view distinguishes
+the configured request, NVML-reported enforced limit and native effective limit,
+and warns when the native limit is lower even if NVML echoes the request.
+
+On one Gigabyte RTX 2080 SUPER AORUS Xtreme, 431.60 native power status settled
+at the same 360.938 W for 351 W and 400 W requests; on 621.01, it rose to
+361.969 W and 412.5 W respectively. On 472.12, configured and NVML-reported
+enforced 400 W still produced settled native status of 360.938 W. Its
+[clock and power comparison](experiments/turing-47212-compatibility-20261028.md)
+records accepted requests, offset checks and captured-state restoration.
+Physical power enforcement on these drivers remains unmeasured. On 431.60,
+clock-offset and curve/hold records were restored,
+but the changed observed memory clock remains under investigation. See the
+[driver comparison and reversible idle validation](experiments/turing-driver-live-comparison-20261028.md)
+and the separate [owner-reported FurMark A/B result](experiments/turing-owner-furmark-ab-20261028.md).
 Work in progress: registry-backed NVIDIA overrides, live power/VF/voltage-device
 controls, and DIFR configuration. See the release notes for explicit pending
 tasks, hardware coverage and limits before treating this as stable support.
@@ -106,7 +125,7 @@ python -m pip install -r requirements.txt
 ```
 
 The local build produces `dist\Druta\Druta.exe` and
-`dist\Druta-1.9.0b-win64.zip`. Distribute the
+`dist\Druta-1.9.05-win64.zip`. Distribute the
 whole `Druta` folder or ZIP: the EXE needs its adjacent `_internal` folder.
 
 `dist\Druta\source\` contains the matching working-tree source, including
@@ -310,8 +329,9 @@ XBAR = max(540, snap15(0.95 * GPC + 15))
 # Control
 
 The ordinary core and memory offsets work on the tested TITAN RTX and TITAN Xp
-with drivers **472.12 and 580.97**. Druta uses NVML on newer drivers and NVAPI
-Pstates20 on 472.12. The memory slider keeps the same true-MHz units: NVML's
+with drivers **472.12 and 580.97**. Druta selects NVML or the validated NVAPI
+Pstates20 fallback through current capabilities, including an NVML setter that
+reports `NOT_SUPPORTED` despite being exported. The memory slider keeps the same true-MHz units: NVML's
 memory offset numbers are twice the corresponding NVAPI MHz values. For
 example, the TITAN RTX's NVAPI range of -1000..+3000 MHz corresponds to
 NVML -2000..+6000, or -250..+750 true MHz on its GDDR6 memory.

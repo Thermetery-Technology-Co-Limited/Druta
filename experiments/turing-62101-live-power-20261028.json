@@ -1,0 +1,2628 @@
+{
+  "date": "2026-10-28",
+  "identity": {
+    "name": "NVIDIA GeForce RTX 2080 SUPER",
+    "driver": "621.01",
+    "vbios": "90.04.7a.40.3d",
+    "slot": "0000:0a:00.0"
+  },
+  "existing_p0_hold": {
+    "domain": 6,
+    "lockMode": 3,
+    "volt_uV": 1062500,
+    "volt_mv": 1062.5,
+    "count": 7
+  },
+  "board_note": "Owner reports imperfect 16 GB VRAM modification; P5/P8 must be avoided",
+  "pci_identity": {
+    "slot": "0000:0a:00.0",
+    "architecture": 6,
+    "device_id": 7809,
+    "subsystem_id": 1072960600
+  },
+  "baseline": {
+    "binding": {
+      "client_index": 0,
+      "native_index": 2,
+      "semantic_role": 1,
+      "client": 254,
+      "units": "mW",
+      "minimum_mw": 105000,
+      "rated_mw": 250000,
+      "maximum_mw": 350000
+    },
+    "requested_mw": 250000,
+    "policies": [
+      {
+        "index": 0,
+        "type": 11,
+        "channel": 11,
+        "unit": 0,
+        "requested": 5001000,
+        "minimum": 1,
+        "rated": 5001000,
+        "maximum": 5001000
+      },
+      {
+        "index": 1,
+        "type": 3,
+        "channel": 8,
+        "unit": 0,
+        "requested": 1001000,
+        "minimum": 1,
+        "rated": 1001000,
+        "maximum": 1001000
+      },
+      {
+        "index": 2,
+        "type": 0,
+        "channel": 9,
+        "unit": 0,
+        "requested": 250000,
+        "minimum": 105000,
+        "rated": 250000,
+        "maximum": 350000
+      },
+      {
+        "index": 3,
+        "type": 3,
+        "channel": 3,
+        "unit": 0,
+        "requested": 63000,
+        "minimum": 1000,
+        "rated": 63000,
+        "maximum": 74000
+      },
+      {
+        "index": 4,
+        "type": 3,
+        "channel": 4,
+        "unit": 0,
+        "requested": 143000,
+        "minimum": 1000,
+        "rated": 143000,
+        "maximum": 167000
+      },
+      {
+        "index": 5,
+        "type": 3,
+        "channel": 5,
+        "unit": 0,
+        "requested": 143000,
+        "minimum": 1000,
+        "rated": 143000,
+        "maximum": 167000
+      },
+      {
+        "index": 7,
+        "type": 4,
+        "channel": 3,
+        "unit": 1,
+        "requested": 11000,
+        "minimum": 1000,
+        "rated": 11000,
+        "maximum": 16500
+      },
+      {
+        "index": 8,
+        "type": 4,
+        "channel": 4,
+        "unit": 1,
+        "requested": 22500,
+        "minimum": 1000,
+        "rated": 22500,
+        "maximum": 33750
+      },
+      {
+        "index": 9,
+        "type": 4,
+        "channel": 5,
+        "unit": 1,
+        "requested": 22500,
+        "minimum": 1000,
+        "rated": 22500,
+        "maximum": 33750
+      },
+      {
+        "index": 11,
+        "type": 9,
+        "channel": 0,
+        "unit": 0,
+        "requested": 0,
+        "minimum": 0,
+        "rated": 0,
+        "maximum": 0
+      },
+      {
+        "index": 13,
+        "type": 11,
+        "channel": 19,
+        "unit": 1,
+        "requested": 324000,
+        "minimum": 1000,
+        "rated": 324000,
+        "maximum": 360000
+      },
+      {
+        "index": 14,
+        "type": 11,
+        "channel": 11,
+        "unit": 0,
+        "requested": 5001000,
+        "minimum": 1,
+        "rated": 5001000,
+        "maximum": 5001000
+      },
+      {
+        "index": 15,
+        "type": 11,
+        "channel": 11,
+        "unit": 0,
+        "requested": 5001000,
+        "minimum": 1,
+        "rated": 5001000,
+        "maximum": 5001000
+      }
+    ],
+    "buffers": {
+      "info_hex": {
+        "bytes": 2340,
+        "sha256": "78f45d1a83db04b1dcafad6cfd63f6f9e798a1e33c814ea79d6abb2c2500e0b2"
+      },
+      "role_info_hex": {
+        "bytes": 264,
+        "sha256": "cd0a0be5aafa34803a6f6c28fed01fc0fa4920b4befbe1859ba5f611c50d5fdf"
+      },
+      "native_info_hex": {
+        "bytes": 20512,
+        "sha256": "5e368f12200495d0584c037dd884824d75900a3c427783203e27674e63ac7927"
+      },
+      "control_hex": {
+        "bytes": 808,
+        "sha256": "4bb17ac5e236e495124434991e872e089de59bd054369bc909eaa6b8ae019261"
+      },
+      "native_control_hex": {
+        "bytes": 13876,
+        "sha256": "387842bfb707c66aa0edfbf4834796c005e93022600f29e38f1ff93d84985673"
+      }
+    }
+  },
+  "trials": [
+    {
+      "label": "client_in_range",
+      "target_mw": 349000,
+      "idle_before": {
+        "pstate": 0,
+        "util_gpu": 1,
+        "power_w": 44.31,
+        "temp_edge": 39
+      },
+      "after": {
+        "binding": {
+          "client_index": 0,
+          "native_index": 2,
+          "semantic_role": 1,
+          "client": 254,
+          "units": "mW",
+          "minimum_mw": 105000,
+          "rated_mw": 250000,
+          "maximum_mw": 350000
+        },
+        "requested_mw": 349000,
+        "policies": [
+          {
+            "index": 0,
+            "type": 11,
+            "channel": 11,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          },
+          {
+            "index": 1,
+            "type": 3,
+            "channel": 8,
+            "unit": 0,
+            "requested": 1001000,
+            "minimum": 1,
+            "rated": 1001000,
+            "maximum": 1001000
+          },
+          {
+            "index": 2,
+            "type": 0,
+            "channel": 9,
+            "unit": 0,
+            "requested": 349000,
+            "minimum": 105000,
+            "rated": 250000,
+            "maximum": 350000
+          },
+          {
+            "index": 3,
+            "type": 3,
+            "channel": 3,
+            "unit": 0,
+            "requested": 73890,
+            "minimum": 1000,
+            "rated": 63000,
+            "maximum": 74000
+          },
+          {
+            "index": 4,
+            "type": 3,
+            "channel": 4,
+            "unit": 0,
+            "requested": 166760,
+            "minimum": 1000,
+            "rated": 143000,
+            "maximum": 167000
+          },
+          {
+            "index": 5,
+            "type": 3,
+            "channel": 5,
+            "unit": 0,
+            "requested": 166760,
+            "minimum": 1000,
+            "rated": 143000,
+            "maximum": 167000
+          },
+          {
+            "index": 7,
+            "type": 4,
+            "channel": 3,
+            "unit": 1,
+            "requested": 16445,
+            "minimum": 1000,
+            "rated": 11000,
+            "maximum": 16500
+          },
+          {
+            "index": 8,
+            "type": 4,
+            "channel": 4,
+            "unit": 1,
+            "requested": 33637,
+            "minimum": 1000,
+            "rated": 22500,
+            "maximum": 33750
+          },
+          {
+            "index": 9,
+            "type": 4,
+            "channel": 5,
+            "unit": 1,
+            "requested": 33637,
+            "minimum": 1000,
+            "rated": 22500,
+            "maximum": 33750
+          },
+          {
+            "index": 11,
+            "type": 9,
+            "channel": 0,
+            "unit": 0,
+            "requested": 0,
+            "minimum": 0,
+            "rated": 0,
+            "maximum": 0
+          },
+          {
+            "index": 13,
+            "type": 11,
+            "channel": 19,
+            "unit": 1,
+            "requested": 359640,
+            "minimum": 1000,
+            "rated": 324000,
+            "maximum": 360000
+          },
+          {
+            "index": 14,
+            "type": 11,
+            "channel": 11,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          },
+          {
+            "index": 15,
+            "type": 11,
+            "channel": 11,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          }
+        ],
+        "buffers": {
+          "info_hex": {
+            "bytes": 2340,
+            "sha256": "78f45d1a83db04b1dcafad6cfd63f6f9e798a1e33c814ea79d6abb2c2500e0b2"
+          },
+          "role_info_hex": {
+            "bytes": 264,
+            "sha256": "cd0a0be5aafa34803a6f6c28fed01fc0fa4920b4befbe1859ba5f611c50d5fdf"
+          },
+          "native_info_hex": {
+            "bytes": 20512,
+            "sha256": "5e368f12200495d0584c037dd884824d75900a3c427783203e27674e63ac7927"
+          },
+          "control_hex": {
+            "bytes": 808,
+            "sha256": "28eadd1b171ee9da78e3d0a8b6d2ab7d210234aac03554496bc7b32975798505"
+          },
+          "native_control_hex": {
+            "bytes": 13876,
+            "sha256": "937aec710407df8709cc3142e764d43807f2b392420772bece33ee2f8b7610f0"
+          }
+        }
+      },
+      "samples": [
+        {
+          "at": 1793195869.0381627,
+          "configured_mw": 349000,
+          "native_status": {
+            "0": {
+              "type": 11,
+              "effective": 57751
+            },
+            "1": {
+              "type": 3,
+              "effective": 1001000
+            },
+            "2": {
+              "type": 0,
+              "effective": 359906
+            },
+            "3": {
+              "type": 3,
+              "effective": 73890
+            },
+            "4": {
+              "type": 3,
+              "effective": 166760
+            },
+            "5": {
+              "type": 3,
+              "effective": 166760
+            },
+            "7": {
+              "type": 4,
+              "effective": 16445
+            },
+            "8": {
+              "type": 4,
+              "effective": 33637
+            },
+            "9": {
+              "type": 4,
+              "effective": 33637
+            },
+            "11": {
+              "type": 9,
+              "effective": 0
+            },
+            "13": {
+              "type": 11,
+              "effective": 359640
+            },
+            "14": {
+              "type": 11,
+              "effective": 5001000
+            },
+            "15": {
+              "type": 11,
+              "effective": 5001000
+            }
+          },
+          "idle": {
+            "pstate": 0,
+            "util_gpu": 1,
+            "power_w": 44.452,
+            "temp_edge": 39
+          }
+        },
+        {
+          "at": 1793195869.3496206,
+          "configured_mw": 349000,
+          "native_status": {
+            "0": {
+              "type": 11,
+              "effective": 55665
+            },
+            "1": {
+              "type": 3,
+              "effective": 1001000
+            },
+            "2": {
+              "type": 0,
+              "effective": 359906
+            },
+            "3": {
+              "type": 3,
+              "effective": 73890
+            },
+            "4": {
+              "type": 3,
+              "effective": 166760
+            },
+            "5": {
+              "type": 3,
+              "effective": 166760
+            },
+            "7": {
+              "type": 4,
+              "effective": 16445
+            },
+            "8": {
+              "type": 4,
+              "effective": 33637
+            },
+            "9": {
+              "type": 4,
+              "effective": 33637
+            },
+            "11": {
+              "type": 9,
+              "effective": 0
+            },
+            "13": {
+              "type": 11,
+              "effective": 359640
+            },
+            "14": {
+              "type": 11,
+              "effective": 5001000
+            },
+            "15": {
+              "type": 11,
+              "effective": 5001000
+            }
+          },
+          "idle": {
+            "pstate": 0,
+            "util_gpu": 1,
+            "power_w": 44.335,
+            "temp_edge": 39
+          }
+        },
+        {
+          "at": 1793195869.6591134,
+          "configured_mw": 349000,
+          "native_status": {
+            "0": {
+              "type": 11,
+              "effective": 55733
+            },
+            "1": {
+              "type": 3,
+              "effective": 1001000
+            },
+            "2": {
+              "type": 0,
+              "effective": 359906
+            },
+            "3": {
+              "type": 3,
+              "effective": 73890
+            },
+            "4": {
+              "type": 3,
+              "effective": 166760
+            },
+            "5": {
+              "type": 3,
+              "effective": 166760
+            },
+            "7": {
+              "type": 4,
+              "effective": 16445
+            },
+            "8": {
+              "type": 4,
+              "effective": 33637
+            },
+            "9": {
+              "type": 4,
+              "effective": 33637
+            },
+            "11": {
+              "type": 9,
+              "effective": 0
+            },
+            "13": {
+              "type": 11,
+              "effective": 359640
+            },
+            "14": {
+              "type": 11,
+              "effective": 5001000
+            },
+            "15": {
+              "type": 11,
+              "effective": 5001000
+            }
+          },
+          "idle": {
+            "pstate": 0,
+            "util_gpu": 0,
+            "power_w": 44.311,
+            "temp_edge": 39
+          }
+        },
+        {
+          "at": 1793195869.9731379,
+          "configured_mw": 349000,
+          "native_status": {
+            "0": {
+              "type": 11,
+              "effective": 54402
+            },
+            "1": {
+              "type": 3,
+              "effective": 1001000
+            },
+            "2": {
+              "type": 0,
+              "effective": 359906
+            },
+            "3": {
+              "type": 3,
+              "effective": 73890
+            },
+            "4": {
+              "type": 3,
+              "effective": 166760
+            },
+            "5": {
+              "type": 3,
+              "effective": 166760
+            },
+            "7": {
+              "type": 4,
+              "effective": 16445
+            },
+            "8": {
+              "type": 4,
+              "effective": 33637
+            },
+            "9": {
+              "type": 4,
+              "effective": 33637
+            },
+            "11": {
+              "type": 9,
+              "effective": 0
+            },
+            "13": {
+              "type": 11,
+              "effective": 359640
+            },
+            "14": {
+              "type": 11,
+              "effective": 5001000
+            },
+            "15": {
+              "type": 11,
+              "effective": 5001000
+            }
+          },
+          "idle": {
+            "pstate": 0,
+            "util_gpu": 0,
+            "power_w": 44.323,
+            "temp_edge": 39
+          }
+        },
+        {
+          "at": 1793195870.2821994,
+          "configured_mw": 349000,
+          "native_status": {
+            "0": {
+              "type": 11,
+              "effective": 55089
+            },
+            "1": {
+              "type": 3,
+              "effective": 1001000
+            },
+            "2": {
+              "type": 0,
+              "effective": 359906
+            },
+            "3": {
+              "type": 3,
+              "effective": 73890
+            },
+            "4": {
+              "type": 3,
+              "effective": 166760
+            },
+            "5": {
+              "type": 3,
+              "effective": 166760
+            },
+            "7": {
+              "type": 4,
+              "effective": 16445
+            },
+            "8": {
+              "type": 4,
+              "effective": 33637
+            },
+            "9": {
+              "type": 4,
+              "effective": 33637
+            },
+            "11": {
+              "type": 9,
+              "effective": 0
+            },
+            "13": {
+              "type": 11,
+              "effective": 359640
+            },
+            "14": {
+              "type": 11,
+              "effective": 5001000
+            },
+            "15": {
+              "type": 11,
+              "effective": 5001000
+            }
+          },
+          "idle": {
+            "pstate": 0,
+            "util_gpu": 0,
+            "power_w": 44.294,
+            "temp_edge": 39
+          }
+        }
+      ],
+      "current_limits": [
+        {
+          "policy": 13,
+          "label": "Core current",
+          "channel": 19,
+          "minimum_ma": 1000,
+          "maximum_ma": 360000,
+          "normal_maximum_ma": 360000,
+          "default_ma": 324000,
+          "limit_ma": 359640,
+          "requested_ma": 359640,
+          "value_ma": 6557
+        }
+      ],
+      "current_error": "",
+      "restoration": {
+        "attempted": true,
+        "verified": true,
+        "error": null
+      }
+    },
+    {
+      "label": "client_above_maximum",
+      "target_mw": 351000,
+      "idle_before": {
+        "pstate": 0,
+        "util_gpu": 0,
+        "power_w": 44.297,
+        "temp_edge": 39
+      },
+      "after": {
+        "binding": {
+          "client_index": 0,
+          "native_index": 2,
+          "semantic_role": 1,
+          "client": 254,
+          "units": "mW",
+          "minimum_mw": 105000,
+          "rated_mw": 250000,
+          "maximum_mw": 350000
+        },
+        "requested_mw": 351000,
+        "policies": [
+          {
+            "index": 0,
+            "type": 11,
+            "channel": 11,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          },
+          {
+            "index": 1,
+            "type": 3,
+            "channel": 8,
+            "unit": 0,
+            "requested": 1001000,
+            "minimum": 1,
+            "rated": 1001000,
+            "maximum": 1001000
+          },
+          {
+            "index": 2,
+            "type": 0,
+            "channel": 9,
+            "unit": 0,
+            "requested": 351000,
+            "minimum": 105000,
+            "rated": 250000,
+            "maximum": 350000
+          },
+          {
+            "index": 3,
+            "type": 3,
+            "channel": 3,
+            "unit": 0,
+            "requested": 74110,
+            "minimum": 1000,
+            "rated": 63000,
+            "maximum": 74000
+          },
+          {
+            "index": 4,
+            "type": 3,
+            "channel": 4,
+            "unit": 0,
+            "requested": 167240,
+            "minimum": 1000,
+            "rated": 143000,
+            "maximum": 167000
+          },
+          {
+            "index": 5,
+            "type": 3,
+            "channel": 5,
+            "unit": 0,
+            "requested": 167240,
+            "minimum": 1000,
+            "rated": 143000,
+            "maximum": 167000
+          },
+          {
+            "index": 7,
+            "type": 4,
+            "channel": 3,
+            "unit": 1,
+            "requested": 16555,
+            "minimum": 1000,
+            "rated": 11000,
+            "maximum": 16500
+          },
+          {
+            "index": 8,
+            "type": 4,
+            "channel": 4,
+            "unit": 1,
+            "requested": 33863,
+            "minimum": 1000,
+            "rated": 22500,
+            "maximum": 33750
+          },
+          {
+            "index": 9,
+            "type": 4,
+            "channel": 5,
+            "unit": 1,
+            "requested": 33863,
+            "minimum": 1000,
+            "rated": 22500,
+            "maximum": 33750
+          },
+          {
+            "index": 11,
+            "type": 9,
+            "channel": 0,
+            "unit": 0,
+            "requested": 0,
+            "minimum": 0,
+            "rated": 0,
+            "maximum": 0
+          },
+          {
+            "index": 13,
+            "type": 11,
+            "channel": 19,
+            "unit": 1,
+            "requested": 360360,
+            "minimum": 1000,
+            "rated": 324000,
+            "maximum": 360000
+          },
+          {
+            "index": 14,
+            "type": 11,
+            "channel": 11,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          },
+          {
+            "index": 15,
+            "type": 11,
+            "channel": 11,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          }
+        ],
+        "buffers": {
+          "info_hex": {
+            "bytes": 2340,
+            "sha256": "78f45d1a83db04b1dcafad6cfd63f6f9e798a1e33c814ea79d6abb2c2500e0b2"
+          },
+          "role_info_hex": {
+            "bytes": 264,
+            "sha256": "cd0a0be5aafa34803a6f6c28fed01fc0fa4920b4befbe1859ba5f611c50d5fdf"
+          },
+          "native_info_hex": {
+            "bytes": 20512,
+            "sha256": "5e368f12200495d0584c037dd884824d75900a3c427783203e27674e63ac7927"
+          },
+          "control_hex": {
+            "bytes": 808,
+            "sha256": "783ac36b056058ce28b859615a9910f831f8c95f34cc5fdf6dd5d04e08e8f4af"
+          },
+          "native_control_hex": {
+            "bytes": 13876,
+            "sha256": "1e3b60bcbcfcd1a4ead31d93170ed904b8e8aa8d9b18bc8dec59373053398ecb"
+          }
+        }
+      },
+      "samples": [
+        {
+          "at": 1793195871.2400756,
+          "configured_mw": 351000,
+          "native_status": {
+            "0": {
+              "type": 11,
+              "effective": 58924
+            },
+            "1": {
+              "type": 3,
+              "effective": 1001000
+            },
+            "2": {
+              "type": 0,
+              "effective": 361969
+            },
+            "3": {
+              "type": 3,
+              "effective": 74110
+            },
+            "4": {
+              "type": 3,
+              "effective": 167240
+            },
+            "5": {
+              "type": 3,
+              "effective": 167240
+            },
+            "7": {
+              "type": 4,
+              "effective": 16555
+            },
+            "8": {
+              "type": 4,
+              "effective": 33863
+            },
+            "9": {
+              "type": 4,
+              "effective": 33863
+            },
+            "11": {
+              "type": 9,
+              "effective": 0
+            },
+            "13": {
+              "type": 11,
+              "effective": 360360
+            },
+            "14": {
+              "type": 11,
+              "effective": 5001000
+            },
+            "15": {
+              "type": 11,
+              "effective": 5001000
+            }
+          },
+          "idle": {
+            "pstate": 0,
+            "util_gpu": 0,
+            "power_w": 44.458,
+            "temp_edge": 39
+          }
+        },
+        {
+          "at": 1793195871.5495002,
+          "configured_mw": 351000,
+          "native_status": {
+            "0": {
+              "type": 11,
+              "effective": 54960
+            },
+            "1": {
+              "type": 3,
+              "effective": 1001000
+            },
+            "2": {
+              "type": 0,
+              "effective": 361969
+            },
+            "3": {
+              "type": 3,
+              "effective": 74110
+            },
+            "4": {
+              "type": 3,
+              "effective": 167240
+            },
+            "5": {
+              "type": 3,
+              "effective": 167240
+            },
+            "7": {
+              "type": 4,
+              "effective": 16555
+            },
+            "8": {
+              "type": 4,
+              "effective": 33863
+            },
+            "9": {
+              "type": 4,
+              "effective": 33863
+            },
+            "11": {
+              "type": 9,
+              "effective": 0
+            },
+            "13": {
+              "type": 11,
+              "effective": 360360
+            },
+            "14": {
+              "type": 11,
+              "effective": 5001000
+            },
+            "15": {
+              "type": 11,
+              "effective": 5001000
+            }
+          },
+          "idle": {
+            "pstate": 0,
+            "util_gpu": 0,
+            "power_w": 44.32,
+            "temp_edge": 39
+          }
+        },
+        {
+          "at": 1793195871.85861,
+          "configured_mw": 351000,
+          "native_status": {
+            "0": {
+              "type": 11,
+              "effective": 55986
+            },
+            "1": {
+              "type": 3,
+              "effective": 1001000
+            },
+            "2": {
+              "type": 0,
+              "effective": 361969
+            },
+            "3": {
+              "type": 3,
+              "effective": 74110
+            },
+            "4": {
+              "type": 3,
+              "effective": 167240
+            },
+            "5": {
+              "type": 3,
+              "effective": 167240
+            },
+            "7": {
+              "type": 4,
+              "effective": 16555
+            },
+            "8": {
+              "type": 4,
+              "effective": 33863
+            },
+            "9": {
+              "type": 4,
+              "effective": 33863
+            },
+            "11": {
+              "type": 9,
+              "effective": 0
+            },
+            "13": {
+              "type": 11,
+              "effective": 360360
+            },
+            "14": {
+              "type": 11,
+              "effective": 5001000
+            },
+            "15": {
+              "type": 11,
+              "effective": 5001000
+            }
+          },
+          "idle": {
+            "pstate": 0,
+            "util_gpu": 0,
+            "power_w": 44.3,
+            "temp_edge": 39
+          }
+        },
+        {
+          "at": 1793195872.1702733,
+          "configured_mw": 351000,
+          "native_status": {
+            "0": {
+              "type": 11,
+              "effective": 53545
+            },
+            "1": {
+              "type": 3,
+              "effective": 1001000
+            },
+            "2": {
+              "type": 0,
+              "effective": 361969
+            },
+            "3": {
+              "type": 3,
+              "effective": 74110
+            },
+            "4": {
+              "type": 3,
+              "effective": 167240
+            },
+            "5": {
+              "type": 3,
+              "effective": 167240
+            },
+            "7": {
+              "type": 4,
+              "effective": 16555
+            },
+            "8": {
+              "type": 4,
+              "effective": 33863
+            },
+            "9": {
+              "type": 4,
+              "effective": 33863
+            },
+            "11": {
+              "type": 9,
+              "effective": 0
+            },
+            "13": {
+              "type": 11,
+              "effective": 360360
+            },
+            "14": {
+              "type": 11,
+              "effective": 5001000
+            },
+            "15": {
+              "type": 11,
+              "effective": 5001000
+            }
+          },
+          "idle": {
+            "pstate": 0,
+            "util_gpu": 0,
+            "power_w": 44.316,
+            "temp_edge": 39
+          }
+        },
+        {
+          "at": 1793195872.4790726,
+          "configured_mw": 351000,
+          "native_status": {
+            "0": {
+              "type": 11,
+              "effective": 55239
+            },
+            "1": {
+              "type": 3,
+              "effective": 1001000
+            },
+            "2": {
+              "type": 0,
+              "effective": 361969
+            },
+            "3": {
+              "type": 3,
+              "effective": 74110
+            },
+            "4": {
+              "type": 3,
+              "effective": 167240
+            },
+            "5": {
+              "type": 3,
+              "effective": 167240
+            },
+            "7": {
+              "type": 4,
+              "effective": 16555
+            },
+            "8": {
+              "type": 4,
+              "effective": 33863
+            },
+            "9": {
+              "type": 4,
+              "effective": 33863
+            },
+            "11": {
+              "type": 9,
+              "effective": 0
+            },
+            "13": {
+              "type": 11,
+              "effective": 360360
+            },
+            "14": {
+              "type": 11,
+              "effective": 5001000
+            },
+            "15": {
+              "type": 11,
+              "effective": 5001000
+            }
+          },
+          "idle": {
+            "pstate": 0,
+            "util_gpu": 0,
+            "power_w": 44.307,
+            "temp_edge": 39
+          }
+        }
+      ],
+      "current_limits": [
+        {
+          "policy": 13,
+          "label": "Core current",
+          "channel": 19,
+          "minimum_ma": 1000,
+          "maximum_ma": 360000,
+          "normal_maximum_ma": 360000,
+          "default_ma": 324000,
+          "limit_ma": 360360,
+          "requested_ma": 360360,
+          "value_ma": 14631
+        }
+      ],
+      "current_error": "",
+      "restoration": {
+        "attempted": true,
+        "verified": true,
+        "error": null
+      }
+    },
+    {
+      "label": "client_400w",
+      "target_mw": 400000,
+      "idle_before": {
+        "pstate": 0,
+        "util_gpu": 0,
+        "power_w": 44.361,
+        "temp_edge": 39
+      },
+      "after": {
+        "binding": {
+          "client_index": 0,
+          "native_index": 2,
+          "semantic_role": 1,
+          "client": 254,
+          "units": "mW",
+          "minimum_mw": 105000,
+          "rated_mw": 250000,
+          "maximum_mw": 350000
+        },
+        "requested_mw": 400000,
+        "policies": [
+          {
+            "index": 0,
+            "type": 11,
+            "channel": 11,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          },
+          {
+            "index": 1,
+            "type": 3,
+            "channel": 8,
+            "unit": 0,
+            "requested": 1001000,
+            "minimum": 1,
+            "rated": 1001000,
+            "maximum": 1001000
+          },
+          {
+            "index": 2,
+            "type": 0,
+            "channel": 9,
+            "unit": 0,
+            "requested": 400000,
+            "minimum": 105000,
+            "rated": 250000,
+            "maximum": 350000
+          },
+          {
+            "index": 3,
+            "type": 3,
+            "channel": 3,
+            "unit": 0,
+            "requested": 79500,
+            "minimum": 1000,
+            "rated": 63000,
+            "maximum": 74000
+          },
+          {
+            "index": 4,
+            "type": 3,
+            "channel": 4,
+            "unit": 0,
+            "requested": 179000,
+            "minimum": 1000,
+            "rated": 143000,
+            "maximum": 167000
+          },
+          {
+            "index": 5,
+            "type": 3,
+            "channel": 5,
+            "unit": 0,
+            "requested": 179000,
+            "minimum": 1000,
+            "rated": 143000,
+            "maximum": 167000
+          },
+          {
+            "index": 7,
+            "type": 4,
+            "channel": 3,
+            "unit": 1,
+            "requested": 19250,
+            "minimum": 1000,
+            "rated": 11000,
+            "maximum": 16500
+          },
+          {
+            "index": 8,
+            "type": 4,
+            "channel": 4,
+            "unit": 1,
+            "requested": 39375,
+            "minimum": 1000,
+            "rated": 22500,
+            "maximum": 33750
+          },
+          {
+            "index": 9,
+            "type": 4,
+            "channel": 5,
+            "unit": 1,
+            "requested": 39375,
+            "minimum": 1000,
+            "rated": 22500,
+            "maximum": 33750
+          },
+          {
+            "index": 11,
+            "type": 9,
+            "channel": 0,
+            "unit": 0,
+            "requested": 0,
+            "minimum": 0,
+            "rated": 0,
+            "maximum": 0
+          },
+          {
+            "index": 13,
+            "type": 11,
+            "channel": 19,
+            "unit": 1,
+            "requested": 378000,
+            "minimum": 1000,
+            "rated": 324000,
+            "maximum": 360000
+          },
+          {
+            "index": 14,
+            "type": 11,
+            "channel": 11,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          },
+          {
+            "index": 15,
+            "type": 11,
+            "channel": 11,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          }
+        ],
+        "buffers": {
+          "info_hex": {
+            "bytes": 2340,
+            "sha256": "78f45d1a83db04b1dcafad6cfd63f6f9e798a1e33c814ea79d6abb2c2500e0b2"
+          },
+          "role_info_hex": {
+            "bytes": 264,
+            "sha256": "cd0a0be5aafa34803a6f6c28fed01fc0fa4920b4befbe1859ba5f611c50d5fdf"
+          },
+          "native_info_hex": {
+            "bytes": 20512,
+            "sha256": "5e368f12200495d0584c037dd884824d75900a3c427783203e27674e63ac7927"
+          },
+          "control_hex": {
+            "bytes": 808,
+            "sha256": "813471ed0ecbd0601ed643dccc0a495a847cd5f25a4b2e8d39110b5239d17c96"
+          },
+          "native_control_hex": {
+            "bytes": 13876,
+            "sha256": "fdec90a50b663586ed817cbd10bbfeaa38809bdc60cddd9f06dc9a801f49adb7"
+          }
+        }
+      },
+      "samples": [
+        {
+          "at": 1793195873.4410236,
+          "configured_mw": 400000,
+          "native_status": {
+            "0": {
+              "type": 11,
+              "effective": 63432
+            },
+            "1": {
+              "type": 3,
+              "effective": 1001000
+            },
+            "2": {
+              "type": 0,
+              "effective": 412500
+            },
+            "3": {
+              "type": 3,
+              "effective": 79500
+            },
+            "4": {
+              "type": 3,
+              "effective": 179000
+            },
+            "5": {
+              "type": 3,
+              "effective": 179000
+            },
+            "7": {
+              "type": 4,
+              "effective": 19250
+            },
+            "8": {
+              "type": 4,
+              "effective": 39375
+            },
+            "9": {
+              "type": 4,
+              "effective": 39375
+            },
+            "11": {
+              "type": 9,
+              "effective": 0
+            },
+            "13": {
+              "type": 11,
+              "effective": 378000
+            },
+            "14": {
+              "type": 11,
+              "effective": 5001000
+            },
+            "15": {
+              "type": 11,
+              "effective": 5001000
+            }
+          },
+          "idle": {
+            "pstate": 0,
+            "util_gpu": 0,
+            "power_w": 44.461,
+            "temp_edge": 39
+          }
+        },
+        {
+          "at": 1793195873.7502866,
+          "configured_mw": 400000,
+          "native_status": {
+            "0": {
+              "type": 11,
+              "effective": 58939
+            },
+            "1": {
+              "type": 3,
+              "effective": 1001000
+            },
+            "2": {
+              "type": 0,
+              "effective": 412500
+            },
+            "3": {
+              "type": 3,
+              "effective": 79500
+            },
+            "4": {
+              "type": 3,
+              "effective": 179000
+            },
+            "5": {
+              "type": 3,
+              "effective": 179000
+            },
+            "7": {
+              "type": 4,
+              "effective": 19250
+            },
+            "8": {
+              "type": 4,
+              "effective": 39375
+            },
+            "9": {
+              "type": 4,
+              "effective": 39375
+            },
+            "11": {
+              "type": 9,
+              "effective": 0
+            },
+            "13": {
+              "type": 11,
+              "effective": 378000
+            },
+            "14": {
+              "type": 11,
+              "effective": 5001000
+            },
+            "15": {
+              "type": 11,
+              "effective": 5001000
+            }
+          },
+          "idle": {
+            "pstate": 0,
+            "util_gpu": 0,
+            "power_w": 44.321,
+            "temp_edge": 39
+          }
+        },
+        {
+          "at": 1793195874.0576143,
+          "configured_mw": 400000,
+          "native_status": {
+            "0": {
+              "type": 11,
+              "effective": 60291
+            },
+            "1": {
+              "type": 3,
+              "effective": 1001000
+            },
+            "2": {
+              "type": 0,
+              "effective": 412500
+            },
+            "3": {
+              "type": 3,
+              "effective": 79500
+            },
+            "4": {
+              "type": 3,
+              "effective": 179000
+            },
+            "5": {
+              "type": 3,
+              "effective": 179000
+            },
+            "7": {
+              "type": 4,
+              "effective": 19250
+            },
+            "8": {
+              "type": 4,
+              "effective": 39375
+            },
+            "9": {
+              "type": 4,
+              "effective": 39375
+            },
+            "11": {
+              "type": 9,
+              "effective": 0
+            },
+            "13": {
+              "type": 11,
+              "effective": 378000
+            },
+            "14": {
+              "type": 11,
+              "effective": 5001000
+            },
+            "15": {
+              "type": 11,
+              "effective": 5001000
+            }
+          },
+          "idle": {
+            "pstate": 0,
+            "util_gpu": 0,
+            "power_w": 44.325,
+            "temp_edge": 39
+          }
+        },
+        {
+          "at": 1793195874.3677647,
+          "configured_mw": 400000,
+          "native_status": {
+            "0": {
+              "type": 11,
+              "effective": 57277
+            },
+            "1": {
+              "type": 3,
+              "effective": 1001000
+            },
+            "2": {
+              "type": 0,
+              "effective": 412500
+            },
+            "3": {
+              "type": 3,
+              "effective": 79500
+            },
+            "4": {
+              "type": 3,
+              "effective": 179000
+            },
+            "5": {
+              "type": 3,
+              "effective": 179000
+            },
+            "7": {
+              "type": 4,
+              "effective": 19250
+            },
+            "8": {
+              "type": 4,
+              "effective": 39375
+            },
+            "9": {
+              "type": 4,
+              "effective": 39375
+            },
+            "11": {
+              "type": 9,
+              "effective": 0
+            },
+            "13": {
+              "type": 11,
+              "effective": 378000
+            },
+            "14": {
+              "type": 11,
+              "effective": 5001000
+            },
+            "15": {
+              "type": 11,
+              "effective": 5001000
+            }
+          },
+          "idle": {
+            "pstate": 0,
+            "util_gpu": 0,
+            "power_w": 44.334,
+            "temp_edge": 39
+          }
+        },
+        {
+          "at": 1793195874.6767454,
+          "configured_mw": 400000,
+          "native_status": {
+            "0": {
+              "type": 11,
+              "effective": 59403
+            },
+            "1": {
+              "type": 3,
+              "effective": 1001000
+            },
+            "2": {
+              "type": 0,
+              "effective": 412500
+            },
+            "3": {
+              "type": 3,
+              "effective": 79500
+            },
+            "4": {
+              "type": 3,
+              "effective": 179000
+            },
+            "5": {
+              "type": 3,
+              "effective": 179000
+            },
+            "7": {
+              "type": 4,
+              "effective": 19250
+            },
+            "8": {
+              "type": 4,
+              "effective": 39375
+            },
+            "9": {
+              "type": 4,
+              "effective": 39375
+            },
+            "11": {
+              "type": 9,
+              "effective": 0
+            },
+            "13": {
+              "type": 11,
+              "effective": 378000
+            },
+            "14": {
+              "type": 11,
+              "effective": 5001000
+            },
+            "15": {
+              "type": 11,
+              "effective": 5001000
+            }
+          },
+          "idle": {
+            "pstate": 0,
+            "util_gpu": 0,
+            "power_w": 44.297,
+            "temp_edge": 39
+          }
+        }
+      ],
+      "current_limits": [
+        {
+          "policy": 13,
+          "label": "Core current",
+          "channel": 19,
+          "minimum_ma": 1000,
+          "maximum_ma": 360000,
+          "normal_maximum_ma": 360000,
+          "default_ma": 324000,
+          "limit_ma": 378000,
+          "requested_ma": 378000,
+          "value_ma": 13627
+        }
+      ],
+      "current_error": "",
+      "restoration": {
+        "attempted": true,
+        "verified": true,
+        "error": null
+      }
+    },
+    {
+      "label": "production_backend_with_current_pin",
+      "target_mw": 351000,
+      "idle_before": {
+        "pstate": 0,
+        "util_gpu": 0,
+        "power_w": 44.338,
+        "temp_edge": 39
+      },
+      "production_message": "power request configured to 351 W; the driver may recalculate other policies; downstream power/current limits can be lower",
+      "after": {
+        "binding": {
+          "client_index": 0,
+          "native_index": 2,
+          "semantic_role": 1,
+          "client": 254,
+          "units": "mW",
+          "minimum_mw": 105000,
+          "rated_mw": 250000,
+          "maximum_mw": 350000
+        },
+        "requested_mw": 351000,
+        "policies": [
+          {
+            "index": 0,
+            "type": 11,
+            "channel": 11,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          },
+          {
+            "index": 1,
+            "type": 3,
+            "channel": 8,
+            "unit": 0,
+            "requested": 1001000,
+            "minimum": 1,
+            "rated": 1001000,
+            "maximum": 1001000
+          },
+          {
+            "index": 2,
+            "type": 0,
+            "channel": 9,
+            "unit": 0,
+            "requested": 351000,
+            "minimum": 105000,
+            "rated": 250000,
+            "maximum": 350000
+          },
+          {
+            "index": 3,
+            "type": 3,
+            "channel": 3,
+            "unit": 0,
+            "requested": 74110,
+            "minimum": 1000,
+            "rated": 63000,
+            "maximum": 74000
+          },
+          {
+            "index": 4,
+            "type": 3,
+            "channel": 4,
+            "unit": 0,
+            "requested": 167240,
+            "minimum": 1000,
+            "rated": 143000,
+            "maximum": 167000
+          },
+          {
+            "index": 5,
+            "type": 3,
+            "channel": 5,
+            "unit": 0,
+            "requested": 167240,
+            "minimum": 1000,
+            "rated": 143000,
+            "maximum": 167000
+          },
+          {
+            "index": 7,
+            "type": 4,
+            "channel": 3,
+            "unit": 1,
+            "requested": 16555,
+            "minimum": 1000,
+            "rated": 11000,
+            "maximum": 16500
+          },
+          {
+            "index": 8,
+            "type": 4,
+            "channel": 4,
+            "unit": 1,
+            "requested": 33863,
+            "minimum": 1000,
+            "rated": 22500,
+            "maximum": 33750
+          },
+          {
+            "index": 9,
+            "type": 4,
+            "channel": 5,
+            "unit": 1,
+            "requested": 33863,
+            "minimum": 1000,
+            "rated": 22500,
+            "maximum": 33750
+          },
+          {
+            "index": 11,
+            "type": 9,
+            "channel": 0,
+            "unit": 0,
+            "requested": 0,
+            "minimum": 0,
+            "rated": 0,
+            "maximum": 0
+          },
+          {
+            "index": 13,
+            "type": 11,
+            "channel": 19,
+            "unit": 1,
+            "requested": 360360,
+            "minimum": 1000,
+            "rated": 324000,
+            "maximum": 360000
+          },
+          {
+            "index": 14,
+            "type": 11,
+            "channel": 11,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          },
+          {
+            "index": 15,
+            "type": 11,
+            "channel": 11,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          }
+        ],
+        "buffers": {
+          "info_hex": {
+            "bytes": 2340,
+            "sha256": "78f45d1a83db04b1dcafad6cfd63f6f9e798a1e33c814ea79d6abb2c2500e0b2"
+          },
+          "role_info_hex": {
+            "bytes": 264,
+            "sha256": "cd0a0be5aafa34803a6f6c28fed01fc0fa4920b4befbe1859ba5f611c50d5fdf"
+          },
+          "native_info_hex": {
+            "bytes": 20512,
+            "sha256": "5e368f12200495d0584c037dd884824d75900a3c427783203e27674e63ac7927"
+          },
+          "control_hex": {
+            "bytes": 808,
+            "sha256": "783ac36b056058ce28b859615a9910f831f8c95f34cc5fdf6dd5d04e08e8f4af"
+          },
+          "native_control_hex": {
+            "bytes": 13876,
+            "sha256": "1e3b60bcbcfcd1a4ead31d93170ed904b8e8aa8d9b18bc8dec59373053398ecb"
+          }
+        }
+      },
+      "samples": [
+        {
+          "at": 1793195875.687855,
+          "configured_mw": 351000,
+          "native_status": {
+            "0": {
+              "type": 11,
+              "effective": 59047
+            },
+            "1": {
+              "type": 3,
+              "effective": 1001000
+            },
+            "2": {
+              "type": 0,
+              "effective": 361969
+            },
+            "3": {
+              "type": 3,
+              "effective": 74110
+            },
+            "4": {
+              "type": 3,
+              "effective": 167240
+            },
+            "5": {
+              "type": 3,
+              "effective": 167240
+            },
+            "7": {
+              "type": 4,
+              "effective": 16555
+            },
+            "8": {
+              "type": 4,
+              "effective": 33863
+            },
+            "9": {
+              "type": 4,
+              "effective": 33863
+            },
+            "11": {
+              "type": 9,
+              "effective": 0
+            },
+            "13": {
+              "type": 11,
+              "effective": 360360
+            },
+            "14": {
+              "type": 11,
+              "effective": 5001000
+            },
+            "15": {
+              "type": 11,
+              "effective": 5001000
+            }
+          },
+          "idle": {
+            "pstate": 0,
+            "util_gpu": 0,
+            "power_w": 44.46,
+            "temp_edge": 39
+          }
+        },
+        {
+          "at": 1793195875.996059,
+          "configured_mw": 351000,
+          "native_status": {
+            "0": {
+              "type": 11,
+              "effective": 54927
+            },
+            "1": {
+              "type": 3,
+              "effective": 1001000
+            },
+            "2": {
+              "type": 0,
+              "effective": 361969
+            },
+            "3": {
+              "type": 3,
+              "effective": 74110
+            },
+            "4": {
+              "type": 3,
+              "effective": 167240
+            },
+            "5": {
+              "type": 3,
+              "effective": 167240
+            },
+            "7": {
+              "type": 4,
+              "effective": 16555
+            },
+            "8": {
+              "type": 4,
+              "effective": 33863
+            },
+            "9": {
+              "type": 4,
+              "effective": 33863
+            },
+            "11": {
+              "type": 9,
+              "effective": 0
+            },
+            "13": {
+              "type": 11,
+              "effective": 360360
+            },
+            "14": {
+              "type": 11,
+              "effective": 5001000
+            },
+            "15": {
+              "type": 11,
+              "effective": 5001000
+            }
+          },
+          "idle": {
+            "pstate": 0,
+            "util_gpu": 0,
+            "power_w": 44.331,
+            "temp_edge": 39
+          }
+        },
+        {
+          "at": 1793195876.3042421,
+          "configured_mw": 351000,
+          "native_status": {
+            "0": {
+              "type": 11,
+              "effective": 54744
+            },
+            "1": {
+              "type": 3,
+              "effective": 1001000
+            },
+            "2": {
+              "type": 0,
+              "effective": 361969
+            },
+            "3": {
+              "type": 3,
+              "effective": 74110
+            },
+            "4": {
+              "type": 3,
+              "effective": 167240
+            },
+            "5": {
+              "type": 3,
+              "effective": 167240
+            },
+            "7": {
+              "type": 4,
+              "effective": 16555
+            },
+            "8": {
+              "type": 4,
+              "effective": 33863
+            },
+            "9": {
+              "type": 4,
+              "effective": 33863
+            },
+            "11": {
+              "type": 9,
+              "effective": 0
+            },
+            "13": {
+              "type": 11,
+              "effective": 360360
+            },
+            "14": {
+              "type": 11,
+              "effective": 5001000
+            },
+            "15": {
+              "type": 11,
+              "effective": 5001000
+            }
+          },
+          "idle": {
+            "pstate": 0,
+            "util_gpu": 0,
+            "power_w": 44.315,
+            "temp_edge": 39
+          }
+        },
+        {
+          "at": 1793195876.6135104,
+          "configured_mw": 351000,
+          "native_status": {
+            "0": {
+              "type": 11,
+              "effective": 54994
+            },
+            "1": {
+              "type": 3,
+              "effective": 1001000
+            },
+            "2": {
+              "type": 0,
+              "effective": 361969
+            },
+            "3": {
+              "type": 3,
+              "effective": 74110
+            },
+            "4": {
+              "type": 3,
+              "effective": 167240
+            },
+            "5": {
+              "type": 3,
+              "effective": 167240
+            },
+            "7": {
+              "type": 4,
+              "effective": 16555
+            },
+            "8": {
+              "type": 4,
+              "effective": 33863
+            },
+            "9": {
+              "type": 4,
+              "effective": 33863
+            },
+            "11": {
+              "type": 9,
+              "effective": 0
+            },
+            "13": {
+              "type": 11,
+              "effective": 360360
+            },
+            "14": {
+              "type": 11,
+              "effective": 5001000
+            },
+            "15": {
+              "type": 11,
+              "effective": 5001000
+            }
+          },
+          "idle": {
+            "pstate": 0,
+            "util_gpu": 0,
+            "power_w": 44.314,
+            "temp_edge": 39
+          }
+        },
+        {
+          "at": 1793195876.9250972,
+          "configured_mw": 351000,
+          "native_status": {
+            "0": {
+              "type": 11,
+              "effective": 54865
+            },
+            "1": {
+              "type": 3,
+              "effective": 1001000
+            },
+            "2": {
+              "type": 0,
+              "effective": 361969
+            },
+            "3": {
+              "type": 3,
+              "effective": 74110
+            },
+            "4": {
+              "type": 3,
+              "effective": 167240
+            },
+            "5": {
+              "type": 3,
+              "effective": 167240
+            },
+            "7": {
+              "type": 4,
+              "effective": 16555
+            },
+            "8": {
+              "type": 4,
+              "effective": 33863
+            },
+            "9": {
+              "type": 4,
+              "effective": 33863
+            },
+            "11": {
+              "type": 9,
+              "effective": 0
+            },
+            "13": {
+              "type": 11,
+              "effective": 360360
+            },
+            "14": {
+              "type": 11,
+              "effective": 5001000
+            },
+            "15": {
+              "type": 11,
+              "effective": 5001000
+            }
+          },
+          "idle": {
+            "pstate": 0,
+            "util_gpu": 0,
+            "power_w": 44.331,
+            "temp_edge": 39
+          }
+        }
+      ],
+      "current_limits": [
+        {
+          "policy": 13,
+          "label": "Core current",
+          "channel": 19,
+          "minimum_ma": 1000,
+          "maximum_ma": 360000,
+          "normal_maximum_ma": 360000,
+          "default_ma": 324000,
+          "limit_ma": 360360,
+          "requested_ma": 360360,
+          "value_ma": 15097
+        }
+      ],
+      "current_error": "",
+      "current_pin_ma": 350000,
+      "after_repeated_board_request": {
+        "binding": {
+          "client_index": 0,
+          "native_index": 2,
+          "semantic_role": 1,
+          "client": 254,
+          "units": "mW",
+          "minimum_mw": 105000,
+          "rated_mw": 250000,
+          "maximum_mw": 350000
+        },
+        "requested_mw": 351000,
+        "policies": [
+          {
+            "index": 0,
+            "type": 11,
+            "channel": 11,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          },
+          {
+            "index": 1,
+            "type": 3,
+            "channel": 8,
+            "unit": 0,
+            "requested": 1001000,
+            "minimum": 1,
+            "rated": 1001000,
+            "maximum": 1001000
+          },
+          {
+            "index": 2,
+            "type": 0,
+            "channel": 9,
+            "unit": 0,
+            "requested": 351000,
+            "minimum": 105000,
+            "rated": 250000,
+            "maximum": 350000
+          },
+          {
+            "index": 3,
+            "type": 3,
+            "channel": 3,
+            "unit": 0,
+            "requested": 74110,
+            "minimum": 1000,
+            "rated": 63000,
+            "maximum": 74000
+          },
+          {
+            "index": 4,
+            "type": 3,
+            "channel": 4,
+            "unit": 0,
+            "requested": 167240,
+            "minimum": 1000,
+            "rated": 143000,
+            "maximum": 167000
+          },
+          {
+            "index": 5,
+            "type": 3,
+            "channel": 5,
+            "unit": 0,
+            "requested": 167240,
+            "minimum": 1000,
+            "rated": 143000,
+            "maximum": 167000
+          },
+          {
+            "index": 7,
+            "type": 4,
+            "channel": 3,
+            "unit": 1,
+            "requested": 16555,
+            "minimum": 1000,
+            "rated": 11000,
+            "maximum": 16500
+          },
+          {
+            "index": 8,
+            "type": 4,
+            "channel": 4,
+            "unit": 1,
+            "requested": 33863,
+            "minimum": 1000,
+            "rated": 22500,
+            "maximum": 33750
+          },
+          {
+            "index": 9,
+            "type": 4,
+            "channel": 5,
+            "unit": 1,
+            "requested": 33863,
+            "minimum": 1000,
+            "rated": 22500,
+            "maximum": 33750
+          },
+          {
+            "index": 11,
+            "type": 9,
+            "channel": 0,
+            "unit": 0,
+            "requested": 0,
+            "minimum": 0,
+            "rated": 0,
+            "maximum": 0
+          },
+          {
+            "index": 13,
+            "type": 11,
+            "channel": 19,
+            "unit": 1,
+            "requested": 350000,
+            "minimum": 1000,
+            "rated": 324000,
+            "maximum": 360000
+          },
+          {
+            "index": 14,
+            "type": 11,
+            "channel": 11,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          },
+          {
+            "index": 15,
+            "type": 11,
+            "channel": 11,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          }
+        ],
+        "buffers": {
+          "info_hex": {
+            "bytes": 2340,
+            "sha256": "78f45d1a83db04b1dcafad6cfd63f6f9e798a1e33c814ea79d6abb2c2500e0b2"
+          },
+          "role_info_hex": {
+            "bytes": 264,
+            "sha256": "cd0a0be5aafa34803a6f6c28fed01fc0fa4920b4befbe1859ba5f611c50d5fdf"
+          },
+          "native_info_hex": {
+            "bytes": 20512,
+            "sha256": "5e368f12200495d0584c037dd884824d75900a3c427783203e27674e63ac7927"
+          },
+          "control_hex": {
+            "bytes": 808,
+            "sha256": "783ac36b056058ce28b859615a9910f831f8c95f34cc5fdf6dd5d04e08e8f4af"
+          },
+          "native_control_hex": {
+            "bytes": 13876,
+            "sha256": "6b7393ff13f103c4e45d5edd808e640fb6825caa8e11831be18aa64a1b94dfdc"
+          }
+        }
+      },
+      "pinned_current_readback": [
+        {
+          "policy": 13,
+          "label": "Core current",
+          "channel": 19,
+          "minimum_ma": 1000,
+          "maximum_ma": 360000,
+          "normal_maximum_ma": 360000,
+          "default_ma": 324000,
+          "limit_ma": 350000,
+          "requested_ma": 350000,
+          "value_ma": 303
+        }
+      ],
+      "above_maximum_current_rejected": "Core current must be between 1 and 360 A in the current mode",
+      "restoration": {
+        "attempted": true,
+        "verified": true,
+        "error": null
+      }
+    }
+  ],
+  "scope": "Idle software request acceptance and restoration; physical enforcement unmeasured",
+  "final": {
+    "binding": {
+      "client_index": 0,
+      "native_index": 2,
+      "semantic_role": 1,
+      "client": 254,
+      "units": "mW",
+      "minimum_mw": 105000,
+      "rated_mw": 250000,
+      "maximum_mw": 350000
+    },
+    "requested_mw": 250000,
+    "policies": [
+      {
+        "index": 0,
+        "type": 11,
+        "channel": 11,
+        "unit": 0,
+        "requested": 5001000,
+        "minimum": 1,
+        "rated": 5001000,
+        "maximum": 5001000
+      },
+      {
+        "index": 1,
+        "type": 3,
+        "channel": 8,
+        "unit": 0,
+        "requested": 1001000,
+        "minimum": 1,
+        "rated": 1001000,
+        "maximum": 1001000
+      },
+      {
+        "index": 2,
+        "type": 0,
+        "channel": 9,
+        "unit": 0,
+        "requested": 250000,
+        "minimum": 105000,
+        "rated": 250000,
+        "maximum": 350000
+      },
+      {
+        "index": 3,
+        "type": 3,
+        "channel": 3,
+        "unit": 0,
+        "requested": 63000,
+        "minimum": 1000,
+        "rated": 63000,
+        "maximum": 74000
+      },
+      {
+        "index": 4,
+        "type": 3,
+        "channel": 4,
+        "unit": 0,
+        "requested": 143000,
+        "minimum": 1000,
+        "rated": 143000,
+        "maximum": 167000
+      },
+      {
+        "index": 5,
+        "type": 3,
+        "channel": 5,
+        "unit": 0,
+        "requested": 143000,
+        "minimum": 1000,
+        "rated": 143000,
+        "maximum": 167000
+      },
+      {
+        "index": 7,
+        "type": 4,
+        "channel": 3,
+        "unit": 1,
+        "requested": 11000,
+        "minimum": 1000,
+        "rated": 11000,
+        "maximum": 16500
+      },
+      {
+        "index": 8,
+        "type": 4,
+        "channel": 4,
+        "unit": 1,
+        "requested": 22500,
+        "minimum": 1000,
+        "rated": 22500,
+        "maximum": 33750
+      },
+      {
+        "index": 9,
+        "type": 4,
+        "channel": 5,
+        "unit": 1,
+        "requested": 22500,
+        "minimum": 1000,
+        "rated": 22500,
+        "maximum": 33750
+      },
+      {
+        "index": 11,
+        "type": 9,
+        "channel": 0,
+        "unit": 0,
+        "requested": 0,
+        "minimum": 0,
+        "rated": 0,
+        "maximum": 0
+      },
+      {
+        "index": 13,
+        "type": 11,
+        "channel": 19,
+        "unit": 1,
+        "requested": 324000,
+        "minimum": 1000,
+        "rated": 324000,
+        "maximum": 360000
+      },
+      {
+        "index": 14,
+        "type": 11,
+        "channel": 11,
+        "unit": 0,
+        "requested": 5001000,
+        "minimum": 1,
+        "rated": 5001000,
+        "maximum": 5001000
+      },
+      {
+        "index": 15,
+        "type": 11,
+        "channel": 11,
+        "unit": 0,
+        "requested": 5001000,
+        "minimum": 1,
+        "rated": 5001000,
+        "maximum": 5001000
+      }
+    ],
+    "buffers": {
+      "info_hex": {
+        "bytes": 2340,
+        "sha256": "78f45d1a83db04b1dcafad6cfd63f6f9e798a1e33c814ea79d6abb2c2500e0b2"
+      },
+      "role_info_hex": {
+        "bytes": 264,
+        "sha256": "cd0a0be5aafa34803a6f6c28fed01fc0fa4920b4befbe1859ba5f611c50d5fdf"
+      },
+      "native_info_hex": {
+        "bytes": 20512,
+        "sha256": "5e368f12200495d0584c037dd884824d75900a3c427783203e27674e63ac7927"
+      },
+      "control_hex": {
+        "bytes": 808,
+        "sha256": "4bb17ac5e236e495124434991e872e089de59bd054369bc909eaa6b8ae019261"
+      },
+      "native_control_hex": {
+        "bytes": 13876,
+        "sha256": "387842bfb707c66aa0edfbf4834796c005e93022600f29e38f1ff93d84985673"
+      }
+    }
+  },
+  "final_p0_hold": {
+    "domain": 6,
+    "lockMode": 3,
+    "volt_uV": 1062500,
+    "volt_mv": 1062.5,
+    "count": 7
+  },
+  "full_baseline_restored": true
+}

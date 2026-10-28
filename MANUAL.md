@@ -595,6 +595,20 @@ historical.
 
 ## Power slider extensions
 
+After **Power limit** Apply, the slider and adjacent input show the configured
+request read back from the card. If a 400 W request reads back as 350 W, both
+return to 350 W and the result reports the mismatch. If readback is unavailable,
+the current setting is explicitly unverified. Druta shows this adapter's last
+verified value when available and labels it as last known; a later valid poll
+updates the value and clears that unavailable-readback warning.
+
+The control view separately shows the configured request, NVML-reported
+enforced limit and native effective limit. For example, configured and NVML
+enforced values can both show 400 W while native status reports a lower limit.
+Druta reports that difference. An unavailable native read stays explicitly
+unavailable and does not disable the ordinary slider. Agreement with NVML does
+not verify native status or actual power draw.
+
 On GPUs exposing the live client-power interface, **XOC** extends the same
 slider to positive requests up to 1999 W (or the current BIOS maximum if
 higher). This is a software request range. It does not change BIOS limits,
@@ -604,12 +618,53 @@ GPU or Windows. The configured request and measured draw remain separate;
 **Registry / BIOS overrides > Power/current arbitration** shows host and
 firmware votes and effective limits.
 
-On adapters using the older client-power layout, changing the board request can
-also recalculate other power and current requests. Druta checks the resulting
-control records and re-applies values pinned in this session. Arbitration-vote
+On adapters using v30 firmware power-policy definitions, changing the board
+request can also recalculate other power and current requests, including when
+the driver uses larger modern packets. Druta checks the resulting control
+records and re-applies values pinned in this session. Arbitration-vote
 details and original-BIOS-range coloring may be unavailable independently of
 the live request control. The reported limit is not a measurement of actual
 power draw.
+
+Turing adapters can expose several understood packet layouts. On one Gigabyte
+RTX 2080 SUPER AORUS Xtreme, driver 581.42 used 124-byte native controls,
+431.60 used the smaller `26xx` interface, and 621.01 used larger modern packets
+carrying v30 firmware definitions. All three accepted idle 351 W and 400 W
+configured requests above the reported 350 W ordinary maximum and restored
+their captured client/native power controls. Configured requests and native
+effective limits can differ: on 431.60, 349/351/400 W requests first reported native effective
+limits of 349/350/350 W, then settled within about 0.3 seconds at
+359.906/360.938/360.938 W, with core current remaining at 324 A. The plateau is
+consistent with a 350 W clamp plus a driver status uplift; it does not resolve
+physical enforcement. On 621.01, the same requests produced native effective
+limits of 359.906/361.969/412.5 W and core current of
+359.640/360.360/378 A. These are software status values, not physical watts.
+
+The 431.60 and 621.01 production checks also verified repeated board requests
+with a separate 350 A current pin. On 621.01, core current stayed readable after
+driver-derived values exceeded its advertised maximum; new independent current
+requests still use the adapter's own bounds. See the
+[driver comparison](experiments/turing-driver-live-comparison-20261028.md) for
+scope and measurements. The 431.60 qualification establishes configured-request
+acceptance and recovery; its settled status plateau leaves downstream override
+unqualified. The 621.01 status reports software headroom above the ordinary
+maximum. The control view independently shows the NVML enforced limit alongside
+the configured request; neither value measures actual power draw.
+The separate [owner FurMark A/B report](experiments/turing-owner-furmark-ab-20261028.md)
+supports operative limit changes on the shunt-modified board during the prior
+581.42 session; physical enforcement on 431.60 and 621.01 remains unmeasured.
+
+The 1.9.05 checks on the same modified board with 472.12 also accepted and
+restored 349/351/400 W requests. NVML's enforced limit echoed those requests,
+while native effective status first returned 349/350/350 W and settled at
+359.906/360.938/360.938 W. Core-current requests were 359.640/360.360/378 A;
+effective current was 359.640/360/360 A. Druta retains such driver-derived
+current observations only with a matching extended v30 board request and full
+native definitions/control snapshots. New independent current requests remain
+bounded by the adapter's 360 A maximum. A separately pinned 350 A limit survived
+a repeated 351 W board request, and the captured 250 W power baseline was
+restored. These status values do not establish physical enforcement. See the
+[472.12 comparison](experiments/turing-47212-compatibility-20261028.md).
 
 Very high requests can produce a lower native effective limit. On one RTX
 3070 Ti, a 1,024 W request reported a 7.424 W native board limit, while a
@@ -636,3 +691,28 @@ Druta reads the original limits from its saved original BIOS when an override is
 active. If the original image cannot be established, the slider tooltip explains
 that extension coloring is unavailable. A higher requested value can still be
 limited by another power or current policy.
+
+## Clock-offset compatibility
+
+Druta uses the available clock-offset interfaces, without selecting support by
+driver version. Starting in 1.9.05, an NVML offset setter that returns Not
+Supported (3) can fall back to NVAPI Pstates20, just as a missing NVML export
+already does. The fallback checks the current P0 clock entry, editable range,
+units and exact offset readback. Other NVML errors remain failures. Offset
+writes preserve a readable graphics V/F shape through the existing restoration
+path and report a failed curve restoration.
+
+On the modified TU104 with 472.12, core -15 MHz, memory -1 true MHz and combined
+offset checks restored the captured offsets, graphics curve, 1062.5 mV P0 hold
+and observed 7750 MHz memory baseline. A core write also preserved an applied
+nonzero memory offset. Earlier 431.60 checks restored the captured offsets,
+graphics curve and hold, but memory changed from 8000 to 7750 MHz. That change
+is unresolved; restoring those fields does not prove complete physical clock
+state restoration. The
+[472.12 comparison](experiments/turing-47212-compatibility-20261028.md) records
+the tested scope and links both clock reports.
+
+After a live display-driver replacement, a blank white application window can
+need minimizing/restoring and resizing. This recovered the packaged UI in the
+472.12 comparison despite an already complete rendered framebuffer; a PnP
+restart alone did not clear it. The presentation cause remains unresolved.
