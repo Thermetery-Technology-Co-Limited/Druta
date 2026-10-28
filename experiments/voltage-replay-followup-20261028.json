@@ -1,0 +1,72 @@
+{
+  "schema": 1,
+  "date_utc": "2026-10-28",
+  "scope": "Clean-room follow-up using NVIDIA-authored interface definitions, the installed driver, public release documentation, and a bounded root-run experiment. No proprietary mVolt code or binaries were used.",
+  "tested_configuration": {
+    "gpu": "GeForce RTX 5080",
+    "driver": "621.01",
+    "limitation": "One tested configuration and operating point; no board or driver compatibility gate follows."
+  },
+  "status": "Arbitrary six-word voltage request replay remains unresolved. No new live equation or voltage-offset control is exposed.",
+  "new_public_lead": {
+    "source": "https://github.com/b00nz/mVolt/releases/tag/v0.50.8",
+    "claim": "The release describes an experimental voltage-offset BIOS override enabled after a GPU restart.",
+    "limit": "The public description does not establish its implementation or a way to clear the independently traced PERF offset-copy suppression flag."
+  },
+  "static_findings": [
+    "The confirmed PERF+0x32C constructor assignment comes from the GPU HAL index. The bounded follow-up found no proven BIOS or registry control for that flag.",
+    "The two recognized BIOS rail subtype paths converge on the same gated six-word row setter. Changing subtype alone is not an established bypass.",
+    "NVIDIA's NVOC exported-method record stores its function pointer 0x10 bytes before methodId. Equation SET 0x2080E0B7 uses handler 0x4CE4C0; variable SET 0x2080E0B4 uses 0x4CE910 in this inspected image.",
+    "Equation SET selects existing rows in the same 8192-entry, 0x80-byte-row geometry returned by the independent CONTROL getter. The traced row path can write bounds before a later error, and the group may repeat its internal update. A successful status is insufficient.",
+    "The equation handler's post-call through PERF+0x588 remains unnamed. No physical-voltage or firmware-consumer conclusion is drawn."
+  ],
+  "experiment": {
+    "operation": "Unchanged selected REL equation row; no bound, coefficient, BIOS or registry change requested",
+    "command": "0x2080E0B7",
+    "parameter_bytes": 1049608,
+    "header_bytes": 1032,
+    "mask_bytes": 1024,
+    "capacity": 8192,
+    "row_bytes": 128,
+    "selected_ordinal": 3,
+    "runtime_row_type": 6,
+    "transport_status": 0,
+    "rm_status": 0,
+    "equation_info_exact": true,
+    "equation_control_exact": true,
+    "initial_full_configured_comparison_exact": false,
+    "difference": {
+      "field": "Evaluated frequency word in V/F curve entries",
+      "changed_words": 78,
+      "entry_range": [49, 126],
+      "frequency_delta_khz_range": [-315000, -75000],
+      "curve_voltage_words_unchanged": true,
+      "curve_other_words_header_and_tail_unchanged": true,
+      "full_per_point_boost_delta_request_table_unchanged": true,
+      "other_configured_snapshot_components_unchanged": true
+    },
+    "recovery": {
+      "explicit_original_row_restore_attempts": 1,
+      "restore_transport_status": 0,
+      "restore_rm_status": 0,
+      "full_original_configured_baseline_exact": true,
+      "cleanup_errors": []
+    },
+    "followup_get_only_captures": {
+      "count": 3,
+      "all_configured_equal_within_followup": true,
+      "set_attempted": false
+    },
+    "registry_write": false,
+    "gpu_restart": false,
+    "windows_reboot": false,
+    "workload_started": false,
+    "physical_voltage_measured": false
+  },
+  "interpretation": "An accepted unchanged-row SET with exact equation cache readback does not guarantee an unchanged evaluated V/F curve. The captured pair does not identify the cause. This experiment does not establish writable changed bounds, mVolt's implementation, voltage-offset enablement, or restoration of arbitrary legacy rail requests.",
+  "next_required_evidence": [
+    "Identify the post-SET recomputation path and explain or independently bound its evaluated-curve effects before exposing live equation writes.",
+    "Find and verify an actual independently understood voltage-offset enabling mechanism or alternative request path; do not invent a BIOS toggle from a public feature name.",
+    "For any changing-offset capability, verify all six actual request words and peers, and restore original requests while that capability is still active before reverting its enabling state."
+  ]
+}

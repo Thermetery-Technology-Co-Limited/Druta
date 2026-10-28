@@ -2690,6 +2690,24 @@ current flags and values. These are adapter observations, not fixed indices or
 rail names. Their units, relationship to the legacy requests and F219 firmware
 SET effects remain unresolved; no modern SET has been attempted.
 
+On the inspected RTX 5080 / 621.01, a separate research no-op sent native
+VFE equation SET `0x2080E0B7` (size `0x100408`) with the unchanged type6 REL
+row3 and its known counts. Transport and RM returned zero, and full equation
+INFO and CONTROL matched exactly. However, 78 evaluated V/F frequency words
+(rows49–126) differed by -315 to -75 MHz. V/F voltage words, the complete
+per-point BoostTable delta requests and all other configured snapshot components
+remained byte-exact. One original-row restoration and fresh capture returned the
+full configured baseline exactly. Three later GET-only fresh captures matched
+each other, including the curve. This one before/after pair does not establish
+why the curve changed, and does not qualify live bound changes or legacy
+six-word offset replay. The trial used no registry change, restart, workload or
+physical measurement. See the [sanitized follow-up](experiments/voltage-replay-followup-20261028.json).
+
+The public [mVolt v0.50.8 release notes](https://github.com/b00nz/mVolt/releases/tag/v0.50.8)
+describe an experimental BIOS voltage-offset option, without specifying its
+mechanism. Our inspected PERF+0x32C writer and type4/type5 rail routes have not
+established a BIOS switch for this behavior.
+
 ## FixBlackScreenIssue startup adjustment research
 
 The inspected driver reads `FixBlackScreenIssue` from the adapter software key

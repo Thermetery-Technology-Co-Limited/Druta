@@ -409,6 +409,9 @@ qualified: a driver can report SET success while leaving an offset unchanged.
 Druta reports the rail, affected field, requested and observed values, and any
 separate boost or metadata discrepancy. An ignored request fails verification;
 if the captured requests cannot be restored, recovery remains required.
+Research into a separate live equation control also observed changes in the
+evaluated V/F curve after an unchanged request. Its cause is not established,
+and neither live bound changes nor arbitrary rail-offset replay are qualified.
 Changing ALT can change the shared boost contribution and the computed REL and
 effective limits on both rails. OV can change the selected rail's effective
 limit. These computed outputs are recorded without assuming a firmware formula.
