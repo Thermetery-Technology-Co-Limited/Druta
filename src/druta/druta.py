@@ -101,7 +101,7 @@ from .nvbackend import (GPU, EVENT_REASONS, PERF_DECREASE_BITS, VF_STEP_KHZ, VF_
                         PRIV_LIKELY, PRIV_N_DOMAINS, PRIV_PCIE_GEN, PRIV_SLOT,
                         PRIV_UNNAMED, PRIV_UNPOPULATED)
 
-__version__ = "1.9.03"
+__version__ = "1.9.04"
 
 # ---- palette (ImGui takes 0-255 RGBA) ------------------------------------- #
 TEXT = (230, 232, 236)
@@ -8119,8 +8119,11 @@ class Druta:
             self.sync_slider_ranges(self._xoc_bounds)
         if dpg.does_item_exist("power_request_status"):
             text = (f"Configured request: {requested / 1000:g} W. "
-                    "Firmware limits: Registry / BIOS overrides > Power/current arbitration."
                     if type(requested) is int and requested > 0 else "Configured power request unavailable.")
+            enforced = d.get("pl_now_mw")
+            if type(enforced) is int and enforced > 0:
+                text += f" Driver-reported enforced limit: {enforced / 1000:g} W."
+            text += " Firmware limits: Registry / BIOS overrides > Power/current arbitration."
             dpg.set_value("power_request_status", text)
         c_t = d.get("core_p0max", "?")
         m_t = self.mem_fmt(d.get("mem_p0max"))[0]

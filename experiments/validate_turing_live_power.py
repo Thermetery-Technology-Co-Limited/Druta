@@ -1,6 +1,6 @@
 # Copyright (C) 2026 Thermetery Technology Co Limited
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Reversible idle qualification of the smaller client/native power ABI.
+"""Reversible idle qualification of understood Turing client/native power ABIs.
 
 Default is read-only. --execute tests 349/351/400 W only when those points
 bracket THIS adapter's reported bounds. No workload, voltage, registry or
@@ -31,14 +31,14 @@ def save(path, value):
 
 
 def summary(state):
-    size, stride = cp._small_native_geometry(state["binding"])
+    info_base, info_stride, control_base, stride, size = cp._native_geometry(state["binding"])
     info, control = bytes.fromhex(state["native_info_hex"]), bytes.fromhex(state["native_control_hex"])
     assert len(control) == size
     mask = cp._u32(info, 4)
     policies = []
     for index in range(32):
         if mask >> index & 1:
-            at, ctl = 88 + index * 228, 20 + index * stride
+            at, ctl = info_base + index * info_stride, control_base + index * stride
             policies.append({"index": index, "type": info[at + 4], "channel": info[at + 5],
                              "unit": info[at + 6], "requested": cp._u32(control, ctl + 4),
                              "minimum": cp._u32(info, at + 8), "rated": cp._u32(info, at + 12),
@@ -49,13 +49,18 @@ def summary(state):
 
 
 def idle(gpu):
-    live = gpu.read()
-    result = {k: live.get(k) for k in ("pstate", "util_gpu", "power_w", "temp_edge")}
-    assert result["pstate"] == 0, "P0 hold is required for the memory-modified qualification board"
-    assert result["util_gpu"] is not None and result["util_gpu"] <= 5, result
-    assert result["power_w"] is not None and result["power_w"] <= 80, result
-    assert result["temp_edge"] is not None and result["temp_edge"] <= 55, result
-    return result
+    samples = []
+    for attempt in range(5):
+        live = gpu.read()
+        result = {k: live.get(k) for k in ("pstate", "util_gpu", "power_w", "temp_edge")}
+        samples.append(result)
+        assert result["pstate"] == 0, "P0 hold is required for the memory-modified qualification board"
+        if (result["util_gpu"] is not None and result["util_gpu"] <= 5
+                and result["power_w"] is not None and result["power_w"] <= 80
+                and result["temp_edge"] is not None and result["temp_edge"] <= 55):
+            return {**result, **({"settling_samples": samples} if attempt else {})}
+        time.sleep(0.2)
+    raise AssertionError(f"Qualification board did not settle at idle: {samples}")
 
 
 def native_status(gpu, baseline):
@@ -63,7 +68,7 @@ def native_status(gpu, baseline):
         layout = gpu._current_limit_abi()
         mask = cp._u32(bytes.fromhex(baseline["native_info_hex"]), 4)
         words = gpu._current_limit_rm(cp.NATIVE_STATUS, policy_mask=mask)
-    assert words[1] == mask
+    assert words[layout.get("status_mask_word", 1)] == mask
     return {str(index): {"type": words[(layout["status"][0] + index * layout["status"][1]) // 4],
                          "effective": words[(layout["status"][0] + index * layout["status"][1]) // 4 + 1]}
             for index in range(32) if mask >> index & 1}
@@ -116,7 +121,6 @@ def main():
     controller = cp.ClientPowerController(gpu)
     before = controller.read()
     assert before["identity"]["architecture"] == GPU.ARCH_TURING
-    assert before["binding"].get("native_layout") == "policy124"
     report = {"date": "2026-10-28", "identity": {k: gpu.static.get(k) for k in ("name", "driver", "vbios", "slot")},
               "existing_p0_hold": hold, "board_note": "Owner reports imperfect 16 GB VRAM modification; P5/P8 must be avoided",
               "pci_identity": before["identity"], "baseline": summary(before), "trials": [],

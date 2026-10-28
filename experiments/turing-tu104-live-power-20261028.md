@@ -82,6 +82,12 @@ The inherited 1999 W software XOC envelope is not a newly measured Turing
 physical ceiling. Detailed arbitration and original-BIOS coloring remain
 unavailable with the smaller layout.
 
+The owner subsequently supplied a separate
+[FurMark A/B load observation](turing-owner-furmark-ab-20261028.md) on this
+shunt-modified board. It supports a physical response to the extended limit;
+it is owner-reported evidence, separate from the instrumented idle trials
+above, and does not calibrate actual board input power.
+
 ## Reproduction
 
 Install the pinned requirements, then use read-only mode first:

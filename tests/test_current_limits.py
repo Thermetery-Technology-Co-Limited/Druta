@@ -198,7 +198,7 @@ class CurrentLimitTests(unittest.TestCase):
         state.control[word] = state.dynamic[status_word] = 270389
 
         def observation():
-            return ({"binding": {"layout": "legacy32", "maximum_mw": 380000},
+            return ({"binding": {"layout": "legacy32", "maximum_mw": 380000}, "role_info_hex": "0100000030",
                      "requested_mw": 381000,
                      "native_info_hex": struct.pack(f"<{len(state.info)}I", *state.info).hex(),
                      "native_control_hex": struct.pack(f"<{len(state.control)}I", *state.control).hex()}, None)
@@ -219,14 +219,14 @@ class CurrentLimitTests(unittest.TestCase):
                 word = (0x14 + 13 * 0xB8) // 4 + 1
                 status_word = (0x80 + 13 * 0x168C) // 4 + 1
                 state.control[word] = state.dynamic[status_word] = 270389
-                observed = {"binding": {"layout": "legacy32", "maximum_mw": 380000},
+                observed = {"binding": {"layout": "legacy32", "maximum_mw": 380000}, "role_info_hex": "0100000030",
                             "requested_mw": 381000,
                             "native_info_hex": struct.pack(f"<{len(state.info)}I", *state.info).hex(),
                             "native_control_hex": struct.pack(f"<{len(state.control)}I", *state.control).hex()}
                 if reason == "normal_board":
                     observed["requested_mw"] = 380000
                 elif reason == "wrong_layout":
-                    observed["binding"]["layout"] = "modern"
+                    observed["role_info_hex"] = "0100000040"
                 elif reason == "different_table":
                     observed["native_control_hex"] = "00"
                 elif reason == "effective_mismatch":
@@ -245,13 +245,14 @@ class CurrentLimitTests(unittest.TestCase):
                 status_word = (0x70 + 13 * 0x1454) // 4 + 1
                 state.control[word] = state.dynamic[status_word] = 390360
                 observed = {"binding": {"layout": "legacy32", "native_layout": "policy124", "maximum_mw": 350000},
+                            "role_info_hex": "0100000030",
                             "requested_mw": 351000,
                             "native_info_hex": struct.pack(f"<{len(state.info)}I", *state.info).hex(),
                             "native_control_hex": struct.pack(f"<{len(state.control)}I", *state.control).hex()}
                 if reason == "normal_board":
                     observed["requested_mw"] = 350000
                 elif reason == "wrong_layout":
-                    observed["binding"]["layout"] = "modern"
+                    observed["role_info_hex"] = "0100000040"
                 elif reason == "different_table":
                     observed["native_control_hex"] = "00"
                 elif reason == "effective_mismatch":

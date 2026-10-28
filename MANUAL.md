@@ -604,20 +604,41 @@ GPU or Windows. The configured request and measured draw remain separate;
 **Registry / BIOS overrides > Power/current arbitration** shows host and
 firmware votes and effective limits.
 
-On adapters using the older client-power layout, changing the board request can
-also recalculate other power and current requests. Druta checks the resulting
-control records and re-applies values pinned in this session. Arbitration-vote
+On adapters using v30 firmware power-policy definitions, changing the board
+request can also recalculate other power and current requests, including when
+the driver uses larger modern packets. Druta checks the resulting control
+records and re-applies values pinned in this session. Arbitration-vote
 details and original-BIOS-range coloring may be unavailable independently of
 the live request control. The reported limit is not a measurement of actual
 power draw.
 
-Turing adapters exposing the understood 124-byte native policy controls now
-use this path too. On one Gigabyte RTX 2080 SUPER AORUS Xtreme with driver
-581.42, idle 351 W and 400 W requests exceeded the reported 350 W ordinary
-maximum and restored the full initial state. Core current stayed readable
-after driver-derived values exceeded its advertised maximum; new independent
-current requests still use the adapter's own bounds. See
-`experiments/turing-tu104-live-power-20261028.md` for scope and measurements.
+Turing adapters can expose several understood packet layouts. On one Gigabyte
+RTX 2080 SUPER AORUS Xtreme, driver 581.42 used 124-byte native controls,
+431.60 used the smaller `26xx` interface, and 621.01 used larger modern packets
+carrying v30 firmware definitions. All three accepted idle 351 W and 400 W
+configured requests above the reported 350 W ordinary maximum and restored
+their complete captured state. Configured requests and native effective limits
+can differ: on 431.60, 349/351/400 W requests first reported native effective
+limits of 349/350/350 W, then settled within about 0.3 seconds at
+359.906/360.938/360.938 W, with core current remaining at 324 A. The plateau is
+consistent with a 350 W clamp plus a driver status uplift; it does not resolve
+physical enforcement. On 621.01, the same requests produced native effective
+limits of 359.906/361.969/412.5 W and core current of
+359.640/360.360/378 A. These are software status values, not physical watts.
+
+The 431.60 and 621.01 production checks also verified repeated board requests
+with a separate 350 A current pin. On 621.01, core current stayed readable after
+driver-derived values exceeded its advertised maximum; new independent current
+requests still use the adapter's own bounds. See the
+[driver comparison](experiments/turing-driver-live-comparison-20261028.md) for
+scope and measurements. The 431.60 qualification establishes configured-request
+acceptance and recovery; its settled status plateau leaves downstream override
+unqualified. The 621.01 status reports software headroom above the ordinary
+maximum. The control view independently shows the NVML enforced limit alongside
+the configured request; neither value measures actual power draw.
+The separate [owner FurMark A/B report](experiments/turing-owner-furmark-ab-20261028.md)
+supports operative limit changes on the shunt-modified board during the prior
+581.42 session; physical enforcement on 431.60 and 621.01 remains unmeasured.
 
 Very high requests can produce a lower native effective limit. On one RTX
 3070 Ti, a 1,024 W request reported a 7.424 W native board limit, while a

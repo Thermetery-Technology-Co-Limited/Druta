@@ -2752,8 +2752,8 @@ not infer the active registry selection from a voltage number.
 
 ## Live client power requests
 
-When the modern INFO packet is rejected with INVALID_ARGUMENT, an Ampere
-adapter may expose a smaller 32-row client layout. Druta tries that known
+When the modern INFO packet is rejected with INVALID_ARGUMENT, an Ampere or
+Turing adapter may expose a smaller 32-row client layout. Druta tries that known
 read-only layout and requires an exact semantic-role/native-INFO binding, a
 stable restorable FE request, matching native CONTROL, and PCI pairing before
 enabling a SET. Packet sizes are capability checks, not driver-version or
@@ -2782,19 +2782,80 @@ not establish physical enforcement under load. See the
 report for complete geometry, sample values and restoration hashes.
 
 The [offline driver ABI comparison](experiments/turing-driver-abi-review-20261028.md)
-records 431.60's distinct `26xx` wrapper packets and 621.01's modern packet
-sizes, with instruction RVAs, bytes and PE hashes. Neither supplied driver was
-activated on the P0-sensitive qualification board. Static dispatch evidence
-does not establish role layout or live acceptance on either driver; unknown
-transport geometry remains an unsupported result before SET.
+records the investigation before the supplied 431.60 and 621.01 drivers were
+installed. The subsequent [live comparison](experiments/turing-driver-live-comparison-20261028.md)
+qualified configured-request acceptance, readback and restoration through both
+interfaces on the same P0-sensitive board without a Windows reboot. The
+[431.60 static layout evidence](experiments/turing-43160-static-layout-20261028.md)
+adds exact wrapper/kernel instruction bytes, RVAs, hashes and command-table
+entries. Binary identities identify evidence; they do not select support.
 
-For the smaller layout, a board SET can recalculate other occupied policies.
-Druta validates their understood type, units, bounds and changed request words
-while preserving all other bytes; it re-applies this session's user-pinned
-values. A failed SET compensates the board request and restores any changed
-peer requests, reporting whether the complete captured state was recovered.
-Legacy-layout arbitration votes and original-BIOS-range provenance may be
-unavailable without disabling the independent request path.
+The short `20802612` transport is 2524/2456 bytes, independent of the previously
+supported 3548/3480-byte transport. The accepted short geometry is:
+
+| Operation | Wire command | Parameters | Mask and rows |
+| --- | --- | ---: | --- |
+| Client INFO | `20802630` | 644 | Mask +0; rows `4 + 20*i` |
+| Client CONTROL GET / SET | `20802632` / `20802633` | 388 | Mask +0; rows `4 + 12*i`, request +4, caller +8 |
+| Role INFO | `2080261C` | 120 | Selector 1; 116-byte native definition +4 |
+| Native INFO | `20802618` | 5008 | Mask +4; rows `52 + 116*i` |
+| Native CONTROL GET / SET | `2080261A` / `2080261B` | 2108 | Mask +0; rows `4 + 52*i`, request +4 |
+| Native STATUS | `20802619` | 14148 | Mask +0; rows `12 + 372*i`, effective +4 |
+
+The 32-bit occupancy masks bound row capacity independently of unused packet
+tails. Native policy type, units and bounds retain row offsets +4, +6 and
++8/+12/+16. The short CONTROL has a one-word header; selected-mask construction,
+header validation, current writes, full-policy writes, pin replay and
+restoration use its mask offset. Recognizing this power transport does not
+enable modern PERF diagnostic commands on it.
+
+On the observed 431.60 interface, role1 uniquely bound client row0 to native
+policy2. The raw FE caller returned the existing 250000 mW request. The public
+NVAPI wrapper's separately traced F8 conversion does not redefine that raw RM
+caller; Druta changes the existing validated FE request, without seeding a
+missing caller. These local row numbers are evidence, not compatibility gates.
+
+On 621.01, the accepted modern INFO/CONTROL/STATUS sizes were
+20512/13876/397048 bytes, carrying a v30 firmware definition in 260-byte native
+INFO rows. Firmware table version and RM packet capacity are independent.
+Selected role/native definitions must match exactly; the modern packet accepts
+the understood v30 or v40 definition, while unknown versions remain refused.
+
+For v30 firmware definitions in any understood packet family, a board SET can
+recalculate other occupied policies. Druta validates their type, units, bounds
+and changed request words while preserving all other bytes; it re-applies this
+session's user-pinned values. A failed SET compensates the board request and
+restores changed peer requests, reporting whether the complete captured state
+was recovered. The selected native geometry drives both checks and recovery.
+Derived current above an advertised maximum requires matching native INFO and
+CONTROL snapshots, an extended board request and equal requested/effective
+current; independent current writes remain bounded by their own descriptors.
+Arbitration details requiring v40 definitions and original-BIOS provenance can
+remain unavailable independently of the request control.
+
+Both 431.60 and 621.01 accepted and read back idle 349/351/400 W configured
+requests against the same 105/250/350 W ordinary range. Paired native STATUS
+captures on 431.60 first reported effective board limits of 349/350/350 W,
+then settled within about 0.3 seconds at 359.906/360.938/360.938 W. Four further
+samples per request agreed with the settled value; core current remained at
+324 A throughout. The plateau is consistent with a 350 W clamp plus a driver
+status uplift, rather than a strict 350 W reported effective cap. Configured
+request acceptance therefore does not qualify downstream override on that
+interface or resolve physical behavior. On 621.01, all five samples per request
+reported native effective limits of 359.906/361.969/412.5 W and core current was
+359.640/360.360/378 A. This reports
+software headroom above the ordinary maximum, not measured physical power.
+The control view independently shows the NVML enforced limit alongside the
+configured request; these reported controls do not measure actual power draw.
+Production 351 W checks on both drivers re-applied a separate 350 A pin
+after a repeated board request and refused an independent 360.001 A request.
+Every trial restored its complete captured 250 W client/native baseline with
+the V/F hold unchanged and P0 verified. The original 581.42 trials above had a
+350 W initial baseline. No workload or calibrated physical-power measurement
+was used in these driver comparisons. The separate
+[owner FurMark observation](experiments/turing-owner-furmark-ab-20261028.md)
+supports an operative limit increase during the preceding 581.42 session;
+physical enforcement on 431.60 and 621.01 remains unmeasured.
 
 On the ASUS Strix RTX 3070 Ti / 595.97, the production setter accepted and
 read back 381 W against a reported 380 W maximum at idle. A 65.9 W pinned
@@ -2807,9 +2868,9 @@ modified. See `experiments/ampere-live-client-power-20261027.md`.
 semantic-role INFO and an identical occupied native policy row. The external
 client index and native policy index are distinct namespaces. Two complete
 stable INFO/CONTROL observations establish the existing FE request. The live
-`0x2080E633` setter changes that request once and verifies the exact client and
+`0x2080E633` setter, or short-interface `0x20802633`, changes that request once and verifies the exact client and
 selected native CONTROL; other native bytes are preserved except for the
-validated legacy peer request words described above. A dispatched failure
+validated v30 peer request words described above. A dispatched failure
 attempts one compensating original SET and exact restoration readback. Optional
 power STATUS is diagnostic; it never replaces accepted-request readback.
 
@@ -2824,8 +2885,8 @@ A prior capability can retain its UI range after a transient observation failure
 any SET still requires fresh complete readback. Missing NVML range metadata can
 be populated from the live binding; absent unrelated STATUS does not remove it.
 
-The modern layout preserves full peer CONTROL and existing pin bookkeeping
-without adding pin writes. A policy Stock action under an extended board request writes
+With a v40 firmware definition, peer CONTROL remains exact and existing pin
+bookkeeping is retained without adding pin writes. A policy Stock action under an extended board request writes
 its selected default and verifies the board request stayed exact; it reports
 that host-derived limits were not recomputed. It does not send an intermediate
 ordinary board request. Profiles validate against the same bounds, and capture
