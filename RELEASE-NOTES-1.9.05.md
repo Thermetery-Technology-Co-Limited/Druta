@@ -112,3 +112,10 @@ existing pinned dependencies.
 Validation: the complete hardware-free suite passed **6672 tests in 149.75
 seconds**. The new and changed clock, native-status, power-UI and current tests
 pass Ruff. Existing whole-module lint findings remain unchanged.
+
+The packaged 472.12 smoke check visibly verified the 400 W configured/NVML
+request versus 360.938 W native warning, then returned to 350 W with Max it
+and the 1062.5 mV P0 hold. After the live driver swap, the viewport initially
+presented blank white despite a complete framebuffer; minimizing/restoring
+and resizing restored the visible controls. A PnP restart alone did not clear
+it. This presentation issue remains unresolved; no Windows reboot was used.

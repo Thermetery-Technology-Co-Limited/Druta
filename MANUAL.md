@@ -711,3 +711,8 @@ is unresolved; restoring those fields does not prove complete physical clock
 state restoration. The
 [472.12 comparison](experiments/turing-47212-compatibility-20261028.md) records
 the tested scope and links both clock reports.
+
+After a live display-driver replacement, a blank white application window can
+need minimizing/restoring and resizing. This recovered the packaged UI in the
+472.12 comparison despite an already complete rendered framebuffer; a PnP
+restart alone did not clear it. The presentation cause remains unresolved.
