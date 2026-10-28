@@ -45,6 +45,12 @@ class RegistryPanel:
         self.rel_live_snapshot = None
         self.rel_live_choices = {}
         self.rel_live_stale = False
+        self.constants_live_control = None
+        self.constants_live_snapshot = None
+        self.constants_live_choices = {}
+        self.constants_live_stale = False
+        if not hasattr(app, "_constants_live_initial_states"):
+            app._constants_live_initial_states = {}
         if not hasattr(app, "_rel_live_initial_states"):
             app._rel_live_initial_states = {}
         if not hasattr(app, "_voltage_gate_initial_states"):
@@ -182,6 +188,25 @@ class RegistryPanel:
             dpg.add_input_text(
                 tag="reg_rel_live_inventory", readonly=True, multiline=True, width=-1, height=self.app.s(110)
             )
+        with dpg.collapsing_header(label="Live OV and ALT values"):
+            dpg.add_text(
+                "Change an OV constant or ALT addend for this driver session without restarting the GPU. "
+                "Reported policy values can differ. Physical enforcement has not been measured.",
+                wrap=self.app.s(900),
+            )
+            with dpg.group(horizontal=True):
+                dpg.add_button(label="Read", callback=self.refresh_constants_live)
+                dpg.add_combo([], tag="reg_constants_live_select", width=self.app.s(240), enabled=False,
+                              callback=self.select_constants_live)
+                dpg.add_input_text(label="Value (mV)", tag="reg_constants_live_value",
+                                   width=self.app.s(130), enabled=False)
+                dpg.add_button(label="Apply now", tag="reg_constants_live_apply",
+                               callback=self.apply_constants_live, enabled=False)
+                dpg.add_button(label="Restore initial value", tag="reg_constants_live_restore",
+                               callback=self.restore_constants_live, enabled=False)
+            dpg.add_text("Read live values before changing them.", tag="reg_constants_live_status", wrap=self.app.s(900))
+            dpg.add_input_text(tag="reg_constants_live_inventory", readonly=True, multiline=True, width=-1,
+                               height=self.app.s(130))
         with dpg.collapsing_header(label="Voltage switch-delay requests"):
             dpg.add_text(
                 "Read and change a voltage device's switch-delay request in microseconds. "
@@ -279,6 +304,140 @@ class RegistryPanel:
     @staticmethod
     def _rel_mv(value):
         return format(Decimal(value) / 1000, "f")
+
+    @staticmethod
+    def _parse_live_mv(text):
+        amount = Decimal(text.strip()) * 1000
+        if not amount.is_finite() or amount != amount.to_integral_value():
+            raise ValueError("not a whole microvolt")
+        return int(amount)
+
+    @staticmethod
+    def _constants_live_key(snapshot, row):
+        return (tuple(sorted(snapshot["identity"].items())), snapshot["image_sha256"],
+                row["rail"], row["role"], row["equation"])
+
+    def _constants_live_failed(self, message):
+        self.constants_live_snapshot = None
+        self.constants_live_choices = {}
+        self.constants_live_stale = False
+        for tag in ("reg_constants_live_select", "reg_constants_live_value", "reg_constants_live_apply",
+                    "reg_constants_live_restore"):
+            dpg.configure_item(tag, enabled=False)
+        dpg.set_value("reg_constants_live_status", message)
+        dpg.set_value("reg_constants_live_inventory", "")
+        self.app.log(message, False)
+
+    def _show_constants_live(self, snapshot, prefix=""):
+        self.constants_live_snapshot = snapshot
+        self.constants_live_stale = False
+        self.constants_live_choices = {}
+        lines = []
+        for row in snapshot["rows"]:
+            role = "ALT addend" if row["role"] == "ALT" else "OV constant"
+            label = f"{row['label']} (rail {row['rail']}) {role}"
+            if row["status"] == "ready":
+                self.constants_live_choices[label] = row
+                self.app._constants_live_initial_states.setdefault(self._constants_live_key(snapshot, row), row["value_uv"])
+                reported = row.get("reported_uv")
+                reported_text = f"{self._rel_mv(reported)} mV" if reported is not None else "unavailable"
+                lines.append(f"{label}: current {self._rel_mv(row['value_uv'])} mV; "
+                             f"stored {self._rel_mv(row['stored_value_uv'])} mV; "
+                             f"reported {row['role']} {reported_text}")
+            else:
+                lines.append(f"{label}: {row['status']}; " + "; ".join(row.get("issues", [])))
+        unavailable = snapshot.get("unavailable_peers", [])
+        if unavailable:
+            lines.append("Optional readbacks unavailable: " + ", ".join(unavailable) + ".")
+        inventory = "\n".join(lines) or "No values returned."
+        dpg.set_value("reg_constants_live_inventory", inventory)
+        if not self.constants_live_choices:
+            self._constants_live_failed(prefix + "No supported live values are available.")
+            dpg.set_value("reg_constants_live_inventory", inventory)
+            return
+        previous = dpg.get_value("reg_constants_live_select")
+        selected = previous if previous in self.constants_live_choices else next(iter(self.constants_live_choices))
+        dpg.configure_item("reg_constants_live_select", items=list(self.constants_live_choices), enabled=True)
+        dpg.set_value("reg_constants_live_select", selected)
+        self.select_constants_live()
+        if prefix:
+            dpg.set_value("reg_constants_live_status", prefix + dpg.get_value("reg_constants_live_status"))
+
+    def select_constants_live(self, *unused):
+        row = self.constants_live_choices.get(dpg.get_value("reg_constants_live_select"))
+        if row is None or self.constants_live_snapshot is None:
+            self._constants_live_failed("Read live values for the selected adapter first.")
+            return
+        dpg.set_value("reg_constants_live_value", self._rel_mv(row["value_uv"]))
+        dpg.configure_item("reg_constants_live_value", enabled=True)
+        dpg.configure_item("reg_constants_live_apply", enabled=True)
+        initial = self.app._constants_live_initial_states[self._constants_live_key(self.constants_live_snapshot, row)]
+        dpg.configure_item("reg_constants_live_restore", enabled=row["value_uv"] != initial)
+        role = "ALT addend" if row["role"] == "ALT" else "OV constant"
+        dpg.set_value("reg_constants_live_status", ("Previous read is stale. " if self.constants_live_stale else "")
+                      + f"{row['label']} {role}: {self._rel_mv(row['value_uv'])} mV.")
+
+    def refresh_constants_live(self, *unused):
+        from .voltage_constants_live import VoltageConstantsController
+
+        same = (self.constants_live_control is not None and self.constants_live_control.gpu is self.app.gpu
+                and self.constants_live_snapshot is not None
+                and self.constants_live_snapshot["identity"]["slot"] == self.app.gpu.slot())
+        try:
+            if self.constants_live_control is None or self.constants_live_control.gpu is not self.app.gpu:
+                self.constants_live_snapshot = None
+                self.constants_live_control = VoltageConstantsController(self.app.gpu)
+            self._show_constants_live(self.constants_live_control.read())
+        except Exception as exc:
+            message = "Live value read unavailable: " + str(exc)
+            if same and getattr(exc, "kind", None) == "transient":
+                self.constants_live_stale = True
+                dpg.set_value("reg_constants_live_status", message + " Previous read is stale; refresh to verify.")
+                self.app.log(message, False)
+            else:
+                self._constants_live_failed(message)
+
+    def _set_constants_live(self, value):
+        if not self.app.guard():
+            return
+        row = self.constants_live_choices.get(dpg.get_value("reg_constants_live_select"))
+        if (self.constants_live_control is None or self.constants_live_control.gpu is not self.app.gpu
+                or self.constants_live_snapshot is None or row is None
+                or self.constants_live_snapshot["identity"]["slot"] != self.app.gpu.slot()):
+            self._constants_live_failed("Read live values for the selected adapter first.")
+            return
+        try:
+            self._show_constants_live(self.constants_live_control.set(row["rail"], row["role"], value), "Applied live. ")
+            self.app.log("Live voltage value applied.", True)
+        except Exception as exc:
+            message = "Live value change failed: " + str(exc)
+            rollback = getattr(exc, "rollback", None)
+            if not getattr(exc, "attempted", False):
+                if getattr(exc, "kind", None) == "identity":
+                    self._constants_live_failed(message)
+                else:
+                    dpg.set_value("reg_constants_live_status", message)
+                    self.app.log(message, False)
+            elif isinstance(rollback, dict) and rollback.get("verified") and rollback.get("readback"):
+                self._show_constants_live(rollback["readback"], message + " Original value restored. ")
+                self.app.log(message, False)
+            else:
+                self._constants_live_failed(message + " Recovery required; read and verify the current state.")
+
+    def apply_constants_live(self, *unused):
+        try:
+            value = self._parse_live_mv(dpg.get_value("reg_constants_live_value"))
+        except (AttributeError, TypeError, ValueError, InvalidOperation):
+            dpg.set_value("reg_constants_live_status", "Enter a finite mV value with whole-microvolt precision.")
+            return
+        self._set_constants_live(value)
+
+    def restore_constants_live(self, *unused):
+        row = self.constants_live_choices.get(dpg.get_value("reg_constants_live_select"))
+        if row is not None and self.constants_live_snapshot is not None:
+            value = self.app._constants_live_initial_states.get(self._constants_live_key(self.constants_live_snapshot, row))
+            if value is not None:
+                self._set_constants_live(value)
 
     def _rel_live_failed(self, message):
         self.rel_live_snapshot = None
@@ -401,10 +560,7 @@ class RegistryPanel:
 
     def apply_rel_live(self, *unused):
         try:
-            amount = Decimal(dpg.get_value("reg_rel_live_value").strip()) * 1000
-            if not amount.is_finite() or amount != amount.to_integral_value():
-                raise ValueError("not a whole microvolt")
-            value = int(amount)
+            value = self._parse_live_mv(dpg.get_value("reg_rel_live_value"))
         except (AttributeError, TypeError, ValueError, InvalidOperation):
             dpg.set_value("reg_rel_live_status", "Enter a finite mV value with whole-microvolt precision.")
             return

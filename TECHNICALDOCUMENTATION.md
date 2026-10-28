@@ -2523,6 +2523,39 @@ request were unchanged. These earlier constant-equation trials used 0% requested
 voltage boost. A subsequent production REL trial exercised nonzero boost and
 verified its restoration across Apply and Undo, as described below.
 
+The separate **Live OV and ALT values** panel uses
+`voltage_constants_live.VoltageConstantsController` and
+`vfe_equation_runtime.write_constants` for a session-only type3 write through
+`0x2080E0B7`. It binds the current loaded constant to the stored graph, variable,
+output units and next link, permitting repeated live edits without equating the
+stored value with the current value. Each call selects one complete row and
+changes only its two bounds and c0. The writer shares the guarded transport
+with the type6 writer, retains all other bytes, verifies complete fresh
+INFO/CONTROL, and never retries SET. The controller checks reported policy,
+complete rail requests, boost and readable clock requests, with the existing
+ALT shared-output allowances. Entered failures receive one original-row
+compensation and bounded GET-only verification of the full original state,
+including the evaluated curve. Optional absent peer APIs are listed separately
+from failures of present getters. Capability is evaluated per rail and role.
+
+Four source-product live trials on the same RTX 5080 changed and restored OV
+1200000 to 1195000 uV and ALT addend 20000 to 15000 uV independently on both
+rails. Each reported OV changed to 1195000 uV or reported ALT to 1055000 uV.
+Eight independent active snapshots over at least 20 seconds in each trial
+matched the full definition projection and configured peers. The full legacy
+rail packets and all six signed request words per rail stayed unchanged.
+The first evaluated-curve snapshot differed; the next and subsequent snapshots
+matched the initial curve. This bounds an observed transient rather than an
+exact settling time. All four trials recovered the complete original baseline
+after one explicit restoration. A separate live 1199000 uV OV request loaded
+that constant but reported 1195000 uV; exact policy verification rejected it and
+one automatic compensation restored the full baseline. These tests used 0%
+requested boost; nonzero retained-boost cases have offline coverage. There were
+no registry writes, driver restarts, workloads or physical voltage measurements.
+The [sanitized live-constant evidence](experiments/voltage-live-constants-20261028.json)
+records the tested scope. Arbitrary six-word replay, nonzero variable operand
+semantics, modern F219 effects and physical enforcement remain unqualified.
+
 ## REL upper-clamp controls
 
 `voltage_rel_runtime.py` uses the same combined voltage observation as OV/ALT,

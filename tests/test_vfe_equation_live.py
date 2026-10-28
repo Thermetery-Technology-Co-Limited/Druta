@@ -6,7 +6,14 @@ import ctypes
 import pytest
 
 from druta import vfe_equation_runtime as vfe
-from tests.test_vfe_equation_runtime import Gpu, clamp_observation, clamp_selections, mutate
+from tests.test_vfe_equation_runtime import (
+    Gpu,
+    clamp_observation,
+    clamp_selections,
+    mutate,
+    observation,
+    selections,
+)
 
 
 class WriteGpu(Gpu):
@@ -113,4 +120,63 @@ def test_marker_failure_does_not_enter_transport(fixture):
 
     with pytest.raises(RuntimeError, match="journal unavailable"):
         vfe.write_upper_clamps(gpu, saved, on_attempt=fail)
+    assert not gpu.writes
+
+
+@pytest.fixture
+def constant_fixture(monkeypatch):
+    before = observation(slot="0000:04:00.2", architecture=7, device_id=42, subsystem_id=0xDEADBEEF)
+    # Unknown selected-row bytes must survive the complete native row write.
+    mutate(before, "control", vfe.HEADER + 37 * vfe.CONTROL_STRIDE + 0x37, 0xA5)
+    saved = vfe.contracts(before, selections())
+    gpu = WriteGpu(before)
+    monkeypatch.setattr(vfe, "read", lambda target: (copy.deepcopy(target.observation), None))
+    return gpu, saved
+
+
+def test_constant_apply_preserves_packet_and_uses_singleton_mask(constant_fixture):
+    gpu, saved = constant_fixture
+    markers = []
+    assert vfe.write_constants(gpu, saved, on_attempt=lambda: markers.append(len(gpu.writes))) == saved["after"]
+    payload = bytearray.fromhex(saved["after"]["control_hex"])
+    payload[4 : 4 + vfe.MASK_BYTES] = bytes(vfe.MASK_BYTES)
+    payload[4 + 37 // 8] = 1 << (37 % 8)
+    assert gpu.writes == [bytes(payload)] and markers == [0]
+
+
+def test_constant_restore_preserves_current_peer_and_original_row(constant_fixture):
+    gpu, saved = constant_fixture
+    gpu.observation = copy.deepcopy(saved["after"])
+    mutate(gpu.observation, "control", vfe.HEADER + 401 * vfe.CONTROL_STRIDE + 31, 0x51)
+    expected = bytearray.fromhex(gpu.observation["control_hex"])
+    original = bytes.fromhex(saved["before"]["control_hex"])
+    start = vfe.HEADER + 37 * vfe.CONTROL_STRIDE
+    expected[start : start + vfe.CONTROL_STRIDE] = original[start : start + vfe.CONTROL_STRIDE]
+    result = vfe.write_constants(gpu, saved, restore=True)
+    assert bytes.fromhex(result["control_hex"]) == expected and len(gpu.writes) == 1
+
+
+@pytest.mark.parametrize("fault", ["transport", "rm", "routing", "incomplete", "ignored", "guard"])
+def test_constant_failure_is_marked_and_never_retried(constant_fixture, fault):
+    gpu, saved = constant_fixture
+    gpu.write_fault = fault
+    marker = []
+    with pytest.raises((vfe.VfeEquationError, vfe.PerfDiagnosticError)):
+        vfe.write_constants(gpu, saved, on_attempt=lambda: marker.append(True))
+    assert marker == [True] and len(gpu.writes) == 1
+
+
+def test_constant_rejects_wrong_type_contract_and_changed_identity(constant_fixture):
+    gpu, saved = constant_fixture
+    bad = copy.deepcopy(saved)
+    mutate(bad["before"], "info", vfe.HEADER + 37 * vfe.INFO_STRIDE, 6)
+    with pytest.raises(vfe.VfeEquationError, match="type3"):
+        vfe.write_constants(gpu, bad)
+    bad = copy.deepcopy(saved)
+    bad["selected"]["voltage.1.ALT.addend"]["after_uv"] += 1
+    with pytest.raises(vfe.VfeEquationError):
+        vfe.write_constants(gpu, bad)
+    gpu.observation["identity"]["device_id"] ^= 1
+    with pytest.raises(vfe.VfeEquationError, match="target or INFO"):
+        vfe.write_constants(gpu, saved, restore=True)
     assert not gpu.writes

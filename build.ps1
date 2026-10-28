@@ -80,6 +80,7 @@ function Get-SourceSnapshot {
         'experiments/strix-3070ti-mp2888-20261015.md',
         'experiments/ampere-live-client-power-20261027.md',
         'experiments/ampere-four-digit-policy-summary-20261027.json',
+        'experiments/voltage-live-constants-20261028.json',
         'experiments/validate_strix_mp2888_production.py',
         'experiments/validate_strix_mp2888_production.json',
         'experiments/meter_strix_mp2888_production.json',

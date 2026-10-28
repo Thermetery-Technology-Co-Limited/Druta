@@ -561,6 +561,24 @@ def write_upper_clamps(gpu, saved, *, restore=False, on_attempt=None):
     validate_clamp_contracts(saved.get("selected"), saved)
     if len(saved.get("selected", {})) != 1 or type(restore) is not bool:
         raise VfeEquationError("A live VFE write requires exactly one upper clamp")
+    return _write_selected_equation(gpu, saved, restore=restore, on_attempt=on_attempt)
+
+
+def write_constants(gpu, saved, *, restore=False, on_attempt=None):
+    """Write one saved type3 constant and verify the full loaded state.
+
+    The caller owns compensation after an attempted write. Readback verifies
+    definitions, not evaluated or physical voltage.
+    """
+    if not isinstance(saved, dict):
+        raise VfeEquationError("Malformed VFE constant contract")
+    validate_contracts(saved.get("selected"), saved)
+    if len(saved.get("selected", {})) != 1 or type(restore) is not bool:
+        raise VfeEquationError("A live VFE write requires exactly one constant")
+    return _write_selected_equation(gpu, saved, restore=restore, on_attempt=on_attempt)
+
+
+def _write_selected_equation(gpu, saved, *, restore, on_attempt):
     if on_attempt is not None and not callable(on_attempt):
         raise VfeEquationError("VFE write attempt marker must be callable")
     index = next(iter(saved["selected"].values()))["index"]
