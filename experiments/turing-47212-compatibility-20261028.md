@@ -146,3 +146,22 @@ agreement nor native status establishes actual electrical power on this board.
 
 The complete hardware-free suite passed **6672 tests** in **149.75 seconds**.
 Focused protocol, offset, readback/recovery and new UI tests passed Ruff.
+
+## Packaged application smoke check
+
+The packaged 1.9.05 application accepted an idle 400 W request and visibly
+reported configured/NVML-enforced 400 W alongside native effective 360.938 W,
+with the lower-native-limit warning. It was then set to 350 W with XOC off.
+**Max it** applied fan 100%, voltage boost 100%, the graphics curve and the
+existing 1062.5 mV P0 hold. A subsequent sample reported P0, core 2085 MHz,
+memory 7750 MHz and a 350000 mW configured request. These are an idle smoke
+check and deliberate handback settings, separate from the reversible trials'
+250 W baseline.
+
+After the live driver replacement, both source and packaged windows initially
+presented a blank white viewport despite a complete application framebuffer.
+A further PnP restart did not clear it; minimizing/restoring and resizing the
+window did. The packaged controls and warning were then visible and usable.
+The presentation cause remains unresolved. If this occurs after a live driver
+change, resize the window before assuming that controls or rendering failed.
+No Windows reboot was performed.

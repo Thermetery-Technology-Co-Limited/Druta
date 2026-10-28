@@ -55,6 +55,12 @@ clock-state restoration. See the
 [472.12 comparison](experiments/turing-47212-compatibility-20261028.md) and
 [431.60 clock record](experiments/turing-43160-clock-compat-20261028.json).
 
+The packaged 472.12 UI visibly verified the configured/NVML 400 W versus
+native 360.938 W warning. After the live driver swap, its initially blank
+white viewport needed minimizing/restoring and resizing to present correctly;
+a further PnP restart alone did not resolve it. The cause remains unresolved.
+The application was left at 350 W with Max it and the 1062.5 mV P0 hold.
+
 ## 1.9.04 Turing live power comparison
 
 On 2026-10-28, the local Gigabyte RTX 2080 SUPER AORUS Xtreme / TU104,
