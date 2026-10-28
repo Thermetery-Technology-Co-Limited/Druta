@@ -2861,15 +2861,20 @@ Older NVIDIA-authored Tegra single-u32 structures differ from the current
 variable operands and six-word request replay unqualified; see the
 [follow-up evidence](experiments/voltage-vmin-live-20261028.json).
 
-A later static pass identifies the deferred assignment of the modern group's
+A static trace identifies the deferred assignment of the modern group's
 receiver: a list consumer recovers the registered configuration owner and fills
 the `config+0x60` slot after construction. The constructor installs a generic
-indexed accessor; its final population path and the separately loaded owner of
-the returned object still require binding. This establishes a conditional host
-path, not its execution on the captured GPU or the mapped values' types, units,
-rails or firmware effects. The power-status trace also establishes that its
-transport descriptor and response parser use the same group buffer; the
-response producer and numerical conversion remain unresolved. No new tuning
+indexed accessor. The selected population callbacks and insertion are bound;
+each created section's owner reference points back through the constructed
+container to the earlier base container used by the second lookup. That base
+container's populated backing entry and data producer remain open. These are
+conditional host paths, not proof of execution on the captured GPU or the
+mapped values' types, units, rails or firmware effects.
+The power-status transport descriptor and response parser use the same group
+buffer, at a distinct offset within a common selected mapping on the traced
+direct path. A candidate manager was excluded after resolving a class-specific
+accessor to a different field; actual selection, backing production and the
+numerical conversion remain unresolved. No new tuning
 operation follows from these transport findings. See the
 [transport checkpoint and exact remaining boundaries](experiments/driver-transport-followup-20261028.json).
 

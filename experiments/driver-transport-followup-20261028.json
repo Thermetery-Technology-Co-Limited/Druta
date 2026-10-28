@@ -10,11 +10,16 @@
       "One conditional path has a paired request/response queue. Request slots use backing offset 0x200+slot*0x800; responses use 0x8200+slot*0x800, with a 16-byte header and checksum/length checks. The inspected direct mapping branch copies between that backing and caller message buffers."
     ],
     "not_proven": [
-      "The mapping between that message backing and the separately addressed group status buffer.",
+      "The actual selected manager entry and mapping allocation/producer. The conditional direct-path common mapping is traced, but the examined +0x18D8 candidate is excluded from the proven +0x420 accessor path for one exact constructed class.",
       "The producer of the response bytes, its processor or physical location.",
       "A numerical conversion establishing the empirical 33/32 modulo-2^20 pattern, UFXP20_12 representation, or physical enforcement."
     ],
-    "next": "Resolve the status descriptor's backing allocation and its relation to the response queue, then identify the data producer. The descriptor+0x10/group+0xD0 pointer alias is closed."
+    "next": "Follow the +0x1930 selected-manager construction and its entries for the traced class, and independently resolve active runtime selection and the alternate mapping path. Do not substitute the excluded +0x18D8 manager.",
+    "mapping_followup": [
+      "58EBA0 computes status descriptor+0x10 from the selected object+0x40 mapping pointer plus descriptor+0x04. Under the direct B3 mapping path and unchanged selection, the message queue and status data therefore occupy distinct regions of the same selected mapping.",
+      "The exact 18C4AD0 class path binds virtual+0x420 through a -8 thunk and root+0x5F0 to a getter of root+0x1930. The candidate manager constructed at root+0x18D8 is a different field and cannot be substituted for the selected manager on this class path.",
+      "A conditional construction of the +0x1930 manager reaches a requested 0x4B0 object; its populated entries, mapping and producer remain unresolved. The captured runtime class and alternative mapping path have not been established."
+    ]
   },
   "modern_voltage_receiver": {
     "image_sha256": "3f8d33495cabeb2fa11ebdcf0b12705e9ccfb4e53005324bcd86e9dea8ba2ab4",
@@ -31,14 +36,28 @@
     ],
     "not_proven": [
       "Execution and ordering of this construction/registration/population path on the captured adapter.",
-      "The final retained accessor across population callbacks and identity of the separate receiver loaded from the returned object's +0x20 owner.",
+      "Complete base-container population and selected backing entry, final retention beyond the inspected construction/population route, and actual execution on the captured adapter.",
       "The producer and typed interpretation of the mapped values, rail association, successful F219 effects or arbitrary six-word request replay."
     ],
-    "next": "Finish the constructed receiver's population/accessor binding and the returned object's owner path, then identify a matched producer and typed representation before proposing a nonzero request."
+    "next": "Trace the base container's populated backing entry and actual data producer. Preserve the established item+0x20 -> root+0x880 -> base-container reference rather than retracing the generic factory; match a typed representation before proposing a nonzero request.",
+    "population_followup": [
+      "The constructed receiver selects an embedded interface at root+0x988 through CE49B0. CFF760 replaces the default population callbacks with CFF170 (metadata) and CFF510 (type2 child construction); stopping at the default error-return factory would misclassify this path.",
+      "C0D960 creates selected items through those callbacks and inserts them through CFED60. That insertion stores the item pointer in the indexed array and maps item+0x34 to the index used by the receiver+0x888 selector table.",
+      "CFF510 supplies the address root+0x880 as a descriptor reference. D12E70 -> D12C60 -> D26180 -> D341A0 preserves it and writes it into item+0x20. The root+0x880 value came from the earlier successful C80860 base-container construction.",
+      "C36910 follows exactly this reference before the second indexed lookup. This conditionally binds the returned item to the base container; it does not identify the two receivers as the same object. Range offsets and extents in these descriptors do not establish the units of separate F219 control fields."
+    ]
   },
   "perf_callback": {
     "scope": "The known PERF constructor, HAL initializer, three child allocation routes and selected nested helpers were inspected with direct control-flow traversal, including split fragments. Calls and indirect targets remain explicit boundaries.",
     "result": "No actual PERF+0x588 callback target or current variable operand units were established. Local constructor coverage does not exclude later or indirect writers."
+  },
+  "public_schema_lookup": {
+    "method": "Case-insensitive git grep against each complete pinned HEAD tree for the six exact command/query hex literals. Root independently repeated both searches; each returned exit1 and no matches. The kernel checkout is sparse, but grep targets HEAD rather than checked-out paths.",
+    "sources": [
+      "https://github.com/NVIDIA/nvapi/tree/70d337db9186e968eab622f7e786de7e437faf3d",
+      "https://github.com/NVIDIA/open-gpu-kernel-modules/tree/ca2d03e6fafd4d4b56b383497d931c25b283bfcf"
+    ],
+    "scope": "No exact literal schema binding was found. This does not rule out computed IDs, another source or an internal/later definition. Older public microvolt structures are not substituted for the current group."
   },
   "product_runtime": "Unchanged. Existing live REL/OV/ALT/VMIN controls retain their qualified contracts. No modern F219 SET, nonzero variable operand, speculative command sweep, workload or physical-measurement claim is introduced.",
   "private_evidence": "Exact disassembly dumps, CFG extents and their SHA-256 records remain local. Root reviewed the buffer alias, deferred receiver store, list-owner adjustment, receiver constructor-installed accessor and extent corrections independently.",
@@ -75,6 +94,39 @@
       "root-cfg-18436F0.txt": "e7fe4d611be75517da6647b51bced4d48a3a2bc5ca1172cc47b84fffc5610262",
       "root-cfg-18439D0.txt": "bcf134c4dee8d0916dded0f876b18764cdccea2d0f83dd36f2c19a4b1b4043b3",
       "root-cfg-18334A0.txt": "1dd64ed9761e52fd533fd9d925e0701bed7d716588bb57b9b80f058218b7c995"
+    },
+    "population_followup": {
+      "findings.json": "7eba5a125f8b5aa7568798ad624b984e3f9eb98594d48853bc709812bcfba1b1",
+      "root-cfg-6210.txt": "6465a210ca262a2e0fe604dcb670586c5280e53a2a33808350d4a2102af42310",
+      "root-cfg-CE49B0.txt": "0b9bfeb60493d02523698750595b2fe58ae1768ef10f265d8dd8adc79589df5d",
+      "root-cfg-C0D960.txt": "8ecf73c5709f9557921f199e4b4baff2bfb8cf903a52b3a0d137c9c20cef954f",
+      "root-cfg-C9A900.txt": "bc14dc764566dd4582bcfb9275bc2682db901c867f064dd6a0fc7732e533c718",
+      "root-cfg-CFF760.txt": "64586f6c297edef0d0ca40a602cfc15236a8e5093d73a4498e7d2a9b492a1b97",
+      "root-cfg-CFF170.txt": "bd37026cf1784fb5f4f22b224307b9810cffe13c72905a4e73ff07a7e2f01c50",
+      "root-cfg-C96C00.txt": "61777b56a3dfb1d2bf93fdb489433e05cda5f994749700828ef2eb5d9e74332a",
+      "root-cfg-C96C90.txt": "5d2c99ce76ae3fa03e8a5c3d620eb7ad3f9954d6334a3bc9051b862544582add",
+      "root-cfg-CFF510.txt": "cda961d8161618ebc45b69f718e88be4d5bf1815b45f7f9d49dd2064992f8ee9",
+      "root-cfg-D12E70.txt": "437afc9955ce5b14b97f287947f7a8e6a4324933ec0d4729018ed8a60286a30b",
+      "root-cfg-D26470.txt": "bf62a41e5ff96de70008faf401a908337a312e22c49fed4dac67584d827ef7ba",
+      "root-cfg-D12C60.txt": "96f8a62df4f1424d293b8372f76c0ad20818ac8725767005fa7c2dc6021bf14e",
+      "root-cfg-D26180.txt": "cd1e29572fefd6e3baa18b5c2ee99c5170c6ad9ecdf4beb9ebe4be41041322d1",
+      "root-cfg-D341A0.txt": "1710b0b3e66d741073377e621f6b234937957744297a845ec96fbba2d53cc68b",
+      "root-cfg-CFED60.txt": "00830f52d00998ca471ae94f01cc5e83657ba1ee680fdb89f519a543325fed76",
+      "root-cfg-286BC0.txt": "8c235b332b6c3ce4d191d4fba9a9f39344d20584029040f1f47e77ba49123ffd",
+      "root-cfg-5BBCE0.txt": "6bdf8d97a2ed860dddc9b0f7b040f1d64a95ee365e0024f8895a59fbfc3a4fa6",
+      "root-cfg-C80860.txt": "e401287442e562fa2b3031597232a9aed2d2e3b25daeb6d51dfab066697cf7ad",
+      "root-cfg-CE4090.txt": "178e7cdd44a4b6e274272559d8551ec888e3745d6d3769dba7bc09f657224785",
+      "root-cfg-CE3F10.txt": "250aea6ac43307e6053f6f1c1202c9169d3f6a98fca3eaf204547c5abda749f4",
+      "root-cfg-C804F0.txt": "be06e881dd4b5940bce63f918ed3129d290e94fe74066434cdc6dabe188534b7",
+      "root-cfg-CE31E0.txt": "d0a589b6dfa76baac23ab89b3714fc92eed707caff74dc848d14832e7fb76d8c",
+      "root-cfg-CEC0B0.txt": "43ecfef06d511fad81789863ba58bba0d00f5a02dcd3e88d849a8df56d556797",
+      "root-cfg-6F5710.txt": "c247af5a248bc5b6cca23b7283f734ee5a798bf300c2669513483f7ada1f7f82",
+      "root-cfg-C803B0.txt": "4e1fad50576e48d4648bd3300c27f21599009688fe0441f61d8bbf515862dafb"
+    },
+    "power_mapping_followup": {
+      "findings.json": "c329ea65bc65467e11b55b1ffd7ebacbd5591173b6629f93a1b1ded1d27d02a2",
+      "mapping-provenance.json": "11cc2070c1a8f91b84f161b9c2b1fc20a79a6a113774d4dc122694ae26174cc2",
+      "selector-binding.json": "0827833d6ca54d3ca3fb107b70f50de743d522aca698f86fe3979bb51a6c41f6"
     }
   }
 }
