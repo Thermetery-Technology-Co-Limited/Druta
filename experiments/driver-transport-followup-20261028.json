@@ -7,18 +7,24 @@
       "The native A619 serializer copies the selected source row's full DWORD at +0x10 to native status row+0x04 without conversion at that copy.",
       "B96C30 retains the same group across its +0x108 transaction and +0x110 response callbacks. In 58F170, RSI is that group and RBX=RSI+0xC0. Descriptor+0x10 is therefore exactly group+0xD0, used for zeroing, request construction and subsequent response parsing.",
       "Two conditional transport factories supply the common +0x30 thunk and different root implementations. The tested adapter's runtime selector is not established by this static trace.",
-      "One conditional path has a paired request/response queue. Request slots use backing offset 0x200+slot*0x800; responses use 0x8200+slot*0x800, with a 16-byte header and checksum/length checks. The inspected direct mapping branch copies between that backing and caller message buffers."
+      "One conditional path has a paired request/response queue. Request slots use backing offset 0x200+slot*0x800; responses use 0x8200+slot*0x800, with a 16-byte header and checksum/length checks. The inspected direct mapping branch copies between that backing and caller message buffers.",
+      "For the conditional root+0x1930 manager, the population loop inserts constructed type3 entries into that same manager. A separate category DWORD copied from metadata+0x1C reaches entry+0x28; the first qualifying category0 entry is selected through manager+0x178. A later same-root path maps entries from this manager before selecting category0, subject to its Boolean and wrapper predicates."
     ],
     "not_proven": [
-      "The actual selected manager entry and mapping allocation/producer. The conditional direct-path common mapping is traced, but the examined +0x18D8 candidate is excluded from the proven +0x420 accessor path for one exact constructed class.",
+      "The captured runtime class, unchanged bindings, actual category0 record and mapping branch. The conditional population/selection/mapping chain is connected, but the original backing producer and alternate path remain unbound.",
       "The producer of the response bytes, its processor or physical location.",
       "A numerical conversion establishing the empirical 33/32 modulo-2^20 pattern, UFXP20_12 representation, or physical enforcement."
     ],
-    "next": "Follow the +0x1930 selected-manager construction and its entries for the traced class, and independently resolve active runtime selection and the alternate mapping path. Do not substitute the excluded +0x18D8 manager.",
+    "next": "Resolve the active source/provider and original STATUS data writer, including the indirect base callbacks and alternate mapping route. Construction and byte-copy geometry do not establish a fixed-point representation or justify correcting STATUS numerically.",
     "mapping_followup": [
       "58EBA0 computes status descriptor+0x10 from the selected object+0x40 mapping pointer plus descriptor+0x04. Under the direct B3 mapping path and unchanged selection, the message queue and status data therefore occupy distinct regions of the same selected mapping.",
       "The exact 18C4AD0 class path binds virtual+0x420 through a -8 thunk and root+0x5F0 to a getter of root+0x1930. The candidate manager constructed at root+0x18D8 is a different field and cannot be substituted for the selected manager on this class path.",
-      "A conditional construction of the +0x1930 manager reaches a requested 0x4B0 object; its populated entries, mapping and producer remain unresolved. The captured runtime class and alternative mapping path have not been established."
+      "The conditional +0x1930 manager construction, type3 population, category0 selection and later mapping invocation are now connected. The excluded +0x18D8 candidate remains separate. Runtime conditions and the original data writer remain unresolved."
+    ],
+    "source_followup": [
+      "B21E10 supplies root+0x1920 as metadata context+0x18. C2C4B0 creates a 0x700 metadata subdescriptor from its +0x58 MemoryDescriptor, using an architecture-derived address minus wrapper+0x70, then reads and parses it. This is a metadata extent, not the entire STATUS backing allocation.",
+      "On one root+0x1918 factory branch, C2DA90 creates the wrapper descriptor as a child of a parent supplied with upstream base and size. B242C0 supplies those values through GPU+0x22C0 and 30F110/30F270. Other factory branches allocate independently or return unsupported and cannot be conflated.",
+      "One matching class-registry descriptor for GPU+0x22C0 selects a factory whose unchanged Boolean callback gives size0 or0x1920000. This identifies a conditional upstream extent calculation, not the actual runtime class, physical address space, firmware processor or STATUS writer."
     ]
   },
   "modern_voltage_receiver": {
@@ -32,19 +38,37 @@
     "corrections": [
       "The exact config vtable+0x58 leads to CBD340; vtable+0x60 leads to CBD160. Earlier private lifecycle notes mislabeled the latter +0x58.",
       "A single PE exception-table entry can describe a function fragment. Direct branches and fallthrough were followed beyond split entries before drawing the local conclusions here.",
-      "The registration helper writes through a dynamic list displacement. Its lack of a literal +0x70 store was insufficient to exclude a slot write. The later list consumer now supplies a concrete conditional receiver assignment instead of relying on that exclusion."
+      "The registration helper writes through a dynamic list displacement. Its lack of a literal +0x70 store was insufficient to exclude a slot write. The later list consumer now supplies a concrete conditional receiver assignment instead of relying on that exclusion.",
+      "8D60A0/8D4920 are descriptor-window creation, not themselves the final byte-copy operation.",
+      "Type/kind byte3 and category DWORD+1C are separate fields. Category0 is selected by base+178.",
+      "Earlier fetch-8D4DA0/8D50C0 dumps were truncated; the new root-cfg dumps follow direct CFG beyond those endpoints. No inference uses their invalid/truncated tails."
     ],
     "not_proven": [
       "Execution and ordering of this construction/registration/population path on the captured adapter.",
-      "Complete base-container population and selected backing entry, final retention beyond the inspected construction/population route, and actual execution on the captured adapter.",
+      "Actual kind3/category0 metadata contents and selected backing extent; the active source-factory path, original MemoryDescriptor producer/address space and later lifecycle retention.",
       "The producer and typed interpretation of the mapped values, rail association, successful F219 effects or arbitrary six-word request replay."
     ],
-    "next": "Trace the base container's populated backing entry and actual data producer. Preserve the established item+0x20 -> root+0x880 -> base-container reference rather than retracing the generic factory; match a typed representation before proposing a nonzero request.",
+    "next": "Bind context+1948 callback and the original MemoryDescriptor supplied to1853800, then the actual data writer and typed consumers. The generic window/copy chain alone is insufficient for nonzero control.",
     "population_followup": [
       "The constructed receiver selects an embedded interface at root+0x988 through CE49B0. CFF760 replaces the default population callbacks with CFF170 (metadata) and CFF510 (type2 child construction); stopping at the default error-return factory would misclassify this path.",
       "C0D960 creates selected items through those callbacks and inserts them through CFED60. That insertion stores the item pointer in the indexed array and maps item+0x34 to the index used by the receiver+0x888 selector table.",
       "CFF510 supplies the address root+0x880 as a descriptor reference. D12E70 -> D12C60 -> D26180 -> D341A0 preserves it and writes it into item+0x20. The root+0x880 value came from the earlier successful C80860 base-container construction.",
       "C36910 follows exactly this reference before the second indexed lookup. This conditionally binds the returned item to the base container; it does not identify the two receivers as the same object. Range offsets and extents in these descriptors do not establish the units of separate F219 control fields."
+    ],
+    "base_backing_followup": [
+      "C803B0 selects the base embedded interface at root+188. CE38E0 installs metadata callback CE3350 and derived child callback CE3660. CE3660 requires input kind byte3 and calls CFE6B0.",
+      "CFEC20 copies source record DWORD+1C to normalized+4. CFE8C0 later stores normalized+4 into entry+28 at CFEB9A..9E. Separately, 6F5890 inserts the pointer through 286BC0 and uses signed entry+28 as selection category. Base+178 selects category0; kind3 is not category3.",
+      "CFE8C0 stores params+10 (the address base-container+170) into entry+20. It checks normalized offset/extent against params+18 source wrapper, calls 6F46A0 and stores its resulting source subwrapper into entry+30. 6F46A0 creates the subwrapper MemoryDescriptor at subwrapper+60 via 1BF4C0 from source-wrapper+60.",
+      "The metadata path CE3350 creates a distinct 0x700 subdescriptor at architecture-resolved address minus source-wrapper+78, then passes it through C9CA20 with CE3560. CE3560 uses 8D4920 to construct the reader window. This extent is not the full backing allocation or a voltage-unit definition.",
+      "BC2770 preserves context+19B0 as population params+18; C80860 copies these params unchanged into CE4090/C0D960. The original source wrapper therefore comes from that exact context field, not an equated receiver or another generation's field.",
+      "BC6DF0 obtains a factory into context+19A8 via BC1190. With its branch admitted, BC7048..7078 invokes factory+30 with output context+19B0, a virtual GPU-derived size and alignment0x100.",
+      "BC1190 selects among three factories. 18532D0 returns root, whose installed table+30=C802E0 returns0x40. 1853620 returns root+8; table+30=C80A10 rebases R8 by-8 and dispatches CE41E0, which creates an independent descriptor through 6F40C0. 1853800 returns root+8; table+30=C80A80 rebases R8 by-8 and dispatches CE4740.",
+      "For the 1853800 branch, CE4340 creates a descriptor at allocator+80 and retains the caller-supplied original backing MemoryDescriptor at allocator+88. CE4740 creates a bounded child of that original descriptor via 1BF4C0 and stores it at returned source-wrapper+60. Caller base/size inputs originate at context+1948 callback and a memory-manager-dependent mapping path; their actual address space and producer are not bound here."
+    ],
+    "read_followup": [
+      "8D60A0 supplies selected-entry+30 -> source-subwrapper+60 as the MemoryDescriptor for 8D4920. 8D4920 validates offset/length and uses 1BF4C0 to create a child descriptor/window. Neither helper itself reads the final data into the caller output. C99410 passes cache flag0 through C36910, so that exact window callback does not supply the optional cache pointer.",
+      "8D4DA0 performs the subsequent bulk read. With no cache and other platform branches not selected, it calls 650570 with a surface containing the window descriptor and offset0. 650570 tries 650320, then 650140 only on nonzero status; 650140 retries in at most0x100000-byte blocks, using subdescriptors on its selected route.",
+      "650320 route0 obtains a mapped pointer via 64EF80, copies to the caller via E39A0, then ends the transfer with 64FDA0. Other routes include 64D690/64D920 and platform branches through 657D50. No numerical voltage conversion appears in these inspected generic read/window bodies; this does not exclude conversion in unexpanded callees or the producer."
     ]
   },
   "perf_callback": {
@@ -57,10 +81,15 @@
       "https://github.com/NVIDIA/nvapi/tree/70d337db9186e968eab622f7e786de7e437faf3d",
       "https://github.com/NVIDIA/open-gpu-kernel-modules/tree/ca2d03e6fafd4d4b56b383497d931c25b283bfcf"
     ],
-    "scope": "No exact literal schema binding was found. This does not rule out computed IDs, another source or an internal/later definition. Older public microvolt structures are not substituted for the current group."
+    "scope": "No exact literal schema binding was found. This does not rule out computed IDs, another source or an internal/later definition. Older public microvolt structures are not substituted for the current group.",
+    "metadata_followup": "A bounded lookup in the pinned NVIDIA kernel tree did not bind a 0x700 type2/type3 directory schema. Public MemoryDescriptor subview and bulk-read implementations are generic analogues, not independently proven binary symbol identities or voltage-unit definitions.",
+    "generic_memory_sources": [
+      "https://github.com/NVIDIA/open-gpu-kernel-modules/blob/ca2d03e6fafd4d4b56b383497d931c25b283bfcf/src/nvidia/src/kernel/gpu/mem_mgr/mem_desc.c",
+      "https://github.com/NVIDIA/open-gpu-kernel-modules/blob/ca2d03e6fafd4d4b56b383497d931c25b283bfcf/src/nvidia/src/kernel/gpu/mem_mgr/mem_utils.c"
+    ]
   },
   "product_runtime": "Unchanged. Existing live REL/OV/ALT/VMIN controls retain their qualified contracts. No modern F219 SET, nonzero variable operand, speculative command sweep, workload or physical-measurement claim is introduced.",
-  "private_evidence": "Exact disassembly dumps, CFG extents and their SHA-256 records remain local. Root reviewed the buffer alias, deferred receiver store, list-owner adjustment, receiver constructor-installed accessor and extent corrections independently.",
+  "private_evidence": "Exact disassembly dumps, complete local direct-CFG extents and SHA-256 records remain local. Root reviewed the section/base population, distinct kind/category fields, descriptor ownership and generic read path, and independently checked the delegated same-manager/source/provider evidence and hashes. Indirect and unexpanded callees remain explicit boundaries.",
   "evidence_sha256": {
     "ampere": {
       "b3-response-checkpoint.json": "0c8b6dd74301fb9f8445c1f8c188aae3383ab40ecb9def8facbc35af737dd6e5",
@@ -127,6 +156,76 @@
       "findings.json": "c329ea65bc65467e11b55b1ffd7ebacbd5591173b6629f93a1b1ded1d27d02a2",
       "mapping-provenance.json": "11cc2070c1a8f91b84f161b9c2b1fc20a79a6a113774d4dc122694ae26174cc2",
       "selector-binding.json": "0827833d6ca54d3ca3fb107b70f50de743d522aca698f86fe3979bb51a6c41f6"
+    },
+    "base_backing_followup": {
+      "findings.json": "449417611416c75129face2f802ac3e504eec8d41129d28177520b8b16823160",
+      "root-cfg-1821000.txt": "041fcfc6ebb4fe9ba721d08cea608bdaaa0cdd6cc9aed0e7230f4ed6191d7b19",
+      "root-cfg-183A750.txt": "33f8769bffc4a59e8a832acf76b8b33d1d7e01a8e21276ffa84f5843069ae3a3",
+      "root-cfg-18532D0.txt": "682385f4d64e23e5b2c810067883928a7665bd5d2c1bd98157e007e3af2a663a",
+      "root-cfg-1853620.txt": "ec9817377700090897b4ef64ab48420d11cf3b4e5999d6411dc08f581ab87f7b",
+      "root-cfg-1853800.txt": "7e6a764b4c6da82592ff9d8c6192415ec3d07e951fb86e3fa58ca58a7adfe8c6",
+      "root-cfg-1BF4C0.txt": "0f91d0f50ad4b66db087e75a2da3b0e5cf8a59e87d94408fe5e98b1637ce344a",
+      "root-cfg-650140.txt": "eac19ffca316e98c22e2fff43856afe11db9b6b70accdea8d7f64b6ad9191d0a",
+      "root-cfg-650320.txt": "ddcbd4294ec03908d09209f519c6a06b95297445096bde2a697d2551f2276c47",
+      "root-cfg-650570.txt": "05dc3366c53a081cb4372ccde5d596865bc4e0b92eb78cc63657070572d752b6",
+      "root-cfg-657D50.txt": "0a51665227ecce5af8e5adc65931afc1fba17dc69791da12ec1a7eada4a6d957",
+      "root-cfg-6F40C0.txt": "44bc3d17394c307755a21eedc130c9a1b68b5d931789d6714418ebd7ddb14452",
+      "root-cfg-6F4250.txt": "7db19c7ba828b820610d201cec77e3bdb929e1026d38f5bfe194a08642d726e5",
+      "root-cfg-6F42B0.txt": "0f276d2b6051647fa87f7eaf65a53c8cd8fe9efd73dc6646c26cd26da5c27d73",
+      "root-cfg-6F46A0.txt": "392e728350b91f8d506f7efc6cbdc897cf05e179b4fbd3fa308c26cb8c63ed9e",
+      "root-cfg-6F4890.txt": "9ae1778367055da1cb5ddc65e1adbed4a24638d9a0dfa4b6edd926a7fa2e1881",
+      "root-cfg-6F5890.txt": "40b17e635d0165a660a529bc15da5d2a42b1a08de30b364fd4796b19c3e74098",
+      "root-cfg-8D4920.txt": "3a4da66a0d22f92ac187c1a95fc916f49530ebe0588c01f7732aca12f6bdab27",
+      "root-cfg-8D4DA0.txt": "a0f367239c40537b33f08cab3d1534cd3ba3485db07a128dcbacb383575196da",
+      "root-cfg-8D50C0.txt": "d8fc055f7f472cc16996129f525745f0476f9bf6e1438e52e2dbfba5bc957bff",
+      "root-cfg-8D5970.txt": "625904bab90a13cbcfb9b6a2dc53589944e6da3ade7c6f521eaf983b74c68cc2",
+      "root-cfg-8D60A0.txt": "ab7468caf680eb4ed048b277d11fdd28bbe6faa8f854daac0611a0b17c9f30dd",
+      "root-cfg-BC1190.txt": "f9eb1736542ccd255a3685f51d09334605d5658144ff8166f0c948042489bb3a",
+      "root-cfg-BC7690.txt": "d6e7ca0005eb6a1a89653cabc3388bfb509409080d29db41cc0aa89a9c88e283",
+      "root-cfg-BC7C10.txt": "c0f6d3c643c5e3d8de7c8f8751403d50ee21f617f411e288c95b1b6eb180fec3",
+      "root-cfg-C36910.txt": "895669236143e69c69950d3360683b8f335bf15fadddec5430b644dc4183fb59",
+      "root-cfg-C802E0.txt": "be8465606ec9fe6d185ffce584ff9430b1d8fbe7514c034ff36c7c410a1ba2d1",
+      "root-cfg-C80A10.txt": "49bcad323abd1ba228003b4303d987651a92d67c1ba567d6896da522ae076997",
+      "root-cfg-C80A80.txt": "6c7bf3aba8a1e0a93738673b0f3fc058453060280611206c111680f564319630",
+      "root-cfg-C990C0.txt": "56c70f57a2995807d4a6944608595e4a4a46d6ad20650e4d136f27871334be32",
+      "root-cfg-C99410.txt": "93adede99d927aed845afac21f6a37f42df40fa0566264adff37f86c0fb201e0",
+      "root-cfg-C9CA20.txt": "e37b400706bfe9a41859624585206544f6bf227e6aeb62fa946aad67ba597ce7",
+      "root-cfg-CE3350.txt": "48132b87677ff5e5d60fe1b9c70e959849bd3afa1b6c6a03d059186fc953e547",
+      "root-cfg-CE3560.txt": "ce0e36c5dad387371fb437d9910bc9883e94dbe0589287378638021a6fc3d6ec",
+      "root-cfg-CE3660.txt": "1588c61b074ddf91da76970fdd0501bac4e2cca8935af198a4224dbeb9cceeb0",
+      "root-cfg-CE3AD0.txt": "819b28d802f7acb573192c230475c10d376a3dd7bf6e199fe82f2384b94444bd",
+      "root-cfg-CE3CF0.txt": "35ff3d26d38fe7b8203b69a0e3021acc25ac4bc416ff94fa3c0096b69830f511",
+      "root-cfg-CE41E0.txt": "f8ad5493be6a00a0e4ff156a70980e9d2f62eeb9c1ca88b8e107bbc172b360fe",
+      "root-cfg-CE4340.txt": "c5cb9bc2709f6396f1416c11be4b26bfed9c299b678d67840f2b5e325642da23",
+      "root-cfg-CE4740.txt": "2240df992d409144474e32ca3e38556ac30202e3dd7e0a12e95e6ddcd12902a6",
+      "root-cfg-CFE520.txt": "2f5ff2597ec17905d1a4dea7798233adf39c4cfa88a77ccf7e1dfc1db64dcf0d",
+      "root-cfg-CFE6B0.txt": "9753872bd3bd0e018062868974e004a0de6f65b535c2d187cec0ef8a1e76a280",
+      "root-cfg-CFE8C0.txt": "bf4bb19c93971e7b7f78879229574dd0b12da20651a8fca29fa2f55ea11d6d49",
+      "root-cfg-CFEBE0.txt": "6db07ee5223a03af269b9070c9df28eda8c9a3988d3d55dce32f7afd321addb3",
+      "root-cfg-CFEC20.txt": "69697dc4c83f3ae4455420aa6be1c7df235d3bf4b481c846f34a013e465444a8",
+      "root-cfg-CFEC90.txt": "47bdcefeb4e6f33b656f61802f11e5cc15f635887fcf75ec1b97255127745149",
+      "cfg-phase1.json": "9408e5b89eaffead3b132ae55e86bf0b25487927630ac24d28cb6f00b2881b11",
+      "cfg-phase10.json": "839cada82eeeedb48d4c64847ba4ab973a6daecae9ef4003822ddf0c61b27b42",
+      "cfg-phase11.json": "3bc518aa5b9dc8ff19c374df0645b8b0c7cb740179d591753123b4801d14f4df",
+      "cfg-phase12.json": "caf16ef45b9834d2d009e42d0bd637bb880ab0c82d2db97f070313bbd61dbd53",
+      "cfg-phase13.json": "32cecea21106562b88a04357f828bac5b99b19e77d21c6aa8b3b7723b65e5ebf",
+      "cfg-phase14.json": "31cc15f5270a0b5fdc7dc7bb3aba8a249006cc5399a25fde86c4e8189dc253dd",
+      "cfg-phase2.json": "c8a32fa1bab25dfd9282a44d65404081b2c46a13c8f254a0e105239758198b8b",
+      "cfg-phase3.json": "f683f585084f0f70076a6708e419d2468d09903777ada90bf19a97e8dd1464df",
+      "cfg-phase4.json": "846320ebd64dd0020fac2a2d83a490ef1b81de62e84875c07efe1d6632943908",
+      "cfg-phase5.json": "befeb2b367413342fee02eef1cc447bdb1afa03c3b15fc2e8699ac38ed86b178",
+      "cfg-phase6.json": "79b0ebe4baa939f03a32db0fc5058e9ff127ff47c66b7124e28411374818fbfe",
+      "cfg-phase7.json": "07de725c78c3737f76872e2f7b78a66f1f20800b49e14b54b77694369c25d0dd",
+      "cfg-phase8.json": "c96ea4dee2a054328213c122470485858e15735321599cfebd8b84e1caee8139",
+      "cfg-phase9.json": "aff965f54c74aca13d212b0913072fef9699b76580a27b2c71311c5a4a450ab4",
+      "constructor-tables.json": "480b737f217f2869b39f61f3ce002e64674b2b042f143b3d32298fb5269aba5a",
+      "public-memory-read/lookup.json": "e29407484fe90537b780a98196add5446848ada7f3b35a3e602f2e274fa70fca",
+      "public-schema/result.json": "c1655163c2d4e919002fbf1110cc09ea4ed929fc799f2031bccd78bb90fc625f"
+    },
+    "power_population_source_followup": {
+      "population-mapping-chain.json": "02d284454f633ce56754285fc02dc9f4a69b91ea43f9111f5d57a67ff3d536fe",
+      "source-md/findings.json": "c7a90c8526553d3ff3bb6857dc8163ff214ff9b6d28d1e495cdf66c2c33f7c07",
+      "source-md/provider22c0/findings.json": "6fe55bbc674dcd46393ffadf0994b88c6b46b12469cb7888aad222eff06b5112"
     }
   }
 }

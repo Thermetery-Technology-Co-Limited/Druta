@@ -2866,16 +2866,24 @@ receiver: a list consumer recovers the registered configuration owner and fills
 the `config+0x60` slot after construction. The constructor installs a generic
 indexed accessor. The selected population callbacks and insertion are bound;
 each created section's owner reference points back through the constructed
-container to the earlier base container used by the second lookup. That base
-container's populated backing entry and data producer remain open. These are
-conditional host paths, not proof of execution on the captured GPU or the
-mapped values' types, units, rails or firmware effects.
+container to the earlier base container used by the second lookup. The base
+population constructs kind-3 backing entries, while a separate category field
+determines selection: the reader selects category zero. The selected entry
+leads to a bounded child MemoryDescriptor. Window construction and the later
+bulk read are distinct operations; the inspected generic read path establishes
+no voltage conversion. The source wrapper has conditional independent-allocation
+and original-descriptor subview factories. Its original data writer remains
+unbound. These are conditional host paths, not proof of execution on the
+captured GPU or the mapped values' types, units, rails or firmware effects.
 The power-status transport descriptor and response parser use the same group
 buffer, at a distinct offset within a common selected mapping on the traced
 direct path. A candidate manager was excluded after resolving a class-specific
-accessor to a different field; actual selection, backing production and the
-numerical conversion remain unresolved. No new tuning
-operation follows from these transport findings. See the
+accessor to a different field. The correct manager's construction, population,
+category-zero selection and later mapping call are now connected conditionally.
+The metadata descriptor also reaches an upstream base-and-size provider, but
+actual runtime selection, original data production and the numerical conversion
+remain unresolved. A 0x700-byte metadata read is separate from the full backing
+allocation. No new tuning operation follows from these transport findings. See the
 [transport checkpoint and exact remaining boundaries](experiments/driver-transport-followup-20261028.json).
 
 The public [mVolt v0.50.8 release notes](https://github.com/b00nz/mVolt/releases/tag/v0.50.8)
