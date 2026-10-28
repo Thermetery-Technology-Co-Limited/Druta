@@ -1,6 +1,6 @@
 # Copyright (C) 2026 Thermetery Technology Co Limited
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Session-only typed OV and ALT constants with verified compensation."""
+"""Session-only typed VMIN, OV and ALT constants with verified compensation."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ import time
 from . import clock_bios_runtime as clock
 from . import vbios_fields
 from . import vfe_equation_runtime as equations
+from . import voltage_bios_runtime as voltage
 from . import voltage_ceiling_runtime as ceiling
 from . import voltage_rel_live as rel_live
 from .perf_diagnostics import PerfDiagnosticsReader
@@ -24,12 +25,15 @@ class VoltageConstantsLiveError(RuntimeError):
 
 
 def _key(rail, role):
-    return f"voltage.{rail}." + ("ALT.addend" if role == "ALT" else "OV.constant")
+    return f"voltage.{rail}." + {"ALT": "ALT.addend", "OV": "OV.constant", "VMIN": "VMIN"}[role]
 
 
 def _loaded_binding(inspection, observation, key):
     fields = {field["key"]: field for field in inspection.get("fields", [])}
-    original = ceiling._fields(inspection, {key: fields[key]["current"]})[key]
+    if key.endswith(".VMIN"):
+        original = ceiling._constant_binding(fields[key], key, int(key.split(".")[1]), "VMIN")
+    else:
+        original = ceiling._fields(inspection, {key: fields[key]["current"]})[key]
     row = equations.constant_row(observation["equations"], original["equation"])
     expected = {
         "index": original["equation"],
@@ -43,6 +47,38 @@ def _loaded_binding(inspection, observation, key):
     loaded = copy.deepcopy(original)
     loaded["current"] = row["value_uv"]
     return loaded, original["current"]
+
+
+def _vmin_contract(observation, key, binding, wanted):
+    """Build the existing policy receipt from the loaded constant value."""
+    before = ceiling.validate_observation(observation)
+    rail = before["policy"]["rails"][key.split(".")[1]]
+    policy_after = copy.deepcopy(before["policy"])
+    policy_after["rails"][key.split(".")[1]]["policy_uv"]["vmin"] = wanted + rail["offsets_uv"]["vmin"]
+    policy = {
+        "schema": 1,
+        "selected": {key: {"before_bios_uv": binding["current"], "after_bios_uv": wanted}},
+        "before": before["policy"],
+        "after": policy_after,
+    }
+    voltage.validate_contracts({key: wanted}, policy)
+    selected = {key: {
+        "index": binding["equation"], "before_uv": binding["current"], "after_uv": wanted,
+        "next_index": binding["next_equation"], "variable": binding["variable_index"], "output_type": 2,
+    }}
+    native = equations.contracts(before["equations"], selected)
+    return {"before": before, "policy": policy, "native": native}
+
+
+def _verify_vmin(observation, saved, *, restore=False):
+    actual = ceiling.validate_observation(observation)
+    before = saved["before"]
+    equations.verify(actual["equations"], saved["native"], restore=restore)
+    voltage.verify(actual["policy"], saved["policy"], restore=restore)
+    if not _same_state(actual["rail_control"], before["rail_control"]):
+        raise ceiling.VoltageCeilingError("Retained rail control requests or opaque returned fields changed")
+    if actual["boost_percent"] != before["boost_percent"]:
+        raise ceiling.VoltageCeilingError("Voltage boost request changed")
 
 
 class VoltageConstantsController:
@@ -101,7 +137,7 @@ class VoltageConstantsController:
         obs = state["voltage"]
         rows = []
         for rail, label in enumerate(("NVVDD", "MSVDD")):
-            for role in ("ALT", "OV"):
+            for role in ("ALT", "OV", "VMIN"):
                 key = _key(rail, role)
                 item = {
                     "rail": rail,
@@ -121,14 +157,20 @@ class VoltageConstantsController:
                     if role == "ALT" and obs["boost_percent"] is None:
                         raise ceiling.VoltageCeilingError("Voltage boost request readback unavailable")
                     # Check the role-specific current policy and complete native binding.
-                    ceiling._derive(obs, {key: binding}, {key: binding["current"]})
+                    if role == "VMIN":
+                        _vmin_contract(obs, key, binding, binding["current"])
+                        item["maximum_uv"] = min(
+                            policy[name] for name in voltage._FIELDS if name != "vmin"
+                        ) - obs["policy"]["rails"][str(rail)]["offsets_uv"]["vmin"]
+                    else:
+                        ceiling._derive(obs, {key: binding}, {key: binding["current"]})
                     item.update(
                         status="ready",
                         equation=binding["equation"],
                         value_uv=binding["current"],
                         stored_value_uv=stored,
                         policy_uv=copy.deepcopy(policy),
-                        reported_uv=policy["alt_reliability" if role == "ALT" else "overvoltage"],
+                        reported_uv=policy[{"ALT": "alt_reliability", "OV": "overvoltage", "VMIN": "vmin"}[role]],
                     )
                 except (KeyError, TypeError, ValueError, RuntimeError) as exc:
                     item["issues"].append(str(exc))
@@ -155,10 +197,10 @@ class VoltageConstantsController:
             raise last
 
     def set(self, rail, role, wanted_uv):
-        if type(rail) is not int or rail not in (0, 1) or role not in ("ALT", "OV"):
+        if type(rail) is not int or rail not in (0, 1) or role not in ("ALT", "OV", "VMIN"):
             raise VoltageConstantsLiveError("malformed", "Select an understood voltage rail and constant role")
         try:
-            ceiling._whole(wanted_uv, zero=role == "ALT")
+            wanted_uv = ceiling._whole(wanted_uv, zero=role == "ALT")
         except (TypeError, ValueError, RuntimeError) as exc:
             raise VoltageConstantsLiveError("malformed", str(exc)) from exc
         attempted = False
@@ -172,26 +214,33 @@ class VoltageConstantsController:
                 before = self._capture_retry()
                 key = _key(rail, role)
                 binding, _ = _loaded_binding(before["inspection"], before["voltage"], key)
-                after, selected = ceiling._derive(before["voltage"], {key: binding}, {key: wanted_uv})
-                saved = {
-                    "schema": 1,
-                    "selected": {key: binding},
-                    "before": before["voltage"],
-                    "after": after,
-                    "equation_selections": selected,
-                }
-                ceiling.validate_contracts({key: wanted_uv}, saved)
-                native = {
-                    "schema": 1,
-                    "selected": selected,
-                    "before": before["voltage"]["equations"],
-                    "after": after["equations"],
-                }
+                if role == "VMIN":
+                    saved = _vmin_contract(before["voltage"], key, binding, wanted_uv)
+                    native = saved["native"]
+                else:
+                    after, selected = ceiling._derive(before["voltage"], {key: binding}, {key: wanted_uv})
+                    saved = {
+                        "schema": 1,
+                        "selected": {key: binding},
+                        "before": before["voltage"],
+                        "after": after,
+                        "equation_selections": selected,
+                    }
+                    ceiling.validate_contracts({key: wanted_uv}, saved)
+                    native = {
+                        "schema": 1,
+                        "selected": selected,
+                        "before": before["voltage"]["equations"],
+                        "after": after["equations"],
+                    }
                 if wanted_uv == binding["current"]:
                     return self._summary(before)
                 equations.write_constants(self.gpu, native, on_attempt=entered)
                 active = self._capture_retry()
-                ceiling.verify(active["voltage"], saved)
+                if role == "VMIN":
+                    _verify_vmin(active["voltage"], saved)
+                else:
+                    ceiling.verify(active["voltage"], saved)
                 if active["image_sha256"] != before["image_sha256"] or not _same_state(
                     rel_live._requests(active["clocks"]), rel_live._requests(before["clocks"])
                 ):
@@ -214,7 +263,10 @@ class VoltageConstantsController:
                 for number in range(8):
                     try:
                         final = self._capture()
-                        ceiling.verify(final["voltage"], saved, restore=True)
+                        if role == "VMIN":
+                            _verify_vmin(final["voltage"], saved, restore=True)
+                        else:
+                            ceiling.verify(final["voltage"], saved, restore=True)
                         if final["image_sha256"] != before["image_sha256"] or not _same_state(
                             final["clocks"], before["clocks"]
                         ):

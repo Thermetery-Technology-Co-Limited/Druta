@@ -228,3 +228,89 @@ def test_nonzero_higher_coefficient_prevents_dispatch(scenario):
     with pytest.raises(live.VoltageConstantsLiveError) as exc:
         scenario.controller.set(0, scenario.role, value - 5000)
     assert not exc.value.attempted and not scenario.calls
+
+
+@pytest.fixture(params=[(0, 15000), (1, -15000)])
+def vmin_scenario(monkeypatch, request):
+    from tests.test_vfe_equation_runtime import observation as equation_observation
+
+    rail, offset = request.param
+    obs = fixtures.observation("OV", rail=rail, boost=None, slot="0000:03:00.1", device_id=0xABCD)
+    obs["equations"] = equation_observation(before=800000, next_index=65535, **obs["equations"]["identity"])
+    policy_row = obs["policy"]["rails"][str(rail)]
+    policy_row["offsets_uv"]["vmin"] = offset
+    policy_row["policy_uv"]["vmin"] = 800000 + offset
+    obs["rail_control"] = fixtures.controls(obs["policy"])
+    bios = fixtures.inspection("OV", rail=rail)
+    bios["fields"][0].update(key=f"voltage.{rail}.VMIN", role="VMIN", current=800000)
+    state = {"voltage": obs, "inspection": bios, "image_sha256": "vmin-image",
+             "clocks": {"pstates": None, "domains": "d", "boost": None, "curve": "original"}}
+    gpu = SimpleNamespace(_lock=threading.RLock())
+    monkeypatch.setattr(live, "PerfDiagnosticsReader", lambda gpu: object())
+    controller = live.VoltageConstantsController(gpu)
+    monkeypatch.setattr(controller, "_capture", lambda: copy.deepcopy(state))
+    monkeypatch.setattr(live.time, "sleep", lambda _: None)
+    calls = []
+
+    def write(gpu, saved, *, restore=False, on_attempt=None):
+        if on_attempt:
+            on_attempt()
+        calls.append(restore)
+        choice = next(iter(saved["selected"].values()))
+        delta = choice["after_uv"] - choice["before_uv"]
+        state["voltage"]["equations"] = copy.deepcopy(saved["before" if restore else "after"])
+        state["voltage"]["policy"]["rails"][str(rail)]["policy_uv"]["vmin"] += -delta if restore else delta
+
+    monkeypatch.setattr(equations, "write_constants", write)
+    return SimpleNamespace(controller=controller, state=state, rail=rail, offset=offset, calls=calls, writer=write)
+
+
+def test_vmin_independent_repeated_edits_and_signed_offset(vmin_scenario):
+    s = vmin_scenario
+    initial = next(r for r in s.controller.read()["rows"] if r["rail"] == s.rail and r["role"] == "VMIN")
+    assert initial["status"] == "ready" and initial["reported_uv"] == 800000 + s.offset
+    assert initial["maximum_uv"] == min(
+        v for k, v in initial["policy_uv"].items() if k != "vmin"
+    ) - s.offset
+    s.controller.set(s.rail, "VMIN", 805000)
+    updated = s.controller.set(s.rail, "VMIN", 810000)
+    item = next(r for r in updated["rows"] if r["rail"] == s.rail and r["role"] == "VMIN")
+    assert (item["value_uv"], item["stored_value_uv"], item["reported_uv"]) == (810000, 800000, 810000 + s.offset)
+    assert s.calls == [False, False]
+
+
+def test_vmin_upper_limit_and_bad_binding_refused_before_dispatch(vmin_scenario):
+    s = vmin_scenario
+    item = next(r for r in s.controller.read()["rows"] if r["rail"] == s.rail and r["role"] == "VMIN")
+    with pytest.raises(live.VoltageConstantsLiveError):
+        s.controller.set(s.rail, "VMIN", item["maximum_uv"] + 1)
+    s.state["inspection"]["fields"][0]["sharing_graph_complete"] = False
+    with pytest.raises(live.VoltageConstantsLiveError):
+        s.controller.set(s.rail, "VMIN", 805000)
+    assert not s.calls
+
+
+def test_vmin_available_without_unrelated_rail_or_boost(vmin_scenario):
+    s = vmin_scenario
+    other = str(1 - s.rail)
+    s.state["voltage"]["policy"]["rails"].pop(other)
+    s.state["voltage"]["rail_control"]["rails"].pop(other)
+    summary = s.controller.read()
+    item = next(r for r in summary["rows"] if r["rail"] == s.rail and r["role"] == "VMIN")
+    assert item["status"] == "ready" and summary["unavailable_peers"] == ["pstates", "boost"]
+    s.controller.set(s.rail, "VMIN", 805000)
+    assert s.calls == [False]
+
+
+def test_vmin_peer_mismatch_attempts_one_restore(vmin_scenario, monkeypatch):
+    s = vmin_scenario
+
+    def write(gpu, saved, *, restore=False, on_attempt=None):
+        s.writer(gpu, saved, restore=restore, on_attempt=on_attempt)
+        other = str(1 - s.rail)
+        s.state["voltage"]["policy"]["rails"][other]["policy_uv"]["overvoltage"] += -1 if restore else 1
+
+    monkeypatch.setattr(equations, "write_constants", write)
+    with pytest.raises(live.VoltageConstantsLiveError) as exc:
+        s.controller.set(s.rail, "VMIN", 805000)
+    assert exc.value.attempted and exc.value.rollback["verified"] and s.calls == [False, True]

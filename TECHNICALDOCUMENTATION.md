@@ -2556,6 +2556,32 @@ The [sanitized live-constant evidence](experiments/voltage-live-constants-202610
 records the tested scope. Arbitrary six-word replay, nonzero variable operand
 semantics, modern F219 effects and physical enforcement remain unqualified.
 
+The **Live voltage constants** panel also accepts the distinct VMIN role on
+each independently supported rail. Its terminal constant binding uses the
+current loaded value, preserving the stored value for display. The live branch
+builds the existing `voltage_bios_runtime` policy contract without changing
+persistent VMIN routing or receipt schemas. Loaded VMIN plus the retained signed
+VMIN offset must equal reported VMIN; the requested result must be positive and
+must not exceed any currently reported REL, ALT, OV or effective upper limit.
+The displayed maximum input subtracts the retained offset from that bound.
+Unlike ALT's shared-output allowances, VMIN verifies the complete policy with
+only the selected expected VMIN changed. Native packets, rail requests, boost,
+image and readable clock requests retain the same exact checks and compensation.
+
+Source-product trials independently raised NVVDD and MSVDD VMIN from 800000 to
+805000 uV without a restart. Eight independent captures per rail over at least
+20 seconds matched the complete definition projection, reported VMIN and all
+policy/request peers. The first evaluated-curve capture differed; later active
+captures matched. Each original-row restoration recovered the complete baseline,
+including the curve, after bounded GET-only settling. A further NVVDD request
+loaded 801000 uV but reported 805000 uV, so verification rejected it and one
+automatic compensation restored the original state. This is one rounding
+observation, not a universal step. Hardware trials used 0% requested boost and
+zero VMIN offset; signed-offset and nonzero retained-boost cases have offline
+coverage. The [VMIN and consumer follow-up](experiments/voltage-vmin-live-20261028.json)
+records scope and remaining requirements. No physical voltage measurement,
+workload, registry write or driver restart was involved.
+
 ## REL upper-clamp controls
 
 `voltage_rel_runtime.py` uses the same combined voltage observation as OV/ALT,
@@ -2806,6 +2832,34 @@ and consumers remain open. The installed public variable SET wrapper copies
 two raw DWORDs without establishing their numeric representation or units.
 Those facts do not qualify a nonzero operand or a substitute for six-word rail
 request replay. See the [native-variable evidence and remaining boundaries](experiments/voltage-variable-native-followup-20261028.json).
+
+A subsequent installed-NVAPI trace bound modern native B212/B218/F219 to public
+queries `0x3FC4D4C8`, `0xE6AAED18` and `0xC268BC22`. The two public getters use
+32-entry masks: INFO is `0x10D48` bytes with version `0x10D48`, header `0x48`
+and stride `0x868`; CONTROL is `0x2348` bytes with version `0x12348`, header
+`0x48` and stride `0x118`. The complete INFO allocation cannot be derived from
+the version's low 16 bits. Their native group remains E255; equivalence requires
+all native mask bits above 31 to be clear. Two guarded public/native captures
+were byte-identical within each format, with mask `0x1F` and matching traced
+type2 fields. The fifth native INFO type0 became public `0xFE`, while its
+CONTROL remained type4; those independent observations do not imply absence.
+The initial comparison used native CONTROL row+4 for its type. Re-analysis of
+the same saved packets corrected this to row+0, preserving the failed journal.
+Flags remain at native row+5..7 and four DWORDs at +8/+C/+10/+14. The observed
+zero fields cannot independently prove their offsets; the wrapper supplies
+that mapping. INFO's two enum converters establish a bounded 0/1/2 domain,
+without semantic names. Raw copies establish no numeric representation or units.
+No modern SET was called and the full configured before/after state matched.
+
+The variable-group transport trace also found a separate short command after
+the initial large-buffer check. Under the documented constructor path it reaches
+the same endpoint interface as the modern group, but runtime instance selection,
+receiving processor and numeric consumer remain unproven. Independent PERF
+constructor and overlapping-store checks did not bind its post-group callback.
+Older NVIDIA-authored Tegra single-u32 structures differ from the current
+16-byte operand container and adjacent flag. These findings leave nonzero
+variable operands and six-word request replay unqualified; see the
+[follow-up evidence](experiments/voltage-vmin-live-20261028.json).
 
 The public [mVolt v0.50.8 release notes](https://github.com/b00nz/mVolt/releases/tag/v0.50.8)
 describe an experimental BIOS voltage-offset option, without specifying its

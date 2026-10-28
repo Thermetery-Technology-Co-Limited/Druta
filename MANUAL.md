@@ -410,18 +410,23 @@ Druta reports the rail, affected field, requested and observed values, and any
 separate boost or metadata discrepancy. An ignored request fails verification;
 if the captured requests cannot be restored, recovery remains required.
 
-**Live OV and ALT values** changes the loaded constants without restarting the
-GPU. Read the available rails, select an **OV constant** or **ALT addend**, enter
-the value in mV and choose **Apply now**. The panel shows the current constant,
-stored value and independently reported limit separately. For example, changing
-an ALT addend from 20 to 15 mV can change a reported ALT limit from 1060 to
-1055 mV. **Restore initial value** returns that rail and role to the value first
-read for this adapter and image in the current Druta session. Live values last
-for the driver session; use BIOS fields for persistent changes. Voltage boost,
-rail offsets and readable clock requests are retained. A rounded reported value
-or unexpected peer change fails verification and attempts one restoration of
-the original constant, with the recovery result shown. The supported voltage
-step is device-specific.
+**Live voltage constants** changes loaded constants without restarting the
+GPU. Read the available rails and select an **OV constant**, **ALT addend** or
+**VMIN constant**. Enter a value in mV and choose **Apply now**. The panel shows
+the current constant, stored value and independently reported limit separately.
+For example, changing an ALT addend from 20 to 15 mV can change a reported ALT
+limit from 1060 to 1055 mV. **Restore initial value** returns that rail and role
+to the value first read for this adapter and image in the current Druta session.
+Live values last for the driver session; use BIOS fields for persistent changes.
+Voltage boost, rail offsets and readable clock requests are retained. A rounded
+reported value or unexpected peer change fails verification and attempts one
+restoration of the original constant, with the recovery result shown. The
+supported voltage step is device-specific.
+
+VMIN also shows the maximum input allowed by that rail's currently reported
+upper limits and retained signed VMIN offset. Druta checks the loaded constant
+against the reported minimum before changing it. The new reported VMIN must
+match exactly, while other policy values and requests remain unchanged.
 
 **Live REL upper bounds** provides a separate control for the loaded REL
 equation's upper bound. Read the supported rails, enter a value in mV, and use

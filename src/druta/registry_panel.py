@@ -188,9 +188,9 @@ class RegistryPanel:
             dpg.add_input_text(
                 tag="reg_rel_live_inventory", readonly=True, multiline=True, width=-1, height=self.app.s(110)
             )
-        with dpg.collapsing_header(label="Live OV and ALT values"):
+        with dpg.collapsing_header(label="Live voltage constants"):
             dpg.add_text(
-                "Change an OV constant or ALT addend for this driver session without restarting the GPU. "
+                "Change an OV or VMIN constant, or an ALT addend, for this driver session without restarting the GPU. "
                 "Reported policy values can differ. Physical enforcement has not been measured.",
                 wrap=self.app.s(900),
             )
@@ -317,6 +317,10 @@ class RegistryPanel:
         return (tuple(sorted(snapshot["identity"].items())), snapshot["image_sha256"],
                 row["rail"], row["role"], row["equation"])
 
+    @staticmethod
+    def _constants_live_role(role):
+        return {"ALT": "ALT addend", "OV": "OV constant", "VMIN": "VMIN constant"}.get(role, role)
+
     def _constants_live_failed(self, message):
         self.constants_live_snapshot = None
         self.constants_live_choices = {}
@@ -334,16 +338,19 @@ class RegistryPanel:
         self.constants_live_choices = {}
         lines = []
         for row in snapshot["rows"]:
-            role = "ALT addend" if row["role"] == "ALT" else "OV constant"
+            role = self._constants_live_role(row["role"])
             label = f"{row['label']} (rail {row['rail']}) {role}"
             if row["status"] == "ready":
                 self.constants_live_choices[label] = row
                 self.app._constants_live_initial_states.setdefault(self._constants_live_key(snapshot, row), row["value_uv"])
                 reported = row.get("reported_uv")
                 reported_text = f"{self._rel_mv(reported)} mV" if reported is not None else "unavailable"
-                lines.append(f"{label}: current {self._rel_mv(row['value_uv'])} mV; "
-                             f"stored {self._rel_mv(row['stored_value_uv'])} mV; "
-                             f"reported {row['role']} {reported_text}")
+                detail = (f"{label}: current {self._rel_mv(row['value_uv'])} mV; "
+                          f"stored {self._rel_mv(row['stored_value_uv'])} mV; "
+                          f"reported {row['role']} {reported_text}")
+                if row["role"] == "VMIN" and row.get("maximum_uv") is not None:
+                    detail += f"; current maximum VMIN input {self._rel_mv(row['maximum_uv'])} mV"
+                lines.append(detail)
             else:
                 lines.append(f"{label}: {row['status']}; " + "; ".join(row.get("issues", [])))
         unavailable = snapshot.get("unavailable_peers", [])
@@ -373,7 +380,7 @@ class RegistryPanel:
         dpg.configure_item("reg_constants_live_apply", enabled=True)
         initial = self.app._constants_live_initial_states[self._constants_live_key(self.constants_live_snapshot, row)]
         dpg.configure_item("reg_constants_live_restore", enabled=row["value_uv"] != initial)
-        role = "ALT addend" if row["role"] == "ALT" else "OV constant"
+        role = self._constants_live_role(row["role"])
         dpg.set_value("reg_constants_live_status", ("Previous read is stale. " if self.constants_live_stale else "")
                       + f"{row['label']} {role}: {self._rel_mv(row['value_uv'])} mV.")
 

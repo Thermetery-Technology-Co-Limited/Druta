@@ -130,3 +130,49 @@ def test_initial_value_tracks_image_and_role(view):
     panel.apply_constants_live()
     panel.restore_constants_live()
     assert control.set.call_args.args == (0, "ALT", 25000)
+
+
+def test_vmin_display_apply_and_restore_are_independent_per_rail(view):
+    panel, _, control = view
+    observed = snapshot()
+    observed["rows"].extend([
+        {"rail": 0, "label": "NVVDD", "role": "VMIN", "equation": 9, "status": "ready", "issues": [],
+         "value_uv": 800000, "stored_value_uv": 810000, "reported_uv": 805000, "maximum_uv": 1040000},
+        {"rail": 1, "label": "MSVDD", "role": "VMIN", "equation": 271, "status": "ready", "issues": [],
+         "value_uv": 790000, "stored_value_uv": 790000, "reported_uv": 790000},
+    ])
+    control.read.return_value = observed
+    panel.refresh_constants_live()
+    inventory = dpg.get_value("reg_constants_live_inventory")
+    assert "VMIN constant: current 800 mV; stored 810 mV; reported VMIN 805 mV" in inventory
+    assert "current maximum VMIN input 1040 mV" in inventory
+    dpg.set_value("reg_constants_live_select", "NVVDD (rail 0) VMIN constant")
+    panel.select_constants_live()
+    changed = copy.deepcopy(observed)
+    changed["rows"][-2]["value_uv"] = 801125
+    control.set.return_value = changed
+    dpg.set_value("reg_constants_live_value", "801.125")
+    panel.apply_constants_live()
+    assert control.set.call_args.args == (0, "VMIN", 801125)
+    assert enabled("reg_constants_live_restore")
+    control.set.return_value = observed
+    panel.restore_constants_live()
+    assert control.set.call_args.args == (0, "VMIN", 800000)
+    dpg.set_value("reg_constants_live_select", "MSVDD (rail 1) VMIN constant")
+    panel.select_constants_live()
+    panel.restore_constants_live()
+    assert control.set.call_args.args == (1, "VMIN", 790000)
+    dpg.set_value("reg_constants_live_value", "790.0001")
+    panel.apply_constants_live()
+    assert control.set.call_count == 3
+
+
+def test_vmin_unsupported_row_does_not_disable_other_roles(view):
+    panel, _, control = view
+    observed = snapshot()
+    observed["rows"].append({"rail": 0, "label": "NVVDD", "role": "VMIN", "status": "unsupported",
+                             "issues": ["unavailable"]})
+    control.read.return_value = observed
+    panel.refresh_constants_live()
+    assert "VMIN constant: unsupported" in dpg.get_value("reg_constants_live_inventory")
+    assert enabled("reg_constants_live_apply")
