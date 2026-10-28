@@ -31,10 +31,46 @@
       "The conditional 595.97 provider and descriptor chain remain distinct from the installed-image voltage route. Actual runtime registry/class/branch selection and the individual STATUS-data writer remain unproven."
     ]
   },
+  "command_roles_and_b214": {
+    "scope": "Static installed-image bindings plus the cited adapter captures; the single B214 GET is a narrow qualification, not a broad support claim.",
+    "commands": {
+      "B212": "Native 0x2080B212 INFO GET; public query 0x3FC4D4C8.",
+      "B218": "Native 0x2080B218 cached CONTROL GET; public query 0xE6AAED18.",
+      "B214": "Distinct native 0x2080B214 GET; public query 0xBE94281E. Static path prepares a shared-buffer request, dispatches transport, then decodes the returned data.",
+      "F219": "Native 0x2080F219 SET; public query 0xC268BC22. C98050 fetches a response only after successful SET transport."
+    },
+    "b214_public_geometry": {
+      "query": "0xBE94281E",
+      "version": "0x1C0C8",
+      "allocation_bytes": 49352,
+      "allocation_hex": "0xC0C8",
+      "header_bytes": 72,
+      "row_stride_bytes": 1540,
+      "row_count": 32
+    },
+    "b214_first_get": {
+      "result": "One GET succeeded with status 0 and populated a type2 output.",
+      "request": {
+        "mask_word_count": 1,
+        "mask": "0x1",
+        "index": 0
+      },
+      "observations": "B212 and B218 readbacks and the full normalized configured state matched before and after. The comparison excludes capture timestamps/paths and dynamic policy telemetry. This GET capture involved no SET or restart.",
+      "limit": "One adapter capture only; it does not establish a broad support guarantee, field units, rail association, or endpoint identity."
+    },
+    "vmin_comparison": {
+      "sequence": "A typed VMIN 800000 -> 805000 -> 800000 comparison was bracketed by three B214 GETs.",
+      "result": "All three B214 reads returned status 0; native/public B212 inventory and B218 cached CONTROL stayed unchanged, while B214 response rows changed across all three stages. All requested/policy fields remained unchanged within each GET.",
+      "caveat": "The normalized configured comparison excludes capture timestamps/paths and dynamic policy telemetry. The active child's only remaining configured difference was its evaluated V/F curve, which alone triggered active-child attention. This does not qualify an active B214 correlation or establish voltage units or cause.",
+      "raw_response_note": "Twenty-one paired raw records satisfied DWORD = 6250 × adjacent byte; no units, rail association, or cause were inferred. Baseline and restored raw responses differed.",
+      "restoration": "The full original normalized configuration matched after restoration, excluding capture timestamps/paths and dynamic policy telemetry. The parent journal records state restored with the active-child comparison error retained; the process returned exit 1."
+    },
+    "typed_status_bridge": "The established 0x465F9BCF rail-status wrapper follows B201/B202 or B209/B210 command paths. No direct bridge from that typed readout to B214's records was established; its voltage-unit interpretation cannot be transferred to B214."
+  },
   "modern_voltage_receiver": {
     "image_sha256": "3f8d33495cabeb2fa11ebdcf0b12705e9ccfb4e53005324bcd86e9dea8ba2ab4",
     "proven_conditional_path": [
-      "The F219 fetch reads a receiver from config+0x60. On the established F0 allocation path config=allocation+0x10, so that receiver slot is allocation+0x70.",
+      "On the F219 SET path, the post-transport response-fetch path reads its receiver from config+0x60. On the established F0 allocation path config=allocation+0x10, so that receiver slot is allocation+0x70.",
       "C492D0 registers allocation+0x08 in the cast context's +0x1988 list. The intrusive-list helpers recover that exact inserted owner by subtracting the recorded node displacement; they do not replace its identity with an unrelated group descriptor.",
       "BC1860's conditional route passes the context+0x1988 list to BC2770. After successful C80C80 construction, BC2770 walks the list, recovers the registered owner and its +0x80 config pointer, and writes the constructed receiver into config+0x60 at BC292A.",
       "C80C80 invokes C0D960 with C80AD0. The inspected construction chain C80AD0 -> CE4A60 -> CFEE90 -> CEA3E0 -> C0DEC0 installs the generic indexed accessor 286710 at receiver+0x38 through 286B20. That accessor checks the index and returns the corresponding array pointer. This is a construction-installed binding; retention across all generic population callbacks is not yet established."
@@ -82,7 +118,7 @@
       "The public implementation has SelfInit gating and differs from Windows class-selected callbacks. The modern Windows size callbacks can return 0, 0x900000 or 0xA00000; the separate 595.97 path aggregates a different extent. Those quantities describe conditional reserved-memory arithmetic, not voltage/power values or a compatibility gate."
     ],
     "directory_schema_followup": {
-      "scope": "Conditional installed-image layouts and snapshot callbacks; no runtime metadata capture or numerical voltage interpretation.",
+      "scope": "Conditional installed-image layouts and snapshot callbacks for the F219 post-SET response-fetch path; F219 was not executed and no numerical voltage interpretation is established.",
       "layouts": {
         "base_directory": {
           "logical_header_bytes": 16,

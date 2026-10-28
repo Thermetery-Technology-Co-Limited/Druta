@@ -23,7 +23,7 @@
     "nativeB203": "No matching export descriptor found in inspected voltage command inventory; no speculative live probe",
     "F208": "Voltage-device switch delay fields, not a demonstrated six-word replay",
     "F212": "Voltage-policy fields, not a demonstrated six-word replay; indirect effects not excluded",
-    "F219": "Firmware-backed E255 group with independent read-only inventory and cached CONTROL captures. Its response can update the modern host cache. Current entries have types 2, 2, 2, 2 and 4. Units, rail binding, relationship to the old six words and firmware SET semantics remain unresolved. No modern SET was attempted."
+    "F219": "Native 0x2080F219 is a SET command, and public query 0xC268BC22 dispatches it. After successful SET transport, C98050 fetches a response that may conditionally update the modern host cache. No F219 SET or response capture was made. The read-only captures were separate: B212 inventory (public 0x3FC4D4C8) and B218 cached CONTROL (public 0xE6AAED18). The observed CONTROL types 2, 2, 2, 2 and 4 belong to B218, not F219. F219 field meanings, units, rail binding, relation to the legacy six words, and SET effects remain unresolved."
   },
   "hardware_trial": {
     "desired_NVVDD_reliability_uv": -5000,

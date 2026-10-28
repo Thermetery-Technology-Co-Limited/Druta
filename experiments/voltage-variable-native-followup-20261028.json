@@ -179,7 +179,7 @@
   "remaining": [
     "Establish current value representation, units and an actual downstream consumer before any nonzero test.",
     "Identify native type10 selector ownership without importing older SDK enum names.",
-    "Find a consumed route for the six legacy rail request words; neither this mode transition nor modern F219 cached fields establish one."
+    "Find a consumed route for the six legacy rail request words; neither this mode transition nor the captured B212/B218 modern read-only fields establish one."
   ],
   "evidence_sha256": {
     "variable-abi\\wrapper-trace.json": "235e706f39b24fac8219488b05ff520dee649e1cbde86e0e1f37e64ba7e812d5",

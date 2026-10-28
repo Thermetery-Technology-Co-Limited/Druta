@@ -2833,16 +2833,25 @@ two raw DWORDs without establishing their numeric representation or units.
 Those facts do not qualify a nonzero operand or a substitute for six-word rail
 request replay. See the [native-variable evidence and remaining boundaries](experiments/voltage-variable-native-followup-20261028.json).
 
-A subsequent installed-NVAPI trace bound modern native B212/B218/F219 to public
-queries `0x3FC4D4C8`, `0xE6AAED18` and `0xC268BC22`. The two public getters use
-32-entry masks: INFO is `0x10D48` bytes with version `0x10D48`, header `0x48`
+Installed-NVAPI tracing binds public query `0x3FC4D4C8` to native B212 INFO
+GET and `0xE6AAED18` to native B218 cached CONTROL GET. The separate public
+query `0xC268BC22` dispatches native F219 SET; after successful SET transport,
+C98050 fetches its response, which may conditionally update the modern host
+cache. The read-only captures exercised B212 and B218; no F219 SET or response
+capture was made. Native B214 is a distinct GET bound to public query
+`0xBE94281E`; one GET on the inspected adapter succeeded with status 0 and a
+populated type2 result. This is a narrow single-adapter read qualification; a
+separate typed VMIN comparison did not establish an active B214 correlation or
+field units. The B212/B218 public getters use 32-entry masks: INFO is
+`0x10D48` bytes with version `0x10D48`, header `0x48`
 and stride `0x868`; CONTROL is `0x2348` bytes with version `0x12348`, header
 `0x48` and stride `0x118`. The complete INFO allocation cannot be derived from
-the version's low 16 bits. Their native group remains E255; equivalence requires
-all native mask bits above 31 to be clear. Two guarded public/native captures
-were byte-identical within each format, with mask `0x1F` and matching traced
-type2 fields. The fifth native INFO type0 became public `0xFE`, while its
-CONTROL remained type4; those independent observations do not imply absence.
+the version's low 16 bits. The B212/B218 native group remains E255; equivalence
+requires all native mask bits above 31 to be clear. Two guarded public/native
+B212/B218 captures were byte-identical within each format, with mask `0x1F` and
+matching traced type2 fields. Within those B212/B218 captures, the fifth native
+INFO type0 became public `0xFE`, while its CONTROL remained type4; those
+independent observations do not imply absence.
 The initial comparison used native CONTROL row+4 for its type. Re-analysis of
 the same saved packets corrected this to row+0, preserving the failed journal.
 Flags remain at native row+5..7 and four DWORDs at +8/+C/+10/+14. The observed
@@ -2897,13 +2906,14 @@ read callbacks:
 | --- | --- | --- | --- | --- | --- |
 | Base directory | 32 bits | `0x10` | `0x28` | 1 | `0x100` |
 | Section directory | 256 bits | `0x2C` | `0x18` | 1 | `0x100` |
-| F219 backing response | Unclassified here | `0x2C` | `0x24` | 2 | `0x100`, `0x2600` |
+| F219 post-SET response backing (static path) | Unclassified here | `0x2C` | `0x24` | 2 | `0x100`, `0x2600` |
 
 These offsets are added to the logical requested offset; source-context
 offsets apply separately. Base and section directory read lengths span through
-the highest set mask bit, including unset rows within that span. The F219 fetch uses directory selector
-`0x1B`; its wire group byte is `0x17`. The installed callbacks replace the
-generic failure defaults, and the read path uses before/after DWORD samples
+the highest set mask bit, including unset rows within that span. The static
+post-SET F219 response fetch uses directory selector `0x1B`; its wire group
+byte is `0x17`. The installed callbacks replace the generic failure defaults,
+and this response-fetch path uses before/after DWORD samples
 for buffer selection and consistency. Header kind, source-row kind, category
 and selector remain separate fields. Actual runtime records, unclassified
 header bytes, writer identity and numerical voltage semantics remain open.
