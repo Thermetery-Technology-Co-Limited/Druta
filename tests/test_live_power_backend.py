@@ -201,10 +201,12 @@ def test_xoc_extended_request_changes_only_source_and_never_reapplies_pins(reque
 
 
 @pytest.mark.parametrize('pin_result', [(True, 'pins restored'), (False, 'pin restoration failed')])
-def test_legacy_live_request_reapplies_user_pins_and_reports_failure(pin_result):
+@pytest.mark.parametrize('layout', [None, 'legacy32', 'rm26'])
+def test_v30_live_request_reapplies_user_pins_and_reports_failure(pin_result, layout):
     gpu = BackendGpu()
     gpu.voltage_xoc_enabled = True
-    after = {'requested_mw': 600000, 'binding': {'native_index': 19, 'layout': 'legacy32'}}
+    after = {'requested_mw': 600000, 'binding': {'native_index': 19, 'layout': layout},
+             'role_info_hex': '0100000030'}
     gpu.read_live_power_request = Mock(return_value=({'requested_mw': 321000}, None))
     gpu._live_power_controller = SimpleNamespace(set_request=Mock(return_value={'after': after}))
     gpu._reapply_power_policy_pins = Mock(return_value=pin_result)

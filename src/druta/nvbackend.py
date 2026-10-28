@@ -4230,7 +4230,7 @@ class GPU:
                 return False, f"live power request failed: {exc}"
             self._live_power_last = result["after"]
             self._board_policy = result["after"]["binding"]["native_index"]
-            if result["after"]["binding"].get("layout") == "legacy32":
+            if bytes.fromhex(result["after"].get("role_info_hex", ""))[4:5] == b"\x30":
                 ok, note = self._reapply_power_policy_pins(board_mw=mw)
                 return ok, (f"power request configured to {mw/1000:g} W; "
                             "the driver may recalculate other policies; "
@@ -4838,6 +4838,15 @@ class GPU:
     # Keyed by the exact unmodified A612 packet and parameter sizes. Never
     # infer private ABI geometry from a driver string or a device identity.
     _CURRENT_LIMIT_LAYOUTS = {
+        (2524, 2456): {
+            "transport_command": 0x20802612,
+            "sizes": {0x2080A618: 5008, 0x2080A619: 14148,
+                      0x2080A61A: 2108, 0x2080E61B: 2108},
+            "commands": {0x2080A618: 0x20802618, 0x2080A619: 0x20802619,
+                         0x2080A61A: 0x2080261A, 0x2080E61B: 0x2080261B},
+            "info": (52, 116), "status": (12, 372),
+            "control": (4, 52), "status_mask_word": 0, "control_mask_word": 0,
+        },
         (3548, 3480): {
             "transport_command": 0x20802612,
             "sizes": {0x2080A618: 5520, 0x2080A619: 69148,
@@ -5091,7 +5100,18 @@ class GPU:
                 allowed_masks = {1 << policy for policy in range(32) if live >> policy & 1}
             else:
                 allowed_masks = {1 << policy for policy in self._current_limit_generation_policies()}
-            if len(params) < 5 or params[4] not in allowed_masks:
+            # Reject invalid requests before capturing a transport. The short
+            # RM26 CONTROL has its mask at word zero; all larger understood
+            # CONTROL packets retain the five-word header. Geometry, rather
+            # than a driver label, determines which word can be a selector.
+            layouts = list(self._CURRENT_LIMIT_LAYOUTS.values())
+            for group in self._CURRENT_LIMIT_LAYOUT_FALLBACKS.values():
+                layouts.extend(group)
+            selectors = {candidate.get("control_mask_word", 4) for candidate in layouts
+                         if candidate["sizes"].get(command) == len(params) * 4}
+            if not selectors:
+                raise ValueError("unexpected current-policy buffer size")
+            if not any(type(params[index]) is int and params[index] in allowed_masks for index in selectors):
                 raise ValueError("current-policy write must select one policy the validated table lists"
                                  if any_live_policy else
                                  "current-policy write must select one generation-supported rail")
@@ -5101,19 +5121,23 @@ class GPU:
                 raise ValueError("unexpected current-policy buffer size")
         layout = self._current_limit_abi()
         size = layout["sizes"][command]
+        mask_word = layout.get("control_mask_word", 4)
+        if command == 0x2080E61B and (len(params) <= mask_word
+                or type(params[mask_word]) is not int or params[mask_word] not in allowed_masks):
+            raise ValueError("current-policy write mask does not select one validated policy")
         wire_command = layout.get("commands", {}).get(command, command)
         if "commands" in layout and command not in layout["commands"]:
             raise ValueError("legacy current-policy SET has not been identified")
         if params is None:
             params = [0] * (size // 4)
             if command == 0x2080A619:
-                if policy_mask is None:
+                if type(policy_mask) is not int or not 0 <= policy_mask <= 0xFFFFFFFF:
                     raise ValueError("current-policy status requires a validated mask")
                 params[layout.get("status_mask_word", 1)] = policy_mask
             elif command == 0x2080A61A:
-                if policy_mask is None:
+                if type(policy_mask) is not int or not 0 <= policy_mask <= 0xFFFFFFFF:
                     raise ValueError("current-policy control requires a validated mask")
-                params[4] = policy_mask
+                params[mask_word] = policy_mask
         if len(params) * 4 != size:
             raise ValueError("unexpected current-policy buffer size")
         header, fields = self._current_limit_transport
@@ -5156,10 +5180,11 @@ class GPU:
             return layout, info, None, None
         control = self._current_limit_rm(0x2080A61A, policy_mask=mask)
         dynamic = self._current_limit_rm(0x2080A619, policy_mask=mask)
+        control_header = [mask] if layout.get("control_mask_word", 4) == 0 else [0, 0, 0, 255, mask]
         if (len(control) * 4 != sizes[0x2080A61A]
                 or len(dynamic) * 4 != sizes[0x2080A619]
                 or dynamic[layout.get("status_mask_word", 1)] != mask
-                or control[:5] != [0, 0, 0, 255, mask]):
+                or control[:len(control_header)] != control_header):
             raise CurrentLimitUnsupported("current-policy layout or mask differs from the measured ABI")
         # the mask a policy SET may select from (see _current_limit_rm)
         self._power_policy_mask = mask
@@ -5214,7 +5239,7 @@ class GPU:
                     if not error and observed is not None:
                         binding = observed.get("binding", {})
                         in_range = (
-                            binding.get("layout") == "legacy32"
+                            bytes.fromhex(observed.get("role_info_hex", ""))[4:5] == b"\x30"
                             and type(observed.get("requested_mw")) is int
                             and type(binding.get("maximum_mw")) is int
                             and observed["requested_mw"] > binding["maximum_mw"]
@@ -5350,14 +5375,15 @@ class GPU:
                                f"{amps(maximum)} A in the current mode")
             if ma == row["limit_ma"]:
                 return True, f"{row['label']} already at {amps(ma)} A"
-            control_base, control_stride = self._current_limit_abi()["control"]
+            layout = self._current_limit_abi()
+            control_base, control_stride = layout["control"]
             word = (control_base + policy * control_stride) // 4 + 1
         except Exception as exc:
             return False, str(exc)
         expected = list(original)
         expected[word] = ma
         request = list(expected)
-        request[4] = 1 << policy
+        request[layout.get("control_mask_word", 4)] = 1 << policy
         try:
             self._current_limit_rm(0x2080E61B, request)
             back_rows, back_control = self._current_limit_state()
@@ -5372,7 +5398,7 @@ class GPU:
             # This also runs when the SET itself throws: an uncertain write
             # must not be mistaken for proof that nothing changed.
             restore = list(original)
-            restore[4] = 1 << policy
+            restore[layout.get("control_mask_word", 4)] = 1 << policy
             try:
                 self._current_limit_rm(0x2080E61B, restore)
                 restored_rows, restored_control = self._current_limit_state()
@@ -5573,7 +5599,7 @@ class GPU:
         expected = list(control)
         expected[words[policy]] = value
         request = list(expected)
-        request[4] = 1 << policy
+        request[layout.get("control_mask_word", 4)] = 1 << policy
         try:
             self._current_limit_rm(0x2080E61B, request, any_live_policy=True)
             _, _, back, back_status = self._power_policy_table()
@@ -5592,7 +5618,7 @@ class GPU:
             return True, message
         except Exception as exc:                                        # noqa: BLE001
             restore = list(control)
-            restore[4] = 1 << policy
+            restore[layout.get("control_mask_word", 4)] = 1 << policy
             try:
                 self._current_limit_rm(0x2080E61B, restore, any_live_policy=True)
                 _, _, again, _ = self._power_policy_table()

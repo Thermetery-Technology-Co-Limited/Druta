@@ -1,5 +1,59 @@
 # Driver compatibility: runtime rail detection and legacy controls
 
+## 1.9.04 Turing live power comparison
+
+On 2026-10-28, the local Gigabyte RTX 2080 SUPER AORUS Xtreme / TU104,
+VBIOS `90.04.7a.40.3d`, passed reversible idle configured-request checks on the
+three interfaces below. The board is shunt-modified and has a 16 GB VRAM modification
+requiring its existing P0 hold during qualification. These results identify
+tested configurations; driver labels and board identities do not select support.
+
+| Tested driver | Captured power transport, packet/parameters | Native INFO / CONTROL / STATUS bytes | Qualification baseline |
+| --- | --- | --- | --- |
+| 431.60 | `20802612`, 2524/2456 | 5008 / 2108 / 14148 | 250 W |
+| 581.42 | `2080A612`, 11748/11680 | 8620 / 4432 / 172080 | 350 W |
+| 621.01 | `2080A612`, 54420/54352 | 20512 / 13876 / 397048 | 250 W |
+
+Each accepted 349, 351 and 400 W configured board requests against a 350 W
+ordinary maximum and restored the complete captured client/native state.
+Native STATUS distinguished request acceptance from downstream limits:
+
+| Driver | Configured requests | Settled native effective board limits | Core current without a separate pin |
+| --- | --- | --- | --- |
+| 431.60 | 349 / 351 / 400 W | 359.906 / 360.938 / 360.938 W | 324 / 324 / 324 A |
+| 621.01 | 349 / 351 / 400 W | 359.906 / 361.969 / 412.5 W | 359.640 / 360.360 / 378 A |
+
+The first 431.60 samples were 349/350/350 W; each was followed within about
+0.3 seconds by four identical samples at its settled value above. The plateau
+is consistent with a 350 W clamp plus a driver status uplift, not a strict
+350 W reported effective cap. 431.60 is qualified for configured-request
+acceptance/readback/restoration and native current-policy controls; downstream
+override remains unqualified. 621.01 reported the same values in all five
+samples for each request, showing software headroom above 350 W. The control
+view also independently shows the NVML enforced limit. These status values are not physical-power
+measurements. Production 351 W checks on 431.60 and 621.01 retained a separate
+350 A current pin after a repeated
+board request and refused an independent 360.001 A request against the reported
+360 A maximum. P0 and the captured V/F hold matched before and after each
+check. Driver installation/replacement used no Windows reboot.
+
+1.9.04 adds the short `26xx` interface and separates v30 firmware definitions
+from modern RM packet capacity. This fixes 621.01 role validation, coupled-peer
+request checks, current visibility and pin replay. The previously supported
+3548/3480 legacy transport remains a separate layout. Modern PERF diagnostics
+retain their independent transport restrictions.
+
+The [live comparison](experiments/turing-driver-live-comparison-20261028.md)
+links the sanitized reports and restoration evidence. The earlier
+[offline ABI comparison](experiments/turing-driver-abi-review-20261028.md)
+records the investigation before these driver installations and is historical;
+the [431.60 static layout](experiments/turing-43160-static-layout-20261028.md)
+adds kernel and wrapper evidence. A separate
+[owner-reported FurMark A/B observation](experiments/turing-owner-furmark-ab-20261028.md)
+supports an operative limit increase during the prior 581.42 session. No
+calibrated load test was performed here; physical enforcement on 431.60 and
+621.01 and behavior on other boards remain unmeasured.
+
 ## 1.5.0a voltage-rail matrix
 
 The 1.5.0a rail path recognizes native packets by observed geometry, never by
