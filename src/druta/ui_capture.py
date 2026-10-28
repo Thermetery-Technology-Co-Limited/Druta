@@ -1,6 +1,6 @@
 # Copyright (C) 2026 Thermetery Technology Co Limited
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Opt-in framebuffer walkthrough using display-only widget changes."""
+"""Opt-in framebuffer walkthrough with live reads and display-only staging."""
 
 import hashlib
 import json
@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 class UiCapture:
-    """Run on the DPG render thread; never invoke an application callback."""
+    """Run on the DPG thread; invalid Apply inputs stop at the parser before any writer."""
 
     def __init__(self, dpg, app, directory):
         self.dpg, self.app = dpg, app
@@ -21,11 +21,11 @@ class UiCapture:
         self.wait = 3
         self.frames = 0
         self.snapshot = None
+        self.panel = None
+        self.live_scroll = None
+        self.live_original = {}
         self.manifest = {"schema": 1, "state": "capturing", "captures": [], "skipped": [], "errors": [],
                          "bounds_provenance": getattr(app, "_power_slider_baseline", None)}
-        self.manifest["skipped"].append(
-            "Live REL and voltage constants panels require their own read and expansion; not captured in this walkthrough."
-        )
         self._save()
         try:
             self.snapshot = {"tab": dpg.get_value("tabs"), "scroll": dpg.get_y_scroll("page_control"),
@@ -50,6 +50,17 @@ class UiCapture:
             else:
                 self.bounds = None
                 self.manifest["skipped"].append("Power range stages: original BIOS bounds or slider unavailable.")
+            panel = getattr(app, "_registry_panel", None)
+            headers = ("registry_header", "reg_rel_live_header", "reg_constants_live_header")
+            self.panel = panel if panel and all(dpg.does_item_exist(tag) for tag in headers) else None
+            if self.panel:
+                self.snapshot["headers"] = {tag: dpg.get_value(tag) for tag in headers}
+                self.live_original = {kind: dpg.get_value("reg_" + kind + "_live_select")
+                                      for kind in ("rel", "constants")}
+                self.stages.append("live-prepare")
+                self.manifest["read_cache_note"] = "Live reads retain their normal panel caches and initial values."
+            else:
+                self.manifest["skipped"].append("Live panels: registry panel or headers unavailable.")
             self.stages.append("restored-display")
             self.stage = 0
             self._save()
@@ -64,16 +75,93 @@ class UiCapture:
             return
         dpg, saved = self.dpg, self.snapshot
         dpg.set_value("ctl_clocks", saved["clocks"])
-        if "slider" in saved and dpg.does_item_exist("sl_pl") and dpg.does_item_exist("in_pl"):
+        if self.panel:
+            for kind in ("rel", "constants"):
+                choices = getattr(self.panel, kind + "_live_choices")
+                if choices:
+                    selected = self.live_original.get(kind)
+                    dpg.set_value("reg_" + kind + "_live_select", selected if selected in choices else next(iter(choices)))
+                    getattr(self.panel, "select_" + kind + "_live")()
+            for tag, value in saved.get("headers", {}).items():
+                dpg.set_value(tag, value)
+        self._restore_power()
+
+    def _restore_power(self):
+        saved, dpg = self.snapshot, self.dpg
+        if saved and "slider" in saved and dpg.does_item_exist("sl_pl") and dpg.does_item_exist("in_pl"):
             dpg.configure_item("sl_pl", min_value=saved["minimum"], max_value=saved["maximum"])
             dpg.set_value("sl_pl", saved["slider"])
             dpg.set_value("in_pl", saved["input"])
             self.app.refresh_power_slider_style()
 
+    def _prepare_live(self):
+        self._restore_power()
+        dpg = self.dpg
+        dpg.set_value("registry_header", True)
+        cases = []
+        for kind in ("rel", "constants"):
+            try:
+                getattr(self.panel, "refresh_" + kind + "_live")()
+                choices = getattr(self.panel, kind + "_live_choices")
+                if getattr(self.panel, kind + "_live_stale"):
+                    raise RuntimeError("read is stale")
+                if kind == "rel":
+                    cases.extend(("rel", label, row) for label, row in choices.items())
+                else:
+                    for role in ("OV", "ALT", "VMIN"):
+                        matches = [(kind, label, row) for label, row in choices.items() if row.get("role") == role]
+                        cases.extend(matches)
+                        if not matches:
+                            self.manifest["skipped"].append("Live " + role + ": no supported rows.")
+                        if role == "VMIN":
+                            for rail in (0, 1):
+                                if not any(row.get("rail") == rail for _, _, row in matches):
+                                    self.manifest["skipped"].append("Live VMIN rail " + str(rail) + ": unavailable.")
+                if not choices:
+                    self.manifest["skipped"].append("Live " + kind + ": " + dpg.get_value("reg_" + kind + "_live_status"))
+            except Exception as exc:
+                self.manifest["skipped"].append("Live " + kind + " read failed: " + str(exc))
+        self.live_cases = {}
+        new_stages = []
+        for kind, label, row in cases:
+            name = "live-" + kind + "-" + str(row["rail"]) + ("-" + row["role"].lower() if kind == "constants" else "")
+            self.live_cases[name] = (kind, label, False)
+            new_stages.append(name)
+        for kind in ("rel", "constants"):
+            match = next(((label, row) for k, label, row in cases if k == kind), None)
+            if match:
+                name = "live-" + kind + "-invalid"
+                self.live_cases[name] = (kind, match[0], True)
+                new_stages.append(name)
+        self.stages[self.stage:self.stage + 1] = new_stages
+        return bool(new_stages)
+
+    def _stage_live(self, name):
+        kind, label, invalid = self.live_cases[name]
+        dpg = self.dpg
+        for header in ("reg_rel_live_header", "reg_constants_live_header"):
+            dpg.set_value(header, header == "reg_" + kind + "_live_header")
+        dpg.set_value("reg_" + kind + "_live_select", label)
+        getattr(self.panel, "select_" + kind + "_live")()
+        if invalid:
+            dpg.set_value("reg_" + kind + "_live_value", "not a number")
+            getattr(self.panel, "apply_" + kind + "_live")()
+        dpg.set_value("ctl_clocks", "Developer capture: " + name)
+        self.live_scroll = "reg_" + kind + "_live_header"
+
     def _stage(self, name):
         dpg = self.dpg
+        if name == "live-prepare":
+            if not self._prepare_live():
+                return self._stage(self.stages[self.stage])
+            name = self.stages[self.stage]
+        if name.startswith("live-"):
+            self._stage_live(name)
+            return True
         if name == "restored-display":
             self._restore_widgets()
+            dpg.set_value("tabs", self.snapshot["tab"])
+            dpg.set_y_scroll("page_control", self.snapshot["scroll"])
         else:
             lo, hi = self.bounds
             step = max(1.0, (hi - lo) * 0.05)
@@ -102,6 +190,10 @@ class UiCapture:
             return
         try:
             self.frames += 1
+            if self.live_scroll is not None:
+                scroll = self.dpg.get_item_pos(self.live_scroll)[1]
+                self.dpg.set_y_scroll("page_control", max(0, min(scroll, self.dpg.get_y_scroll_max("page_control"))))
+                self.live_scroll = None
             if self.pending is not None:
                 path, name, requested_frame, request_tick = self.pending
                 if path.is_file() and self.frames - request_tick >= 2:
@@ -112,9 +204,14 @@ class UiCapture:
                     width, height = struct.unpack_from(">II", raw, 16)
                     if not width or not height:
                         raise RuntimeError("Framebuffer output has empty dimensions")
-                    item = {"stage": name, "synthetic": name not in ("control-actual", "restored-display"),
+                    item = {"stage": name, "synthetic": name in ("original-upper", "extended-in-range", "extended-above") or name.endswith("-invalid"),
                             "path": path.name, "requested_frame": requested_frame,
                             "width": width, "height": height, "sha256": hashlib.sha256(raw).hexdigest()}
+                    if name in getattr(self, "live_cases", {}):
+                        kind, _, _ = self.live_cases[name]
+                        prefix = "reg_" + kind + "_live_"
+                        item["live"] = {key: self.dpg.get_value(prefix + tag) for key, tag in
+                                        (("selected", "select"), ("value", "value"), ("status", "status"))}
                     if "slider" in self.snapshot:
                         cfg = self.dpg.get_item_configuration("sl_pl")
                         item["widget"] = {"slider": self.dpg.get_value("sl_pl"), "input": self.dpg.get_value("in_pl"),

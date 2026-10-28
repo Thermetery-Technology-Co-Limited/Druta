@@ -20,6 +20,9 @@ class FakeDpg:
         self.frame = 0
         self.fail_output = False
         self.callbacks = []
+        self.scrolls = []
+        self.output_values = []
+        self.output_viewports = []
 
     def get_value(self, item):
         return self.values[item]
@@ -32,6 +35,7 @@ class FakeDpg:
 
     def set_y_scroll(self, item, value):
         self.scroll = value
+        self.scrolls.append(value)
 
     def does_item_exist(self, item):
         return item in self.values
@@ -42,10 +46,22 @@ class FakeDpg:
     def configure_item(self, item, **kwargs):
         self.config[item].update(kwargs)
 
+    def get_item_pos(self, item):
+        assert item != "page_control"
+        return (0, 300)
+
+    def get_item_rect_min(self, item):
+        raise KeyError("rect_min")
+
+    def get_y_scroll_max(self, item):
+        return 1000
+
     def get_frame_count(self):
         return self.frame
 
     def output_frame_buffer(self, *, file):
+        self.output_values.append(dict(self.values))
+        self.output_viewports.append((self.scroll, dict(self.config["sl_pl"])))
         if self.fail_output:
             raise RuntimeError("capture failed")
         Path(file).write_bytes(b"\x89PNG\r\n\x1a\n" + b"\0\0\0\rIHDR" + struct.pack(">II", 640, 480)
@@ -161,3 +177,77 @@ def test_normal_launch_does_not_enable_capture(monkeypatch):
     assert druta.main([]) == 0
     assert not hasattr(application, "_ui_capture_dir")
     application.run.assert_called_once()
+
+
+def test_live_reads_selection_invalid_and_restoration_are_display_only(tmp_path, monkeypatch):
+    from druta import registry_panel
+
+    dpg, application = FakeDpg(), app()
+    dpg.values.update(registry_header=False, reg_rel_live_header=False, reg_constants_live_header=True,
+                      reg_rel_live_select="", reg_constants_live_select="", reg_rel_live_value="",
+                      reg_constants_live_value="", reg_rel_live_status="", reg_constants_live_status="")
+    monkeypatch.setattr(registry_panel, "dpg", dpg)
+    panel = registry_panel.RegistryPanel(application)
+    panel.rel_live_choices = {}
+    panel.constants_live_choices = {}
+    panel._set_rel_live = Mock()
+    panel._set_constants_live = Mock()
+    def rel_read():
+        panel.rel_live_choices = {"rail0": {"rail": 0}}
+        panel.rel_live_stale = False
+    def constants_read():
+        panel.constants_live_choices = {"ov": {"rail": 0, "role": "OV"},
+                                        "alt": {"rail": 0, "role": "ALT"},
+                                        "vmin0": {"rail": 0, "role": "VMIN"},
+                                        "vmin1": {"rail": 1, "role": "VMIN"}}
+        panel.constants_live_stale = False
+    panel.refresh_rel_live = rel_read
+    panel.refresh_constants_live = constants_read
+    panel.select_rel_live = lambda: dpg.set_value("reg_rel_live_value", "1000")
+    panel.select_constants_live = lambda: dpg.set_value("reg_constants_live_value", "800")
+    application._registry_panel = panel
+    capture = UiCapture(dpg, application, tmp_path / "new")
+    run(capture, dpg)
+    names = [item["stage"] for item in capture.manifest["captures"]]
+    assert names[-8:] == ["live-rel-0", "live-constants-0-ov", "live-constants-0-alt",
+                          "live-constants-0-vmin", "live-constants-1-vmin",
+                          "live-rel-invalid", "live-constants-invalid", "restored-display"]
+    first_live = names.index("live-rel-0")
+    assert capture.manifest["captures"][first_live]["live"] == {
+        "selected": "rail0", "value": "1000", "status": ""
+    }
+    invalid = capture.manifest["captures"][names.index("live-constants-invalid")]["live"]
+    assert invalid["selected"] == "ov" and invalid["value"] == "not a number"
+    assert invalid["status"].startswith("Enter a finite")
+    assert dpg.output_values[first_live]["sl_pl"] == 300.0
+    assert dpg.output_values[first_live]["in_pl"] == 300.0
+    assert dpg.output_viewports[first_live][1] == {"min_value": 100.0, "max_value": 400.0}
+    assert dpg.output_values[-1]["tabs"] == "tab_monitor"
+    assert dpg.output_viewports[-1][0] == 23.0
+    assert any(v.get("reg_rel_live_status", "").startswith("Enter a finite") for v in dpg.output_values)
+    assert any(v.get("reg_constants_live_status", "").startswith("Enter a finite") for v in dpg.output_values)
+    panel._set_rel_live.assert_not_called()
+    panel._set_constants_live.assert_not_called()
+    assert dpg.values["reg_rel_live_value"] == "1000"
+    assert dpg.values["reg_constants_live_value"] == "800"
+    assert [dpg.values[tag] for tag in ("registry_header", "reg_rel_live_header", "reg_constants_live_header")] == [False, False, True]
+    assert any(value > 23 for value in dpg.scrolls) and dpg.scroll == 23
+    assert "normal panel caches" in capture.manifest["read_cache_note"]
+
+
+def test_live_missing_role_does_not_hide_ready_peer(tmp_path):
+    dpg, application = FakeDpg(), app()
+    dpg.values.update(registry_header=False, reg_rel_live_header=False, reg_constants_live_header=False,
+                      reg_rel_live_select="", reg_constants_live_select="", reg_rel_live_value="",
+                      reg_constants_live_value="", reg_rel_live_status="Unavailable", reg_constants_live_status="")
+    panel = SimpleNamespace(rel_live_choices={}, constants_live_choices={"peer": {"rail": 1, "role": "VMIN"}},
+                            rel_live_stale=False, constants_live_stale=False,
+                            refresh_rel_live=lambda: None, refresh_constants_live=lambda: None,
+                            select_constants_live=lambda: dpg.set_value("reg_constants_live_value", "800"),
+                            apply_constants_live=lambda: None)
+    application._registry_panel = panel
+    capture = UiCapture(dpg, application, tmp_path / "new")
+    run(capture, dpg)
+    assert "live-constants-1-vmin" in [x["stage"] for x in capture.manifest["captures"]]
+    assert any("Live OV" in x for x in capture.manifest["skipped"])
+    assert any("Live rel: Unavailable" in x for x in capture.manifest["skipped"])

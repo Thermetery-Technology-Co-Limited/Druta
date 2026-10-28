@@ -3515,7 +3515,7 @@ class Druta:
                     with dpg.collapsing_header(label="Power policies", tag="power_policy_header",
                                                default_open=False):
                         self.build_power_policy_section()
-                with dpg.collapsing_header(label="Registry / BIOS overrides", default_open=False):
+                with dpg.collapsing_header(label="Registry / BIOS overrides", tag="registry_header", default_open=False):
                     from .registry_panel import RegistryPanel
                     self._registry_panel = RegistryPanel(self)
                     self._registry_panel.build()

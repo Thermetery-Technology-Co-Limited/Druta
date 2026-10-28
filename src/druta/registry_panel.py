@@ -163,7 +163,7 @@ class RegistryPanel:
                 tag="reg_vf_live_status",
                 wrap=self.app.s(900),
             )
-        with dpg.collapsing_header(label="Live REL upper bounds"):
+        with dpg.collapsing_header(label="Live REL upper bounds", tag="reg_rel_live_header"):
             dpg.add_text(
                 "Change the loaded equation upper bound for this driver session without restarting the GPU. "
                 "Reported REL and ALT values can differ from the bound. Physical enforcement has not been measured.",
@@ -188,7 +188,7 @@ class RegistryPanel:
             dpg.add_input_text(
                 tag="reg_rel_live_inventory", readonly=True, multiline=True, width=-1, height=self.app.s(110)
             )
-        with dpg.collapsing_header(label="Live voltage constants"):
+        with dpg.collapsing_header(label="Live voltage constants", tag="reg_constants_live_header"):
             dpg.add_text(
                 "Change an OV or VMIN constant, or an ALT addend, for this driver session without restarting the GPU. "
                 "Reported policy values can differ. Physical enforcement has not been measured.",

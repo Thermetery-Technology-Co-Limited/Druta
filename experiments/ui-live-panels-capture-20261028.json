@@ -1,0 +1,344 @@
+{
+  "schema": 1,
+  "scope": "Source application framebuffer capture of power display staging and live REL and voltage constant read, selection and nonnumeric parser error states. Packaged results are verified separately for each build; these source images do not qualify a packaged executable.",
+  "source_capture": {
+    "state": "complete",
+    "captures": [
+      {
+        "stage": "control-actual",
+        "synthetic": false,
+        "path": "control-actual.png",
+        "requested_frame": 4,
+        "width": 1528,
+        "height": 1261,
+        "sha256": "33e3f0903a786c0bacf79b41dea419616104a177a05e8d6127ba1851e097b06a",
+        "widget": {
+          "slider": 360.0,
+          "input": 360.0,
+          "min": 250.0,
+          "max": 450.0
+        }
+      },
+      {
+        "stage": "original-upper",
+        "synthetic": true,
+        "path": "original-upper.png",
+        "requested_frame": 9,
+        "width": 1528,
+        "height": 1261,
+        "sha256": "01b22cfcdbf77826f94453d40df586e6a92fab225d6202aa75c3af34950bd594",
+        "widget": {
+          "slider": 450.0,
+          "input": 450.0,
+          "min": 250.0,
+          "max": 450.0
+        }
+      },
+      {
+        "stage": "extended-in-range",
+        "synthetic": true,
+        "path": "extended-in-range.png",
+        "requested_frame": 14,
+        "width": 1528,
+        "height": 1261,
+        "sha256": "26c89fba7daf342adecb228ec2285bdf3ea6b43b3ab582413dc97a6daa22d1d1",
+        "widget": {
+          "slider": 350.0,
+          "input": 350.0,
+          "min": 250.0,
+          "max": 460.0
+        }
+      },
+      {
+        "stage": "extended-above",
+        "synthetic": true,
+        "path": "extended-above.png",
+        "requested_frame": 19,
+        "width": 1528,
+        "height": 1261,
+        "sha256": "ff56ecf3c2a68330d2d97176b5fe61397954fb63b8c6db9c1e91ae57fc9e39c3",
+        "widget": {
+          "slider": 455.0,
+          "input": 455.0,
+          "min": 250.0,
+          "max": 460.0
+        }
+      },
+      {
+        "stage": "live-rel-0",
+        "synthetic": false,
+        "path": "live-rel-0.png",
+        "requested_frame": 24,
+        "width": 1528,
+        "height": 1261,
+        "sha256": "2a69c6a80d4a6e12bb0719d4033223f42495b7b75b246051ff13783ba2197b5a",
+        "live": {
+          "selected": "NVVDD (rail 0)",
+          "value": "1120",
+          "status": "NVVDD: loaded upper 1120 mV."
+        },
+        "widget": {
+          "slider": 360.0,
+          "input": 360.0,
+          "min": 250.0,
+          "max": 450.0
+        }
+      },
+      {
+        "stage": "live-rel-1",
+        "synthetic": false,
+        "path": "live-rel-1.png",
+        "requested_frame": 29,
+        "width": 1528,
+        "height": 1261,
+        "sha256": "165429bb565896a40efe69c47bd0cf6ea120b64d83c4484450afbcd949a79d53",
+        "live": {
+          "selected": "MSVDD (rail 1)",
+          "value": "1120",
+          "status": "MSVDD: loaded upper 1120 mV."
+        },
+        "widget": {
+          "slider": 360.0,
+          "input": 360.0,
+          "min": 250.0,
+          "max": 450.0
+        }
+      },
+      {
+        "stage": "live-constants-0-ov",
+        "synthetic": false,
+        "path": "live-constants-0-ov.png",
+        "requested_frame": 34,
+        "width": 1528,
+        "height": 1261,
+        "sha256": "c54bb91716cb04259a6ee1f1720ba5939593520d1a4047cb6121093bb878b6ad",
+        "live": {
+          "selected": "NVVDD (rail 0) OV constant",
+          "value": "1200",
+          "status": "NVVDD OV constant: 1200 mV."
+        },
+        "widget": {
+          "slider": 360.0,
+          "input": 360.0,
+          "min": 250.0,
+          "max": 450.0
+        }
+      },
+      {
+        "stage": "live-constants-1-ov",
+        "synthetic": false,
+        "path": "live-constants-1-ov.png",
+        "requested_frame": 39,
+        "width": 1528,
+        "height": 1261,
+        "sha256": "20d877003aaa8c03acea4c1f06a9e43a67b35ff2a7eb49eb055e1f3ddacd9ce3",
+        "live": {
+          "selected": "MSVDD (rail 1) OV constant",
+          "value": "1200",
+          "status": "MSVDD OV constant: 1200 mV."
+        },
+        "widget": {
+          "slider": 360.0,
+          "input": 360.0,
+          "min": 250.0,
+          "max": 450.0
+        }
+      },
+      {
+        "stage": "live-constants-0-alt",
+        "synthetic": false,
+        "path": "live-constants-0-alt.png",
+        "requested_frame": 44,
+        "width": 1528,
+        "height": 1261,
+        "sha256": "618802e4717a39628e96936ca886f23a5b3290dec1e98398d1581866e0874cc8",
+        "live": {
+          "selected": "NVVDD (rail 0) ALT addend",
+          "value": "20",
+          "status": "NVVDD ALT addend: 20 mV."
+        },
+        "widget": {
+          "slider": 360.0,
+          "input": 360.0,
+          "min": 250.0,
+          "max": 450.0
+        }
+      },
+      {
+        "stage": "live-constants-1-alt",
+        "synthetic": false,
+        "path": "live-constants-1-alt.png",
+        "requested_frame": 49,
+        "width": 1528,
+        "height": 1261,
+        "sha256": "389526d8aacbef7d333388fe3b729aa6edf8e6844d3e679565108465c6dcf5c2",
+        "live": {
+          "selected": "MSVDD (rail 1) ALT addend",
+          "value": "20",
+          "status": "MSVDD ALT addend: 20 mV."
+        },
+        "widget": {
+          "slider": 360.0,
+          "input": 360.0,
+          "min": 250.0,
+          "max": 450.0
+        }
+      },
+      {
+        "stage": "live-constants-0-vmin",
+        "synthetic": false,
+        "path": "live-constants-0-vmin.png",
+        "requested_frame": 54,
+        "width": 1528,
+        "height": 1261,
+        "sha256": "1b098ba8700a0f0e4ee87fe28bd3b753de012e6d126dc6b5c0c7ad6e1a5ab1e9",
+        "live": {
+          "selected": "NVVDD (rail 0) VMIN constant",
+          "value": "800",
+          "status": "NVVDD VMIN constant: 800 mV."
+        },
+        "widget": {
+          "slider": 360.0,
+          "input": 360.0,
+          "min": 250.0,
+          "max": 450.0
+        }
+      },
+      {
+        "stage": "live-constants-1-vmin",
+        "synthetic": false,
+        "path": "live-constants-1-vmin.png",
+        "requested_frame": 59,
+        "width": 1528,
+        "height": 1261,
+        "sha256": "7867ca715ea853c85d4b88bdba07b410a7ce54387a5766611ae277b3fa443957",
+        "live": {
+          "selected": "MSVDD (rail 1) VMIN constant",
+          "value": "800",
+          "status": "MSVDD VMIN constant: 800 mV."
+        },
+        "widget": {
+          "slider": 360.0,
+          "input": 360.0,
+          "min": 250.0,
+          "max": 450.0
+        }
+      },
+      {
+        "stage": "live-rel-invalid",
+        "synthetic": true,
+        "path": "live-rel-invalid.png",
+        "requested_frame": 64,
+        "width": 1528,
+        "height": 1261,
+        "sha256": "127b4fa666dfe420e3b32f0ccfb83f940dab5376aaa01987c788b8aa8d7b3e39",
+        "live": {
+          "selected": "NVVDD (rail 0)",
+          "value": "not a number",
+          "status": "Enter a finite mV value with whole-microvolt precision."
+        },
+        "widget": {
+          "slider": 360.0,
+          "input": 360.0,
+          "min": 250.0,
+          "max": 450.0
+        }
+      },
+      {
+        "stage": "live-constants-invalid",
+        "synthetic": true,
+        "path": "live-constants-invalid.png",
+        "requested_frame": 69,
+        "width": 1528,
+        "height": 1261,
+        "sha256": "0513b1d547fdde2980885504d4ea3601cb681ebd23bd1619f4a83bf5b9a83718",
+        "live": {
+          "selected": "NVVDD (rail 0) OV constant",
+          "value": "not a number",
+          "status": "Enter a finite mV value with whole-microvolt precision."
+        },
+        "widget": {
+          "slider": 360.0,
+          "input": 360.0,
+          "min": 250.0,
+          "max": 450.0
+        }
+      },
+      {
+        "stage": "restored-display",
+        "synthetic": false,
+        "path": "restored-display.png",
+        "requested_frame": 74,
+        "width": 1528,
+        "height": 1261,
+        "sha256": "33e3f0903a786c0bacf79b41dea419616104a177a05e8d6127ba1851e097b06a",
+        "widget": {
+          "slider": 360.0,
+          "input": 360.0,
+          "min": 250.0,
+          "max": 450.0
+        }
+      }
+    ],
+    "skipped": [],
+    "errors": [],
+    "bounds_provenance": {
+      "minimum_mw": 250000,
+      "maximum_mw": 450000,
+      "source": "live-bios",
+      "reason": null
+    },
+    "read_cache_note": "Live reads retain their normal panel caches and initial values."
+  },
+  "source_visual_review": [
+    "REL rail 0, ALT rail 0, VMIN rail 1 and REL parser error frames were inspected; displayed values matched the live readback."
+  ],
+  "source_state_check": {
+    "configured_fields_checked": [
+      "target",
+      "image",
+      "configured_power_mw",
+      "clock_ranges",
+      "thermal_thresholds",
+      "voltage_request_gate",
+      "clock_vf",
+      "clock_bios",
+      "rated_clock",
+      "factory_clock",
+      "fan_stop",
+      "fan_policies",
+      "voltage_ceiling",
+      "voltage_policy"
+    ],
+    "typed_power_policy_fields": [
+      "policy",
+      "type",
+      "channel",
+      "unit",
+      "minimum",
+      "default",
+      "maximum",
+      "requested",
+      "pinned"
+    ],
+    "different_fields": [],
+    "complete_rail_requests_equal": true,
+    "registry_equal": true,
+    "receipt_equal": true,
+    "normalization": "Only host-side driver_flags.captured_at is omitted from driver-flags comparison; listed configured packets and typed policy fields are checked."
+  },
+  "packaged_capture": {
+    "state": "not included in this source checkpoint",
+    "required": [
+      "Run the expanded capture in the packaged executable and inspect its PNGs and manifest.",
+      "Compare configured state, full rail requests, registry and receipt before and after."
+    ]
+  },
+  "prior_attempt": "An earlier source run failed because a child window had no rect_min state. Its only retained peer difference was BOOST_LOW client-input type 0 -> 3, union DWORD 0; the producer is unknown. A subsequent GET recovered the exact original full peer bytes without any restoration SET. The scrolling implementation now uses the header's content-relative position. No request bytes are silently normalized in the state comparison.",
+  "remaining": [
+    "Preview and recovery states.",
+    "Real Apply/Undo walkthrough.",
+    "Other DPI, viewport sizes and adapters."
+  ],
+  "qualification": "The live panels show readbacks. Nonnumeric input exercises only validation before the writer. Synthetic power widget values are display cases and establish no applied request or physical effect."
+}

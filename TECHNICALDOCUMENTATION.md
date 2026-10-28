@@ -3029,18 +3029,27 @@ The opt-in developer command `--ui-capture NEW_DIRECTORY` exports the actual
 DearPyGUI framebuffer to PNG without the Windows screen-capture service. The
 parent directory must exist; the output directory must be new. Startup-profile
 and recovery-relaunch flags cannot be combined with this mode. Normal launches
-are unchanged. After one ordinary rendered iteration, the capture sequence
-pauses callback dispatch and periodic panel refresh, captures the current
-Control page, and stages only widget values/ranges for the original endpoint,
-an extended range with an ordinary value, and a value above the original bound.
-It never invokes Apply or XOC callbacks. The staged cases require independently
-established original bounds and carry a display-only notice. The final capture
-restores the widgets; completion and error cleanup restore the clock text,
-selected tab and scroll position before normal operation resumes. The manifest
-records stage type, dimensions, frame, hashes, provenance and errors. This
-checks rendered layout and colors, not accepted GPU requests or physical power.
-Live REL/constants panels and the remaining preview, error and recovery states
-need separate visual checks. [Source-render evidence](experiments/ui-render-capture-20261028.json).
+are unchanged. After one ordinary rendered iteration, capture pauses ordinary
+callback dispatch and periodic refresh. It captures the Control page and stages
+widget-only power values and ranges using independently established original
+bounds. It then calls the live REL and voltage-constant read and selection
+methods, capturing supported rows independently. Two error frames pass the
+nonnumeric string `not a number` to the existing Apply callbacks; parsing
+rejects it before either writer is reached. No tuning or registry write is
+performed by the sequence. Synthetic frames carry a developer notice.
+
+Power widgets are restored before the live reads. The final frame and cleanup
+restore the original tab, scroll position, header expansion and clock text;
+live selections and inputs return to legitimate read values. The panel retains
+its ordinary read and initial-value caches. The manifest records stage type,
+selected live label, value and status, dimensions, frame, hashes, provenance,
+skips and errors. Source capture has exercised the two rails' REL, OV, ALT and
+VMIN rows and the two parser errors. Repeat capture and independent state
+comparison for each packaged build. This checks rendering and readback, not physical power or
+voltage enforcement. Remaining preview and recovery states, real Apply/Undo,
+other DPI and viewport sizes, and other adapters require separate checks.
+[Power capture evidence](experiments/ui-render-capture-20261028.json) and
+[live-panel source evidence](experiments/ui-live-panels-capture-20261028.json).
 
 ## Source for a binary release
 
