@@ -1496,40 +1496,71 @@ class Nvml:
         except Exception as e:
             self.err_detail = f"nvml.dll not loadable: {e}"
             return
-        self.dll.nvmlErrorString.restype = ctypes.c_char_p
-        st = self.dll.nvmlInit_v2()
-        if st != 0:
-            self.err_detail = f"nvmlInit_v2 status {st}"
+        if self.has("nvmlErrorString"):
+            self.dll.nvmlErrorString.restype = ctypes.c_char_p
+        init_name = next((name for name in ("nvmlInit_v2", "nvmlInit") if self.has(name)), None)
+        if init_name is None:
+            self.err_detail = "NVML has no initialization export"
             return
-        cnt = u32(0)
-        st = self.dll.nvmlDeviceGetCount_v2(ctypes.byref(cnt))
+        st = getattr(self.dll, init_name)()
         if st != 0:
-            self.err_detail = f"nvmlDeviceGetCount_v2 status {st}"
+            self.err_detail = f"{init_name} status {st}"
+            return
+        # NVIDIA documents different v1/v2 index spaces: never mix the pair.
+        pairs = (("nvmlDeviceGetCount_v2", "nvmlDeviceGetHandleByIndex_v2"),
+                 ("nvmlDeviceGetCount", "nvmlDeviceGetHandleByIndex"))
+        pair = next(((count, handle) for count, handle in pairs if self.has(count) and self.has(handle)), None)
+        if pair is None:
+            self.err_detail = "NVML has no matching device-count/index exports"
+            return
+        count_name, handle_name = pair
+        cnt = u32(0)
+        st = getattr(self.dll, count_name)(ctypes.byref(cnt))
+        if st != 0:
+            self.err_detail = f"{count_name} status {st}"
             return
         for i in range(cnt.value):
             dev = PTR()
-            if self.dll.nvmlDeviceGetHandleByIndex_v2(i,
-                                                      ctypes.byref(dev)) != 0:
+            if getattr(self.dll, handle_name)(i, ctypes.byref(dev)) != 0:
                 continue
-            pci = _NvmlPciInfo()
             entry = {"dev": dev, "nvml_index": i, "slot": "",
                      "devid": None, "subsys": None, "name": "", "uuid": ""}
-            if self.dll.nvmlDeviceGetPciInfo_v3(dev, ctypes.byref(pci)) == 0:
+            pci = self._read_pci(dev)
+            if pci is not None:
                 entry["slot"] = format_slot(pci.domain, pci.bus, pci.device)
                 entry["devid"] = pci.pciDeviceId >> 16
                 entry["subsys"] = pci.pciSubSystemId
-            buf = ctypes.create_string_buffer(96)
-            if self.dll.nvmlDeviceGetName(dev, buf, 96) == 0:
-                entry["name"] = buf.value.decode(errors="replace")
             # The only identity that survives two IDENTICAL cards in one host,
             # where name and VBIOS are equal by construction. Profiles lean on
             # it (see profiles.device_mismatch).
-            if self.has("nvmlDeviceGetUUID"):
-                ubuf = ctypes.create_string_buffer(96)
-                if self.dll.nvmlDeviceGetUUID(dev, ubuf, 96) == 0:
-                    entry["uuid"] = ubuf.value.decode(errors="replace")
+            for key, name in (("name", "nvmlDeviceGetName"), ("uuid", "nvmlDeviceGetUUID")):
+                if self.has(name):
+                    buf = ctypes.create_string_buffer(96)
+                    try:
+                        if getattr(self.dll, name)(dev, buf, 96) == 0:
+                            entry[key] = buf.value.decode(errors="replace")
+                    except Exception:
+                        pass
             self.gpus.append(entry)
         self._select(slot)
+
+    def _read_pci(self, dev):
+        """Read a versioned PCI identity; never mix partial or old layouts.
+
+        V2 and V3 share the 16-byte bus ID and five leading identity words.
+        The V3-sized buffer also accommodates the older reserved tail. The
+        unversioned pre-v2 layout cannot establish subsystem identity.
+        https://docs.nvidia.com/deploy/nvml-api/change-log.html
+        """
+        name = next((name for name in ("nvmlDeviceGetPciInfo_v3", "nvmlDeviceGetPciInfo_v2")
+                     if self.has(name)), None)
+        if name is None:
+            return None
+        pci = _NvmlPciInfo()
+        try:
+            return pci if getattr(self.dll, name)(dev, ctypes.byref(pci)) == 0 else None
+        except Exception:
+            return None
 
     def _select(self, slot):
         """Same rule as NvAPI._select: lowest slot by default, exact match or
@@ -1775,12 +1806,15 @@ class GPU:
                         s[key] = buf.value.decode(errors="replace")
                 except Exception:
                     pass
-            # power-limit constraints (mW)
+            # Power metadata getters are optional and independent.
             try:
                 mn, mx = u32(0), u32(0)
                 if nv.dll.nvmlDeviceGetPowerManagementLimitConstraints(
                         nv.dev, ctypes.byref(mn), ctypes.byref(mx)) == 0:
                     s["pl_min_mw"], s["pl_max_mw"] = mn.value, mx.value
+            except Exception:
+                pass
+            try:
                 d = u32(0)
                 if nv.dll.nvmlDeviceGetPowerManagementDefaultLimit(
                         nv.dev, ctypes.byref(d)) == 0:

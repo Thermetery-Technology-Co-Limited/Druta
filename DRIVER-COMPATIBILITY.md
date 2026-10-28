@@ -50,6 +50,16 @@ these boards and drivers. Blackwell's existing 580.97 controls are separate;
 this comparison does not establish a 472.12 Blackwell path. The 580.97 baseline
 column describes the TITAN boards; GTX 770, GTX 745 and GTX 690 were tested only on 472.12.
 
+**NVML export compatibility:** Druta selects `nvmlInit_v2` or `nvmlInit`
+by export availability, and uses a matched count/index API pair. PCI identity
+uses the available v3 or v2 getter; older unversioned PCI data is not used for
+pairing. Optional identity and power metadata getters remain independent. A
+returned error is not retried through an older API, and no driver-version
+allowlist is used. Versioned and legacy export pairs returned the same PCI
+identity from the current adapter's NVML library, including the v2 PCI getter.
+Older driver libraries and Windows 7/Vista remain unqualified; absent exports
+and error handling have mock coverage.
+
 **Current-policy controls:** eligibility follows Pascal, Turing, Ampere or Blackwell
 architecture plus exact runtime descriptor/mask checks, never device ID,
 driver string or VBIOS. On driver **580.97**, the TITAN Xp and TITAN RTX

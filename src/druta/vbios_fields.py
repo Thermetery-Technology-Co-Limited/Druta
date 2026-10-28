@@ -48,6 +48,16 @@ POWER_V40_RUNTIME_TYPES = {
     16: 35,
 }
 POWER_CLASS_EVIDENCE = "experiments/registry-overrides/vbios-fields/power-class-mapping.json"
+POWER_V30_CLASS_EVIDENCE = "experiments/power-v30-class1-20261028.json"
+
+
+def power_runtime_type(version, kind):
+    """Return only independently traced BIOS-to-runtime policy classes."""
+    if version == 0x40:
+        return POWER_V40_RUNTIME_TYPES.get(kind)
+    if version == 0x30 and kind == 1:
+        return 0
+    return None
 
 
 class FormatError(ValueError):
@@ -347,7 +357,7 @@ class _Image:
         modern = t["version"] == 0x40
         for i in range(t["count"]):
             row = t["offset"] + t["header_size"] + i * t["stride"]
-            kind = self.b[row] if modern else self.b[row] & 15
+            kind = self.b[row] if modern else (self.b[row] & 15) | ((self.b[row + 0x42] & 15) << 4)
             if not kind:
                 continue
             # The common flags word has limit units in bit 0; other bits
@@ -368,8 +378,13 @@ class _Image:
                     "vbios_type": kind,
                     "channel": self.b[row + (5 if modern else 1)],
                     "units": unit,
-                    "runtime_type": POWER_V40_RUNTIME_TYPES.get(kind) if modern else None,
-                    "class_evidence": POWER_CLASS_EVIDENCE if modern else None,
+                    "table_version": t["version"],
+                    "runtime_type": power_runtime_type(t["version"], kind),
+                    "class_evidence": POWER_CLASS_EVIDENCE
+                    if modern
+                    else POWER_V30_CLASS_EVIDENCE
+                    if kind == 1
+                    else None,
                     "required": "compare PCI-paired runtime policy index, class translation, channel, units and all three limits",
                 },
             }

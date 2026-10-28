@@ -68,33 +68,41 @@ def _live(observation, target):
         or binding["units"] != "mW"
     ):
         raise ValueError("Original power range: no understood milliwatt role1 binding")
-    info = _packet(observation, "native_info_hex", client.SIZES[client.NATIVE_INFO])
-    role = _packet(observation, "role_info_hex", client.SIZES[client.ROLE_INFO])
-    public = _packet(observation, "info_hex", client.SIZES[client.INFO])
+    layout = binding.get("layout")
+    if layout not in (None, "legacy32"):
+        raise ValueError("Original power range: unsupported client-power layout")
+    legacy = layout == "legacy32"
+    sizes = client.LEGACY_SIZES if legacy else client.SIZES
+    native_base, native_stride = (88, 228) if legacy else (client.NATIVE_INFO_BASE, client.NATIVE_INFO_STRIDE)
+    public_base, capacity = (8, 32) if legacy else (client.INFO_BASE, client.CAPACITY)
+    info = _packet(observation, "native_info_hex", sizes[client.NATIVE_INFO])
+    role = _packet(observation, "role_info_hex", sizes[client.ROLE_INFO])
+    public = _packet(observation, "info_hex", sizes[client.INFO])
     mask = struct.unpack_from("<I", info, 4)[0]
-    row_at = client.NATIVE_INFO_BASE + index * client.NATIVE_INFO_STRIDE
-    row = info[row_at : row_at + client.NATIVE_INFO_STRIDE]
+    row_at = native_base + index * native_stride
+    row = info[row_at : row_at + native_stride]
     matches = [
         i
         for i in range(client.NATIVE_CAPACITY)
-        if mask >> i & 1
-        and info[
-            client.NATIVE_INFO_BASE + i * client.NATIVE_INFO_STRIDE : client.NATIVE_INFO_BASE
-            + (i + 1) * client.NATIVE_INFO_STRIDE
-        ]
-        == role[4:]
+        if mask >> i & 1 and info[native_base + i * native_stride : native_base + (i + 1) * native_stride] == role[4:]
     ]
-    if role[:4] != struct.pack("<I", client.ROLE) or matches != [index] or row[0] != 0x40 or row[6] != 0:
+    if (
+        role[:4] != struct.pack("<I", client.ROLE)
+        or matches != [index]
+        or row[0] != (0x30 if legacy else 0x40)
+        or row[6] != 0
+    ):
         raise ValueError("Original power range: native role1 INFO binding differs")
-    public_mask = int.from_bytes(public[4 : client.INFO_BASE], "little")
+    public_mask = int.from_bytes(public[4:public_base], "little")
     candidates = [
         i
-        for i in range(client.CAPACITY)
-        if public_mask >> i & 1 and public[client.INFO_BASE + i * client.INFO_STRIDE + 2] == client.ROLE
+        for i in range(capacity)
+        if public_mask >> i & 1 and public[public_base + i * client.INFO_STRIDE + 2] == client.ROLE
     ]
-    at = client.INFO_BASE + selected * client.INFO_STRIDE
+    at = public_base + selected * client.INFO_STRIDE
     if (
-        public_mask >> client.CAPACITY
+        selected >= capacity
+        or public_mask >> capacity
         or candidates != [selected]
         or public[at] != public[at + 1]
         or public[at + 3] != 0
@@ -115,6 +123,21 @@ def _bios(inspection, live):
     identity = inspection["identity"]
     if identity.get("pci_vendor") != 0x10DE or identity.get("pci_device") != device:
         raise ValueError("Original power range: BIOS adapter identity differs")
+    tables = [table for table in inspection.get("tables", ()) if table.get("name") == "power"]
+    if len(tables) != 1:
+        raise ValueError("Original power range: BIOS power table is unavailable")
+    table = tables[0]
+    geometry = (table.get("version"), table.get("header_size"), table.get("stride"))
+    if geometry not in (
+        (0x40, 0x38, 0x66),
+        (0x40, 0x3D, 0x66),
+        (0x30, 0x32, 0x53),
+        (0x30, 0x34, 0x5B),
+        (0x30, 0x2C, 0x4B),
+    ):
+        raise ValueError("Original power range: BIOS power table layout is unsupported")
+    if type(table.get("count")) is not int or not 0 <= index < table["count"] <= 255:
+        raise ValueError("Original power range: BIOS policy index is outside the table")
     result, shape = [], None
     for name in _BOUNDS:
         matches = [f for f in inspection.get("fields", ()) if f.get("key") == f"power.{index}.{name}"]
@@ -124,6 +147,7 @@ def _bios(inspection, live):
         binding = field.get("runtime_binding", {})
         bios_kind = _integer(binding.get("vbios_type"), 0, 255, "BIOS policy class")
         current_shape = (
+            geometry,
             binding.get("policy_index"),
             bios_kind,
             binding.get("runtime_type"),
@@ -131,8 +155,9 @@ def _bios(inspection, live):
             binding.get("units"),
         )
         if (
-            current_shape != (index, bios_kind, kind, channel, "mW")
-            or vbios_fields.POWER_V40_RUNTIME_TYPES.get(bios_kind) != kind
+            current_shape != (geometry, index, bios_kind, kind, channel, "mW")
+            or binding.get("table_version") != geometry[0]
+            or vbios_fields.power_runtime_type(geometry[0], bios_kind) != kind
             or field.get("policy") != index
             or field.get("policy_type") != bios_kind
             or field.get("channel") != channel

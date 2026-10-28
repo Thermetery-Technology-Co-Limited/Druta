@@ -2998,6 +2998,19 @@ hashed ROM backups establish the earliest original image. Preexisting external
 BIOS overrides without a trustworthy original remain unknown. Missing provenance
 affects coloring only; it does not remove the existing power control.
 
+The reader also understands the existing smaller client/role/native INFO
+layout. BIOS table version and native packet format are checked separately.
+For supported v30 table geometries, the full policy class combines the low
+nibble at row+0 with the low nibble at row+0x42. Only full class 1 has a traced
+translation to runtime class 0; other v30 classes remain unmapped. The
+[signed-driver trace](experiments/power-v30-class1-20261028.json) follows that
+class through construction and both native INFO serializers. Exact policy
+index, class, channel, units and all three bounds must still match. The same
+class binding can satisfy the existing persistent power contract; static and
+synthetic evidence does not qualify activation or original-image provenance
+on the remote RTX 3070 Ti. Its capture remains pending. Original receipts and
+ROM hashes remain required when an image override is active.
+
 `power_slider_style.py` tints only the portions of the native slider outside
 those original bounds and colors the adjacent numeric input amber for an
 out-of-range requested value. Original endpoints are inclusive. The native slider

@@ -61,6 +61,20 @@ def apply(blob, plan):
     return bytes(out)
 
 
+def v30_power_fixture(header=0x2C, stride=0x4B, *, kind=1, extension=0, channel=5, unit=0):
+    blob = bytearray(fixture())
+    blob[0x2000:0x2002] = b"\x00\x00"
+    start = 0x3800
+    blob[start : start + header + stride] = bytes(header + stride)
+    blob[start : start + 4] = bytes((0x30, header, stride, 1))
+    row = start + header
+    blob[row] = kind | (unit << 4)
+    blob[row + 1] = channel
+    struct.pack_into("<III", blob, row + 2, 100000, 310000, 380000)
+    blob[row + 0x42] = extension
+    return bytes(blob)
+
+
 def extend(blob, tables):
     """Add bounded tables to the synthetic metadata directory (P pointers)."""
     b = bytearray(blob)
@@ -1049,3 +1063,17 @@ class RuntimeVbiosFields(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_v30_class_mapping_is_version_scoped_and_uses_full_encoded_class():
+    for header, stride in ((0x2C, 0x4B), (0x32, 0x53), (0x34, 0x5B)):
+        parsed = vf.inspect(v30_power_fixture(header, stride))
+        field = next(f for f in parsed["fields"] if f["key"] == "power.0.maximum")
+        assert field["policy_type"] == 1 and field["runtime_binding"]["runtime_type"] == 0
+        assert field["runtime_binding"]["table_version"] == 0x30
+        unknown = vf.inspect(v30_power_fixture(header, stride, extension=1))
+        field = next(f for f in unknown["fields"] if f["key"] == "power.0.maximum")
+        assert field["policy_type"] == 0x11 and field["runtime_binding"]["runtime_type"] is None
+        assert field["capability"] == "read-only"
+        assert vf.power_runtime_type(0x40, 1) == 0
+        assert vf.power_runtime_type(0x30, 2) is None
