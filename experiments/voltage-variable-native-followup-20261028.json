@@ -1,0 +1,191 @@
+{
+  "schema": 1,
+  "date_utc": "2026-10-28",
+  "scope": "Installed NVIDIA driver and NVAPI traces, public NVIDIA-authored definitions and guarded root-run captures. One RTX 5080 / 621.01 operating point; evidence identity is not a compatibility gate. No proprietary mVolt code or binaries used.",
+  "status": "Native variable mode storage and exact recovery verified with all value bytes zero. Nonzero override semantics and arbitrary six-word voltage-offset replay remain unqualified. Product runtime is unchanged by this follow-up.",
+  "native_geometry": {
+    "info": {
+      "command": "0x2080A0B1",
+      "parameter_bytes": 50020,
+      "header_bytes": 40,
+      "capacity": 255,
+      "row_bytes": 196
+    },
+    "control_get": {
+      "command": "0x2080A0B3",
+      "parameter_bytes": 11260,
+      "header_bytes": 40,
+      "capacity": 255,
+      "row_bytes": 44
+    },
+    "control_set": {
+      "command": "0x2080E0B4",
+      "parameter_bytes": 11260,
+      "selected_singleton_only": true
+    },
+    "mask_offset": 4,
+    "mask_bytes": 32,
+    "selected_native_mode_offset": 32,
+    "public_row_mode_offset": 44,
+    "native_words_offsets": [
+      16,
+      20
+    ],
+    "public_words_offsets": [
+      48,
+      52
+    ],
+    "polling_header_offset": 38,
+    "observed_control_header_value": 20,
+    "observed_info_header_value": 1,
+    "header_warning": "INFO and CONTROL byte0x26 have different sources. SET writes the CONTROL header value to host state before row dispatch; preserve captured CONTROL rather than substitute INFO."
+  },
+  "public_geometry": {
+    "info": {
+      "query_id": "0xB9DA41D6",
+      "parameter_bytes": 2856296,
+      "version_word": "0x2F9568",
+      "row_base": 296,
+      "row_bytes": 11200
+    },
+    "control_get": {
+      "query_id": "0x5D387298",
+      "parameter_bytes": 40904,
+      "version_word": "0x29FC8",
+      "row_base": 104,
+      "row_bytes": 160
+    },
+    "set_wrapper_static_only": {
+      "query_id": "0x79FA23A2",
+      "wrapper_rva": "0x2B8B40",
+      "limit": "Only static binding and selected serialization established; public SET was not executed."
+    }
+  },
+  "read_only_capture": {
+    "present_count": 75,
+    "native_type_counts": {
+      "2": 13,
+      "3": 8,
+      "8": 6,
+      "9": 1,
+      "10": 1,
+      "13": 46
+    },
+    "native_to_public_types": {
+      "2->2": 13,
+      "3->3": 8,
+      "8->8": 6,
+      "9->9": 1,
+      "10->15": 1,
+      "13->13": 46
+    },
+    "two_native_rounds_byte_exact": true,
+    "all_native_public_masks_equal": true,
+    "matched_mode_and_two_word_rows": 53,
+    "other_rows_not_field_compared": 22,
+    "full_configured_before_after_exact": true,
+    "corrections": [
+      "Native mode is byte0x20, not the older SINGLE-structure offset0x0C. The earlier conclusion that the type9 setter leaves mode unchanged was withdrawn.",
+      "Native type10 at ordinal48 translates to public type15. The older public-only inventory did not establish absence of native type10. Its selector2 remains semantically unclassified."
+    ]
+  },
+  "zero_value_mode_trial": {
+    "selected_index": 44,
+    "native_type": 9,
+    "mode_before": 0,
+    "mode_requested": 2,
+    "preserved_value_bytes": 16,
+    "all_preserved_value_bytes_zero": true,
+    "only_selected_mode_byte_changed": true,
+    "control_header_preserved": 20,
+    "set": {
+      "completion": 1,
+      "completion_aux": 1,
+      "ok": true,
+      "rm_status": 0,
+      "routing_exact": true,
+      "target_exact": true,
+      "transport_status": 0
+    },
+    "post_set_samples": 8,
+    "last_sample_finished_seconds": 20.865069800056517,
+    "all_full_native_public_packet_projections_exact": true,
+    "all_other_configured_peers_exact": true,
+    "first_curve_exact": false,
+    "first_sample_finished_seconds": 0.8404605002142489,
+    "next_and_later_curve_exact": true,
+    "next_sample_finished_seconds": 3.705654699821025,
+    "legacy_six_words_each_rail_and_complete_control_payloads_unchanged": true,
+    "restore": {
+      "completion": 1,
+      "completion_aux": 1,
+      "ok": true,
+      "rm_status": 0,
+      "routing_exact": true,
+      "target_exact": true,
+      "transport_status": 0
+    },
+    "full_original_native_public_packets_equations_and_configured_curve_exact": true,
+    "cleanup_errors": [],
+    "limitation": "A zero-valued mode transition and exact host readback establish request storage and recovery, not nonzero value representation, firmware evaluation, units, physical voltage response or legacy request replay. Capture intervals do not identify an exact settling instant."
+  },
+  "known_graph_ownership": {
+    "variable44": {
+      "native_type": 9,
+      "direct_loaded_equation_example": {
+        "bios_equation": 463,
+        "bios_type": 3,
+        "bios_variable_index": 44,
+        "loaded_type": 1,
+        "loaded_variable_index": 44
+      },
+      "known_clock_roots_in_parsed_closure": [
+        463,
+        1099,
+        1240,
+        1369,
+        1474
+      ],
+      "known_rail_roots_in_parsed_closure": []
+    },
+    "variable48": {
+      "native_type": 10,
+      "public_type": 15,
+      "selector_raw": 2,
+      "loaded_direct_equation_uses": [
+        465,
+        1101,
+        1242,
+        1476
+      ],
+      "known_clock_roots_in_parsed_closure": [
+        463,
+        1099,
+        1240,
+        1474
+      ],
+      "known_rail_roots_in_parsed_closure": []
+    },
+    "limit": "Only recognized BIOS graph edges and C+0C/P+68 roots are covered. Unknown consumers are not excluded. These clock links do not establish a per-rail additive control."
+  },
+  "value_representation_boundary": "The installed public SET wrapper maps modes0..3 and copies two raw DWORDs directly to native+0x10/+0x14. It does not establish float32, float64, integer, tags or units. Other native operand bytes and byte0x21 are zero in that wrapper-built request. No nonzero operand trial is qualified by those raw copies.",
+  "no_registry_write": true,
+  "no_gpu_restart": true,
+  "no_windows_reboot": true,
+  "no_workload": true,
+  "no_nonzero_operand": true,
+  "no_F219_SET": true,
+  "no_physical_measurement": true,
+  "remaining": [
+    "Establish current value representation, units and an actual downstream consumer before any nonzero test.",
+    "Identify native type10 selector ownership without importing older SDK enum names.",
+    "Find a consumed route for the six legacy rail request words; neither this mode transition nor modern F219 cached fields establish one."
+  ],
+  "evidence_sha256": {
+    "variable-abi\\wrapper-trace.json": "235e706f39b24fac8219488b05ff520dee649e1cbde86e0e1f37e64ba7e812d5",
+    "native-capture\\raw-comparison-review.json": "2acdca2aa0c90e5c2bb2069f355c94a409c336291e23ab0cedaa7d4d77f131e2",
+    "native-capture\\zero-mode-raw-review.json": "83c9d126de71db9f17b4683b656a2d6a3cb835e3f110e2f38a1160999f3ed862",
+    "type9-value-format\\findings.json": "96b8cf76d66d6987b9ed954554a96f55857b4d25163f6a58e053871227a8a615",
+    "native-capture\\zero-mode-985c5b028ff44c3bb3a9447fb5b88d3c\\journal.json": "69d19c482669a615844380e417d02dea3bef9d38fe827f4a5ffbe967e10c4973"
+  }
+}

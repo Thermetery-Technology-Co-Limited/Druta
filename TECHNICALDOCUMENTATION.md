@@ -2737,6 +2737,43 @@ upper-clamp behavior does not establish legacy six-word request replay, other
 equation writers, or physical voltage enforcement. See the
 [sanitized follow-up](experiments/voltage-replay-followup-20261028.json).
 
+A separate variable investigation matched native INFO `0x2080A0B1`
+(`0xC364` bytes, header `0x28`, 255 rows of `0xC4`) and CONTROL
+`0x2080A0B3` (`0x2BFC` bytes, rows of `0x2C`) to the installed NVAPI
+converters. Both native packet rounds were byte-identical; native/public masks
+and translated type observations agreed for all 75 entries. For the 53
+type8/9/13 rows, the traced mode and two raw DWORDs matched their converted
+public fields; the other 22 rows had no additional field comparison.
+Native mode is at row+`0x20`,
+serialized to public row+`0x2C`; an older SINGLE structure's row+`0x0C` is
+not the installed native mode location. Native type10 at ordinal48 becomes
+public type15, so the earlier public-only inventory could not establish that
+native type10 was absent. Its selector byte2 remains semantically unclassified.
+
+INFO header byte `0x26` was 1, while CONTROL byte `0x26` was 20 and matched
+public CONTROL byte `0x24`. They have distinct sources. Variable SET
+`0x2080E0B4` stores the CONTROL polling byte before selected-row dispatch,
+so a request must preserve that captured byte even when a later row fails.
+The native type9 selected callback copies the actual mode and full operand
+container; the prior older-layout conclusion that it skipped mode was withdrawn.
+
+A root-run request changed only variable44's mode0 to mode2 while preserving
+all 16 zero operand bytes, bounds, other row bytes, header and peers. Eight
+captures through 20.87 seconds matched the full native/public one-byte
+projection. The initial 78-word evaluated-curve transient was absent in the
+next capture, completed at 3.71 seconds. Both complete legacy rail CONTROL
+packets, including all six signed request words per rail, stayed exact. One
+original-mode SET and bounded GET-only settling restored every captured
+definition, request and the full curve. This verifies zero-valued mode storage
+and recovery, not firmware consumption or a nonzero voltage effect.
+
+Current variable44 and variable48 feed recognized clock-programming roots;
+their parsed closures contain no recognized P+`0x68` rail roots. Unknown edges
+and consumers remain open. The installed public variable SET wrapper copies
+two raw DWORDs without establishing their numeric representation or units.
+Those facts do not qualify a nonzero operand or a substitute for six-word rail
+request replay. See the [native-variable evidence and remaining boundaries](experiments/voltage-variable-native-followup-20261028.json).
+
 The public [mVolt v0.50.8 release notes](https://github.com/b00nz/mVolt/releases/tag/v0.50.8)
 describe an experimental BIOS voltage-offset option, without specifying its
 mechanism. Our inspected PERF+0x32C writer and type4/type5 rail routes have not
