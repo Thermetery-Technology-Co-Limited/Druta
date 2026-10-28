@@ -257,3 +257,161 @@ class UiCapture:
         self.active = False
         self.manifest["state"] = "failed" if self.manifest["errors"] else "complete"
         self._save()
+
+class LiveVminCapture(UiCapture):
+    """Explicit, reversible panel walkthrough for one live VMIN value."""
+
+    def __init__(self, dpg, app, directory):
+        self.original = None
+        self.label = None
+        self.change_attempted = False
+        self.restore_attempted = False
+        self.restored = False
+        self.identity_changed = False
+        super().__init__(dpg, app, directory)
+        if not self.active:
+            return
+        try:
+            if self.panel is None:
+                raise RuntimeError("Live voltage panel is unavailable")
+            self.stages = ["vmin-before", "vmin-active", "vmin-restored", "restored-display"]
+            self.stage = 0
+            self._stage(self.stages[0])
+            self._save()
+        except Exception as exc:
+            self._finish(exc)
+
+    def _read_state(self, name):
+        control = self.panel.constants_live_control
+        with control.gpu._lock:
+            raw = control._capture()
+            summary = control._summary(raw)
+        (self.directory / (name + ".json")).write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
+        rows = [row for row in summary["rows"] if row.get("rail") == 0 and row.get("role") == "VMIN"]
+        identity = getattr(self, "identity", None)
+        if identity is not None and (summary["identity"], summary["image_sha256"]) != identity[:2]:
+            self.identity_changed = True
+            raise RuntimeError("Live VMIN identity changed")
+        if identity is not None and len(rows) == 1 and rows[0].get("equation") != identity[2]:
+            self.identity_changed = True
+            raise RuntimeError("Live VMIN equation changed")
+        if len(rows) != 1 or rows[0].get("status") != "ready":
+            raise RuntimeError("Rail 0 VMIN readback is not ready")
+        return summary, rows[0]
+
+    def _select(self):
+        self.dpg.set_value("reg_constants_live_select", self.label)
+        self.panel.select_constants_live()
+
+    def _record_action(self, name):
+        self.manifest.setdefault("actions", []).append({"action": name,
+            "status": self.dpg.get_value("reg_constants_live_status"),
+            "selected": self.dpg.get_value("reg_constants_live_select")})
+        self._save()
+
+    def _stage(self, name):
+        if name == "restored-display":
+            return super()._stage(name)
+        self.dpg.set_value("registry_header", True)
+        self.dpg.set_value("reg_rel_live_header", False)
+        self.dpg.set_value("reg_constants_live_header", True)
+        self.live_scroll = "reg_constants_live_header"
+        if name == "vmin-before":
+            self.panel.refresh_constants_live()
+            if self.panel.constants_live_stale:
+                raise RuntimeError("Live VMIN read is stale")
+            matches = [(label, row) for label, row in self.panel.constants_live_choices.items()
+                       if row.get("rail") == 0 and row.get("role") == "VMIN" and row.get("status") == "ready"]
+            if len(matches) != 1:
+                raise RuntimeError("Rail 0 VMIN is unavailable")
+            self.label, selected = matches[0]
+            self._select()
+            summary, row = self._read_state("before")
+            value, maximum = row.get("value_uv"), row.get("maximum_uv")
+            if (type(value) is not int or type(maximum) is not int or value + 5000 > maximum
+                    or type(row.get("reported_uv")) is not int or selected.get("value_uv") != value
+                    or selected.get("equation") != row.get("equation")
+                    or self.panel.constants_live_snapshot["identity"] != summary["identity"]
+                    or self.panel.constants_live_snapshot["image_sha256"] != summary["image_sha256"]):
+                raise RuntimeError("Rail 0 VMIN value or bounds do not support the exact trial")
+            key = self.panel._constants_live_key(self.panel.constants_live_snapshot, selected)
+            if self.app._constants_live_initial_states.get(key) != value:
+                raise RuntimeError("Panel initial VMIN differs from the current value")
+            self.original, self.wanted = value, value + 5000
+            self.original_reported = row["reported_uv"]
+            self.wanted_reported = self.original_reported + 5000
+            self.live_cases = dict.fromkeys(("vmin-before", "vmin-active", "vmin-restored"),
+                                            ("constants", self.label, False))
+            self.identity = (summary["identity"], summary["image_sha256"], row["equation"])
+            self.manifest["selected_row"] = dict(row)
+            self.manifest["wanted_uv"] = self.wanted
+        elif name == "vmin-active":
+            self._select()
+            self.dpg.set_value("reg_constants_live_value", self.panel._rel_mv(self.wanted))
+            self.change_attempted = True
+            try:
+                self.panel.apply_constants_live()
+            finally:
+                self._record_action("apply")
+            summary, row = self._read_state("active")
+            if (summary["identity"], summary["image_sha256"], row["equation"]) != self.identity:
+                self.identity_changed = True
+                raise RuntimeError("Live VMIN identity changed after apply")
+            if (self.panel.constants_live_stale or not self.dpg.get_value("reg_constants_live_status").startswith("Applied live.")
+                    or row.get("value_uv") != self.wanted or row.get("reported_uv") != self.wanted_reported):
+                raise RuntimeError("Live VMIN apply did not produce the exact requested readback")
+        elif name == "vmin-restored":
+            self._restore_live()
+        self.dpg.set_value("ctl_clocks", "Developer capture: " + name)
+        return True
+
+    def _restore_live(self):
+        if self.restored or not self.change_attempted:
+            return
+        if self.identity_changed:
+            raise RuntimeError("Live VMIN identity changed; recovery requires attention")
+        summary, row = self._read_state("before-restore")
+        if (summary["identity"], summary["image_sha256"], row["equation"]) != self.identity:
+            self.identity_changed = True
+            raise RuntimeError("Live VMIN identity changed before restoration")
+        if row.get("value_uv") != self.original or row.get("reported_uv") != self.original_reported:
+            if self.restore_attempted:
+                raise RuntimeError("Live VMIN restoration did not verify")
+            self.restore_attempted = True
+            self.panel.refresh_constants_live()
+            self._select()
+            try:
+                self.panel.restore_constants_live()
+            finally:
+                self._record_action("restore")
+            if not self.dpg.get_value("reg_constants_live_status").startswith("Applied live."):
+                raise RuntimeError("Live VMIN restore callback failed")
+        summary, row = self._read_state("restored")
+        if (summary["identity"], summary["image_sha256"], row["equation"]) != self.identity:
+            self.identity_changed = True
+            raise RuntimeError("Live VMIN identity changed after restoration")
+        if row.get("value_uv") != self.original or row.get("reported_uv") != self.original_reported:
+            raise RuntimeError("Live VMIN original readback was not restored")
+        self.restored = True
+        self.manifest["restoration_verified"] = True
+
+    def _finish(self, error=None):
+        if self.change_attempted and not self.restored:
+            try:
+                self._restore_live()
+            except Exception as exc:
+                self.manifest["errors"].append("Live VMIN restoration failed: " + str(exc))
+                self.manifest["restoration_verified"] = False
+                if not self.restore_attempted and not self.identity_changed:
+                    self.restore_attempted = True
+                    try:
+                        self.panel.constants_live_control.set(0, "VMIN", self.original)
+                        summary, row = self._read_state("restored")
+                        if ((summary["identity"], summary["image_sha256"], row["equation"]) != self.identity
+                                or row.get("value_uv") != self.original or row.get("reported_uv") != self.original_reported):
+                            raise RuntimeError("Live VMIN original readback was not restored")
+                        self.restored = True
+                        self.manifest["restoration_verified"] = True
+                    except Exception as restore_error:
+                        self.manifest["errors"].append("Live VMIN recovery failed: " + str(restore_error))
+        super()._finish(error)

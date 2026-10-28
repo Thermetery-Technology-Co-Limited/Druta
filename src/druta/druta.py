@@ -14218,9 +14218,10 @@ deliberately does not put behind a button."""
                 dpg.render_dearpygui_frame()
                 if capture_pending:
                     capture_pending = False
-                    from .ui_capture import UiCapture
+                    from .ui_capture import LiveVminCapture, UiCapture
                     try:
-                        capture = UiCapture(dpg, self, self._ui_capture_dir)
+                        capture_type = LiveVminCapture if getattr(self, "_ui_capture_live_vmin", False) else UiCapture
+                        capture = capture_type(dpg, self, self._ui_capture_dir)
                     except Exception as exc:
                         self.log("UI capture could not start: " + str(exc), False)
         finally:
@@ -14305,6 +14306,7 @@ def main(argv=None):
     automatic = False
     recovery_path = None
     ui_capture_dir = None
+    ui_capture_live_vmin = False
     while argv:
         a = argv.pop(0)
         if a in ("--version", "-V"):
@@ -14322,11 +14324,12 @@ def main(argv=None):
             return 0
         if a == "--startup-profile":
             automatic = True
-        elif a == "--ui-capture":
+        elif a in ("--ui-capture", "--ui-capture-live-vmin"):
             if not argv or ui_capture_dir is not None:
-                _tell("--ui-capture needs one new directory")
+                _tell(a + " needs one new directory")
                 return 2
             ui_capture_dir = os.path.abspath(argv.pop(0))
+            ui_capture_live_vmin = a == "--ui-capture-live-vmin"
         elif a == "--recovery-result":
             if not argv:
                 _tell("--recovery-result needs a receipt path")
@@ -14346,7 +14349,8 @@ def main(argv=None):
                   "                      requires admin; never reboots the computer\n\n"
                   "  --registry-recover SLOT  undo saved registry overrides without a live GPU backend\n\n"
                   "  --startup-profile  apply the opted-in sign-in profile after shutdown checks\n\n"
-                  "  --ui-capture NEW_DIRECTORY  capture a display-only developer walkthrough\n\n"
+                  "  --ui-capture NEW_DIRECTORY  capture a display-only developer walkthrough\n"
+                  "  --ui-capture-live-vmin NEW_DIRECTORY  apply +5 mV to rail 0 VMIN, capture, then restore\n\n"
                   "With no --gpu, Druta opens on the lowest PCI slot.\n"
                   "Device > Card switches cards in a running window.")
             return 0
@@ -14381,6 +14385,7 @@ def main(argv=None):
         app = Druta(slot)
         if ui_capture_dir:
             app._ui_capture_dir = ui_capture_dir
+            app._ui_capture_live_vmin = ui_capture_live_vmin
         if recovery_path:
             try:
                 app._recovery_result = devicerecovery.read_result(recovery_path, app.gpu.slot())

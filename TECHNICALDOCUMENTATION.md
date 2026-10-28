@@ -3102,9 +3102,25 @@ its ordinary read and initial-value caches. The manifest records stage type,
 selected live label, value and status, dimensions, frame, hashes, provenance,
 skips and errors. Source capture has exercised the two rails' REL, OV, ALT and
 VMIN rows and the two parser errors. Repeat capture and independent state
-comparison for each packaged build. This checks rendering and readback, not physical power or
-voltage enforcement. Remaining preview and recovery states, real Apply/Undo,
-other DPI and viewport sizes, and other adapters require separate checks.
+comparison for each packaged build. This checks rendering and readback, not
+physical power or voltage enforcement.
+
+The separate opt-in developer mode `--ui-capture-live-vmin NEW_DIRECTORY`
+performs one +5 mV change to rail 0 VMIN through the panel's real Apply and
+Restore callbacks. It selects the unique current ready row, uses its current
+device-derived maximum, and tracks the retained reported offset through active
+and restored readback. It saves raw `before.json`, `active.json` and
+`restored.json` controller captures, three live framebuffer stages and the
+final restored display. If capture or restoration is interrupted, cleanup
+attempts the original value through the existing typed controller and records
+failures and recovery attempts. This mode performs no registry write, GPU
+restart or workload. Ordinary `--ui-capture` remains display-only; the two
+capture modes cannot be combined with each other, `--startup-profile` or
+`--recovery-result`. This supplies one scoped VMIN Apply/Restore walkthrough;
+qualification requires recorded captures of each tested adapter and build.
+Other real Apply/Undo and registry preview/recovery checks
+remain pending, along with packaged-build comparisons, other DPI/viewports and
+adapters.
 [Power capture evidence](experiments/ui-render-capture-20261028.json) and
 [live-panel source evidence](experiments/ui-live-panels-capture-20261028.json).
 

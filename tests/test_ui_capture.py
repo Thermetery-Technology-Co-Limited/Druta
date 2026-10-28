@@ -251,3 +251,177 @@ def test_live_missing_role_does_not_hide_ready_peer(tmp_path):
     assert "live-constants-1-vmin" in [x["stage"] for x in capture.manifest["captures"]]
     assert any("Live OV" in x for x in capture.manifest["skipped"])
     assert any("Live rel: Unavailable" in x for x in capture.manifest["skipped"])
+
+
+def live_panel(monkeypatch, *, maximum=900000, fail_apply=False, offset=0):
+    from threading import RLock
+
+    from druta import registry_panel, voltage_constants_live
+
+    dpg, application = FakeDpg(), app()
+    dpg.values.update(registry_header=False, reg_rel_live_header=False, reg_constants_live_header=False,
+                      reg_rel_live_select="", reg_constants_live_select="", reg_rel_live_value="",
+                      reg_constants_live_value="", reg_rel_live_status="", reg_constants_live_status="",
+                      reg_constants_live_inventory="")
+    for name in ("reg_constants_live_select", "reg_constants_live_value", "reg_constants_live_apply",
+                 "reg_constants_live_restore"):
+        dpg.config[name] = {}
+    application.gpu._lock = RLock()
+    application.gpu.slot = lambda: "fake"
+    application.guard = lambda: True
+    application.log = Mock()
+    monkeypatch.setattr(registry_panel, "dpg", dpg)
+    class Control:
+        def __init__(self, gpu):
+            self.gpu, self.value, self.calls = gpu, 800000, []
+        def _capture(self):
+            return {"value": self.value}
+        def _summary(self, raw):
+            value = raw["value"]
+            return {"identity": {"slot": "fake"}, "image_sha256": "image", "unavailable_peers": [],
+                    "rows": [{"rail": 0, "label": "NVVDD", "role": "VMIN", "status": "ready",
+                              "value_uv": value, "reported_uv": value + offset, "stored_value_uv": 800000,
+                              "maximum_uv": maximum, "equation": 9}]}
+        def read(self):
+            return self._summary(self._capture())
+        def set(self, rail, role, value):
+            self.calls.append(value)
+            self.value = value
+            if fail_apply and value == 805000:
+                raise RuntimeError("injected apply failure")
+            return self.read()
+    monkeypatch.setattr(voltage_constants_live, "VoltageConstantsController", Control)
+    panel = registry_panel.RegistryPanel(application)
+    panel.rel_live_choices = {}
+    application._registry_panel = panel
+    return dpg, application, panel
+
+
+def test_live_vmin_capture_applies_and_restores_through_panel(tmp_path, monkeypatch):
+    from druta.ui_capture import LiveVminCapture
+    dpg, application, panel = live_panel(monkeypatch)
+    capture = LiveVminCapture(dpg, application, tmp_path / "new")
+    run(capture, dpg)
+    assert capture.manifest["state"] == "complete"
+    assert panel.constants_live_control.calls == [805000, 800000]
+    assert capture.manifest["restoration_verified"] is True
+    assert [a["action"] for a in capture.manifest["actions"]] == ["apply", "restore"]
+    assert all((tmp_path / "new" / (name + ".json")).exists() for name in ("before", "active", "restored"))
+
+
+def test_live_vmin_capture_restores_after_apply_failure(tmp_path, monkeypatch):
+    from druta.ui_capture import LiveVminCapture
+    dpg, application, panel = live_panel(monkeypatch, fail_apply=True)
+    capture = LiveVminCapture(dpg, application, tmp_path / "new")
+    run(capture, dpg)
+    assert capture.manifest["state"] == "failed"
+    assert panel.constants_live_control.calls == [805000, 800000]
+    assert capture.manifest["restoration_verified"] is True
+    assert "failed" in capture.manifest["actions"][0]["status"].lower()
+
+
+def test_live_vmin_capture_refuses_out_of_bounds(tmp_path, monkeypatch):
+    from druta.ui_capture import LiveVminCapture
+    dpg, application, panel = live_panel(monkeypatch, maximum=804999)
+    capture = LiveVminCapture(dpg, application, tmp_path / "new")
+    assert not capture.active and capture.manifest["state"] == "failed"
+    assert panel.constants_live_control.calls == []
+
+
+@pytest.mark.parametrize("other", ["--ui-capture", "--startup-profile", "--recovery-result"])
+def test_live_capture_cli_rejects_other_modes(tmp_path, monkeypatch, other):
+    gpu_app = Mock()
+    monkeypatch.setattr(druta, "Druta", gpu_app)
+    monkeypatch.setattr(druta, "_tell", Mock())
+    args = ["--ui-capture-live-vmin", str(tmp_path / "new"), other]
+    if other != "--startup-profile":
+        args.append(str(tmp_path / "other"))
+    assert druta.main(args) == 2
+    gpu_app.assert_not_called()
+
+
+def test_live_vmin_capture_interruption_restores_before_display_cleanup(tmp_path, monkeypatch):
+    from druta.ui_capture import LiveVminCapture
+    dpg, application, panel = live_panel(monkeypatch)
+    capture = LiveVminCapture(dpg, application, tmp_path / "new")
+    while capture.active and not capture.change_attempted:
+        dpg.frame += 1
+        capture.tick()
+    assert panel.constants_live_control.value == 805000
+    capture._finish(RuntimeError("Capture interrupted before completion"))
+    assert panel.constants_live_control.calls == [805000, 800000]
+    assert capture.manifest["restoration_verified"] is True
+    assert capture.manifest["state"] == "failed"
+    assert dpg.values["tabs"] == "tab_monitor"
+
+
+def test_live_vmin_capture_reports_failed_restoration(tmp_path, monkeypatch):
+    from druta.ui_capture import LiveVminCapture
+    dpg, application, panel = live_panel(monkeypatch)
+    capture = LiveVminCapture(dpg, application, tmp_path / "new")
+    control = panel.constants_live_control
+    original_set = control.set
+    def failing_restore(rail, role, value):
+        if value == 800000:
+            control.calls.append(value)
+            raise RuntimeError("injected restore failure")
+        return original_set(rail, role, value)
+    control.set = failing_restore
+    run(capture, dpg)
+    assert control.calls == [805000, 800000]
+    assert capture.manifest["state"] == "failed"
+    assert capture.manifest["restoration_verified"] is False
+    assert any("restoration failed" in message for message in capture.manifest["errors"])
+
+
+def test_live_vmin_nonzero_retained_offset_and_frame_details(tmp_path, monkeypatch):
+    from druta.ui_capture import LiveVminCapture
+    dpg, application, panel = live_panel(monkeypatch, offset=-10000)
+    capture = LiveVminCapture(dpg, application, tmp_path / "new")
+    run(capture, dpg)
+    assert capture.manifest["state"] == "complete"
+    assert panel.constants_live_control.calls == [805000, 800000]
+    frames = {frame["stage"]: frame for frame in capture.manifest["captures"]}
+    assert all("live" in frames[name] for name in ("vmin-before", "vmin-active", "vmin-restored"))
+    assert frames["vmin-active"]["live"]["value"] == "805"
+    assert capture.original_reported == 790000
+
+
+def test_live_vmin_known_identity_change_never_writes_restore(tmp_path, monkeypatch):
+    from druta.ui_capture import LiveVminCapture
+    dpg, application, panel = live_panel(monkeypatch)
+    capture = LiveVminCapture(dpg, application, tmp_path / "new")
+    control = panel.constants_live_control
+    original_summary = control._summary
+    def changed_identity(raw):
+        result = original_summary(raw)
+        if raw["value"] == 805000:
+            result["image_sha256"] = "different"
+        return result
+    control._summary = changed_identity
+    run(capture, dpg)
+    assert control.calls == [805000]
+    assert capture.manifest["state"] == "failed"
+    assert capture.manifest["restoration_verified"] is False
+
+
+def test_live_vmin_transient_cleanup_read_uses_one_existing_restore(tmp_path, monkeypatch):
+    from druta.ui_capture import LiveVminCapture
+    dpg, application, panel = live_panel(monkeypatch)
+    capture = LiveVminCapture(dpg, application, tmp_path / "new")
+    control = panel.constants_live_control
+    while capture.active and not capture.change_attempted:
+        dpg.frame += 1
+        capture.tick()
+    original_capture = control._capture
+    failures = [True]
+    def transient_once():
+        if failures:
+            failures.pop()
+            raise RuntimeError("transient read")
+        return original_capture()
+    control._capture = transient_once
+    capture._finish(RuntimeError("Capture interrupted"))
+    assert control.calls == [805000, 800000]
+    assert capture.manifest["restoration_verified"] is True
+    assert capture.manifest["state"] == "failed"
