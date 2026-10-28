@@ -2890,6 +2890,24 @@ remain unresolved. A 0x700-byte metadata read is separate from the full backing
 allocation. No new tuning operation follows from these transport findings. See the
 [transport checkpoint and exact remaining boundaries](experiments/driver-transport-followup-20261028.json).
 
+The reviewed constructor paths also bind logical directory geometry and final
+read callbacks:
+
+| Backing payload | Mask | Logical header | Row stride | Buffers | Callback offsets |
+| --- | --- | --- | --- | --- | --- |
+| Base directory | 32 bits | `0x10` | `0x28` | 1 | `0x100` |
+| Section directory | 256 bits | `0x2C` | `0x18` | 1 | `0x100` |
+| F219 backing response | Unclassified here | `0x2C` | `0x24` | 2 | `0x100`, `0x2600` |
+
+These offsets are added to the logical requested offset; source-context
+offsets apply separately. Base and section directory read lengths span through
+the highest set mask bit, including unset rows within that span. The F219 fetch uses directory selector
+`0x1B`; its wire group byte is `0x17`. The installed callbacks replace the
+generic failure defaults, and the read path uses before/after DWORD samples
+for buffer selection and consistency. Header kind, source-row kind, category
+and selector remain separate fields. Actual runtime records, unclassified
+header bytes, writer identity and numerical voltage semantics remain open.
+
 The public [mVolt v0.50.8 release notes](https://github.com/b00nz/mVolt/releases/tag/v0.50.8)
 describe an experimental BIOS voltage-offset option, without specifying its
 mechanism. Our inspected PERF+0x32C writer and type4/type5 rail routes have not

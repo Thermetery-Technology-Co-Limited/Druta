@@ -52,7 +52,7 @@
       "Actual kind3/category0 metadata contents and selected backing extent; active source/provider branches, original per-section data writer and later lifecycle retention. Conditional source ownership now reaches the KernelPmu reservation, not numerical field semantics.",
       "The producer and typed interpretation of the mapped values, rail association, successful F219 effects or arbitrary six-word request replay."
     ],
-    "next": "Follow the per-section schema and original data writer within the identified conditional PMU reservation, rather than interpreting generic allocation/copy helpers as numeric voltage consumers. Runtime selection still requires independent evidence before a hardware trial.",
+    "next": "Match section0x1B's numerical record schema and original writer through a proven firmware/interface source. The recovered logical directory and buffer framing do not authorize inventing field units or a nonzero request.",
     "population_followup": [
       "The constructed receiver selects an embedded interface at root+0x988 through CE49B0. CFF760 replaces the default population callbacks with CFF170 (metadata) and CFF510 (type2 child construction); stopping at the default error-return factory would misclassify this path.",
       "C0D960 creates selected items through those callbacks and inserts them through CFED60. That insertion stores the item pointer in the indexed array and maps item+0x34 to the index used by the receiver+0x888 selector table.",
@@ -80,7 +80,60 @@
       "Exact IDs match pinned NVIDIA declarations: 0xAB9D7D=KernelPmu, 0x87FB96=KernelFsp, 0x22AD47=MemoryManager. The arithmetic branches closely match NVIDIA's KernelPmu reserved-memory offset calculation, including the 0x20000 workspace subtraction. Together with descriptor ownership this identifies a conditional PMU reserved-memory backing path; it does not identify a voltage-data producer.",
       "On the original-descriptor factory branch, BC1190 creates descriptor metadata with address-space operand 2 and attaches the first existing MemoryManager range selected by numeric type 1. The descriptor is then retained and subviewed by the already-traced source-wrapper path. Creating or attaching that descriptor does not populate the individual voltage records.",
       "The public implementation has SelfInit gating and differs from Windows class-selected callbacks. The modern Windows size callbacks can return 0, 0x900000 or 0xA00000; the separate 595.97 path aggregates a different extent. Those quantities describe conditional reserved-memory arithmetic, not voltage/power values or a compatibility gate."
-    ]
+    ],
+    "directory_schema_followup": {
+      "scope": "Conditional installed-image layouts and snapshot callbacks; no runtime metadata capture or numerical voltage interpretation.",
+      "layouts": {
+        "base_directory": {
+          "logical_header_bytes": 16,
+          "logical_record_stride": 40,
+          "mask_bits": 32,
+          "mask_logical_offset": 8,
+          "descriptor_dword": 32,
+          "buffers": 1,
+          "callback_offset_formula": "0x100 + 0x600 * uint16(index)"
+        },
+        "section_directory": {
+          "logical_header_bytes": 44,
+          "logical_record_stride": 24,
+          "mask_bits": 256,
+          "mask_logical_offset": 8,
+          "descriptor_dword": 33,
+          "buffers": 1,
+          "callback_offset_formula": "0x100 + 0x1900 * uint16(index)"
+        },
+        "f219_response": {
+          "logical_header_bytes": 44,
+          "logical_record_stride": 36,
+          "directory_selector": 27,
+          "other_descriptor_dword": 31,
+          "buffers": 2,
+          "callback_offset_formula": "0x100 + 0x2500 * uint16(index)",
+          "reachable_callback_offsets": [
+            256,
+            9728
+          ],
+          "wire_group_byte": 23
+        }
+      },
+      "field_roles": [
+        "The base and section interfaces rebase to their outer containers before the +50 mask callback. The section callback constructs a256-bit mask; the base callback constructs a32-bit mask. C9CA20 uses the span through the highest set bit, not population count, to size the full logical read.",
+        "The header byte0 dispatcher supports branches1..6. Its kind2 builds a256-bit mask and kind3 builds a512-bit mask. Header kind is distinct from a source-row kind and from that row's selection category. No observed runtime header contents or magic/version meanings are established.",
+        "Kind2 source rows normalize DWORDs+4/+8/+C/+10 to item+28/+2C/+30/+34. The item fields supply offset, extent, category and directory-selector roles in consumers. Raw+14 remains unclassified. Insertion admits selector<=0x80, whereas the F219 fetch requires selector<0x80; these boundaries are not equated.",
+        "Kind3 source rows copy category DWORD+1C and extent QWORD+10 through normalization. CFE6B0 replaces raw-derived normalized+8 with the current descriptor base and replaces normalized+18 with a derived Boolean. The original raw fields are not interchangeable with those final construction inputs."
+      ],
+      "read_framing": [
+        "Both metadata interfaces and the F219 group install successful count/offset callbacks after C9A900's failure defaults. The default C98ED0/C98EF0 stubs alone do not prove the final setup unsupported.",
+        "C990C0 uses ((sample>>1)-1) modulo callback count to select the callback-provided byte offset. Metadata count1 produces offset0x100; F219 count2 produces0x100 or0x2600. It adds the logical requested offset before mapping/copying and takes another DWORD sample for its consistency test. No voltage conversion is established by this arithmetic.",
+        "The section metadata path has an additional source-context offset from the statically selected register0x10A30C or0x8F430C: low8 bits select the backing category, high24 bits supply the offset. The inspected CFF170 route accepts only category0. These register values were not read live.",
+        "F219's directory selector0x1B comes from its response descriptor and is independent of wire group byte0x17. Neither identifier supplies numerical field units."
+      ],
+      "remaining": [
+        "Actual runtime constructor/branch selection, final retention, directory contents and read success.",
+        "Unclassified header/row fields, the per-section record writer and a matched typed schema for F219 numerical words, flags and rail association.",
+        "Firmware SET effects, nonzero variable units/consumption, six-word replay equivalence and physical enforcement."
+      ]
+    }
   },
   "perf_callback": {
     "scope": "The known PERF constructor, HAL initializer, three child allocation routes and selected nested helpers were inspected with direct control-flow traversal, including split fragments. Calls and indirect targets remain explicit boundaries.",
@@ -306,6 +359,46 @@
         "root-cfg-96590.txt": "f76b7b1e197352b82b3917d41f1e6d71ac94886a86c5c655be9698418d5c1976",
         "root-cfg-BC4C10.txt": "0bec15bdb1a7ce22d96836ce17feb6b65fd1797e1336514fe43957cc1804e24c",
         "root-cfg-CE3D80.txt": "ce213939f31586397c0ecdcb5766fee85573a69a7459bc3447c2febfe6fee780"
+      }
+    },
+    "directory_schema_followup": {
+      "findings.json": "b91cfe0a1f6ac14697d9cb552c3b18d0b50760afaa45c3bcf29ff7bd5a671e39",
+      "reviewed_reports": {
+        "parser/findings.json": {
+          "sha256": "6e2fbe77d1373158ccedb67eef28dbf12318d22fd9b6047320744085e9edce79",
+          "verified_child_hashes": 17
+        },
+        "parser/base-kind3/findings.json": {
+          "sha256": "7cbfa57cb1af1e7b45aec3c69b58cbebe049cd9bcc63248598154487f27cc956",
+          "verified_child_hashes": 14
+        },
+        "parser/f219-selector/findings.json": {
+          "sha256": "c538be8d2bdf004af6ebdad6160d27f867eabe167d7939c2e9213b5918b5477c",
+          "verified_child_hashes": 5
+        },
+        "parser/f219-read-callbacks/findings.json": {
+          "sha256": "1d859f8cbbd5316bd41c5c3200e63ca74be6774763e4fb5f6a24fea34f2fe314",
+          "verified_child_hashes": 8
+        },
+        "parser/metadata-read-callbacks/findings.json": {
+          "sha256": "eab7f20d30d516191cfafbafd4aff1ad0b2ddc675a5f943fc46aeaa00779fbdc",
+          "verified_child_hashes": 11
+        }
+      },
+      "root_evidence_sha256": {
+        "address-writer\\root-cfg-1820F90.txt": "88d130df62de476a569f3f7f0f335e2470d0fec1a984ec688fee74f9a2a2992d",
+        "address-writer\\root-cfg-BC7600.txt": "de14badc98e62baf2670931dd1391ec814d937ec7b44d614a7b47469b318d803",
+        "address-writer\\root-cfg-BC7B80.txt": "30da83a387d8aaba4749a56f465ee6469264edd36fffde0a0c61fab7878ede31",
+        "address-writer\\root-cfg-C98050.txt": "af494d19490567d7efe446a2d6854529ab8dabbc114270cd8c8767418c97eb8f",
+        "address-writer\\root-cfg-C98ED0.txt": "f31445cf93e3b9b074bb1cd7ca7d676cb7f9d9bae845ceb3bcd44f717c10cc49",
+        "address-writer\\root-cfg-C98EF0.txt": "79ddaa66e5043af9aa3084f9316fccbf42641e2573445018f341329ea66acd2c",
+        "address-writer\\root-cfg-C98F10.txt": "f1c2886c2028859c1283ba678e79eb08da6f9fba7daf0aaa2de129cce8b6acec",
+        "address-writer\\root-cfg-CF77E0.txt": "6e64cfb77f67c026acf3484e16416349c685f25ac34fed58e1c1af3fa06e545f",
+        "address-writer\\root-cfg-CFF400.txt": "7f172ebef9048b4d8e96ea2391a4ca365e6ad75dd7e19d09f0fb5cdb146eb06a",
+        "address-writer/register-ref-candidates.json": "e888f4c8ae1e773321ebbfb4e5005ae5e8e07b3fc68d085c123954a1f69dfc67",
+        "address-writer/find_register_refs.py": "7431996686ac822fac6c9f1fc58162cc3b37aacc8b11b0153ce7e8e2f90f73bb",
+        "read-memory-api-lookup/read_memory_api_lookup.json": "6fa89f7f87da184ea2ec822b64acc728a82762c84011916dec89b3e331e63cc8",
+        "firmware-inventory/elf-header-inventory.json": "bbec20edd2ed3ec0c4b4de354c3286217a8848a8cb1bbd8e60c9c818952817e8"
       }
     }
   }
