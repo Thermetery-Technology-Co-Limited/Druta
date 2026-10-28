@@ -3121,6 +3121,17 @@ qualification requires recorded captures of each tested adapter and build.
 Other real Apply/Undo and registry preview/recovery checks
 remain pending, along with packaged-build comparisons, other DPI/viewports and
 adapters.
+
+On the captured RTX 5080/621.01, source and packaged runs each produced four
+valid 1528×1261 frames. The actual panel callbacks applied and restored VMIN
+800→805→800 mV; independent native equation/policy projections and complete
+retained requests matched, and the final independent configuration including
+the evaluated curve returned to the original baseline. Stage labels, displayed
+values and statuses agreed across source and package. The active frames show
+the already-observed curve transient; they do not qualify steady active-curve
+rendering or settling time. Native screen capture failed twice, so these are
+application-framebuffer/callback checks rather than physical mouse or keyboard
+interaction. The complete suite passed 6,503 tests, including 22 capture tests.
 [Power capture evidence](experiments/ui-render-capture-20261028.json) and
 [live-panel source evidence](experiments/ui-live-panels-capture-20261028.json).
 

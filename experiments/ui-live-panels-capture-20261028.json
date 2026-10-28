@@ -340,5 +340,203 @@
     "Real Apply/Undo walkthrough.",
     "Other DPI, viewport sizes and adapters."
   ],
-  "qualification": "The live panels show readbacks. Nonnumeric input exercises only validation before the writer. Synthetic power widget values are display cases and establish no applied request or physical effect."
+  "qualification": "The live panels show readbacks. Nonnumeric input exercises only validation before the writer. Synthetic power widget values are display cases and establish no applied request or physical effect.",
+  "live_vmin_apply_restore": {
+    "mode": "--ui-capture-live-vmin NEW_DIRECTORY",
+    "scope": "One RTX5080/621.01 adapter, source and packaged builds; actual panel callbacks, no workload or physical voltage measurement. Other registry preview/Apply/Undo/recovery and adapters remain pending.",
+    "source_code_commit": "0139988",
+    "loaded_and_reported_vmin_uv": [
+      800000,
+      805000,
+      800000
+    ],
+    "actions": [
+      "Apply now",
+      "Restore initial value"
+    ],
+    "source_captures": [
+      {
+        "stage": "vmin-before",
+        "synthetic": false,
+        "path": "vmin-before.png",
+        "requested_frame": 4,
+        "width": 1528,
+        "height": 1261,
+        "sha256": "77178de73124b1abfb50158e58e348652f3d5d2d451351d0ae92b5d8683c5773",
+        "live": {
+          "selected": "NVVDD (rail 0) VMIN constant",
+          "value": "800",
+          "status": "NVVDD VMIN constant: 800 mV."
+        },
+        "widget": {
+          "slider": 360.0,
+          "input": 360.0,
+          "min": 250.0,
+          "max": 450.0
+        }
+      },
+      {
+        "stage": "vmin-active",
+        "synthetic": false,
+        "path": "vmin-active.png",
+        "requested_frame": 9,
+        "width": 1528,
+        "height": 1261,
+        "sha256": "c56f04d2e1fba3c59a8d83ea957213b9f73c2f665d75fd4325d566da4b2c60a1",
+        "live": {
+          "selected": "NVVDD (rail 0) VMIN constant",
+          "value": "805",
+          "status": "Applied live. NVVDD VMIN constant: 805 mV."
+        },
+        "widget": {
+          "slider": 360.0,
+          "input": 360.0,
+          "min": 250.0,
+          "max": 450.0
+        }
+      },
+      {
+        "stage": "vmin-restored",
+        "synthetic": false,
+        "path": "vmin-restored.png",
+        "requested_frame": 14,
+        "width": 1528,
+        "height": 1261,
+        "sha256": "85d32609af7d7b9ef1a337b306737b7f51aea65429ef367c012dfebaa157a261",
+        "live": {
+          "selected": "NVVDD (rail 0) VMIN constant",
+          "value": "800",
+          "status": "Applied live. NVVDD VMIN constant: 800 mV."
+        },
+        "widget": {
+          "slider": 360.0,
+          "input": 360.0,
+          "min": 250.0,
+          "max": 450.0
+        }
+      },
+      {
+        "stage": "restored-display",
+        "synthetic": false,
+        "path": "restored-display.png",
+        "requested_frame": 19,
+        "width": 1528,
+        "height": 1261,
+        "sha256": "345710eac3d19ef27ac435058488c76974a5dba0b93ea64c43df1b090baffc63",
+        "widget": {
+          "slider": 360.0,
+          "input": 360.0,
+          "min": 250.0,
+          "max": 450.0
+        }
+      }
+    ],
+    "packaged_captures": [
+      {
+        "stage": "vmin-before",
+        "synthetic": false,
+        "path": "vmin-before.png",
+        "requested_frame": 4,
+        "width": 1528,
+        "height": 1261,
+        "sha256": "77178de73124b1abfb50158e58e348652f3d5d2d451351d0ae92b5d8683c5773",
+        "live": {
+          "selected": "NVVDD (rail 0) VMIN constant",
+          "value": "800",
+          "status": "NVVDD VMIN constant: 800 mV."
+        },
+        "widget": {
+          "slider": 360.0,
+          "input": 360.0,
+          "min": 250.0,
+          "max": 450.0
+        }
+      },
+      {
+        "stage": "vmin-active",
+        "synthetic": false,
+        "path": "vmin-active.png",
+        "requested_frame": 9,
+        "width": 1528,
+        "height": 1261,
+        "sha256": "c56f04d2e1fba3c59a8d83ea957213b9f73c2f665d75fd4325d566da4b2c60a1",
+        "live": {
+          "selected": "NVVDD (rail 0) VMIN constant",
+          "value": "805",
+          "status": "Applied live. NVVDD VMIN constant: 805 mV."
+        },
+        "widget": {
+          "slider": 360.0,
+          "input": 360.0,
+          "min": 250.0,
+          "max": 450.0
+        }
+      },
+      {
+        "stage": "vmin-restored",
+        "synthetic": false,
+        "path": "vmin-restored.png",
+        "requested_frame": 14,
+        "width": 1528,
+        "height": 1261,
+        "sha256": "85d32609af7d7b9ef1a337b306737b7f51aea65429ef367c012dfebaa157a261",
+        "live": {
+          "selected": "NVVDD (rail 0) VMIN constant",
+          "value": "800",
+          "status": "Applied live. NVVDD VMIN constant: 800 mV."
+        },
+        "widget": {
+          "slider": 360.0,
+          "input": 360.0,
+          "min": 250.0,
+          "max": 450.0
+        }
+      },
+      {
+        "stage": "restored-display",
+        "synthetic": false,
+        "path": "restored-display.png",
+        "requested_frame": 19,
+        "width": 1528,
+        "height": 1261,
+        "sha256": "13714961d5dd84d0a992f98a1ee7e45f276c71d914c8d89c0ad78dd5e5a76c02",
+        "widget": {
+          "slider": 360.0,
+          "input": 360.0,
+          "min": 250.0,
+          "max": 450.0
+        }
+      }
+    ],
+    "source_packaged_stage_value_status_match": true,
+    "verification": {
+      "source_all_checks": true,
+      "packaged_all_checks": true,
+      "exact_active_equation_and_policy_projection": true,
+      "complete_rail_and_clock_requests_retained": true,
+      "full_original_independent_config_restored": true,
+      "PNG_CRC_and_hashes_verified": true,
+      "manifest_errors": [],
+      "source_and_packaged_restoration_verified": true
+    },
+    "active_curve_note": "The active frames show a collapsed curve plot during the previously observed evaluated-curve transient. This capture qualifies the VMIN fields and callback result, not steady active curve rendering or a settling time. Independent final capture includes the full original evaluated curve.",
+    "software_checks": {
+      "full_suite_passed": 6503,
+      "full_suite_seconds": 115.93,
+      "focused_tests_passed": 22,
+      "capture_and_test_Ruff": true,
+      "large_app_new_Ruff_diagnostics": 0,
+      "interruption_failure_and_offset_cases": "Hardware-free tests only."
+    },
+    "constraints": {
+      "ordinary_capture_display_only": true,
+      "registry_write": false,
+      "driver_restart": false,
+      "windows_reboot": false,
+      "workload": false,
+      "NVIDIA_App": false,
+      "F219_SET": false
+    },
+    "capture_method": "Application framebuffer and actual callbacks; native screenshot API failed twice with0x80040154. This does not qualify physical mouse/keyboard interaction."
+  }
 }
