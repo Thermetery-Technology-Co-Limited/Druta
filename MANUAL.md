@@ -409,9 +409,19 @@ qualified: a driver can report SET success while leaving an offset unchanged.
 Druta reports the rail, affected field, requested and observed values, and any
 separate boost or metadata discrepancy. An ignored request fails verification;
 if the captured requests cannot be restored, recovery remains required.
-Research into a separate live equation control also observed changes in the
-evaluated V/F curve after an unchanged request. Its cause is not established,
-and neither live bound changes nor arbitrary rail-offset replay are qualified.
+**Live REL upper bounds** provides a separate control for the loaded REL
+equation's upper bound. Read the supported rails, enter a value in mV, and use
+**Apply now** without restarting the GPU. The panel shows the loaded and
+stored upper bounds separately from reported REL, ALT and effective limits.
+The reported limits can differ from the bound. **Restore initial bound** uses
+the value first read for this adapter and loaded image in this Druta session.
+Live edits last for the driver session; use the BIOS fields for persistent edits.
+The evaluated V/F curve can briefly refresh after a write. A timed research
+trial returned to its original curve without a second SET. Retained voltage and
+readable clock requests are verified independently; unavailable optional
+readbacks are listed. Failed dispatched changes attempt one original-row
+restoration and report whether recovery was verified. Arbitrary rail-offset
+replay remains unqualified.
 Changing ALT can change the shared boost contribution and the computed REL and
 effective limits on both rails. OV can change the selected rail's effective
 limit. These computed outputs are recorded without assuming a firmware formula.

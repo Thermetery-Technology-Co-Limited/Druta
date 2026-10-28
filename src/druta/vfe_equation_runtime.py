@@ -1,6 +1,6 @@
 # Copyright (C) 2026 Thermetery Technology Co Limited
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Read-only VFE definitions, constant projections and type6 voltage bounds.
+"""VFE definition reads, projections, and a selected type6 upper-bound writer.
 
 The E8192 INFO/CONTROL getters return loaded definitions, not evaluated rail
 voltages. BIOS type 1 becomes runtime type 3, and type 7 becomes runtime type 6,
@@ -548,6 +548,86 @@ def verify_clamps(observation, saved, *, restore=False):
     if not _same_state(observation, saved["before" if restore else "after"]):
         raise VfeEquationError("Loaded VFE upper clamp or preserved peers differ from the exact request")
     return list(saved["selected"])
+
+
+def write_upper_clamps(gpu, saved, *, restore=False, on_attempt=None):
+    """Write one saved type6 row and verify the full fresh definition state.
+
+    The caller owns compensation after an attempted write, including failures.
+    The readback verifies loaded definitions, not evaluated or physical voltage.
+    """
+    if not isinstance(saved, dict):
+        raise VfeEquationError("Malformed VFE upper-clamp contract")
+    validate_clamp_contracts(saved.get("selected"), saved)
+    if len(saved.get("selected", {})) != 1 or type(restore) is not bool:
+        raise VfeEquationError("A live VFE write requires exactly one upper clamp")
+    if on_attempt is not None and not callable(on_attempt):
+        raise VfeEquationError("VFE write attempt marker must be callable")
+    index = next(iter(saved["selected"].values()))["index"]
+    with getattr(gpu, "_lock", nullcontext()):
+        current, error = read(gpu)
+        if error or current is None:
+            raise VfeEquationError(error or "VFE equation preflight failed")
+        _shape(current)
+        before = saved["before"]
+        if current["identity"] != before["identity"] or current["info_hex"] != before["info_hex"]:
+            raise VfeEquationError("VFE target or INFO definitions changed before write")
+        if not restore and not _same_state(current, before):
+            raise VfeEquationError("VFE definitions changed before apply")
+        current_control = bytearray.fromhex(current["control_hex"])
+        original = bytes.fromhex(before["control_hex"])
+        offset = HEADER + index * CONTROL_STRIDE
+        expected = copy.deepcopy(current)
+        source = original if restore else bytes.fromhex(saved["after"]["control_hex"])
+        current_control[offset : offset + CONTROL_STRIDE] = source[offset : offset + CONTROL_STRIDE]
+        expected["control_hex"] = current_control.hex()
+        payload = bytearray(current_control)
+        payload[4 : 4 + MASK_BYTES] = bytes(MASK_BYTES)
+        payload[4 + index // 8] = 1 << (index % 8)
+
+        reader = PerfDiagnosticsReader(gpu)
+        identity = _binding(reader)
+        if identity != before["identity"]:
+            raise VfeEquationError("VFE target changed before write")
+        header, fields = reader._transport()
+        if (
+            not isinstance(header, (tuple, list))
+            or len(header) != 17
+            or any(type(v) is not int or not 0 <= v <= 0xFFFFFFFF for v in header)
+            or any(header[i] != v for i, v in _ENVELOPE.items())
+            or not isinstance(fields, dict)
+            or set(fields) != _ESCAPE_FIELDS
+            or any(type(v) is not int or not 0 <= v <= 0xFFFFFFFF for v in fields.values())
+        ):
+            raise VfeEquationError("VFE write needs the understood paired RM envelope")
+        storage, data = _guarded(68 + CONTROL_SIZE)
+        packet = (ctypes.c_uint32 * ((68 + CONTROL_SIZE) // 4)).from_buffer(data)
+        for i, word in enumerate(header):
+            packet[i] = word
+        packet[2], packet[14], packet[15], packet[16] = 68 + CONTROL_SIZE, 0x2080E0B7, CONTROL_SIZE, 0
+        packet[5] = packet[11] = 0
+        routing = tuple(packet[:16])
+        data[68:] = payload
+        try:
+            if on_attempt is not None:
+                on_attempt()
+            status = gpu._legacy_clk_escape(packet, dict(fields))
+        finally:
+            _guards(storage)
+        if _binding(reader) != identity:
+            raise VfeEquationError("VFE target changed during write")
+        if type(status) is not int or status != 0:
+            raise VfeEquationError(f"VFE equation write transport failed: {status}")
+        if any(packet[i] != v for i, v in enumerate(routing) if i not in (5, 11)) or packet[5] not in (0, 1):
+            raise VfeEquationError("VFE equation write changed its routing or geometry")
+        if packet[11] != 1 or packet[16] != 0:
+            raise VfeEquationError(f"VFE equation write did not complete successfully (RM {packet[16]})")
+        observed, error = read(gpu)
+        if error or observed is None:
+            raise VfeEquationError(error or "VFE equation write readback failed")
+        if not _same_state(observed, expected):
+            raise VfeEquationError("VFE equation write did not match the exact projected state")
+        return observed
 
 
 def _bounds_selections(selections):

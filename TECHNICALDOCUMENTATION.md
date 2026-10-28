@@ -2697,11 +2697,45 @@ INFO and CONTROL matched exactly. However, 78 evaluated V/F frequency words
 (rows49–126) differed by -315 to -75 MHz. V/F voltage words, the complete
 per-point BoostTable delta requests and all other configured snapshot components
 remained byte-exact. One original-row restoration and fresh capture returned the
-full configured baseline exactly. Three later GET-only fresh captures matched
-each other, including the curve. This one before/after pair does not establish
-why the curve changed, and does not qualify live bound changes or legacy
-six-word offset replay. The trial used no registry change, restart, workload or
-physical measurement. See the [sanitized follow-up](experiments/voltage-replay-followup-20261028.json).
+full configured baseline exactly. In a timed repeat, eight GET-only control
+captures remained exact over 20.77 seconds. The first post-SET capture
+(0.003–0.798 seconds) contained the same changed curve; the next
+(2.858–3.650 seconds), all subsequent captures through 20.77 seconds, and the
+final comparison were fully exact without a restoration SET. This establishes
+a transient in that trial, not an exact settling time or its mechanism. The
+earlier restoration cannot be credited as the cause of curve recovery.
+
+A subsequent upper-only live trial changed row3's stored runtime upper float
+from 1120000 to 1035000 uV. Both independent CONTROL packets matched that
+one-word projection, while both policy readbacks reported NVVDD REL/effective
+1040000→1035000 uV and ALT 1060000→1055000 uV. Eight captures through
+20.74 seconds retained the new definition and policy values, unchanged peer
+requests, and unchanged OV/VMIN and MSVDD policy. The initial evaluated curve
+transient had disappeared by the next capture (2.852–3.651 seconds). One
+original-row SET and bounded GET-only recovery restored the full original
+baseline, including the curve. An earlier shorter trial stopped at the first
+observation because its comparator did not project mirrored diagnostic copies;
+the raw copies matched the intended change and its full baseline was restored.
+The interrupted result is retained separately from the completed timed trial.
+
+`vfe_equation_runtime.write_upper_clamps` dispatches one selected type6 row
+through `0x2080E0B7`, preserving all counts, terms and opaque bytes. It verifies
+fresh full INFO/CONTROL and delegates compensation to its caller.
+`voltage_rel_live.VoltageRelController` binds the ROM graph and terms to the
+current loaded upper bound, supporting repeated session edits without treating
+the original stored upper as the current value. It uses the existing REL policy
+contract, retains rail controls and readable clock requests, and reports
+evaluated policy separately. Dispatched errors get one original-row
+compensation; bounded GET-only recovery includes the original captured curve.
+Genuinely absent optional peer readbacks are listed; failures from present
+getters remain read failures. The Controls panel exposes read/apply/restore
+separately from the persistent BIOS/restart transaction.
+
+These operations used no registry change, restart, workload or physical
+measurement. The inspected callback through PERF+0x588 remains unnamed. Live
+upper-clamp behavior does not establish legacy six-word request replay, other
+equation writers, or physical voltage enforcement. See the
+[sanitized follow-up](experiments/voltage-replay-followup-20261028.json).
 
 The public [mVolt v0.50.8 release notes](https://github.com/b00nz/mVolt/releases/tag/v0.50.8)
 describe an experimental BIOS voltage-offset option, without specifying its

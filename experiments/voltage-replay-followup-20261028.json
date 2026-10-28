@@ -7,7 +7,7 @@
     "driver": "621.01",
     "limitation": "One tested configuration and operating point; no board or driver compatibility gate follows."
   },
-  "status": "Arbitrary six-word voltage request replay remains unresolved. No new live equation or voltage-offset control is exposed.",
+  "status": "Live REL upper-only controls are integrated, with a root-run product apply/restore test. Arbitrary six-word voltage request replay remains unresolved.",
   "new_public_lead": {
     "source": "https://github.com/b00nz/mVolt/releases/tag/v0.50.8",
     "claim": "The release describes an experimental voltage-offset BIOS override enabled after a GPU restart.",
@@ -38,8 +38,14 @@
     "difference": {
       "field": "Evaluated frequency word in V/F curve entries",
       "changed_words": 78,
-      "entry_range": [49, 126],
-      "frequency_delta_khz_range": [-315000, -75000],
+      "entry_range": [
+        49,
+        126
+      ],
+      "frequency_delta_khz_range": [
+        -315000,
+        -75000
+      ],
       "curve_voltage_words_unchanged": true,
       "curve_other_words_header_and_tail_unchanged": true,
       "full_per_point_boost_delta_request_table_unchanged": true,
@@ -63,10 +69,142 @@
     "workload_started": false,
     "physical_voltage_measured": false
   },
-  "interpretation": "An accepted unchanged-row SET with exact equation cache readback does not guarantee an unchanged evaluated V/F curve. The captured pair does not identify the cause. This experiment does not establish writable changed bounds, mVolt's implementation, voltage-offset enablement, or restoration of arbitrary legacy rail requests.",
+  "timed_get_only_followup": {
+    "operation": "One further unchanged-row SET, preceded by a timed GET-only control and followed by GET-only observation before any restoration decision",
+    "control": {
+      "captures": 8,
+      "last_capture_finished_seconds": 20.773854200262576,
+      "all_full_configured_comparisons_exact": true
+    },
+    "set": {
+      "transport_status": 0,
+      "rm_status": 0,
+      "completion": 1,
+      "routing_and_target_exact": true
+    },
+    "post_set": {
+      "captures": 8,
+      "first_capture_interval_seconds": [
+        0.0026712999679148197,
+        0.7982050999999046
+      ],
+      "first_difference": "The same 78 evaluated frequency words and byte-identical changed curve as the earlier trial; every other retained configured component, equation packet and complete BoostTable remained exact",
+      "next_capture_interval_seconds": [
+        2.8583474000915885,
+        3.6502697998657823
+      ],
+      "next_and_all_later_full_configured_comparisons_exact": true,
+      "last_capture_finished_seconds": 20.774221200030297
+    },
+    "recovery": {
+      "restore_set_attempts": 0,
+      "final_full_original_configured_baseline_exact": true,
+      "cleanup_errors": []
+    },
+    "registry_write": false,
+    "gpu_restart": false,
+    "windows_reboot": false,
+    "workload_started": false,
+    "physical_voltage_measured": false,
+    "limitation": "Capture intervals do not identify the exact settling instant. This one timed repeat demonstrates recovery without a second SET on the tested configuration, not a universal delay or the callback's mechanism."
+  },
+  "interpretation": "The timed no-op repeat returned to the full captured baseline without restoration. A changed live REL upper bound then produced exact independent definition readbacks and the observed REL/ALT policy change throughout a 20-second window, followed by full original-state recovery. The assembled product controller independently passed apply and same-controller restore. This supports the separate live upper-clamp control on the tested configuration; the post-group callback remains unnamed, physical voltage was not measured, and neither arbitrary legacy rail request replay nor mVolt implementation is established.",
   "next_required_evidence": [
-    "Identify the post-SET recomputation path and explain or independently bound its evaluated-curve effects before exposing live equation writes.",
-    "Find and verify an actual independently understood voltage-offset enabling mechanism or alternative request path; do not invent a BIOS toggle from a public feature name.",
-    "For any changing-offset capability, verify all six actual request words and peers, and restore original requests while that capability is still active before reverting its enabling state."
-  ]
+    "Identify the still-unnamed post-group callback and extend operation-specific evidence for other equation writes without treating this one upper-clamp trial as their qualification.",
+    "Find and verify an independently understood voltage-offset enabling mechanism or alternative request path; no BIOS toggle follows from a public feature name.",
+    "For changing-offset capability, verify all six actual request words and peers, restoring original requests while the enabling capability remains active before reverting it."
+  ],
+  "live_upper_bound_trial": {
+    "operation": "One selected type6 REL upper float; all other row and packet bytes preserved",
+    "original_upper_uv": 1120000,
+    "desired_upper_uv": 1035000,
+    "set": {
+      "completion": 1,
+      "ok": true,
+      "rm_status": 0,
+      "routing_exact": true,
+      "target_exact": true,
+      "transport_status": 0
+    },
+    "post_set_captures": 8,
+    "last_capture_finished_seconds": 20.74030219996348,
+    "all_full_definition_projections_and_mirrors_exact": true,
+    "rail0_policy_before_uv": {
+      "alt_reliability": 1060000,
+      "effective": 1040000,
+      "overvoltage": 1200000,
+      "reliability": 1040000,
+      "vmin": 800000
+    },
+    "rail0_policy_after_uv": {
+      "alt_reliability": 1055000,
+      "effective": 1035000,
+      "overvoltage": 1200000,
+      "reliability": 1035000,
+      "vmin": 800000
+    },
+    "rail1_policy_unchanged": true,
+    "curve": {
+      "first_capture_interval_seconds": [
+        0.002119199838489294,
+        0.7862522997893393
+      ],
+      "first_changed_frequency_words": 78,
+      "next_capture_interval_seconds": [
+        2.8523951000534,
+        3.6507680998183787
+      ],
+      "next_and_later_curve_bytes_exact": true
+    },
+    "restore_set": {
+      "completion": 1,
+      "ok": true,
+      "rm_status": 0,
+      "routing_exact": true,
+      "target_exact": true,
+      "transport_status": 0
+    },
+    "final_full_original_baseline_exact": true,
+    "cleanup_errors": [],
+    "prior_interrupted_trial": {
+      "preserved": true,
+      "reason": "The first comparator did not project mirrored equation and policy diagnostic copies; it stopped and restored. Independent raw-byte analysis found only the intended one-word definition projection, graph-affected policy values and computed curve differences.",
+      "full_original_baseline_restored": true
+    },
+    "registry_write": false,
+    "gpu_restart": false,
+    "windows_reboot": false,
+    "workload_started": false,
+    "physical_voltage_measured": false,
+    "scope": "One tested rail, bound and operating point. No physical enforcement, universal policy formula, fixed delay, type3 write or other-rail hardware result is inferred."
+  },
+  "product_end_to_end": {
+    "controller": "druta.voltage_rel_live.VoltageRelController",
+    "writer": "druta.vfe_equation_runtime.write_upper_clamps",
+    "ui": "Controls / Live REL upper bounds",
+    "product_changed_call_returned": true,
+    "product_original_bound_restore_invoked": true,
+    "same_controller_used_for_changed_and_original_bound": true,
+    "independent_active_snapshots": 2,
+    "full_original_baseline_exact": true,
+    "error": null,
+    "restore_error": null,
+    "repeat_edit_binding": "The ROM graph, terms and lower bound stay bound; the current loaded upper comes from fresh native readback.",
+    "failed_write_recovery": "One original-row compensation after native entry, bounded GET-only recovery, retained original error and explicit recovery status.",
+    "unavailable_peers": "Absent optional getters remain listed independently; failures from present getters use bounded read-only recovery.",
+    "six_word_offset_replay_qualified": false
+  },
+  "product_validation": {
+    "full_test_suite": {
+      "passed": 6375,
+      "duration_seconds": 112.88
+    },
+    "focused_runtime_and_panel_suite": {
+      "passed": 654,
+      "duration_seconds": 34.86
+    },
+    "ruff": "passed",
+    "hardware_product_apply_restore": "passed",
+    "physical_measurement": false
+  }
 }

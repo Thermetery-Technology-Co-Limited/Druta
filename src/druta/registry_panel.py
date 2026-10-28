@@ -3,6 +3,7 @@
 """Typed BIOS-field previews and durable undo in the Controls page."""
 
 from collections import defaultdict
+from decimal import Decimal, InvalidOperation
 
 import dearpygui.dearpygui as dpg
 
@@ -40,6 +41,12 @@ class RegistryPanel:
         self.voltage_device_snapshot = None
         self.voltage_device_choices = {}
         self.difr_readback = None
+        self.rel_live_control = None
+        self.rel_live_snapshot = None
+        self.rel_live_choices = {}
+        self.rel_live_stale = False
+        if not hasattr(app, "_rel_live_initial_states"):
+            app._rel_live_initial_states = {}
         if not hasattr(app, "_voltage_gate_initial_states"):
             app._voltage_gate_initial_states = {}
         if not hasattr(app, "_clock_vf_initial_states"):
@@ -150,6 +157,31 @@ class RegistryPanel:
                 tag="reg_vf_live_status",
                 wrap=self.app.s(900),
             )
+        with dpg.collapsing_header(label="Live REL upper bounds"):
+            dpg.add_text(
+                "Change the loaded equation upper bound for this driver session without restarting the GPU. "
+                "Reported REL and ALT values can differ from the bound. Physical enforcement has not been measured.",
+                wrap=self.app.s(900),
+            )
+            with dpg.group(horizontal=True):
+                dpg.add_button(label="Read", callback=self.refresh_rel_live)
+                dpg.add_combo(
+                    [], tag="reg_rel_live_select", width=self.app.s(220), enabled=False, callback=self.select_rel_live
+                )
+                dpg.add_input_text(
+                    label="Upper bound (mV)", tag="reg_rel_live_value", width=self.app.s(130), enabled=False
+                )
+                dpg.add_button(label="Apply now", tag="reg_rel_live_apply", callback=self.apply_rel_live, enabled=False)
+                dpg.add_button(
+                    label="Restore initial bound",
+                    tag="reg_rel_live_restore",
+                    callback=self.restore_rel_live,
+                    enabled=False,
+                )
+            dpg.add_text("Read live bounds before changing them.", tag="reg_rel_live_status", wrap=self.app.s(900))
+            dpg.add_input_text(
+                tag="reg_rel_live_inventory", readonly=True, multiline=True, width=-1, height=self.app.s(110)
+            )
         with dpg.collapsing_header(label="Voltage switch-delay requests"):
             dpg.add_text(
                 "Read and change a voltage device's switch-delay request in microseconds. "
@@ -238,6 +270,152 @@ class RegistryPanel:
             return
         self.difr_readback = observation
         dpg.set_value("reg_difr_readback", self._format_difr(observation))
+
+    @staticmethod
+    def _rel_live_key(snapshot, row):
+        identity = snapshot["identity"]
+        return (tuple(sorted(identity.items())), snapshot["image_sha256"], row["rail"], row["equation"])
+
+    @staticmethod
+    def _rel_mv(value):
+        return format(Decimal(value) / 1000, "f")
+
+    def _rel_live_failed(self, message):
+        self.rel_live_snapshot = None
+        self.rel_live_choices = {}
+        self.rel_live_stale = False
+        for tag in ("reg_rel_live_select", "reg_rel_live_value", "reg_rel_live_apply", "reg_rel_live_restore"):
+            dpg.configure_item(tag, enabled=False)
+        dpg.set_value("reg_rel_live_status", message)
+        dpg.set_value("reg_rel_live_inventory", "")
+        self.app.log(message, False)
+
+    def _show_rel_live(self, snapshot, prefix=""):
+        self.rel_live_snapshot = snapshot
+        self.rel_live_stale = False
+        self.rel_live_choices = {}
+        lines = []
+        for row in snapshot["rows"]:
+            label = f"{row['label']} (rail {row['rail']})"
+            if row["status"] == "ready":
+                self.rel_live_choices[label] = row
+                self.app._rel_live_initial_states.setdefault(self._rel_live_key(snapshot, row), row["upper_uv"])
+                policy = row.get("policy_uv") or {}
+                parts = [
+                    f"{name}: {self._rel_mv(policy[name])} mV"
+                    if policy.get(name) is not None
+                    else f"{name}: unavailable"
+                    for name in ("reliability", "alt_reliability", "effective")
+                ]
+                lines.append(
+                    f"{label}: loaded upper {self._rel_mv(row['upper_uv'])} mV; "
+                    f"stored upper {self._rel_mv(row['stored_upper_uv'])} mV; " + ", ".join(parts)
+                )
+            else:
+                lines.append(f"{label}: {row['status']}; " + "; ".join(row.get("issues", [])))
+        unavailable = snapshot.get("unavailable_peers", [])
+        if unavailable:
+            lines.append("Optional readbacks unavailable: " + ", ".join(unavailable) + ".")
+        dpg.set_value("reg_rel_live_inventory", "\n".join(lines) or "No rails returned.")
+        if not self.rel_live_choices:
+            self._rel_live_failed(prefix + "No supported live bounds are available.")
+            dpg.set_value("reg_rel_live_inventory", "\n".join(lines) or "No rails returned.")
+            return
+        previous = dpg.get_value("reg_rel_live_select")
+        selected = previous if previous in self.rel_live_choices else next(iter(self.rel_live_choices))
+        dpg.configure_item("reg_rel_live_select", items=list(self.rel_live_choices), enabled=True)
+        dpg.set_value("reg_rel_live_select", selected)
+        self.select_rel_live()
+        if prefix:
+            dpg.set_value("reg_rel_live_status", prefix + dpg.get_value("reg_rel_live_status"))
+
+    def select_rel_live(self, *unused):
+        row = self.rel_live_choices.get(dpg.get_value("reg_rel_live_select"))
+        if row is None or self.rel_live_snapshot is None:
+            self._rel_live_failed("Read live bounds for the selected adapter first.")
+            return
+        dpg.set_value("reg_rel_live_value", self._rel_mv(row["upper_uv"]))
+        dpg.configure_item("reg_rel_live_value", enabled=True)
+        dpg.configure_item("reg_rel_live_apply", enabled=True)
+        initial = self.app._rel_live_initial_states[self._rel_live_key(self.rel_live_snapshot, row)]
+        dpg.configure_item("reg_rel_live_restore", enabled=row["upper_uv"] != initial)
+        dpg.set_value(
+            "reg_rel_live_status",
+            ("Previous read is stale. " if self.rel_live_stale else "")
+            + f"{row['label']}: loaded upper {self._rel_mv(row['upper_uv'])} mV.",
+        )
+
+    def refresh_rel_live(self, *unused):
+        from .voltage_rel_live import VoltageRelController
+
+        same = (
+            self.rel_live_control is not None
+            and self.rel_live_control.gpu is self.app.gpu
+            and self.rel_live_snapshot is not None
+            and self.rel_live_snapshot["identity"]["slot"] == self.app.gpu.slot()
+        )
+        try:
+            if self.rel_live_control is None or self.rel_live_control.gpu is not self.app.gpu:
+                self.rel_live_snapshot = None
+                self.rel_live_control = VoltageRelController(self.app.gpu)
+            self._show_rel_live(self.rel_live_control.read())
+        except Exception as exc:
+            message = "Live bound read unavailable: " + str(exc)
+            if same and getattr(exc, "kind", None) == "transient":
+                self.rel_live_stale = True
+                dpg.set_value("reg_rel_live_status", message + " Previous read is stale; refresh to verify.")
+                self.app.log(message, False)
+            else:
+                self._rel_live_failed(message)
+
+    def _set_rel_live(self, value):
+        if not self.app.guard():
+            return
+        row = self.rel_live_choices.get(dpg.get_value("reg_rel_live_select"))
+        if (
+            self.rel_live_control is None
+            or self.rel_live_control.gpu is not self.app.gpu
+            or self.rel_live_snapshot is None
+            or row is None
+            or self.rel_live_snapshot["identity"]["slot"] != self.app.gpu.slot()
+        ):
+            self._rel_live_failed("Read live bounds for the selected adapter first.")
+            return
+        try:
+            self._show_rel_live(self.rel_live_control.set(row["rail"], value), "Applied live. ")
+            self.app.log("Live REL bound applied.", True)
+        except Exception as exc:
+            message = "Live bound change failed: " + str(exc)
+            rollback = getattr(exc, "rollback", None)
+            if not getattr(exc, "attempted", False):
+                if getattr(exc, "kind", None) == "identity":
+                    self._rel_live_failed(message)
+                else:
+                    dpg.set_value("reg_rel_live_status", message)
+                    self.app.log(message, False)
+            elif isinstance(rollback, dict) and rollback.get("verified") and rollback.get("readback"):
+                self._show_rel_live(rollback["readback"], message + " Original bound restored. ")
+                self.app.log(message, False)
+            else:
+                self._rel_live_failed(message + " Recovery required; read and verify the current state.")
+
+    def apply_rel_live(self, *unused):
+        try:
+            amount = Decimal(dpg.get_value("reg_rel_live_value").strip()) * 1000
+            if not amount.is_finite() or amount != amount.to_integral_value():
+                raise ValueError("not a whole microvolt")
+            value = int(amount)
+        except (AttributeError, TypeError, ValueError, InvalidOperation):
+            dpg.set_value("reg_rel_live_status", "Enter a finite mV value with whole-microvolt precision.")
+            return
+        self._set_rel_live(value)
+
+    def restore_rel_live(self, *unused):
+        row = self.rel_live_choices.get(dpg.get_value("reg_rel_live_select"))
+        if row is not None and self.rel_live_snapshot is not None:
+            value = self.app._rel_live_initial_states.get(self._rel_live_key(self.rel_live_snapshot, row))
+            if value is not None:
+                self._set_rel_live(value)
 
     @staticmethod
     def _voltage_device_key(snapshot, row):
