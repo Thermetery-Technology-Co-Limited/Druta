@@ -1,0 +1,42 @@
+{
+  "scope": "Read-only production provenance qualification on one ASUS Strix RTX 3070 Ti. No power SET, BIOS/registry write, driver restart, installation or workload.",
+  "source_base": "e0d26af583400e7684f73ce00956085b55e95ac5",
+  "initial_gap": "The installed image uses power geometry 0x30/0x2C/0x47, absent from the parser's understood layouts. The initial product getter correctly returned unavailable.",
+  "qualification": {
+    "geometry": "0x30/0x2C/0x47",
+    "row_count": 20,
+    "inspection": "The complete table and every row are bounded in the actual captured image. Only the common bounds/channel/units and full encoded class are interpreted; unknown bytes are preserved. The full class combines row[0] low nibble and row[0x42] low nibble.",
+    "class_evidence": "power-v30-class1-20261028.json establishes full v30 class 1 -> native class 0 independently. Its longer-row driver-parser trace is not represented as a trace of the shorter layout.",
+    "selected_binding": {
+      "native_policy_index": 2,
+      "full_bios_class": 1,
+      "native_class": 0,
+      "channel": 0,
+      "units": "mW",
+      "minimum_mw": 100000,
+      "rated_mw": 310000,
+      "maximum_mw": 380000
+    },
+    "target_binding": "PCI-paired target identity and complete metadata/full-read bindings agree. BIOS row ordinal, full class translation, channel, units and all three bounds match native INFO/ROLE and client INFO.",
+    "original_source": "live-bios: no active receipt or managed image override; the existing original-image validation accepts the current live image. It does not establish manufacturing-stock physical flash.",
+    "product_result": {
+      "minimum_mw": 100000,
+      "maximum_mw": 380000,
+      "source": "live-bios",
+      "reason": null
+    },
+    "preservation": "Complete client/native INFO, CONTROL and ROLE packets, binding, registry and image matched the initial capture and independent subsequent reads. Original/live row captures agree. Raw captures, images, hashes and private identifiers remain local."
+  },
+  "implementation": "Recognize this exact geometry for bounded read-only fields and original-range comparison. Every power field in the shorter layout remains read-only; the normal persistent planner rejects edits. Other geometries and unmapped full classes retain their existing behavior. No device, BIOS or driver allowlist is added.",
+  "regression_coverage": [
+    "Full encoded class and unknown extension rejection across all four v30 geometries.",
+    "Alternate adapter/slot, nonzero policy ordinal, distinct bounds, current-unit and unknown-class peers, and verified receipt-original recovery.",
+    "Class, channel, units, ordinal, bounds, external override and geometry mismatches remain unavailable.",
+    "Truncated complete-table extent and adjacent unsupported geometries are rejected; persistent edits remain unavailable."
+  ],
+  "remaining": [
+    "Persistent activation and restart on the shorter layout were not attempted or qualified.",
+    "Other v30 classes remain unmapped.",
+    "Physical power/current enforcement and other adapters are outside this read-only result."
+  ]
+}

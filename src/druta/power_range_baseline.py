@@ -134,6 +134,7 @@ def _bios(inspection, live):
         (0x30, 0x32, 0x53),
         (0x30, 0x34, 0x5B),
         (0x30, 0x2C, 0x4B),
+        (0x30, 0x2C, 0x47),
     ):
         raise ValueError("Original power range: BIOS power table layout is unsupported")
     if type(table.get("count")) is not int or not 0 <= index < table["count"] <= 255:

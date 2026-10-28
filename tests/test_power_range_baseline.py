@@ -88,7 +88,7 @@ def env(monkeypatch, tmp_path):
             "id": ident,
             "path": str(path),
             "state": "active",
-            "target": asdict(target),
+            "target": asdict(state.target),
             "before": old,
             "after": new,
             "parent": parent["path"] if parent else None,
@@ -99,7 +99,7 @@ def env(monkeypatch, tmp_path):
         path.write_text(json.dumps(item), encoding="utf-8")
         if image:
             path.with_suffix(".rom").write_bytes(before)
-        overrides._active_path(target).write_text(json.dumps({"receipt": str(path)}), encoding="utf-8")
+        overrides._active_path(state.target).write_text(json.dumps({"receipt": str(path)}), encoding="utf-8")
         state.registry, state.image = new, after
         return item
 
@@ -451,29 +451,30 @@ def test_v30_original_range_from_verified_legacy_metadata(env, header, stride):
     assert baseline.read(env.gpu, live)["source"] == "receipt-original"
 
 
+@pytest.mark.parametrize("header,stride", [(0x2C, 0x47), (0x2C, 0x4B), (0x32, 0x53), (0x34, 0x5B)])
 @pytest.mark.parametrize("fault", ["extended", "unit", "channel", "index", "limits", "external", "geometry"])
-def test_v30_provenance_rejects_incompatible_evidence(env, fault):
+def test_v30_provenance_rejects_incompatible_evidence(env, fault, header, stride):
     from tests.test_vbios_fields import v30_power_fixture
 
-    env.image = v30_power_fixture()
+    env.image = v30_power_fixture(header, stride)
     live = legacy_observation(env.image, index=0)
     if fault == "extended":
         raw = bytearray(env.image)
-        raw[0x3800 + 0x2C + 0x42] = 1
+        raw[0x3800 + header + 0x42] = 1
         env.image = bytes(raw)
     elif fault == "unit":
         raw = bytearray(env.image)
-        raw[0x3800 + 0x2C] |= 0x10
+        raw[0x3800 + header] |= 0x10
         env.image = bytes(raw)
     elif fault == "channel":
         raw = bytearray(env.image)
-        raw[0x3800 + 0x2C + 1] += 1
+        raw[0x3800 + header + 1] += 1
         env.image = bytes(raw)
     elif fault == "index":
         live["binding"]["native_index"] = 1
     elif fault == "limits":
         raw = bytearray(env.image)
-        struct.pack_into("<I", raw, 0x3800 + 0x2C + 10, 390000)
+        struct.pack_into("<I", raw, 0x3800 + header + 10, 390000)
         env.image = bytes(raw)
     elif fault == "external":
         env.registry["vbios"] = {"type": 3, "value": "00"}
@@ -482,3 +483,37 @@ def test_v30_provenance_rejects_incompatible_evidence(env, fault):
         raw[0x3800 + 1] = 0x2D
         env.image = bytes(raw)
     unavailable(baseline.read(env.gpu, live))
+
+
+def test_short_v30_range_uses_selected_row_and_verified_receipt_with_alternate_identity(env):
+    from tests.test_vbios_fields import v30_power_fixture
+
+    slot = "0001:09:00.0"
+    env.target = overrides.Target(slot, r"PCI\VEN_10DE&DEV_BEEF&SUBSYS_A1B2C3D4\alternate", r"driver\0034")
+    raw = bytearray(v30_power_fixture(stride=0x47, device=0xBEEF, count=3, extension=0xA0))
+    # Unknown and current-unit peers must not substitute for the chosen row.
+    raw[0x3800 + 0x2C + 0x42] = 0xA1
+    raw[0x3800 + 0x2C + 0x47] |= 0x10
+    selected = 0x3800 + 0x2C + 2 * 0x47
+    struct.pack_into("<III", raw, selected + 2, 75000, 280000, 365000)
+    env.image = bytes(raw)
+    live = legacy_observation(env.image, index=2, client_index=19, slot=slot)
+    assert baseline.read(env.gpu, live) == {
+        "minimum_mw": 75000,
+        "maximum_mw": 365000,
+        "source": "live-bios",
+        "reason": None,
+    }
+    original = env.image
+    # Simulate a pre-existing receipt entirely offline. The product planner
+    # deliberately cannot generate a write for this inspection-only layout.
+    struct.pack_into("<I", raw, selected + 10, 400000)
+    env.ordinal = 2
+    env.receipt(original, bytes(raw))
+    live = legacy_observation(env.image, index=2, client_index=19, slot=slot)
+    assert baseline.read(env.gpu, live) == {
+        "minimum_mw": 75000,
+        "maximum_mw": 365000,
+        "source": "receipt-original",
+        "reason": None,
+    }

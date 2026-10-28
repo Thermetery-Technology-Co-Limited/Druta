@@ -46,6 +46,8 @@ def rows(image, inspection):
             result.append(
                 {
                     "index": index,
+                    "offset": start,
+                    "stride": stride,
                     "full_encoded_class": full_class,
                     "first_byte": raw[0],
                     "extended_class_byte": raw[0x42] if version == 0x30 and stride >= 0x43 else None,

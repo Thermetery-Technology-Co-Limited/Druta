@@ -3006,10 +3006,17 @@ translation to runtime class 0; other v30 classes remain unmapped. The
 [signed-driver trace](experiments/power-v30-class1-20261028.json) follows that
 class through construction and both native INFO serializers. Exact policy
 index, class, channel, units and all three bounds must still match. The same
-class binding can satisfy the existing persistent power contract; static and
-synthetic evidence does not qualify activation or original-image provenance
-on the remote RTX 3070 Ti. Its capture remains pending. Original receipts and
-ROM hashes remain required when an image override is active.
+class binding can satisfy the existing persistent power contract for editable
+layouts. The RTX 3070 Ti read-only capture identified a shorter
+`0x30/0x2C/0x47` table. Its bounded common fields are now available for inspection
+and original-range comparison, with persistent edits deliberately unavailable.
+The selected full class 1 row, channel, units and all three limits matched the
+actual native/client policy; the original-range getter returned 100–380 W with
+`live-bios` provenance and unchanged image, registry and configured requests.
+This establishes the current live-image baseline, not a manufacturing-stock
+flash or persistent activation/restart behavior. Original receipts and ROM
+hashes remain required when an image override is active.
+[Target qualification and limits](experiments/ampere-provenance-qualified-20261029.json).
 
 `power_slider_style.py` tints only the portions of the native slider outside
 those original bounds and colors the adjacent numeric input amber for an

@@ -84,6 +84,7 @@ function Get-SourceSnapshot {
         'experiments/ui-render-capture-20261028.json',
         'experiments/capture_power_provenance.py',
         'experiments/ampere-provenance-handoff-20261028.json',
+        'experiments/ampere-provenance-qualified-20261029.json',
         'experiments/voltage-live-constants-20261028.json',
         'experiments/voltage-vmin-live-20261028.json',
         'experiments/validate_strix_mp2888_production.py',

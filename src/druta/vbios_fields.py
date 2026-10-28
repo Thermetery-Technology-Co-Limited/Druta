@@ -351,10 +351,14 @@ class _Image:
         shapes = (
             ((0x40, 0x38, 0x66), (0x40, 0x3D, 0x66))
             if self.objects
-            else ((0x30, 0x32, 0x53), (0x30, 0x34, 0x5B), (0x30, 0x2C, 0x4B))
+            else ((0x30, 0x32, 0x53), (0x30, 0x34, 0x5B), (0x30, 0x2C, 0x4B), (0x30, 0x2C, 0x47))
         )
         t = self.table("power", "P", 0x2C, shapes, 0x13)
         modern = t["version"] == 0x40
+        # The shorter v30 row contains the common bounds prefix and the full
+        # class extension at +0x42. Qualify those fields for read-only runtime
+        # comparison without assuming the longer row's persistent edit path.
+        inspection_only = not modern and t["stride"] == 0x47
         for i in range(t["count"]):
             row = t["offset"] + t["header_size"] + i * t["stride"]
             kind = self.b[row] if modern else (self.b[row] & 15) | ((self.b[row + 0x42] & 15) << 4)
@@ -368,6 +372,9 @@ class _Image:
             base = row + (13 if modern else 2)
             values = [self.u("I", base + k * 4) for k in range(3)]
             valid = discriminator in (0, 1) and kind in (1, 2, 3, 6, 7, 9, 11, 12, 13) and values == sorted(values)
+            reason = "" if valid else "unknown units, class, or inconsistent limits"
+            if inspection_only:
+                reason = "short v30 power layout is qualified for read-only inspection only"
             meta = {
                 "policy": i,
                 "policy_type": kind,
@@ -397,8 +404,8 @@ class _Image:
                     "I",
                     unit,
                     maximum=2147483647,
-                    editable=valid,
-                    reason="" if valid else "unknown units, class, or inconsistent limits",
+                    editable=valid and not inspection_only,
+                    reason=reason,
                     meta=meta,
                 )
             # Type13 +33 is a WORD relationship selector. Resolve the kind1
