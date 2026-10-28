@@ -52,7 +52,8 @@ def idle(gpu):
     samples = []
     for attempt in range(5):
         live = gpu.read()
-        result = {k: live.get(k) for k in ("pstate", "util_gpu", "power_w", "temp_edge")}
+        result = {k: live.get(k) for k in ("pstate", "util_gpu", "power_w", "temp_edge",
+                                          "pl_requested_mw", "pl_now_mw")}
         samples.append(result)
         assert result["pstate"] == 0, "P0 hold is required for the memory-modified qualification board"
         if (result["util_gpu"] is not None and result["util_gpu"] <= 5
@@ -156,7 +157,10 @@ def main():
             trial["after"] = summary(controller.read())
             trial["samples"] = []
             for _ in range(5):
+                native_effective, native_error = gpu.read_native_power_limit_mw()
                 trial["samples"].append({"at": time.time(), "configured_mw": gpu.read_power_limit_mw(),
+                                         "native_effective_mw": native_effective,
+                                         "native_effective_error": native_error,
                                          "native_status": native_status(gpu, before),
                                          "idle": idle(gpu)})
                 time.sleep(0.25)

@@ -44,6 +44,10 @@ RM26_SIZES = {
     INFO: 644, CONTROL: 388, SET: 388, ROLE_INFO: 120,
     NATIVE_INFO: 5008, NATIVE_CONTROL: 2108, NATIVE_STATUS: 14148,
 }
+RM26_EXTENDED_SIZES = {
+    INFO: 900, CONTROL: 388, SET: 388, ROLE_INFO: 136,
+    NATIVE_INFO: 5520, NATIVE_CONTROL: 2124, NATIVE_STATUS: 69148,
+}
 _RM26_COMMANDS = dict(zip(
     (INFO, CONTROL, SET, ROLE_INFO, NATIVE_INFO, NATIVE_CONTROL, NATIVE_STATUS),
     (0x20802630, 0x20802632, 0x20802633, 0x2080261C, 0x20802618, 0x2080261A, 0x20802619),
@@ -117,6 +121,8 @@ def _small_native_geometry(binding):
 def _native_geometry(binding):
     """INFO base/stride and CONTROL base/stride/size for a captured binding."""
     if binding.get("layout") == "rm26":
+        if binding.get("native_layout") == "rm26_extended":
+            return 60, 132, 20, 52, RM26_EXTENDED_SIZES[NATIVE_CONTROL]
         return 52, 116, 4, 52, RM26_SIZES[NATIVE_CONTROL]
     if binding.get("layout") == "legacy32":
         size, stride = _small_native_geometry(binding)
@@ -187,6 +193,8 @@ class ClientPowerController:
         self._legacy = False
         self._native_policy124 = False
         self._rm26 = False
+        self._rm26_extended = False
+        self._transport_key = None
 
     def _reset_transport(self):
         self.gpu._current_limit_transport = None
@@ -220,10 +228,15 @@ class ClientPowerController:
                     or not isinstance(fields, dict)
                     or set(fields) != {"hAdapter", "hDevice", "Type", "Flags", "hContext"}):
                 raise ClientPowerError("malformed", "Client-power transport geometry is not understood")
-            if (header[14], header[2], header[15]) == (0x20802612, 2524, 2456):
+            key = header[14], header[2], header[15]
+            if self._transport_key is not None and key != self._transport_key:
+                raise ClientPowerError("identity", "Client-power transport changed; create a fresh controller")
+            if key in ((0x20802612, 2524, 2456), (0x20802612, 3548, 3480)):
                 if identity["architecture"] != 6:
                     raise ClientPowerError("unsupported", "This client-power RM26 ABI requires Turing")
-                self.sizes, self._rm26 = RM26_SIZES, True
+                self._rm26_extended = key == (0x20802612, 3548, 3480)
+                self.sizes = RM26_EXTENDED_SIZES if self._rm26_extended else RM26_SIZES
+                self._rm26 = True
             else:
                 if self._rm26:
                     raise ClientPowerError("identity", "Client-power transport changed; create a fresh controller")
@@ -246,6 +259,7 @@ class ClientPowerController:
             header[i] != value for i, value in clock._ENVELOPE.items()
         ):
             raise ClientPowerError("malformed", "Client-power transport envelope is not understood")
+        self._transport_key = key
         return header, fields
 
     def _exchange(self, command, payload, *, write=None):
@@ -298,8 +312,8 @@ class ClientPowerController:
                 raise
             self.sizes, self._legacy = LEGACY_SIZES, True
             info = self._exchange(INFO, bytes(self.sizes[INFO]))
-        base, info_stride, capacity = (4, 20, 32) if self._rm26 else (8, INFO_STRIDE, 32) if self._legacy else (INFO_BASE, INFO_STRIDE, CAPACITY)
-        native_base, native_stride = (52, 116) if self._rm26 else (88, 228) if self._legacy else (NATIVE_INFO_BASE, NATIVE_INFO_STRIDE)
+        base, info_stride, capacity = (4, 28 if self._rm26_extended else 20, 32) if self._rm26 else (8, INFO_STRIDE, 32) if self._legacy else (INFO_BASE, INFO_STRIDE, CAPACITY)
+        native_base, native_stride = (60, 132) if self._rm26_extended else (52, 116) if self._rm26 else (88, 228) if self._legacy else (NATIVE_INFO_BASE, NATIVE_INFO_STRIDE)
         mask = int.from_bytes(info[:4] if self._rm26 else info[4:base], "little")
         if mask >> capacity:
             raise ClientPowerError("malformed", "Client-power inventory exceeds the understood row capacity")
@@ -361,6 +375,7 @@ class ClientPowerController:
                 "maximum_mw": limits[2],
                 **({"layout": "legacy32"} if self._legacy else {}),
                 **({"layout": "rm26"} if self._rm26 else {}),
+                **({"native_layout": "rm26_extended"} if self._rm26_extended else {}),
                 **({"native_layout": "policy124"} if self._native_policy124 else {}),
             },
             "info_hex": info.hex(),
@@ -374,7 +389,7 @@ class ClientPowerController:
         native_info = bytes.fromhex(metadata["native_info_hex"])
         source = bytes.fromhex(metadata["role_info_hex"])[4:]
         index, native_index = metadata["binding"]["client_index"], metadata["binding"]["native_index"]
-        base, info_stride, control_base = (4, 20, 4) if self._rm26 else (8, INFO_STRIDE, 8) if self._legacy else (INFO_BASE, INFO_STRIDE, CONTROL_BASE)
+        base, info_stride, control_base = (4, 28 if self._rm26_extended else 20, 4) if self._rm26 else (8, INFO_STRIDE, 8) if self._legacy else (INFO_BASE, INFO_STRIDE, CONTROL_BASE)
         _, _, native_base, native_stride, _ = _native_geometry(metadata["binding"])
         row = info[base + index * info_stride : base + (index + 1) * info_stride]
         request = bytearray(self.sizes[CONTROL])
@@ -398,9 +413,10 @@ class ClientPowerController:
             raise ClientPowerError("unsupported", "A zero FE input has uncharacterized removal semantics")
         native_mask = _u32(native_info, 4)
         request = bytearray(self.sizes[NATIVE_CONTROL])
-        struct.pack_into("<I", request, 0 if self._rm26 else 16, native_mask)
+        short_rm26 = self._rm26 and not self._rm26_extended
+        struct.pack_into("<I", request, 0 if short_rm26 else 16, native_mask)
         native_control = self._exchange(NATIVE_CONTROL, request)
-        if ((struct.unpack_from("<I", native_control) != (native_mask,)) if self._rm26 else
+        if ((struct.unpack_from("<I", native_control) != (native_mask,)) if short_rm26 else
                 (struct.unpack_from("<5I", native_control) != (0, 0, 0, 255, native_mask))):
             raise ClientPowerError("malformed", "Native CONTROL header or inventory differs from INFO")
         np = native_base + native_index * native_stride

@@ -465,7 +465,7 @@ def test_rm26_unqualified_architecture_is_refused_before_any_exchange(architectu
     assert not gpu.calls and not gpu.set_payloads
 
 
-@pytest.mark.parametrize("defect", ["envelope", "header_length", "fields", "field_value", "older_geometry"])
+@pytest.mark.parametrize("defect", ["envelope", "header_length", "fields", "field_value", "unknown_geometry"])
 def test_rm26_malformed_or_different_transport_prevents_any_set(defect):
     gpu = Rm26Gpu()
 
@@ -480,7 +480,7 @@ def test_rm26_malformed_or_different_transport_prevents_any_set(defect):
         elif defect == "field_value":
             fields["hAdapter"] = True
         else:
-            header[2], header[15] = 3548, 3480
+            header[2], header[15] = 3552, 3484
 
     gpu.transport_faults[1] = damage
     with pytest.raises(cp.ClientPowerError) as caught:

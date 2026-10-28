@@ -2680,7 +2680,14 @@ class GPU:
             co = _ClockOffset(version=nv.ver(_ClockOffset, 1), type=ctype,
                               pstate=0, off=units)
             st = nv.dll.nvmlDeviceSetClockOffsets(nv.dev, ctypes.byref(co))
-            if st != 0:
+            if (st == 3  # NVML_ERROR_NOT_SUPPORTED: an export can be a stub.
+                    and self.nvapi.ok
+                    and getattr(self.nvapi, "Pstates20Set", None)):
+                # Only a definite lack of capability permits another setter.
+                # Permission, transient and ambiguous failures stay failures;
+                # the sparse P0 path validates its own range and exact readback.
+                ok, message = self._set_pstate20_offset(ctype, units, mhz, unit)
+            elif st != 0:
                 ok, message = False, f"{dom} offset failed: {nv.errstr(st)}"
             elif ctype == 2:
                 readback = self._offset_range(ctype)
@@ -5230,11 +5237,12 @@ class GPU:
                 # make the driver derive a peer current above that peer's
                 # advertised maximum. Accept this *observation* only when a
                 # fresh paired FE snapshot confirms the same native table and
-                # the stored/effective current agree. The setter still bounds
+                # the effective current agrees or saturates at its reported
+                # maximum. The setter still bounds
                 # every new request by the current policy's own maximum.
                 requested, effective = control[record + 1], dynamic[state + 1]
                 if (self.arch() in (self.ARCH_TURING, self.ARCH_AMPERE) and maximum < requested < 0xFFFFFFFF
-                        and effective == requested):
+                        and effective in (requested, maximum)):
                     observed, error = self.read_live_power_request()
                     if not error and observed is not None:
                         binding = observed.get("binding", {})
@@ -5364,7 +5372,8 @@ class GPU:
                 reason = next((item["error"] for item in self._current_limit_unavailable
                                if item["policy"] == policy), "policy unavailable")
                 return False, f"policy {policy}: {reason}; nothing written"
-            if row["limit_ma"] != row["requested_ma"]:
+            derived_clamp = (row["requested_ma"] > row["maximum_ma"] == row["limit_ma"])
+            if row["limit_ma"] != row["requested_ma"] and not derived_clamp:
                 return False, "selected policy's stored and effective current limits disagree; nothing written"
             maximum = row["maximum_ma"] if self.voltage_xoc_enabled else max(
                 row["normal_maximum_ma"], row["limit_ma"])
@@ -5373,7 +5382,7 @@ class GPU:
                 return False, (f"{row['label']} must be between "
                                f"{amps(row['minimum_ma'])} and "
                                f"{amps(maximum)} A in the current mode")
-            if ma == row["limit_ma"]:
+            if ma == row["limit_ma"] == row["requested_ma"]:
                 return True, f"{row['label']} already at {amps(ma)} A"
             layout = self._current_limit_abi()
             control_base, control_stride = layout["control"]
@@ -5538,6 +5547,40 @@ class GPU:
         except Exception:                                               # noqa: BLE001
             board_mw = None
         return self._power_policy_rows(layout, info, control, status, named, board_mw), None
+
+    @_synchronized
+    def read_native_power_limit_mw(self):
+        """Fresh role-bound native effective status, independent of NVML.
+
+        Some interfaces echo the configured request through NVML's enforced
+        getter while native STATUS reports a lower constraint. Never replace
+        configured-request readback with either effective-status source.
+        """
+        observation, error = self.read_live_power_request()
+        if observation is None:
+            return None, error or "native board-policy binding unavailable"
+        try:
+            layout, info, control, status = self._power_policy_table()
+            if control is None or status is None:
+                raise ValueError("native power-policy status unavailable")
+            if (struct.pack(f"<{len(info)}I", *info).hex() != observation["native_info_hex"]
+                    or struct.pack(f"<{len(control)}I", *control).hex() != observation["native_control_hex"]):
+                raise ValueError("native power definitions or configured requests changed during status read")
+            index = observation["binding"]["native_index"]
+            meta = (layout["info"][0] + index * layout["info"][1]) // 4
+            record = (layout["control"][0] + index * layout["control"][1]) // 4
+            state = (layout["status"][0] + index * layout["status"][1]) // 4
+            type_id, unit = info[meta + 1] & 255, info[meta + 1] >> 16 & 255
+            if (not info[1] >> index & 1 or unit != 0 or control[record] != type_id
+                    or status[state] & 255 != type_id
+                    or control[record + 1] != observation["requested_mw"]):
+                raise ValueError("native effective power status does not match the bound milliwatt policy")
+            value = status[state + 1]
+            if type(value) is not int or not 0 <= value < 0xFFFFFFFF:
+                raise ValueError("native effective power status is missing or malformed")
+            return value, None
+        except Exception as exc:                                        # noqa: BLE001
+            return None, str(exc)
 
     def read_power_arbitration(self):
         """(report, error): fresh, independently decoded power arbitration GETs.

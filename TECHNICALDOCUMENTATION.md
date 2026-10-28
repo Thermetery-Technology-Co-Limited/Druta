@@ -921,6 +921,28 @@ behind the **Unlock controls** checkbox — untick it to make the app read-only.
 Core offsets snap **down** onto the card's own grid before being sent, because
 they land in the same per-point V/F delta table the curve editor uses.
 
+In 1.9.05, an exported `nvmlDeviceSetClockOffsets` returning
+`NVML_ERROR_NOT_SUPPORTED` (3) permits the independently available Pstates20
+fallback. Missing NVML exports already select that path. Other NVML failures
+do not dispatch a second setter. The fallback negotiates the understood public
+packet versions, selects the unique editable P0 domain, validates signed-kHz
+range and representability, and sends one sparse clock delta with no voltage
+rows. It requires exact selected offset readback. No driver-version decision
+selects either path. Both paths retain the graphics V/F snapshot/restoration
+handling, including restoration after a refused write when a shape was captured.
+
+On the modified TU104, 472.12 core -15 MHz, memory -1 true MHz and combined
+offset trials restored captured offsets, graphics curve, 1062.5 mV P0 hold and
+the observed 7750 MHz memory baseline. The combined trial preserved a nonzero
+memory offset across a core write. Fan 100% and voltage boost 1% checks also
+restored their captures. These passed with both the installed NVML runtime's
+unsupported offset exports and an explicitly loaded supplied NVML runtime
+without offset exports. Earlier 431.60 trials restored captured offset fields,
+graphics curve and hold, but the observed memory clock changed from 8000 to
+7750 MHz. Its cause is unresolved; selected-field and curve restoration do not
+establish complete physical clock-state restoration. See the
+[472.12 compatibility record](experiments/turing-47212-compatibility-20261028.md).
+
 ## Lockable clocks are not a ceiling
 
 `nvmlDeviceGetSupportedGraphicsClocks` reports a table *per memory clock*, and
@@ -2809,6 +2831,24 @@ header validation, current writes, full-policy writes, pin replay and
 restoration use its mask offset. Recognizing this power transport does not
 enable modern PERF diagnostic commands on it.
 
+The distinct 3548/3480-byte `20802612` transport was qualified on the same
+TU104 with 472.12 in 1.9.05. Its accepted geometry is:
+
+| Operation | Wire command | Parameters | Mask and rows |
+| --- | --- | ---: | --- |
+| Client INFO | `20802630` | 900 | Mask +0; rows `4 + 28*i` |
+| Client CONTROL GET / SET | `20802632` / `20802633` | 388 | Mask +0; rows `4 + 12*i`, request +4, caller +8 |
+| Role INFO | `2080261C` | 136 | Selector 1; 132-byte native definition +4 |
+| Native INFO | `20802618` | 5520 | Mask +4; rows `60 + 132*i` |
+| Native CONTROL GET / SET | `2080261A` / `2080261B` | 2124 | Classic header, mask +16; rows `20 + 52*i`, request +4 |
+| Native STATUS | `20802619` | 69148 | Mask +0; rows `100 + 2088*i`, effective +4 |
+
+Role1 uniquely bound existing FE client0 to native policy2 with a 250 W
+request and 105/250/350 W ordinary limits. The client and native indices are
+observations, not eligibility conditions. Selection follows exact captured
+transport geometry and validated definitions; this layout remains separate
+from the short interface and modern command families.
+
 On the observed 431.60 interface, role1 uniquely bound client row0 to native
 policy2. The raw FE caller returned the existing 250000 mW request. The public
 NVAPI wrapper's separately traced F8 conversion does not redefine that raw RM
@@ -2827,9 +2867,13 @@ and changed request words while preserving all other bytes; it re-applies this
 session's user-pinned values. A failed SET compensates the board request and
 restores changed peer requests, reporting whether the complete captured state
 was recovered. The selected native geometry drives both checks and recovery.
-Derived current above an advertised maximum requires matching native INFO and
-CONTROL snapshots, an extended board request and equal requested/effective
-current; independent current writes remain bounded by their own descriptors.
+Derived current above an advertised maximum requires an extended v30 board
+request and matching complete native INFO/CONTROL snapshots. Effective current
+must equal the stored request or saturate at that policy's reported maximum.
+The latter observation is supported in 1.9.05; it does not admit an independent
+above-maximum current request. Independent writes remain bounded by their own
+descriptors, and applying a value equal to the saturated effective limit still
+writes when the stored request differs.
 Arbitration details requiring v40 definitions and original-BIOS provenance can
 remain unavailable independently of the request control.
 
@@ -2856,6 +2900,20 @@ was used in these driver comparisons. The separate
 [owner FurMark observation](experiments/turing-owner-furmark-ab-20261028.md)
 supports an operative limit increase during the preceding 581.42 session;
 physical enforcement on 431.60 and 621.01 remains unmeasured.
+
+On 472.12, 349/351/400 W configured requests passed exact readback and complete
+client/native restoration to the 250 W baseline. NVML's enforced getter echoed
+349/351/400 W. The new native effective getter initially returned 349/350/350 W,
+then four settled samples per request returned 359.906/360.938/360.938 W. Raw
+STATUS reads followed the getter and were already settled. Core-current stored
+requests were 359640/360360/378000 mA while effective values were
+359640/360000/360000 mA. The exact v30 proof above retains those observations;
+independent requests remain bounded at the reported 360000 mA maximum. A
+separate 350 A pin survived a repeated 351 W board request. All four power
+trials restored the complete captured client/native state and P0 hold without
+a Windows reboot. The native plateau leaves downstream override unqualified;
+these readings do not measure physical power. See the
+[472.12 evidence](experiments/turing-47212-compatibility-20261028.md).
 
 On the ASUS Strix RTX 3070 Ti / 595.97, the production setter accepted and
 read back 381 W against a reported 380 W maximum at idle. A 65.9 W pinned
@@ -2884,6 +2942,22 @@ With XOC off, only the normal range and the observed extended endpoint remain.
 A prior capability can retain its UI range after a transient observation failure;
 any SET still requires fresh complete readback. Missing NVML range metadata can
 be populated from the live binding; absent unrelated STATUS does not remove it.
+
+After Power Apply, the frontend reads the configured request again and
+synchronizes both slider and numeric input to it. A mismatch is a reported
+failure even if a setter returned success. Missing readback is explicitly
+unverified; any retained slider value is labeled as this adapter's last verified
+value until a fresh valid poll resolves it. This status is separate from the
+NVML-reported enforced limit and native effective limit.
+
+`GPU.read_native_power_limit_mw` reads native effective status independently of
+NVML. It requires the live role binding, identical complete native INFO and
+CONTROL snapshots, an occupied matching policy type, milliwatt units and a
+selected CONTROL request matching the configured board request. The selected
+STATUS type must also match. A failed, changed or malformed native read remains
+unavailable; NVML agreement cannot substitute for that read, and its absence
+does not disable the ordinary power slider. None of these configured or status
+values establishes actual electrical power draw.
 
 With a v40 firmware definition, peer CONTROL remains exact and existing pin
 bookkeeping is retained without adding pin writes. A policy Stock action under an extended board request writes
