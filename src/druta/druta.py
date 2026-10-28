@@ -14102,6 +14102,8 @@ deliberately does not put behind a button."""
         self.timings_capture()
 
         last = 0.0
+        capture = None
+        capture_pending = bool(getattr(self, "_ui_capture_dir", None))
         # try/finally, not a bare loop: the tail below is what stops this app
         # leaving the card pinned, and the lock is the ONE write that outlives
         # the process unread. Anything the loop raises - a DPG call on a
@@ -14111,6 +14113,9 @@ deliberately does not put behind a button."""
         try:
             # A startup profile may itself start verification. Protect that
             # dispatch with the same restore-before-exit finally as callbacks.
+            if getattr(self, "_ui_capture_dir", None) and self._startup_request:
+                self._startup_request = None
+                self.log("Startup profile skipped for the display-only capture.", False)
             if self._startup_request and getattr(self, "_stale_headroom", None):
                 # Its undo point and rail replay would capture or overwrite the
                 # raised limits before the user has answered the dialog.
@@ -14133,9 +14138,19 @@ deliberately does not put behind a button."""
             while dpg.is_dearpygui_running():
                 if self._startup_manager and self._startup_manager.ending:
                     break
-                self.dispatch_callbacks()
+                if capture is None or not capture.active:
+                    self.dispatch_callbacks()
                 if not dpg.is_dearpygui_running():
                     break
+                if capture is not None and capture.active:
+                    try:
+                        self.relayout()
+                        self.refresh_power_slider_style()
+                        dpg.render_dearpygui_frame()
+                        capture.tick()
+                    except Exception as exc:
+                        capture._finish(exc)
+                    continue
                 # The polling worker may have learned a previously transient
                 # clock domain.  This is intentionally consumed here, on the
                 # UI thread, after callbacks and before normal panel drawing.
@@ -14201,7 +14216,16 @@ deliberately does not put behind a button."""
                 except Exception as e:
                     self.log_once("corner", f"plot corner: {e}")
                 dpg.render_dearpygui_frame()
+                if capture_pending:
+                    capture_pending = False
+                    from .ui_capture import UiCapture
+                    try:
+                        capture = UiCapture(dpg, self, self._ui_capture_dir)
+                    except Exception as exc:
+                        self.log("UI capture could not start: " + str(exc), False)
         finally:
+            if capture is not None and capture.active:
+                capture._finish(RuntimeError("Capture interrupted before completion"))
             self._stop.set()
             try:
                 self.save_power_policy_names(force=True)
@@ -14280,6 +14304,7 @@ def main(argv=None):
     slot = None
     automatic = False
     recovery_path = None
+    ui_capture_dir = None
     while argv:
         a = argv.pop(0)
         if a in ("--version", "-V"):
@@ -14297,6 +14322,11 @@ def main(argv=None):
             return 0
         if a == "--startup-profile":
             automatic = True
+        elif a == "--ui-capture":
+            if not argv or ui_capture_dir is not None:
+                _tell("--ui-capture needs one new directory")
+                return 2
+            ui_capture_dir = os.path.abspath(argv.pop(0))
         elif a == "--recovery-result":
             if not argv:
                 _tell("--recovery-result needs a receipt path")
@@ -14316,12 +14346,22 @@ def main(argv=None):
                   "                      requires admin; never reboots the computer\n\n"
                   "  --registry-recover SLOT  undo saved registry overrides without a live GPU backend\n\n"
                   "  --startup-profile  apply the opted-in sign-in profile after shutdown checks\n\n"
+                  "  --ui-capture NEW_DIRECTORY  capture a display-only developer walkthrough\n\n"
                   "With no --gpu, Druta opens on the lowest PCI slot.\n"
                   "Device > Card switches cards in a running window.")
             return 0
         else:
             _tell(f"unknown argument {a!r} (try --help)")
             return 2
+    if ui_capture_dir and (automatic or recovery_path):
+        _tell("--ui-capture cannot be combined with startup profile or recovery relaunch")
+        return 2
+    if ui_capture_dir and os.path.exists(ui_capture_dir):
+        _tell("--ui-capture requires a new directory")
+        return 2
+    if ui_capture_dir and not os.path.isdir(os.path.dirname(ui_capture_dir)):
+        _tell("--ui-capture requires an existing parent directory")
+        return 2
     manager = startup.Startup()
     # A recovery relaunch must never reapply the profile that may have caused
     # the failure, including if both flags are supplied by a caller.
@@ -14339,6 +14379,8 @@ def main(argv=None):
             else:
                 slot = request["profile"]["device"].get("slot")
         app = Druta(slot)
+        if ui_capture_dir:
+            app._ui_capture_dir = ui_capture_dir
         if recovery_path:
             try:
                 app._recovery_result = devicerecovery.read_result(recovery_path, app.gpu.slot())

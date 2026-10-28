@@ -81,6 +81,7 @@ function Get-SourceSnapshot {
         'experiments/ampere-live-client-power-20261027.md',
         'experiments/ampere-four-digit-policy-summary-20261027.json',
         'experiments/power-v30-class1-20261028.json',
+        'experiments/ui-render-capture-20261028.json',
         'experiments/capture_power_provenance.py',
         'experiments/ampere-provenance-handoff-20261028.json',
         'experiments/voltage-live-constants-20261028.json',

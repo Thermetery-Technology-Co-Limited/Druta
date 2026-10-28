@@ -3018,6 +3018,23 @@ still handles input; the drawing follows its bounds, position, clipping and UI
 scale. Per-frame and input/mirror refreshes cover programmatic values and rebuilds.
 Colors describe the original range, not electrical safety or measured power.
 
+The opt-in developer command `--ui-capture NEW_DIRECTORY` exports the actual
+DearPyGUI framebuffer to PNG without the Windows screen-capture service. The
+parent directory must exist; the output directory must be new. Startup-profile
+and recovery-relaunch flags cannot be combined with this mode. Normal launches
+are unchanged. After one ordinary rendered iteration, the capture sequence
+pauses callback dispatch and periodic panel refresh, captures the current
+Control page, and stages only widget values/ranges for the original endpoint,
+an extended range with an ordinary value, and a value above the original bound.
+It never invokes Apply or XOC callbacks. The staged cases require independently
+established original bounds and carry a display-only notice. The final capture
+restores the widgets; completion and error cleanup restore the clock text,
+selected tab and scroll position before normal operation resumes. The manifest
+records stage type, dimensions, frame, hashes, provenance and errors. This
+checks rendered layout and colors, not accepted GPU requests or physical power.
+Live REL/constants panels and the remaining preview, error and recovery states
+need separate visual checks. [Source-render evidence](experiments/ui-render-capture-20261028.json).
+
 ## Source for a binary release
 
 Every tagged release on GitHub carries the Corresponding Source for the
