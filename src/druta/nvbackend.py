@@ -5208,7 +5208,7 @@ class GPU:
                 # the stored/effective current agree. The setter still bounds
                 # every new request by the current policy's own maximum.
                 requested, effective = control[record + 1], dynamic[state + 1]
-                if (self.arch() == self.ARCH_AMPERE and maximum < requested < 0xFFFFFFFF
+                if (self.arch() in (self.ARCH_TURING, self.ARCH_AMPERE) and maximum < requested < 0xFFFFFFFF
                         and effective == requested):
                     observed, error = self.read_live_power_request()
                     if not error and observed is not None:

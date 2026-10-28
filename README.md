@@ -1,6 +1,9 @@
 # Druta
 
-**Version 1.9.0b prerelease** — [release notes](RELEASE-NOTES-1.9.0b.md).
+**Version 1.9.03 prerelease** — [release notes](RELEASE-NOTES-1.9.03.md).
+Adds live power-limit requests on qualified Turing interfaces, verified on a
+Gigabyte RTX 2080 SUPER AORUS Xtreme with driver 581.42. See the
+[mapping and reversible idle validation](experiments/turing-tu104-live-power-20261028.md).
 Work in progress: registry-backed NVIDIA overrides, live power/VF/voltage-device
 controls, and DIFR configuration. See the release notes for explicit pending
 tasks, hardware coverage and limits before treating this as stable support.
@@ -106,7 +109,7 @@ python -m pip install -r requirements.txt
 ```
 
 The local build produces `dist\Druta\Druta.exe` and
-`dist\Druta-1.9.0b-win64.zip`. Distribute the
+`dist\Druta-1.9.03-win64.zip`. Distribute the
 whole `Druta` folder or ZIP: the EXE needs its adjacent `_internal` folder.
 
 `dist\Druta\source\` contains the matching working-tree source, including
