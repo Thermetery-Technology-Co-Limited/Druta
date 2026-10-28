@@ -1,5 +1,60 @@
 # Driver compatibility: runtime rail detection and legacy controls
 
+## 1.9.05 Turing compatibility and power readback
+
+Clock offsets use NVML when its setter is available. If that setter returns
+`NVML_ERROR_NOT_SUPPORTED` (status 3), Druta tries the independently available
+NVAPI Pstates20 path, validating P0, editability, units, range and exact offset
+readback. Missing NVML exports also select that path. Permission, transient and
+other NVML errors do not dispatch another setter. Driver versions and board
+identities do not select support.
+
+Power Apply reconciles the slider and numeric input with configured-request
+readback. A mismatch is reported and both widgets show the observed request.
+Unavailable readback is explicitly unverified; a retained value is labeled as
+this adapter's last verified value. The configured request, NVML-reported
+enforced limit and independently read native effective limit remain separate.
+Missing native status is explicitly unavailable; NVML agreement does not
+verify native status or actual power draw.
+
+The same shunt-modified, 16 GB Gigabyte RTX 2080 SUPER AORUS Xtreme passed
+472.12 qualification without a Windows reboot, retaining P0 and its 1062.5 mV
+V/F hold. The accepted `20802612` transport was 3548/3480 bytes. Client
+INFO/CONTROL/role packets were 900/388/136 bytes; native INFO/CONTROL/STATUS
+were 5520/2124/69148 bytes. Role1 uniquely bound existing FE client0 to native
+policy2 with 105/250/350 W ordinary bounds and a 250 W baseline.
+
+| Configured request | NVML enforced limit | Settled native effective limit | Core-current request / effective |
+| ---: | ---: | ---: | ---: |
+| 349 W | 349 W | 359.906 W | 359.640 / 359.640 A |
+| 351 W | 351 W | 360.938 W | 360.360 / 360 A |
+| 400 W | 400 W | 360.938 W | 378 / 360 A |
+
+The native getter first returned 349/350/350 W, then four settled samples per
+request returned the values above. The independent raw STATUS reads followed
+the getter and were already settled. All configured requests passed exact
+readback and complete client/native restoration. A repeated 351 W request
+retained a separately pinned 350 A current limit. Driver-derived current above
+the reported maximum remains readable only with an extended v30 board request
+and matching complete native INFO/CONTROL snapshots, when effective current
+matches the request or saturates at that reported maximum. Independent current
+requests remain bounded by the adapter's 360 A maximum. The complete captured
+250 W power baseline and P0 hold were restored. The native plateau leaves
+downstream override unqualified; physical power enforcement remains unmeasured.
+
+472.12 core -15 MHz, memory -1 true MHz, a combined-offset trial, fan 100% and
+voltage boost 1% checks passed with captured settings and hold restoration.
+The combined trial preserved a nonzero memory offset across a core write.
+The observed memory clock returned to its captured 7750 MHz baseline. Both the
+installed NVML runtime with unsupported offset exports and a process explicitly
+using the supplied NVML runtime without those exports passed these checks.
+On 431.60, captured offsets, graphics curve and hold were restored, but the
+observed memory clock changed from 8000 to 7750 MHz. That change remains
+unexplained; captured-field restoration does not establish complete physical
+clock-state restoration. See the
+[472.12 comparison](experiments/turing-47212-compatibility-20261028.md) and
+[431.60 clock record](experiments/turing-43160-clock-compat-20261028.json).
+
 ## 1.9.04 Turing live power comparison
 
 On 2026-10-28, the local Gigabyte RTX 2080 SUPER AORUS Xtreme / TU104,
@@ -342,7 +397,10 @@ combinations; the explicit measured Pascal/Turing/Blackwell results remain.
 Driver 472.12 lacks both the modern NVML clock-offset API and its older
 GpcClkVfOffset/MemClkVfOffset family. Druta reads the public NVAPI Pstates20
 table and submits a sparse P0 request containing one clock delta and no voltage
-or other-domain entries. The modern NVML path retains precedence when present.
+or other-domain entries. The modern NVML path retains precedence when available;
+1.9.05 also falls back after its explicit Not Supported (3) result. Other errors
+remain failures. The TU104 431.60 physical-memory restoration limitation above
+does not alter the scope of the earlier TITAN measurements below.
 
 NVAPI reports memory offsets in the reported memory clock's MHz. NVML doubles
 those numbers. The backend converts between them so profiles, bounds, and
