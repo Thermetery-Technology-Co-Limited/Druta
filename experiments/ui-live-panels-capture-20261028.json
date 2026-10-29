@@ -707,5 +707,310 @@
       "Source before/preview/active/restored",
       "Packaged preview/active/restored"
     ]
+  },
+  "plot_visibility_followup": {
+    "code_commit": "36e043057750c3effef9174cdb1fa473dfb8b0e2",
+    "scope": "One RTX 5080/621.01 and 1528x1261 viewport. Display-only observer followed by source and packaged typed live VMIN Apply/Restore; no workload or physical input qualification.",
+    "read_only_observer": {
+      "checks": {
+        "all_manifest_png_hashes_and_dimensions_match": true,
+        "capture_complete_without_errors": true,
+        "exactly_one_first_visible_marker": true,
+        "first_visible_collapsed_axes_do_not_match_existing_series_bounds": true,
+        "first_visible_frame_series_and_editor_data_stable_through_next_render": true,
+        "next_frame_axes_equal_existing_series_bounds": true,
+        "no_vf_read_or_clamp_axes_call_between_transition_frames": true,
+        "read_only_UiCapture_scope_and_zero_blocked_mutators": true,
+        "root_normalized_full_config_restored": true
+      },
+      "first_visible": {
+        "frame": 29,
+        "axis_limits": {
+          "vf_x": [
+            203.0,
+            223.0
+          ],
+          "vf_y": [
+            -49.5,
+            50.5
+          ]
+        }
+      },
+      "next_render": {
+        "frame": 30,
+        "axis_limits": {
+          "vf_x": [
+            450.0,
+            1240.0
+          ],
+          "vf_y": [
+            255.0,
+            3300.0
+          ]
+        }
+      },
+      "unchanged_series": {
+        "vf_cur": {
+          "point_count": 127,
+          "sha256": "4900237cb076beb2c550e3cc3fa2540609bb24919c6836086e83a1c93ca6143e",
+          "x_bounds": [
+            450.0,
+            1240.0
+          ],
+          "y_bounds": [
+            255.0,
+            3300.0
+          ]
+        },
+        "vf_edit": {
+          "point_count": 127,
+          "sha256": "4900237cb076beb2c550e3cc3fa2540609bb24919c6836086e83a1c93ca6143e",
+          "x_bounds": [
+            450.0,
+            1240.0
+          ],
+          "y_bounds": [
+            255.0,
+            3300.0
+          ]
+        },
+        "vf_selpt": {
+          "point_count": 1,
+          "sha256": "63d7410892640538d1be9c94738bd1640c83d474bb6a1aa8368f17f7ae157e2c",
+          "x_bounds": [
+            845.0,
+            845.0
+          ],
+          "y_bounds": [
+            2220.0,
+            2220.0
+          ]
+        }
+      },
+      "native_curve_observed_at_transition": false,
+      "interpretation": "A first-visible axis-fit delay is supported by unchanged editor/series data and next-render axis recovery without vf_read or clamp_axes. The exact DearPyGui internal trigger was not traced."
+    },
+    "capture_change": "Postpone framebuffer output one rendered frame if the V/F plot has just become visible. Track visibility during pending output as well. No forced fit, axis/view change, extra curve read or hardware write is added.",
+    "source": {
+      "captures": [
+        {
+          "stage": "vmin-before",
+          "synthetic": false,
+          "path": "vmin-before.png",
+          "requested_frame": 4,
+          "width": 1528,
+          "height": 1261,
+          "sha256": "502623cc4ede6a9f7ffdd59008905bb2589faa25b3078929a36f0008c934e15f",
+          "live": {
+            "selected": "NVVDD (rail 0) VMIN constant",
+            "value": "800",
+            "status": "NVVDD VMIN constant: 800 mV."
+          },
+          "widget": {
+            "slider": 360.0,
+            "input": 360.0,
+            "min": 250.0,
+            "max": 450.0
+          }
+        },
+        {
+          "stage": "vmin-active",
+          "synthetic": false,
+          "path": "vmin-active.png",
+          "requested_frame": 10,
+          "width": 1528,
+          "height": 1261,
+          "sha256": "f591f292ca15308e41ac507bbb651b7994a4fddc97dce4f2ec10b4366ac3dc0c",
+          "live": {
+            "selected": "NVVDD (rail 0) VMIN constant",
+            "value": "805",
+            "status": "Applied live. NVVDD VMIN constant: 805 mV."
+          },
+          "widget": {
+            "slider": 360.0,
+            "input": 360.0,
+            "min": 250.0,
+            "max": 450.0
+          }
+        },
+        {
+          "stage": "vmin-restored",
+          "synthetic": false,
+          "path": "vmin-restored.png",
+          "requested_frame": 15,
+          "width": 1528,
+          "height": 1261,
+          "sha256": "85d32609af7d7b9ef1a337b306737b7f51aea65429ef367c012dfebaa157a261",
+          "live": {
+            "selected": "NVVDD (rail 0) VMIN constant",
+            "value": "800",
+            "status": "Applied live. NVVDD VMIN constant: 800 mV."
+          },
+          "widget": {
+            "slider": 360.0,
+            "input": 360.0,
+            "min": 250.0,
+            "max": 450.0
+          }
+        },
+        {
+          "stage": "restored-display",
+          "synthetic": false,
+          "path": "restored-display.png",
+          "requested_frame": 20,
+          "width": 1528,
+          "height": 1261,
+          "sha256": "fe3f0353c2829b4687c43e2a290a750647836b7b9dc53d0168b3c1d2085c2bd6",
+          "widget": {
+            "slider": 360.0,
+            "input": 360.0,
+            "min": 250.0,
+            "max": 450.0
+          }
+        }
+      ],
+      "checks": {
+        "independent_full_config_restored": true,
+        "independent_before_voltage": true,
+        "exact_active_voltage_projection": true,
+        "exact_restored_voltage": true,
+        "images_inspection_exact": true,
+        "active_and_restored_clock_requests": true
+      },
+      "actions": [
+        {
+          "action": "apply",
+          "status": "Applied live. NVVDD VMIN constant: 805 mV.",
+          "selected": "NVVDD (rail 0) VMIN constant"
+        },
+        {
+          "action": "restore",
+          "status": "Applied live. NVVDD VMIN constant: 800 mV.",
+          "selected": "NVVDD (rail 0) VMIN constant"
+        }
+      ],
+      "restoration_verified": true,
+      "immediate_restored_full_clock_equal": false
+    },
+    "packaged": {
+      "captures": [
+        {
+          "stage": "vmin-before",
+          "synthetic": false,
+          "path": "vmin-before.png",
+          "requested_frame": 4,
+          "width": 1528,
+          "height": 1261,
+          "sha256": "00305a626ef2331a05c4cae8961bd4c0ceac1d3c76ba940f87f9c0816e90036d",
+          "live": {
+            "selected": "NVVDD (rail 0) VMIN constant",
+            "value": "800",
+            "status": "NVVDD VMIN constant: 800 mV."
+          },
+          "widget": {
+            "slider": 360.0,
+            "input": 360.0,
+            "min": 250.0,
+            "max": 450.0
+          }
+        },
+        {
+          "stage": "vmin-active",
+          "synthetic": false,
+          "path": "vmin-active.png",
+          "requested_frame": 10,
+          "width": 1528,
+          "height": 1261,
+          "sha256": "f591f292ca15308e41ac507bbb651b7994a4fddc97dce4f2ec10b4366ac3dc0c",
+          "live": {
+            "selected": "NVVDD (rail 0) VMIN constant",
+            "value": "805",
+            "status": "Applied live. NVVDD VMIN constant: 805 mV."
+          },
+          "widget": {
+            "slider": 360.0,
+            "input": 360.0,
+            "min": 250.0,
+            "max": 450.0
+          }
+        },
+        {
+          "stage": "vmin-restored",
+          "synthetic": false,
+          "path": "vmin-restored.png",
+          "requested_frame": 15,
+          "width": 1528,
+          "height": 1261,
+          "sha256": "85d32609af7d7b9ef1a337b306737b7f51aea65429ef367c012dfebaa157a261",
+          "live": {
+            "selected": "NVVDD (rail 0) VMIN constant",
+            "value": "800",
+            "status": "Applied live. NVVDD VMIN constant: 800 mV."
+          },
+          "widget": {
+            "slider": 360.0,
+            "input": 360.0,
+            "min": 250.0,
+            "max": 450.0
+          }
+        },
+        {
+          "stage": "restored-display",
+          "synthetic": false,
+          "path": "restored-display.png",
+          "requested_frame": 20,
+          "width": 1528,
+          "height": 1261,
+          "sha256": "5c01af1e64ad83835d8d84dee2fc8d5244a3fcc9f30692fe06b860b76d2a4b22",
+          "widget": {
+            "slider": 360.0,
+            "input": 360.0,
+            "min": 250.0,
+            "max": 450.0
+          }
+        }
+      ],
+      "checks": {
+        "independent_full_config_restored": true,
+        "independent_before_voltage": true,
+        "exact_active_voltage_projection": true,
+        "exact_restored_voltage": true,
+        "images_inspection_exact": true,
+        "active_and_restored_clock_requests": true
+      },
+      "actions": [
+        {
+          "action": "apply",
+          "status": "Applied live. NVVDD VMIN constant: 805 mV.",
+          "selected": "NVVDD (rail 0) VMIN constant"
+        },
+        {
+          "action": "restore",
+          "status": "Applied live. NVVDD VMIN constant: 800 mV.",
+          "selected": "NVVDD (rail 0) VMIN constant"
+        }
+      ],
+      "restoration_verified": true,
+      "immediate_restored_full_clock_equal": false
+    },
+    "source_packaged_stage_value_metadata_equal": true,
+    "root_visual_review": "Source active and packaged active/restored frames show the full fitted editor graph; all four stages complete in each trial.",
+    "limits": "The graph displays the editor cache; this does not establish its freshness after the VMIN change, native curve settling time or physical voltage enforcement. Original earlier raw snapshots and collapsed frames remain historical evidence.",
+    "tests": {
+      "full_passed": 6521,
+      "full_seconds": 117.63,
+      "capture_passed": 40,
+      "ruff_changed_files": "passed"
+    },
+    "package": {
+      "exe_sha256": "9e6716e889026e8b6995f00ae034400fd9ae92c7d72facf18dd969ca1a470129",
+      "source_manifest_files": 427,
+      "compiled_modules_verified": 12
+    },
+    "registry_write": false,
+    "driver_restart": false,
+    "windows_reboot": false,
+    "F219_SET": false,
+    "workload": false
   }
 }

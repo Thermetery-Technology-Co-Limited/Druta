@@ -3138,6 +3138,22 @@ interaction. The complete suite passed 6,503 tests, including 22 capture tests.
 [Power capture evidence](experiments/ui-render-capture-20261028.json) and
 [live-panel source evidence](experiments/ui-live-panels-capture-20261028.json).
 
+A read-only follow-up reproduced the collapsed plot on its first visible
+render: all 127 editor/series points stayed unchanged while the axes fitted
+their data on the next render, without another curve read or axis-clamp call.
+The capture now postpones framebuffer output by one render when the plot first
+becomes visible. It preserves the editor, current view and ordinary hardware
+behavior. Source and packaged VMIN 800→805→800 mV walkthroughs then showed the
+full fitted editor graph in the active frame and passed exact active policy,
+retained request and complete final original-configuration checks. Matching
+stage/value metadata and all four PNGs were checked in each run. This graph
+uses the editor's cached curve; its freshness after a voltage change, native
+curve settling and physical voltage enforcement remain unqualified. The full
+suite passed 6,521 tests, including 40 capture tests; the package passed 427
+committed-source hashes and twelve compiled-module comparisons. The earlier
+collapsed frames and native-curve observations remain separate historical
+evidence in the same JSON report.
+
 The opt-in developer command `--ui-capture-pstates-trial NEW_DIRECTORY` runs one
 mutating all-P-state editability Boolean trial, returning it to the captured
 original value with two selected-GPU restarts. Windows is not rebooted. Unlike ordinary
