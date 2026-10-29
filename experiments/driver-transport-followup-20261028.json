@@ -547,5 +547,46 @@
       "experiments/registry-overrides/voltage-offset-key200-owner-20261029/engine-dispatch/root-review/reproduce.py": "935fad12a61c2dcd74ce7e61ead9c354137638180e7d40746e8e32e13e5036c6",
       "experiments/registry-overrides/voltage-offset-key200-owner-20261029/engine-dispatch/root-review/byte-audit.json": "ac45937ba3d7034ddffad487294d6becd567a0521bdbb647501ab97f38fe5a8f"
     }
+  },
+  "response_copy_and_PERF_owner_20261029": {
+    "scope": "Offline static installed-image traces, separately scoped from the earlier eight-response hardware control. No new research command, operand or write probe. Binary hashes are evidence identities, not compatibility gates.",
+    "binary_sha256": {
+      "nvlddmkm.sys": "3f8d33495cabeb2fa11ebdcf0b12705e9ccfb4e53005324bcd86e9dea8ba2ab4",
+      "nvapi64_impl.dll": "46586752524af6075736eb655bb3a1da4030dfa42e6b6872afab400d50f249e7"
+    },
+    "B214_response_copy": {
+      "common_byte": "D2A4A0 -> D35880 -> CB1540 checks pointers and copies one common response byte. This does not compute the sampled numeric pairs.",
+      "type2": "D1E7EE..D1E824 iterates the object mask. For each selected k, input byte at row+4+0x14*k and DWORD at row+8+0x14*k are independently copied to native output row+0x0C+0x14*k and row+0x10+0x14*k. A separate input byte at row+0x0C+0x14*k reaches native output row+0x14+0x14*k.",
+      "public_wrapper": "The full 1CF300..1CFC19 wrapper window covers all sampled k=2..8. Each six-instruction group independently moves native row+0x0C/+0x10/+0x14 plus stride0x14 to public row+0x85/+0x88/+0x84 plus stride0x50. Record8 code/DWORD copies at1CF901/908 and1CF90E/914 extend beyond the earlier1CF900 window. Row-stride arithmetic computes addresses, not the numeric relation.",
+      "implication": "Conditional on the traced selected-type2 path, the observed DWORD=6250*code relation is already present at D1E710 serializer input. The copied fields do not establish units, rail identity, an encoding contract or a replay format.",
+      "transfer_boundary": "C98940 -> C98D90 -> C36910 -> 8D4DA0 fetches that input through runtime-selected backends. Some final CPU paths copy bytes; other paths use unresolved callbacks or hardware-facing reads. Neither live backend nor original backing producer is established, and not all successful paths are proven byte-preserving."
+    },
+    "PERF_owner_base": {
+      "binding": "For selected class descriptor F27B90 (class ED0B65) and successful retained construction, 17D7610 returns allocation root. The root+0 interface table F27C10 points to that descriptor and has offset0. The 112680 exact-class lookup returns the pointer unchanged and loader1224A2 stores it at GPU+0x23C8. E0B7 loads the target from [root+0x588] and calls it with the same root in RDX and GPU in RCX. The later EE8210 engine-dispatch cast is a separately adjusted interface.",
+      "HAL_bases": "The reviewed calls to17D5FF0 and17D59E0 pass allocation root in RCX and retain it as R9 for their field stores; parent/HAL selector data uses distinct arguments. The two traced1D8 targets are A94650/77EBA0 under explicit selector predicates; the live selector is unobserved.",
+      "limits": "The conditional base identity does not identify the active runtime descriptor/instance or assign a target to+0x588. The equation group, ClockManager key0x200 buffer and separately allocated child at root+0x590 must retain their distinct identities. No global absence or callback effect is proved."
+    },
+    "root_reproduction": {
+      "response_instruction_windows": 31,
+      "PERF_instruction_or_data_windows": 27,
+      "all_exact": true,
+      "scope": "Raw bytes and decoded instructions match; this is not a complete transitive CFG or live execution proof."
+    },
+    "remaining": "Bind the actual PERF post-group callback assignment and the downstream response producer/consumer/runtime endpoint. Units, rail association, modern F219 effects and consumed arbitrary voltage-offset replay remain unresolved.",
+    "private_evidence_sha256": {
+      "experiments/registry-overrides/perf588-root-review-20261029/reproduce_static.py": "23fd56ae60bbc1e1dc75310d31277d0755de4d5b362f5ae76dc32580158348c0",
+      "experiments/registry-overrides/perf588-root-review-20261029/static-reproduction.json": "4b08e49891292061ea7dec542270ec5ef34c430a27c03bf56314cbd0596cbd40",
+      "experiments/registry-overrides/b214-producer-followup-20261029/findings.json": "08b9006ce4eaddc7ca171c2e9e6c3c07668413b2b889abcaf82409db70dc6088",
+      "experiments/registry-overrides/b214-producer-followup-20261029/wrapper-completion/verify-wrapper.py": "bd75e431cab1206f50f42eaec665dd469ae71f08b20a9ffa07c583e7f86987d5",
+      "experiments/registry-overrides/b214-producer-followup-20261029/wrapper-completion/wrapper-cfg.json": "f4679192877dea842dab494a71a56c1aab73a726a804ee15dc9cb38dbc24108e",
+      "experiments/registry-overrides/b214-producer-followup-20261029/transfer-backends/findings.json": "5f44c85b3b046f605150f1586e75ca2d749b0207b504ab8dfeda6dc12e878095",
+      "experiments/registry-overrides/b214-producer-followup-20261029/leaf-transfers/findings.json": "ab26683914197f874114ecad5b5f05997bac06faef470d70ed7086237e61b2d3",
+      "experiments/registry-overrides/b214-producer-followup-20261029/extent-review/findings.json": "855b268f5af27eef1eef17908dd50ce6c27053bd80a3832519b07e917b3c1674",
+      "experiments/registry-overrides/perf588-real-callback-20261029/owner-base-audit/findings.json": "78205aea4b435bd3c3be6177ba425ada365e9bcee63903d16f7941d715d29484",
+      "experiments/registry-overrides/perf588-real-callback-20261029/hal1d8/findings.json": "ea1a610874070785cf0af884536143ba6e2ae355f1e4cc780e0ddca1171b5a4a",
+      "experiments/registry-overrides/perf588-real-callback-20261029/parent-descendants/findings.json": "9ee8ca8148b5e1c083876a0dfb4704314b564e147bf013430713023322fae2a0",
+      "experiments/registry-overrides/b214-producer-followup-20261029/extent-review/semantic-review/findings.json": "3d416fc9f315e239c45d99453665f25d468250409e334964ff077c0e6073fafe"
+    },
+    "independent_semantic_review": "Luna independently checked all seven row-relative public/native copy mappings and the distinction between class descriptor, root interface, callback target and arguments. Final wording review passed; no hardware operation by reviewers."
   }
 }

@@ -2932,6 +2932,16 @@ Root reproduced the twelve bounded instruction windows and dispatch table;
 current runtime invocation, the actual PERF callback and voltage-request
 consumption remain unproved. See the [dispatch evidence](experiments/driver-transport-followup-20261028.json).
 
+The real PERF owner's base is separately bound on the enumerated class
+`0xED0B65` construction path. Successful construction returns its allocation
+root; the loader's exact-class lookup stores that pointer unchanged in
+GPU+`0x23C8`. The equation handler loads its target from `[root+0x588]`,
+passing that same root in RDX and the GPU in RCX.
+The engine-dispatch interface is a distinct adjusted pointer. This conditional
+base proof does not observe the active runtime descriptor or identify the
+callback assignment. The traced equation group and child allocations retain
+their separate identities.
+
 A separate variable investigation matched native INFO `0x2080A0B1`
 (`0xC364` bytes, header `0x28`, 255 rows of `0xC4`) and CONTROL
 `0x2080A0B3` (`0x2BFC` bytes, rows of `0x2C`) to the installed NVAPI
@@ -2992,6 +3002,17 @@ treating the earlier single VMIN triplet as a stable configuration mapping.
 The producer, physical meaning and consumed write path remain unresolved.
 Raw inputs/outputs, timings, scope and independent audits are recorded in the
 [GET-only control](experiments/voltage-replay-followup-20261028.json).
+
+Further static tracing follows both sampled fields through the host copies.
+The type2 serializer copies its input byte and DWORD independently, and the
+complete public-wrapper path independently copies all seven sampled pairs.
+Those operations do not create the observed `6250` relationship: on this
+traced path it already exists at the serializer's input. The preceding transfer
+has runtime-selected backends whose source and callback behavior remain
+unbound, so this does not locate the original producer or establish units,
+rail identity or a write format. Root reproduced 31 response/transfer windows
+and 27 PERF instruction/data windows. Exact mappings, coverage limits and the
+remaining boundaries are in the [transport evidence](experiments/driver-transport-followup-20261028.json).
 
 The B212/B218 public getters use 32-entry masks: INFO is
 `0x10D48` bytes with version `0x10D48`, header `0x48`
