@@ -1365,3 +1365,27 @@ def test_lpwr_compound_wrong_patch_owner_refused(monkeypatch, tmp_path):
     capture = trial.RegistryUiTrial(dpg, application, tmp_path / "bad", kind="lpwr", family="ms", rows=[0, 1])
     assert capture.trial["phase"] == "attention" and calls["contracts"] == []
     assert panel.apply.call_count == 0 and not state["registry"]
+
+
+def test_lpwr_all_readonly_rows_anchor_selected_text_and_open_section(monkeypatch, tmp_path):
+    dpg, application, panel, _, _, _, _ = setup_lpwr_trial(monkeypatch, "ms", multi=True)
+    capture = trial.RegistryUiTrial(dpg, application, tmp_path / "trial", kind="lpwr", family="ms", rows=[0, 1])
+    fields = [f"lpwr.ms.{i}.enabled" for i in range(3)]
+    panel.inputs = {}
+    panel.fields = {key: {"current": False, "capability": "read-only"} for key in fields}
+    for key in fields:
+        dpg.values["reg_field_" + key] = "False"
+    capture.trial["fields"] = fields
+    capture.field, capture.tag = fields[0], "reg_field_" + fields[0]
+    parents = {capture.tag: "field-row", "field-row": "idle-section", "idle-section": 0}
+    dpg.get_item_parent = lambda tag: parents.get(tag, 0)
+    dpg.get_item_type = lambda tag: "mvAppItemType::mvCollapsingHeader" if tag == "idle-section" else "group"
+    capture._frame_details("active")
+    assert dpg.values["idle-section"] is True
+    assert capture.scroll_tag == capture.tag and capture.power_scroll_pending == 2
+    assert capture.manifest["widgets"]["active"]["values"] == dict.fromkeys(fields, False)
+    dpg.frame += 1
+    capture.tick()
+    dpg.frame += 1
+    capture.tick()
+    assert dpg.scrolls and capture.power_scroll_pending == 0

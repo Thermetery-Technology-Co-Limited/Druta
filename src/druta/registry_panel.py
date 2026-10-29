@@ -1294,7 +1294,8 @@ class RegistryPanel:
                             else:
                                 dpg.add_text(
                                     "unavailable" if field["current"] is None else
-                                    str(bool(field["current"])) if unit == "bool" else str(field["current"] / factor)
+                                    str(bool(field["current"])) if unit == "bool" else str(field["current"] / factor),
+                                    tag=tag,
                                 )
                             dpg.add_text(f"{field['label']} ({unit})")
                         if writable:

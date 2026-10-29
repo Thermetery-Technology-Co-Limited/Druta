@@ -460,7 +460,7 @@ class RegistryUiTrial(UiCapture):
         self.dpg.set_value("ctl_clocks", "Developer registry trial: " + name)
         if name in ("before", "preview", "active", "restored"):
             anchor = self.tag
-            if self.kind == "lpwr" and self.field not in self.panel.inputs:
+            if self.kind == "lpwr" and self.field not in self.panel.inputs and not self.dpg.does_item_exist(self.tag):
                 anchor = next((tag for key, (tag, _) in self.panel.inputs.items()
                                if key.startswith("lpwr." + self.trial["family"] + ".")), "registry_header")
             parent = self.dpg.get_item_parent(anchor)

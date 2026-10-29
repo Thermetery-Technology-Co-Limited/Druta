@@ -126,3 +126,33 @@ class LpwrDiagnosticViewTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_readonly_boolean_and_numeric_widgets_have_stable_tags_without_inputs(monkeypatch):
+    from druta import registry_panel
+
+    ui = MagicMock()
+    monkeypatch.setattr(registry_panel, "dpg", ui)
+    app = SimpleNamespace(gpu=object(), s=lambda value: value, log=Mock())
+    panel = RegistryPanel(app)
+    panel.recover = Mock()
+    panel.status = Mock()
+    panel._startup_field = Mock(side_effect=RuntimeError("unavailable"))
+    target = SimpleNamespace(slot="fake")
+    monkeypatch.setattr(registry_panel.overrides, "bind_target", lambda gpu: target)
+    monkeypatch.setattr(registry_panel.overrides, "read_vbios", lambda gpu: b"image")
+    fields = [
+        {"key": "lpwr.ms.0.enabled", "label": "MS", "group": "Idle", "units": "bool",
+         "current": False, "capability": "read-only", "mask": 1},
+        {"key": "power.0.maximum", "label": "Power", "group": "Power", "units": "mW",
+         "current": 450000, "capability": "read-only", "mask": None},
+    ]
+    monkeypatch.setattr(registry_panel.vbios_fields, "inspect", lambda image: {"fields": fields})
+    monkeypatch.setattr(registry_panel.overrides, "read_model_inputs", lambda gpu: (None, "unavailable"))
+    for module in (registry_panel.overrides.registry_flags, registry_panel.overrides.all_pstates_registry,
+                   registry_panel.overrides.clock_vf_registry):
+        monkeypatch.setattr(module, "read", lambda gpu: (None, "unavailable"))
+    panel.refresh()
+    ui.add_text.assert_any_call("False", tag="reg_field_lpwr.ms.0.enabled")
+    ui.add_text.assert_any_call("450.0", tag="reg_field_power.0.maximum")
+    assert "lpwr.ms.0.enabled" not in panel.inputs and "power.0.maximum" not in panel.inputs
