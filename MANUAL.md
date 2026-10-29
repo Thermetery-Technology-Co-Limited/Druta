@@ -384,6 +384,15 @@ requires an independently supported auxiliary peer. Other profiles and
 physical residency/power savings remain pending.
 [NVDEC configuration evidence](experiments/nvdec-configured-qualified-20261029.json).
 
+NVENC, OFA and NVJPG entry disables now use the same Preview, restart and
+verified Undo workflow, with each engine's own loaded routing and support
+checks. Apply one engine's changes at a time. Partial disables retain aggregate
+flags; complete enabled-entry shutdown requires a surviving auxiliary peer
+when the selected engine's role was supported. The NVJPG field now follows
+the enable bit consumed by its loader. Other profiles, whole auxiliary-group
+removal, packaged input walkthroughs and physical savings remain pending.
+[Media configuration evidence](experiments/media-lpwr-configured-qualified-20261029.json).
+
 **Linked current limits** configure a current limit carried by another power
 policy. Druta resolves the BIOS relationship to its target policy and verifies
 the loaded cache and firmware-reported value after a GPU restart. Other power

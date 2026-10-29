@@ -3475,6 +3475,80 @@ checked separately for source/compiled-code parity and restored-baseline GETs;
 a dedicated NVDEC packaged visual/input walkthrough and physical savings remain
 pending. [Scoped NVDEC evidence](experiments/nvdec-configured-qualified-20261029.json).
 
+## NVENC, OFA and NVJPG configured-state contracts (2026-10-29)
+
+The three media tables share v10, a ten-byte header and two-byte WORD rows,
+but their selectors and enable fields differ. The understood bindings are:
+
+| Table | BIT P / object | Enable mask | LPWR-index raw byte | Native controller / alternate | Type 4 role |
+| --- | --- | --- | --- | --- | --- |
+| NVENC | +0x120 / 0xB5 | 0x1 | 14 | 13 / 18 | 5 / 9 |
+| OFA | +0x124 / 0xB6 | 0x1 | 15 | 14 / 19 | 7 / 10 |
+| NVJPG | +0x128 / 0xB7 | 0x2 | 16 | 15 / none | 6 |
+
+NVENC and OFA give raw bit 1 priority over bit 2 for their primary/alternate
+classes. Raw bit 3 supplies the corresponding auxiliary role, while bit 4 changes
+the alternate feature word rather than support. NVJPG instead tests raw bit 1
+directly for controller 15 and bit 2 for role 6; its loader does not test bit 0.
+The former generic field therefore changed an ignored bit on this path. The
+field parser/planner now uses mask 0x2 for NVJPG, preserving bit 0 and all other
+WORD bits. NVENC/OFA retain mask 0x1. This binds an actual consumer rather than
+interpreting a changed BIOS byte as a configured effect.
+
+Media contracts use actual loaded PERF P-state IDs and each table's own
+LPWR-index selector. Full before masks must match all routed contributions;
+duplicate IDs retain eligibility if another surviving route contributes.
+Fallback slots follow the bounded zero-allocation/default/loader evidence,
+not an exhaustive alias proof. The product requires supported primary
+controller/mask/feature, an independently unsupported alternate for NVENC/OFA,
+and agreement between the enabled-row role aggregate and independent role
+readback. Partial changes preserve the enabled-row flag union. Full shutdown
+requires an independently supported type 4 peer when the selected role was
+supported. Unknown words are preserved; originally disabled entries cannot
+be enabled, and nondiscriminating selections remain unqualified.
+
+Six normal source Prepare/durable Apply/Undo trials passed on the captured
+RTX 5080/621.01 configuration: one row 0 disable and one complete five-row
+shutdown for each family. Each partial disable changed its primary configured
+mask from 0x129 to 0x009 while support, feature and auxiliary role remained.
+Each complete shutdown made its primary controller unsupported with an
+unavailable mask/feature, and removed its corresponding auxiliary role.
+All other captured controllers, masks, features and auxiliary groups matched.
+NVJPG's complete ROM comparison verified mask 0x2-only changes with bit 0 intact.
+Both source receipts verified every selected field, and each clean trial
+restored the complete original compared configuration including the curve.
+
+One earlier NVJPG shutdown attempt passed the full targeted LPWR/client
+and source Apply/Undo checks but failed strict active/final broad comparison.
+After driver flags settled, the remaining difference was 110 bytes in 50
+GPU frequency words of the evaluated V/F curve; voltages, headers, other
+entry words and tail stayed equal. This run is retained as negative, with a
+cleanup warning rather than an active recovery receipt. A later GET-only
+capture verified the complete original state without another restart. A
+repeat using the unchanged strict harness passed; no frequency exceptions
+were introduced. Earlier non-exact samples in the clean runs are retained,
+and the cause of curve recalculation remains unproven.
+
+The independent offline audit checks complete 1028-byte raw LPWR packets,
+typed fields and opaque bytes, exact selected-mask ROM changes, actual
+routes, complete client/native power records and requests, saved receipts
+and every retained broad-comparison sample. Root reproduces that audit.
+Fourteen GPU-only restarts cover the six clean trials and retained negative;
+no Windows reboot, workload, F219 SET or physical measurement occurred.
+
+The full suite passed 6,721 tests in 117.49 seconds, and 176 focused media,
+NVDEC/MS and Preview cases passed after new-test import cleanup. Changed-file
+Ruff passed.
+
+The hardware evidence covers source transactions. Package source/compiled-code
+parity and restored-baseline GETs are separate checks. Alternate-controller
+profiles, mixed aggregate loss, whole type 4 disappearance, other layouts,
+media-specific packaged visual/input coverage and physical residency/savings
+remain pending. Device and driver identities identify evidence, not product
+compatibility lists. Legacy image-only receipts retain Undo; fresh runtime
+contracts are required for a new Apply.
+[Scoped media evidence](experiments/media-lpwr-configured-qualified-20261029.json).
+
 ## Source for a binary release
 
 Every tagged release on GitHub carries the Corresponding Source for the

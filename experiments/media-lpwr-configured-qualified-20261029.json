@@ -1,0 +1,99 @@
+{
+  "schema": 1,
+  "scope": "Disable-only media low-power configured-state control, not physical residency or power savings",
+  "tested_configuration": {
+    "adapter": "GeForce RTX 5080",
+    "architecture": "Blackwell",
+    "driver": "621.01",
+    "identity_role": "Evidence identification only; eligibility uses understood layouts, capabilities and exact readbacks"
+  },
+  "geometry": "Owned v10 tables, header10/WORD stride2, fewer than six rows",
+  "profiles": {
+    "nvenc": {
+      "BIT_P": "0x120",
+      "object": "0xB5",
+      "enable_mask": "0x1",
+      "index_raw_byte": 14,
+      "primary_controller": 13,
+      "unsupported_alternate": 18,
+      "primary_role": 5
+    },
+    "ofa": {
+      "BIT_P": "0x124",
+      "object": "0xB6",
+      "enable_mask": "0x1",
+      "index_raw_byte": 15,
+      "primary_controller": 14,
+      "unsupported_alternate": 19,
+      "primary_role": 7
+    },
+    "nvjpg": {
+      "BIT_P": "0x128",
+      "object": "0xB7",
+      "enable_mask": "0x2",
+      "index_raw_byte": 16,
+      "primary_controller": 15,
+      "unsupported_alternate": null,
+      "primary_role": 6
+    }
+  },
+  "NVJPG_correction": "The traced loader consumes WORD bit1 directly and ignores bit0. The exposed field/planner now clears mask0x2 while preserving bit0 and every other field; a bit0-only patch was not a consumed disable on this path.",
+  "qualified_source_production_cases": {
+    "nvenc": {
+      "row0": "Controller13 support/feature and role5 retained; configured mask0x129 ->0x009",
+      "all_five_enabled": "Controller13 unsupported; mask/feature unavailable; role5 unavailable with an independent surviving peer"
+    },
+    "ofa": {
+      "row0": "Controller14 support/feature and role7 retained; configured mask0x129 ->0x009",
+      "all_five_enabled": "Controller14 unsupported; mask/feature unavailable; role7 unavailable with an independent surviving peer"
+    },
+    "nvjpg": {
+      "row0": "Controller15 support/feature and role6 retained; configured mask0x129 ->0x009",
+      "all_five_enabled": "Controller15 unsupported; mask/feature unavailable; role6 unavailable with an independent surviving peer"
+    }
+  },
+  "independent_checks": [
+    "Actual loaded PERF P-state IDs and family-specific index selectors; exact full before-mask and surviving-route prediction",
+    "Complete 1028-byte raw/typed LPWR support, mask, feature and auxiliary packets with opaque bytes preserved",
+    "Whole-ROM selected-WORD enable-mask-only edits; NVJPG bit0 remains intact",
+    "Complete native/client power records and configured requests",
+    "Durable production Prepare, Apply and Undo with every selected field verified",
+    "Strict compared configuration including the complete curve at settled active and restored phases"
+  ],
+  "retained_negative": {
+    "case": "Initial NVJPG complete shutdown attempt",
+    "source_Apply_and_Undo": "Both verified all selected fields, LPWR peers and client requests",
+    "failure": "Strict active and final broad comparisons did not settle within the captured attempts; after flags settled, only the evaluated V/F frequency curve differed",
+    "curve_delta": "110 bytes in 50 GPU frequency words; voltage/header/other words/tail unchanged",
+    "later_restoration": "A later GET-only capture matched the complete original state without another restart",
+    "retry": "Unchanged strict harness passed; no frequency exceptions",
+    "interpretation": "Negative retained separately; cause remains unproven; cleanup warning was not an active recovery receipt"
+  },
+  "current_product_profile": [
+    "Apply one media family at a time; independently supported primary mask/feature required",
+    "NVENC/OFA alternates independently unsupported; NVJPG has no inferred alternate",
+    "Auxiliary role support agrees with the enabled-row aggregate",
+    "Partial disables preserve the enabled-row flag union; all-enabled shutdown requires an independently supported auxiliary peer when the role was supported",
+    "All captured peers must match; unexpected differences invoke restoration",
+    "Legacy image-only Undo remains available; new Apply requires fresh runtime contracts"
+  ],
+  "pending": [
+    "Supported alternate controllers, mixed aggregate losses and other layouts",
+    "Whole type4 group disappearance and remaining dependency transitions",
+    "Media-specific packaged visual/input walkthroughs and curve freshness/recalculation semantics",
+    "Physical residency, trustworthy activity telemetry and power savings"
+  ],
+  "GPU_only_restarts": 14,
+  "Windows_reboot": false,
+  "workload_started": false,
+  "F219_SET": false,
+  "physical_effects_measured": false,
+  "release_changes": false,
+  "validation": {
+    "full_suite": "6721 passed in117.49s",
+    "focused_media_NVDEC_MS_and_Preview": "176passed, including after new-test import cleanup",
+    "changed_source_and_test_Ruff": "passed",
+    "independent_raw_audit": "six clean cases plus the retained negative and later GET-only restoration; root reproduced all seven",
+    "package_scope": "Source/compiled-code parity and baseline readbacks checked separately from source production transactions"
+  }
+}

@@ -753,9 +753,10 @@ class _Image:
 
             def add(name=name, ptr=ptr, oid=oid, hs=hs, es=es, fmt=fmt):
                 t = self.table("lpwr_" + name, "P", ptr, ((0x10, hs, es),), oid)
+                enabled_mask = 2 if name == "nvjpg" else 1
                 for i in range(t["count"]):
                     at = t["offset"] + hs + es * i
-                    enabled = bool(self.u(fmt, at) & 1)
+                    enabled = bool(self.u(fmt, at) & enabled_mask)
                     self.field(
                         f"lpwr.{name}.{i}.enabled",
                         f"{name.upper()} entry {i} enabled",
@@ -763,7 +764,7 @@ class _Image:
                         at,
                         fmt,
                         "bool",
-                        mask=1,
+                        mask=enabled_mask,
                         editable=enabled,
                         reason="may disable this captured enabled entry; restore it from the transaction journal"
                         if enabled

@@ -1398,6 +1398,23 @@ class RegistryPanel:
                 "Related low-power support and eligibility must also match after the GPU restart. "
                 "Undo verifies the original configuration. Physical residency and power savings remain unmeasured."
             )
+        if receipt.get("media_contracts"):
+            contract = receipt["media_contracts"]
+            family = contract["family"]
+            controller = str({"nvenc": 13, "ofa": 14, "nvjpg": 15}[family])
+            before = contract["before"]["controllers"][controller]["configured_pstate_mask"]
+            after = contract["after"]["controllers"][controller]
+
+            def media_states(mask):
+                return "/".join(f"P{i}" for i in range(32) if mask >> i & 1) or "none"
+
+            state = media_states(after["configured_pstate_mask"]) if after["supported"] else "unavailable"
+            support = "retained" if after["supported"] else "removed"
+            lines.append(
+                f"{family.upper()} low power: configured P-states {media_states(before)} -> {state}; support {support}. "
+                "Related low-power support and eligibility must also match after the GPU restart. "
+                "Undo verifies the original configuration. Physical residency and power savings remain unmeasured."
+            )
         if receipt.get("grpg_contracts"):
             contract = receipt["grpg_contracts"]
             before = contract["before"]["controllers"]["0"]["configured_pstate_mask"]

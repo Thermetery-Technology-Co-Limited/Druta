@@ -1088,6 +1088,36 @@ def test_bit4_preview_distinguishes_empty_group_from_main_support(harness, schem
     assert eligibility in text
 
 
+@pytest.mark.parametrize("family,controller", [("nvenc", "13"), ("ofa", "14"), ("nvjpg", "15")])
+@pytest.mark.parametrize(
+    ("supported", "mask", "expected", "other_state"),
+    [
+        (True, 0x100, "P5/P8 -> P8; support retained", "P5/P8 -> unavailable"),
+        (True, 0, "P5/P8 -> none; support retained", "P5/P8 -> unavailable"),
+        (False, None, "P5/P8 -> unavailable; support removed", "P5/P8 -> none"),
+    ],
+)
+def test_media_lpwr_preview_distinguishes_mask_and_support_states(
+    harness, family, controller, supported, mask, expected, other_state
+):
+    h = harness
+    h.mocks.prepare.return_value["media_contracts"] = {
+        "family": family,
+        "before": {"controllers": {controller: {"configured_pstate_mask": 0x120}}},
+        "after": {
+            "controllers": {
+                controller: {"supported": supported, "configured_pstate_mask": mask},
+            },
+        },
+    }
+    prepare_speedo(h)
+    text = dpg.get_value("reg_preview")
+    assert f"{family.upper()} low power:" in text
+    assert expected in text
+    assert other_state not in text
+    assert "Undo verifies the original configuration" in text
+
+
 @pytest.mark.parametrize(
     ("supported", "mask", "expected", "other_state"),
     [
