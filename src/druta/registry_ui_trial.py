@@ -1,8 +1,9 @@
-﻿# Copyright (C) 2026 Thermetery Technology Co Limited
+# Copyright (C) 2026 Thermetery Technology Co Limited
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Explicit framebuffer trial using the ordinary registry receipt helper."""
 
 import hashlib
+import os
 import struct
 from dataclasses import asdict
 from pathlib import Path
@@ -29,7 +30,7 @@ LPWR_MODULES = {"gr_pg": grpg_runtime, "ms": ms_runtime, "nvdec": nvdec_runtime,
 
 
 class RegistryUiTrial(UiCapture):
-    def __init__(self, dpg, app, directory, *, resume=False, kind="pstates", family=None):
+    def __init__(self, dpg, app, directory, *, resume=False, kind="pstates", family=None, rows=None):
         self.root = Path(directory)
         self.resume = resume
         self.power_scroll_pending = 0
@@ -44,12 +45,27 @@ class RegistryUiTrial(UiCapture):
             self.trial = {"schema": 1, "kind": kind, "phase": "starting", "error": None, "receipt": None}
             if kind == "lpwr":
                 self.trial["family"] = family
+                if rows is not None:
+                    if (not isinstance(rows, (list, tuple)) or not rows
+                            or any(type(i) is not int or not 0 <= i < 5 for i in rows)
+                            or len(set(rows)) != len(rows)):
+                        raise RuntimeError("Invalid LPWR row selection")
+                    self.trial["rows"] = list(rows)
             self._save_trial()
         self.kind = self.trial.get("kind", "pstates")
         if self.kind not in ("pstates", "power", "lpwr") or (self.kind == "lpwr" and self.trial.get("family") not in LPWR_MODULES):
             raise RuntimeError("Unknown saved registry UI trial")
+        if self.kind == "lpwr" and "rows" in self.trial:
+            rows = self.trial["rows"]
+            if (not isinstance(rows, list) or not rows or any(type(i) is not int or not 0 <= i < 5 for i in rows)
+                    or len(set(rows)) != len(rows)):
+                raise RuntimeError("Invalid saved LPWR row selection")
+            fields = [f"lpwr.{self.trial['family']}.{i}.enabled" for i in rows]
+            if resume and (self.trial.get("fields") != fields or self.trial.get("field") != fields[0]):
+                raise RuntimeError("Saved LPWR rows and fields differ")
         phase = self.trial["phase"]
         super().__init__(dpg, app, self.root / ("initial" if not resume else phase))
+        self.manifest["process_id"] = os.getpid()
         if not self.active:
             return
         try:
@@ -116,8 +132,8 @@ class RegistryUiTrial(UiCapture):
         return grpg_runtime.read(self.app.gpu, **kwargs)
 
     def _verify_lpwr(self, receipt, target, phase):
-        field = self.trial["field"]
-        if receipt.get("changes") != {field: False} or any(receipt.get(k) for k in
+        fields = self.trial.get("fields", [self.trial["field"]])
+        if receipt.get("changes") != dict.fromkeys(fields, False) or any(receipt.get(k) for k in
                 ("named_changes", "flag_changes", "pstate_changes", "clock_vf_changes", "startup_changes")):
             raise RuntimeError("Trial receipt must contain only the selected LPWR row")
         family = self.trial["family"]
@@ -247,29 +263,39 @@ class RegistryUiTrial(UiCapture):
             self.panel.refresh()
             if self.kind == "lpwr":
                 family = self.trial["family"]
-                self.field = f"lpwr.{family}.0.enabled"
-                self.tag = "reg_field_" + self.field
-                field = self.panel.fields.get(self.field, {})
+                rows = self.trial.get("rows", [0])
+                if (not isinstance(rows, list) or not rows or any(type(i) is not int or not 0 <= i < 5 for i in rows)
+                        or len(set(rows)) != len(rows)):
+                    raise RuntimeError("Invalid saved LPWR row selection")
+                fields = [f"lpwr.{family}.{i}.enabled" for i in rows]
+                self.field, self.tag = fields[0], "reg_field_" + fields[0]
                 expected_mask = 2 if family == "nvjpg" else 1
-                if (self.panel.active is not None or field.get("capability") != "editable"
-                        or field.get("current") is not True or field.get("mask") != expected_mask
-                        or self.field not in self.panel.inputs):
-                    raise RuntimeError("LPWR row 0 is not an independently editable enabled field")
+                for key in fields:
+                    field = self.panel.fields.get(key, {})
+                    if (self.panel.active is not None or field.get("capability") != "editable"
+                            or field.get("current") is not True or field.get("mask") != expected_mask
+                            or key not in self.panel.inputs):
+                        raise RuntimeError("LPWR selected row is not an independently editable enabled field")
                 image = overrides.read_vbios(self.app.gpu)
                 if hashlib.sha256(image).hexdigest() != self.panel.inspection["sha256"]:
                     raise RuntimeError("LPWR BIOS changed since panel refresh")
-                changes = {self.field: False}
+                changes = dict.fromkeys(fields, False)
                 plan = vbios_fields.plan(image, changes)
                 patches = plan.get("patches", [])
-                if len(patches) != 1 or patches[0].get("field_keys") != [self.field]:
-                    raise RuntimeError("LPWR plan is not a singleton")
-                old, new = bytes.fromhex(patches[0]["before"]), bytes.fromhex(patches[0]["after"])
-                if (len(old) != len(new) or not old or old[0] ^ new[0] != expected_mask
-                        or old[1:] != new[1:] or image[patches[0]["offset"]:patches[0]["offset"]+len(old)] != old):
-                    raise RuntimeError("LPWR plan changes bytes beyond the selected enable mask")
+                if len(patches) != len(fields) or sorted(p.get("field_keys") for p in patches) != sorted([key] for key in fields):
+                    raise RuntimeError("LPWR plan is not confined to the selected rows")
+                for patch in patches:
+                    if "rows" in self.trial:
+                        selected_field = self.panel.fields[patch["field_keys"][0]]
+                        if selected_field.get("offsets") != [patch["offset"]]:
+                            raise RuntimeError("LPWR plan offset differs from selected field owner")
+                    old, new = bytes.fromhex(patch["before"]), bytes.fromhex(patch["after"])
+                    if (len(old) != len(new) or not old or old[0] ^ new[0] != expected_mask
+                            or old[1:] != new[1:] or image[patch["offset"]:patch["offset"]+len(old)] != old):
+                        raise RuntimeError("LPWR plan changes bytes beyond the selected enable mask")
                 contract = self._lpwr_module().contracts(self.app.gpu, image, changes)
-                if not contract:
-                    raise RuntimeError("LPWR row 0 has no qualified runtime contract")
+                if not contract or set(contract.get("selected", {})) != set(fields):
+                    raise RuntimeError("LPWR selected rows lack an exact qualified runtime contract")
                 full, error = grpg_runtime.read(self.app.gpu, main=True)
                 if error or full is None:
                     raise RuntimeError("LPWR complete readback failed: " + str(error))
@@ -288,7 +314,10 @@ class RegistryUiTrial(UiCapture):
                 startup.atomic_json(self.root / "lpwr-initial.json", {"observation": full, "client": client,
                                     "client_state": state, "image_sha256": plan["baseline_sha256"],
                                     "image_hex": image.hex()})
-                self.dpg.set_value(self.tag, True)
+                if "rows" in self.trial:
+                    self.trial["fields"] = fields
+                for key in fields:
+                    self.dpg.set_value("reg_field_" + key, True)
                 self.trial["phase"] = "before"
                 self._save_trial()
                 return self._frame_details(name)
@@ -370,8 +399,9 @@ class RegistryUiTrial(UiCapture):
         elif name == "preview":
             self.field = self.trial.get("field", FIELD)
             self.tag = "reg_field_" + self.field
-            factor = self.panel.inputs[self.field][1]
-            self.dpg.set_value(self.tag, self.trial["wanted"] / factor if self.kind == "power" else self.trial["wanted"])
+            for key in self.trial.get("fields", [self.field]):
+                factor = self.panel.inputs[key][1]
+                self.dpg.set_value("reg_field_" + key, self.trial["wanted"] / factor if self.kind == "power" else self.trial["wanted"])
             self.panel.prepare()
             receipt = self.panel.preview
             if not receipt:
@@ -398,8 +428,12 @@ class RegistryUiTrial(UiCapture):
             expected = self.trial["wanted"] if name == "active" else self.trial["original"]
             shown = self.dpg.get_value(self.tag) if self.kind != "lpwr" or self.tag in (value[0] for value in self.panel.inputs.values()) else None
             if self.kind == "lpwr":
-                if field.get("current") is not expected or (shown is not None and shown is not expected):
-                    raise RuntimeError("LPWR field differs from verified readback")
+                for key in self.trial.get("fields", [self.field]):
+                    current = self.panel.fields.get(key, {}).get("current")
+                    tag = "reg_field_" + key
+                    value = self.dpg.get_value(tag) if key in self.panel.inputs else None
+                    if current is not expected or (value is not None and value is not expected):
+                        raise RuntimeError("LPWR field differs from verified readback")
             elif self.kind == "power":
                 if field.get("current") != expected or shown * self.panel.inputs[self.field][1] != expected:
                     raise RuntimeError("Power input differs from verified readback")
@@ -444,6 +478,9 @@ class RegistryUiTrial(UiCapture):
             shown = self.panel.fields[self.field]["current"] if self.kind == "lpwr" and self.field not in self.panel.inputs else self.dpg.get_value(self.tag)
             widget = {"field": self.field, "value": shown,
                       "status": self.dpg.get_value("reg_status"), "preview": self.dpg.get_value("reg_preview")}
+            if self.kind == "lpwr" and "fields" in self.trial:
+                widget["values"] = {key: (self.dpg.get_value("reg_field_" + key) if key in self.panel.inputs
+                                          else self.panel.fields[key]["current"]) for key in self.trial["fields"]}
             if self.kind == "pstates":
                 widget["checkbox"] = widget["value"]
             self.manifest.setdefault("widgets", {})[name] = widget

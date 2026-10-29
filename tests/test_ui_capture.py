@@ -971,7 +971,7 @@ def test_power_trial_rejects_field_bounds_before_preview(monkeypatch, tmp_path):
     panel.apply.assert_not_called()
 
 
-def setup_lpwr_trial(monkeypatch, family="gr_pg"):
+def setup_lpwr_trial(monkeypatch, family="gr_pg", multi=False):
     import hashlib
     from dataclasses import dataclass
 
@@ -988,7 +988,7 @@ def setup_lpwr_trial(monkeypatch, family="gr_pg"):
     target = Target()
     mask = 2 if family == "nvjpg" else 1
     before_image = bytes((0xFF, 0x22)) + b"baseline"
-    after_image = bytes((0xFF ^ mask, 0x22)) + b"baseline"
+    after_image = bytes((0xFF ^ mask, 0x22 ^ mask if multi else 0x22)) + b"baseline"
     state = {"enabled": True, "image": before_image, "registry": {}, "receipt": None,
              "client": {"requested_mw": 360000, "control_hex": "client-control",
                         "native_control_hex": "native-control"}, "field_present": True,
@@ -997,9 +997,16 @@ def setup_lpwr_trial(monkeypatch, family="gr_pg"):
             "expected_sha256": hashlib.sha256(after_image).hexdigest(),
             "patches": [{"offset": 0, "before": before_image[:2].hex(), "after": after_image[:2].hex(),
                          "field_keys": [field]}]}
+    if multi:
+        plan["patches"] = [{"offset": 0, "before": before_image[:1].hex(), "after": after_image[:1].hex(),
+                            "field_keys": [field]},
+                           {"offset": 1, "before": before_image[1:2].hex(), "after": after_image[1:2].hex(),
+                            "field_keys": [f"lpwr.{family}.1.enabled"]}]
     expected_contract = {"schema": 8 if family == "gr_pg" else 1, "family": family,
                          "before": {"identity": identity, "image_sha256": plan["baseline_sha256"]},
                          "selected": {field: {"before": True, "after": False}}}
+    if multi:
+        expected_contract["selected"][f"lpwr.{family}.1.enabled"] = {"before": True, "after": False}
     contract_keys = {
         "gr_pg": ("grpg_contract_version", "grpg_contracts", "_validate_grpg_receipt"),
         "ms": ("ms_contract_version", "ms_contracts", "_validate_ms_receipt"),
@@ -1019,15 +1026,18 @@ def setup_lpwr_trial(monkeypatch, family="gr_pg"):
         panel.inputs = {}
         if state["field_present"]:
             panel.fields[field] = {"capability": state["capability"], "current": state["enabled"],
-                                   "mask": state["field_mask"]}
+                                   "mask": state["field_mask"], "offsets": [0]}
             if state["enabled"]:
                 panel.inputs[field] = (tag, 1)
             else:
                 panel.fields[field]["capability"] = "read-only"
         peer = f"lpwr.{family}.1.enabled"
-        panel.fields[peer] = {"capability": "editable", "current": True, "mask": mask}
-        panel.inputs[peer] = ("reg_field_" + peer, 1)
-        dpg.set_value("reg_field_" + peer, True)
+        peer_enabled = state["enabled"] if multi else True
+        panel.fields[peer] = {"capability": "editable" if peer_enabled else "read-only", "current": peer_enabled,
+                              "mask": mask, "offsets": [1]}
+        if peer_enabled:
+            panel.inputs[peer] = ("reg_field_" + peer, 1)
+        dpg.set_value("reg_field_" + peer, peer_enabled)
         if state["field_present"]:
             dpg.set_value(tag, state["enabled"])
         dpg.set_value("reg_status", "read")
@@ -1035,8 +1045,13 @@ def setup_lpwr_trial(monkeypatch, family="gr_pg"):
     def make_receipt():
         selected = dpg.get_value(tag)
         assert selected is False
+        changes = {field: False}
+        if multi:
+            peer = f"lpwr.{family}.1.enabled"
+            assert dpg.get_value("reg_field_" + peer) is False
+            changes[peer] = False
         receipt = {"path": "lpwr-receipt", "target": {"slot": target.slot, "instance_id": target.instance_id,
-                    "driver_key": target.driver_key}, "changes": {field: False}, "plan": copy.deepcopy(plan),
+                    "driver_key": target.driver_key}, "changes": changes, "plan": copy.deepcopy(plan),
                    "before": {}, "after": {"flag": 1}, "state": "prepared", "verify_bios": True,
                    "before_image_sha256": plan["baseline_sha256"], "after_image_sha256": plan["expected_sha256"],
                    version_key: 1, saved_key: copy.deepcopy(expected_contract)}
@@ -1283,3 +1298,70 @@ def test_lpwr_trial_failed_restore_helper_retains_original_receipt_and_error(mon
     assert failure["receipt"] == "lpwr-receipt" and failure["manifest_state"] == "failed"
     assert failure["recovery_check_required"] is True
     assert not (root / "trial-result.json").exists()
+
+
+def test_lpwr_compound_trial_prepare_apply_undo_and_widgets(monkeypatch, tmp_path):
+    family = "ms"
+    dpg, application, panel, state, calls, _, _ = setup_lpwr_trial(monkeypatch, family, multi=True)
+    root = tmp_path / "compound"
+    capture = trial.RegistryUiTrial(dpg, application, root, kind="lpwr", family=family, rows=[0, 1])
+    fields = ["lpwr.ms.0.enabled", "lpwr.ms.1.enabled"]
+    assert capture.trial["fields"] == fields and capture.trial["rows"] == [0, 1]
+    assert calls["contracts"] == [dict.fromkeys(fields, False)]
+    assert capture.manifest["widgets"]["before"]["values"] == dict.fromkeys(fields, True)
+    run(capture, dpg)
+    assert capture.trial["phase"] == "applying" and panel.apply.call_count == 1
+    assert capture.manifest["widgets"]["preview"]["values"] == dict.fromkeys(fields, False)
+    application._closing = False
+    application._recovery_result = {"ok": True, "reboot_required": False}
+    resumed = trial.RegistryUiTrial(dpg, application, root, resume=True)
+    assert resumed.manifest["widgets"]["active"]["values"] == dict.fromkeys(fields, False)
+    run(resumed, dpg)
+    assert resumed.trial["phase"] == "restoring" and panel.restore.call_count == 1
+    application._closing = False
+    resumed = trial.RegistryUiTrial(dpg, application, root, resume=True)
+    assert resumed.manifest["widgets"]["restored"]["values"] == dict.fromkeys(fields, True)
+    run(resumed, dpg)
+    assert resumed.trial["phase"] == "complete" and state["registry"] == {}
+
+
+def test_lpwr_compound_trial_rejects_missing_or_changed_second_row(monkeypatch, tmp_path):
+    dpg, application, panel, state, calls, plan, _ = setup_lpwr_trial(monkeypatch, "ms", multi=True)
+    plan["patches"].pop()
+    capture = trial.RegistryUiTrial(dpg, application, tmp_path / "bad", kind="lpwr", family="ms", rows=[0, 1])
+    assert capture.trial["phase"] == "attention" and calls["contracts"] == []
+    assert not state["registry"] and panel.apply.call_count == 0
+
+
+def test_lpwr_compound_resume_rejects_changed_saved_rows(monkeypatch, tmp_path):
+    dpg, application, panel, _, _, _, _ = setup_lpwr_trial(monkeypatch, "ms", multi=True)
+    root = tmp_path / "compound"
+    capture = trial.RegistryUiTrial(dpg, application, root, kind="lpwr", family="ms", rows=[0, 1])
+    run(capture, dpg)
+    saved = json.loads((root / "trial.json").read_text())
+    saved["rows"] = [0, 2]
+    (root / "trial.json").write_text(json.dumps(saved))
+    with pytest.raises(RuntimeError, match="rows and fields"):
+        trial.RegistryUiTrial(dpg, application, root, resume=True)
+    assert panel.restore.call_count == 0
+
+
+def test_lpwr_compound_receipt_missing_row_refuses_before_apply(monkeypatch, tmp_path):
+    dpg, application, panel, state, _, _, _ = setup_lpwr_trial(monkeypatch, "ms", multi=True)
+    original_prepare = panel.prepare
+    def prepare_bad():
+        original_prepare()
+        state["receipt"]["changes"].pop("lpwr.ms.1.enabled")
+    panel.prepare = Mock(side_effect=prepare_bad)
+    capture = trial.RegistryUiTrial(dpg, application, tmp_path / "bad", kind="lpwr", family="ms", rows=[0, 1])
+    run(capture, dpg)
+    assert capture.trial["phase"] == "attention"
+    assert panel.apply.call_count == 0 and not state["registry"]
+
+
+def test_lpwr_compound_wrong_patch_owner_refused(monkeypatch, tmp_path):
+    dpg, application, panel, state, calls, plan, _ = setup_lpwr_trial(monkeypatch, "ms", multi=True)
+    plan["patches"][1]["field_keys"] = ["lpwr.ms.0.enabled"]
+    capture = trial.RegistryUiTrial(dpg, application, tmp_path / "bad", kind="lpwr", family="ms", rows=[0, 1])
+    assert capture.trial["phase"] == "attention" and calls["contracts"] == []
+    assert panel.apply.call_count == 0 and not state["registry"]

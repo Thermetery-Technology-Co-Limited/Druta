@@ -14226,7 +14226,8 @@ deliberately does not put behind a button."""
                             capture = RegistryUiTrial(dpg, self, trial_dir,
                                                       resume=getattr(self, "_ui_pstates_trial_resume", False),
                                                       kind=getattr(self, "_ui_registry_trial_kind", "pstates"),
-                                                      family=getattr(self, "_ui_lpwr_family", None))
+                                                      family=getattr(self, "_ui_lpwr_family", None),
+                                                      rows=getattr(self, "_ui_lpwr_rows", None))
                         else:
                             rel_bounds = getattr(self, "_ui_capture_rel_bounds", None)
                             if rel_bounds is not None:
@@ -14325,6 +14326,7 @@ def main(argv=None):
     ui_pstates_trial_resume = False
     ui_registry_trial_kind = "pstates"
     ui_lpwr_family = None
+    ui_lpwr_rows = None
     while argv:
         a = argv.pop(0)
         if a in ("--version", "-V"):
@@ -14362,14 +14364,21 @@ def main(argv=None):
                 return 2
             ui_capture_dir = os.path.abspath(argv.pop(0))
             ui_capture_live_vmin = a == "--ui-capture-live-vmin"
-        elif a == "--ui-capture-lpwr-trial":
-            if len(argv) < 2 or ui_pstates_trial_dir is not None:
+        elif a in ("--ui-capture-lpwr-trial", "--ui-capture-lpwr-rows"):
+            if len(argv) < (3 if a == "--ui-capture-lpwr-rows" else 2) or ui_pstates_trial_dir is not None:
                 _tell(a + " needs a family and new directory")
                 return 2
             ui_lpwr_family = argv.pop(0)
             if ui_lpwr_family not in ("gr_pg", "ms", "nvdec", "nvenc", "ofa", "nvjpg"):
                 _tell("Unknown LPWR trial family")
                 return 2
+            if a == "--ui-capture-lpwr-rows":
+                parts = argv.pop(0).split(",")
+                if (not parts or any(len(part) != 1 or part not in "01234" for part in parts)
+                        or len(set(parts)) != len(parts)):
+                    _tell("LPWR rows must be distinct comma-separated indices 0 through 4")
+                    return 2
+                ui_lpwr_rows = [int(part) for part in parts]
             ui_pstates_trial_dir = os.path.abspath(argv.pop(0))
             ui_registry_trial_kind = "lpwr"
         elif a in ("--ui-capture-pstates-trial", "--ui-capture-power-trial", "--ui-pstates-trial-resume"):
@@ -14403,7 +14412,8 @@ def main(argv=None):
                   "  --ui-capture-live-rel-bounds RAIL VALUE_UV NEW_DIRECTORY  fix both REL head bounds, restore, capture and exit\n"
                   "  --ui-capture-pstates-trial NEW_DIRECTORY  preview, apply and restore the P-state gate\n"
                   "  --ui-capture-power-trial NEW_DIRECTORY  preview, apply and restore a +5 W board maximum\n"
-                  "  --ui-capture-lpwr-trial FAMILY NEW_DIRECTORY  preview, apply and restore LPWR row 0\n\n"
+                  "  --ui-capture-lpwr-trial FAMILY NEW_DIRECTORY  preview, apply and restore LPWR row 0\n"
+                  "  --ui-capture-lpwr-rows FAMILY ROWS NEW_DIRECTORY  preview, apply and restore selected LPWR rows\n\n"
                   "With no --gpu, Druta opens on the lowest PCI slot.\n"
                   "Device > Card switches cards in a running window.")
             return 0
@@ -14420,6 +14430,25 @@ def main(argv=None):
     if ui_pstates_trial_dir and not os.path.isdir(os.path.dirname(ui_pstates_trial_dir)):
         _tell("Registry trial requires an existing parent directory")
         return 2
+    if ui_pstates_trial_resume:
+        try:
+            with open(os.path.join(ui_pstates_trial_dir, "trial.json"), encoding="utf-8") as stream:
+                saved_trial = json.load(stream)
+            if not isinstance(saved_trial, dict) or saved_trial.get("phase") not in ("applying", "restoring"):
+                raise ValueError("invalid trial phase")
+            if saved_trial.get("kind") == "lpwr" and "rows" in saved_trial:
+                rows, family = saved_trial["rows"], saved_trial.get("family")
+                if (family not in ("gr_pg", "ms", "nvdec", "nvenc", "ofa", "nvjpg")
+                        or not isinstance(rows, list) or not rows
+                        or any(type(i) is not int or not 0 <= i < 5 for i in rows)
+                        or len(set(rows)) != len(rows)):
+                    raise ValueError("invalid LPWR rows")
+                fields = [f"lpwr.{family}.{i}.enabled" for i in rows]
+                if saved_trial.get("fields") != fields or saved_trial.get("field") != fields[0]:
+                    raise ValueError("LPWR rows and fields differ")
+        except (OSError, ValueError, TypeError):
+            _tell("Registry trial resume has invalid saved selection or phase")
+            return 2
     if ui_capture_dir and (automatic or recovery_path):
         _tell("--ui-capture cannot be combined with startup profile or recovery relaunch")
         return 2
@@ -14456,6 +14485,7 @@ def main(argv=None):
             app._ui_pstates_trial_resume = ui_pstates_trial_resume
             app._ui_registry_trial_kind = ui_registry_trial_kind
             app._ui_lpwr_family = ui_lpwr_family
+            app._ui_lpwr_rows = ui_lpwr_rows
         if recovery_path:
             try:
                 app._recovery_result = devicerecovery.read_result(recovery_path, app.gpu.slot())
