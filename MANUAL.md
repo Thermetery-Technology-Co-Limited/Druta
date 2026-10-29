@@ -363,6 +363,16 @@ preserved the 360 W request and all other power control records. This verifies
 the panel workflow and loaded definition, not physical enforcement under load.
 [Numeric workflow evidence](experiments/ui-registry-power-qualified-20261029.json).
 
+MS entry disables also verify the loaded memory clock-gating eligibility and
+related low-power support after a GPU restart. A supported controller may
+have no eligible P-states; removing every enabled entry can instead remove
+support and make dependent readbacks unavailable. Preview distinguishes
+these outcomes, and Undo verifies the captured original state. The current
+qualified profile supports partial disables that retain the aggregate flags
+and complete enabled-entry shutdown. Other dependency profiles and physical
+residency/power savings remain pending.
+[MS configuration evidence](experiments/ms-configured-qualified-20261029.json).
+
 **Linked current limits** configure a current limit carried by another power
 policy. Druta resolves the BIOS relationship to its target policy and verifies
 the loaded cache and firmware-reported value after a GPU restart. Other power

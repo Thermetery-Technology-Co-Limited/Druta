@@ -1,0 +1,248 @@
+{
+  "schema": 1,
+  "date": "2026-10-29",
+  "status": "qualified bounded source transactions",
+  "scope": "MS enabled-entry disables with unchanged surviving aggregate flags, or complete enabled-entry shutdown. Configured eligibility/support only.",
+  "adapter": "RTX 5080 GB203",
+  "driver": "621.01",
+  "vbios": "98.03.3b.c0.6f",
+  "driver_sha256": "3f8d33495cabeb2fa11ebdcf0b12705e9ccfb4e53005324bcd86e9dea8ba2ab4",
+  "before_image_sha256": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+  "geometries": {
+    "ms": {
+      "version": 16,
+      "header": 7,
+      "stride": 16,
+      "object_id": 58
+    },
+    "lpwr_index": {
+      "version": 16,
+      "header": 6,
+      "stride": 18,
+      "object_id": 36
+    },
+    "PERF": "populated v70"
+  },
+  "consumer": {
+    "pointer_loader": "BIT P+0x84 -> BIOS object+0x430 -> 1885E0 -> 5F2C50 -> 5F61E0",
+    "slots": "enabled rows 0..4 populate root+0x448+i*0x20; reviewed same-object initialization zeroes all six flag/feature pairs, including fallback slot5",
+    "selector": "actual loaded Pstate LPWR index -> byte2 of the understood 18-byte index row; FF/out-of-range selects slot5",
+    "masks": "controller1 attr36 checks controller4/6 support then shares the MS enabled-slot route used by controllers4/6",
+    "type1_role1": "selected slot feature bit0x2000, derived from raw flag0x10; this does not independently test slot enabled",
+    "type7_role1": "attr805 uses selected slot feature bit0x100, derived from raw flag0x20; support aggregate also includes feature0x100000 (raw0x40 and construction-time controller6 condition)",
+    "clearing": "all MS enables absent clears controller4/6 support, shared type1 role1 and type7 role1 through the understood cleanup paths"
+  },
+  "production_trials": [
+    {
+      "journal": "root-production-row0-trial-1.json",
+      "selected": {
+        "lpwr.ms.0.enabled": false
+      },
+      "after_image_sha256": "e26f8c178a1086fd0b45f6f22e97693d49968c2adf03429e170706a47d87e43d",
+      "controller1_before_after": [
+        {
+          "available": true,
+          "configured_pstate_mask": 288,
+          "states_available": true,
+          "supported": true
+        },
+        {
+          "available": true,
+          "configured_pstate_mask": 0,
+          "states_available": true,
+          "supported": true
+        }
+      ],
+      "controller4_before_after": [
+        {
+          "available": true,
+          "configured_pstate_mask": 288,
+          "states_available": true,
+          "supported": true
+        },
+        {
+          "available": true,
+          "configured_pstate_mask": 0,
+          "states_available": true,
+          "supported": true
+        }
+      ],
+      "type1_role1_before_after": [
+        {
+          "available": true,
+          "value": 1
+        },
+        {
+          "available": true,
+          "value": 1
+        }
+      ],
+      "type7_after": {
+        "1:0": {
+          "available": true,
+          "value": 1
+        },
+        "801:0": {
+          "available": true,
+          "value": 0
+        },
+        "801:1": {
+          "available": true,
+          "value": 1
+        },
+        "801:2": {
+          "available": true,
+          "value": 0
+        },
+        "805:0": {
+          "available": true,
+          "value": 0
+        },
+        "805:1": {
+          "available": true,
+          "value": 0
+        }
+      },
+      "source_runtime_verified_fields": [
+        "lpwr.ms.0.enabled"
+      ],
+      "undo_runtime_verified_fields": [
+        "lpwr.ms.0.enabled"
+      ],
+      "active_exact": {
+        "ROM_registry_configured_peers_requests_curve": true,
+        "complete_LPWR_projection": true,
+        "complete_client_state": true
+      },
+      "final_exact": true
+    },
+    {
+      "journal": "root-production-all-trial-1.json",
+      "selected": {
+        "lpwr.ms.0.enabled": false,
+        "lpwr.ms.1.enabled": false,
+        "lpwr.ms.2.enabled": false
+      },
+      "after_image_sha256": "9df7b945749c5a81d198a6793ddb57b8c979c3b7c946a9160ed9757812136202",
+      "controller1_before_after": [
+        {
+          "available": true,
+          "configured_pstate_mask": 288,
+          "states_available": true,
+          "supported": true
+        },
+        {
+          "available": true,
+          "configured_pstate_mask": 0,
+          "states_available": true,
+          "supported": true
+        }
+      ],
+      "controller4_before_after": [
+        {
+          "available": true,
+          "configured_pstate_mask": 288,
+          "states_available": true,
+          "supported": true
+        },
+        {
+          "available": true,
+          "configured_pstate_mask": null,
+          "states_available": false,
+          "supported": false
+        }
+      ],
+      "type1_role1_before_after": [
+        {
+          "available": true,
+          "value": 1
+        },
+        {
+          "available": true,
+          "value": 0
+        }
+      ],
+      "type7_after": {
+        "1:0": {
+          "available": false,
+          "value": null
+        },
+        "801:0": {
+          "available": false,
+          "value": null
+        },
+        "801:1": {
+          "available": false,
+          "value": null
+        },
+        "801:2": {
+          "available": false,
+          "value": null
+        },
+        "805:0": {
+          "available": false,
+          "value": null
+        },
+        "805:1": {
+          "available": false,
+          "value": null
+        }
+      },
+      "source_runtime_verified_fields": [
+        "lpwr.ms.0.enabled",
+        "lpwr.ms.1.enabled",
+        "lpwr.ms.2.enabled"
+      ],
+      "undo_runtime_verified_fields": [
+        "lpwr.ms.0.enabled",
+        "lpwr.ms.1.enabled",
+        "lpwr.ms.2.enabled"
+      ],
+      "active_exact": {
+        "ROM_registry_configured_peers_requests_curve": true,
+        "complete_LPWR_projection": true,
+        "complete_client_state": true
+      },
+      "final_exact": true
+    }
+  ],
+  "earlier_research": {
+    "positive": [
+      "root-row0-trial-2.json",
+      "root-all-trial-1.json"
+    ],
+    "negative": "root-row0-trial-1.json omitted the controller1 mask loss. It failed the full projection, retained that evidence, and restored the complete original state."
+  },
+  "restoration": "Exact original registry/image, LPWR support/masks/features and auxiliary peers, client/native power records and requests, and compared configured peers/equations restored after every trial.",
+  "comparison_limits": {
+    "A7": "common identity/routing is verified; evaluated clock tails are diagnostic, not a universal byte-equality gate",
+    "broad": "excludes capture timestamps/paths and dynamic policy STATUS value/limit; power target/image/info/control/configured request/registry/layout and voltage equations compared",
+    "client": "full INFO/CONTROL/ROLE_INFO/native INFO/native CONTROL, identity, binding and requested power; arbitration telemetry is diagnostic",
+    "earlier_samples": "non-exact post-restart driver-flag samples retained; only settled terminal comparisons qualified"
+  },
+  "logical_GPU_only_restarts": 10,
+  "Windows_reboot": false,
+  "workload": false,
+  "F219_SET": false,
+  "focused_tests": 218,
+  "full_tests": 6607,
+  "limits": [
+    "Native controller4 support and exact affected readbacks are required; controllers6/16 must independently report unsupported for this qualified profile.",
+    "No adapter IDs, subsystem IDs, VBIOS strings or driver-version lists gate support.",
+    "Partial changes with unresolved aggregate-flag loss, ambiguous routes, or no independent configured-state change are refused.",
+    "Originally disabled entries are not enabled; other layouts, support6/cascades and mixed feature-loss profiles remain pending.",
+    "Physical residency, power savings and behavior on other adapters remain unmeasured.",
+    "MS-specific packaged framebuffer/input walkthrough remains pending; source transactions and packaged code parity are separate evidence."
+  ],
+  "source_sha256": {
+    "ms_runtime.py": "70c2d61f31db7e1ba8ab49521cd2acba348c90a58587418992f3c48dc4164985",
+    "registry_overrides.py": "f04fe519b1aeba044eee44998d40e613dd4b4ec3abfdc8900d2e4752db3fc879",
+    "registry_panel.py": "3dc7b803b938275a16f1bbc78541dade897be9f29a616b885ac10b2244ddde47"
+  },
+  "full_test_seconds": 117.26,
+  "independent_audit": {
+    "production_raw_ROM_client_and_broad_checks": true,
+    "production_audit_sha256": "10b885eb533db0c9201fd71b4961712d588088d3512a05d9a41e7c852f9b94c5",
+    "research_audit_sha256": "6f800576332dec89dc1d37415176aaa0bdc1eb35321f5ca6e1bac36c5685fdf0"
+  }
+}

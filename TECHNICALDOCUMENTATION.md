@@ -3317,6 +3317,54 @@ Physical mouse/keyboard input, other field types, post-restart failure/recovery
 visual states, other DPI/viewports/adapters and physical enforcement remain
 unqualified. [Scoped numeric qualification and retained evidence](experiments/ui-registry-power-qualified-20261029.json).
 
+## MS configured-state contracts (2026-10-29)
+
+The MS v10 table at BIT P+0x84/object0x3A is now bound to its loader and
+six runtime flag/feature slots. The reviewed allocator zeroes the same object;
+the row loader populates indices0-4, and the known constructor/HAL callbacks
+preserve those flag/feature fields. The actual loaded Pstate LPWR index selects
+byte2 of the understood 18-byte index row; invalid/unassigned indices use
+slot5. A controller mask follows enabled slots, while the type1 role1 mask
+tests MS feature0x2000 and the type7 role1 mask tests feature0x100. Their
+support aggregates are separate from their configured Pstate masks.
+
+The initial row0 research prediction omitted controller1, which shares the
+MS route when controller4 or6 is supported. That trial failed its exact
+projection and restored the original; its negative evidence is retained. The
+corrected research and normal production Prepare/durable Apply/Undo trials
+qualified two distinct cases on the current RTX5080/621.01 configuration:
+
+- Disabling row0 changes controller1/4 and type1/type7 role1 masks from0x120
+  to valid0 while support remains, supplied by unconsumed enabled MS rows.
+- Disabling all enabled rows0/1/2 removes controller4 support, keeps
+  controller1 supported with mask0, removes shared type1 role1, and makes
+  the entire type7 group unavailable because its sole supported role is gone.
+
+MS contracts capture the understood tables and full independent LPWR
+observation, recompute the durable projection, and verify selected fields
+after restart and on Undo. Other controller support/masks/features, type4
+roles, auxiliary peers, identity and loaded routing must remain exact. The
+normal transaction still verifies the complete image and preserves unknown
+bytes. Older image-only MS receipts retain Undo but need a fresh preview for
+new Apply. Preview distinguishes valid-zero eligibility from removed support.
+
+The complete suite passed 6,607 tests in 117.26 seconds, including 218 focused
+MS/registry/LPWR cases. An independent raw-packet/ROM/client audit reproduced
+the production projections and settled broad-state comparisons; earlier
+non-exact driver-flag samples remain retained.
+
+The qualified profile currently requires controller4 supported and controllers
+6/16 independently unsupported. Partial disables must retain the enabled-row
+aggregate flags; complete shutdown is modeled separately. Unresolved mixed
+feature loss, nondiscriminating changes, ambiguous routes, support6 cascades
+and other layouts remain pending. Capability/layout/readback checks govern
+eligibility; tested device IDs and driver versions do not gate support.
+Physical residency/savings and an MS-specific packaged visual/input walkthrough
+remain unqualified. Ten GPU-only restarts include the retained initial negative
+trial, corrected research and both production cases; every trial restored its
+complete original compared state. No Windows reboot, workload or F219 SET
+was used. [Scoped MS evidence](experiments/ms-configured-qualified-20261029.json).
+
 ## Source for a binary release
 
 Every tagged release on GitHub carries the Corresponding Source for the

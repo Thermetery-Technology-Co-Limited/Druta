@@ -89,6 +89,7 @@ function Get-SourceSnapshot {
         'experiments/ui-render-capture-20261028.json',
         'experiments/ui-live-panels-capture-20261028.json',
         'experiments/ui-registry-power-qualified-20261029.json',
+        'experiments/ms-configured-qualified-20261029.json',
         'experiments/driver-transport-followup-20261028.json',
         'experiments/capture_power_provenance.py',
         'experiments/ampere-provenance-handoff-20261028.json',
