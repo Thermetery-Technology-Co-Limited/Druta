@@ -3385,7 +3385,10 @@ only the understood enable mask: 0x1 for five families and 0x2 for NVJPG.
 The workflow stages the Boolean in DearPyGUI and calls the registry panel's
 normal Prepare, Apply and Restore callbacks through the existing helper and
 durable receipt path. The saved family and field carry across helper relaunch;
-schema-specific contracts and fresh readbacks verify each phase.
+schema-specific contracts and fresh readbacks verify each phase. The additional
+opt-in command `--ui-capture-lpwr-rows FAMILY ROWS NEW_DIRECTORY` accepts distinct
+comma-separated row indices 0 through 4, stages exactly those enabled fields and
+preserves the selection through both helper relaunches.
 
 The trial records before, preview, active and restored framebuffer frames,
 complete main LPWR observations, client-power state and image evidence. A
@@ -3421,10 +3424,12 @@ does not establish physical input. The final suite passed 6,823 tests in
 119.23 seconds; 206 focused cases passed. Runner/panel/test lint and changed
 CLI lines are clean; the app file retains its 26 pre-existing lint findings.
 
-This packaged qualification is scoped to one row-0 transition per family. It does
-not qualify other rows, full-table shutdown, last-role/no-peer transitions,
-failure/recovery screens, physical input, multiple displays/DPI/adapters or
-physical effects. The later OFA source full-phase repeat is separate; its two
+The original packaged qualification is scoped to one row-0 transition per
+family. A later packaged MS trial additionally exercised rows 0 and 1 together;
+it does not extend the other families' row-0 coverage. These checks do not
+qualify full-table shutdown, complete shared-group disappearance, failure/recovery
+screens, physical input, multiple displays/DPI/adapters or physical effects.
+The later OFA source full-phase repeat is separate; its two
 earlier curve-negative records remain retained. Counts and per-family outcomes belong in
 [the scoped LPWR UI qualification record](experiments/ui-lpwr-configured-qualified-20261029.json).
 
@@ -3496,13 +3501,29 @@ the backend was unchanged after the full suite.
 Unresolved mixed feature loss, nondiscriminating changes, ambiguous routes,
 support6 cascades and other layouts remain pending. Capability/layout/readback checks govern
 eligibility; tested device IDs and driver versions do not gate support.
-Physical residency/savings remain unqualified. The packaged LPWR follow-up is
-scoped to row 0 through programmatic panel callbacks and framebuffer capture;
-it does not exercise physical input or full-row/no-peer transitions. Ten
+Physical residency/savings remain unqualified. A packaged compound MS trial
+used `--ui-capture-lpwr-rows ms 0,1 NEW_DIRECTORY` through the normal panel
+callbacks and helper relaunches. All four framebuffer frames were visually
+inspected: rows 0 and 1 were checked before, unchecked in Preview, read-only
+False when active, and checked after Undo; row 2 remained checked. Initial,
+active and restored captures retained full native LPWR and client readbacks.
+Root's separate before/final broad comparison confirmed the original state;
+final samples 0-2 differed only in the BOOST_LOW request/hash and samples 3-7 matched, with the final two strict
+matches required and no curve exclusions. There was no separate active broad
+observation window. All eight full curves matched. An independent audit reconstructed
+the six native value DWORD changes, two ROM-bit changes, preserved packet/client
+bytes, receipt events and observed process handoffs; root reproduced both audit
+outputs exactly. The earlier negative research result remains retained.
+The suite passed 6,963 tests in 121.94 seconds and 144 focused tests in 1.16
+seconds; the package check covered 459 committed source files and 20 compiled
+modules. These programmatic framebuffer checks do not exercise physical input,
+recovery screens, other adapters, full-table shutdown or complete shared-group
+disappearance. Ten
 GPU-only restarts include the retained initial negative trial, corrected
 research and both production cases. The later partial-aggregate series adds
 six restarts across its retained negative, corrected research and production
-trial; every trial restored its complete original compared state. No Windows
+trial. The packaged compound callback trial adds two separately counted
+GPU-only restarts; every trial restored its complete original compared state. No Windows
 reboot, workload or F219 SET was used. [Scoped MS evidence](experiments/ms-configured-qualified-20261029.json).
 
 ## NVDEC configured-state contracts (2026-10-29)

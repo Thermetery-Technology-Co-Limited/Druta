@@ -342,5 +342,6 @@
     "Curve freshness/recalculation and observer stability semantics",
     "Other field types, cross-generation validation and physical residency/power effects"
   ],
-  "later_source_OFA_repeat": "See media-type4-last-role-qualified-20261029.json, OFA_repeat_20261029: last two full broad samples exact in every phase, all curves exact, early BOOST_LOW mismatches retained; physical input/recovery/full-shutdown packaged coverage remains pending"
+  "later_source_OFA_repeat": "See media-type4-last-role-qualified-20261029.json, OFA_repeat_20261029: last two full broad samples exact in every phase, all curves exact, early BOOST_LOW mismatches retained; physical input/recovery/full-shutdown packaged coverage remains pending",
+  "later_MS_compound_callback": "See ms-configured-qualified-20261029.json partial_aggregate_extension_20261029.packaged_callback_qualification for the separate schema2 rows0/1 callback/framebuffer trial, four visually inspected frames, exact native/client/receipt/Undo and last-two strict final broad match; all early BOOST_LOW negatives retained. No physical input or independent active broad window added. Its two GPU restarts are excluded from this original row0 series'14."
 }

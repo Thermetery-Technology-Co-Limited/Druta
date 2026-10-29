@@ -232,7 +232,7 @@
     "Schema2 additionally covers understood partial raw-union loss within0x37c that removes the last MS raw0x10 contributor with enabled MS rows and a DIFR witness remaining; other aggregate losses, ambiguous routes and nondiscriminating changes are refused.",
     "Originally disabled entries are not enabled; other layouts, support6/cascades and mixed feature-loss profiles remain pending.",
     "Physical residency, power savings and behavior on other adapters remain unmeasured.",
-    "Programmatic packaged row0 callback/framebuffer evidence is linked below. The new partial-aggregate profile has source production qualification; its packaged callback/input/recovery walkthrough remains pending."
+    "Original row0 callback/framebuffer evidence is linked below. The partial-aggregate profile also has separately scoped two-row packaged callback/framebuffer qualification; physical input and failure/recovery remain pending."
   ],
   "source_sha256": {
     "ms_runtime.py": "70c2d61f31db7e1ba8ab49521cd2acba348c90a58587418992f3c48dc4164985",
@@ -774,7 +774,7 @@
     "workload": false,
     "physical_effects_measured": false,
     "NVIDIA_App_installed": false,
-    "packaged_callback_input_recovery": "pending for this new profile; source parity and baseline GETs are separate",
+    "packaged_callback_input_recovery": "Two-row programmatic packaged callbacks/framebuffer separately qualified below; physical input and failure/recovery remain pending",
     "source_sha256": {
       "src/druta/ms_runtime.py": "d7eafb6f6477dc52f2b5b2d1aef910eab0c214a79ce25b33971cd8c4ff474f5e",
       "src/druta/registry_panel.py": "9df73de453e56e1cb72f07378f7b5551a6d0f958372a38794ff2be15b5fe6989",
@@ -786,6 +786,271 @@
       "experiments/registry-overrides/ms-partial-aggregate-20261029/role1-post-filter.json": "77dd398fe0460425265e63661fcd73e14eb924c3c9daa43f237912d411692cf2",
       "experiments/registry-overrides/ms-partial-aggregate-review-20261029/type1-postfilter-resolution.json": "251951fa5769f2950c43c6852a6617df638fca45f156e9f6ef98abf1ae654cd8",
       "experiments/registry-overrides/ms-partial-aggregate-review-20261029/native4-independent-check.json": "4f70f495fd999c29245d3bbba07ad088292dc7aaa85a087c2532dd48b3365447"
+    },
+    "packaged_callback_qualification": {
+      "scope": "One captured RTX5080 configuration, MS rows0/1 together, programmatic packaged panel callbacks and framebuffer; no physical input or physical-effect claim",
+      "command": "--ui-capture-lpwr-rows ms 0,1 NEW_DIRECTORY",
+      "trial_code_commit": "c98de374cd8865e9ff05f6b356e6baf2bd4eb796",
+      "trial_executable_sha256": "f5c945133c8054f8ccc7ade533ace2d2c7f19d19e4d117a1577027179322c3cd",
+      "trial_package": {
+        "committed_source_files": 459,
+        "compiled_modules_verified": 20
+      },
+      "terminal_supervisor_exit_code": 0,
+      "contract_schema": 2,
+      "selected_fields": [
+        "lpwr.ms.0.enabled",
+        "lpwr.ms.1.enabled"
+      ],
+      "MS_row2": "Remained enabled in all four visually inspected frames",
+      "rom_sha256": {
+        "before": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+        "active": "b8a39a4d69aa612fb3791eabed531aa901bdaf47dc9e1de171a5ca1f09767bde",
+        "restored": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202"
+      },
+      "ROM_byte_changes": [
+        {
+          "offset": 253693,
+          "before": 125,
+          "after": 124
+        },
+        {
+          "offset": 253709,
+          "before": 125,
+          "after": 124
+        }
+      ],
+      "native_value_DWORD_changes": [
+        {
+          "packet": "controller_states",
+          "key": [
+            3,
+            1,
+            54
+          ],
+          "before": 288,
+          "after": 0
+        },
+        {
+          "packet": "controller_states",
+          "key": [
+            3,
+            4,
+            54
+          ],
+          "before": 288,
+          "after": 0
+        },
+        {
+          "packet": "controller_features",
+          "key": [
+            3,
+            4,
+            56
+          ],
+          "before": 37319151,
+          "after": 34148556
+        },
+        {
+          "packet": "type1_group",
+          "key": [
+            1,
+            1,
+            2048
+          ],
+          "before": 1,
+          "after": 0
+        },
+        {
+          "packet": "type1_group",
+          "key": [
+            1,
+            1,
+            2054
+          ],
+          "before": 288,
+          "after": 0
+        },
+        {
+          "packet": "type7_group",
+          "key": [
+            7,
+            1,
+            2053
+          ],
+          "before": 288,
+          "after": 0
+        }
+      ],
+      "complete_raw_packet_audit": "Exactly six typed value DWORDs differ when active; all other routing, availability, opaque and packet bytes, Pstate packet and client requests preserved; restored packets exact",
+      "receipt_audit": "Only the two selected false fields; exact image/target/registry/contract bindings, both runtime_verified_fields, one Apply and one Undo, both helper outcomes successful and no reboot required",
+      "phase_GUI_PIDs": {
+        "initial": 6832,
+        "applying": 24052,
+        "restoring": 7948
+      },
+      "helper_PIDs": {
+        "Apply": 9328,
+        "Undo": 12096
+      },
+      "process_evidence": "Phase IDs independently bound to root OS-observed exact executable, receipt/trial command lines and parent PIDs. Final GUI closed after terminal marker and final GETs; no matching process remained before phase files were read",
+      "frames": {
+        "before": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "feefe6a5c5ff8cbf3f01f819a736900778715443a86bd0e206b9120244c457ec",
+          "values": {
+            "lpwr.ms.0.enabled": true,
+            "lpwr.ms.1.enabled": true
+          }
+        },
+        "preview": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "dcff855c3e439757510c959f8bb402ea69e7cc49c4191c1fa752810ae8b89f8e",
+          "values": {
+            "lpwr.ms.0.enabled": false,
+            "lpwr.ms.1.enabled": false
+          }
+        },
+        "active": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "b45b379b2d910d009f593f3ab965c81e01846d39e34bfa468ceaa96d6e81d3b8",
+          "values": {
+            "lpwr.ms.0.enabled": false,
+            "lpwr.ms.1.enabled": false
+          }
+        },
+        "restored": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "feefe6a5c5ff8cbf3f01f819a736900778715443a86bd0e206b9120244c457ec",
+          "values": {
+            "lpwr.ms.0.enabled": true,
+            "lpwr.ms.1.enabled": true
+          }
+        }
+      },
+      "visual_review": "Root inspected all four full PNGs: both selected checked before, unchecked Preview, read-only False active, checked restored. Row2 stays checked. Preview explicitly reports readable false MS support, reduced features and retained DIFR support",
+      "external_before_and_final": {
+        "initial_external_packet_client_Pstate_binding": true,
+        "final_full_LPWR_client_exact": true,
+        "samples": [
+          {
+            "strict_exact": false,
+            "difference_paths": [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex"
+            ],
+            "curve_changed_bytes": 0,
+            "started_seconds": 1.8998980522155762e-06,
+            "ended_seconds": 0.8828445998951793
+          },
+          {
+            "strict_exact": false,
+            "difference_paths": [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex"
+            ],
+            "curve_changed_bytes": 0,
+            "started_seconds": 3.000325799919665,
+            "ended_seconds": 3.906465800013393
+          },
+          {
+            "strict_exact": false,
+            "difference_paths": [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex"
+            ],
+            "curve_changed_bytes": 0,
+            "started_seconds": 6.000176799949259,
+            "ended_seconds": 6.880785499699414
+          },
+          {
+            "strict_exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0,
+            "started_seconds": 9.000140199903399,
+            "ended_seconds": 9.933207599911839
+          },
+          {
+            "strict_exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0,
+            "started_seconds": 12.000199299771339,
+            "ended_seconds": 12.92247649980709
+          },
+          {
+            "strict_exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0,
+            "started_seconds": 15.000456399749964,
+            "ended_seconds": 15.916850799694657
+          },
+          {
+            "strict_exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0,
+            "started_seconds": 18.00047929957509,
+            "ended_seconds": 18.889463299885392
+          },
+          {
+            "strict_exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0,
+            "started_seconds": 21.000453499611467,
+            "ended_seconds": 21.93573089968413
+          }
+        ],
+        "criterion": "Eight full broad samples at three-second target intervals; last two strictly exact; no field/curve exclusions",
+        "retained_negative": "Samples0-2 differ solely in BOOST_LOW entry13 request and its hash; samples3-7 exact. All eight full curves exact. No general settling-time or producer explanation inferred"
+      },
+      "active_observation_scope": "Packaged initial/before/active/restored full native LPWR, client and image snapshots; separate root before/final broad comparisons. This run adds no independent active broad window; source full-phase qualification remains separate",
+      "independent_review": "Terra independently reconstructed native/image/receipt/frame/process/external evidence; root reran both auditors with JSON-identical outputs and separately inspected all four images",
+      "validation": {
+        "full_tests": 6963,
+        "full_test_seconds": 121.94,
+        "focused": 144,
+        "focused_seconds": 1.16,
+        "Ruff": "Runner and changed tests pass; app CLI retains the same26 existing diagnostic multiset"
+      },
+      "GPU_only_restarts": 2,
+      "restart_count_scope": "This packaged compound trial only; earlier sourceMS16 and row0UI14 counts remain separately scoped",
+      "Windows_reboot": false,
+      "workload": false,
+      "physical_effects_measured": false,
+      "NVIDIA_App_installed": false,
+      "release_changes": false,
+      "pending": [
+        "Physical input and failure/recovery screens",
+        "Full-shutdown/no-peer packaged cases",
+        "Other dependency layouts, adapters, displays/DPI and physical residency/power effects"
+      ],
+      "source_sha256": {
+        "registry_ui_trial.py": "dcaa9e9402033bce58016d342839eff0fcfd0d9a80327f49d8121c7e1c6f1a70",
+        "druta.py": "be12e1e3c80185008439e4d3042ab833605e8b76295ec5215fc2fa3c6a3a38b4",
+        "registry_panel.py": "9df73de453e56e1cb72f07378f7b5551a6d0f958372a38794ff2be15b5fe6989",
+        "registry_overrides.py": "b67080f4b635d7ae7903a87e0fc2da6a224f7424064459a09e29d14941c0bd29",
+        "grpg_runtime.py": "eae295d031f6c12712014b50417eb0051e78d9ad36eff7b4d5d67d7611d221a1",
+        "ms_runtime.py": "d7eafb6f6477dc52f2b5b2d1aef910eab0c214a79ce25b33971cd8c4ff474f5e",
+        "nvdec_runtime.py": "bf234e1876b29d537485acadf1248c9bd8affff05028bdb461abd928e0efe0c6",
+        "media_lpwr_runtime.py": "823c6083c949edcb07f8ebe60ffea11eca76994710f253f3c3db948aeb6245ef"
+      },
+      "private_evidence_sha256": {
+        "experiments/registry-overrides/ui-ms-partial-root-20261029/launch_trial.py": "344528a041addbac5fc16a9be570319e1bde3e2fe47dc58948bba7f1a4d57f30",
+        "experiments/registry-overrides/ui-ms-partial-root-20261029/packaged-ms-partial-1-baseline.json": "a906ebcda0e405c5b824c05b330b9f8d76dadcabaca8586fc7a4e320d654d601",
+        "experiments/registry-overrides/ui-ms-partial-root-20261029/packaged-ms-partial-1-launch.json": "cdccc4f08db7befbe11d6a717262b8f3e23c3613bb6f9d72e9354fd99db803ed",
+        "experiments/registry-overrides/ui-ms-partial-root-20261029/packaged-ms-partial-1-root-final.json": "562de07081cf358460f3cd17d88619ad474b6cdb7ca0da7f39855c3c3f1662c6",
+        "experiments/registry-overrides/ui-ms-partial-root-20261029/root-ui-audit.json": "8b1d9094397b94b264ee03abffea844464180236e4374b8bef5d73085419c1a5",
+        "experiments/registry-overrides/ui-ms-partial-root-20261029/root-external-audit.json": "758b6adc6b2af83b361ebb54864bec232bb57d2977ab937c330666e704bae1b2",
+        "experiments/registry-overrides/ui-ms-partial-review-20261029/audit-ui-ms-partial.py": "07541b224cac1f4f682f65da1bbf898764e361dd899049548b4918eb75c57b4f",
+        "experiments/registry-overrides/ui-ms-partial-review-20261029/audit-ui-ms-external.py": "54a65c67082bf4d3b95eac9c91c4a7ea4178c4ace378ca5dd87495652460ce73",
+        "experiments/registry-overrides/ui-ms-partial-review-20261029/packaged-ms-partial-1-audit.json": "8b1d9094397b94b264ee03abffea844464180236e4374b8bef5d73085419c1a5",
+        "experiments/registry-overrides/ui-ms-partial-review-20261029/packaged-ms-partial-1-external-audit.json": "758b6adc6b2af83b361ebb54864bec232bb57d2977ab937c330666e704bae1b2",
+        "experiments/registry-overrides/ui-ms-partial-root-20261029/packaged-ms-partial-1/trial-result.json": "7ca833096d6f3689c15e614154554b339f13621b352170775a2445c1bb1ad83f",
+        "experiments/registry-overrides/ui-ms-partial-root-20261029/packaged-ms-partial-1/trial.json": "0a9c7aaf0afa17171da9ccde10c873755713f3a03bd2fd9c1e57d8a88db0430d"
+      }
     }
   }
 }
