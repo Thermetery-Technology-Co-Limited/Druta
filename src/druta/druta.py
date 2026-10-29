@@ -14115,7 +14115,7 @@ deliberately does not put behind a button."""
             # dispatch with the same restore-before-exit finally as callbacks.
             if getattr(self, "_ui_capture_dir", None) and self._startup_request:
                 self._startup_request = None
-                self.log("Startup profile skipped for the display-only capture.", False)
+                self.log("Startup profile skipped for the developer UI capture.", False)
             if self._startup_request and getattr(self, "_stale_headroom", None):
                 # Its undo point and rail replay would capture or overwrite the
                 # raised limits before the user has answered the dialog.
@@ -14228,8 +14228,13 @@ deliberately does not put behind a button."""
                                                       kind=getattr(self, "_ui_registry_trial_kind", "pstates"),
                                                       family=getattr(self, "_ui_lpwr_family", None))
                         else:
-                            capture_type = LiveVminCapture if getattr(self, "_ui_capture_live_vmin", False) else UiCapture
-                            capture = capture_type(dpg, self, self._ui_capture_dir)
+                            rel_bounds = getattr(self, "_ui_capture_rel_bounds", None)
+                            if rel_bounds is not None:
+                                from .rel_bounds_ui_trial import LiveRelBoundsCapture
+                                capture = LiveRelBoundsCapture(dpg, self, self._ui_capture_dir, *rel_bounds)
+                            else:
+                                capture_type = LiveVminCapture if getattr(self, "_ui_capture_live_vmin", False) else UiCapture
+                                capture = capture_type(dpg, self, self._ui_capture_dir)
                     except Exception as exc:
                         self.log("UI capture could not start: " + str(exc), False)
         finally:
@@ -14315,6 +14320,7 @@ def main(argv=None):
     recovery_path = None
     ui_capture_dir = None
     ui_capture_live_vmin = False
+    ui_capture_rel_bounds = None
     ui_pstates_trial_dir = None
     ui_pstates_trial_resume = False
     ui_registry_trial_kind = "pstates"
@@ -14336,6 +14342,20 @@ def main(argv=None):
             return 0
         if a == "--startup-profile":
             automatic = True
+        elif a == "--ui-capture-live-rel-bounds":
+            if len(argv) < 3 or ui_capture_dir is not None:
+                _tell(a + " needs RAIL VALUE_UV and one new directory")
+                return 2
+            try:
+                rail, wanted_uv = int(argv.pop(0)), int(argv.pop(0))
+            except ValueError:
+                _tell(a + " requires an integer rail and microvolt value")
+                return 2
+            if rail not in (0, 1) or not 0 < wanted_uv <= 0x7FFFFFFF:
+                _tell(a + " requires rail 0 or 1 and positive signed-32-bit microvolts")
+                return 2
+            ui_capture_dir = os.path.abspath(argv.pop(0))
+            ui_capture_rel_bounds = (rail, wanted_uv)
         elif a in ("--ui-capture", "--ui-capture-live-vmin"):
             if not argv or ui_capture_dir is not None:
                 _tell(a + " needs one new directory")
@@ -14380,6 +14400,7 @@ def main(argv=None):
                   "  --startup-profile  apply the opted-in sign-in profile after shutdown checks\n\n"
                   "  --ui-capture NEW_DIRECTORY  capture a display-only developer walkthrough\n"
                   "  --ui-capture-live-vmin NEW_DIRECTORY  apply +5 mV to rail 0 VMIN, capture, then restore\n"
+                  "  --ui-capture-live-rel-bounds RAIL VALUE_UV NEW_DIRECTORY  fix both REL head bounds, restore, capture and exit\n"
                   "  --ui-capture-pstates-trial NEW_DIRECTORY  preview, apply and restore the P-state gate\n"
                   "  --ui-capture-power-trial NEW_DIRECTORY  preview, apply and restore a +5 W board maximum\n"
                   "  --ui-capture-lpwr-trial FAMILY NEW_DIRECTORY  preview, apply and restore LPWR row 0\n\n"
@@ -14428,6 +14449,8 @@ def main(argv=None):
         if ui_capture_dir:
             app._ui_capture_dir = ui_capture_dir
             app._ui_capture_live_vmin = ui_capture_live_vmin
+            if ui_capture_rel_bounds is not None:
+                app._ui_capture_rel_bounds = ui_capture_rel_bounds
         if ui_pstates_trial_dir:
             app._ui_pstates_trial_dir = ui_pstates_trial_dir
             app._ui_pstates_trial_resume = ui_pstates_trial_resume
