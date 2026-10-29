@@ -1072,7 +1072,7 @@ def test_v30_class_mapping_is_version_scoped_and_uses_full_encoded_class():
         field = next(f for f in parsed["fields"] if f["key"] == "power.0.maximum")
         assert field["policy_type"] == 1 and field["runtime_binding"]["runtime_type"] == 0
         assert field["runtime_binding"]["table_version"] == 0x30
-        assert field["capability"] == ("read-only" if stride == 0x47 else "editable")
+        assert field["capability"] == "editable"
         unknown = vf.inspect(v30_power_fixture(header, stride, extension=1))
         field = next(f for f in unknown["fields"] if f["key"] == "power.0.maximum")
         assert field["policy_type"] == 0x11 and field["runtime_binding"]["runtime_type"] is None
@@ -1081,12 +1081,25 @@ def test_v30_class_mapping_is_version_scoped_and_uses_full_encoded_class():
         assert vf.power_runtime_type(0x30, 2) is None
 
 
-def test_short_v30_inspection_does_not_enable_persistent_edits():
-    image = v30_power_fixture(stride=0x47, device=0xBEEF, count=3)
-    for index in range(3):
-        for role, value in (("minimum", 90000), ("default", 320000), ("maximum", 400000)):
-            with unittest.TestCase().assertRaisesRegex(ValueError, "read-only inspection"):
-                vf.plan(image, {f"power.{index}.{role}": value})
+def test_short_v30_class1_edits_preserve_every_other_byte():
+    image = bytearray(v30_power_fixture(stride=0x47, device=0xBEEF, count=3, channel=7, unit=1))
+    row = 0x3800 + 0x2C + 2 * 0x47
+    image[row + 0x43 : row + 0x47] = b"\x12\x34\x56\x78"
+    image = bytes(image)
+    changes = {"power.2.minimum": 90000, "power.2.default": 320000, "power.2.maximum": 400000}
+    result = apply(image, vf.plan(image, changes))
+    expected = bytearray(image)
+    struct.pack_into("<III", expected, row + 2, 90000, 320000, 400000)
+    assert result == bytes(expected)
+    assert apply(result, vf.plan(result, {"power.2.minimum": 100000, "power.2.default": 310000,
+                                          "power.2.maximum": 380000})) == image
+
+
+def test_short_v30_other_classes_remain_read_only():
+    for kind, extension in ((2, 0), (1, 1)):
+        image = v30_power_fixture(stride=0x47, kind=kind, extension=extension)
+        with unittest.TestCase().assertRaisesRegex(ValueError, "read-only"):
+            vf.plan(image, {"power.0.maximum": 400000})
 
 
 def test_short_v30_requires_exact_geometry_and_complete_table():

@@ -345,7 +345,7 @@ def test_no_power_fields_does_not_require_power_or_architecture():
     assert pr.verify({}, {"clock.2.maximum": 5}) == []
 
 
-@pytest.mark.parametrize("header,stride", [(0x2C, 0x4B), (0x32, 0x53), (0x34, 0x5B)])
+@pytest.mark.parametrize("header,stride", [(0x2C, 0x47), (0x2C, 0x4B), (0x32, 0x53), (0x34, 0x5B)])
 def test_v30_class1_persistent_contract_requires_exact_runtime_match(header, stride):
     from druta import vbios_fields
     from tests.test_vbios_fields import v30_power_fixture
@@ -374,3 +374,17 @@ def test_v30_class1_persistent_contract_requires_exact_runtime_match(header, str
     unknown = vbios_fields.inspect(v30_power_fixture(header, stride, extension=1))
     with pytest.raises(pr.PowerRuntimeError):
         pr.contracts(gpu, unknown, changes)
+
+
+def test_short_v30_nonzero_policy_current_contract():
+    from druta import vbios_fields
+    from tests.test_vbios_fields import v30_power_fixture
+
+    parsed = vbios_fields.inspect(v30_power_fixture(stride=0x47, device=0xBEEF, count=3, channel=7, unit=1))
+    policy = {"policy": 2, "type": 0, "channel": 7, "unit": "mA", "minimum": 100000,
+              "default": 310000, "maximum": 380000, "consistent": True}
+    changes = {"power.2.maximum": 400000}
+    saved = pr.contracts(GPU([policy]), parsed, changes)
+    assert pr.verify(snapshot([{**policy, "maximum": 400000}]), changes, saved) == list(changes)
+    with pytest.raises(pr.PowerRuntimeError):
+        pr.contracts(GPU([{**policy, "channel": 5}]), parsed, changes)

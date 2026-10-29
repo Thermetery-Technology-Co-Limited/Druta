@@ -350,6 +350,12 @@ Speedo and IDDQ change software model inputs while the raw hardware fuses stay
 intact. IDDQ transactions also verify the other model inputs and configuration;
 an ignored, rounded or otherwise mismatched value triggers undo.
 
+The development branch also accepts minimum, rated and maximum edits for
+full class 1 in the shorter v30 power table, using the existing native-policy
+binding and restart/Undo checks. Other classes in that shorter table remain
+read-only. Source planning is covered by offline tests; activation and recovery
+on the RTX 3070 Ti are still pending their separate machine validation.
+
 **Linked current limits** configure a current limit carried by another power
 policy. Druta resolves the BIOS relationship to its target policy and verifies
 the loaded cache and firmware-reported value after a GPU restart. Other power

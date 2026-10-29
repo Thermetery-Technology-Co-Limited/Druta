@@ -719,5 +719,25 @@
   "NVIDIA_App_install": false,
   "workload": false,
   "physical_measurement": false,
-  "F219_SET": false
+  "F219_SET": false,
+  "dependency_followup": {
+    "scope": "Offline producer/lookup tracing and read-only current registry/configuration checks; no new GRPG control or mutation.",
+    "conditional_edges": "76E4EC-F5 adds edge0->4 only for group+E1==0;76E522-33 adds edge0->2 whenLPWR+2D8&0x100. No exposed effective predicate/final graph readback is established;controller2 is currently unsupported.",
+    "lookup": "1708F0 first uses IoOpenDeviceRegistryKey(PDO,DevInstKeyType2,KEY_READ) throughF2CE0/1929BF0, and successful selected-device DWORD lookup stops fallback. Modern fallback uses IoOpenDriverRegistryKey PersistentState thenParameters;the service-root literal alone is not the effective path.",
+    "current_registry": "Neither RMLpwrArch nor RmPgCtrlParameters exists at the verified selected-device software key, service Parameters or service root. This does not establish absence in driver-private PersistentState, final fallback data, or the effective loaded value; no setter/default is inferred.",
+    "whole_groups": "Type4 roles4-7 also depend on separate provider bytes outside the GRPG entry table. Type7 role1 can retain independent providers. No understood setup removes all providers with a distinguishing independent projection. Empty-group outer gates yield unavailable rows, which alone do not prove disappearance.",
+    "next_prerequisite": "An understood provider/predicate control with original effective-value preservation and independent readback, or a separately supported target configuration. No flag/offset sweep or raw default DWORD was attempted.",
+    "official_registry_semantics": [
+      "https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-ioopendeviceregistrykey",
+      "https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/ne-wdm-driver_regkey_type"
+    ],
+    "private_evidence_sha256": {
+      "terra-controllers.json": "ff4aa9a28b71fb4279989d54ab22a3886e535a3f5d2340fecd8034a7b8755c4f",
+      "terra-predicate-control.json": "ff0ec738f6d528ecdbaa8ecac026a4e936a21e31619430c6d8d42e678f655836",
+      "luna-group-witness.json": "89aca50ffcecac11b4b686332e584589826bd1cc5814d90136dbbc4a6f363ba4",
+      "root-current-get.json": "29892e8a0cc33b44b1a80e49f45cf151b66e20518e4146e74edfebc8a7cc6741",
+      "root-registry-two-values.json": "318c45f5620970eb6594075316d38bdbbf019d4cbcbbbcefb0ef49c3bfd134e4",
+      "root-key-predicates.json": "34c708c605333297f56b33fb0ee19f95ded9c9b6dcb0e1b8b3f6015d3e5ef953"
+    }
+  }
 }

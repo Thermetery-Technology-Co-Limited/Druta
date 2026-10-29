@@ -27,7 +27,7 @@
     },
     "preservation": "Complete client/native INFO, CONTROL and ROLE packets, binding, registry and image matched the initial capture and independent subsequent reads. Original/live row captures agree. Raw captures, images, hashes and private identifiers remain local."
   },
-  "implementation": "Recognize this exact geometry for bounded read-only fields and original-range comparison. Every power field in the shorter layout remains read-only; the normal persistent planner rejects edits. Other geometries and unmapped full classes retain their existing behavior. No device, BIOS or driver allowlist is added.",
+  "implementation": "At the 669d295 read-only checkpoint: Recognize this exact geometry for bounded read-only fields and original-range comparison. Every power field in the shorter layout remains read-only; the normal persistent planner rejects edits. Other geometries and unmapped full classes retain their existing behavior. No device, BIOS or driver allowlist is added.",
   "regression_coverage": [
     "Full encoded class and unknown extension rejection across all four v30 geometries.",
     "Alternate adapter/slot, nonzero policy ordinal, distinct bounds, current-unit and unknown-class peers, and verified receipt-original recovery.",
@@ -38,5 +38,6 @@
     "Persistent activation and restart on the shorter layout were not attempted or qualified.",
     "Other v30 classes remain unmapped.",
     "Physical power/current enforcement and other adapters are outside this read-only result."
-  ]
+  ],
+  "persistent_followup": "power-v30-short-row-20261029.json traces the direct shorter-row consumer and implements full-class1 bound planning/runtime contracts. Actual target activation/Undo remain unqualified; the read-only evidence above retains its original scope."
 }

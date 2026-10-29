@@ -355,13 +355,10 @@ class _Image:
         )
         t = self.table("power", "P", 0x2C, shapes, 0x13)
         modern = t["version"] == 0x40
-        # The shorter v30 row contains the common bounds prefix and the full
-        # class extension at +0x42. Qualify those fields for read-only runtime
-        # comparison without assuming the longer row's persistent edit path.
-        inspection_only = not modern and t["stride"] == 0x47
         for i in range(t["count"]):
             row = t["offset"] + t["header_size"] + i * t["stride"]
             kind = self.b[row] if modern else (self.b[row] & 15) | ((self.b[row + 0x42] & 15) << 4)
+            inspection_only = not modern and t["stride"] == 0x47 and kind != 1
             if not kind:
                 continue
             # The common flags word has limit units in bit 0; other bits
@@ -374,7 +371,7 @@ class _Image:
             valid = discriminator in (0, 1) and kind in (1, 2, 3, 6, 7, 9, 11, 12, 13) and values == sorted(values)
             reason = "" if valid else "unknown units, class, or inconsistent limits"
             if inspection_only:
-                reason = "short v30 power layout is qualified for read-only inspection only"
+                reason = "short v30 power class is qualified for read-only inspection only"
             meta = {
                 "policy": i,
                 "policy_type": kind,

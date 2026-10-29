@@ -3152,8 +3152,9 @@ class through construction and both native INFO serializers. Exact policy
 index, class, channel, units and all three bounds must still match. The same
 class binding can satisfy the existing persistent power contract for editable
 layouts. The RTX 3070 Ti read-only capture identified a shorter
-`0x30/0x2C/0x47` table. Its bounded common fields are now available for inspection
-and original-range comparison, with persistent edits deliberately unavailable.
+`0x30/0x2C/0x47` table. Its bounded common fields support inspection and
+original-range comparison. The persistent planning follow-up below remains
+separate from this read-only target qualification.
 The selected full class 1 row, channel, units and all three limits matched the
 actual native/client policy; the original-range getter returned 100–380 W with
 `live-bios` provenance and unchanged image, registry and configured requests.
@@ -3161,6 +3162,27 @@ This establishes the current live-image baseline, not a manufacturing-stock
 flash or persistent activation/restart behavior. Original receipts and ROM
 hashes remain required when an image override is active.
 [Target qualification and limits](experiments/ampere-provenance-qualified-20261029.json).
+
+The shorter row is explicitly accepted by the same signed driver: 5A4402
+selects descriptor `2b8d3b2w1b6d1b1d`, and 5A466E calls the decoder directly.
+It consumes 0x47 source bytes into 24 DWORD slots (0x60 bytes); the caller's
+0x74-byte initialization is buffer capacity, not decoded size. The decoder
+checks the row against the backing image and the caller rejects its error.
+The planner retains stricter complete-table bounds. Full class1 uses the same
+class0 constructor and native INFO mapping for its three limit DWORDs. The
+separately consumed row+43 DWORD and every other byte remain unchanged.
+
+Only that shorter-row class's minimum/rated/maximum fields now accept plans.
+Other full classes remain read-only. Existing typed contracts require the
+current adapter's complete native class, channel, units and bounds to match;
+Apply verifies the exact loaded image and selected/peer metadata, and Undo
+retains its existing durable recovery path. This source implementation and its
+offline tests do not qualify activation/restart on the 3070 Ti. The remote task
+uses `experiments/validate_short_power_override.py`: default GET-only preflight,
+then explicit `--run` for one 1000 mW maximum increase and durable Undo. Complete
+client/native buffers are projected independently and full fresh snapshots are
+retained for peer review. No workload or physical enforcement is claimed.
+[Short-row consumer and pending target validation](experiments/power-v30-short-row-20261029.json).
 
 `power_slider_style.py` tints only the portions of the native slider outside
 those original bounds and colors the adjacent numeric input amber for an

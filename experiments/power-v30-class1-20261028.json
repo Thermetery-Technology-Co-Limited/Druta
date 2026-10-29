@@ -9,6 +9,7 @@
   "parser": {
     "entry": "5A41DF",
     "supported_record_geometries": [
+      "0x30/0x2C/0x47",
       "0x30/0x2C/0x4B",
       "0x30/0x32/0x53",
       "0x30/0x34/0x5B"
@@ -23,7 +24,7 @@
   "limitations": [
     "Static evidence does not establish the actual target BIOS, its original provenance, operation on all driver versions, or physical power enforcement.",
     "Later runtime policy changes can alter bounds; exact readback is required.",
-    "The remote RTX 3070 Ti capture, persistent activation and restart validation remain pending."
+    "The remote RTX3070Ti read-only provenance capture is qualified separately; persistent activation/Undo on its shorter table remain pending."
   ],
   "synthetic_validation": "Three v30 geometries, full-class extension mismatch, provenance and peer mismatches, modern regression and persistent contract projections are covered by offline tests.",
   "address_notation": "Hexadecimal RVAs in the identified nvlddmkm.sys; they identify static evidence, not runtime compatibility gates.",
@@ -35,5 +36,6 @@
       "elapsed_seconds": 115.22
     },
     "current_modern_original_range_get": "250000..450000mW returned with verified live-image provenance; no setter. Target Ampere capture still pending."
-  }
+  },
+  "short_row_followup": "power-v30-short-row-20261029.json verifies the direct 0x47 descriptor path; source edits are implemented, while target persistent activation/Undo remain pending."
 }
