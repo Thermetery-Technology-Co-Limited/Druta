@@ -2848,9 +2848,11 @@ ordinal and the independently captured equation root, preserving every other
 byte. It does not predict boost from a percentage or identify clients by labels.
 
 A separate -5000 uV offset request returned success but was ignored; exact
-readback rejected it and restored the original boost. The traced row setter
-skips offset copies when PERF+0x32C is set, and generated HAL initialization
-selects that flag for the inspected chip family. No active flag GET is known.
+readback rejected it and restored the original boost. The inspected local F214
+row setter skips offset copies when PERF+0x32C is set, and generated HAL initialization
+selects that flag for the inspected chip family. No qualified active flag readback
+was established. The captured call was not traced into this local implementation,
+so that guard is not established as the cause of the ignored request.
 This is distinct from the existing A030/A031 admission switch at PERF+0x2E5;
 changing that switch is not a demonstrated way to enable the offset copies.
 
@@ -2862,13 +2864,13 @@ there was no registry write or workload. The [sanitized report](experiments/volt
 records the trial and its scope. Arbitrary changing-offset replay and recovery
 remain unqualified.
 
-Static inspection found public and direct native rail SET routes converge on
-the same gated row callback. Pstates20 writes different records. Native legacy
-arbiter controls own different requests and reject the modern VOLT+0x16A path;
+In the inspected local implementation, public and direct native rail SET routes
+converge on the same gated row callback. Pstates20 writes different records.
+Native legacy arbiter controls own different requests and reject the modern VOLT+0x16A path;
 the public escape's association with those native commands is not proven.
 F208 controls voltage-device fields and F212 controls voltage-policy fields;
 neither is established as an equivalent six-word replay. The modern group's
-B212 inventory and B218 cached CONTROL getters were separately traced and read
+B212 INFO and B218 CONTROL readbacks were separately captured
 on the current adapter. Its five entries have CONTROL types2,2,2,2,4, with zero
 current flags and values. These are adapter observations, not fixed indices or
 rail names. Their units, relationship to the legacy requests and F219 firmware
@@ -2935,12 +2937,33 @@ consumption remain unproved. See the [dispatch evidence](experiments/driver-tran
 The real PERF owner's base is separately bound on the enumerated class
 `0xED0B65` construction path. Successful construction returns its allocation
 root; the loader's exact-class lookup stores that pointer unchanged in
-GPU+`0x23C8`. The equation handler loads its target from `[root+0x588]`,
+GPU+`0x23C8`. The local equation handler loads its target from `[root+0x588]`,
 passing that same root in RDX and the GPU in RCX.
 The engine-dispatch interface is a distinct adjusted pointer. This conditional
 base proof does not observe the active runtime descriptor or identify the
 callback assignment. The traced equation group and child allocations retain
 their separate identities.
+
+An outer RM routing layer must be distinguished from those local handlers.
+The ten inspected voltage-command export records carry
+`RMCTRL_FLAGS_ROUTE_TO_PHYSICAL` (`0x40`). Under the installed runtime forwarding
+predicate, successful forwarding returns `NV_WARN_NOTHING_TO_DO` (`0x10006`);
+the dispatcher converts it to success and skips the local exported handler.
+The conditional endpoint builds a message whose ID `76` and payload layout
+match NVIDIA's `GSP_RM_CONTROL` schema. This outer control envelope is distinct
+from the VOLT group's downstream submissions and response-directory selectors.
+Neither the captured calls' live route nor their entry into the local F214
+`+0x32C` or E0B7 `+0x588` paths was observed. Documented GSP-mode and firmware
+queries returned unavailable values here; they do not establish a false
+forwarding predicate. Existing changed-definition, readback and Undo evidence
+remains interface-level evidence. See the [routing qualification](experiments/driver-transport-followup-20261028.json).
+
+The matching DriverStore firmware file also contains an embedded RV64 image
+with a validated Subdevice export array. Four entries match E0B7, F214, F219
+and B214, including their parameter sizes and executable handler pointers.
+The file is a candidate: its loaded identity, actual dispatch and handler
+effects are unproved. These records provide concrete firmware counterparts
+for further analysis without identifying the active route or qualifying a new SET.
 
 A separate variable investigation matched native INFO `0x2080A0B1`
 (`0xC364` bytes, header `0x28`, 255 rows of `0xC4`) and CONTROL
@@ -2980,10 +3003,12 @@ Those facts do not qualify a nonzero operand or a substitute for six-word rail
 request replay. See the [native-variable evidence and remaining boundaries](experiments/voltage-variable-native-followup-20261028.json).
 
 Installed-NVAPI tracing binds public query `0x3FC4D4C8` to native B212 INFO
-GET and `0xE6AAED18` to native B218 cached CONTROL GET. The separate public
+GET and `0xE6AAED18` to native B218 CONTROL GET. The inspected local B218 body
+reads cached RM state; the captures do not establish local-cache servicing.
+The separate public
 query `0xC268BC22` dispatches native F219 SET; after successful SET transport,
-C98050 fetches its response, which may conditionally update the modern host
-cache. The read-only captures exercised B212 and B218; no F219 SET or response
+C98050 on the local path fetches its response, which may conditionally update
+the modern RM cache. The read-only captures exercised B212 and B218; no F219 SET or response
 capture was made. Native B214 is a distinct GET bound to public query
 `0xBE94281E`; one GET on the inspected adapter succeeded with status 0 and a
 populated type2 result. This is a narrow single-adapter read qualification; a
@@ -3004,7 +3029,7 @@ Raw inputs/outputs, timings, scope and independent audits are recorded in the
 [GET-only control](experiments/voltage-replay-followup-20261028.json).
 
 Further static tracing follows both sampled fields through the host copies.
-The type2 serializer copies its input byte and DWORD independently, and the
+The inspected local type2 serializer copies its input byte and DWORD independently, and the
 complete public-wrapper path independently copies all seven sampled pairs.
 Those operations do not create the observed `6250` relationship: on this
 traced path it already exists at the serializer's input. The preceding transfer

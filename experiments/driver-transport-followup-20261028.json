@@ -35,7 +35,7 @@
     "scope": "Static installed-image bindings plus the cited adapter captures; the single B214 GET is a narrow qualification, not a broad support claim.",
     "commands": {
       "B212": "Native 0x2080B212 INFO GET; public query 0x3FC4D4C8.",
-      "B218": "Native 0x2080B218 cached CONTROL GET; public query 0xE6AAED18.",
+      "B218": "Native 0x2080B218 CONTROL GET; public query 0xE6AAED18. The inspected local body reads RM cache; captured servicing locality is unobserved.",
       "B214": "Distinct native 0x2080B214 GET; public query 0xBE94281E. Static path prepares a shared-buffer request, dispatches transport, then decodes the returned data.",
       "F219": "Native 0x2080F219 SET; public query 0xC268BC22. C98050 fetches a response only after successful SET transport."
     },
@@ -60,7 +60,7 @@
     },
     "vmin_comparison": {
       "sequence": "A typed VMIN 800000 -> 805000 -> 800000 comparison was bracketed by three B214 GETs.",
-      "result": "All three B214 reads returned status 0; native/public B212 inventory and B218 cached CONTROL stayed unchanged, while B214 response rows changed across all three stages. All requested/policy fields remained unchanged within each GET.",
+      "result": "All three B214 reads returned status 0; native/public B212 inventory and B218 CONTROL readback stayed unchanged, while B214 response rows changed across all three stages. All requested/policy fields remained unchanged within each GET.",
       "caveat": "The normalized configured comparison excludes capture timestamps/paths and dynamic policy telemetry. The active child's only remaining configured difference was its evaluated V/F curve, which alone triggered active-child attention. This does not qualify an active B214 correlation or establish voltage units or cause.",
       "raw_response_note": "Twenty-one paired raw records satisfied DWORD = 6250 × adjacent byte; no units, rail association, or cause were inferred. Baseline and restored raw responses differed.",
       "restoration": "The full original normalized configuration matched after restoration, excluding capture timestamps/paths and dynamic policy telemetry. The parent journal records state restored with the active-child comparison error retained; the process returned exit 1."
@@ -558,13 +558,13 @@
       "common_byte": "D2A4A0 -> D35880 -> CB1540 checks pointers and copies one common response byte. This does not compute the sampled numeric pairs.",
       "type2": "D1E7EE..D1E824 iterates the object mask. For each selected k, input byte at row+4+0x14*k and DWORD at row+8+0x14*k are independently copied to native output row+0x0C+0x14*k and row+0x10+0x14*k. A separate input byte at row+0x0C+0x14*k reaches native output row+0x14+0x14*k.",
       "public_wrapper": "The full 1CF300..1CFC19 wrapper window covers all sampled k=2..8. Each six-instruction group independently moves native row+0x0C/+0x10/+0x14 plus stride0x14 to public row+0x85/+0x88/+0x84 plus stride0x50. Record8 code/DWORD copies at1CF901/908 and1CF90E/914 extend beyond the earlier1CF900 window. Row-stride arithmetic computes addresses, not the numeric relation.",
-      "implication": "Conditional on the traced selected-type2 path, the observed DWORD=6250*code relation is already present at D1E710 serializer input. The copied fields do not establish units, rail identity, an encoding contract or a replay format.",
+      "implication": "Conditional on the traced selected-type2 path, the observed DWORD=6250*code relation is already present at D1E710 serializer input. The copied fields do not establish units, rail identity, an encoding contract or a replay format. This local serializer-path statement is conditional; captured B214 service locality is not established.",
       "transfer_boundary": "C98940 -> C98D90 -> C36910 -> 8D4DA0 fetches that input through runtime-selected backends. Some final CPU paths copy bytes; other paths use unresolved callbacks or hardware-facing reads. Neither live backend nor original backing producer is established, and not all successful paths are proven byte-preserving."
     },
     "PERF_owner_base": {
       "binding": "For selected class descriptor F27B90 (class ED0B65) and successful retained construction, 17D7610 returns allocation root. The root+0 interface table F27C10 points to that descriptor and has offset0. The 112680 exact-class lookup returns the pointer unchanged and loader1224A2 stores it at GPU+0x23C8. E0B7 loads the target from [root+0x588] and calls it with the same root in RDX and GPU in RCX. The later EE8210 engine-dispatch cast is a separately adjusted interface.",
       "HAL_bases": "The reviewed calls to17D5FF0 and17D59E0 pass allocation root in RCX and retain it as R9 for their field stores; parent/HAL selector data uses distinct arguments. The two traced1D8 targets are A94650/77EBA0 under explicit selector predicates; the live selector is unobserved.",
-      "limits": "The conditional base identity does not identify the active runtime descriptor/instance or assign a target to+0x588. The equation group, ClockManager key0x200 buffer and separately allocated child at root+0x590 must retain their distinct identities. No global absence or callback effect is proved."
+      "limits": "The conditional base identity does not identify the active runtime descriptor/instance or assign a target to+0x588. The equation group, ClockManager key0x200 buffer and separately allocated child at root+0x590 must retain their distinct identities. No global absence or callback effect is proved. This is a local-handler-path binding; no captured E0B7 request is proven to enter that local pFunc."
     },
     "root_reproduction": {
       "response_instruction_windows": 31,
@@ -588,5 +588,211 @@
       "experiments/registry-overrides/b214-producer-followup-20261029/extent-review/semantic-review/findings.json": "3d416fc9f315e239c45d99453665f25d468250409e334964ff077c0e6073fafe"
     },
     "independent_semantic_review": "Luna independently checked all seven row-relative public/native copy mappings and the distinction between class descriptor, root interface, callback target and arguments. Final wording review passed; no hardware operation by reviewers."
+  },
+  "RM_routing_and_candidate_firmware_20261029": {
+    "scope": "Installed-image static routing and file-only firmware candidates, plus documented read-only mode diagnostics. No new native control probe, configuration SET or driver restart. Export flags and binary identities are research provenance, not admission rules.",
+    "driver_sha256": "3f8d33495cabeb2fa11ebdcf0b12705e9ccfb4e53005324bcd86e9dea8ba2ab4",
+    "primary_source_commit": "ca2d03e6fafd4d4b56b383497d931c25b283bfcf",
+    "export_descriptors": [
+      {
+        "command": "0x2080e0b7",
+        "descriptor_rva": "0xec14d0",
+        "handler_rva": "0x4ce4c0",
+        "flags": "0x44",
+        "access": 0,
+        "parameter_bytes": 1049608,
+        "route_to_physical_bit": true,
+        "route_to_vgpu_host_bit": false
+      },
+      {
+        "command": "0x2080e0b4",
+        "descriptor_rva": "0xec14b0",
+        "handler_rva": "0x4ce910",
+        "flags": "0x44",
+        "access": 0,
+        "parameter_bytes": 11260,
+        "route_to_physical_bit": true,
+        "route_to_vgpu_host_bit": false
+      },
+      {
+        "command": "0x2080b201",
+        "descriptor_rva": "0xec0b50",
+        "handler_rva": "0x4f8ff0",
+        "flags": "0x448",
+        "access": 0,
+        "parameter_bytes": 2444,
+        "route_to_physical_bit": true,
+        "route_to_vgpu_host_bit": false
+      },
+      {
+        "command": "0x2080b202",
+        "descriptor_rva": "0xec0b70",
+        "handler_rva": "0x4f9100",
+        "flags": "0x48",
+        "access": 0,
+        "parameter_bytes": 3360,
+        "route_to_physical_bit": true,
+        "route_to_vgpu_host_bit": false
+      },
+      {
+        "command": "0x2080b213",
+        "descriptor_rva": "0xec0c50",
+        "handler_rva": "0x4f8ee0",
+        "flags": "0x48",
+        "access": 0,
+        "parameter_bytes": 1036,
+        "route_to_physical_bit": true,
+        "route_to_vgpu_host_bit": false
+      },
+      {
+        "command": "0x2080f214",
+        "descriptor_rva": "0xec1890",
+        "handler_rva": "0x4f9290",
+        "flags": "0x44",
+        "access": 0,
+        "parameter_bytes": 1036,
+        "route_to_physical_bit": true,
+        "route_to_vgpu_host_bit": false
+      },
+      {
+        "command": "0x2080b212",
+        "descriptor_rva": "0xec0c30",
+        "handler_rva": "0x4f95a0",
+        "flags": "0x48",
+        "access": 0,
+        "parameter_bytes": 499936,
+        "route_to_physical_bit": true,
+        "route_to_vgpu_host_bit": false
+      },
+      {
+        "command": "0x2080b218",
+        "descriptor_rva": "0xec0cd0",
+        "handler_rva": "0x4f9430",
+        "flags": "0x48",
+        "access": 0,
+        "parameter_bytes": 9220,
+        "route_to_physical_bit": true,
+        "route_to_vgpu_host_bit": false
+      },
+      {
+        "command": "0x2080b214",
+        "descriptor_rva": "0xec0c70",
+        "handler_rva": "0x4f96d0",
+        "flags": "0x48",
+        "access": 0,
+        "parameter_bytes": 85720,
+        "route_to_physical_bit": true,
+        "route_to_vgpu_host_bit": false
+      },
+      {
+        "command": "0x2080f219",
+        "descriptor_rva": "0xec18b0",
+        "handler_rva": "0x4f9940",
+        "flags": "0x44",
+        "access": 0,
+        "parameter_bytes": 9220,
+        "route_to_physical_bit": true,
+        "route_to_vgpu_host_bit": false
+      }
+    ],
+    "routing": {
+      "metadata": "All ten named Subdevice export records carry bit0x40, matched to RMCTRL_FLAGS_ROUTE_TO_PHYSICAL. E0B7 and legacyF214 are distinct commands; both have flags0x44. Other flags/admission/cache paths retain their independent conditions.",
+      "installed_prologue": "For these descriptors, 403040 can enter forwarding when its resolved GPU object exists and byteGPU+F81 is nonzero. It obtains the direct function member at GPU+4688 by taking &GPU+4650 and reading its +38 field; there is no vtable dereference at4031AB. Successful forwarding becomes status0x10006.",
+      "installed_dispatcher": "402AF0 accepts prologue status0x10006 and converts it to success while skipping the exported pFunc call at402C65..7A. Consequently a successful captured call does not prove entry into its local handler. The actual live predicate/member/route remains unobserved.",
+      "conditional_endpoint": "The connected initialization can install2FD810 at GPU+4688 when F80=0 and F81!=0. It builds functionID0x4C (76), with client/object/command/size/flags and raw parameters at payload+0x28. The ID and field geometry match pinned NVIDIA GSP_RM_CONTROL v03_00. Delivery uses2E3780 or2E3ED0 depending capacity. These are conditional host RM forwarding envelopes, not proof of firmware receipt or handler execution.",
+      "layer_distinction": "This outer RM control forwarding layer is distinct from the VOLT group submission/response paths previously traced inside local implementations. Neither wire group0x17 nor directory selector0x1B/0x1E names this outer RPC.",
+      "predicate_producer": "A traced GPU constructor maps mode inputs1/2/3 to initialF81 values0/1/0. Actual selected input, current value, later writes and endpoint retention were not observed; no static constructor value is substituted for a live read."
+    },
+    "documented_diagnostics": {
+      "target": "00000000:01:00.0 RTX5080 /621.01",
+      "gsp_mode_current": "[N/A]",
+      "gsp_mode_default": "[N/A]",
+      "gsp_firmware_version": "N/A",
+      "virtualization_mode": "None",
+      "exit_codes": [
+        0,
+        0
+      ],
+      "interpretation": "Unavailable firmware fields and virtualization None do not decide the installed F81 predicate or per-command route. These are documented status reads, not a before/after mutation experiment.",
+      "GSP_GET_FEATURES_candidate": "The full pinned source and installed export confirm a0x48-byte parameter structure for20803601, with bValid at+4. The traced installed local variants return unsupported or write constant false; neither readsF81. Its cache/forwarding conditions and actual producer remain distinct. No request was issued and a false/unsupported reply is not used asF81=false."
+    },
+    "candidate_firmware": {
+      "filename": "gsp_ga10x.bin",
+      "sha256": "6c4de07caa7f494a44419f3cad67bfda95de4304f057985da03cd7756a1c533d",
+      "bytes": 18262168,
+      "embedded_ELF_file_offset": 1978432,
+      "ELF_machine": 243,
+      "class_id": "0x4B01B3",
+      "class_size": 1336,
+      "export_count": 1198,
+      "record_stride": 32,
+      "methods": [
+        {
+          "command": "0x2080E0B7",
+          "record_index": 1150,
+          "handler_VA": "0x15a05fc",
+          "flags": "0x44",
+          "parameter_bytes": 1049608
+        },
+        {
+          "command": "0x2080F214",
+          "record_index": 1180,
+          "handler_VA": "0x168e11c",
+          "flags": "0x44",
+          "parameter_bytes": 1036
+        },
+        {
+          "command": "0x2080F219",
+          "record_index": 1181,
+          "handler_VA": "0x168df6c",
+          "flags": "0x44",
+          "parameter_bytes": 9220
+        },
+        {
+          "command": "0x2080B214",
+          "record_index": 1083,
+          "handler_VA": "0x1689174",
+          "flags": "0x48",
+          "parameter_bytes": 85720
+        }
+      ],
+      "validation": "ELF64LE/RV64C bounds, Subdevice class/export-info structure and aligned array entries validated; function pointers map to executable PT_LOAD and decoded prologues. Raw fixed-ID lookup is bounded to these four commands in this one file.",
+      "limits": "No evidence that this file/embedded image was loaded or that any captured call reached these handlers. Candidate-image virtual addresses and field layouts are separate from Windows RVAs. Provider callbacks, selected type2 semantics, units/rails and consumed replay remain unbound. No vendor image was copied into the product."
+    },
+    "qualification": "Keep captured statuses, changed definitions, complete readback comparisons, Undo and negative attempts as interface-visible evidence. Static localF214 PERF+32C and localE0B7 PERF+588 paths are not established causes or execution traces of those captures. LocalB218 reads cached RM state, but captured B212/B218 replies do not establish local-cache servicing.",
+    "root_verification": {
+      "Windows_instruction_windows": 32,
+      "metadata_regions": 3,
+      "named_export_descriptors": 10,
+      "matched_primary_source_files": 12,
+      "candidate_RV64_exports": 4,
+      "all_exact": true,
+      "candidate_feature_query_regions": 10
+    },
+    "remaining": "Establish active routing/loaded-image identity or cover each relevant implementation; bind the selected rail/modern provider callbacks and consumer before arbitrary-offset SET. Existing live-control readback qualifications do not establish physical voltage enforcement.",
+    "private_evidence_sha256": {
+      "experiments/registry-overrides/e0b7-routing-root-20261029/descriptor_matrix.py": "a3cf5c8d8b6926cbfc6691a315ede7965e949af47ed41453cc11d7fef65d9036",
+      "experiments/registry-overrides/e0b7-routing-root-20261029/descriptor-matrix.json": "eb4c611ad9730d802167f0db84dbda38aa8f4e389b2e8d7b915e97ec819dd872",
+      "experiments/registry-overrides/e0b7-routing-root-20261029/verify_static_routing.py": "7ad58de50009f0790141afefc2658e74d7e69b93cc223579cdcce469ae8170a0",
+      "experiments/registry-overrides/e0b7-routing-root-20261029/static-reproduction.json": "25ed7fcd4c22261da4ba5a1d858b4aee8522e0c90f8e79c558140988b9455a45",
+      "experiments/registry-overrides/e0b7-routing-root-20261029/documented-gsp-mode.json": "ed9e0a3790fe687ada65f11f663398f8f78ac239ea9a4d2c26a41028be7952e2",
+      "experiments/registry-overrides/e0b7-routing-root-20261029/documented-gsp-mode.csv": "fe43838385ed0f79d3a0fb023375e1518eefb80d474f7fa90b58ca71df9f8c2c",
+      "experiments/registry-overrides/e0b7-routing-root-20261029/documented-query-summary.json": "270e99ff00baac1e7856c3d140d272f4fa87f3f79f06ce7c1111dde7bf0cde26",
+      "experiments/registry-overrides/e0b7-routing-boundary-20261029/findings.json": "a10aeff0e1e5d020d353c456b44e3f6652e4815791dcbcaa94644fda35967452",
+      "experiments/registry-overrides/e0b7-routing-boundary-20261029/predicate-producer/findings.json": "818a28288935298c2e38a69d137844ea6a77ce94c0e4245dddbb26d940f0ea52",
+      "experiments/registry-overrides/e0b7-routing-boundary-20261029/routing-endpoint/findings.json": "d1fb009e9ac921b1beb607f04b66bad4abbb1c776f47e1f6d47e4443063c1a27",
+      "experiments/registry-overrides/e0b7-routing-observability-20261029/full-source-followup/selected-producer/findings.json": "d508ec25cf98c4803f90ec495be9455d12c1cc8bcd6bda08d6dd1d2ee76f8839",
+      "experiments/registry-overrides/e0b7-routing-wording-audit-20261029/correction.json": "2ad8c8451b286da5c0cd4821d9578685ca15373208880c7617753170770b131e",
+      "experiments/registry-overrides/gsp-voltage-export-candidates-20261029/findings.json": "5b60083a129226d3576ccc9fa53adf0eb14f6919437deb37ea12736e4b095d9d"
+    },
+    "primary_sources": [
+      "https://github.com/NVIDIA/open-gpu-kernel-modules/blob/ca2d03e6fafd4d4b56b383497d931c25b283bfcf/src/nvidia/inc/libraries/nvoc/runtime.h",
+      "https://github.com/NVIDIA/open-gpu-kernel-modules/blob/ca2d03e6fafd4d4b56b383497d931c25b283bfcf/src/nvidia/inc/kernel/rmapi/control.h",
+      "https://github.com/NVIDIA/open-gpu-kernel-modules/blob/ca2d03e6fafd4d4b56b383497d931c25b283bfcf/src/nvidia/src/kernel/rmapi/resource.c",
+      "https://github.com/NVIDIA/open-gpu-kernel-modules/blob/ca2d03e6fafd4d4b56b383497d931c25b283bfcf/src/nvidia/src/libraries/resserv/src/rs_resource.c",
+      "https://github.com/NVIDIA/open-gpu-kernel-modules/blob/ca2d03e6fafd4d4b56b383497d931c25b283bfcf/src/nvidia/inc/kernel/vgpu/rpc_global_enums.h",
+      "https://github.com/NVIDIA/open-gpu-kernel-modules/blob/ca2d03e6fafd4d4b56b383497d931c25b283bfcf/src/nvidia/generated/g_rpc-structures.h",
+      "https://github.com/NVIDIA/open-gpu-kernel-modules/blob/ca2d03e6fafd4d4b56b383497d931c25b283bfcf/src/nvidia/src/kernel/vgpu/rpc.c"
+    ]
   }
 }

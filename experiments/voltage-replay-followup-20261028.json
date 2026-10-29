@@ -14,11 +14,11 @@
     "limit": "The public description does not establish its implementation or a way to clear the independently traced PERF offset-copy suppression flag."
   },
   "static_findings": [
-    "The confirmed PERF+0x32C constructor assignment comes from the GPU HAL index. The bounded follow-up found no proven BIOS or registry control for that flag.",
-    "The two recognized BIOS rail subtype paths converge on the same gated six-word row setter. Changing subtype alone is not an established bypass.",
-    "NVIDIA's NVOC exported-method record stores its function pointer 0x10 bytes before methodId. Equation SET 0x2080E0B7 uses handler 0x4CE4C0; variable SET 0x2080E0B4 uses 0x4CE910 in this inspected image.",
-    "Equation SET selects existing rows in the same 8192-entry, 0x80-byte-row geometry returned by the independent CONTROL getter. The traced row path can write bounds before a later error, and the group may repeat its internal update. A successful status is insufficient.",
-    "The equation handler's post-call through PERF+0x588 remains unnamed. No physical-voltage or firmware-consumer conclusion is drawn."
+    "The inspected local F214 path's PERF+0x32C constructor assignment comes from the GPU HAL index. The bounded follow-up found no proven BIOS or registry control for that flag.",
+    "The two inspected local F214 BIOS rail subtype paths converge on the same gated six-word row setter. Changing subtype alone is not an established bypass.",
+    "NVIDIA's NVOC exported-method record stores its function pointer 0x10 bytes before methodId. The local export entry for equation SET 0x2080E0B7 names handler 0x4CE4C0; the local variable SET 0x2080E0B4 entry names 0x4CE910 in this inspected image.",
+    "The inspected local equation SET body selects existing rows in the same 8192-entry, 0x80-byte-row geometry returned by the independent CONTROL getter. The traced row path can write bounds before a later error, and the group may repeat its internal update. A successful status is insufficient.",
+    "The local equation handler's post-call through PERF+0x588 remains unnamed. No physical-voltage or firmware-consumer conclusion is drawn."
   ],
   "experiment": {
     "operation": "Unchanged selected REL equation row; no bound, coefficient, BIOS or registry change requested",
@@ -799,7 +799,7 @@
       "retained": [
         "full native VFE definitions",
         "legacy native/public six request words and boost",
-        "native B212/B218 inventory and cached CONTROL",
+        "native B212/B218 INFO/CONTROL readbacks",
         "public INFO/CONTROL raw payloads",
         "LPWR raw packets",
         "full client request",
@@ -832,5 +832,11 @@
       "experiments/registry-overrides/voltage-b214-discriminating-plan-20261029/review/root-control-1-root-audit.json": "34c276029cc6e54fd32dca0e80613976eb5571b87772bc3bd35739e0ff33f3f0",
       "experiments/registry-overrides/voltage-b214-discriminating-plan-20261029/luna-audit-20261029/findings.json": "bf78a571683c534f9e7d49689ca98d64d5ac1c78eb872377f607e68a257e45a0"
     }
+  },
+  "routing_qualification_20261029": {
+    "reference": "driver-transport-followup-20261028.json RM_routing_and_candidate_firmware_20261029",
+    "meaning": "Installed export flags and prologue permit successful forwarding that skips local handlers. The captures establish statuses/readbacks/restoration, not entry into localF214 CACC70/PERF32C or localE0B7/PERF588. Those local paths are not established causes of the ignored request or curve changes. GSP diagnostic N/A and virtualization None do not identify current routing.",
+    "candidate_firmware": "Four native-command counterparts were validated in the co-located RV64 file; loaded identity, actual execution, provider semantics and replay remain unproven.",
+    "preserved": "All original experiment, timed followup, live-bound, product trial and validation objects remain unchanged as parsed data; raw journals and packet artifacts are preserved."
   }
 }
