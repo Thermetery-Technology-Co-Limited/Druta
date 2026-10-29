@@ -373,6 +373,17 @@ and complete enabled-entry shutdown. Other dependency profiles and physical
 residency/power savings remain pending.
 [MS configuration evidence](experiments/ms-configured-qualified-20261029.json).
 
+NVDEC entry disables verify video-decoder low-power eligibility after the GPU
+restart. Partial disables can retain support while removing configured
+P-states; disabling every enabled entry can remove controller support and its
+auxiliary role. Preview shows the predicted outcome, and Apply/Undo verify
+that outcome alongside the other captured low-power controllers. The current
+profile requires controller 12 supported and controller 17 independently
+unsupported; partial disables must preserve aggregate flags, and shutdown
+requires an independently supported auxiliary peer. Other profiles and
+physical residency/power savings remain pending.
+[NVDEC configuration evidence](experiments/nvdec-configured-qualified-20261029.json).
+
 **Linked current limits** configure a current limit carried by another power
 policy. Druta resolves the BIOS relationship to its target policy and verifies
 the loaded cache and firmware-reported value after a GPU restart. Other power

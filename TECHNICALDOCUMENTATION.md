@@ -3419,6 +3419,62 @@ trial, corrected research and both production cases; every trial restored its
 complete original compared state. No Windows reboot, workload or F219 SET
 was used. [Scoped MS evidence](experiments/ms-configured-qualified-20261029.json).
 
+## NVDEC configured-state contracts (2026-10-29)
+
+The NVDEC table at BIT P+0x11C/object 0xB4 uses v10, a ten-byte header and
+one WORD per row. The loader accepts fewer than six rows and tests bit 0;
+bit 1 selects controller 12, otherwise bit 2 selects controller 17. Raw bit 3
+contributes the associated type4 roles 4/8 support. Bit 4 changes the class17
+feature word, not its support. Disable edits clear only bit 0 and preserve
+all other bits. The runtime records occupy LPWR+AD8..B07; the traced zero
+allocation, defaults and adjacent loader boundaries establish the bounded
+six-slot candidate. This is not a whole-binary proof against every alias.
+
+Actual loaded PERF Pstate IDs select LPWR index rows, whose raw byte 13
+selects the NVDEC record; fallback and unloaded slots use the zero sixth
+slot. Contracts require the complete before mask to equal that route
+projection. Duplicate IDs retain eligibility if a surviving route contributes.
+They capture the understood index/NVDEC/PERF ownership and full raw/typed
+LPWR observation, recompute the saved prediction and verify every captured
+controller, mask, feature and auxiliary peer after restart and on Undo.
+Unexpected dependency effects fail verification and invoke restoration.
+
+Two normal source Prepare/durable Apply/Undo cases passed on the captured
+RTX 5080/621.01 configuration:
+
+- Row 0 disable retained controller 12 and its feature 0x3E005, while its
+  configured mask contracted from 0x129 to 0x009. P8/P5 both select NVDEC row 0.
+- All five enabled rows disabled removed controller 12 support, making its
+  mask/feature unavailable and removing type4 role 4. Other type4 roles
+  supplied independent surviving support; all remaining peers stayed exact.
+
+Both trials independently checked full LPWR packets, the selected-WORD-only
+image plan, complete native/client power records and requests, registry and
+compared configured state including the full curve. Both restored the complete
+original compared state. Earlier driver-flag differences and, after all-row
+Undo, curve differences remain retained; bounded GET retries reached strict
+equality without excluding curve fields. Their cause is not inferred.
+Four GPU-only restarts were used; no Windows reboot,
+workload, F219 SET or physical-residency measurement occurred.
+
+The current product profile requires available controller 12 support/mask/
+feature, independently unsupported controller 17 and the traced role 4 aggregate.
+Partial disables retain the enabled-row aggregate flags; complete enabled-entry
+shutdown additionally requires a positive surviving type4 peer when role 4 was
+supported. Other controller 17 profiles, mixed aggregate losses, whole-type4
+group disappearance and other table layouts remain pending. Tested identities
+and driver versions identify evidence, not compatibility gates. Older image-only
+NVDEC receipts retain Undo; a new Apply requires a fresh runtime preview.
+
+The full suite passed 6,667 tests in 116.54 seconds; 110 focused NVDEC/Preview
+cases and changed-file Ruff also passed. An independent raw-packet audit was
+reproduced by root for both terminal trials.
+
+The hardware evidence covers source production transactions. The package is
+checked separately for source/compiled-code parity and restored-baseline GETs;
+a dedicated NVDEC packaged visual/input walkthrough and physical savings remain
+pending. [Scoped NVDEC evidence](experiments/nvdec-configured-qualified-20261029.json).
+
 ## Source for a binary release
 
 Every tagged release on GitHub carries the Corresponding Source for the

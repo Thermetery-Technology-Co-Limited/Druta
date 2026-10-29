@@ -1383,6 +1383,21 @@ class RegistryPanel:
                 "Related low-power support and eligibility must also match after the GPU restart. "
                 "Undo verifies the original configuration. Physical residency and power savings remain unmeasured."
             )
+        if receipt.get("nvdec_contracts"):
+            contract = receipt["nvdec_contracts"]
+            before = contract["before"]["controllers"]["12"]["configured_pstate_mask"]
+            after = contract["after"]["controllers"]["12"]
+
+            def nvdec_states(mask):
+                return "/".join(f"P{i}" for i in range(32) if mask >> i & 1) or "none"
+
+            state = nvdec_states(after["configured_pstate_mask"]) if after["supported"] else "unavailable"
+            support = "retained" if after["supported"] else "removed"
+            lines.append(
+                f"NVDEC low power: configured P-states {nvdec_states(before)} -> {state}; support {support}. "
+                "Related low-power support and eligibility must also match after the GPU restart. "
+                "Undo verifies the original configuration. Physical residency and power savings remain unmeasured."
+            )
         if receipt.get("grpg_contracts"):
             contract = receipt["grpg_contracts"]
             before = contract["before"]["controllers"]["0"]["configured_pstate_mask"]

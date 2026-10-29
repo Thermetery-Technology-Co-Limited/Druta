@@ -39,6 +39,7 @@ from . import (
     lpwr_runtime,
     model_registry,
     ms_runtime,
+    nvdec_runtime,
     power_runtime,
     rated_clock_runtime,
     registry_flags,
@@ -850,6 +851,44 @@ def _validate_ms_receipt(receipt, target, *, restore=False):
     return saved
 
 
+def _nvdec_separate(changes, **other_changes):
+    selected = {key: value for key, value in changes.items() if nvdec_runtime.KEY.fullmatch(key)}
+    if selected and (len(selected) != len(changes) or any(other_changes.values())):
+        raise OverrideError("Apply NVDEC entry disables separately from other controls")
+    return selected
+
+
+def _validate_nvdec_receipt(receipt, target, *, restore=False):
+    """Require fresh NVDEC runtime contracts while retaining legacy image-only Undo."""
+    names = {"nvdec_contract_version", "nvdec_contracts"}
+    selected = {key: value for key, value in receipt["changes"].items() if nvdec_runtime.KEY.fullmatch(key)}
+    if not names.intersection(receipt):
+        if selected and not restore:
+            raise OverrideError("This NVDEC preview needs fresh runtime contracts; prepare it again")
+        return {}
+    if not names.issubset(receipt) or not registry_flags._same_state(receipt["nvdec_contract_version"], 1):
+        raise OverrideError("Missing or unrecognized NVDEC contracts")
+    saved = receipt["nvdec_contracts"]
+    nvdec_runtime.validate_contracts(receipt["changes"], saved)
+    if not saved:
+        return {}
+    _nvdec_separate(
+        receipt["changes"],
+        **{
+            name: receipt.get(name)
+            for name in ("named_changes", "flag_changes", "pstate_changes", "clock_vf_changes", "startup_changes")
+        },
+    )
+    if saved["before"]["identity"]["slot"] != target.slot:
+        raise OverrideError("Saved NVDEC contract does not match the selected GPU")
+    if (
+        not receipt.get("verify_bios", bool(receipt["plan"]["patches"]))
+        or saved["before_image_sha256"] != receipt["before_image_sha256"]
+    ):
+        raise OverrideError("Saved NVDEC contract does not match the captured BIOS image")
+    return saved
+
+
 def prepare(
     gpu,
     changes,
@@ -887,6 +926,14 @@ def prepare(
         startup_changes=startup_changes,
     )
     _ms_separate(
+        changes,
+        named_changes=named_changes,
+        flag_changes=flag_changes,
+        pstate_changes=pstate_changes,
+        clock_vf_changes=clock_vf_changes,
+        startup_changes=startup_changes,
+    )
+    _nvdec_separate(
         changes,
         named_changes=named_changes,
         flag_changes=flag_changes,
@@ -940,6 +987,7 @@ def prepare(
     lpwr = lpwr_runtime.contracts(gpu, image, changes)
     grpg = grpg_runtime.contracts(gpu, image, changes)
     ms = ms_runtime.contracts(gpu, image, changes)
+    nvdec = nvdec_runtime.contracts(gpu, image, changes)
     clocks = bios_runtime.clock_contracts(gpu, inspection, changes)
     clock_version, clock_changes = _clock_bios_scope(inspection, changes)
     clock_bios = clock_bios_runtime.contracts(gpu, inspection, changes)
@@ -1057,6 +1105,8 @@ def prepare(
         "grpg_contracts": grpg,
         "ms_contract_version": 1,
         "ms_contracts": ms,
+        "nvdec_contract_version": 1,
+        "nvdec_contracts": nvdec,
         "voltage_replay_contract_version": 1,
         "voltage_replay_contracts": voltage_replay,
         "fan_policy_contracts": fan_policies,
@@ -1076,6 +1126,7 @@ def prepare(
     _validate_lpwr_receipt(receipt, target)
     _validate_grpg_receipt(receipt, target)
     _validate_ms_receipt(receipt, target)
+    _validate_nvdec_receipt(receipt, target)
     startup.atomic_json(path, receipt)
     # The exact source image makes restoration auditable without an external ROM.
     if image is not None:
@@ -1308,6 +1359,24 @@ def _execute(
             raise OverrideError(error)
         return observation
 
+    def nvdec_observation(gpu):
+        if isinstance(gpu, dict):
+            if "nvdec" in gpu:
+                if gpu.get("nvdec_error"):
+                    raise OverrideError(gpu["nvdec_error"])
+                return gpu["nvdec"]
+            if gpu.get("target") != target:
+                raise OverrideError("Fresh NVDEC observation has no validated selected target")
+            from .nvbackend import GPU
+
+            gpu = GPU(target.slot)
+            if bind_target(gpu) != target:
+                raise OverrideError("Selected GPU or its driver mapping changed before NVDEC readback")
+        observation, error = nvdec_runtime.read(gpu)
+        if error:
+            raise OverrideError(error)
+        return observation
+
     def startup_observation(gpu):
         if not isinstance(gpu, dict):
             return voltage_startup_runtime.read_checked(gpu)
@@ -1356,6 +1425,7 @@ def _execute(
         lpwr_contracts = _validate_lpwr_receipt(receipt, target, restore=restore)
         grpg_contracts = _validate_grpg_receipt(receipt, target, restore=restore)
         ms_contracts = _validate_ms_receipt(receipt, target, restore=restore)
+        nvdec_contracts = _validate_nvdec_receipt(receipt, target, restore=restore)
         startup_contracts = _validate_startup_receipt(receipt, target)
         factory_contracts = receipt.get("factory_clock_contracts", {})
         factory_version = "factory_clock_contract_version" in receipt
@@ -1680,6 +1750,8 @@ def _execute(
                 grpg_runtime.verify(grpg_observation(gpu), grpg_contracts, restore=True)
             if ms_contracts:
                 ms_runtime.verify(ms_observation(gpu), ms_contracts, restore=True)
+            if nvdec_contracts:
+                nvdec_runtime.verify(nvdec_observation(gpu), nvdec_contracts, restore=True)
             if saved_requests:
                 current_requests = voltage_request_replay.validate(capture_requests())
                 if not registry_flags._same_state(current_requests, saved_requests["before"]):
@@ -1822,6 +1894,10 @@ def _execute(
             receipt.setdefault("runtime_verified_fields", []).extend(
                 ms_runtime.verify(ms_observation(fresh), ms_contracts, restore=restore)
             )
+        if nvdec_contracts:
+            receipt.setdefault("runtime_verified_fields", []).extend(
+                nvdec_runtime.verify(nvdec_observation(fresh), nvdec_contracts, restore=restore)
+            )
         if startup_contracts:
             startup_actual = startup_observation(fresh)
             receipt.setdefault("runtime_verified_fields", []).extend(
@@ -1948,6 +2024,8 @@ def _execute(
                     grpg_runtime.verify(grpg_observation(rollback), grpg_contracts, restore=True)
                 if ms_contracts:
                     ms_runtime.verify(ms_observation(rollback), ms_contracts, restore=True)
+                if nvdec_contracts:
+                    nvdec_runtime.verify(nvdec_observation(rollback), nvdec_contracts, restore=True)
                 if startup_contracts:
                     voltage_startup_runtime.verify(startup_observation(rollback), startup_contracts, restore=True)
                 receipt["state"] = "rolled-back"

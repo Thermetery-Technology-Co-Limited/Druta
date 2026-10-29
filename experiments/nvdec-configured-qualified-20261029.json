@@ -1,0 +1,79 @@
+{
+  "schema": 1,
+  "scope": "Disable-only NVDEC configured-state control, not physical residency or power savings",
+  "tested_configuration": {
+    "adapter": "GeForce RTX 5080",
+    "architecture": "Blackwell",
+    "driver": "621.01",
+    "identity_role": "Evidence identification only; product eligibility uses understood layouts, capabilities and exact readbacks"
+  },
+  "bindings": {
+    "table": "BIT P+0x11C, object0xB4, v10/header10/stride2, fewer than six rows",
+    "selected_field": "WORD bit0 enabled; preserve every other bit",
+    "controller_selection": "Enabled rawbit1 -> native12, else rawbit2 -> native17; rawbit1 has priority",
+    "auxiliary_selection": "Rawbit3 supplies type4 role4/8 for the corresponding class; rawbit4 changes class17 feature, not support",
+    "routing": "Actual loaded PERF Pstate ID masks -> LPWR index -> raw byte13 NVDEC slot; invalid/unloaded slots use the sixth fallback slot",
+    "initializer_limit": "Traced zero allocation/defaults and adjacent loader boundaries support the bounded six-slot projection; no exhaustive whole-binary alias claim",
+    "contract": "Recompute exact full before mask and full after controller/support/mask/feature/auxiliary state; verify target, routes, selected image changes and Undo"
+  },
+  "qualified_source_production_cases": [
+    {
+      "case": "Disable NVDEC row0",
+      "controller12_support": "retained",
+      "configured_mask_before": "0x129",
+      "configured_mask_after": "0x009",
+      "controller12_feature": "0x3E005, unchanged",
+      "type4_role4": "retained",
+      "other_captured_LPWR_peers": "exact",
+      "selected_fields_verified_on_Apply_and_Undo": true,
+      "full_original_compared_state_restored": true
+    },
+    {
+      "case": "Disable all five enabled NVDEC rows",
+      "controller12_support": "removed",
+      "configured_mask_and_feature_after": "unavailable",
+      "type4_role4": "unavailable; independent supported peers remain",
+      "other_captured_LPWR_peers": "exact",
+      "selected_fields_verified_on_Apply_and_Undo": true,
+      "full_original_compared_state_restored": true
+    }
+  ],
+  "independent_trial_checks": [
+    "Complete raw and typed LPWR controller/support/mask/feature/auxiliary readbacks",
+    "Independent actual-route projection and full selected-bit-only ROM comparison",
+    "Complete native/client power records and configured requests",
+    "Registry, captured configured peers and full curve comparisons at active and restored phases"
+  ],
+  "current_product_profile": [
+    "Controller12 independently supported with available mask and feature; controller17 independently unsupported",
+    "Role4 support agrees with the loaded enabled/class12/bit3 aggregate",
+    "Partial disables preserve the enabled-row aggregate flags and must have an observable configured-state effect",
+    "All-enabled shutdown requires an independently supported type4 peer when role4 was supported",
+    "Legacy image-only Undo remains available; new Apply requires a fresh runtime contract"
+  ],
+  "pending": [
+    "Supported controller17 profiles, mixed aggregate loss and additional layouts",
+    "Whole type4 group disappearance and further final dependency-graph qualification",
+    "NVDEC-specific packaged visual/input walkthrough",
+    "Physical residency, activity-counter semantics and power savings"
+  ],
+  "GPU_only_restarts": 4,
+  "Windows_reboot": false,
+  "workload_started": false,
+  "F219_SET": false,
+  "physical_effects_measured": false,
+  "release_changes": false,
+  "retained_intermediate_observations": {
+    "active": "Both trials had driver-flag differences before strict equality at sample6",
+    "restored": "Row0 reached strict equality at sample5; all-row samples1-4 differed in driver flags and V/F curve before strict equality at sample5",
+    "policy": "Bounded GET-only retries; full curve remains compared, no field exclusions or extra restart",
+    "cause": "Not inferred"
+  },
+  "validation": {
+    "full_suite": "6667 passed in116.54s",
+    "focused_NVDEC_and_Preview": "110 passed after new-test formatting",
+    "changed_source_and_test_Ruff": "passed",
+    "independent_offline_raw_audit": "passed for both terminal source production trials; root reproduced",
+    "package_scope": "Source/compiled-code parity and restored-baseline GETs checked separately from source transactions"
+  }
+}

@@ -1086,3 +1086,28 @@ def test_bit4_preview_distinguishes_empty_group_from_main_support(harness, schem
     assert "separate configuration readback" in text
     assert "another auxiliary role remains available" not in text
     assert eligibility in text
+
+
+@pytest.mark.parametrize(
+    ("supported", "mask", "expected", "other_state"),
+    [
+        (True, 0x100, "P5/P8 -> P8; support retained", "P5/P8 -> unavailable"),
+        (True, 0, "P5/P8 -> none; support retained", "P5/P8 -> unavailable"),
+        (False, None, "P5/P8 -> unavailable; support removed", "P5/P8 -> none"),
+    ],
+)
+def test_nvdec_preview_distinguishes_mask_and_support_states(harness, supported, mask, expected, other_state):
+    h = harness
+    h.mocks.prepare.return_value["nvdec_contracts"] = {
+        "before": {"controllers": {"12": {"configured_pstate_mask": 0x120}}},
+        "after": {
+            "controllers": {
+                "12": {"supported": supported, "configured_pstate_mask": mask},
+            },
+        },
+    }
+    prepare_speedo(h)
+    text = dpg.get_value("reg_preview")
+    assert expected in text
+    assert other_state not in text
+    assert "Undo verifies the original configuration" in text
