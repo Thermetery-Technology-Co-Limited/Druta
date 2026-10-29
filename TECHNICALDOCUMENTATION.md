@@ -3464,18 +3464,46 @@ MS/registry/LPWR cases. An independent raw-packet/ROM/client audit reproduced
 the production projections and settled broad-state comparisons; earlier
 non-exact driver-flag samples remain retained.
 
-The qualified profile currently requires controller4 supported and controllers
-6/16 independently unsupported. Partial disables must retain the enabled-row
-aggregate flags; complete shutdown is modeled separately. Unresolved mixed
-feature loss, nondiscriminating changes, ambiguous routes, support6 cascades
-and other layouts remain pending. Capability/layout/readback checks govern
+The qualified profiles require controller4 supported and controllers6/16
+independently unsupported. Schema1 retains its original aggregate-preserving
+partial disables and complete shutdown behavior. Schema2 additionally supports
+a bounded partial loss within raw mask0x37C that removes the last enabled MS
+raw0x10 contributor while another MS entry remains enabled. Its durable proof
+adds the understood DIFR table and current feature/role witnesses; missing or
+contradictory witnesses and other aggregate losses are refused. The feature
+projection starts with the current reported word, removes mapped contributions
+and applies the traced clear-only dependency filter. No tested board's flags,
+feature word or identity are admission constants.
+
+In the captured case, disabling rows0/1 leaves row2 enabled, contracts native1/4
+and type1/type7 role1 masks0x120 to0, and changes native4 available features
+0x023971EF to0x020910CC. Type1 role1 remains readable and reports valid0;
+type7 role1 remains supported through the independent DIFR contributor.
+The first research prediction missed the type1 role change and failed; it then
+restored the original exactly. The later same-object trace resolves it:
+after aggregate support and native feature filtering, 928470 intersects the
+enabled MS slots' +45C values. The last raw0x10 contributor is gone, so it
+clears role1 despite DIFR's earlier aggregate contribution. The corrected
+research repeat and normal product Prepare/Apply/Undo passed independent raw
+audits and root reproduction, including all six keyed value changes, other
+packet bytes/opaque tails, complete images, client requests and final original.
+Early BOOST_LOW request differences remain recorded; the final two broad
+samples matched in each active/final window, and every captured curve matched.
+The new profile passed the 6,907-test suite in 120.17 seconds. After a Preview
+caption clarification, 143 focused panel/MS tests passed in 0.82 seconds;
+the backend was unchanged after the full suite.
+
+Unresolved mixed feature loss, nondiscriminating changes, ambiguous routes,
+support6 cascades and other layouts remain pending. Capability/layout/readback checks govern
 eligibility; tested device IDs and driver versions do not gate support.
 Physical residency/savings remain unqualified. The packaged LPWR follow-up is
 scoped to row 0 through programmatic panel callbacks and framebuffer capture;
 it does not exercise physical input or full-row/no-peer transitions. Ten
 GPU-only restarts include the retained initial negative trial, corrected
-research and both production cases; every trial restored its complete original
-compared state. No Windows reboot, workload or F219 SET was used. [Scoped MS evidence](experiments/ms-configured-qualified-20261029.json).
+research and both production cases. The later partial-aggregate series adds
+six restarts across its retained negative, corrected research and production
+trial; every trial restored its complete original compared state. No Windows
+reboot, workload or F219 SET was used. [Scoped MS evidence](experiments/ms-configured-qualified-20261029.json).
 
 ## NVDEC configured-state contracts (2026-10-29)
 

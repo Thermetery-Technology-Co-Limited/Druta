@@ -368,9 +368,13 @@ related low-power support after a GPU restart. A supported controller may
 have no eligible P-states; removing every enabled entry can instead remove
 support and make dependent readbacks unavailable. Preview distinguishes
 these outcomes, and Undo verifies the captured original state. The current
-qualified profile supports partial disables that retain the aggregate flags
-and complete enabled-entry shutdown. Other dependency profiles and physical
-residency/power savings remain pending.
+qualified profiles support partial disables that retain the aggregate flags,
+complete enabled-entry shutdown, and one understood partial feature-loss case.
+That last case also reduces available MS features, and the shared MS support
+query remains readable and reports false. The controller and related DIFR
+support remain. Druta requires the current
+feature and DIFR witnesses before admitting it. Other dependency profiles and
+physical residency/power savings remain pending.
 [MS configuration evidence](experiments/ms-configured-qualified-20261029.json).
 
 NVDEC entry disables verify video-decoder low-power eligibility after the GPU

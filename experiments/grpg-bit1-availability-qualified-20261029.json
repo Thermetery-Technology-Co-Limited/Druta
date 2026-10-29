@@ -102,7 +102,7 @@
   },
   "pending": [
     "Independent type4 group-mask/presence readback",
-    "OFA full-phase broad comparison, curve freshness and remaining dependency transitions; see later_availability_extension",
+    "Curve freshness and remaining dependency transitions remain pending; later_availability_extension records the qualified OFA final-two full-phase repeat with its early negative observations and scope limits",
     "Remaining conditional dependencies, wider MS and mixed-flag profiles",
     "Packaged type4 visual/input walkthrough and curve freshness semantics",
     "Physical residency, activity and power effects"
@@ -120,5 +120,5 @@
     "independent_raw_audit": "Four clean source cases plus the retained setup-only negative and later GET restoration; root reproduced all five",
     "package_scope": "Source/compiled-code parity and restored-baseline GETs checked separately from source production transactions"
   },
-  "later_availability_extension": "See media-type4-last-role-qualified-20261029.json: no-peer source contract, three fully clean media trials and separately retained OFA intermediate-curve negative; original trials here retain their historical scope."
+  "later_availability_extension": "See media-type4-last-role-qualified-20261029.json: no-peer source contract, three clean media trials and the later OFA repeat with the last two full-state captures exact in every phase and all curves exact. Its earlier OFA curve-negative records and early BOOST_LOW differences remain recorded; producer and physical effect are unresolved. Original trials here retain their historical scope."
 }

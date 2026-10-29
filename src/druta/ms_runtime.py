@@ -42,7 +42,7 @@ def read(gpu):
     return gr.read(gpu, main=True)
 
 
-def _tables(image):
+def _tables(image, include_difr=False):
     parsed = vbios_fields._Image(image)
     tables = {}
     for name, ptr, owner, hs, stride in (("index", 0x74, 0x24, 6, 18), ("ms", 0x84, 0x3A, 7, 16)):
@@ -54,6 +54,12 @@ def _tables(image):
             "owner": owner,
             "raw_hex": parsed.span(table["offset"], table["size"]).hex(),
         }
+    if include_difr:
+        table = parsed.table("lpwr_difr", "P", 0xE8, ((0x10, 11, 18),), 0x8E)
+        if table["object_id"] != 0x8E or not 0 < table["count"] < 6:
+            raise MsError("DIFR witness ownership or row count is not understood")
+        tables["difr"] = {"offset": table["offset"], "owner": 0x8E,
+                          "raw_hex": parsed.span(table["offset"], table["size"]).hex()}
     at = parsed.pointer("P", 0)
     header = parsed.span(at, 14)
     if header[:2] != b"\x70\x0e" or not header[2] or not header[3]:
@@ -70,12 +76,13 @@ def _tables(image):
         "row_first_hex": bytes(raw[14 + i * stride] for i in range(header[3])).hex(),
         "table_sha256": hashlib.sha256(raw).hexdigest(),
     }
-    _table_data(tables)
+    _table_data(tables, schema=2 if include_difr else 1)
     return tables
 
 
-def _table_data(tables):
-    if not isinstance(tables, dict) or set(tables) != {"index", "ms", "perf"}:
+def _table_data(tables, schema=1):
+    expected = {"index", "ms", "perf"} | ({"difr"} if schema == 2 else set())
+    if not isinstance(tables, dict) or set(tables) != expected:
         raise MsError("Missing MS table evidence")
     data, spans = {}, []
     for name, owner, hs, stride in (("index", 0x24, 6, 18), ("ms", 0x3A, 7, 16)):
@@ -98,6 +105,19 @@ def _table_data(tables):
         ):
             raise MsError("MS table geometry differs")
         data[name] = raw
+        spans.append((at, at + len(raw)))
+    if schema == 2:
+        item = tables["difr"]
+        if not isinstance(item, dict) or set(item) != {"offset", "owner", "raw_hex"} or item["owner"] != 0x8E:
+            raise MsError("Malformed DIFR table witness")
+        at = lp._int(item["offset"], 0, 16 * 1024 * 1024)
+        text = item["raw_hex"]
+        if not isinstance(text, str) or not 22 <= len(text) <= 2 * (11 + 5 * 18):
+            raise MsError("Malformed DIFR table witness")
+        raw = lp._hex(text, len(text) // 2)
+        if raw[:3] != bytes((0x10, 11, 18)) or not 0 < raw[3] < 6 or len(raw) != 11 + 18 * raw[3]:
+            raise MsError("DIFR witness geometry differs")
+        data["difr"] = raw
         spans.append((at, at + len(raw)))
     perf = tables["perf"]
     if (
@@ -134,9 +154,9 @@ def _any(rows):
     raise MsError("Remaining auxiliary support is unknown")
 
 
-def _derive(changes, before, tables):
+def _derive(changes, before, tables, schema=1):
     requested = selected(changes)
-    data = _table_data(tables)
+    data = _table_data(tables, schema)
     core = gr._observation(before, allow_missing_aux_feature=True)
     if not {"main", "bit1", "auxiliary"} <= core.keys():
         raise MsError("MS needs complete independent readback")
@@ -171,8 +191,30 @@ def _derive(changes, before, tables):
     for f in remaining:
         new_union |= f
     shutdown = not remaining
-    if not shutdown and old_union != new_union:
+    lost = old_union & ~new_union
+    if schema == 1 and not shutdown and lost:
         raise MsError("Partial MS disable changes unresolved aggregate flags")
+    if schema == 2:
+        if shutdown or not lost or lost & ~0x37C or not lost & 0x10:
+            raise MsError("Partial MS aggregate loss is not understood")
+        difr = data["difr"]
+        if not any(struct.unpack_from("<I", difr, 11 + i * 18)[0] & 0x31 == 0x31
+                   for i in range(difr[3])):
+            raise MsError("Independent DIFR witness is unavailable")
+        feature = core["main"]["features"]["4"]
+        if not feature["available"] or not feature["value"] & 0x100000:
+            raise MsError("MS feature predicate witness is unavailable")
+        for source, mapped in ((0x04, 0x02), (0x08, 0x01), (0x10, 0x2000),
+                               (0x20, 0x100), (0x40, 0x100000),
+                               (0x80, 0xC00000), (0x400, 0x1000)):
+            if not old_union & source and feature["value"] & mapped:
+                raise MsError("MS before feature disagrees with enabled row flags")
+        group, seven = core["auxiliary"]["group"], core["main"]["bit4_group"]
+        if any(row != {"available": True, "value": 1} for row in
+               (group["1:0"], group["800:1"], seven["1:0"], seven["801:1"])):
+            raise MsError("MS auxiliary support witness is unavailable")
+        if not group["806:1"]["available"] or not seven["805:1"]["available"]:
+            raise MsError("MS auxiliary route masks are unavailable")
     routes = []
     for row in core["pstates"]["rows"]:
         p = row["lpwr_index"]
@@ -217,6 +259,30 @@ def _derive(changes, before, tables):
     ):
         if src[key]["available"]:
             dst[key]["value"] = project_mask(src[key]["value"], bit)
+    if schema == 2:
+        word = core["main"]["features"]["4"]["value"]
+        for source, feature_bit in ((0x04, 0x02), (0x08, 0x01), (0x10, 0x2000),
+                                    (0x20, 0x100), (0x40, 0x100000)):
+            if lost & source:
+                word &= ~feature_bit
+        # Controller 4 dependency filter, with nonzero +26D witnessed above.
+        if not word & 0x02:
+            word &= 0xFFFFFFDE
+        if not word & 0x01:
+            word &= 0xFFEF5EFF
+        if not word & 0x20:
+            word &= 0xFEFFBFFF
+        if not word & 0x04:
+            word &= 0xFFFFFFF7
+        if not word & 0x200000:
+            word &= ~0x100000
+        if not word & 0x100000:
+            word &= ~0x200000
+        after["main"]["features"]["4"]["value"] = word
+        after["auxiliary"]["group"]["800:1"]["value"] = 0
+        after["auxiliary"]["group"]["1:0"]["value"] = _any(
+            [after["auxiliary"]["group"][f"800:{i}"] for i in range(4)]
+        )
     if shutdown:
         after["controllers"]["4"] = {
             "available": True,
@@ -259,12 +325,31 @@ def contracts(gpu, image, changes):
     if not selected(changes):
         return {}
     tables = _tables(image)
+    raw = _table_data(tables)["ms"]
+    flags = [struct.unpack_from("<I", raw, 7 + 16 * i)[0] for i in range(raw[3])]
+    requested = selected(changes)
+    disabled = {int(KEY.fullmatch(key)[1]) for key in requested}
+    old_union = new_union = 0
+    for i, flag in enumerate(flags):
+        if flag & 1:
+            old_union |= flag
+            if i not in disabled:
+                new_union |= flag
+    schema = 2 if new_union and old_union != new_union else 1
+    if schema == 2:
+        lost = old_union & ~new_union
+        if lost & ~0x37C or not lost & 0x10:
+            raise MsError("Partial MS aggregate flags are not understood")
+        try:
+            tables = _tables(image, include_difr=True)
+        except vbios_fields.FormatError as exc:
+            raise MsError("Partial MS aggregate flags need an understood DIFR witness") from exc
     before, error = read(gpu)
     if error or before is None:
         raise MsError("MS configuration is unavailable: " + str(error))
-    bindings, after = _derive(changes, before, tables)
+    bindings, after = _derive(changes, before, tables, schema)
     result = {
-        "schema": 1,
+        "schema": schema,
         "kind": "lpwr_ms_disable",
         "before_image_sha256": hashlib.sha256(image).hexdigest(),
         "tables": tables,
@@ -285,13 +370,13 @@ def validate_contracts(changes, saved):
         or not isinstance(saved, dict)
         or set(saved) != {"schema", "kind", "before_image_sha256", "tables", "before", "selected", "after"}
         or type(saved["schema"]) is not int
-        or saved["schema"] != 1
+        or saved["schema"] not in (1, 2)
         or saved["kind"] != "lpwr_ms_disable"
         or not isinstance(saved["before_image_sha256"], str)
         or not lp._HEX256.fullmatch(saved["before_image_sha256"])
     ):
         raise MsError("Malformed MS contract")
-    bindings, after = _derive(request, saved["before"], saved["tables"])
+    bindings, after = _derive(request, saved["before"], saved["tables"], saved["schema"])
     if not _same_state(bindings, saved["selected"]) or not _same_state(after, saved["after"]):
         raise MsError("Saved MS projection differs from its inputs")
 

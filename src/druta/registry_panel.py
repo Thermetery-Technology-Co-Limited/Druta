@@ -1426,6 +1426,11 @@ class RegistryPanel:
                 "Related low-power support and eligibility must also match after the GPU restart. "
                 "Undo verifies the original configuration. Physical residency and power savings remain unmeasured."
             )
+            if contract.get("schema") == 2:
+                lines.append(
+                    "The shared MS support query remains readable and reports false. "
+                    "Available MS features are reduced; related DIFR support remains."
+                )
         if receipt.get("nvdec_contracts"):
             contract = receipt["nvdec_contracts"]
             before = contract["before"]["controllers"]["12"]["configured_pstate_mask"]

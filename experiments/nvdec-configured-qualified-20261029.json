@@ -53,7 +53,7 @@
   ],
   "pending": [
     "Supported controller17 profiles, mixed aggregate loss and additional layouts",
-    "OFA full-phase broad comparison, curve freshness and remaining dependency transitions; see later_availability_extension",
+    "Curve freshness and remaining dependency transitions remain pending; later_availability_extension records the qualified OFA final-two full-phase repeat with its early negative observations and scope limits",
     "Additional packaged full-shutdown/no-peer/error-recovery and physical-input walkthroughs; row0 callback/framebuffer evidence linked in later_packaged_row0_UI",
     "Physical residency, activity-counter semantics and power savings"
   ],
@@ -76,6 +76,6 @@
     "independent_offline_raw_audit": "passed for both terminal source production trials; root reproduced",
     "package_scope": "Source/compiled-code parity and restored-baseline GETs checked separately from source transactions"
   },
-  "later_availability_extension": "See media-type4-last-role-qualified-20261029.json: no-peer source contract, three fully clean media trials and separately retained OFA intermediate-curve negative; original trials here retain their historical scope.",
-  "later_packaged_row0_UI": "See ui-lpwr-configured-qualified-20261029.json: programmatic row0 partial-disable callback/framebuffer sequence. Full-shutdown/no-peer, physical input and other packaged cases remain separate; the earlier OFA curve limitation is not resolved."
+  "later_availability_extension": "See media-type4-last-role-qualified-20261029.json: no-peer source contract, three clean media trials and the later OFA repeat with the last two full-state captures exact in every phase and all curves exact. Its earlier OFA curve-negative records and early BOOST_LOW differences remain recorded; producer and physical effect are unresolved. Original trials here retain their historical scope.",
+  "later_packaged_row0_UI": "See ui-lpwr-configured-qualified-20261029.json: programmatic row0 partial-disable callback/framebuffer sequence. Full-shutdown/no-peer, physical input and other packaged cases remain separate. The later source OFA repeat is reported in media-type4-last-role-qualified-20261029.json; it does not extend this packaged scope, and the earlier OFA curve-negative records remain retained."
 }
