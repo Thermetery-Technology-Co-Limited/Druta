@@ -3913,6 +3913,43 @@ configuration the observed type6 request changes from inactive to type3 with
 vP-state index0, then returns to the original request. No comparison exclusion
 or harmlessness assumption was added.
 
+A later isolated GET-only trial did not reproduce that request change. After
+the ordinary GUI closed, it captured eight PERF-only pre-samples, then invoked
+no-call control, VfpCurve and BoostTableGet once each with eight PERF-only
+post-samples per step, followed by full broad/LPWR/client checks and eight final
+PERF samples. All 40 timed samples retained the original INFO/CONTROL hashes
+and inactive BOOST_LOW request; the full final state matched. This was one
+order and operating point in a warmed process, with samples taken after calls
+returned. It does not qualify cold startup or prove no internal SET occurred.
+No comparison was relaxed.
+
+A separate static DearPyGUI child, importing no Druta or NVIDIA API code,
+reproduced the transition. Its 24-second render loop completed 714 frames.
+The parent retained eight PERF-only samples before launch, 48 during the child
+process and eight after exit. During samples 1-6, the complete CONTROL packet
+differed only in the BOOST_LOW tag byte, 0 to 3; its union DWORD remained zero.
+Every INFO byte and all other CONTROL bytes matched. The first changed sample
+completed 0.513 seconds after process launch; the first reverted sample completed
+at 3.562 seconds. Those times do not establish a viewport-ready event or a
+general settling interval. Final broad state, full curve, LPWR and client
+requests matched the original. The test used ordinary GUI rendering and no
+explicit configuration SET, registry change or GPU restart. It identifies a
+display-only reproduction without proving the driver writer, physical effect,
+exclusive cause or absence of side effects in other getters.
+
+In the inspected driver, native VfpCurve GET `0x2080902B` selects an interface
+whose later constructor branches assign `0x8ADA60` or `0x8ADE20` to callback
+`+38`; these callbacks obtain their `+108` receivers from different bases.
+The actual branch, selected-row clock receiver and BOOST_LOW producer remain
+unknown. Driver identity and RVAs identify this evidence, not compatibility
+gates. [Isolated GET investigation](experiments/voltage-live-bounds-20261029.json).
+
+The inspected NVAPI wrapper sends a zeroed row area and selected-point header
+before `0x2080902B`, then maps returned rows to the caller. It also invokes
+`0x20809029` and `0x700010B` helpers whose driver-side semantics remain unknown.
+The host buffer allocation and the kernel command's payload-size descriptor
+are separately evidenced; their nested pointer/length binding remains unproven.
+
 The repeated trials provide 27-second acquisition windows before Apply and
 before Restore. The independent observer requires the last two of eight
 pre-Apply samples to match the full original state, then all eight active

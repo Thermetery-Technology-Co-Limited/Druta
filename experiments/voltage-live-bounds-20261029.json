@@ -460,5 +460,562 @@
       "experiments/registry-overrides/boost-low-vfe-producer-20261029/same-owner-binding.json": "c2cfb46897fa0c9ffba712567712a860a92abac431cc0d8cd2cc7729c075cbc5",
       "experiments/registry-overrides/boost-low-client-20261029/findings.json": "c7b0a400d0f445a6892be84b5a1d931b2c452434b9193d8b7084f2e7da794813"
     }
+  },
+  "BOOST_LOW_GET_investigation_20261029": {
+    "scope": "One captured RTX5080 configuration; root runs known GET-only and ordinary static-GUI controls; agents perform offline analysis/audits only",
+    "result": "A minimal DearPyGUI child reproduced the short-lived BOOST_LOW type3/index0 request without Druta or NVIDIA API code in that child. Single known V/F GET calls did not reproduce it in one separately sampled sequence. Exact driver writer and physical effect remain unknown",
+    "unchanged_product": "No runtime source or control admission changed; all strict comparison fields and prior negative records retained",
+    "source_code_commit": "c98de374cd8865e9ff05f6b356e6baf2bd4eb796",
+    "tag_meaning": "Established tagged RM-client request: type0 inactive, type3 with union0 requests vP-state index0; this is not evidence that it means public P0 or that it is harmless",
+    "isolated_known_GETs": {
+      "supervisor_session": 77872,
+      "exit_code": 0,
+      "timed_observer": "PERF limits INFO/CONTROL only; initial transport discovery precedes timed windows. Full broad/LPWR/client GETs are outside those windows",
+      "before": [
+        {
+          "exact": true,
+          "tag": 0,
+          "union_word": 0,
+          "started_seconds": 2.00001522898674e-06,
+          "ended_seconds": 0.0031877998262643814
+        },
+        {
+          "exact": true,
+          "tag": 0,
+          "union_word": 0,
+          "started_seconds": 3.000591999851167,
+          "ended_seconds": 3.003904700279236
+        },
+        {
+          "exact": true,
+          "tag": 0,
+          "union_word": 0,
+          "started_seconds": 6.000504199881107,
+          "ended_seconds": 6.003860500175506
+        },
+        {
+          "exact": true,
+          "tag": 0,
+          "union_word": 0,
+          "started_seconds": 9.000299999956042,
+          "ended_seconds": 9.003578200004995
+        },
+        {
+          "exact": true,
+          "tag": 0,
+          "union_word": 0,
+          "started_seconds": 12.000241999980062,
+          "ended_seconds": 12.003537000156939
+        },
+        {
+          "exact": true,
+          "tag": 0,
+          "union_word": 0,
+          "started_seconds": 15.000262800138444,
+          "ended_seconds": 15.00375790009275
+        },
+        {
+          "exact": true,
+          "tag": 0,
+          "union_word": 0,
+          "started_seconds": 18.00049880007282,
+          "ended_seconds": 18.00375010026619
+        },
+        {
+          "exact": true,
+          "tag": 0,
+          "union_word": 0,
+          "started_seconds": 21.00009959982708,
+          "ended_seconds": 21.003432699944824
+        }
+      ],
+      "arms": [
+        {
+          "name": "no_call_control",
+          "before": {
+            "info_sha256": "9d04851f55760ee2500aab16c47ba1e52a8c979462160bad62effc73041a4a21",
+            "control_sha256": "34dff98d0c81c2a7adb8e11a8c006cc011936ef8e743f16b3cae1dcb20306283",
+            "row_type": 6,
+            "tag": 0,
+            "union_word": 0
+          },
+          "samples": [
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 1.900363713502884e-06,
+              "ended_seconds": 0.0032280003651976585
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 3.000343299936503,
+              "ended_seconds": 3.0036520999856293
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 6.000974700320512,
+              "ended_seconds": 6.00628129998222
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 9.000508000142872,
+              "ended_seconds": 9.003891100175679
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 12.000433700159192,
+              "ended_seconds": 12.003714099992067
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 15.000845500268042,
+              "ended_seconds": 15.004371900111437
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 18.0004329001531,
+              "ended_seconds": 18.00380660034716
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 21.000250699929893,
+              "ended_seconds": 21.003680699970573
+            }
+          ]
+        },
+        {
+          "name": "VfpCurve",
+          "before": {
+            "info_sha256": "9d04851f55760ee2500aab16c47ba1e52a8c979462160bad62effc73041a4a21",
+            "control_sha256": "34dff98d0c81c2a7adb8e11a8c006cc011936ef8e743f16b3cae1dcb20306283",
+            "row_type": 6,
+            "tag": 0,
+            "union_word": 0
+          },
+          "samples": [
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 1.6996636986732483e-06,
+              "ended_seconds": 0.0031625996343791485
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 3.0003783996216953,
+              "ended_seconds": 3.0036822999827564
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 6.000110099557787,
+              "ended_seconds": 6.003595999907702
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 9.00011709984392,
+              "ended_seconds": 9.003452899865806
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 12.000420299824327,
+              "ended_seconds": 12.003800299949944
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 15.000450599938631,
+              "ended_seconds": 15.003924199845642
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 18.000101499725133,
+              "ended_seconds": 18.00349019980058
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 21.00049509992823,
+              "ended_seconds": 21.00381729984656
+            }
+          ],
+          "status": 0,
+          "request_sha256": "01f5140d729490a358b417e4a1c47bb5e15113c740b2fe45d5e4c1f38d54da90",
+          "response_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c"
+        },
+        {
+          "name": "BoostTableGet",
+          "before": {
+            "info_sha256": "9d04851f55760ee2500aab16c47ba1e52a8c979462160bad62effc73041a4a21",
+            "control_sha256": "34dff98d0c81c2a7adb8e11a8c006cc011936ef8e743f16b3cae1dcb20306283",
+            "row_type": 6,
+            "tag": 0,
+            "union_word": 0
+          },
+          "samples": [
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 2.400018274784088e-06,
+              "ended_seconds": 0.0033979001455008984
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 3.000220900401473,
+              "ended_seconds": 3.003475600387901
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 6.0002252999693155,
+              "ended_seconds": 6.0036830003373325
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 9.000445200130343,
+              "ended_seconds": 9.003734400030226
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 12.00010640034452,
+              "ended_seconds": 12.003319500014186
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 15.000140300020576,
+              "ended_seconds": 15.004117800388485
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 18.00014950009063,
+              "ended_seconds": 18.00348550034687
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 21.000136299990118,
+              "ended_seconds": 21.003429800271988
+            }
+          ],
+          "status": 0,
+          "request_sha256": "67c31803e915b9e601c86a5c68468b6bf073b0a458839c1775f70e5c46c4164f",
+          "response_sha256": "6777653c2879d6dd94de056660f433186a6eb830da16578976e7099049cc21ac"
+        }
+      ],
+      "final_PERF_after_broad": [
+        {
+          "exact": true,
+          "tag": 0,
+          "union_word": 0,
+          "started_seconds": 4.600267857313156e-06,
+          "ended_seconds": 0.0033243000507354736
+        },
+        {
+          "exact": true,
+          "tag": 0,
+          "union_word": 0,
+          "started_seconds": 3.000351299997419,
+          "ended_seconds": 3.0037116003222764
+        },
+        {
+          "exact": true,
+          "tag": 0,
+          "union_word": 0,
+          "started_seconds": 6.0000786003656685,
+          "ended_seconds": 6.003596100024879
+        },
+        {
+          "exact": true,
+          "tag": 0,
+          "union_word": 0,
+          "started_seconds": 9.000045200344175,
+          "ended_seconds": 9.003487400244921
+        },
+        {
+          "exact": true,
+          "tag": 0,
+          "union_word": 0,
+          "started_seconds": 12.000359600409865,
+          "ended_seconds": 12.003707500174642
+        },
+        {
+          "exact": true,
+          "tag": 0,
+          "union_word": 0,
+          "started_seconds": 15.00025560008362,
+          "ended_seconds": 15.003792700357735
+        },
+        {
+          "exact": true,
+          "tag": 0,
+          "union_word": 0,
+          "started_seconds": 18.00023500015959,
+          "ended_seconds": 18.00375880021602
+        },
+        {
+          "exact": true,
+          "tag": 0,
+          "union_word": 0,
+          "started_seconds": 21.00041150022298,
+          "ended_seconds": 21.00377730000764
+        }
+      ],
+      "all_40_timed_full_INFO_CONTROL_exact": true,
+      "GET_request_masks": [
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295
+      ],
+      "mask_provenance": "Copied from an already accepted full curve capture, no mask/command sweep",
+      "final_full_broad_curve_LPWR_client_exact": true,
+      "limits": [
+        "Zero counters record what the script requested, not native internal semantics.",
+        "One call order and operating point; a change entirely inside a GET or between samples is not observed. No causal conclusion or general absence proof.",
+        "One no-call, VfpCurve, BoostTableGet order in a warmed process. After-return samples do not observe changes entirely inside a call; no cold-startup or global no-effect claim"
+      ]
+    },
+    "display_only_reproduction": {
+      "supervisor_session": 31137,
+      "exit_code": 0,
+      "child": {
+        "pid": 24928,
+        "start_utc": "2026-10-29T16:20:10.664433+00:00",
+        "end_utc": "2026-10-29T16:20:34.883731+00:00",
+        "frame_count": 714,
+        "normal_exit": true,
+        "error": null
+      },
+      "child_elapsed_utc_seconds": 24.219298,
+      "child_imports": [
+        "argparse",
+        "json",
+        "os",
+        "time",
+        "datetime",
+        "pathlib",
+        "dearpygui.dearpygui"
+      ],
+      "child_scope": "Static ordinary DearPyGUI rendering, no Druta/NVAPI/NVML imports or explicit configuration SET requested by child. This still uses the system graphics stack",
+      "observer": "Parent PERF limits INFO/CONTROL only before/during/after child process lifetime; no V/F getter inside these timed windows",
+      "sample_counts": {
+        "before": 8,
+        "during": 48,
+        "after": 8
+      },
+      "before_and_after_full_packets_exact": true,
+      "all_64_INFO_packets_exact": true,
+      "CONTROL_exact_count": 58,
+      "changed_samples": [
+        {
+          "index": 1,
+          "sample": "sample-009.json",
+          "relative_to_child_launch_seconds": 0.513422,
+          "exact": false,
+          "tag": 3,
+          "union_word": 0,
+          "control_changed_offsets": [
+            2424
+          ],
+          "info_sha256": "9d04851f55760ee2500aab16c47ba1e52a8c979462160bad62effc73041a4a21",
+          "control_sha256": "5b5a7f448b2a3fd45afbd9ca09a6e32ae92488ba0901b3e09c833587f2b5b6ff"
+        },
+        {
+          "index": 2,
+          "sample": "sample-010.json",
+          "relative_to_child_launch_seconds": 1.021889,
+          "exact": false,
+          "tag": 3,
+          "union_word": 0,
+          "control_changed_offsets": [
+            2424
+          ],
+          "info_sha256": "9d04851f55760ee2500aab16c47ba1e52a8c979462160bad62effc73041a4a21",
+          "control_sha256": "5b5a7f448b2a3fd45afbd9ca09a6e32ae92488ba0901b3e09c833587f2b5b6ff"
+        },
+        {
+          "index": 3,
+          "sample": "sample-011.json",
+          "relative_to_child_launch_seconds": 1.53047,
+          "exact": false,
+          "tag": 3,
+          "union_word": 0,
+          "control_changed_offsets": [
+            2424
+          ],
+          "info_sha256": "9d04851f55760ee2500aab16c47ba1e52a8c979462160bad62effc73041a4a21",
+          "control_sha256": "5b5a7f448b2a3fd45afbd9ca09a6e32ae92488ba0901b3e09c833587f2b5b6ff"
+        },
+        {
+          "index": 4,
+          "sample": "sample-012.json",
+          "relative_to_child_launch_seconds": 2.039056,
+          "exact": false,
+          "tag": 3,
+          "union_word": 0,
+          "control_changed_offsets": [
+            2424
+          ],
+          "info_sha256": "9d04851f55760ee2500aab16c47ba1e52a8c979462160bad62effc73041a4a21",
+          "control_sha256": "5b5a7f448b2a3fd45afbd9ca09a6e32ae92488ba0901b3e09c833587f2b5b6ff"
+        },
+        {
+          "index": 5,
+          "sample": "sample-013.json",
+          "relative_to_child_launch_seconds": 2.546562,
+          "exact": false,
+          "tag": 3,
+          "union_word": 0,
+          "control_changed_offsets": [
+            2424
+          ],
+          "info_sha256": "9d04851f55760ee2500aab16c47ba1e52a8c979462160bad62effc73041a4a21",
+          "control_sha256": "5b5a7f448b2a3fd45afbd9ca09a6e32ae92488ba0901b3e09c833587f2b5b6ff"
+        },
+        {
+          "index": 6,
+          "sample": "sample-014.json",
+          "relative_to_child_launch_seconds": 3.055001,
+          "exact": false,
+          "tag": 3,
+          "union_word": 0,
+          "control_changed_offsets": [
+            2424
+          ],
+          "info_sha256": "9d04851f55760ee2500aab16c47ba1e52a8c979462160bad62effc73041a4a21",
+          "control_sha256": "5b5a7f448b2a3fd45afbd9ca09a6e32ae92488ba0901b3e09c833587f2b5b6ff"
+        }
+      ],
+      "reverted_sample": {
+        "index": 7,
+        "sample": "sample-015.json",
+        "relative_to_child_launch_seconds": 3.56209,
+        "exact": true,
+        "tag": 0,
+        "union_word": 0,
+        "control_changed_offsets": [],
+        "info_sha256": "9d04851f55760ee2500aab16c47ba1e52a8c979462160bad62effc73041a4a21",
+        "control_sha256": "34dff98d0c81c2a7adb8e11a8c006cc011936ef8e743f16b3cae1dcb20306283"
+      },
+      "other_during_samples": "All42 other during-process CONTROL samples exact; all unselected bytes exact in every packet",
+      "raw_effect": "Only one byte changes at captured CONTROL packet offset2424: type6 BOOST_LOW tag0 to3, union DWORD stays0. Ordinal13 is decoded from this INFO label/type, not a product constant",
+      "final_full_broad_curve_LPWR_client_exact": true,
+      "limits": [
+        "During timestamps are sample-completion times relative to child launch, not a viewport-ready marker.",
+        "Static viewport uses the system graphics stack; child AST does not show an explicit Druta or NVIDIA import, not proof of no driver activity.",
+        "No screenshot, kernel-writer identity, causal exclusivity or proof that other GETs never cause transitions. Zero counters represent script-requested operations."
+      ]
+    },
+    "kernel_dispatch_trace": {
+      "driver_sha256": "3f8d33495cabeb2fa11ebdcf0b12705e9ccfb4e53005324bcd86e9dea8ba2ab4",
+      "descriptor": {
+        "command": "0x2080902B",
+        "id_RVA": "0xEBEC80",
+        "payload_size": "0x1810",
+        "handler_RVA": "0x495D80"
+      },
+      "same_constructed_group": "Handler follows GPU+23B8, then+1188 and+8538; selector0/1 returns group+880. Successful constructor495980 initializes that same interface. Preceding495930 is a distinct function",
+      "correction": "5BDCA0 is an initial +38 assignment, not the retained dispatch on both traced successful late-constructor branches",
+      "branches": [
+        {
+          "predicate": "GPU+2480 absent or byte+4D2 zero",
+          "binding": "495B92 calls 8ADD90; 8ADDF5..E07 installs group selector0 interface+38=8ADA60 and +28=8ADBA0.",
+          "execution": "8ADA60 obtains selector1 interface on clock object [GPU+23B8]+1188, not group+8538. If clock+8534 is zero it invokes that interface+108; then 8ADB55 directly calls 5BD660 with the incoming group interface and row-output packet. On success it writes output byte+24=0."
+        },
+        {
+          "predicate": "GPU+2480 present and byte+4D2 nonzero",
+          "binding": "495B5A calls 8AE000; 8AE07E..A6 installs same group interface+38=8ADE20, +118=8ADF60 and +120=8ADFB0; later 5BDF10 initializes its A8/C0 transfer descriptors. No +108/+110 overwrite on this bounded branch.",
+          "execution": "8ADE20 reselects same group+8538 via selector1, calls its +108 (initial 5BE610, subject to subsequent unrelated override not proven absent), then directly calls 5BD660 on incoming interface/output; on success sets output byte+24=1."
+        }
+      ],
+      "selected_row_factory": {
+        "type0": "495800 selects8AE1C0, which calls495200;8AE252 assigns interface+20=C18B00",
+        "type1": "495800 selects8AEB60;8AEBE2 assigns interface+20=C18B00",
+        "type4": "495800 selects495200;49536B assigns interface+20=495480",
+        "types6and7": "495800 selects8AEF70/8AF290; constructor chain includesC192E0,C191A0,495200; C19396 assigns interface+20=C193D0. C193D0 callsC192A0, which calls495480"
+      },
+      "next_finite_static_edge": "Conditional type0/1 path C18B00 thenC18C00: bind the constructed object selected from clock+1170 interface+38 and its+88 method invoked atC18C9C. Current live row type/subtype and retained receiver remain unknown",
+      "limits": "The actual live +4D2 predicate, row type/subtype and retained clock receiver are unobserved. These image RVAs/hashes identify evidence, never compatibility gates. No BOOST_LOW setter connection or GET causality proven"
+    },
+    "NVAPI_wrapper_boundary": {
+      "dll_sha256": "46586752524af6075736eb655bb3a1da4030dfa42e6b6872afab400d50f249e7",
+      "query": "0x21537AD4 main data pair ->RVA20AC10; separateF2930 pair not traced and no live selected-function address is bound here",
+      "request": "Main wrapper zeroes98240h transport bytes, writes handle/2080902B/header, no caller row payload in native24-byte row area before dispatch. Maps selected returned rows to current28-byte caller entries",
+      "additional_helpers": "Already-called209300 sends20809029;15EDF0 invokes700010B after a cached-block copy. Their driver-side semantics remain unassigned; no new direct calls were made to these commands",
+      "payload_geometry_limit": "Kernel1810h payload descriptor and wrapper98240h allocation are separately verified; nested payload pointer/length linkage remains unproven",
+      "SET_limit": "No explicit configuration SET identified in the bounded host path; this does not establish that all driver/transport helpers are side-effect-free"
+    },
+    "independent_review": "Terra audited terminal raw captures and constructor/base aliases; Luna audited the user-mode wrapper. Root reproduced both terminal experiment audits, initial/tail binding reports and wrapper machine facts exactly, and all15 supplied callback instruction windows",
+    "explicit_configuration_SETs_requested": 0,
+    "registry_writes": 0,
+    "GPU_restarts": 0,
+    "Windows_reboot": false,
+    "NVIDIA_App_installed": false,
+    "physical_measurement": false,
+    "synthetic_workload": false,
+    "normal_GUI_rendering": "One24-second static viewport control; no screenshot or viewport-ready event was captured",
+    "next": "Use the display-only reproduction to prioritize actual process/display-context startup request writers. Neither the V/F read hypothesis nor other causes are globally excluded. Keep strict readbacks and final-original requirements",
+    "private_evidence_sha256": {
+      "experiments/registry-overrides/boost-low-vfp-root-review-20261029/verify-initial-bindings.py": "6bc73e0fe2918e054b812ca75e708cf273e57ab6416a77215a536e9c074ab788",
+      "experiments/registry-overrides/boost-low-vfp-root-review-20261029/root-initial-bindings.json": "51118479555885031c52b44a1749b6850968c0502a083be83df233b137da22de",
+      "experiments/registry-overrides/boost-low-vfp-root-review-20261029/verify-tail-bindings.py": "995be83aab7f90ed094350c842dc8fe86063b56d0748157a68b10ea4ce8929d6",
+      "experiments/registry-overrides/boost-low-vfp-root-review-20261029/root-tail-bindings.json": "2ed0c115cfb852e4f838c5e3dec62a30fee7124983732e1291c570867a8e78bb",
+      "experiments/registry-overrides/boost-low-vfp-root-review-20261029/verify_callback_windows.py": "224b2791c2bd1520b68a77e45c9000c54eed02f953b15af299461de2d91df118",
+      "experiments/registry-overrides/boost-low-vfp-root-review-20261029/root-callback-windows.json": "3d131f1d6da3c7f32f26e21894b9740e7aa5aad01bf2201ed586e3faf7536ad3",
+      "experiments/registry-overrides/boost-low-vfp-root-review-20261029/isolated_get_trial.py": "90f561a467d9241a841901a3079a1bddcc2b6a33a28af6b2cc18c81564a4a05e",
+      "experiments/registry-overrides/boost-low-vfp-root-review-20261029/isolated-get-trial-1.json": "3e05689ec0e10eb04fcef7155862f749a258bcbb7297eb5719db49ed487cf03f",
+      "experiments/registry-overrides/boost-low-vfp-root-review-20261029/audit-isolated-get.py": "fcf0f02d3dcfdd8f95b85bd2fe953f3d23c80db524e6efb1e08390848cb910ac",
+      "experiments/registry-overrides/boost-low-vfp-root-review-20261029/root-isolated-get-audit.json": "5c96dfa264304ca5043e4054b00fb9f3cc169f6d42db2c061fcd1d0faa681a99",
+      "experiments/registry-overrides/boost-low-vfp-root-review-20261029/audit-viewport-control.py": "c11404575d0d82dcdc110b7a705c4fddf521284bd5bd3bf117e3f7805f9ba589",
+      "experiments/registry-overrides/boost-low-vfp-root-review-20261029/root-viewport-1-audit.json": "b4a22f19f786d349b59a1c8619e033139d496e3ab7f3d33d476a760736b8f1c2",
+      "experiments/registry-overrides/boost-low-vfp-client-boundary-20261029/findings.json": "322ad991aa149d477152e3cf50880fb1544b32a45f42f760f695ea3d7a39956b",
+      "experiments/registry-overrides/boost-low-vfp-client-boundary-20261029/trace_vfp_boundary.py": "6247898964976a23e2c510d0d382c6bbdf16158d1e1b00b82fb526a3327d3af6",
+      "experiments/registry-overrides/boost-low-vfp-client-boundary-20261029/root-machine-facts.json": "229c01ad05d021511f2155694393f957f549856ee3b90e0117a746a520413bbc",
+      "experiments/registry-overrides/boost-low-vfp-callbacks-20261029/findings.json": "e73593aa546f16e3029aec25552fb60ccfb68149144d848fc2f08a8d35cc355f",
+      "experiments/registry-overrides/boost-low-vfp-callbacks-20261029/instruction-windows.json": "02e31c4688b247946f437b314a4df0b5a61bd672eef2be8243f405d0caffda40",
+      "experiments/registry-overrides/boost-low-viewport-control-20261029/viewport_only.py": "21365cec9a38129fa9c84de7da2f9d62f07137cb32a522dc920d3b0ea57a8b99",
+      "experiments/registry-overrides/boost-low-viewport-control-20261029/supervise_viewport.py": "211403932f528ce85ace77b7ab352d06610c113b9e12832e06895496984dcc5b",
+      "experiments/registry-overrides/boost-low-viewport-control-20261029/viewport-1/supervisor.json": "84842fe0f2fd15edd79c15347c9ed28c85a08c63ed76e036270b5635226cee39",
+      "experiments/registry-overrides/boost-low-viewport-control-20261029/viewport-1/child-terminal.json": "85f915ab83ffea77a2630bc928212a6616deaeca96d795c0ba0de7133cb32d26"
+    }
   }
 }
