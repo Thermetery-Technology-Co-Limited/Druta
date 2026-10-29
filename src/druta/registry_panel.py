@@ -1411,7 +1411,18 @@ class RegistryPanel:
             else:
                 after_controllers = contract["after"]["controllers"] if contract.get("schema") in (6, 7) else contract["after"]
                 after = after_controllers["0"]["configured_pstate_mask"]
-            if contract.get("schema") == 7:
+            group_removed = (
+                contract.get("schema") in (6, 7)
+                and not contract["after"]["main"]["bit4_group"]["1:0"]["available"]
+            )
+            if group_removed:
+                shared = (
+                    "The last contributor to a shared capability group will be removed. "
+                    "All readbacks for that group become unavailable; the main controller remains supported "
+                    "and provides a separate configuration readback. Other selected shared-capability changes "
+                    "and all untouched peers must also match the preview. "
+                )
+            elif contract.get("schema") == 7:
                 shared = (
                     "The last contributors to multiple shared auxiliary capabilities will be removed. "
                     "Their support, configured masks and controller features must match the preview; "

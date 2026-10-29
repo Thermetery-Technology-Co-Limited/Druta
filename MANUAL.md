@@ -571,18 +571,19 @@ and independently checks all controller features and type 7 configuration.
 Known profiles can include loss of GRRG controller 2 or MSCG controller 4;
 other peer changes fail verification and trigger restoration. Restore checks
 the captured original configuration. A separate path supports removing the final
-raw bit 4 contributor when the selected entries have verified P-state routes,
-main GR power gating stays supported, and another auxiliary role remains
-supported. It checks the affected feature/support/masks and the other captured
-controllers and roles, including the mask contraction of any surviving role
-that also used those entries. These bit 4 removals may now be combined with
-loss of the other shared capabilities when the same independent readbacks and
-supported peer witnesses are available. Main support can remain available with
-an empty configured P-state mask; Preview shows that empty eligibility without
-calling the controller unsupported. Whole-group disappearance without a
-supported query witness remains unavailable. The complete dependency graph and
-broader hardware qualification remain open; configured eligibility does not
-establish actual power-gating residency or power savings.
+raw bit 4 contributor while main GR power gating stays supported. When a peer
+role survives, the affected role's support and mask clear. When both peers are
+independently known to be unsupported, the whole dependent type 7 group becomes
+unavailable; the main controller provides a separate configuration readback.
+These bit 4 removals may also include bit 1 and bit 3 losses. Bit 1 removal
+still requires another supported type 4 role. The affected features, masks and
+all untouched peers must match the preview, including any surviving role's
+mask contraction. Main support can remain available with an empty configured
+P-state mask; Preview distinguishes this valid zero from an unavailable group.
+Unknown peer support cannot establish absence. Type 4 whole-group disappearance,
+conditional dependency losses and broader hardware qualification remain open.
+Configured eligibility does not establish physical residency or power savings.
+[No-peer configuration evidence](experiments/grpg-bit4-no-peer-qualified-20261029.json).
 
 **DIFR entry disables** use the existing **Idle power management** registry
 fields. Disable a currently enabled DIFR entry in its own transaction, preview,

@@ -1,6 +1,7 @@
 """Offline GRPG transactions: scoped capability, exact activation and recovery."""
 
 import copy
+import json
 import struct
 from pathlib import Path
 from types import SimpleNamespace
@@ -15,7 +16,7 @@ from tests.test_registry_overrides import digest, transaction
 
 
 def configured(
-    monkeypatch, *, multiple=False, slot=None, device=0xC321, auxiliary=False, bit1=False, combined=False, main=False, bit4=False, mixed=None
+    monkeypatch, *, multiple=False, slot=None, device=0xC321, auxiliary=False, bit1=False, combined=False, main=False, bit4=False, mixed=None, no_peer=False
 ):
     inspect, plan = vbios_fields.inspect, vbios_fields.plan
     receipt, registry, snapshot, restarts, kwargs = transaction(monkeypatch)
@@ -62,7 +63,7 @@ def configured(
         observe, make_contract = fixtures.auxiliary_observation, fixtures.make_aux_contract
     else:
         observe, make_contract = fixtures.observation, fixtures.make_contract
-    before = observe(slot=target.slot, device=device)
+    before = (fixtures.no_peer_observation if no_peer else observe)(slot=target.slot, device=device)
     saved = make_contract(monkeypatch, image=image, obs=before, changes=changes)
     after = fixtures.observed(saved)
     patch = plan(image, changes)
@@ -1007,3 +1008,34 @@ def test_mixed_bit4_tampered_receipt_fails_before_mutation(monkeypatch, restore)
     kwargs["gpu_factory"] = lambda slot: pytest.fail("Malformed receipt caused GPU access")
     result = ro.execute(receipt, restore=restore, **kwargs)
     assert not result["ok"] and not reg.operations and not restarts
+
+
+@pytest.mark.parametrize("loss", [0x10, 0x12, 0x18, 0x1A])
+def test_no_peer_durable_apply_and_undo(monkeypatch, loss):
+    receipt, reg, snap, restarts, kwargs, before, after = configured(
+        monkeypatch, bit4=loss == 0x10, mixed=None if loss == 0x10 else loss, no_peer=True
+    )
+    receipt = json.loads(json.dumps(receipt))
+    result = ro.execute(receipt, **kwargs)
+    assert result["state"] == "active", result["message"]
+    assert snap["grpg"] == after
+    result = ro.execute(receipt, restore=True, **kwargs)
+    assert result["state"] == "restored", result["message"]
+    assert snap["grpg"] == before and not reg.values and len(restarts) == 2
+
+
+@pytest.mark.parametrize("loss", [0x10, 0x12, 0x18, 0x1A])
+def test_no_peer_wrong_activation_compensates(monkeypatch, loss):
+    receipt, reg, snap, restarts, kwargs, before, _ = configured(
+        monkeypatch, bit4=loss == 0x10, mixed=None if loss == 0x10 else loss, no_peer=True
+    )
+    restart = kwargs["restart"]
+    def wrong_restart(device):
+        result = restart(device)
+        if reg.values:
+            snap["grpg"] = copy.deepcopy(before)
+        return result
+    kwargs["restart"] = wrong_restart
+    result = ro.execute(receipt, **kwargs)
+    assert result["state"] == "rolled-back", result["message"]
+    assert snap["grpg"] == before and not reg.values and len(restarts) == 2

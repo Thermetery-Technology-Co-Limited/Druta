@@ -2155,16 +2155,16 @@ requests matched, and the final baseline was restored exactly. This trial did
 not test the conditional loss of controller2 or controller4, establish broader
 hardware qualification, or measure physical residency.
 
-Schema6 separately qualifies aggregate loss10h only: disabling the last routed
-raw-bit4 contributor while main controller0 and an independently supported
-type7 peer remain. It reads the complete dependency scope and verifies role0
+The initial schema6 qualification covered aggregate loss10h: disabling the last
+routed raw-bit4 contributor while main controller0 and an independently
+supported type7 peer remain. It reads the complete dependency scope and verifies role0
 support/mask removal and controller0 feature8 clearing. Both available feature
 copies must agree; an unavailable optional duplicate stays independently
 unavailable. Other controllers and roles are retained. When selected entries
 also contribute raw bit3, their type1 mask806:0 loses only those routed IDs,
 while surviving support and feature10h stay active. Schema7 composes the
-witnessed mixed losses described below; unwitnessed group disappearance remains
-refused.
+witnessed mixed losses described below. The no-peer follow-up below extends
+these schemas without changing their previously accepted projections.
 
 A temporary singleton raw-bit4 setup on the captured RTX 5080/621.01 established
 a distinguishing before-state. Normal production preparation, durable reload,
@@ -2183,8 +2183,8 @@ remains. It composes the existing type1 bit3 projection, type4 bit1 support
 query, and type7 bit4 projection under the same complete dependency readback.
 For bit3 loss, role0 support/mask and controller0 feature10h clear; group-any
 is derived from independently read peer roles. For bit1 loss, role0 becomes
-unavailable and another supported type4 role must remain. For bit4 loss, role0
-support/mask and feature8 clear with a supported type7 peer. Both available
+unavailable and another supported type4 role must remain. The initial bit4
+profiles clear role0 support/mask and feature8 while retaining a type7 peer. Both available
 feature copies receive the complete combined projection; an unavailable
 optional duplicate stays independently unavailable. If bit3 survives, only its
 selected contributing routes contract. Schemas1-6 remain valid.
@@ -2217,9 +2217,63 @@ trial then passed. The failure location/cause was not captured and remains
 unresolved, rather than being treated as successful restoration. The retained
 failure, recovery and three successful trials used sixteen GPU-only restarts
 in total, without Windows reboot or workload. The full suite passed 6,563 tests,
-including 425 focused tests. Whole-group disappearance without witnesses,
-conditional controller2/4 losses, physical residency/savings and broader
-adapters remain unqualified. [Mixed-loss evidence and exact limits](experiments/grpg-bit4-combined-qualified-20261029.json).
+including 425 focused tests. Those trials did not qualify type7 whole-group
+disappearance, conditional controller2/4 losses, physical residency/savings or
+broader adapters. The separate no-peer qualification follows. [Mixed-loss evidence and exact limits](experiments/grpg-bit4-combined-qualified-20261029.json).
+
+**Last type7 role, with independent main readback (2026-10-29).**
+
+Schemas6/7 now also accept no-peer before-states when both type7 roles1/2
+independently return available/value0. Unknown peers without a supported
+witness remain refused. Clearing role0 at92B350 clears controller0 feature8
+and the group's support bit0; the A801 outer92B3A0 gate then skips the handler.
+Every type7 query becomes unavailable, including group-any and role support.
+The main controller's separate support/mask/feature GETs remain readable and
+must match the complete projection. Existing peer-bearing receipts recompute
+the same after-state and retain their original read scope.
+
+Four source production trials used temporary understood MS enabled-entry
+shutdown plus known GRPG raw-bit1/bit4 setup flags. Production then cleared
+only selected GRPG bit0 through normal Prepare, durable reload, Apply and Undo.
+All four removals ended with an unavailable type7 group:
+
+| Loss | Main mask before/after | Type1 group-any after | Type4 role0 after |
+| --- | --- | --- | --- |
+| 10h | 120h / 100h | valid1 | supported |
+| 12h | 120h / 100h | valid1 | unavailable |
+| 18h | 120h / 0 | valid0 | supported |
+| 1Ah | 120h / 0 | valid0 | unavailable |
+
+Main support remained true, including both zero-mask cases. This also
+qualifies type1 empty support as valid0 alongside type7 unavailability.
+Independent raw-packet checks cover all controller support/masks/features,
+type1/type4/type7 groups, duplicate GETs, routing and opaque bytes. Complete
+client/native power records and requests, selected-bit-only images and the
+compared configured peers are retained. Each qualified Undo restored its exact
+setup; ownership-aware setup removal recovered the complete captured original.
+A7 common identity/routes are required; its evaluated clock tails remain
+diagnostic rather than becoming a universal byte-equality gate.
+
+The first1Ah trial passed LPWR/client verification and normal Apply/Undo, but
+its active and UndoSetup broad comparisons differed in50 evaluated V/F
+frequency words. The original image, registry and complete curve were verified
+restored after setup removal. That run remains a negative full qualification
+with its cleanup warning; the recalculation cause is unproven. A separate
+repeat reached the original strict broad comparator at every settled phase,
+and all its captured curves equaled the original. No frequency exception was
+needed for qualification. The diagnostic probe's broader frequency mask is
+not a portable qualification helper: the current read-only layout and captured
+grids classify127 GPU rows and trailing other_idx127, which remained exact.
+
+The final suite passed6,633 tests in117.14 seconds. The focused controller/receipt
+cases passed405 tests, and the Preview panel suite passed76 including the new
+unavailable-group messages. Ruff passed for changed source and tests.
+
+Twenty GPU-only restarts include all four qualified cases and the retained
+negative attempt. No Windows reboot, workload, F219 SET or product enable path
+was used. Type4 whole-group disappearance, conditional controller2/4 losses,
+physical residency/savings, wider adapters and a dedicated packaged visual
+walkthrough remain pending. [Exact no-peer evidence and limits](experiments/grpg-bit4-no-peer-qualified-20261029.json).
 
 For the raw-bit3 transition,927470 clears controller0's available feature bit10h
 at group+138 and role0's bit in the separate LPWR+12F8 group support mask+5C.

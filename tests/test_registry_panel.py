@@ -1039,7 +1039,10 @@ def test_bit4_preview_describes_shared_capability_and_main_support(harness):
     h.mocks.prepare.return_value["grpg_contracts"] = {
         "schema": 6,
         "before": {"controllers": {"0": {"configured_pstate_mask": 0x120}}},
-        "after": {"controllers": {"0": {"configured_pstate_mask": 0x100}}},
+        "after": {
+            "controllers": {"0": {"configured_pstate_mask": 0x100}},
+            "main": {"bit4_group": {"1:0": {"available": True, "value": 1}}},
+        },
     }
     prepare_speedo(h)
     text = dpg.get_value("reg_preview")
@@ -1053,10 +1056,33 @@ def test_mixed_bit4_preview_describes_multiple_shared_capabilities(harness):
     h.mocks.prepare.return_value["grpg_contracts"] = {
         "schema": 7,
         "before": {"controllers": {"0": {"configured_pstate_mask": 0x120}}},
-        "after": {"controllers": {"0": {"configured_pstate_mask": 0}}},
+        "after": {
+            "controllers": {"0": {"configured_pstate_mask": 0}},
+            "main": {"bit4_group": {"1:0": {"available": True, "value": 1}}},
+        },
     }
     prepare_speedo(h)
     text = dpg.get_value("reg_preview")
     assert "multiple shared auxiliary capabilities" in text
     assert "main controller remains supported" in text
     assert "P5/P8 -> none" in text
+
+
+@pytest.mark.parametrize("schema,mask,eligibility", [(6, 0x100, "P5/P8 -> P8"), (7, 0, "P5/P8 -> none")])
+def test_bit4_preview_distinguishes_empty_group_from_main_support(harness, schema, mask, eligibility):
+    h = harness
+    h.mocks.prepare.return_value["grpg_contracts"] = {
+        "schema": schema,
+        "before": {"controllers": {"0": {"configured_pstate_mask": 0x120}}},
+        "after": {
+            "controllers": {"0": {"configured_pstate_mask": mask, "supported": True}},
+            "main": {"bit4_group": {"1:0": {"available": False, "value": None}}},
+        },
+    }
+    prepare_speedo(h)
+    text = dpg.get_value("reg_preview")
+    assert "All readbacks for that group become unavailable" in text
+    assert "main controller remains supported" in text
+    assert "separate configuration readback" in text
+    assert "another auxiliary role remains available" not in text
+    assert eligibility in text

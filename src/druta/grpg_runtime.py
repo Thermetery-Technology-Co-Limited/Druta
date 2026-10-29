@@ -520,9 +520,12 @@ def _derive(changes, before, tables):
         feature, group = main["features"]["0"], main["bit4_group"]
         if (not feature["available"] or not feature["value"] & 8
                 or group["1:0"] != {"available": True, "value": 1}
-                or group["801:0"] != {"available": True, "value": 1}
-                or not any(group[f"801:{i}"] == {"available": True, "value": 1} for i in (1, 2))):
-            raise GrpgError("GRPG bit4 removal requires the active role and a supported peer witness")
+                or group["801:0"] != {"available": True, "value": 1}):
+            raise GrpgError("GRPG bit4 removal requires the active role")
+        peers = [group[f"801:{i}"] for i in (1, 2)]
+        peer_supported = any(row == {"available": True, "value": 1} for row in peers)
+        if not peer_supported and any(row != {"available": True, "value": 0} for row in peers):
+            raise GrpgError("GRPG bit4 peer support is unknown")
         bit4_mask = 0
         for slot, ids in routes:
             if slot < len(flags) and flags[slot] & 0x11 == 0x11:
@@ -554,8 +557,12 @@ def _derive(changes, before, tables):
         if projected["auxiliary"]["feature"]["available"]:
             projected["auxiliary"]["feature"]["value"] &= ~8
         projected["main"]["features"]["0"]["value"] &= ~(8 | (0x10 if loss & 8 else 0))
-        projected["main"]["bit4_group"]["801:0"]["value"] = 0
-        projected["main"]["bit4_group"]["805:0"]["value"] = 0
+        if peer_supported:
+            projected["main"]["bit4_group"]["801:0"]["value"] = 0
+            projected["main"]["bit4_group"]["805:0"]["value"] = 0
+        else:
+            for key in projected["main"]["bit4_group"]:
+                projected["main"]["bit4_group"][key] = {"available": False, "value": None}
         return bindings, projected, None, None
     auxiliary = _aux_projection(core, flags, routes, removed) if loss & 8 else None
     bit1 = _bit1_projection(core) if loss & 2 else None
