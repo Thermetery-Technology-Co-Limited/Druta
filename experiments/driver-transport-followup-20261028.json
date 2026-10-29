@@ -794,5 +794,66 @@
       "https://github.com/NVIDIA/open-gpu-kernel-modules/blob/ca2d03e6fafd4d4b56b383497d931c25b283bfcf/src/nvidia/generated/g_rpc-structures.h",
       "https://github.com/NVIDIA/open-gpu-kernel-modules/blob/ca2d03e6fafd4d4b56b383497d931c25b283bfcf/src/nvidia/src/kernel/vgpu/rpc.c"
     ]
+  },
+  "candidate_firmware_consumers_20261029": {
+    "scope": "Offline candidate firmware bytes and exact known-address/class references only. No new GPU/registry experiment, native SET, restart or workload. No product admission/control change.",
+    "candidate_sha256": "6c4de07caa7f494a44419f3cad67bfda95de4304f057985da03cd7756a1c533d",
+    "F214": {
+      "group_and_provider": "Conditional VOLT root+170 group construction installs table1CF1490/selector1672D30. Selectors0/1 return group+170; its +28 setter is initialized to1686998.",
+      "row_mapping": "Selected row pointer = original packet+0xC+index*0x20 for unsigned index<=31. Dispatch1610CEC obtains subtype through selected row+8 table[0](index1), then invokes returned subtype+30.",
+      "type2_factory": "The format0x10 parser supplies descriptor type2. Factory19D9FD0 calls the row accessor with index1 and installs167F19C into returned subtype+30. Same accessor call/index is not proof of identical returned interface at dispatch.",
+      "conditional_setter": "167F19C tail-dispatches167F0A8. It subtracts a signed metadata halfword from the interface pointer and calls19672A4. After helper status zero, [[GPU+20C8]+334] nonzero skips six DWORD copies and returns zero. If that byte is zero, selected-row+4..+18 DWORDs copy to adjusted object+6C..+80.",
+      "accessor_limit": "Constructor computes runtime table4183540. Root found no covering program segment in the twelve recorded embedded ELFs and only the known constructor AUIPC/ADDI reference in the inspected code segment. This finite result does not prove there is no runtime initializer or other reference form.",
+      "unresolved": "GPU slot20C8 creation/retention and actual runtime pointee, gate334 current value and complete selector-to-flag branch behavior, accessor-table population, returned interface identity, loaded image and actual dispatch. The validated Perf descriptor/constructor is a static class candidate, not a current slot observation. No Windows field/layout equivalence is asserted.",
+      "class_slot_mapping": "Class-key getter1354DD4 shifts class/instance key right8. Its ED0B65 branch reads input+20C8, then casts through1726588 to OBJENGSTATE class7A7ED6. Validated candidate Perf metadata places EngState at root+8. This joins the class-key lookup to the slot, not its creation, retained pointer validity or live contents."
+    },
+    "F219": {
+      "group_and_provider": "On the enumerated successful lifecycle branch, VOLT root+8 interface+6B8=root+6C0 receives the constructed group. Selector0 returns group+880. Initializer161DA70 sets provider+28=161EA9C; request helper uses +1F0=1611DF4, factory overrides +1F8=168F080.",
+      "type2_callback": "Provider+A8 invokes +F0=1691850. Relative jump-table entry2 reaches16918EE/type2 constructor16915D0. Its selector3 interface receives +40=1693114. These assignments remain conditional on the enumerated constructor and retention path.",
+      "input_row_mapping": "Provider+78=1688264 computes original request+0x28+0x24*index.",
+      "byte_copies": {
+        "0x00": "0x00",
+        "0x05": "0x06",
+        "0x06": "0x18",
+        "0x07": "0x19"
+      },
+      "DWORD_copies": {
+        "0x08": "0x08",
+        "0x0C": "0x0C",
+        "0x10": "0x10",
+        "0x14": "0x14"
+      },
+      "copy_base": "All offsets are relative to the source and destination row pointers passed to the typed callback. Base helper168B2FC copies byte0. Wrapper161D584 calls adjusted-identity helper1611570; passed row+4/destination+4 pointers are not read on that inspected identity path.",
+      "unresolved": "Destination row enclosing buffer/base, later mutation/downstream consumption, numeric representation/units, rails, selected live rows, later callback overrides and loaded-image/dispatch identity. No modern F219 SET or hardware application is established."
+    },
+    "root_verification": {
+      "prior_constructor_consumer_windows": 34,
+      "prior_table_targets": 4,
+      "prior_AUIPC_pairs": 8,
+      "new_typed_windows": 12,
+      "new_relative_jump_table": "8 entries; entry2 exact",
+      "separate_class_windows": 4,
+      "separate_class_descriptor_and_RTTI": "exact; class-key getter maps Perf key to slot20C8 before EngState cast, without proving slot creation/live contents",
+      "all_compared_raw_bytes_exact": true,
+      "new_slot_getter_windows": 6,
+      "new_slot_getter_metadata_regions": 3
+    },
+    "review": "Luna supported mapper/base byte/typed copies and corrected identity-helper target; its destination-buffer/downstream-consumer scope clarification is explicitly retained.",
+    "preserved": "Earlier raw journals, captures, readbacks, negative trials and recovery observations unchanged as parsed data. This adds conditional static mechanisms, not an explanation proven for captured calls.",
+    "remaining": "Bind actual route/loaded image and consumed typed semantics before arbitrary replay. Resolve legacy runtime accessor/guard owner and modern destination/consumer before assigning units or issuing modern SET.",
+    "private_evidence_sha256": {
+      "experiments/registry-overrides/e0b7-routing-root-20261029/verify_firmware_consumers.py": "57773f1da79cf97f2d49bc012abcbceb3b43a24c21ec4c68716028adf4e63960",
+      "experiments/registry-overrides/e0b7-routing-root-20261029/firmware-consumer-reproduction.json": "d7b83d8b88f4efe2694e0362bebc88d113e73dd5d58932a73c81885315c24959",
+      "experiments/registry-overrides/e0b7-routing-root-20261029/firmware-consumer-root-review.json": "b24548e4209bee28e4500ca9c92a4556d7d0da0f253549dbf6f85847e305654f",
+      "experiments/registry-overrides/firmware-typed-root-20261029/verify.py": "1a0281f66fc87d79c694646bd33e47665d22679dff4333817e826de417e4ac43",
+      "experiments/registry-overrides/firmware-typed-root-20261029/typed-reproduction.json": "1eb838e374cbaa4247cfadfedb5bb4552bf33b8354b1e87d5f04a5949d977957",
+      "experiments/registry-overrides/gsp-voltage-export-candidates-20261029/f219-handler/typed-consumer/findings.json": "44240745935444c40d904729a9797031ee1bf4be45021e4aa963e235b89828fd",
+      "experiments/registry-overrides/gsp-voltage-export-candidates-20261029/f219-handler/typed-consumer/review.json": "fa9c0d4615dc9b9e5968d31c8aa56a1693e2f55caad2007d37bc8802d3c7d8aa",
+      "experiments/registry-overrides/gsp-voltage-export-candidates-20261029/f214-handler/accessor-root/trace_accessor.py": "e22f54f2d94fd7dba42ae72ac946776ab1a82ebdfbab79807028ca5bc1482456",
+      "experiments/registry-overrides/gsp-voltage-export-candidates-20261029/f214-handler/accessor-root/findings.json": "8b873603c9e9a53f0098db58f331dad49a5dbb1d596da1f937c1fcf0a2668661",
+      "experiments/registry-overrides/gsp-voltage-export-candidates-20261029/f214-handler/gate-owner/exact-class-candidate/findings.json": "b08960d959e2963c7970c7ca8381ef6b48fa419bbf4d4005c5b827509a5df06a",
+      "experiments/registry-overrides/gsp-voltage-export-candidates-20261029/f214-handler/gate-owner/exact-class-candidate/gpu-slot-join/constant-xrefs/trace.py": "192a800a0e92145ec4215158c8341d23c44ba6c2a81b8511037ab3d6565f4d57",
+      "experiments/registry-overrides/gsp-voltage-export-candidates-20261029/f214-handler/gate-owner/exact-class-candidate/gpu-slot-join/constant-xrefs/findings.json": "71ee1c2f9cece511392461643a8ef2afd694232a6b39802fcecb55826b728273"
+    }
   }
 }

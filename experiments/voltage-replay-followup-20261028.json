@@ -838,5 +838,11 @@
     "meaning": "Installed export flags and prologue permit successful forwarding that skips local handlers. The captures establish statuses/readbacks/restoration, not entry into localF214 CACC70/PERF32C or localE0B7/PERF588. Those local paths are not established causes of the ignored request or curve changes. GSP diagnostic N/A and virtualization None do not identify current routing.",
     "candidate_firmware": "Four native-command counterparts were validated in the co-located RV64 file; loaded identity, actual execution, provider semantics and replay remain unproven.",
     "preserved": "All original experiment, timed followup, live-bound, product trial and validation objects remain unchanged as parsed data; raw journals and packet artifacts are preserved."
+  },
+  "candidate_firmware_consumer_qualification_20261029": {
+    "evidence": "driver-transport-followup-20261028.json:candidate_firmware_consumers_20261029",
+    "legacy": "A candidate setter conditionally skips six copies with successful return, but runtime accessor identity, gate owner/value, loaded image and captured-call path remain unproved. It is not established as the cause of the prior ignored request.",
+    "modern": "A conditional type2 row callback copies specific fields to its destination row. Field units/rails, enclosing destination/later consumer and live selection remain unproved; no F219 SET was issued.",
+    "preserved": "All earlier experiment/capture objects are retained. This qualification adds no replay or physical-effect claim."
   }
 }

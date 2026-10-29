@@ -2965,6 +2965,25 @@ The file is a candidate: its loaded identity, actual dispatch and handler
 effects are unproved. These records provide concrete firmware counterparts
 for further analysis without identifying the active route or qualifying a new SET.
 
+Further candidate-image tracing reaches concrete row operations. The legacy
+F214 construction path installs a setter which, after a successful type check,
+either copies six DWORDs from the selected packet row or skips all six while
+returning success. It tests byte `+0x334` of the pointer at GPU `+0x20C8`.
+A candidate class-key getter maps the Perf key to that slot before an EngState
+cast; the actual stored instance, flag value and creation/retention remain unproved.
+The row accessor's runtime table and returned interface identity also remain unproved;
+this conditional body is not established as the cause of the captured no-op.
+
+The modern F219 candidate type2 path maps input rows at
+`request + 0x28 + 0x24 * index`. Its traced callback copies the input type byte
+and three additional bytes, plus four DWORDs, into its destination row. Exact
+source/destination offsets and the constructor/callback chain are retained in the
+[candidate-consumer evidence](experiments/driver-transport-followup-20261028.json).
+Those copies establish field transport on that path, not numerical units, rail
+identity or voltage application. The enclosing destination buffer, later mutation
+and downstream consumer are still unbound. Neither image loading nor live handler
+selection was observed, and no modern F219 SET was performed.
+
 A separate variable investigation matched native INFO `0x2080A0B1`
 (`0xC364` bytes, header `0x28`, 255 rows of `0xC4`) and CONTROL
 `0x2080A0B3` (`0x2BFC` bytes, rows of `0x2C`) to the installed NVAPI
