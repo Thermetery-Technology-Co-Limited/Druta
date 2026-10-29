@@ -48,12 +48,12 @@
     "Controller12 independently supported with available mask and feature; controller17 independently unsupported",
     "Role4 support agrees with the loaded enabled/class12/bit3 aggregate",
     "Partial disables preserve the enabled-row aggregate flags and must have an observable configured-state effect",
-    "All-enabled shutdown requires an independently supported type4 peer when role4 was supported",
+    "All-enabled shutdown can also project all type4 queries unavailable when the selected role is the only valid before query; selected native controller/mask/feature and all peers must match. See later_availability_extension for qualification limits.",
     "Legacy image-only Undo remains available; new Apply requires a fresh runtime contract"
   ],
   "pending": [
     "Supported controller17 profiles, mixed aggregate loss and additional layouts",
-    "Whole type4 group disappearance and further final dependency-graph qualification",
+    "OFA full-phase broad comparison, curve freshness and remaining dependency transitions; see later_availability_extension",
     "NVDEC-specific packaged visual/input walkthrough",
     "Physical residency, activity-counter semantics and power savings"
   ],
@@ -75,5 +75,6 @@
     "changed_source_and_test_Ruff": "passed",
     "independent_offline_raw_audit": "passed for both terminal source production trials; root reproduced",
     "package_scope": "Source/compiled-code parity and restored-baseline GETs checked separately from source transactions"
-  }
+  },
+  "later_availability_extension": "See media-type4-last-role-qualified-20261029.json: no-peer source contract, three fully clean media trials and separately retained OFA intermediate-curve negative; original trials here retain their historical scope."
 }

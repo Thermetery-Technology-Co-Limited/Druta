@@ -10,7 +10,7 @@ from tests import test_nvdec_runtime as fixtures
 from tests.test_registry_overrides import digest, transaction
 
 
-def configured(monkeypatch, shutdown=False):
+def configured(monkeypatch, shutdown=False, no_peer=False):
     inspect, plan = vbios_fields.inspect, vbios_fields.plan
     receipt, registry, snapshot, restarts, kwargs = transaction(monkeypatch)
     monkeypatch.setattr(vbios_fields, "inspect", inspect)
@@ -19,6 +19,10 @@ def configured(monkeypatch, shutdown=False):
     image = fixtures.bios()
     changes = {f"lpwr.nvdec.{i}.enabled": False for i in (range(3) if shutdown else (0,))}
     before = fixtures.observation(slot=target.slot, device=0xD123)
+    if no_peer:
+        roles = {str(role): {"available": False, "supported": None} for role in fixtures.gr._BIT1_ROLES}
+        roles["4"] = {"available": True, "supported": True}
+        before["bit1"] = fixtures._bit1_packet(roles)
     saved = fixtures.make_contract(monkeypatch, image=image, obs=before, changes=changes)
     after = fixtures.observed(saved)
     patch = plan(image, changes)
@@ -125,3 +129,61 @@ def test_nvdec_preview_isolated_from_other_control_changes():
         ro._nvdec_separate({"lpwr.nvdec.0.enabled": False, "power.0.maximum": 500000})
     with pytest.raises(ro.OverrideError, match="separately"):
         ro._nvdec_separate({"lpwr.nvdec.0.enabled": False}, pstate_changes={"all_pstates": True})
+
+
+def test_nvdec_last_type4_role_shutdown_applies_and_restores_exact_source_words(monkeypatch):
+    receipt, registry, snapshot, restarts, kwargs, before, after = configured(
+        monkeypatch, shutdown=True, no_peer=True
+    )
+    assert before["bit1"]["roles"]["4"] == {"available": True, "supported": True}
+    assert all(not row["available"] for role, row in before["bit1"]["roles"].items() if role != "4")
+    assert all(not row["available"] for row in after["bit1"]["roles"].values())
+    for key in receipt["changes"]:
+        source = receipt["nvdec_contracts"]["selected"][key]
+        assert source["after"] == source["before"] & ~1
+    result = ro.execute(receipt, **kwargs)
+    assert result["state"] == "active", result["message"]
+    assert snapshot["nvdec"] == after and registry.values == receipt["after"]
+    result = ro.execute(receipt, restore=True, **kwargs)
+    assert result["state"] == "restored", result["message"]
+    assert snapshot["nvdec"] == before and not registry.values and len(restarts) == 2
+
+
+@pytest.mark.parametrize("failure", ["ignored", "missing", "peer", "error"])
+def test_nvdec_last_type4_role_readback_failure_rolls_back(monkeypatch, failure):
+    receipt, registry, snapshot, restarts, kwargs, before, _ = configured(
+        monkeypatch, shutdown=True, no_peer=True
+    )
+    original = kwargs["restart"]
+
+    def restart(device):
+        result = original(device)
+        if registry.values:
+            if failure == "ignored":
+                snapshot["nvdec"] = copy.deepcopy(before)
+            elif failure == "missing":
+                snapshot["nvdec"] = None
+            elif failure == "peer":
+                roles = copy.deepcopy(snapshot["nvdec"]["bit1"]["roles"])
+                roles["0"] = {"available": True, "supported": True}
+                snapshot["nvdec"]["bit1"] = fixtures._bit1_packet(roles)
+            else:
+                snapshot["nvdec_error"] = "NVDEC global readback unavailable"
+        return result
+
+    kwargs["restart"] = restart
+    result = ro.execute(receipt, **kwargs)
+    assert result["state"] == "rolled-back", result["message"]
+    assert not result["ok"] and not registry.values and len(restarts) == 2
+    assert snapshot["nvdec"] == before and digest(snapshot["image"]) == receipt["before_image_sha256"]
+
+
+def test_nvdec_last_type4_role_missing_in_prestate_refuses_without_write(monkeypatch):
+    receipt, registry, snapshot, restarts, kwargs, _, _ = configured(
+        monkeypatch, shutdown=True, no_peer=True
+    )
+    roles = copy.deepcopy(snapshot["nvdec"]["bit1"]["roles"])
+    roles["4"] = {"available": False, "supported": None}
+    snapshot["nvdec"]["bit1"] = fixtures._bit1_packet(roles)
+    result = ro.execute(receipt, **kwargs)
+    assert result["state"] == "failed" and not registry.operations and not restarts

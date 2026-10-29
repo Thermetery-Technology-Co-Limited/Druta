@@ -102,7 +102,7 @@
   },
   "pending": [
     "Independent type4 group-mask/presence readback",
-    "Last-role removal by NVDEC/media providers without a surviving type4 peer",
+    "OFA full-phase broad comparison, curve freshness and remaining dependency transitions; see later_availability_extension",
     "Remaining conditional dependencies, wider MS and mixed-flag profiles",
     "Packaged type4 visual/input walkthrough and curve freshness semantics",
     "Physical residency, activity and power effects"
@@ -119,5 +119,6 @@
     "changed_source_and_test_Ruff": "passed",
     "independent_raw_audit": "Four clean source cases plus the retained setup-only negative and later GET restoration; root reproduced all five",
     "package_scope": "Source/compiled-code parity and restored-baseline GETs checked separately from source production transactions"
-  }
+  },
+  "later_availability_extension": "See media-type4-last-role-qualified-20261029.json: no-peer source contract, three fully clean media trials and separately retained OFA intermediate-curve negative; original trials here retain their historical scope."
 }

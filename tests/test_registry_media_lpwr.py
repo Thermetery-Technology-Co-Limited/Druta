@@ -12,7 +12,7 @@ from tests.test_registry_overrides import digest, transaction
 FAMILIES = ("nvenc", "ofa", "nvjpg")
 
 
-def configured(monkeypatch, family, shutdown=False):
+def configured(monkeypatch, family, shutdown=False, no_peer=False):
     inspect, plan = vbios_fields.inspect, vbios_fields.plan
     receipt, registry, snapshot, restarts, kwargs = transaction(monkeypatch)
     monkeypatch.setattr(vbios_fields, "inspect", inspect)
@@ -21,6 +21,11 @@ def configured(monkeypatch, family, shutdown=False):
     image = fixtures.bios(family)
     changes = {f"lpwr.{family}.{i}.enabled": False for i in (range(3) if shutdown else (0,))}
     before = fixtures.observation(family, slot=target.slot, device=0xD123)
+    if no_peer:
+        role = fixtures.media._PROFILES[family][4]
+        roles = {str(index): {"available": False, "supported": None} for index in fixtures.gr._BIT1_ROLES}
+        roles[str(role)] = {"available": True, "supported": True}
+        before["bit1"] = fixtures._bit1_packet(roles)
     saved = fixtures.make_contract(monkeypatch, family, image=image, obs=before, changes=changes)
     after = fixtures.observed(saved)
     patch = plan(image, changes)
@@ -132,3 +137,67 @@ def test_media_preview_isolated_by_family_and_from_other_controls():
         ro._media_separate({"lpwr.nvenc.0.enabled": False, "power.0.maximum": 500000})
     with pytest.raises(ro.OverrideError, match="separately"):
         ro._media_separate({"lpwr.nvjpg.0.enabled": False}, pstate_changes={"all_pstates": True})
+
+
+@pytest.mark.parametrize("family", FAMILIES)
+def test_media_last_type4_role_shutdown_applies_and_restores_exact_source_words(monkeypatch, family):
+    receipt, registry, snapshot, restarts, kwargs, before, after = configured(
+        monkeypatch, family, shutdown=True, no_peer=True
+    )
+    role = str(fixtures.media._PROFILES[family][4])
+    assert before["bit1"]["roles"][role] == {"available": True, "supported": True}
+    assert all(not row["available"] for other, row in before["bit1"]["roles"].items() if other != role)
+    assert all(not row["available"] for row in after["bit1"]["roles"].values())
+    mask = 2 if family == "nvjpg" else 1
+    for key in receipt["changes"]:
+        source = receipt["media_contracts"]["selected"][key]
+        assert source["after"] == source["before"] & ~mask
+    result = ro.execute(receipt, **kwargs)
+    assert result["state"] == "active", result["message"]
+    assert snapshot["media"] == after and registry.values == receipt["after"]
+    result = ro.execute(receipt, restore=True, **kwargs)
+    assert result["state"] == "restored", result["message"]
+    assert snapshot["media"] == before and not registry.values and len(restarts) == 2
+
+
+@pytest.mark.parametrize("family", FAMILIES)
+@pytest.mark.parametrize("failure", ["ignored", "missing", "peer", "error"])
+def test_media_last_type4_role_readback_failure_rolls_back(monkeypatch, family, failure):
+    receipt, registry, snapshot, restarts, kwargs, before, _ = configured(
+        monkeypatch, family, shutdown=True, no_peer=True
+    )
+    original = kwargs["restart"]
+
+    def restart(device):
+        result = original(device)
+        if registry.values:
+            if failure == "ignored":
+                snapshot["media"] = copy.deepcopy(before)
+            elif failure == "missing":
+                snapshot["media"] = None
+            elif failure == "peer":
+                roles = copy.deepcopy(snapshot["media"]["bit1"]["roles"])
+                roles["0"] = {"available": True, "supported": True}
+                snapshot["media"]["bit1"] = fixtures._bit1_packet(roles)
+            else:
+                snapshot["media_error"] = "Media LPWR global readback unavailable"
+        return result
+
+    kwargs["restart"] = restart
+    result = ro.execute(receipt, **kwargs)
+    assert result["state"] == "rolled-back", result["message"]
+    assert not result["ok"] and not registry.values and len(restarts) == 2
+    assert snapshot["media"] == before and digest(snapshot["image"]) == receipt["before_image_sha256"]
+
+
+@pytest.mark.parametrize("family", FAMILIES)
+def test_media_last_type4_role_missing_in_prestate_refuses_without_write(monkeypatch, family):
+    receipt, registry, snapshot, restarts, kwargs, _, _ = configured(
+        monkeypatch, family, shutdown=True, no_peer=True
+    )
+    role = str(fixtures.media._PROFILES[family][4])
+    roles = copy.deepcopy(snapshot["media"]["bit1"]["roles"])
+    roles[role] = {"available": False, "supported": None}
+    snapshot["media"]["bit1"] = fixtures._bit1_packet(roles)
+    result = ro.execute(receipt, **kwargs)
+    assert result["state"] == "failed" and not registry.operations and not restarts

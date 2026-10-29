@@ -438,17 +438,33 @@ def _aux_projection(core, flags, routes, removed, *, feature_fallback=None):
     return after
 
 
-def _bit1_projection(core, *, allow_no_peer=False):
-    before = core.get("bit1")
-    if before is None or before["roles"]["0"] != {"available": True, "supported": True}:
-        raise GrpgError("Last GRPG bit1 contributor requires independently available role0 support")
-    peers = [before["roles"][str(i)] for i in _BIT1_ROLES if i != 0]
+def project_type4_role(before, role, *, allow_no_peer=False):
+    """Project role unavailability; invalid rows are not independent false values."""
+    if (not isinstance(before, dict) or set(before) != {"roles"}
+            or not isinstance(before["roles"], dict)
+            or set(before["roles"]) != {str(i) for i in _BIT1_ROLES}
+            or type(role) is not int or role not in _BIT1_ROLES):
+        raise GrpgError("Malformed type4 role readback")
+    roles = before["roles"]
+    if any(row not in ({"available": True, "supported": True}, {"available": False, "supported": None})
+           for row in roles.values()):
+        raise GrpgError("Malformed type4 role availability")
+    if roles[str(role)] != {"available": True, "supported": True}:
+        raise GrpgError("Last GRPG bit1 contributor requires independently available role0 support"
+                        if role == 0 else "Selected type4 role support is unavailable")
+    peers = [roles[str(i)] for i in _BIT1_ROLES if i != role]
     if not any(row == {"available": True, "supported": True} for row in peers):
         if not allow_no_peer or any(row != {"available": False, "supported": None} for row in peers):
             raise GrpgError("GRPG bit1 removal requires another supported role as a query witness")
     after = copy.deepcopy(before)
-    after["roles"]["0"] = {"available": False, "supported": None}
+    after["roles"][str(role)] = {"available": False, "supported": None}
     return after
+
+
+def _bit1_projection(core, *, allow_no_peer=False):
+    if core.get("bit1") is None:
+        raise GrpgError("Last GRPG bit1 contributor requires independently available role0 support")
+    return project_type4_role(core["bit1"], 0, allow_no_peer=allow_no_peer)
 
 
 def _derive(changes, before, tables, *, full_scope=False):

@@ -209,10 +209,11 @@ def _derive(changes, before, tables):
     after = {k: copy.deepcopy(core[k]) for k in ("controllers", "auxiliary", "bit1", "main")}
     after["controllers"][str(controller)]["configured_pstate_mask"] = after_mask
     if shutdown:
-        if role_enabled and not any(
-            k != str(role) and v == {"available": True, "supported": True} for k, v in roles.items()
-        ):
-            raise MediaLpwrError("Media type4 peer support is not independently witnessed")
+        if role_enabled:
+            try:
+                after["bit1"] = gr.project_type4_role(core["bit1"], role, allow_no_peer=True)
+            except gr.GrpgError as exc:
+                raise MediaLpwrError(str(exc)) from exc
         after["controllers"][str(controller)] = {
             "available": True,
             "supported": False,
@@ -220,7 +221,6 @@ def _derive(changes, before, tables):
             "configured_pstate_mask": None,
         }
         after["main"]["features"][str(controller)] = {"available": False, "value": None}
-        after["bit1"]["roles"][str(role)] = {"available": False, "supported": None}
     if all(_same_state(after[k], core[k]) for k in ("controllers", "auxiliary", "bit1", "main")):
         raise MediaLpwrError("Media disable has no independently observable configured-state effect")
     return bindings, after

@@ -379,19 +379,28 @@ P-states; disabling every enabled entry can remove controller support and its
 auxiliary role. Preview shows the predicted outcome, and Apply/Undo verify
 that outcome alongside the other captured low-power controllers. The current
 profile requires controller 12 supported and controller 17 independently
-unsupported; partial disables must preserve aggregate flags, and shutdown
-requires an independently supported auxiliary peer. Other profiles and
-physical residency/power savings remain pending.
+unsupported; partial disables must preserve aggregate flags. Full shutdown can
+remove the last supported type 4 role when that role is the only valid support
+query before Apply. The preview then requires all eleven type 4 support queries
+to become unavailable and controller 12 support, mask and feature readbacks to
+match the predicted unsupported state. Unavailable rows are not valid false
+values and do not prove an empty group mask. Other profiles and physical
+residency/power savings remain pending.
 [NVDEC configuration evidence](experiments/nvdec-configured-qualified-20261029.json).
 
 NVENC, OFA and NVJPG entry disables now use the same Preview, restart and
 verified Undo workflow, with each engine's own loaded routing and support
 checks. Apply one engine's changes at a time. Partial disables retain aggregate
-flags; complete enabled-entry shutdown requires a surviving auxiliary peer
-when the selected engine's role was supported. The NVJPG field now follows
-the enable bit consumed by its loader. Other profiles, whole auxiliary-group
-removal, packaged input walkthroughs and physical savings remain pending.
+flags. Shutdown retains the existing peer-bearing behavior when another type 4
+role remains supported. If the selected engine's role was the only valid type 4
+support query, Preview instead requires all eleven queries to become
+unavailable and the engine controller's support, mask and feature readbacks to
+match the predicted unsupported state. Unavailable rows are not valid false
+values and do not prove an empty group mask. The NVJPG field now follows the
+enable bit consumed by its loader. Other profiles, packaged input walkthroughs
+and physical savings remain pending.
 [Media configuration evidence](experiments/media-lpwr-configured-qualified-20261029.json).
+[Last-role qualification and the retained OFA curve-comparison limit](experiments/media-type4-last-role-qualified-20261029.json).
 
 **Linked current limits** configure a current limit carried by another power
 policy. Druta resolves the BIOS relationship to its target policy and verifies

@@ -73,13 +73,13 @@
     "Apply one media family at a time; independently supported primary mask/feature required",
     "NVENC/OFA alternates independently unsupported; NVJPG has no inferred alternate",
     "Auxiliary role support agrees with the enabled-row aggregate",
-    "Partial disables preserve the enabled-row flag union; all-enabled shutdown requires an independently supported auxiliary peer when the role was supported",
+    "All-enabled shutdown can also project all type4 queries unavailable when the selected role is the only valid before query; selected native controller/mask/feature and all peers must match. See later_availability_extension for qualification limits.",
     "All captured peers must match; unexpected differences invoke restoration",
     "Legacy image-only Undo remains available; new Apply requires fresh runtime contracts"
   ],
   "pending": [
     "Supported alternate controllers, mixed aggregate losses and other layouts",
-    "Whole type4 group disappearance and remaining dependency transitions",
+    "OFA full-phase broad comparison, curve freshness and remaining dependency transitions; see later_availability_extension",
     "Media-specific packaged visual/input walkthroughs and curve freshness/recalculation semantics",
     "Physical residency, trustworthy activity telemetry and power savings"
   ],
@@ -95,5 +95,6 @@
     "changed_source_and_test_Ruff": "passed",
     "independent_raw_audit": "six clean cases plus the retained negative and later GET-only restoration; root reproduced all seven",
     "package_scope": "Source/compiled-code parity and baseline readbacks checked separately from source production transactions"
-  }
+  },
+  "later_availability_extension": "See media-type4-last-role-qualified-20261029.json: no-peer source contract, three fully clean media trials and separately retained OFA intermediate-curve negative; original trials here retain their historical scope."
 }

@@ -188,10 +188,11 @@ def _derive(changes, before, tables):
     after = {k: copy.deepcopy(core[k]) for k in ("controllers", "auxiliary", "bit1", "main")}
     after["controllers"]["12"]["configured_pstate_mask"] = projected_mask
     if shutdown:
-        if role4_enabled and not any(
-            role != "4" and value == {"available": True, "supported": True} for role, value in roles.items()
-        ):
-            raise NvdecError("NVDEC type4 peer support is not independently witnessed")
+        if role4_enabled:
+            try:
+                after["bit1"] = gr.project_type4_role(core["bit1"], 4, allow_no_peer=True)
+            except gr.GrpgError as exc:
+                raise NvdecError(str(exc)) from exc
         after["controllers"]["12"] = {
             "available": True,
             "supported": False,
@@ -199,7 +200,6 @@ def _derive(changes, before, tables):
             "configured_pstate_mask": None,
         }
         after["main"]["features"]["12"] = {"available": False, "value": None}
-        after["bit1"]["roles"]["4"] = {"available": False, "supported": None}
     if all(_same_state(after[k], core[k]) for k in ("controllers", "auxiliary", "bit1", "main")):
         raise NvdecError("NVDEC disable has no independently observable configured-state effect")
     return bindings, after

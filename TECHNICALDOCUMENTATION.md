@@ -3461,12 +3461,16 @@ workload, F219 SET or physical-residency measurement occurred.
 
 The current product profile requires available controller 12 support/mask/
 feature, independently unsupported controller 17 and the traced role 4 aggregate.
-Partial disables retain the enabled-row aggregate flags; complete enabled-entry
-shutdown additionally requires a positive surviving type4 peer when role 4 was
-supported. Other controller 17 profiles, mixed aggregate losses, whole-type4
-group disappearance and other table layouts remain pending. Tested identities
-and driver versions identify evidence, not compatibility gates. Older image-only
-NVDEC receipts retain Undo; a new Apply requires a fresh runtime preview.
+Partial disables retain the enabled-row aggregate flags. Full shutdown keeps
+the peer-bearing projection when another type4 role remains supported. If role 4
+is the only valid type4 support query before Apply, the no-peer projection
+requires all eleven support queries to become unavailable, with controller 12
+support, mask and feature readbacks matching the predicted unsupported state.
+Unavailable rows are not valid false values and do not prove an empty group
+mask. Other controller 17 profiles, mixed aggregate losses and other table
+layouts remain pending. Tested identities and driver versions identify
+evidence, not compatibility gates. Older image-only NVDEC receipts retain Undo;
+a new Apply requires a fresh runtime preview.
 
 The full suite passed 6,667 tests in 116.54 seconds; 110 focused NVDEC/Preview
 cases and changed-file Ruff also passed. An independent raw-packet audit was
@@ -3505,14 +3509,21 @@ not an exhaustive alias proof. The product requires supported primary
 controller/mask/feature, an independently unsupported alternate for NVENC/OFA,
 and agreement between the enabled-row role aggregate and independent role
 readback. Partial changes preserve the enabled-row flag union. Full shutdown
-requires an independently supported type 4 peer when the selected role was
-supported. Unknown words are preserved; originally disabled entries cannot
-be enabled, and nondiscriminating selections remain unqualified.
+keeps the peer-bearing projection when another type4 role remains supported. If
+the selected role is the only valid type4 support query before Apply, the
+no-peer projection requires all eleven support queries to become unavailable
+and the engine controller's support, mask and feature readbacks to match the
+predicted unsupported state. Unavailable rows are not valid false values and
+do not prove an empty group mask. Unknown words are preserved; originally
+disabled entries cannot be enabled, and nondiscriminating selections remain
+unqualified.
 
-Six normal source Prepare/durable Apply/Undo trials passed on the captured
-RTX 5080/621.01 configuration: one row 0 disable and one complete five-row
-shutdown for each family. Each partial disable changed its primary configured
-mask from 0x129 to 0x009 while support, feature and auxiliary role remained.
+The following six normal source Prepare/durable Apply/Undo trials use the
+peer-bearing profile; these results remain separate from the no-peer contract.
+They passed on the captured RTX 5080/621.01 configuration: one row 0 disable
+and one complete five-row shutdown for each family. Each partial disable
+changed its primary configured mask from 0x129 to 0x009 while support, feature
+and auxiliary role remained.
 Each complete shutdown made its primary controller unsupported with an
 unavailable mask/feature, and removed its corresponding auxiliary role.
 All other captured controllers, masks, features and auxiliary groups matched.
@@ -3544,12 +3555,61 @@ Ruff passed.
 
 The hardware evidence covers source transactions. Package source/compiled-code
 parity and restored-baseline GETs are separate checks. Alternate-controller
-profiles, mixed aggregate loss, whole type 4 disappearance, other layouts,
-media-specific packaged visual/input coverage and physical residency/savings
-remain pending. Device and driver identities identify evidence, not product
-compatibility lists. Legacy image-only receipts retain Undo; fresh runtime
-contracts are required for a new Apply.
+profiles, mixed aggregate loss, other layouts, media-specific packaged
+visual/input coverage and physical residency/savings remain pending. Device and
+driver identities identify evidence, not product compatibility lists. Legacy
+image-only receipts retain Undo; fresh runtime contracts are required for a new
+Apply.
 [Scoped media evidence](experiments/media-lpwr-configured-qualified-20261029.json).
+
+## Last type 4 role availability for NVDEC and media LPWR (2026-10-29)
+
+The source contracts also model a shutdown where the selected NVDEC/media role
+is the only valid type4 support query before Apply. The full prestate must show
+that target role as available/value 1 and all other type4 rows unavailable. The
+projected result makes all eleven support queries unavailable. It does not
+reinterpret invalid rows as valid false values or claim an independently read
+empty group mask.
+
+For full engine shutdown, the selected native controller changes from
+supported to unsupported, and its configured mask and feature become
+unavailable. All other captured controller masks/features, auxiliary peers,
+loaded routing and adapter identity must match the recomputed projection. The
+existing peer-bearing projections are unchanged; no schema or receipt change is
+required. Legacy GRPG schemas 3/4 retain their prior positive-peer witness and
+read-scope rules.
+
+Three complete source trials passed for NVDEC, NVENC and NVJPG on the captured
+RTX 5080/621.01 configuration. Each normal Prepare/durable Apply/Undo verified
+all five selected entries. Temporary setup, active state, Undo-to-setup and
+final original matched the complete LPWR/client and strict broad comparison,
+including the full curve. Independent audits were reproduced by root.
+
+OFA has partial configured-state evidence rather than a fully clean trial.
+An initial setup-only attempt failed the strict curve comparison before
+product Prepare, then restored the original exactly. One unchanged repeat
+passed setup and active broad checks, and both product Apply/Undo verified
+the images, LPWR packets, full client requests and all captured peers. Its
+Undo-to-setup broad comparison failed all eight attempts on the curve after
+initial driver-flag differences; final original equality, including the curve,
+passed. The retained research recovery warning is an intermediate comparison
+failure, not an active product recovery receipt. Both OFA records remain
+negative for their failed phases. The cause is unproven; no curve exclusions
+or comparator changes were introduced.
+
+Audits independently rebuild the complete images, owned patches and actual
+routes, all raw packet rows/opaque bytes and independent copies, durable
+receipts and every broad sample. The harness checked a second initial stable
+capture but persisted only the first in each trial; audits do not claim to
+inspect the unsaved second capture. Eighteen GPU-only restarts cover these
+five attempts. No Windows reboot, workload or physical measurement occurred.
+
+The full suite passed 6,786 tests in 119.24 seconds; 432 focused runtime,
+transaction and Preview cases plus changed-file Ruff passed. Package parity
+and baseline GETs remain separate from these source transactions. A clean
+full-phase OFA broad comparison, curve freshness, packaged input/recovery and
+physical effects remain pending.
+[Last-role NVDEC/media qualification](experiments/media-type4-last-role-qualified-20261029.json).
 
 ## GRPG type 4 availability contracts (2026-10-29)
 
@@ -3620,8 +3680,7 @@ transaction and Preview cases plus changed-file Ruff passed.
 
 Package source/compiled-code parity and restored-baseline GETs are separate
 from the source transaction trials. Packaged type 4 visual/input coverage,
-independent group-mask/presence readback, last-role media-provider removals,
-curve freshness semantics, remaining
+independent group-mask/presence readback, curve freshness semantics, remaining
 conditional dependency transitions and physical effects remain unqualified.
 [Scoped type 4 availability evidence](experiments/grpg-bit1-availability-qualified-20261029.json).
 

@@ -132,8 +132,14 @@ def test_bad_flags_feature_and_peer_refused(monkeypatch, family):
         if key != str(role):
             roles[key] = {"available": False, "supported": None}
     obs["bit1"] = _bit1_packet(roles)
-    with pytest.raises(media.MediaLpwrError, match="peer support"):
-        make_contract(monkeypatch, family, obs=obs, changes={f"lpwr.{family}.{i}.enabled": False for i in range(3)})
+    changes = {f"lpwr.{family}.{i}.enabled": False for i in range(3)}
+    saved = json.loads(json.dumps(make_contract(monkeypatch, family, obs=obs, changes=changes)))
+    assert saved["after"]["bit1"]["roles"] == {
+        str(i): {"available": False, "supported": None} for i in gr.CONTROLLERS[:11]
+    }
+    assert saved["after"]["controllers"][str(native)]["supported"] is False
+    assert media.verify(observed(saved), saved) == sorted(changes)
+    assert media.verify(saved["before"], saved, restore=True) == sorted(changes)
     if alternate is not None:
         obs = observation(family)
         obs["controllers"][str(alternate)] = controller(True, 0)
@@ -153,3 +159,16 @@ def test_unrouted_and_get_failure_refused(monkeypatch):
     monkeypatch.setattr(media, "read", lambda gpu: (None, "transient read failed"))
     with pytest.raises(media.MediaLpwrError, match="transient read failed"):
         media.contracts(None, bios("nvenc"), {"lpwr.nvenc.0.enabled": False})
+
+
+@pytest.mark.parametrize("family", ["nvenc", "ofa", "nvjpg"])
+def test_missing_role_or_already_unavailable(monkeypatch, family):
+    obs = observation(family)
+    obs["bit1"] = _bit1_packet({str(i): {"available": False, "supported": None} for i in gr.CONTROLLERS[:11]})
+    changes = {f"lpwr.{family}.{i}.enabled": False for i in range(3)}
+    with pytest.raises(media.MediaLpwrError, match="role support"):
+        make_contract(monkeypatch, family, obs=obs, changes=changes)
+    flags = (0xFFF3,) * 3 if family == "nvjpg" else (0xFFE3,) * 3
+    saved = make_contract(monkeypatch, family, image=bios(family, flags), obs=obs, changes=changes)
+    assert saved["after"]["bit1"] == gr._observation(obs, allow_missing_aux_feature=True)["bit1"]
+    assert media.verify(observed(saved), saved)

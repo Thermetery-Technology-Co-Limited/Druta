@@ -99,15 +99,21 @@ def test_duplicate_id_survives_selected_route(monkeypatch):
     assert nv.verify(observed(saved), saved)
 
 
-def test_no_type4_witness_rejects_shutdown(monkeypatch):
+def test_no_type4_peer_shutdown_roundtrip(monkeypatch):
     obs = observation()
     roles = copy.deepcopy(obs["bit1"]["roles"])
     for role in roles:
         if role != "4":
             roles[role] = {"available": False, "supported": None}
     obs["bit1"] = _bit1_packet(roles)
-    with pytest.raises(nv.NvdecError, match="peer support"):
-        make_contract(monkeypatch, obs=obs, changes={f"lpwr.nvdec.{i}.enabled": False for i in range(3)})
+    changes = {f"lpwr.nvdec.{i}.enabled": False for i in range(3)}
+    saved = json.loads(json.dumps(make_contract(monkeypatch, obs=obs, changes=changes)))
+    assert saved["after"]["bit1"]["roles"] == {
+        str(i): {"available": False, "supported": None} for i in gr.CONTROLLERS[:11]
+    }
+    assert saved["after"]["controllers"]["12"]["supported"] is False
+    assert nv.verify(observed(saved), saved) == sorted(changes)
+    assert nv.verify(saved["before"], saved, restore=True) == sorted(changes)
 
 
 def test_unknown_peer_change_is_rejected(monkeypatch):
@@ -199,3 +205,13 @@ def test_supported_17_profile_is_not_admitted(monkeypatch):
     obs["main"] = _main_packets(obs["controllers"], main)
     with pytest.raises(nv.NvdecError, match="unsupported controller17"):
         make_contract(monkeypatch, obs=obs)
+
+
+def test_already_unavailable_role_preserved_when_flag_absent(monkeypatch):
+    obs = observation()
+    obs["bit1"] = _bit1_packet({str(i): {"available": False, "supported": None} for i in gr.CONTROLLERS[:11]})
+    saved = make_contract(
+        monkeypatch, obs=obs, image=bios((0xFFE3,) * 3), changes={f"lpwr.nvdec.{i}.enabled": False for i in range(3)}
+    )
+    assert saved["after"]["bit1"] == gr._observation(obs, allow_missing_aux_feature=True)["bit1"]
+    assert nv.verify(observed(saved), saved)

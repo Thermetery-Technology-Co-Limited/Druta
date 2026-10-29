@@ -19,6 +19,13 @@ _VF_LIVE_FIELDS = (
 _DIFR_LABELS = {"9": "DFPR", "10": "MS DIFR SW-ASR", "11": "MS DIFR CG"}
 
 
+def _type4_queries_become_unavailable(contract):
+    before = contract["before"].get("bit1", {}).get("roles", {})
+    after = contract["after"].get("bit1", {}).get("roles", {})
+    return bool(before and after and any(row["available"] for row in before.values())
+                and all(not row["available"] for row in after.values()))
+
+
 class RegistryPanel:
     def __init__(self, app):
         self.app = app
@@ -1398,6 +1405,11 @@ class RegistryPanel:
                 "Related low-power support and eligibility must also match after the GPU restart. "
                 "Undo verifies the original configuration. Physical residency and power savings remain unmeasured."
             )
+            if _type4_queries_become_unavailable(contract):
+                lines.append(
+                    "All support queries for this auxiliary group become unavailable; the selected controller's "
+                    "unsupported reply and the other captured readbacks must match the preview."
+                )
         if receipt.get("media_contracts"):
             contract = receipt["media_contracts"]
             family = contract["family"]
@@ -1415,6 +1427,11 @@ class RegistryPanel:
                 "Related low-power support and eligibility must also match after the GPU restart. "
                 "Undo verifies the original configuration. Physical residency and power savings remain unmeasured."
             )
+            if _type4_queries_become_unavailable(contract):
+                lines.append(
+                    "All support queries for this auxiliary group become unavailable; the selected controller's "
+                    "unsupported reply and the other captured readbacks must match the preview."
+                )
         if receipt.get("grpg_contracts"):
             contract = receipt["grpg_contracts"]
             before = contract["before"]["controllers"]["0"]["configured_pstate_mask"]

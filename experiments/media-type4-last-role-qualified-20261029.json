@@ -1,0 +1,104 @@
+{
+  "schema": 1,
+  "scope": "Disable-only NVDEC/media configured-state availability; source transactions, not physical residency or savings",
+  "tested_configuration": {
+    "adapter": "GeForce RTX 5080",
+    "architecture": "Blackwell",
+    "driver": "621.01",
+    "identity_role": "Evidence identification only; product admission uses understood tables, routing, capabilities and exact readbacks"
+  },
+  "profiles": {
+    "nvdec": {
+      "native_controller": 12,
+      "type4_role": 4,
+      "enable_mask": 1
+    },
+    "nvenc": {
+      "native_controller": 13,
+      "type4_role": 5,
+      "enable_mask": 1
+    },
+    "ofa": {
+      "native_controller": 14,
+      "type4_role": 7,
+      "enable_mask": 1
+    },
+    "nvjpg": {
+      "native_controller": 15,
+      "type4_role": 6,
+      "enable_mask": 2
+    }
+  },
+  "readback_semantics": "Before: selected role valid1 and every other type4 role unavailable. After: all eleven support queries unavailable; selected primary independently unsupported with unavailable mask/feature. This is not valid false or an independently observed empty group mask.",
+  "implementation": "Shared role projection preserves the existing peer-bearing results, already unavailable roles, schema1 receipt shape and legacy GRPG3/4 positive-peer/read-scope rules. Full controller/features/type1/type4/type7 peers and exact before/Apply/Undo/rollback checks remain required.",
+  "temporary_setup": "Disable the other three media tables with understood WORD enable masks and clear only raw bit1 in enabled GRPG rows. Preserve target media, GRPG enables, all other flags and full image bytes. Product Prepare/Apply disables only the target family enabled entries; Undo returns to setup, then setup is removed.",
+  "fully_clean_source_trials": {
+    "nvdec": {
+      "journal": "production-nvdec-8b2e26f046514f4b9acb1668f3c5bb11.json",
+      "images": {
+        "original": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+        "setup": "0aa548ea6415e9c881b3e58f00f4807d672d20b65e212c29fd1a582afbe9a683",
+        "active": "c8f75c367c9ee8751f0549f95c36a7e8ba7890885786e4ac5799fe2a4d2f307d"
+      },
+      "result": "Setup, normal durable Apply, Undo-to-setup and final original all match complete LPWR/client/strict broad state including full curve"
+    },
+    "nvenc": {
+      "journal": "production-nvenc-e5dde320adfe44c084866b2d319305ef.json",
+      "images": {
+        "original": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+        "setup": "4edd5ebbaecb86191904428e4eeb6818b5289adea0db2f7f99f2187b79b89e9a",
+        "active": "c8f75c367c9ee8751f0549f95c36a7e8ba7890885786e4ac5799fe2a4d2f307d"
+      },
+      "result": "Setup, normal durable Apply, Undo-to-setup and final original all match complete LPWR/client/strict broad state including full curve"
+    },
+    "nvjpg": {
+      "journal": "production-nvjpg-8c7f9287064c44b2ab8a8ad04dc9e3eb.json",
+      "images": {
+        "original": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+        "setup": "c72cc0cba38bc908bd391ae7ec66cfb28318ec4c2dfec07795cc226011b5ae95",
+        "active": "c8f75c367c9ee8751f0549f95c36a7e8ba7890885786e4ac5799fe2a4d2f307d"
+      },
+      "result": "Setup, normal durable Apply, Undo-to-setup and final original all match complete LPWR/client/strict broad state including full curve"
+    }
+  },
+  "OFA_transaction": {
+    "journal": "production-ofa-55020abf03e24b9da2ef550e870331f0.json",
+    "configured_state": "Setup/Apply/Undo/final LPWR, full client requests, raw packets, image projections and captured peers exact; both product receipts verify all five fields",
+    "strict_broad": "Setup and active pass; Undo-to-setup fails all eight captured attempts on V/F curve after initial flag differences; final original passes including full curve",
+    "classification": "Partial configured-state evidence with retained intermediate broad mismatch; NOT a fully clean trial",
+    "cleanup": "Temporary setup removed; final original exact and no active product receipt. Research recovery-required is a retained comparison warning",
+    "cause": "Unproven; no frequency exclusions or comparator weakening"
+  },
+  "retained_setup_negative": {
+    "journal": "production-ofa-b8247afef42543a78630e96215e264d4.json",
+    "product_Apply": false,
+    "result": "Setup LPWR/client exact; strict broad comparison fails before product Prepare. First six samples differ in driver flag13/hash and curve, last two only curve. Original restored exactly",
+    "curve": "110 bytes in 50 evaluated GPU frequency words; header, voltage fields, other words and tail unchanged; cause unproven"
+  },
+  "independent_audits": [
+    "Three clean trials audited by Terra and reproduced by root",
+    "Both OFA records audited separately with negative classifications retained and reproduced by root",
+    "Complete original/setup/active images and patch ownership, actual P-state routes and masks, raw1028-byte packets/opaque bytes and independent copies, all captured controllers/groups, full client/native requests, durable receipts and every broad sample",
+    "Source and harness SHA256 match captured trial bindings"
+  ],
+  "capture_limit": "The harness checks a second initial stable capture but only persists the first in each trial journal; the separate initial baseline retains both captures. Audits inspect all saved phase packets, not an unsaved second initial capture.",
+  "GPU_only_restarts": 18,
+  "Windows_reboot": false,
+  "workload_started": false,
+  "F219_SET": false,
+  "physical_effects_measured": false,
+  "release_changes": false,
+  "validation": {
+    "focused_runtime_transaction_Preview": "432 passed in2.44s",
+    "changed_source_and_test_Ruff": "passed",
+    "full_suite": "6786 passed in119.24s",
+    "package": "Package source/compiled-code parity and baseline GETs are separate requirements from these source transaction results; packaged visual/input qualification remains pending."
+  },
+  "pending": [
+    "Clean full-phase OFA broad comparison and curve freshness/recalculation semantics",
+    "Independent type4 group-mask/presence readback",
+    "Supported alternate controllers, mixed aggregate losses, wider MS/conditional dependencies and other layouts",
+    "Media-specific packaged visual/input/recovery walkthroughs",
+    "Physical residency, reliable activity telemetry and savings"
+  ]
+}

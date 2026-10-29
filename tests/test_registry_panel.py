@@ -1110,6 +1110,12 @@ def test_media_lpwr_preview_distinguishes_mask_and_support_states(
             "controllers": {
                 controller: {"supported": supported, "configured_pstate_mask": mask},
             },
+            "bit1": {
+                "roles": {
+                    **{str(i): {"available": False, "supported": None} for i in range(11)},
+                    "0": {"available": True, "supported": True},
+                },
+            },
         },
     }
     prepare_speedo(h)
@@ -1192,10 +1198,55 @@ def test_nvdec_preview_distinguishes_mask_and_support_states(harness, supported,
             "controllers": {
                 "12": {"supported": supported, "configured_pstate_mask": mask},
             },
+            "bit1": {
+                "roles": {
+                    **{str(i): {"available": False, "supported": None} for i in range(11)},
+                    "0": {"available": True, "supported": True},
+                },
+            },
         },
     }
     prepare_speedo(h)
     text = dpg.get_value("reg_preview")
     assert expected in text
     assert other_state not in text
+    assert "Undo verifies the original configuration" in text
+
+
+@pytest.mark.parametrize(
+    "family,contract_key,controller,target_role",
+    [
+        ("nvdec", "nvdec_contracts", "12", "4"),
+        ("nvenc", "media_contracts", "13", "5"),
+        ("ofa", "media_contracts", "14", "7"),
+        ("nvjpg", "media_contracts", "15", "6"),
+    ],
+)
+@pytest.mark.parametrize("all_type4_unavailable", [False, True])
+def test_last_type4_role_preview_only_claims_all_unavailable_when_every_query_is_unavailable(
+    harness, family, contract_key, controller, target_role, all_type4_unavailable
+):
+    h = harness
+    before_roles = {str(i): {"available": False, "supported": None} for i in range(11)}
+    before_roles[target_role] = {"available": True, "supported": True}
+    after_roles = {str(i): {"available": False, "supported": None} for i in range(11)}
+    if not all_type4_unavailable:
+        after_roles["0"] = {"available": True, "supported": True}
+    contract = {
+        "before": {
+            "controllers": {controller: {"configured_pstate_mask": 0x120}},
+            "bit1": {"roles": before_roles},
+        },
+        "after": {
+            "controllers": {controller: {"supported": False, "configured_pstate_mask": None}},
+            "bit1": {"roles": after_roles},
+        },
+    }
+    if family != "nvdec":
+        contract["family"] = family
+    h.mocks.prepare.return_value[contract_key] = contract
+    prepare_speedo(h)
+    text = dpg.get_value("reg_preview")
+    unavailable_notice = "All support queries for this auxiliary group become unavailable"
+    assert (unavailable_notice in text) is all_type4_unavailable
     assert "Undo verifies the original configuration" in text
