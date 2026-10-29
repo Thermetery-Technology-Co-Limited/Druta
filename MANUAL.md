@@ -404,7 +404,13 @@ full-table shutdown, or no-peer outcomes. Other dependency profiles and
 physical residency or power savings remain pending. [LPWR row-0 UI
 qualification](experiments/ui-lpwr-configured-qualified-20261029.json).
 [Media configuration evidence](experiments/media-lpwr-configured-qualified-20261029.json).
-[Last-role qualification and the retained OFA curve-comparison limit](experiments/media-type4-last-role-qualified-20261029.json).
+[Last-role qualification and retained negative observations](experiments/media-type4-last-role-qualified-20261029.json).
+
+A later OFA source Apply/Undo trial matched the full expected state in the last
+two observations of every phase, including Undo-to-setup and final original.
+Its full curve matched in every sample; early driver-request differences remain
+recorded. This does not establish immediate settling or extend packaged input
+coverage.
 
 **Linked current limits** configure a current limit carried by another power
 policy. Druta resolves the BIOS relationship to its target policy and verifies

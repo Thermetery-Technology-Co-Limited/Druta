@@ -338,8 +338,9 @@
   "pending": [
     "Physical mouse/keyboard input and other displays/DPI/adapters",
     "Packaged full-shutdown/no-peer and post-restart failure/recovery walkthroughs",
-    "Earlier OFA all-shutdown/no-peer intermediate curve comparison remains separately unresolved",
+    "Earlier OFA all-shutdown/no-peer intermediate curve-negative records are retained; later source full-phase qualification does not extend this packaged row0 scope",
     "Curve freshness/recalculation and observer stability semantics",
     "Other field types, cross-generation validation and physical residency/power effects"
-  ]
+  ],
+  "later_source_OFA_repeat": "See media-type4-last-role-qualified-20261029.json, OFA_repeat_20261029: last two full broad samples exact in every phase, all curves exact, early BOOST_LOW mismatches retained; physical input/recovery/full-shutdown packaged coverage remains pending"
 }

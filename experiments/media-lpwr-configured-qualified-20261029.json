@@ -79,7 +79,7 @@
   ],
   "pending": [
     "Supported alternate controllers, mixed aggregate losses and other layouts",
-    "OFA full-phase broad comparison, curve freshness and remaining dependency transitions; see later_availability_extension",
+    "Curve freshness, actual BOOST_LOW producer and remaining dependency transitions; later_availability_extension records the later OFA full-phase repeat",
     "Additional packaged full-shutdown/no-peer/error-recovery and physical-input walkthroughs; row0 callback/framebuffer evidence linked in later_packaged_row0_UI",
     "Physical residency, trustworthy activity telemetry and power savings"
   ],
@@ -96,6 +96,6 @@
     "independent_raw_audit": "six clean cases plus the retained negative and later GET-only restoration; root reproduced all seven",
     "package_scope": "Source/compiled-code parity and baseline readbacks checked separately from source production transactions"
   },
-  "later_availability_extension": "See media-type4-last-role-qualified-20261029.json: no-peer source contract, three fully clean media trials and separately retained OFA intermediate-curve negative; original trials here retain their historical scope.",
-  "later_packaged_row0_UI": "See ui-lpwr-configured-qualified-20261029.json: programmatic row0 partial-disable callback/framebuffer sequence. Full-shutdown/no-peer, physical input and other packaged cases remain separate; the earlier OFA curve limitation is not resolved."
+  "later_availability_extension": "See media-type4-last-role-qualified-20261029.json: no-peer source contract, three earlier complete media trials and later OFA last-two-exact full-phase repeat. Earlier OFA curve-negative records remain unchanged; original trials here retain their historical scope.",
+  "later_packaged_row0_UI": "See ui-lpwr-configured-qualified-20261029.json: programmatic row0 partial-disable callback/framebuffer sequence. Full-shutdown/no-peer, physical input and other packaged cases remain separate. Later source OFA qualification is recorded in later_availability_extension and does not extend packaged coverage."
 }

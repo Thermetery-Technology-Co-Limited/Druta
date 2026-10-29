@@ -3424,8 +3424,8 @@ CLI lines are clean; the app file retains its 26 pre-existing lint findings.
 This packaged qualification is scoped to one row-0 transition per family. It does
 not qualify other rows, full-table shutdown, last-role/no-peer transitions,
 failure/recovery screens, physical input, multiple displays/DPI/adapters or
-physical effects. The retained OFA all-shutdown/no-peer curve-comparison limit
-is separate and remains unresolved. Counts and per-family outcomes belong in
+physical effects. The later OFA source full-phase repeat is separate; its two
+earlier curve-negative records remain retained. Counts and per-family outcomes belong in
 [the scoped LPWR UI qualification record](experiments/ui-lpwr-configured-qualified-20261029.json).
 
 ## MS configured-state contracts (2026-10-29)
@@ -3643,7 +3643,7 @@ all five selected entries. Temporary setup, active state, Undo-to-setup and
 final original matched the complete LPWR/client and strict broad comparison,
 including the full curve. Independent audits were reproduced by root.
 
-OFA has partial configured-state evidence rather than a fully clean trial.
+Two earlier OFA attempts retain partial configured-state evidence.
 An initial setup-only attempt failed the strict curve comparison before
 product Prepare, then restored the original exactly. One unchanged repeat
 passed setup and active broad checks, and both product Apply/Undo verified
@@ -3655,18 +3655,33 @@ failure, not an active product recovery receipt. Both OFA records remain
 negative for their failed phases. The cause is unproven; no curve exclusions
 or comparator changes were introduced.
 
+A later OFA repeat keeps the same product Prepare/Apply/Undo, temporary setup
+and full broad comparator. It records eight complete broad snapshots per phase
+at three-second target intervals and requires the final two to match exactly.
+The separate eight-sample pre-window also matched the transaction's original
+capture. Setup, active, Undo-to-setup and final original all passed this
+criterion, including complete LPWR/client packets and durable receipt bindings.
+The full V/F curve matched in every saved sample. Setup samples 0-3 and the
+other phases' samples 0-2 still differed in the BOOST_LOW request and its packet
+hash; these negatives remain recorded. Later samples matched without another
+write within the phase. This qualifies the final-two full-state observation
+criterion, not all-eight equality or immediate restoration. The request's actual
+producer and physical effect remain unresolved.
+
 Audits independently rebuild the complete images, owned patches and actual
 routes, all raw packet rows/opaque bytes and independent copies, durable
 receipts and every broad sample. The harness checked a second initial stable
 capture but persisted only the first in each trial; audits do not claim to
 inspect the unsaved second capture. Eighteen GPU-only restarts cover these
-five attempts. No Windows reboot, workload or physical measurement occurred.
+five attempts; the later OFA repeat adds four, for twenty-two source-trial
+restarts total. No Windows reboot, workload or physical measurement occurred.
 
 The full suite passed 6,786 tests in 119.24 seconds; 432 focused runtime,
 transaction and Preview cases plus changed-file Ruff passed. Package parity
-and baseline GETs remain separate from these source transactions. A clean
-full-phase OFA broad comparison, curve freshness, packaged input/recovery and
-physical effects remain pending.
+and baseline GETs remain separate from these source transactions. The later
+evidence-only OFA repeat changes no runtime source; the latest unchanged-source
+suite remains 6,890 passed in 121.76 seconds. Curve freshness, the BOOST_LOW
+producer, packaged input/recovery and physical effects remain pending.
 [Last-role NVDEC/media qualification](experiments/media-type4-last-role-qualified-20261029.json).
 
 ## GRPG type 4 availability contracts (2026-10-29)

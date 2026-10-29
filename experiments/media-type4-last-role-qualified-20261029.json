@@ -82,7 +82,7 @@
     "Source and harness SHA256 match captured trial bindings"
   ],
   "capture_limit": "The harness checks a second initial stable capture but only persists the first in each trial journal; the separate initial baseline retains both captures. Audits inspect all saved phase packets, not an unsaved second initial capture.",
-  "GPU_only_restarts": 18,
+  "GPU_only_restarts": 22,
   "Windows_reboot": false,
   "workload_started": false,
   "F219_SET": false,
@@ -95,10 +95,766 @@
     "package": "Package source/compiled-code parity and baseline GETs are separate requirements from these source transaction results; packaged visual/input qualification remains pending."
   },
   "pending": [
-    "Clean full-phase OFA broad comparison and curve freshness/recalculation semantics",
+    "Curve freshness/recalculation semantics, actual BOOST_LOW producer and physical effect; the two older OFA broad negatives remain recorded",
     "Independent type4 group-mask/presence readback",
     "Supported alternate controllers, mixed aggregate losses, wider MS/conditional dependencies and other layouts",
     "Media-specific packaged visual/input/recovery walkthroughs",
     "Physical residency, reliable activity telemetry and savings"
-  ]
+  ],
+  "OFA_repeat_20261029": {
+    "journal": "production-ofa-5b44f4225b244c46942e148bb857fc17.json",
+    "classification": "Every phase has two final strict exact observations including the full curve; earlier BOOST_LOW mismatches retained, not an all-eight-exact or immediate-restoration claim",
+    "supervisor_exit": 0,
+    "terminal_state": "restored",
+    "before_window": {
+      "all_eight_equal_own_baseline": true,
+      "all_eight_equal_transaction_original": true
+    },
+    "images": {
+      "original": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+      "setup": "389e42fddb33dcc03510c39e8067c2c8105add4689c3b753e5247d11c20fe315",
+      "active": "c8f75c367c9ee8751f0549f95c36a7e8ba7890885786e4ac5799fe2a4d2f307d"
+    },
+    "phases": {
+      "setup": {
+        "strict_exact": [
+          false,
+          false,
+          false,
+          false,
+          true,
+          true,
+          true,
+          true
+        ],
+        "last_two_strict_exact": true,
+        "all_eight_strict_exact": false,
+        "differences": [
+          [
+            "voltage.broad.broad.driver_flags.control_sha256",
+            "voltage.broad.broad.driver_flags.entries[13].control_hex"
+          ],
+          [
+            "voltage.broad.broad.driver_flags.control_sha256",
+            "voltage.broad.broad.driver_flags.entries[13].control_hex"
+          ],
+          [
+            "voltage.broad.broad.driver_flags.control_sha256",
+            "voltage.broad.broad.driver_flags.entries[13].control_hex"
+          ],
+          [
+            "voltage.broad.broad.driver_flags.control_sha256",
+            "voltage.broad.broad.driver_flags.entries[13].control_hex"
+          ],
+          [],
+          [],
+          [],
+          []
+        ],
+        "full_curve": [
+          {
+            "expected_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "actual_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "length_bytes": 7208,
+            "changed_byte_count": 0,
+            "changed_byte_ranges_half_open": [],
+            "header_changed_byte_count": 0,
+            "entry_count": 128,
+            "entry_size_bytes": 28,
+            "changed_entry_count": 0,
+            "changed_entry_indices": [],
+            "changed_entry_words": [],
+            "tail_changed_byte_count": 0,
+            "interpretation_limit": "Field names follow src/druta/nvbackend.py _VfpEntry/_VfpCurve; the byte comparison does not establish why the driver returned these differences."
+          },
+          {
+            "expected_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "actual_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "length_bytes": 7208,
+            "changed_byte_count": 0,
+            "changed_byte_ranges_half_open": [],
+            "header_changed_byte_count": 0,
+            "entry_count": 128,
+            "entry_size_bytes": 28,
+            "changed_entry_count": 0,
+            "changed_entry_indices": [],
+            "changed_entry_words": [],
+            "tail_changed_byte_count": 0,
+            "interpretation_limit": "Field names follow src/druta/nvbackend.py _VfpEntry/_VfpCurve; the byte comparison does not establish why the driver returned these differences."
+          },
+          {
+            "expected_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "actual_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "length_bytes": 7208,
+            "changed_byte_count": 0,
+            "changed_byte_ranges_half_open": [],
+            "header_changed_byte_count": 0,
+            "entry_count": 128,
+            "entry_size_bytes": 28,
+            "changed_entry_count": 0,
+            "changed_entry_indices": [],
+            "changed_entry_words": [],
+            "tail_changed_byte_count": 0,
+            "interpretation_limit": "Field names follow src/druta/nvbackend.py _VfpEntry/_VfpCurve; the byte comparison does not establish why the driver returned these differences."
+          },
+          {
+            "expected_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "actual_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "length_bytes": 7208,
+            "changed_byte_count": 0,
+            "changed_byte_ranges_half_open": [],
+            "header_changed_byte_count": 0,
+            "entry_count": 128,
+            "entry_size_bytes": 28,
+            "changed_entry_count": 0,
+            "changed_entry_indices": [],
+            "changed_entry_words": [],
+            "tail_changed_byte_count": 0,
+            "interpretation_limit": "Field names follow src/druta/nvbackend.py _VfpEntry/_VfpCurve; the byte comparison does not establish why the driver returned these differences."
+          },
+          {
+            "expected_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "actual_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "length_bytes": 7208,
+            "changed_byte_count": 0,
+            "changed_byte_ranges_half_open": [],
+            "header_changed_byte_count": 0,
+            "entry_count": 128,
+            "entry_size_bytes": 28,
+            "changed_entry_count": 0,
+            "changed_entry_indices": [],
+            "changed_entry_words": [],
+            "tail_changed_byte_count": 0,
+            "interpretation_limit": "Field names follow src/druta/nvbackend.py _VfpEntry/_VfpCurve; the byte comparison does not establish why the driver returned these differences."
+          },
+          {
+            "expected_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "actual_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "length_bytes": 7208,
+            "changed_byte_count": 0,
+            "changed_byte_ranges_half_open": [],
+            "header_changed_byte_count": 0,
+            "entry_count": 128,
+            "entry_size_bytes": 28,
+            "changed_entry_count": 0,
+            "changed_entry_indices": [],
+            "changed_entry_words": [],
+            "tail_changed_byte_count": 0,
+            "interpretation_limit": "Field names follow src/druta/nvbackend.py _VfpEntry/_VfpCurve; the byte comparison does not establish why the driver returned these differences."
+          },
+          {
+            "expected_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "actual_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "length_bytes": 7208,
+            "changed_byte_count": 0,
+            "changed_byte_ranges_half_open": [],
+            "header_changed_byte_count": 0,
+            "entry_count": 128,
+            "entry_size_bytes": 28,
+            "changed_entry_count": 0,
+            "changed_entry_indices": [],
+            "changed_entry_words": [],
+            "tail_changed_byte_count": 0,
+            "interpretation_limit": "Field names follow src/druta/nvbackend.py _VfpEntry/_VfpCurve; the byte comparison does not establish why the driver returned these differences."
+          },
+          {
+            "expected_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "actual_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "length_bytes": 7208,
+            "changed_byte_count": 0,
+            "changed_byte_ranges_half_open": [],
+            "header_changed_byte_count": 0,
+            "entry_count": 128,
+            "entry_size_bytes": 28,
+            "changed_entry_count": 0,
+            "changed_entry_indices": [],
+            "changed_entry_words": [],
+            "tail_changed_byte_count": 0,
+            "interpretation_limit": "Field names follow src/druta/nvbackend.py _VfpEntry/_VfpCurve; the byte comparison does not establish why the driver returned these differences."
+          }
+        ],
+        "sample_start_seconds": [
+          3.2996758818626404e-06,
+          3.000064699910581,
+          6.0002013999037445,
+          9.000044899992645,
+          12.000249299686402,
+          15.000514399725944,
+          18.000188099686056,
+          21.000542299821973
+        ],
+        "sample_end_seconds": [
+          0.9992614998482168,
+          3.903005799744278,
+          6.863824300002307,
+          9.870909699704498,
+          12.872880099806935,
+          15.881027999799699,
+          18.87278399989009,
+          21.880296199582517
+        ],
+        "phase_checks": {
+          "ROM_registry_requests_configured_peers_curve": true,
+          "complete_client_power": true,
+          "full_LPWR_projection": true
+        }
+      },
+      "active": {
+        "strict_exact": [
+          false,
+          false,
+          false,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "last_two_strict_exact": true,
+        "all_eight_strict_exact": false,
+        "differences": [
+          [
+            "voltage.broad.broad.driver_flags.control_sha256",
+            "voltage.broad.broad.driver_flags.entries[13].control_hex"
+          ],
+          [
+            "voltage.broad.broad.driver_flags.control_sha256",
+            "voltage.broad.broad.driver_flags.entries[13].control_hex"
+          ],
+          [
+            "voltage.broad.broad.driver_flags.control_sha256",
+            "voltage.broad.broad.driver_flags.entries[13].control_hex"
+          ],
+          [],
+          [],
+          [],
+          [],
+          []
+        ],
+        "full_curve": [
+          {
+            "expected_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "actual_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "length_bytes": 7208,
+            "changed_byte_count": 0,
+            "changed_byte_ranges_half_open": [],
+            "header_changed_byte_count": 0,
+            "entry_count": 128,
+            "entry_size_bytes": 28,
+            "changed_entry_count": 0,
+            "changed_entry_indices": [],
+            "changed_entry_words": [],
+            "tail_changed_byte_count": 0,
+            "interpretation_limit": "Field names follow src/druta/nvbackend.py _VfpEntry/_VfpCurve; the byte comparison does not establish why the driver returned these differences."
+          },
+          {
+            "expected_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "actual_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "length_bytes": 7208,
+            "changed_byte_count": 0,
+            "changed_byte_ranges_half_open": [],
+            "header_changed_byte_count": 0,
+            "entry_count": 128,
+            "entry_size_bytes": 28,
+            "changed_entry_count": 0,
+            "changed_entry_indices": [],
+            "changed_entry_words": [],
+            "tail_changed_byte_count": 0,
+            "interpretation_limit": "Field names follow src/druta/nvbackend.py _VfpEntry/_VfpCurve; the byte comparison does not establish why the driver returned these differences."
+          },
+          {
+            "expected_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "actual_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "length_bytes": 7208,
+            "changed_byte_count": 0,
+            "changed_byte_ranges_half_open": [],
+            "header_changed_byte_count": 0,
+            "entry_count": 128,
+            "entry_size_bytes": 28,
+            "changed_entry_count": 0,
+            "changed_entry_indices": [],
+            "changed_entry_words": [],
+            "tail_changed_byte_count": 0,
+            "interpretation_limit": "Field names follow src/druta/nvbackend.py _VfpEntry/_VfpCurve; the byte comparison does not establish why the driver returned these differences."
+          },
+          {
+            "expected_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "actual_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "length_bytes": 7208,
+            "changed_byte_count": 0,
+            "changed_byte_ranges_half_open": [],
+            "header_changed_byte_count": 0,
+            "entry_count": 128,
+            "entry_size_bytes": 28,
+            "changed_entry_count": 0,
+            "changed_entry_indices": [],
+            "changed_entry_words": [],
+            "tail_changed_byte_count": 0,
+            "interpretation_limit": "Field names follow src/druta/nvbackend.py _VfpEntry/_VfpCurve; the byte comparison does not establish why the driver returned these differences."
+          },
+          {
+            "expected_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "actual_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "length_bytes": 7208,
+            "changed_byte_count": 0,
+            "changed_byte_ranges_half_open": [],
+            "header_changed_byte_count": 0,
+            "entry_count": 128,
+            "entry_size_bytes": 28,
+            "changed_entry_count": 0,
+            "changed_entry_indices": [],
+            "changed_entry_words": [],
+            "tail_changed_byte_count": 0,
+            "interpretation_limit": "Field names follow src/druta/nvbackend.py _VfpEntry/_VfpCurve; the byte comparison does not establish why the driver returned these differences."
+          },
+          {
+            "expected_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "actual_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "length_bytes": 7208,
+            "changed_byte_count": 0,
+            "changed_byte_ranges_half_open": [],
+            "header_changed_byte_count": 0,
+            "entry_count": 128,
+            "entry_size_bytes": 28,
+            "changed_entry_count": 0,
+            "changed_entry_indices": [],
+            "changed_entry_words": [],
+            "tail_changed_byte_count": 0,
+            "interpretation_limit": "Field names follow src/druta/nvbackend.py _VfpEntry/_VfpCurve; the byte comparison does not establish why the driver returned these differences."
+          },
+          {
+            "expected_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "actual_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "length_bytes": 7208,
+            "changed_byte_count": 0,
+            "changed_byte_ranges_half_open": [],
+            "header_changed_byte_count": 0,
+            "entry_count": 128,
+            "entry_size_bytes": 28,
+            "changed_entry_count": 0,
+            "changed_entry_indices": [],
+            "changed_entry_words": [],
+            "tail_changed_byte_count": 0,
+            "interpretation_limit": "Field names follow src/druta/nvbackend.py _VfpEntry/_VfpCurve; the byte comparison does not establish why the driver returned these differences."
+          },
+          {
+            "expected_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "actual_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "length_bytes": 7208,
+            "changed_byte_count": 0,
+            "changed_byte_ranges_half_open": [],
+            "header_changed_byte_count": 0,
+            "entry_count": 128,
+            "entry_size_bytes": 28,
+            "changed_entry_count": 0,
+            "changed_entry_indices": [],
+            "changed_entry_words": [],
+            "tail_changed_byte_count": 0,
+            "interpretation_limit": "Field names follow src/druta/nvbackend.py _VfpEntry/_VfpCurve; the byte comparison does not establish why the driver returned these differences."
+          }
+        ],
+        "sample_start_seconds": [
+          2.400018274784088e-06,
+          3.000542900059372,
+          6.000103599857539,
+          9.000279200263321,
+          12.000269900076091,
+          15.000152800232172,
+          18.00055650016293,
+          21.000183700118214
+        ],
+        "sample_end_seconds": [
+          0.8916607000865042,
+          3.870262000244111,
+          6.875826600007713,
+          9.872472300194204,
+          12.901976900175214,
+          15.893929699901491,
+          18.90159359993413,
+          21.89406660012901
+        ],
+        "phase_checks": {
+          "ROM_registry_requests_configured_peers_curve": true,
+          "complete_client_power": true,
+          "full_LPWR_projection": true
+        }
+      },
+      "undo_setup": {
+        "strict_exact": [
+          false,
+          false,
+          false,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "last_two_strict_exact": true,
+        "all_eight_strict_exact": false,
+        "differences": [
+          [
+            "voltage.broad.broad.driver_flags.control_sha256",
+            "voltage.broad.broad.driver_flags.entries[13].control_hex"
+          ],
+          [
+            "voltage.broad.broad.driver_flags.control_sha256",
+            "voltage.broad.broad.driver_flags.entries[13].control_hex"
+          ],
+          [
+            "voltage.broad.broad.driver_flags.control_sha256",
+            "voltage.broad.broad.driver_flags.entries[13].control_hex"
+          ],
+          [],
+          [],
+          [],
+          [],
+          []
+        ],
+        "full_curve": [
+          {
+            "expected_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "actual_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "length_bytes": 7208,
+            "changed_byte_count": 0,
+            "changed_byte_ranges_half_open": [],
+            "header_changed_byte_count": 0,
+            "entry_count": 128,
+            "entry_size_bytes": 28,
+            "changed_entry_count": 0,
+            "changed_entry_indices": [],
+            "changed_entry_words": [],
+            "tail_changed_byte_count": 0,
+            "interpretation_limit": "Field names follow src/druta/nvbackend.py _VfpEntry/_VfpCurve; the byte comparison does not establish why the driver returned these differences."
+          },
+          {
+            "expected_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "actual_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "length_bytes": 7208,
+            "changed_byte_count": 0,
+            "changed_byte_ranges_half_open": [],
+            "header_changed_byte_count": 0,
+            "entry_count": 128,
+            "entry_size_bytes": 28,
+            "changed_entry_count": 0,
+            "changed_entry_indices": [],
+            "changed_entry_words": [],
+            "tail_changed_byte_count": 0,
+            "interpretation_limit": "Field names follow src/druta/nvbackend.py _VfpEntry/_VfpCurve; the byte comparison does not establish why the driver returned these differences."
+          },
+          {
+            "expected_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "actual_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "length_bytes": 7208,
+            "changed_byte_count": 0,
+            "changed_byte_ranges_half_open": [],
+            "header_changed_byte_count": 0,
+            "entry_count": 128,
+            "entry_size_bytes": 28,
+            "changed_entry_count": 0,
+            "changed_entry_indices": [],
+            "changed_entry_words": [],
+            "tail_changed_byte_count": 0,
+            "interpretation_limit": "Field names follow src/druta/nvbackend.py _VfpEntry/_VfpCurve; the byte comparison does not establish why the driver returned these differences."
+          },
+          {
+            "expected_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "actual_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "length_bytes": 7208,
+            "changed_byte_count": 0,
+            "changed_byte_ranges_half_open": [],
+            "header_changed_byte_count": 0,
+            "entry_count": 128,
+            "entry_size_bytes": 28,
+            "changed_entry_count": 0,
+            "changed_entry_indices": [],
+            "changed_entry_words": [],
+            "tail_changed_byte_count": 0,
+            "interpretation_limit": "Field names follow src/druta/nvbackend.py _VfpEntry/_VfpCurve; the byte comparison does not establish why the driver returned these differences."
+          },
+          {
+            "expected_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "actual_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "length_bytes": 7208,
+            "changed_byte_count": 0,
+            "changed_byte_ranges_half_open": [],
+            "header_changed_byte_count": 0,
+            "entry_count": 128,
+            "entry_size_bytes": 28,
+            "changed_entry_count": 0,
+            "changed_entry_indices": [],
+            "changed_entry_words": [],
+            "tail_changed_byte_count": 0,
+            "interpretation_limit": "Field names follow src/druta/nvbackend.py _VfpEntry/_VfpCurve; the byte comparison does not establish why the driver returned these differences."
+          },
+          {
+            "expected_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "actual_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "length_bytes": 7208,
+            "changed_byte_count": 0,
+            "changed_byte_ranges_half_open": [],
+            "header_changed_byte_count": 0,
+            "entry_count": 128,
+            "entry_size_bytes": 28,
+            "changed_entry_count": 0,
+            "changed_entry_indices": [],
+            "changed_entry_words": [],
+            "tail_changed_byte_count": 0,
+            "interpretation_limit": "Field names follow src/druta/nvbackend.py _VfpEntry/_VfpCurve; the byte comparison does not establish why the driver returned these differences."
+          },
+          {
+            "expected_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "actual_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "length_bytes": 7208,
+            "changed_byte_count": 0,
+            "changed_byte_ranges_half_open": [],
+            "header_changed_byte_count": 0,
+            "entry_count": 128,
+            "entry_size_bytes": 28,
+            "changed_entry_count": 0,
+            "changed_entry_indices": [],
+            "changed_entry_words": [],
+            "tail_changed_byte_count": 0,
+            "interpretation_limit": "Field names follow src/druta/nvbackend.py _VfpEntry/_VfpCurve; the byte comparison does not establish why the driver returned these differences."
+          },
+          {
+            "expected_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "actual_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "length_bytes": 7208,
+            "changed_byte_count": 0,
+            "changed_byte_ranges_half_open": [],
+            "header_changed_byte_count": 0,
+            "entry_count": 128,
+            "entry_size_bytes": 28,
+            "changed_entry_count": 0,
+            "changed_entry_indices": [],
+            "changed_entry_words": [],
+            "tail_changed_byte_count": 0,
+            "interpretation_limit": "Field names follow src/druta/nvbackend.py _VfpEntry/_VfpCurve; the byte comparison does not establish why the driver returned these differences."
+          }
+        ],
+        "sample_start_seconds": [
+          1.4998950064182281e-06,
+          3.0002062995918095,
+          6.0003733998164535,
+          9.013371099717915,
+          12.167854699771851,
+          15.363775299862027,
+          18.695485799573362,
+          22.119979899842292
+        ],
+        "sample_end_seconds": [
+          0.9212336000055075,
+          3.8862575995735824,
+          6.887031199876219,
+          9.92298369994387,
+          13.065545699559152,
+          16.25808239961043,
+          19.58686489984393,
+          23.007654199842364
+        ],
+        "phase_checks": {
+          "ROM_registry_requests_configured_peers_curve": true,
+          "complete_client_power": true,
+          "full_LPWR_projection": true
+        }
+      },
+      "final": {
+        "strict_exact": [
+          false,
+          false,
+          false,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "last_two_strict_exact": true,
+        "all_eight_strict_exact": false,
+        "differences": [
+          [
+            "voltage.broad.broad.driver_flags.control_sha256",
+            "voltage.broad.broad.driver_flags.entries[13].control_hex"
+          ],
+          [
+            "voltage.broad.broad.driver_flags.control_sha256",
+            "voltage.broad.broad.driver_flags.entries[13].control_hex"
+          ],
+          [
+            "voltage.broad.broad.driver_flags.control_sha256",
+            "voltage.broad.broad.driver_flags.entries[13].control_hex"
+          ],
+          [],
+          [],
+          [],
+          [],
+          []
+        ],
+        "full_curve": [
+          {
+            "expected_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "actual_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "length_bytes": 7208,
+            "changed_byte_count": 0,
+            "changed_byte_ranges_half_open": [],
+            "header_changed_byte_count": 0,
+            "entry_count": 128,
+            "entry_size_bytes": 28,
+            "changed_entry_count": 0,
+            "changed_entry_indices": [],
+            "changed_entry_words": [],
+            "tail_changed_byte_count": 0,
+            "interpretation_limit": "Field names follow src/druta/nvbackend.py _VfpEntry/_VfpCurve; the byte comparison does not establish why the driver returned these differences."
+          },
+          {
+            "expected_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "actual_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "length_bytes": 7208,
+            "changed_byte_count": 0,
+            "changed_byte_ranges_half_open": [],
+            "header_changed_byte_count": 0,
+            "entry_count": 128,
+            "entry_size_bytes": 28,
+            "changed_entry_count": 0,
+            "changed_entry_indices": [],
+            "changed_entry_words": [],
+            "tail_changed_byte_count": 0,
+            "interpretation_limit": "Field names follow src/druta/nvbackend.py _VfpEntry/_VfpCurve; the byte comparison does not establish why the driver returned these differences."
+          },
+          {
+            "expected_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "actual_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "length_bytes": 7208,
+            "changed_byte_count": 0,
+            "changed_byte_ranges_half_open": [],
+            "header_changed_byte_count": 0,
+            "entry_count": 128,
+            "entry_size_bytes": 28,
+            "changed_entry_count": 0,
+            "changed_entry_indices": [],
+            "changed_entry_words": [],
+            "tail_changed_byte_count": 0,
+            "interpretation_limit": "Field names follow src/druta/nvbackend.py _VfpEntry/_VfpCurve; the byte comparison does not establish why the driver returned these differences."
+          },
+          {
+            "expected_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "actual_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "length_bytes": 7208,
+            "changed_byte_count": 0,
+            "changed_byte_ranges_half_open": [],
+            "header_changed_byte_count": 0,
+            "entry_count": 128,
+            "entry_size_bytes": 28,
+            "changed_entry_count": 0,
+            "changed_entry_indices": [],
+            "changed_entry_words": [],
+            "tail_changed_byte_count": 0,
+            "interpretation_limit": "Field names follow src/druta/nvbackend.py _VfpEntry/_VfpCurve; the byte comparison does not establish why the driver returned these differences."
+          },
+          {
+            "expected_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "actual_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "length_bytes": 7208,
+            "changed_byte_count": 0,
+            "changed_byte_ranges_half_open": [],
+            "header_changed_byte_count": 0,
+            "entry_count": 128,
+            "entry_size_bytes": 28,
+            "changed_entry_count": 0,
+            "changed_entry_indices": [],
+            "changed_entry_words": [],
+            "tail_changed_byte_count": 0,
+            "interpretation_limit": "Field names follow src/druta/nvbackend.py _VfpEntry/_VfpCurve; the byte comparison does not establish why the driver returned these differences."
+          },
+          {
+            "expected_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "actual_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "length_bytes": 7208,
+            "changed_byte_count": 0,
+            "changed_byte_ranges_half_open": [],
+            "header_changed_byte_count": 0,
+            "entry_count": 128,
+            "entry_size_bytes": 28,
+            "changed_entry_count": 0,
+            "changed_entry_indices": [],
+            "changed_entry_words": [],
+            "tail_changed_byte_count": 0,
+            "interpretation_limit": "Field names follow src/druta/nvbackend.py _VfpEntry/_VfpCurve; the byte comparison does not establish why the driver returned these differences."
+          },
+          {
+            "expected_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "actual_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "length_bytes": 7208,
+            "changed_byte_count": 0,
+            "changed_byte_ranges_half_open": [],
+            "header_changed_byte_count": 0,
+            "entry_count": 128,
+            "entry_size_bytes": 28,
+            "changed_entry_count": 0,
+            "changed_entry_indices": [],
+            "changed_entry_words": [],
+            "tail_changed_byte_count": 0,
+            "interpretation_limit": "Field names follow src/druta/nvbackend.py _VfpEntry/_VfpCurve; the byte comparison does not establish why the driver returned these differences."
+          },
+          {
+            "expected_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "actual_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+            "length_bytes": 7208,
+            "changed_byte_count": 0,
+            "changed_byte_ranges_half_open": [],
+            "header_changed_byte_count": 0,
+            "entry_count": 128,
+            "entry_size_bytes": 28,
+            "changed_entry_count": 0,
+            "changed_entry_indices": [],
+            "changed_entry_words": [],
+            "tail_changed_byte_count": 0,
+            "interpretation_limit": "Field names follow src/druta/nvbackend.py _VfpEntry/_VfpCurve; the byte comparison does not establish why the driver returned these differences."
+          }
+        ],
+        "sample_start_seconds": [
+          1.4998950064182281e-06,
+          3.729154699947685,
+          7.486237999983132,
+          11.330173199996352,
+          15.323392600286752,
+          19.342910199891776,
+          23.5352366999723,
+          27.763133100233972
+        ],
+        "sample_end_seconds": [
+          0.9108450002968311,
+          4.626831000205129,
+          8.342826700303704,
+          12.271849100012332,
+          16.214725200086832,
+          20.24230040004477,
+          24.42553250025958,
+          28.65936620021239
+        ],
+        "phase_checks": true
+      }
+    },
+    "configured_state": "All five selected OFA entries, complete original/setup/active/Undo/final raw1028-byte LPWR packets and independent copies/opaque bytes, actual P-state routing, full client requests and both durable receipt bindings pass",
+    "full_curve": "Byte-identical in all eight samples of every transaction phase, including early samples that differ in BOOST_LOW",
+    "negative_limit": "Early BOOST_LOW request differences remain in every phase. Their producer and physical effect are unproven; no comparison exclusion was introduced. The two earlier OFA curve-negative trials remain unchanged.",
+    "availability_limit": "All eleven type4 support queries become unavailable; not valid false and not an independently observed empty group mask",
+    "observation_window": "Eight full broad snapshots at3-second target start intervals; actual times recorded. Last two exact required. Not a universal firmware settling time.",
+    "GPU_only_restarts": 4,
+    "Windows_reboot": false,
+    "workload_started": false,
+    "physical_measurement": false,
+    "independent_audit": "Terra full raw/receipt audit; root reproduction JSON-identical",
+    "sha256": {
+      "journal": "5d1ef037312b94cbdaf126e95b0aa1ea476981c36beef6bf3ec26bdc5563a03f",
+      "before_window": "4813e2c744511f40102a3c8b2d5114fb6857e0a9b186b72a46610d004df16d49",
+      "independent_audit": "2e8026b68d15edaa9623c54bc3951a971f56063d49b7732e9e49f60c77ad37a0",
+      "repeat_supervisor": "c1a08b47f078d021e3c2bbf07e47167bd7ce1c6a32fca5bc5feff766c12bf9f1",
+      "original_harness": "a641331f7c7ac7a87b8808eae8e05e2f354a051384b81096c77c41c6fd4f01f6"
+    },
+    "runtime_change": "None; unchanged existing product Prepare/Apply/Undo with longer independent observation",
+    "test_scope": "Latest unchanged-runtime full suite remains6890 passed in121.76s; not rerun for evidence/docs-only changes"
+  },
+  "GPU_restart_count_scope": "Eighteen restarts across the original five attempts plus four in the later OFA repeat; excludes separate packaged UI trials"
 }
