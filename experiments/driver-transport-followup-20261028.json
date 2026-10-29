@@ -62,10 +62,10 @@
       "sequence": "A typed VMIN 800000 -> 805000 -> 800000 comparison was bracketed by three B214 GETs.",
       "result": "All three B214 reads returned status 0; native/public B212 inventory and B218 cached CONTROL stayed unchanged, while B214 response rows changed across all three stages. All requested/policy fields remained unchanged within each GET.",
       "caveat": "The normalized configured comparison excludes capture timestamps/paths and dynamic policy telemetry. The active child's only remaining configured difference was its evaluated V/F curve, which alone triggered active-child attention. This does not qualify an active B214 correlation or establish voltage units or cause.",
-      "raw_response_note": "Twenty-one paired raw records satisfied DWORD = 6250 × adjacent byte; no units, rail association, or cause were inferred. Baseline and restored raw responses differed.",
+      "raw_response_note": "Twenty-one paired raw records satisfied DWORD = 6250 \u00d7 adjacent byte; no units, rail association, or cause were inferred. Baseline and restored raw responses differed.",
       "restoration": "The full original normalized configuration matched after restoration, excluding capture timestamps/paths and dynamic policy telemetry. The parent journal records state restored with the active-child comparison error retained; the process returned exit 1."
     },
-    "typed_status_bridge": "The established 0x465F9BCF rail-status wrapper follows B201/B202 or B209/B210 command paths. No direct bridge from that typed readout to B214's records was established; its voltage-unit interpretation cannot be transferred to B214."
+    "typed_status_bridge": "The established0x465F9BCF rail-status wrapper uses B201/B202 or B209/B210. A conditional B202/B214 same-owner/base/backing-entry path is now traced, but their mapped ranges and record correspondence remain unbound. The typed rail-status voltage units cannot be transferred to B214 records."
   },
   "modern_voltage_receiver": {
     "image_sha256": "3f8d33495cabeb2fa11ebdcf0b12705e9ccfb4e53005324bcd86e9dea8ba2ab4",
@@ -169,6 +169,63 @@
         "Unclassified header/row fields, the per-section record writer and a matched typed schema for F219 numerical words, flags and rail association.",
         "Firmware SET effects, nonzero variable units/consumption, six-word replay equivalence and physical enforcement."
       ]
+    },
+    "typed_rail_backing_followup": {
+      "scope": "Offline installed-image pointer, constructor and mapping audit. No new GPU/API operation or live class observation.",
+      "image_sha256": "3f8d33495cabeb2fa11ebdcf0b12705e9ccfb4e53005324bcd86e9dea8ba2ab4",
+      "same_owner_path": [
+        "C492D0 and BBFC10 reference the same F33840 class descriptor. The former registers the exact F0 allocation+8 owner in cast-root+1988; BC1860 passes that same list as BC2770 fifth argument. The intrusive insertion and iterator add/subtract the same descriptor displacement, so successful retained membership yields the original owner.",
+        "BC2770 installs its section receiver into [owner+80]+60, the same config+60 used by B214. Its C80860 base-container output is also stored at F33840 root+19C0, returned through the F3D722 base virtual+388 used by B202.",
+        "The C80C80 input carries the base pointer at descriptor+10. CFEE90 stores it at section receiver+880; the kind2 item+20 holds the address of that field, and C36910 dereferences it to retrieve the same base container.",
+        "Successful C36910 category selection accepts only category0, selecting base WORD+178. B2025BD080 selects the same base WORD+178. Both validate the same base count/array and use its virtual+38. On the retained same-instance path this binds the selected base entry, without equating mapped subranges."
+      ],
+      "b202_initial_descriptor": {
+        "constructor": "4FC470 -> 5BDF10, interface+C0 when GPU+2480 is nonnull",
+        "offset": 2328944,
+        "offset_hex": "0x238970",
+        "length": 3088,
+        "length_hex": "0xC10",
+        "half_open_range_hex": [
+          "0x238970",
+          "0x239580"
+        ],
+        "byte_plus_1": 0,
+        "word_plus_2": 96,
+        "word_plus_2_derivation": "CMP followed by CMOVBE selects max(0x10,0x60)=0x60; its semantic name is not assigned.",
+        "read_path": "The initialized flag0 takes 6F5690 -> 8D5320; the flag-nonzero 8D60A0 branch is separate. 5BDF60 derives the local buffer from the selected entry+40 plus the offset.",
+        "qualification": "Host constructor constants only; actual execution and later retention of these values were not observed."
+      },
+      "b214_section": {
+        "selector": 30,
+        "selector_hex": "0x1E",
+        "constructor_tuple_hex": [
+          "0x28",
+          "0x148",
+          "0x1D",
+          "0x1E"
+        ],
+        "framing": "C98940 length is 0x28+0x148*N, using stored adjusted-group WORD+1A plus1, or N=0 for its FFFF sentinel. This field is not established as the caller-selected mask bound.",
+        "mapping": "C98D90 requests relative offset0; C36910 maps from selected kind2 item+28, bounded by item+2C. Those values originate in the parsed section row and were not captured.",
+        "F219_distinction": "This selector0x1E belongs to B214 GET. F219 SET post-transport response selection0x1B is a separate path."
+      },
+      "conditions": "Both successful casts and setup calls must operate on the same retained F33840 instance; the exact owner must remain registered through successful receiver/item construction and the selected base entry must remain retained. Current active class and execution remain unobserved. Separate F2D448 cast failures neither prove nor invalidate this F33840 path.",
+      "corrections": [
+        "Original C80C80 descriptor base-pointer offset is+10, not the earlier private shorthand+8. The later item-constructor descriptor independently uses+8.",
+        "5BDF10 CMOVBE selects the larger word, yielding+2=60; the earlier private min=10 statement was incorrect.",
+        "B214 length derives from stored group metadata, without an unsupported caller-selection interpretation."
+      ],
+      "not_proven": [
+        "Actual B214 directory row offset/extent, equality or overlap with the initialized B202 range.",
+        "Identity of B214 fields with any typed rail-status record, field units, rail association or producer.",
+        "Current runtime class/execution, modern F219 SET effects or arbitrary six-word replay/recovery."
+      ],
+      "next": "Bind or capture selector0x1E row offset/extent through an understood existing read path, and compare the retained byte ranges. Do not infer units from shared allocation or the earlier numerical factor6250.",
+      "root_review": {
+        "installed_instruction_checks": 37,
+        "direct_CFG_functions": 25,
+        "known_cast_target_RVA": "0xF33840"
+      },
+      "product_runtime": "Unchanged from b4f7e12. No new control, command sweep, SET, registry operation, driver restart or workload follows from this conditional storage link."
     }
   },
   "perf_callback": {
@@ -436,6 +493,14 @@
         "read-memory-api-lookup/read_memory_api_lookup.json": "6fa89f7f87da184ea2ec822b64acc728a82762c84011916dec89b3e331e63cc8",
         "firmware-inventory/elf-header-inventory.json": "bbec20edd2ed3ec0c4b4de354c3286217a8848a8cb1bbd8e60c9c818952817e8"
       }
+    },
+    "typed_rail_backing_followup": {
+      "experiments/registry-overrides/b214-record-semantics-20261028/root-shared-entry-final-review/installed-byte-audit.json": "52e465e03711cee43f93e5611d2f0927e1206bf7bf7c28ed913da6de409c0216",
+      "experiments/registry-overrides/b214-record-semantics-20261028/exact-owner-membership/findings.json": "25fcaf6f415edaaaa94637d79e242562df4af936ba526f7c67a7b317619d989b",
+      "experiments/registry-overrides/b214-record-semantics-20261028/exact-owner-membership/base-container-link/findings.json": "3f624115bf183ab5401bae4d1ed766567886a6aed01a6e43e5f85d04dd9c4ad7",
+      "experiments/registry-overrides/b214-record-semantics-20261028/exact-owner-membership/backing-entry-comparison/findings.json": "97e81ea82b58d002aea974a02c411adf0296606bde403c512c876bcf288b7fe7",
+      "experiments/registry-overrides/b214-record-semantics-20261028/exact-owner-membership/backing-entry-comparison/b202-descriptor-producer/findings.json": "56a24df0660cd8842ba697fa52817f9f09bc26f4bb3ce12cc0a478d4e6d45d4f",
+      "experiments/registry-overrides/b214-record-semantics-20261028/class-metadata-check/findings.json": "0dcf7157dc8c2ce2d4c02fef571c18100ef75522e2b1c7d7ee18d3a76eda2c2f"
     }
   }
 }

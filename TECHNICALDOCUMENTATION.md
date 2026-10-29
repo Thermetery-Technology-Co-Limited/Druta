@@ -2860,6 +2860,27 @@ that mapping. INFO's two enum converters establish a bounded 0/1/2 domain,
 without semantic names. Raw copies establish no numeric representation or units.
 No modern SET was called and the full configured before/after state matched.
 
+Further installed-image tracing conditionally connects B214's receiver to the
+same backing entry selected by the typed B202 rail-status path. Registration
+and iteration use the same F33840-owned list and install the section receiver
+into the exact voltage owner's config. Its kind2 item refers through the
+section's stored base pointer to the same base container returned to B202;
+both successful paths select its category0 entry. This requires the same
+successful setup calls and retained owners/pointers; active class and execution
+were not observed. The original section-constructor descriptor holds that base
+pointer at `+0x10`; a later item descriptor separately uses `+0x8`.
+
+The B202 constructor initializes offset `0x238970`, length `0xC10` and a zero
+flag selecting its alternate read helper. These are host constants, not a
+capture of live descriptor state. B214 GET instead selects section `0x1E`,
+distinct from F219 SET's post-transport response selector `0x1B`. Its mapped
+region starts at the parsed kind2 item's offset and is bounded by that item's
+extent; those directory values remain uncaptured. Shared backing therefore
+establishes neither overlapping regions nor a typed record correspondence.
+B214 units, rail identity, producer, F219 effects and arbitrary offset replay
+remain unresolved. The conditional path and arithmetic corrections are recorded
+in the [transport evidence](experiments/driver-transport-followup-20261028.json).
+
 The variable-group transport trace also found a separate short command after
 the initial large-buffer check. Under the documented constructor path it reaches
 the same endpoint interface as the modern group, but runtime instance selection,
