@@ -1411,5 +1411,358 @@
       "candidate_firmware_consumers_20261029": "fbad502bff9aad972d5cd4a8eb05b5e656d3216a29206296c3f521be3a52a6ed",
       "candidate_firmware_flow_20261029": "018a8e0647f749357e57df42188deb9628cc3039fa74ffc204622fe96b24f6db"
     }
+  },
+  "candidate_equation_queue_and_adapter_20261029": {
+    "scope": "Candidate equation serialization/channel evidence plus one documented current-adapter GET. No new runtime control, coefficient or modern F219 SET, registry change, GPU restart, workload or physical measurement.",
+    "candidate_sha256": "6c4de07caa7f494a44419f3cad67bfda95de4304f057985da03cd7756a1c533d",
+    "supersedes_unresolved_items": {
+      "prior_record": "candidate_evaluator_and_source_20261029",
+      "equation_data": "A distinct conditional load path now packs type6 descriptors and hands the serialized group to command transport; definition GET remains separate.",
+      "alternate_transport": "One constructor-bound alternate channel now has concrete copy, publication and response-validation paths; its actual live use/response producer remain unobserved.",
+      "current_adapter": "A public documented GET reports constructed Pmu instance0 and its register base. This is not a captured-call route, active derived-class or firmware-image identity test."
+    },
+    "type6_serialization": {
+      "definition_readback": "A0B6 handler15A0434 ->15ACB78 ->1610998 ->selected selector1+28=15B0E64 copies definitions to the native CONTROL row. This is not the numerical evaluator.",
+      "distinct_load": "Conditional group+D8=15AD348 ->1613ED0 invokes inherited interface+100=1614690. It invokes group+F0=15AC7A4, whose selected type6 interface+10=15AE1BC packs count bytes and typed descriptor arrays.",
+      "row_copies": "Type6 serializer copies object+0xD0/+0x124 counts to output+0x7C/+0x7D; object+0xB8 variable descriptors go to output+0x14 and object+0xD4 coefficient descriptors to output+0x2C, eight bytes per descriptor. Base serialization precedes these copies. No coefficient/exponent interpretation follows.",
+      "page_geometry": "Observed serialized page: header0x110, selection mask0x100 bytes, row stride0x80, apparent0x800 row slots and extent0x40110. Mapper15A9CC4 separately checks index<0x2000. This is not a universal usable capacity, proof of overflow or change to native8192-entry packet geometry.",
+      "backing": "Initial descriptor offset0x1ACAB0, size0x40110, byte+1=0. That branch derives its destination from selected backing and serializes directly there. Separate-buffer mode copies to backing before submission; reverse copy has a distinct caller flag.",
+      "command": "A 20-byte submit region is distinct from 0x18-byte stack storage. Observed fields and later wrapper mutations do not identify an ABI or old VFE_EQU_EVAL RPC. The older public schema separates command descriptors from bulk group data; differing geometry alone does not prove incompatibility.",
+      "activation_limit": "This binds a conditional load/transport path. It does not establish that the earlier live E0B7 requests triggered it, or that firmware reevaluated a polynomial."
+    },
+    "channel_ownership": {
+      "bases": "Class 0x5DFED5 Pmu base=root+0x08, EngState=root+0x10; EngState+0x208 and Pmu+0x210 reach the same root+0x218 field under constructor retention. The queue owner is separately constructed class 0xDC5264 (public name Falcon), not the raw Pmu allocation. The embedded interface at Pmu+0x108 has its own metadata.",
+      "default_limit": "The allocated 0xD0-byte queue records are distinct from 0x58-byte objects returned by another interface. A common record initializer binds callbacks on traced SEC2/Gsp paths, but those paths do not establish that it initializes the reviewed Pmu owner's record. Its default submission callback remains unbound on that owner.",
+      "alternate": "The conditional Pmu constructor retains Pmu+0x1058 in the alternate child. EngState+0x60 method 0x188EBBC constructs a separate 0x80-byte class 0x9E3324 object through 0x18A5080; its object+0x60 points to object+0x08 interface with table 0x1C629F8. That interface is stored into Pmu+0x1058. Under retention, alternate 0x189EC80 dispatches to table+0x30=0x189A4F4; response method+0x38=0x189A7E0."
+    },
+    "alternate_queue": {
+      "request_copy": "189A4F4 validates the selected index/range; one direct branch invokes checked copy171A80C into selected backing+0x200+index*0x800. Another mapping branch remains separate.",
+      "bus_handoff": "After copying, the path calls GPU+1FF0 object's direct+308 member with3. Exact class keyD2AC57 is KernelBus; observed constructor targets fence and dispatch through GPU+1FE8 OBJBUS+268. Branch-selected successors forward again, invoke another method, or conditionally write/poll a mapped offset. This is not assigned notification/doorbell semantics from the constant3.",
+      "control_offsets": {
+        "request_control_0": "0x8F6800",
+        "request_control_1": "0x8F6820",
+        "response_control_0": "0x8F64C8",
+        "response_control_1": "0x8F64CC"
+      },
+      "publication": "Alternate189EC80 accesses two request control words through GPU+CC0 mapped base, validates0..15, copies the selected request, then writes (index+1) modulo16 to the first control word. This publication is distinct from the intervening bus call.",
+      "response": "Alternate child+0x38=0x189FAD4 uses the response controls and interface+0x38=0x189A7E0 to read backing+0x8200+index*0x800. It checks the 16-byte header's 16-bit-word sum against 0xA5A5 and validates length before payload copy, then advances the second response control word.",
+      "request_tracking": "A matching response selects a 0x38-byte tracking record using a received byte and clears a state field. Sender wait predicate 0x16A76D8 checks the addressed state for 0 or 3. This joins field-level readback/wait behavior; the response-method caller, actual replies and producer remain unbound.",
+      "limits": "No captured request is established to use this channel. No processor ISA, loaded firmware, numerical units, rail mapping, evaluated voltage or physical action follows from these copies and counters."
+    },
+    "constructed_falcon_GET": {
+      "documented_command": "0x208001B0",
+      "documented_name": "NV2080_CTRL_CMD_GPU_GET_CONSTRUCTED_FALCON_INFO",
+      "params_bytes": 1284,
+      "row_bytes": 20,
+      "max_rows": 64,
+      "candidate_export": {
+        "index": 99,
+        "record_va": "0x1AB7DD8",
+        "handler_va": "0x136263C",
+        "flags": "0x10048",
+        "params_bytes": 1284
+      },
+      "adapter_identity": {
+        "architecture": 10,
+        "device_id": 11266,
+        "slot": "0000:01:00.0",
+        "subsystem_id": 2313031747
+      },
+      "request": "One native 0x208001B0 request with all 1284 parameter bytes zero, using the paired existing RM envelope. Existing read-only transport setup and configured-state GETs bracket this request; no SET was issued.",
+      "result": {
+        "transport_status": 0,
+        "rm_status": 0,
+        "completed_flag": 1,
+        "envelope_and_guards_exact": true,
+        "count": 15,
+        "rows": [
+          {
+            "addrSpaceList": 3,
+            "ctxAttr": 2,
+            "ctxBufferSize": 4096,
+            "engDesc": 2317401856,
+            "registerBase": 10108928,
+            "engDesc_hex": "0x8a20bf00",
+            "class_id": "0x8a20bf",
+            "instance": 0,
+            "class_name_from_pinned_source": "OBJFBFLCN",
+            "registerBase_hex": "0x9a4000"
+          },
+          {
+            "addrSpaceList": 3,
+            "ctxAttr": 2,
+            "ctxBufferSize": 4096,
+            "engDesc": 482504960,
+            "registerBase": 6623232,
+            "engDesc_hex": "0x1cc27100",
+            "class_id": "0x1cc271",
+            "instance": 0,
+            "class_name_from_pinned_source": "OBJDIP",
+            "registerBase_hex": "0x651000"
+          },
+          {
+            "addrSpaceList": 1,
+            "ctxAttr": 1,
+            "ctxBufferSize": 4096,
+            "engDesc": 1592318976,
+            "registerBase": 4243456,
+            "engDesc_hex": "0x5ee8dc00",
+            "class_id": "0x5ee8dc",
+            "instance": 0,
+            "class_name_from_pinned_source": "FECS",
+            "registerBase_hex": "0x40c000"
+          },
+          {
+            "addrSpaceList": 3,
+            "ctxAttr": 2,
+            "ctxBufferSize": 4096,
+            "engDesc": 1199695872,
+            "registerBase": 4386816,
+            "engDesc_hex": "0x4781e800",
+            "class_id": "0x4781e8",
+            "instance": 0,
+            "class_name_from_pinned_source": "GPCCS",
+            "registerBase_hex": "0x42f000"
+          },
+          {
+            "addrSpaceList": 3,
+            "ctxAttr": 2,
+            "ctxBufferSize": 4096,
+            "engDesc": 2409226496,
+            "registerBase": 8683520,
+            "engDesc_hex": "0x8f99e100",
+            "class_id": "0x8f99e1",
+            "instance": 0,
+            "class_name_from_pinned_source": "OBJBSP",
+            "registerBase_hex": "0x848000"
+          },
+          {
+            "addrSpaceList": 3,
+            "ctxAttr": 2,
+            "ctxBufferSize": 4096,
+            "engDesc": 2409226498,
+            "registerBase": 8716288,
+            "engDesc_hex": "0x8f99e102",
+            "class_id": "0x8f99e1",
+            "instance": 2,
+            "class_name_from_pinned_source": "OBJBSP",
+            "registerBase_hex": "0x850000"
+          },
+          {
+            "addrSpaceList": 3,
+            "ctxAttr": 2,
+            "ctxBufferSize": 4096,
+            "engDesc": 4090962432,
+            "registerBase": 9388032,
+            "engDesc_hex": "0xf3d72200",
+            "class_id": "0xf3d722",
+            "instance": 0,
+            "class_name_from_pinned_source": "Pmu",
+            "registerBase_hex": "0x8f4000"
+          },
+          {
+            "addrSpaceList": 3,
+            "ctxAttr": 2,
+            "ctxBufferSize": 4096,
+            "engDesc": 3917179905,
+            "registerBase": 1884160,
+            "engDesc_hex": "0xe97b6c01",
+            "class_id": "0xe97b6c",
+            "instance": 1,
+            "class_name_from_pinned_source": "OBJMSENC",
+            "registerBase_hex": "0x1cc000"
+          },
+          {
+            "addrSpaceList": 3,
+            "ctxAttr": 2,
+            "ctxBufferSize": 4096,
+            "engDesc": 3917179906,
+            "registerBase": 1900544,
+            "engDesc_hex": "0xe97b6c02",
+            "class_id": "0xe97b6c",
+            "instance": 2,
+            "class_name_from_pinned_source": "OBJMSENC",
+            "registerBase_hex": "0x1d0000"
+          },
+          {
+            "addrSpaceList": 3,
+            "ctxAttr": 2,
+            "ctxBufferSize": 65536,
+            "engDesc": 683935744,
+            "registerBase": 8650752,
+            "engDesc_hex": "0x28c40800",
+            "class_id": "0x28c408",
+            "instance": 0,
+            "class_name_from_pinned_source": "OBJSEC2",
+            "registerBase_hex": "0x840000"
+          },
+          {
+            "addrSpaceList": 3,
+            "ctxAttr": 2,
+            "ctxBufferSize": 4096,
+            "engDesc": 725242881,
+            "registerBase": 10256384,
+            "engDesc_hex": "0x2b3a5401",
+            "class_id": "0x2b3a54",
+            "instance": 1,
+            "class_name_from_pinned_source": "OBJNVJPG",
+            "registerBase_hex": "0x9c8000"
+          },
+          {
+            "addrSpaceList": 3,
+            "ctxAttr": 2,
+            "ctxBufferSize": 4096,
+            "engDesc": 3549517824,
+            "registerBase": 4294967295,
+            "engDesc_hex": "0xd3915800",
+            "class_id": "0xd39158",
+            "instance": 0,
+            "class_name_from_pinned_source": "OBJFSP",
+            "registerBase_hex": "0xffffffff"
+          },
+          {
+            "addrSpaceList": 3,
+            "ctxAttr": 2,
+            "ctxBufferSize": 4096,
+            "engDesc": 3715869440,
+            "registerBase": 8667136,
+            "engDesc_hex": "0xdd7bab00",
+            "class_id": "0xdd7bab",
+            "instance": 0,
+            "class_name_from_pinned_source": "OBJOFA",
+            "registerBase_hex": "0x844000"
+          },
+          {
+            "addrSpaceList": 3,
+            "ctxAttr": 2,
+            "ctxBufferSize": 4096,
+            "engDesc": 1328741632,
+            "registerBase": 0,
+            "engDesc_hex": "0x4f32fd00",
+            "class_id": "0x4f32fd",
+            "instance": 0,
+            "class_name_from_pinned_source": null,
+            "registerBase_hex": "0x0"
+          },
+          {
+            "addrSpaceList": 3,
+            "ctxAttr": 2,
+            "ctxBufferSize": 4096,
+            "engDesc": 1328741633,
+            "registerBase": 0,
+            "engDesc_hex": "0x4f32fd01",
+            "class_id": "0x4f32fd",
+            "instance": 1,
+            "class_name_from_pinned_source": null,
+            "registerBase_hex": "0x0"
+          }
+        ],
+        "response_params_hex": "0f00000000bf208a02000000001000000300000000409a000071c21c0200000000100000030000000010650000dce85e01000000001000000100000000c0400000e8814702000000001000000300000000f0420000e1998f0200000000100000030000000080840002e1998f020000000010000003000000000085000022d7f302000000001000000300000000408f00016c7be902000000001000000300000000c01c00026c7be902000000001000000300000000001d000008c4280200000000000100030000000000840001543a2b02000000001000000300000000809c00005891d3020000000010000003000000ffffffff00ab7bdd0200000000100000030000000040840000fd324f0200000000100000030000000000000001fd324f020000000010000003000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "source": {
+        "state": "complete",
+        "scope": "Pinned public header provenance addendum; original schema/probe artifacts remain unchanged.",
+        "commit": "ca2d03e6fafd4d4b56b383497d931c25b283bfcf",
+        "path": "src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gpu.h",
+        "git_blob_bytes_sha256": "3916355deee885297ace65a8fb27b739f14d005ae3bb5afbb0a2cc500b03d9cf",
+        "checkout_sha256": "8c1f4389f04c09aecc9bee17dd409ad0e2f4ea33352c384c72bb405869c46940",
+        "command": "0x208001b0",
+        "name": "NV2080_CTRL_CMD_GPU_GET_CONSTRUCTED_FALCON_INFO",
+        "max_entries": 64,
+        "entry_bytes": 20,
+        "params_bytes": 1284,
+        "gap_and_resolution": "Original schema checker hard-coded the documented name/ID and compared candidate export geometry; the earlier generic source audit listed other headers. This explicit follow-up verifies the exact command and struct header against the pinned Git blob without changing the probe's saved source/schema hashes.",
+        "preserved_schema_sha256": "1afc71fc55f77c36148fcc6e89237d51cb37fcb52c98ae2b38c596c20b6024f0",
+        "preserved_result_sha256": "a512386596c582e512a1a6eb9ff7d922b0d1b16646efa1650c5c98fc3b947580",
+        "script_sha256": "557e72478995a58d5db74a63f5b63b1992f9c115a7e65389d7594ba4131204a8"
+      },
+      "engine_descriptor_decode": "Pinned NVIDIA ENGDESCRIPTOR defines class bits31:8 and instance bits7:0. Raw F3D72200 therefore names constructed Pmu instance0; its reported registerBase here is8F4000.",
+      "arithmetic_correlation": {
+        "request_control_0": {
+          "candidate_offset": "0x8f6800",
+          "reported_base": "0x8f4000",
+          "difference": "0x2800"
+        },
+        "request_control_1": {
+          "candidate_offset": "0x8f6820",
+          "reported_base": "0x8f4000",
+          "difference": "0x2820"
+        },
+        "response_control_0": {
+          "candidate_offset": "0x8f64c8",
+          "reported_base": "0x8f4000",
+          "difference": "0x24c8"
+        },
+        "response_control_1": {
+          "candidate_offset": "0x8f64cc",
+          "reported_base": "0x8f4000",
+          "difference": "0x24cc"
+        }
+      },
+      "comparison": {
+        "before_samples": 1,
+        "after_samples": 1,
+        "before_and_final_compared_original_exact": true,
+        "parts": [
+          "complete compared broad configuration and curve",
+          "raw LPWR",
+          "raw Pstate",
+          "full client requests"
+        ]
+      },
+      "qualification": "The reported constructed-Pmu base and candidate same-owner queue constants align arithmetically on this adapter. This does not prove captured equation calls used this backend, current derived class, firmware identity/ISA, consumer execution, numerical semantics or another adapter's base. No runtime eligibility gate follows.",
+      "raw_result_sha256": "a512386596c582e512a1a6eb9ff7d922b0d1b16646efa1650c5c98fc3b947580"
+    },
+    "root_verification": {
+      "bounded_code_windows": 103,
+      "metadata_regions": 22,
+      "instruction_records": 25842,
+      "meaning": "Root reproduced frozen bytes/disassembly and inspected critical base adjustments, mode directions, record distinctions and command-publication order. This is not whole-CFG or live-execution proof.",
+      "reports_sha256": {
+        "rel-addend-feasibility-20261029\\evaluator-semantics\\group-lifecycle\\type6-row\\serialized-consumer\\findings.json": "ea77cbf31f9098c07da26fa96314ada16710db0f3436665ea72ccafa72c2a9fd",
+        "rel-addend-feasibility-20261029\\evaluator-semantics\\group-lifecycle\\type6-row\\command-transport\\findings.json": "fa5e95e1b84b2166ccd7f7ca1577d08fda995c82d45312053cf3ca11172acd21",
+        "rel-addend-feasibility-20261029\\evaluator-semantics\\group-lifecycle\\type6-row\\submission-handoff\\findings.json": "18634488b9ad9f00349ea717d0d8d9a3332cd3bbb799f6b4db481e6cd27c9a42",
+        "rel-addend-feasibility-20261029\\evaluator-semantics\\group-lifecycle\\type6-row\\submission-handoff\\owner-binding\\findings.json": "2a2ba621c869f3e82206a3053edbac771102fb300b1ecca4db54983d7690ad27",
+        "rel-addend-feasibility-20261029\\evaluator-semantics\\group-lifecycle\\type6-row\\submission-handoff\\queue-owner-correction\\findings.json": "aa9997fb74b7957cb7bc58d5f910922b85d0b1545a49cee5ae868943e69b2bbb",
+        "rel-addend-feasibility-20261029\\evaluator-semantics\\group-lifecycle\\type6-row\\submission-handoff\\queue-alternate-owner\\findings.json": "dd4645dd1498f68a2e97d915f96ff15a72bb7bdddf9e1029664afe285c53755a",
+        "rel-addend-feasibility-20261029\\evaluator-semantics\\group-lifecycle\\type6-row\\submission-handoff\\queue-alternate-owner\\bus-handoff\\findings.json": "311f550d0394e95840e0e76c8ed36ee5356eda43342cf93af550f0d34a4d79c0",
+        "rel-addend-feasibility-20261029\\evaluator-semantics\\group-lifecycle\\type6-row\\submission-handoff\\queue-alternate-owner\\queue-publication\\findings.json": "bd46679735ebebff7fa2b359232997252b95f1c989fe18e25036f389dd41941e"
+      },
+      "private_evidence_sha256": {
+        "audit_pmu_queue_windows.py": "1c38aa006021d11ce126a15972291472fa13cae6ff95c8c913096a877fea5584",
+        "pmu-queue-window-audit.json": "5e0cd62f2265e1e181a4e3b81fb0af41c1e7bac7a1b4621c921dd8ab3cf5b934",
+        "probe_constructed_falcons.py": "3a90e33faea056f126ff21d71abb7a4c5cdd0ec1cbe7051c891d412e74b30bcb",
+        "falcon-info-schema.json": "1afc71fc55f77c36148fcc6e89237d51cb37fcb52c98ae2b38c596c20b6024f0",
+        "audit_falcon_inventory.py": "5edb6b82cb69081a9b58506b4bd4a746466045189426621668dc7f837d336ad6",
+        "falcon-inventory-audit.json": "3d6b40f4c3edc76d39235d6875f9683caa2c9ad5069e9f91b71720af05589460",
+        "native-schema-source-addendum.json": "7079d64e79f97fd10a5bc73d3a84dfb28855a6017a33a1b9f2f970a9613c0ed0",
+        "native-info-audit/findings.json": "fa59a34743d099d6c08cfcd26a2bf50941be704cc6e37dd5dee332d9348d61ba"
+      }
+    },
+    "remaining": [
+      "Captured equation route and whether a SET reaches this load path",
+      "Current alternate/default selection, response driver and producer",
+      "Numerical evaluator/coefficient order, clamp/next composition and quantization for a true REL addend",
+      "Consumed voltage SET/replay semantics and physical effects"
+    ],
+    "preserved_prior_record_sha256": {
+      "schema": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+      "scope": "55be957d651fb512976533f114c7bdc3da58a0ea938cfd150340929fcbe8dd9d",
+      "power_status": "45ea7a27d30055a4e8cad1c13e9ceaee39bd6875b03ab35bf69e846d80eb654b",
+      "command_roles_and_b214": "a2876c1386e7e8002e6700c5eced37790b2574d4f2fb83a87ba7cdd3d98226da",
+      "modern_voltage_receiver": "91837c8a0376279bcb4deb30389f9606dfd806c0b400c21df41fd315b180956f",
+      "perf_callback": "b20b7ee9c1ff18c03f7d5cc176ec16852a20b14cecdf038cfb428c1b4e7d9cf1",
+      "public_schema_lookup": "ca0228610b23a69887f0aa7e754ec325742809a4929b721de268fe13ba52ffc9",
+      "product_runtime": "02116328f561123bc29dd9003aef6d40d4882b05047329ba59ac9691b6b59ecb",
+      "private_evidence": "b5b09a0e213d97e4572faa031de2e5e23a9f21347ad7cf94d2c6cc9e52916984",
+      "evidence_sha256": "cc376a6bc78f2cbb998379ca0f536330f8beff7b021889438266f9d6aff8bf33",
+      "consumer_followup_20261029": "cad7e1956687996fa818f17fdf385ab38858f76dd09731268190abef0f2f2d76",
+      "ClockManager_key200_dispatch_20261029": "e5e6800524d08e93fc3226ee662b68dcf482f92c9639d3cc893c448d7ab4c143",
+      "response_copy_and_PERF_owner_20261029": "5c1e0c29da391a600324f3d6ddc5fa47d49694c9b8a85e1967dc380646d2ee3c",
+      "RM_routing_and_candidate_firmware_20261029": "9656a0434533d1f634c8c931cc4c681b0e452ad35f0a95c620a19c1b04a1b931",
+      "candidate_firmware_consumers_20261029": "fbad502bff9aad972d5cd4a8eb05b5e656d3216a29206296c3f521be3a52a6ed",
+      "candidate_firmware_flow_20261029": "018a8e0647f749357e57df42188deb9628cc3039fa74ffc204622fe96b24f6db",
+      "candidate_evaluator_and_source_20261029": "626dd16cd8734ecd7792e89c662352596537c20bc4c1fa43fefc344df45fa80e"
+    }
   }
 }

@@ -3017,6 +3017,40 @@ These findings do not qualify modern voltage SET or arbitrary replay. The
 [evaluator/source checkpoint](experiments/driver-transport-followup-20261028.json)
 records the exact bindings, corrections, byte audits and remaining boundaries.
 
+A distinct candidate equation-load path now packs the typed descriptors into
+a serialized page with a `0x110` header, `0x100`-byte selection mask and `0x80`
+row stride. Its observed extent is `0x40110`; the mapper's separate `0x2000`
+index check does not establish that many rows in this backing. Native API
+capacity and serialized page geometry remain separate. The trace does not
+establish that earlier live E0B7 requests triggered this load or that firmware
+evaluated the equations.
+
+One constructor-bound alternate channel copies requests into mapped backing,
+then publishes an incremented control word modulo 16. A separate response
+path validates a header checksum and length, advances its response control
+word and updates state checked by the sender's wait predicate. The bus call
+between copying and publication is traced separately; its argument is not
+treated as proof of notification. The response-driving caller, producer and
+live channel selection remain unresolved.
+
+The documented read-only `GPU_GET_CONSTRUCTED_FALCON_INFO` command
+(`0x208001B0`, `0x504` parameter bytes) returned 15 entries on the tested
+adapter. Pinned NVIDIA descriptor definitions decode one entry as Pmu
+instance 0, with reported register base `0x8F4000`. The candidate request
+control offsets are `0x2800` and `0x2820` relative to that reported base;
+the response offsets are `0x24C8` and `0x24CC`. This arithmetic links the
+candidate constants to a current adapter report, rather than establishing
+the earlier calls' route, processor ISA, loaded firmware or numerical
+evaluation. No device-specific register base becomes a product support gate.
+
+The GET used a zero-initialized parameter buffer, preserved its paired adapter binding
+and passed envelope/guard checks. The complete compared configuration, curve,
+LPWR, Pstate and client requests matched before and after. No SET, registry
+change or driver restart was performed. The
+[equation queue and adapter record](experiments/driver-transport-followup-20261028.json)
+retains raw output, source provenance, conditional paths and the remaining
+evaluator/replay boundaries. No new voltage control follows from this GET.
+
 A separate variable investigation matched native INFO `0x2080A0B1`
 (`0xC364` bytes, header `0x28`, 255 rows of `0xC4`) and CONTROL
 `0x2080A0B3` (`0x2BFC` bytes, rows of `0x2C`) to the installed NVAPI
