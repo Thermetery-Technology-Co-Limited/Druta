@@ -397,8 +397,12 @@ support query, Preview instead requires all eleven queries to become
 unavailable and the engine controller's support, mask and feature readbacks to
 match the predicted unsupported state. Unavailable rows are not valid false
 values and do not prove an empty group mask. The NVJPG field now follows the
-enable bit consumed by its loader. Other profiles, packaged input walkthroughs
-and physical savings remain pending.
+enable bit consumed by its loader. The packaged follow-up is scoped to one
+captured row-0 disable per LPWR family, staged through panel callbacks and
+framebuffer capture. It does not exercise physical mouse or keyboard input,
+full-table shutdown, or no-peer outcomes. Other dependency profiles and
+physical residency or power savings remain pending. [LPWR row-0 UI
+qualification](experiments/ui-lpwr-configured-qualified-20261029.json).
 [Media configuration evidence](experiments/media-lpwr-configured-qualified-20261029.json).
 [Last-role qualification and the retained OFA curve-comparison limit](experiments/media-type4-last-role-qualified-20261029.json).
 

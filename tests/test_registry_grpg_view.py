@@ -66,7 +66,9 @@ def test_field_explains_the_shared_capability_boundary(harness):
     detail = harness.panel.fields[key]["detail"]
     assert "separate transaction" in detail
     assert "last shared auxiliary contributor" in detail
-    assert "last enabled entry" in detail
+    assert "Preview admits understood dependency transitions" in detail
+    assert "verifies the predicted related readbacks" in detail
+    assert "needs further validation" not in detail
 
 
 def test_auxiliary_transition_preview_describes_its_additional_verification(harness):

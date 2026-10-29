@@ -244,5 +244,6 @@
     "production_raw_ROM_client_and_broad_checks": true,
     "production_audit_sha256": "10b885eb533db0c9201fd71b4961712d588088d3512a05d9a41e7c852f9b94c5",
     "research_audit_sha256": "6f800576332dec89dc1d37415176aaa0bdc1eb35321f5ca6e1bac36c5685fdf0"
-  }
+  },
+  "later_packaged_row0_UI": "See ui-lpwr-configured-qualified-20261029.json: programmatic row0 partial-disable callback/framebuffer sequence. Full-shutdown/no-peer, physical input and other packaged cases remain separate; the earlier OFA curve limitation is not resolved."
 }

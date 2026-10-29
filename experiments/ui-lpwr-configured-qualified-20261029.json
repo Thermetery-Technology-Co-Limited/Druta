@@ -1,0 +1,345 @@
+{
+  "schema": 1,
+  "scope": "Packaged LPWR row-0 programmatic UI callback/framebuffer qualification; selected partial disables only",
+  "tested_configuration": {
+    "adapter": "GeForce RTX 5080",
+    "architecture": "Blackwell",
+    "driver": "621.01",
+    "identity_role": "Evidence identification only. Product admission uses current layouts, ownership, capabilities, routing and exact readbacks; no device/driver-version allowlist"
+  },
+  "command": "--ui-capture-lpwr-trial FAMILY NEW_DIRECTORY",
+  "families": [
+    "gr_pg",
+    "ms",
+    "nvdec",
+    "nvenc",
+    "ofa",
+    "nvjpg"
+  ],
+  "actor": "DearPyGUI widget staging invokes ordinary RegistryPanel Prepare/Apply/Restore, existing durable helper and packaged-app relaunch. Root launcher performs observation and baseline/final GETs only. No mouse or keyboard interaction is established.",
+  "implementation": "Explicit enabled/editable row0 singleton, understood mask and whole-image plan, schema-specific contract/read scope, exact receipt/target/registry/image/client state, saved raw full-main LPWR and client replies, final-frame terminal marker and failure recovery context",
+  "trial_code_commit": "093de78a3eeaec9cc6641972ec039c1a251411ce",
+  "trial_executable_sha256": "d4bc1283037b8e22a76c49e40e7263c1de0d5f6eed10b1578141b34c7cb840f3",
+  "trial_package": "450 committed source files and19 compiled modules verified before execution; final documentation/package rebuild checked separately",
+  "cases": {
+    "gr_pg": {
+      "field": "lpwr.gr_pg.0.enabled",
+      "receipt_schema": 1,
+      "enable_mask": 1,
+      "native_mask_changes": {
+        "0": [
+          288,
+          32
+        ]
+      },
+      "image_sha256": {
+        "before": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+        "active": "1fa60ceca38ab6a0e72e1737274fc5cb377d52f3d407c337890ff7e9dd3936c3",
+        "restored": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202"
+      },
+      "UI_sequence": "before true / Preview false / active read-only False / restored checked true",
+      "framebuffer": {
+        "before": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "f1c3059c7e722af7e5b24a5d36c8f1dcf4f94774408da91eb1055f3a7398d8a2",
+          "recorded_value": true
+        },
+        "preview": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "fd0a8704570c3d1767daddb528e667a2f0ffa0cc9d6b2c618e5aa37707bcd0b6",
+          "recorded_value": false
+        },
+        "active": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "55e93fd74bb585d8441d2e7a05b2fbaebe48a4d09054136f090c97465ea6c043",
+          "recorded_value": false
+        },
+        "restored": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "f1c3059c7e722af7e5b24a5d36c8f1dcf4f94774408da91eb1055f3a7398d8a2",
+          "recorded_value": true
+        }
+      },
+      "full_raw_packet_client_peer_and_receipt_audit": true
+    },
+    "ms": {
+      "field": "lpwr.ms.0.enabled",
+      "receipt_schema": 1,
+      "enable_mask": 1,
+      "native_mask_changes": {
+        "1": [
+          288,
+          0
+        ],
+        "4": [
+          288,
+          0
+        ]
+      },
+      "image_sha256": {
+        "before": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+        "active": "e26f8c178a1086fd0b45f6f22e97693d49968c2adf03429e170706a47d87e43d",
+        "restored": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202"
+      },
+      "UI_sequence": "before true / Preview false / active read-only False / restored checked true",
+      "framebuffer": {
+        "before": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "feefe6a5c5ff8cbf3f01f819a736900778715443a86bd0e206b9120244c457ec",
+          "recorded_value": true
+        },
+        "preview": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "2b82d708be5c279fab3adc664276076c97f25f08a6506749581567a832f03284",
+          "recorded_value": false
+        },
+        "active": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "e2a8acace00a458c1d9d8f3eca5463400e0c3912a088bfeffe7d9ad0d7cf9bab",
+          "recorded_value": false
+        },
+        "restored": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "feefe6a5c5ff8cbf3f01f819a736900778715443a86bd0e206b9120244c457ec",
+          "recorded_value": true
+        }
+      },
+      "full_raw_packet_client_peer_and_receipt_audit": true
+    },
+    "nvdec": {
+      "field": "lpwr.nvdec.0.enabled",
+      "receipt_schema": 1,
+      "enable_mask": 1,
+      "native_mask_changes": {
+        "12": [
+          297,
+          9
+        ]
+      },
+      "image_sha256": {
+        "before": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+        "active": "eda7b5d7b91c17f5a19b27de62c9e2c79bbab5f2d22fc048d61dd4dfc8c479f7",
+        "restored": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202"
+      },
+      "UI_sequence": "before true / Preview false / active read-only False / restored checked true",
+      "framebuffer": {
+        "before": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "9237612fb4359bc34b28d55fb99dec1059b530973f162f2662564801cc8c32f2",
+          "recorded_value": true
+        },
+        "preview": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "76f71875cb87a266f9566cfdc72bc958fd8334dfb3a3b3a45d99468814f43b00",
+          "recorded_value": false
+        },
+        "active": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "5c8594549b05842384e7be302cb224a97bdbb524d68c3b6048fcd84f99d73f2d",
+          "recorded_value": false
+        },
+        "restored": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "9237612fb4359bc34b28d55fb99dec1059b530973f162f2662564801cc8c32f2",
+          "recorded_value": true
+        }
+      },
+      "full_raw_packet_client_peer_and_receipt_audit": true
+    },
+    "nvenc": {
+      "field": "lpwr.nvenc.0.enabled",
+      "receipt_schema": 1,
+      "enable_mask": 1,
+      "native_mask_changes": {
+        "13": [
+          297,
+          9
+        ]
+      },
+      "image_sha256": {
+        "before": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+        "active": "3212039850ba6751cbb3edcd83993a1b1b6b00d6eb757b1be4c9f3098a0e21f5",
+        "restored": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202"
+      },
+      "UI_sequence": "before true / Preview false / active read-only False / restored checked true",
+      "framebuffer": {
+        "before": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "075dd312e81ec5cf8139b2faae943f5f4ab4cc8a0165a28c33f4573b311fbfec",
+          "recorded_value": true
+        },
+        "preview": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "eed877e831e673b6ec46f7364c242cca0d9b6ad673e4d0bdae24e45fe1d4b77d",
+          "recorded_value": false
+        },
+        "active": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "8fbf7560df236bc491bc8ca2537646642f21e35a0f39d4bc3efa8ee460e8cb1f",
+          "recorded_value": false
+        },
+        "restored": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "075dd312e81ec5cf8139b2faae943f5f4ab4cc8a0165a28c33f4573b311fbfec",
+          "recorded_value": true
+        }
+      },
+      "full_raw_packet_client_peer_and_receipt_audit": true
+    },
+    "ofa": {
+      "field": "lpwr.ofa.0.enabled",
+      "receipt_schema": 1,
+      "enable_mask": 1,
+      "native_mask_changes": {
+        "14": [
+          297,
+          9
+        ]
+      },
+      "image_sha256": {
+        "before": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+        "active": "10bc7bb10b2340d06e7746c82129a7d437730fc2bbaa9127d4d32cbe70842bc8",
+        "restored": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202"
+      },
+      "UI_sequence": "before true / Preview false / active read-only False / restored checked true",
+      "framebuffer": {
+        "before": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "506cd2e093e1348b9176279f708922207a3cfe6457e4009144f21deec90cdb5f",
+          "recorded_value": true
+        },
+        "preview": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "59094d9979d66fe8399430411b35edda5195b0d5025ae46232098d97bfab22e3",
+          "recorded_value": false
+        },
+        "active": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "bdc30516e3c33c6d9c6299d6e7268788e29ef42be12a103fed2fae48466f5fb5",
+          "recorded_value": false
+        },
+        "restored": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "6162f4244fcb6c236b17afc1c6ca1deab52064278c17484261fee3c5e3a5d9cc",
+          "recorded_value": true
+        }
+      },
+      "full_raw_packet_client_peer_and_receipt_audit": true
+    },
+    "nvjpg": {
+      "field": "lpwr.nvjpg.0.enabled",
+      "receipt_schema": 1,
+      "enable_mask": 2,
+      "native_mask_changes": {
+        "15": [
+          297,
+          9
+        ]
+      },
+      "image_sha256": {
+        "before": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+        "active": "9e16b7ac267e771d9fd0cdaad78107a56a4ac9a1378f0187ed00b1c3cdac1b3d",
+        "restored": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202"
+      },
+      "UI_sequence": "before true / Preview false / active read-only False / restored checked true",
+      "framebuffer": {
+        "before": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "839cb639e3496b5d21df85f7b1d8400e5448c57dd738b9402ba38cefcbe3151b",
+          "recorded_value": true
+        },
+        "preview": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "a884a083e4505b4e880bd531fa2a94d96987904ff3700130d790299992b06a14",
+          "recorded_value": false
+        },
+        "active": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "5cd4660a40277885e83196cc3580bb192831a80d87512fdf7d01ef61bafe0972",
+          "recorded_value": false
+        },
+        "restored": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "f334640b86cec2f6b1a6b64a9ac42002bd5099ff19b522f1b8c473d073177fe0",
+          "recorded_value": true
+        }
+      },
+      "full_raw_packet_client_peer_and_receipt_audit": true
+    }
+  },
+  "visual_review": {
+    "root": "All six active and Preview frames inspected; selected False rows and Preview text legible. Before/restored GRPG and NVJPG sampled independently.",
+    "Luna": "All twelve before/restored frames inspected; six row0 checkboxes checked and labels legible.",
+    "scope": "PNG hashes/CRC/dimensions and recorded widget values audited separately from actual visual inspection; 24 fixed-build frames"
+  },
+  "external_original_comparison": {
+    "initial_strict_pass": [
+      "gr_pg",
+      "ms",
+      "nvdec",
+      "nvenc"
+    ],
+    "ofa": {
+      "initial": "All8 post-Undo strict broad samples failed; final3 only V/F curve differed, first5 also driver flag13/hash. LPWR/client and restored ROM/receipt matched",
+      "curve": "110 changed bytes in50 evaluated GPU frequency words; cause unproven",
+      "later_GET_only": "Complete original including curve matched first sample, no write or restart",
+      "classification": "Initial broad negative retained separately from later exact GET; not a fully clean external trial"
+    },
+    "nvjpg": {
+      "initial": "Observer raised Two fresh complete baseline captures disagree before returning a full broad result; UI sequence had completed. Disagreeing raw pair was not returned/saved",
+      "later_GET_only": "Complete original including curve matched first sample, no write or restart",
+      "classification": "Initial observer error retained separately from later exact GET; no fabricated raw pair"
+    },
+    "all_six_final_original_verified": true,
+    "curve_exclusions": false
+  },
+  "presentation_fix": {
+    "observation": "First GRPG trial completed and restored but exposed read-only False rendered as0.0 and obsolete blanket guidance about last-entry transitions",
+    "change": "Boolean fields now display False/True/unavailable; numeric scaling retained. Guidance follows understood dependency contracts",
+    "pre_fix_trial": "packaged-grpg-1 retained separately; corrected GRPG trial repeated on the fixed build"
+  },
+  "Windows_capture_limit": "External computer-use capture failed twice with Class not registered0x80040154; Druta framebuffer capture used instead. This does not qualify physical input.",
+  "independent_audits": "Terra independently reconstructed all singleton ROM edits, actual-ID routes/native and auxiliary masks, full raw1028-byte LPWR routing/opaque bytes, full client requests/Pstate/receipts/helper events and PNG integrity; root reproduced both six-case UI and external audits",
+  "GPU_only_restarts": 14,
+  "Windows_reboot": false,
+  "workload_started": false,
+  "F219_SET": false,
+  "NVIDIA_App_installed": false,
+  "release_changes": false,
+  "validation": {
+    "focused": "206 passed in1.43s; includes88 UI capture cases and105 panel cases",
+    "full_suite": "6823 passed in119.23s",
+    "Ruff": "Runner, panel and changed tests passed; CLI changed lines clean. The app file retains26 pre-existing findings."
+  },
+  "pending": [
+    "Physical mouse/keyboard input and other displays/DPI/adapters",
+    "Packaged full-shutdown/no-peer and post-restart failure/recovery walkthroughs",
+    "Earlier OFA all-shutdown/no-peer intermediate curve comparison remains separately unresolved",
+    "Curve freshness/recalculation and observer stability semantics",
+    "Other field types, cross-generation validation and physical residency/power effects"
+  ]
+}

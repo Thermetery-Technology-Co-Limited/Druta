@@ -95,6 +95,7 @@ function Get-SourceSnapshot {
         'experiments/media-lpwr-configured-qualified-20261029.json',
         'experiments/grpg-bit1-availability-qualified-20261029.json',
         'experiments/media-type4-last-role-qualified-20261029.json',
+        'experiments/ui-lpwr-configured-qualified-20261029.json',
         'experiments/driver-transport-followup-20261028.json',
         'experiments/capture_power_provenance.py',
         'experiments/ampere-provenance-handoff-20261028.json',

@@ -2273,8 +2273,8 @@ unavailable-group messages. Ruff passed for changed source and tests.
 Twenty GPU-only restarts include all four qualified cases and the retained
 negative attempt. No Windows reboot, workload, F219 SET or product enable path
 was used. Type4 whole-group disappearance, conditional controller2/4 losses,
-physical residency/savings, wider adapters and a dedicated packaged visual
-walkthrough remain pending. [Exact no-peer evidence and limits](experiments/grpg-bit4-no-peer-qualified-20261029.json).
+physical residency/savings, wider adapters and a dedicated packaged no-peer
+visual walkthrough remain pending. [Exact no-peer evidence and limits](experiments/grpg-bit4-no-peer-qualified-20261029.json).
 
 For the raw-bit3 transition,927470 clears controller0's available feature bit10h
 at group+138 and role0's bit in the separate LPWR+12F8 group support mask+5C.
@@ -3373,6 +3373,58 @@ Physical mouse/keyboard input, other field types, post-restart failure/recovery
 visual states, other DPI/viewports/adapters and physical enforcement remain
 unqualified. [Scoped numeric qualification and retained evidence](experiments/ui-registry-power-qualified-20261029.json).
 
+## Scoped LPWR row-0 UI trial (2026-10-29)
+
+The opt-in developer command `--ui-capture-lpwr-trial FAMILY NEW_DIRECTORY`
+covers row 0 of `gr_pg`, `ms`, `nvdec`, `nvenc`, `ofa` or `nvjpg`. It proceeds
+only when that row is currently enabled and editable, and its BIOS plan changes
+only the understood enable mask: 0x1 for five families and 0x2 for NVJPG.
+The workflow stages the Boolean in DearPyGUI and calls the registry panel's
+normal Prepare, Apply and Restore callbacks through the existing helper and
+durable receipt path. The saved family and field carry across helper relaunch;
+schema-specific contracts and fresh readbacks verify each phase.
+
+The trial records before, preview, active and restored framebuffer frames,
+complete main LPWR observations, client-power state and image evidence. A
+terminal snapshot is published after the final frame or a failure, retaining
+receipt and recovery context. This is programmatic widget staging and callback
+execution, not physical mouse or keyboard input. The ordinary display-only
+capture and other registry workflows are separate.
+
+Six packaged row-0 sequences completed through the ordinary callbacks and
+both helper relaunches. Independent audits, reproduced by root, reconstruct
+whole-ROM enable-bit-only changes and loaded routes: GRPG main/type1 role0
+masks 0x120 to 0x20; MS controller1/4 and type1/type7 role1 masks to valid zero;
+NVDEC/NVENC/OFA/NVJPG primary masks 0x129 to 0x009. Raw packet routing/opaque
+bytes, full client requests, receipts and 24 PNG hashes/CRC/dimensions passed.
+The selected active False rows and Preview text were visually inspected;
+before/restored checkboxes were also inspected as checked and legible.
+
+Four trials passed their initial strict external original comparison. OFA's
+eight post-Undo samples failed on the curve after initial flag differences;
+a later GET-only capture matched the full original, without a restart. NVJPG's
+initial broad observer raised a stability error without returning the
+disagreeing pair; a later GET-only capture matched the full original. These
+negative/error observations remain separate from the later matches. Curve
+freshness remains unresolved and no frequency exclusions were introduced.
+
+The first GRPG trial exposed read-only False displayed as 0.0 and obsolete
+dependency guidance. The fixed display uses False/True/unavailable for Boolean
+fields, retains numeric scaling, and describes understood Preview contracts.
+The corrected GRPG trial was repeated. Fourteen GPU-only restarts cover the
+seven UI sequences; no Windows reboot, workload or F219 SET occurred. Windows
+computer-use capture failed twice with 0x80040154, so framebuffer evidence
+does not establish physical input. The final suite passed 6,823 tests in
+119.23 seconds; 206 focused cases passed. Runner/panel/test lint and changed
+CLI lines are clean; the app file retains its 26 pre-existing lint findings.
+
+This packaged qualification is scoped to one row-0 transition per family. It does
+not qualify other rows, full-table shutdown, last-role/no-peer transitions,
+failure/recovery screens, physical input, multiple displays/DPI/adapters or
+physical effects. The retained OFA all-shutdown/no-peer curve-comparison limit
+is separate and remains unresolved. Counts and per-family outcomes belong in
+[the scoped LPWR UI qualification record](experiments/ui-lpwr-configured-qualified-20261029.json).
+
 ## MS configured-state contracts (2026-10-29)
 
 The MS v10 table at BIT P+0x84/object0x3A is now bound to its loader and
@@ -3415,11 +3467,12 @@ aggregate flags; complete shutdown is modeled separately. Unresolved mixed
 feature loss, nondiscriminating changes, ambiguous routes, support6 cascades
 and other layouts remain pending. Capability/layout/readback checks govern
 eligibility; tested device IDs and driver versions do not gate support.
-Physical residency/savings and an MS-specific packaged visual/input walkthrough
-remain unqualified. Ten GPU-only restarts include the retained initial negative
-trial, corrected research and both production cases; every trial restored its
-complete original compared state. No Windows reboot, workload or F219 SET
-was used. [Scoped MS evidence](experiments/ms-configured-qualified-20261029.json).
+Physical residency/savings remain unqualified. The packaged LPWR follow-up is
+scoped to row 0 through programmatic panel callbacks and framebuffer capture;
+it does not exercise physical input or full-row/no-peer transitions. Ten
+GPU-only restarts include the retained initial negative trial, corrected
+research and both production cases; every trial restored its complete original
+compared state. No Windows reboot, workload or F219 SET was used. [Scoped MS evidence](experiments/ms-configured-qualified-20261029.json).
 
 ## NVDEC configured-state contracts (2026-10-29)
 
@@ -3477,9 +3530,10 @@ cases and changed-file Ruff also passed. An independent raw-packet audit was
 reproduced by root for both terminal trials.
 
 The hardware evidence covers source production transactions. The package is
-checked separately for source/compiled-code parity and restored-baseline GETs;
-a dedicated NVDEC packaged visual/input walkthrough and physical savings remain
-pending. [Scoped NVDEC evidence](experiments/nvdec-configured-qualified-20261029.json).
+checked separately for source/compiled-code parity and restored-baseline GETs.
+The packaged LPWR follow-up is scoped to row 0 through panel callbacks and
+framebuffer capture; full shutdown, type4 no-peer UI, physical input and
+physical savings remain pending. [Scoped NVDEC evidence](experiments/nvdec-configured-qualified-20261029.json).
 
 ## NVENC, OFA and NVJPG configured-state contracts (2026-10-29)
 
@@ -3554,12 +3608,13 @@ NVDEC/MS and Preview cases passed after new-test import cleanup. Changed-file
 Ruff passed.
 
 The hardware evidence covers source transactions. Package source/compiled-code
-parity and restored-baseline GETs are separate checks. Alternate-controller
-profiles, mixed aggregate loss, other layouts, media-specific packaged
-visual/input coverage and physical residency/savings remain pending. Device and
-driver identities identify evidence, not product compatibility lists. Legacy
-image-only receipts retain Undo; fresh runtime contracts are required for a new
-Apply.
+parity and restored-baseline GETs are separate checks. The packaged LPWR UI
+follow-up is scoped to row 0 through panel callbacks and framebuffer capture;
+full-row shutdown, no-peer UI, physical input and physical residency/savings
+remain pending. Alternate-controller profiles, mixed aggregate loss and other
+layouts remain pending. Device and driver identities identify evidence, not
+product compatibility lists. Legacy image-only receipts retain Undo; fresh
+runtime contracts are required for a new Apply.
 [Scoped media evidence](experiments/media-lpwr-configured-qualified-20261029.json).
 
 ## Last type 4 role availability for NVDEC and media LPWR (2026-10-29)
@@ -3679,8 +3734,8 @@ The full suite passed 6,750 tests in 117.17 seconds; 492 focused runtime,
 transaction and Preview cases plus changed-file Ruff passed.
 
 Package source/compiled-code parity and restored-baseline GETs are separate
-from the source transaction trials. Packaged type 4 visual/input coverage,
-independent group-mask/presence readback, curve freshness semantics, remaining
+from the source transaction trials. Packaged type 4 no-peer visual/input
+coverage, independent group-mask/presence readback, curve freshness semantics, remaining
 conditional dependency transitions and physical effects remain unqualified.
 [Scoped type 4 availability evidence](experiments/grpg-bit1-availability-qualified-20261029.json).
 

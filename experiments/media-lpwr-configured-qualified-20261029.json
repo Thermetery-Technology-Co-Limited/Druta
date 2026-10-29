@@ -80,7 +80,7 @@
   "pending": [
     "Supported alternate controllers, mixed aggregate losses and other layouts",
     "OFA full-phase broad comparison, curve freshness and remaining dependency transitions; see later_availability_extension",
-    "Media-specific packaged visual/input walkthroughs and curve freshness/recalculation semantics",
+    "Additional packaged full-shutdown/no-peer/error-recovery and physical-input walkthroughs; row0 callback/framebuffer evidence linked in later_packaged_row0_UI",
     "Physical residency, trustworthy activity telemetry and power savings"
   ],
   "GPU_only_restarts": 14,
@@ -96,5 +96,6 @@
     "independent_raw_audit": "six clean cases plus the retained negative and later GET-only restoration; root reproduced all seven",
     "package_scope": "Source/compiled-code parity and baseline readbacks checked separately from source production transactions"
   },
-  "later_availability_extension": "See media-type4-last-role-qualified-20261029.json: no-peer source contract, three fully clean media trials and separately retained OFA intermediate-curve negative; original trials here retain their historical scope."
+  "later_availability_extension": "See media-type4-last-role-qualified-20261029.json: no-peer source contract, three fully clean media trials and separately retained OFA intermediate-curve negative; original trials here retain their historical scope.",
+  "later_packaged_row0_UI": "See ui-lpwr-configured-qualified-20261029.json: programmatic row0 partial-disable callback/framebuffer sequence. Full-shutdown/no-peer, physical input and other packaged cases remain separate; the earlier OFA curve limitation is not resolved."
 }
