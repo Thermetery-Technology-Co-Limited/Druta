@@ -530,6 +530,17 @@ Two packaged trials on the captured RTX5080 configuration verified both rails
 after an independently observed original baseline. This covers programmatic
 callbacks; physical input and failure/recovery walkthroughs remain pending.
 
+For a read-only capture of an existing recovery-result relaunch, run
+`Druta --ui-capture-recovery NEW_DIRECTORY --recovery-result RECEIPT`.
+The receipt must be accepted for the selected GPU. `NEW_DIRECTORY` must not
+exist, and its parent directory must already exist. This mode cannot be combined
+with another capture mode, a startup profile, or a registry trial. It captures
+two frames—the saved Undo state in the Registry panel and the existing Control
+log—then restores the display and exits. It does not apply or undo registry
+settings, restart the GPU, or create or inject a failure. The result message
+alone does not determine Undo availability; that comes from the saved registry
+receipt.
+
 Changing ALT can change the shared boost contribution and the computed REL and
 effective limits on both rails. OV can change the selected rail's effective
 limit. These computed outputs are recorded without assuming a firmware formula.

@@ -14230,7 +14230,10 @@ deliberately does not put behind a button."""
                                                       rows=getattr(self, "_ui_lpwr_rows", None))
                         else:
                             rel_bounds = getattr(self, "_ui_capture_rel_bounds", None)
-                            if rel_bounds is not None:
+                            if getattr(self, "_ui_capture_recovery", False):
+                                from .recovery_ui_capture import RecoveryUiCapture
+                                capture = RecoveryUiCapture(dpg, self, self._ui_capture_dir)
+                            elif rel_bounds is not None:
                                 from .rel_bounds_ui_trial import LiveRelBoundsCapture
                                 capture = LiveRelBoundsCapture(dpg, self, self._ui_capture_dir, *rel_bounds)
                             else:
@@ -14322,6 +14325,7 @@ def main(argv=None):
     ui_capture_dir = None
     ui_capture_live_vmin = False
     ui_capture_rel_bounds = None
+    ui_capture_recovery = False
     ui_pstates_trial_dir = None
     ui_pstates_trial_resume = False
     ui_registry_trial_kind = "pstates"
@@ -14358,12 +14362,13 @@ def main(argv=None):
                 return 2
             ui_capture_dir = os.path.abspath(argv.pop(0))
             ui_capture_rel_bounds = (rail, wanted_uv)
-        elif a in ("--ui-capture", "--ui-capture-live-vmin"):
+        elif a in ("--ui-capture", "--ui-capture-live-vmin", "--ui-capture-recovery"):
             if not argv or ui_capture_dir is not None:
                 _tell(a + " needs one new directory")
                 return 2
             ui_capture_dir = os.path.abspath(argv.pop(0))
             ui_capture_live_vmin = a == "--ui-capture-live-vmin"
+            ui_capture_recovery = a == "--ui-capture-recovery"
         elif a in ("--ui-capture-lpwr-trial", "--ui-capture-lpwr-rows"):
             if len(argv) < (3 if a == "--ui-capture-lpwr-rows" else 2) or ui_pstates_trial_dir is not None:
                 _tell(a + " needs a family and new directory")
@@ -14408,6 +14413,7 @@ def main(argv=None):
                   "  --registry-recover SLOT  undo saved registry overrides without a live GPU backend\n\n"
                   "  --startup-profile  apply the opted-in sign-in profile after shutdown checks\n\n"
                   "  --ui-capture NEW_DIRECTORY  capture a display-only developer walkthrough\n"
+                  "  --ui-capture-recovery NEW_DIRECTORY  capture a recovery-result relaunch without writes\n"
                   "  --ui-capture-live-vmin NEW_DIRECTORY  apply +5 mV to rail 0 VMIN, capture, then restore\n"
                   "  --ui-capture-live-rel-bounds RAIL VALUE_UV NEW_DIRECTORY  fix both REL head bounds, restore, capture and exit\n"
                   "  --ui-capture-pstates-trial NEW_DIRECTORY  preview, apply and restore the P-state gate\n"
@@ -14449,7 +14455,10 @@ def main(argv=None):
         except (OSError, ValueError, TypeError):
             _tell("Registry trial resume has invalid saved selection or phase")
             return 2
-    if ui_capture_dir and (automatic or recovery_path):
+    if ui_capture_recovery and not recovery_path:
+        _tell("--ui-capture-recovery requires --recovery-result")
+        return 2
+    if ui_capture_dir and (automatic or (recovery_path and not ui_capture_recovery)):
         _tell("--ui-capture cannot be combined with startup profile or recovery relaunch")
         return 2
     if ui_capture_dir and os.path.exists(ui_capture_dir):
@@ -14478,6 +14487,7 @@ def main(argv=None):
         if ui_capture_dir:
             app._ui_capture_dir = ui_capture_dir
             app._ui_capture_live_vmin = ui_capture_live_vmin
+            app._ui_capture_recovery = ui_capture_recovery
             if ui_capture_rel_bounds is not None:
                 app._ui_capture_rel_bounds = ui_capture_rel_bounds
         if ui_pstates_trial_dir:
@@ -14489,6 +14499,7 @@ def main(argv=None):
         if recovery_path:
             try:
                 app._recovery_result = devicerecovery.read_result(recovery_path, app.gpu.slot())
+                app._recovery_result_valid = True
             except (OSError, ValueError) as exc:
                 app._recovery_result = {"ok": False, "reboot_required": False,
                                         "message": f"cannot read recovery result: {exc}"}
