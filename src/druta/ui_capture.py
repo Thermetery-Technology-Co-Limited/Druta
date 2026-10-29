@@ -20,6 +20,7 @@ class UiCapture:
         self.pending = None
         self.wait = 3
         self.frames = 0
+        self.plot_visible = False
         self.snapshot = None
         self.panel = None
         self.live_scroll = None
@@ -190,6 +191,10 @@ class UiCapture:
             return
         try:
             self.frames += 1
+            plot_visible = (self.dpg.does_item_exist("vf_plot") and
+                            self.dpg.is_item_visible("vf_plot"))
+            plot_just_visible = plot_visible and not self.plot_visible
+            self.plot_visible = plot_visible
             if self.live_scroll is not None:
                 scroll = self.dpg.get_item_pos(self.live_scroll)[1]
                 self.dpg.set_y_scroll("page_control", max(0, min(scroll, self.dpg.get_y_scroll_max("page_control"))))
@@ -234,7 +239,9 @@ class UiCapture:
                     raise RuntimeError("Framebuffer output was not produced")
                 return
             self.wait -= 1
-            if self.wait <= 0:
+            # Newly revealed plot axes fit on the following render. Capture
+            # that frame rather than the first visible, pre-fit view.
+            if self.wait <= 0 and not plot_just_visible:
                 name = self.stages[self.stage]
                 path = self.directory / (name + ".png")
                 self.pending = (path, name, self.dpg.get_frame_count(), self.frames)

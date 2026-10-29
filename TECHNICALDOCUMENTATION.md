@@ -3128,8 +3128,11 @@ valid 1528×1261 frames. The actual panel callbacks applied and restored VMIN
 retained requests matched, and the final independent configuration including
 the evaluated curve returned to the original baseline. Stage labels, displayed
 values and statuses agreed across source and package. The active frames show
-the already-observed curve transient; they do not qualify steady active-curve
-rendering or settling time. Native screen capture failed twice, so these are
+a collapsed V/F plot. Active and immediate restored native curve snapshots
+match each other, although the restored frame shows the full plot; both native
+snapshots differ from baseline. Those captures did not record plot series or
+axis limits and do not establish the cause of the display change or a settling
+time. Native screen capture failed twice, so these are
 application-framebuffer/callback checks rather than physical mouse or keyboard
 interaction. The complete suite passed 6,503 tests, including 22 capture tests.
 [Power capture evidence](experiments/ui-render-capture-20261028.json) and

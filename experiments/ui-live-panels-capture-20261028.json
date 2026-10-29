@@ -519,7 +519,7 @@
       "manifest_errors": [],
       "source_and_packaged_restoration_verified": true
     },
-    "active_curve_note": "The active frames show a collapsed curve plot during the previously observed evaluated-curve transient. This capture qualifies the VMIN fields and callback result, not steady active curve rendering or a settling time. Independent final capture includes the full original evaluated curve.",
+    "active_curve_note": "The active frames show a collapsed V/F plot. Active and immediate restored native curve snapshots match each other although the immediate restored frame shows the full plot; both native snapshots differ from baseline. These captures did not record plot series or axis limits and do not establish the cause of the display change or a settling time. Independent final capture includes the full original evaluated curve.",
     "software_checks": {
       "full_suite_passed": 6503,
       "full_suite_seconds": 115.93,

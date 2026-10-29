@@ -24,6 +24,7 @@ class FakeDpg:
         self.scrolls = []
         self.output_values = []
         self.output_viewports = []
+        self.plot_visible = False
 
     def get_value(self, item):
         return self.values[item]
@@ -40,6 +41,10 @@ class FakeDpg:
 
     def does_item_exist(self, item):
         return item in self.values
+
+    def is_item_visible(self, item):
+        assert item == "vf_plot"
+        return self.plot_visible
 
     def get_item_configuration(self, item):
         return dict(self.config[item])
@@ -670,3 +675,40 @@ def test_nontrial_helper_wait_failure_keeps_existing_behavior(monkeypatch):
     execute.assert_not_called()
     spawn.assert_not_called()
     assert "original Druta process is still running" in notify.call_args.args[0]
+
+
+@pytest.mark.parametrize("plot", ["absent", "hidden", "visible"])
+def test_capture_waits_one_render_only_when_plot_becomes_visible(tmp_path, plot):
+    dpg = FakeDpg()
+    capture = UiCapture(dpg, app(), tmp_path / "new")
+    if plot != "absent":
+        dpg.values["vf_plot"] = None
+    capture.wait = 1
+    dpg.plot_visible = plot == "visible"
+    dpg.frame += 1
+    capture.tick()
+    assert len(dpg.output_values) == (0 if plot == "visible" else 1)
+    if plot == "visible":
+        dpg.frame += 1
+        capture.tick()
+        assert len(dpg.output_values) == 1
+
+
+def test_plot_visibility_is_tracked_while_framebuffer_pending(tmp_path):
+    dpg = FakeDpg()
+    dpg.values["vf_plot"] = None
+    capture = UiCapture(dpg, app(), tmp_path / "new")
+    capture.wait = 1
+    dpg.frame += 1
+    capture.tick()
+    assert capture.pending is not None
+    dpg.plot_visible = True
+    dpg.frame += 1
+    capture.tick()
+    assert capture.plot_visible
+    dpg.frame += 1
+    capture.tick()
+    capture.wait = 1
+    dpg.frame += 1
+    capture.tick()
+    assert len(dpg.output_values) == 2
