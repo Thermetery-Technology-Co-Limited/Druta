@@ -3869,14 +3869,30 @@ The full suite passed 6,721 tests in 117.49 seconds, and 176 focused media,
 NVDEC/MS and Preview cases passed after new-test import cleanup. Changed-file
 Ruff passed.
 
-The hardware evidence covers source transactions. Package source/compiled-code
-parity and restored-baseline GETs are separate checks. The packaged LPWR UI
-follow-up is scoped to row 0 through panel callbacks and framebuffer capture;
-full-row shutdown, no-peer UI, physical input and physical residency/savings
-remain pending. Alternate-controller profiles, mixed aggregate loss and other
-layouts remain pending. Device and driver identities identify evidence, not
-product compatibility lists. Legacy image-only receipts retain Undo; fresh
-runtime contracts are required for a new Apply.
+The original hardware evidence covers source transactions. Later packaged
+trials disabled all five enabled rows separately for NVENC, OFA and NVJPG
+through ordinary panel callbacks, the durable helper and Undo. Independent
+audits verified the exact enable-bit changes (NVJPG uses bit 1), complete
+LPWR packet projections including opaque bytes, P-state and client/native
+power records, receipts and restored original configuration. Each primary
+controller became unsupported with its mask and feature unavailable; its type4
+role became unavailable with supported peers retained.
+
+Root and Luna inspected all twelve frames. The five selected rows are checked
+before and restored, and show read-only False values active. Each Preview
+shows five change lines and the availability caption; its checkbox rows are
+below the viewport and their unchecked pixels are not qualified. Before and
+restored images are byte-identical per case. All eight before samples per case
+match strictly; final samples 0-2 retain BOOST_LOW request/hash differences and
+samples 3-7 match. All 48 before/final full curves match without exclusions.
+No independent active broad window was captured. These trials used six GPU-only
+restarts; physical input and effects were not measured.
+
+Packaged no-peer UI, GRPG full shutdown and post-restart failure/recovery remain
+pending, as do other profiles, layouts and physical residency/savings. Device
+and driver identities identify evidence, not product compatibility lists.
+Legacy image-only receipts retain Undo; fresh runtime contracts are required
+for a new Apply.
 [Scoped media evidence](experiments/media-lpwr-configured-qualified-20261029.json).
 
 ## Last type 4 role availability for NVDEC and media LPWR (2026-10-29)
