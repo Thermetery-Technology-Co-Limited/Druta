@@ -206,5 +206,631 @@
     "ruff": "passed",
     "hardware_product_apply_restore": "passed",
     "physical_measurement": false
+  },
+  "B214_no_VMIN_control_20261029": {
+    "scope": "One captured RTX5080 configuration and operating point; transport-backed GET-only control, no VMIN edit or physical measurement. No compatibility gate follows.",
+    "execution": {
+      "root_session": 79757,
+      "root_shell_PID": 17752,
+      "exit_code": 0,
+      "started_utc": "2026-10-29T17:26:03.4547761Z",
+      "finished_utc": "2026-10-29T17:27:14.9645226Z",
+      "GUI_closed": true
+    },
+    "request": {
+      "query": "0xBE94281E",
+      "size": "0xC0C8",
+      "version": "0x1C0C8",
+      "selection": 1,
+      "input_sha256": "542f184194b2c158b53499b3c441c5ac6aa304dfebdae9c4c354cf64bbde6997",
+      "other_input_bytes_zero": true,
+      "current_native_B212_bit0_required": true
+    },
+    "observations": [
+      {
+        "index": 0,
+        "start_offset_seconds": 0.0,
+        "output_sha256": "0ca59c82a469c35f462947c43fa9a9fc93eb730d2035a192391c69b183aa5dcc",
+        "changed_byte_count_from_first": 0,
+        "changed_offsets_from_first": [],
+        "records": [
+          {
+            "record": 2,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          },
+          {
+            "record": 3,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          },
+          {
+            "record": 4,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          },
+          {
+            "record": 5,
+            "byte_84": 1,
+            "byte_85": 127,
+            "dword_88": 793750
+          },
+          {
+            "record": 6,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          },
+          {
+            "record": 7,
+            "byte_84": 1,
+            "byte_85": 128,
+            "dword_88": 800000
+          },
+          {
+            "record": 8,
+            "byte_84": 1,
+            "byte_85": 127,
+            "dword_88": 793750
+          }
+        ]
+      },
+      {
+        "index": 1,
+        "start_offset_seconds": 2.9984255000017583,
+        "output_sha256": "b422188f38f968898df3b632becdbdc27e6e73be1c429ea433636738229cc8b8",
+        "changed_byte_count_from_first": 15,
+        "changed_offsets_from_first": [
+          445,
+          448,
+          449,
+          525,
+          528,
+          529,
+          605,
+          608,
+          609,
+          685,
+          688,
+          689,
+          845,
+          848,
+          849
+        ],
+        "records": [
+          {
+            "record": 2,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          },
+          {
+            "record": 3,
+            "byte_84": 1,
+            "byte_85": 128,
+            "dword_88": 800000
+          },
+          {
+            "record": 4,
+            "byte_84": 1,
+            "byte_85": 127,
+            "dword_88": 793750
+          },
+          {
+            "record": 5,
+            "byte_84": 1,
+            "byte_85": 126,
+            "dword_88": 787500
+          },
+          {
+            "record": 6,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          },
+          {
+            "record": 7,
+            "byte_84": 1,
+            "byte_85": 128,
+            "dword_88": 800000
+          },
+          {
+            "record": 8,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          }
+        ]
+      },
+      {
+        "index": 2,
+        "start_offset_seconds": 5.999543699901551,
+        "output_sha256": "d72ed014ffd18d986e4fe8c609255552238b9f23f6cf0d2265c13fe3a6291525",
+        "changed_byte_count_from_first": 15,
+        "changed_offsets_from_first": [
+          525,
+          528,
+          529,
+          605,
+          608,
+          609,
+          685,
+          688,
+          689,
+          765,
+          768,
+          769,
+          845,
+          848,
+          849
+        ],
+        "records": [
+          {
+            "record": 2,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          },
+          {
+            "record": 3,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          },
+          {
+            "record": 4,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          },
+          {
+            "record": 5,
+            "byte_84": 1,
+            "byte_85": 128,
+            "dword_88": 800000
+          },
+          {
+            "record": 6,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          },
+          {
+            "record": 7,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          },
+          {
+            "record": 8,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          }
+        ]
+      },
+      {
+        "index": 3,
+        "start_offset_seconds": 9.007012200076133,
+        "output_sha256": "f81f0634ccca8f31ef36baa6e314718ad64655056b9e59e03cb2379c5a8b608d",
+        "changed_byte_count_from_first": 18,
+        "changed_offsets_from_first": [
+          365,
+          368,
+          369,
+          525,
+          528,
+          529,
+          605,
+          608,
+          609,
+          685,
+          688,
+          689,
+          765,
+          768,
+          769,
+          845,
+          848,
+          849
+        ],
+        "records": [
+          {
+            "record": 2,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          },
+          {
+            "record": 3,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          },
+          {
+            "record": 4,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          },
+          {
+            "record": 5,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          },
+          {
+            "record": 6,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          },
+          {
+            "record": 7,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          },
+          {
+            "record": 8,
+            "byte_84": 1,
+            "byte_85": 128,
+            "dword_88": 800000
+          }
+        ]
+      },
+      {
+        "index": 4,
+        "start_offset_seconds": 12.003284700214863,
+        "output_sha256": "06f5ca8107050f50b90710a39276203434409846d9bec00f1d5b4f30422fc7aa",
+        "changed_byte_count_from_first": 15,
+        "changed_offsets_from_first": [
+          365,
+          368,
+          369,
+          525,
+          528,
+          529,
+          605,
+          608,
+          609,
+          685,
+          688,
+          689,
+          845,
+          848,
+          849
+        ],
+        "records": [
+          {
+            "record": 2,
+            "byte_84": 1,
+            "byte_85": 128,
+            "dword_88": 800000
+          },
+          {
+            "record": 3,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          },
+          {
+            "record": 4,
+            "byte_84": 1,
+            "byte_85": 128,
+            "dword_88": 800000
+          },
+          {
+            "record": 5,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          },
+          {
+            "record": 6,
+            "byte_84": 1,
+            "byte_85": 128,
+            "dword_88": 800000
+          },
+          {
+            "record": 7,
+            "byte_84": 1,
+            "byte_85": 128,
+            "dword_88": 800000
+          },
+          {
+            "record": 8,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          }
+        ]
+      },
+      {
+        "index": 5,
+        "start_offset_seconds": 15.04057089984417,
+        "output_sha256": "3f706d5e1f09df1e269427449dd185120739ae2f3727cbb8e1999c0fda82d4f3",
+        "changed_byte_count_from_first": 15,
+        "changed_offsets_from_first": [
+          365,
+          368,
+          369,
+          445,
+          448,
+          449,
+          605,
+          608,
+          609,
+          765,
+          768,
+          769,
+          845,
+          848,
+          849
+        ],
+        "records": [
+          {
+            "record": 2,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          },
+          {
+            "record": 3,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          },
+          {
+            "record": 4,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          },
+          {
+            "record": 5,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          },
+          {
+            "record": 6,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          },
+          {
+            "record": 7,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          },
+          {
+            "record": 8,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          }
+        ]
+      },
+      {
+        "index": 6,
+        "start_offset_seconds": 18.005903200246394,
+        "output_sha256": "0177b5afb7d85643f377aacbb1547b2e0f4cd1121f16288d6130dce4c4783c77",
+        "changed_byte_count_from_first": 18,
+        "changed_offsets_from_first": [
+          365,
+          368,
+          369,
+          525,
+          528,
+          529,
+          605,
+          608,
+          609,
+          685,
+          688,
+          689,
+          765,
+          768,
+          769,
+          845,
+          848,
+          849
+        ],
+        "records": [
+          {
+            "record": 2,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          },
+          {
+            "record": 3,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          },
+          {
+            "record": 4,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          },
+          {
+            "record": 5,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          },
+          {
+            "record": 6,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          },
+          {
+            "record": 7,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          },
+          {
+            "record": 8,
+            "byte_84": 1,
+            "byte_85": 128,
+            "dword_88": 800000
+          }
+        ]
+      },
+      {
+        "index": 7,
+        "start_offset_seconds": 21.014656600076705,
+        "output_sha256": "32722103ee08f123268ba9f2811c212309ecb6fb54847a58536dd29bcae0c21c",
+        "changed_byte_count_from_first": 15,
+        "changed_offsets_from_first": [
+          365,
+          368,
+          369,
+          605,
+          608,
+          609,
+          685,
+          688,
+          689,
+          765,
+          768,
+          769,
+          845,
+          848,
+          849
+        ],
+        "records": [
+          {
+            "record": 2,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          },
+          {
+            "record": 3,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          },
+          {
+            "record": 4,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          },
+          {
+            "record": 5,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          },
+          {
+            "record": 6,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          },
+          {
+            "record": 7,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          },
+          {
+            "record": 8,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          }
+        ]
+      }
+    ],
+    "raw_field_layout": {
+      "row_base": "0x48",
+      "record_stride": "0x50",
+      "records": [
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "flag": "+0x84",
+      "code": "+0x85",
+      "DWORD": "+0x88"
+    },
+    "finite_result": "All eight responses are distinct. Every traced record varies across the eight reads. Differences from response0 occur only in the recorded byte+85/DWORD+88 fields; byte+84 remains1. Across56 returned records, DWORD=6250*code. This is a numerical relation, not a voltage unit or rail mapping.",
+    "comparisons": {
+      "initial_broad_exact": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "final_broad_exact": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "per_call_brackets": 16,
+      "all_per_call_brackets_exact": true,
+      "baseline_and_final_brackets_exact": true,
+      "all34_saved_compared_full_curves_exact": true,
+      "retained": [
+        "full native VFE definitions",
+        "legacy native/public six request words and boost",
+        "native B212/B218 inventory and cached CONTROL",
+        "public INFO/CONTROL raw payloads",
+        "LPWR raw packets",
+        "full client request",
+        "Pstate raw packet"
+      ],
+      "complete_compared_original": true
+    },
+    "interpretation": "Observed B214 response variability remains even when every saved configured-state comparison passes. The earlier single VMIN triplet cannot establish a stable configuration mapping. No new VMIN intervention is qualified by this control.",
+    "limitations": [
+      "One device/configuration and finite sample window; samples do not observe all events between calls.",
+      "No units, physical voltage, rail identity, actual producer, request consumption or exclusive cause follows from these values/status0.",
+      "GET may have internal driver/firmware effects; zero explicit SETs is not proof of endpoint inertness.",
+      "Guard checks returned without error, but raw sentinels were not saved for independent reconstruction.",
+      "Public B212 INFO raw mask is retained; native B212 bit0, not public/native inventory equality, is the selection prerequisite.",
+      "Broad comparisons retain their existing configured-state scope; dynamic telemetry normalization is unchanged."
+    ],
+    "explicit_configuration_SETs": 0,
+    "registry_write": false,
+    "GPU_restart": false,
+    "Windows_reboot": false,
+    "workload": false,
+    "physical_measurement": false,
+    "review": "Luna reviewed invoked source/data shapes before the run; Terra independently audited terminal raw files; root reproduced the audit JSON exactly and independently decoded all56 field pairs.",
+    "private_evidence_sha256": {
+      "experiments/registry-overrides/voltage-b214-discriminating-plan-20261029/b214-control.py": "5c6a25977ec3bb5e1b613666525fd3ece0175a777e87299fd5d71250593f7125",
+      "experiments/registry-overrides/voltage-b214-discriminating-plan-20261029/root-control-1/journal.json": "ca8d0d50e10432c11c0917cf24264c65e4c1eddad51b44b0884f0a353afac199",
+      "experiments/registry-overrides/voltage-b214-discriminating-plan-20261029/root-control-1-lifecycle.json": "4f80ca3ec5810e4539903041a01b89b1e85a81cd2bfb1608206a17b8f6ac478a",
+      "experiments/registry-overrides/voltage-b214-discriminating-plan-20261029/review/audit-b214-control.py": "8fc83cf84960924778803f534caf659c766b64ae849b5a61dfe97df774df0eca",
+      "experiments/registry-overrides/voltage-b214-discriminating-plan-20261029/review/root-control-1-audit.json": "34c276029cc6e54fd32dca0e80613976eb5571b87772bc3bd35739e0ff33f3f0",
+      "experiments/registry-overrides/voltage-b214-discriminating-plan-20261029/review/root-control-1-root-audit.json": "34c276029cc6e54fd32dca0e80613976eb5571b87772bc3bd35739e0ff33f3f0",
+      "experiments/registry-overrides/voltage-b214-discriminating-plan-20261029/luna-audit-20261029/findings.json": "bf78a571683c534f9e7d49689ca98d64d5ac1c78eb872377f607e68a257e45a0"
+    }
   }
 }

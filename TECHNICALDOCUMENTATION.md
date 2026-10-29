@@ -2921,6 +2921,17 @@ upper-clamp behavior does not establish legacy six-word request replay, other
 equation writers, or physical voltage enforcement. See the
 [sanitized follow-up](experiments/voltage-replay-followup-20261028.json).
 
+A separate candidate copy path now has a conditional static ownership trace:
+the engine loader dispatches the constructed ClockManager interface through
+table slot `+0x30`; its thunk subtracts eight from the interface pointer before
+registering key `0x200` on the same root-relative list used by the later lookup.
+The dispatcher passes record destinations within a separately allocated
+`0x2A708`-byte buffer.
+An offset within that buffer does not identify the destination as PERF+`0x588`.
+Root reproduced the twelve bounded instruction windows and dispatch table;
+current runtime invocation, the actual PERF callback and voltage-request
+consumption remain unproved. See the [dispatch evidence](experiments/driver-transport-followup-20261028.json).
+
 A separate variable investigation matched native INFO `0x2080A0B1`
 (`0xC364` bytes, header `0x28`, 255 rows of `0xC4`) and CONTROL
 `0x2080A0B3` (`0x2BFC` bytes, rows of `0x2C`) to the installed NVAPI
@@ -2967,7 +2978,22 @@ capture was made. Native B214 is a distinct GET bound to public query
 `0xBE94281E`; one GET on the inspected adapter succeeded with status 0 and a
 populated type2 result. This is a narrow single-adapter read qualification; a
 separate typed VMIN comparison did not establish an active B214 correlation or
-field units. The B212/B218 public getters use 32-entry masks: INFO is
+field units.
+
+A subsequent GET-only control captured eight B214 responses whose call starts
+spanned 21.01 seconds. All sixteen per-call configured-state brackets, the
+baseline/final brackets and eight initial/eight final broad captures matched;
+all 34 compared full curves were exact. Every traced type2 record varied across
+the eight responses, exclusively in its code byte and associated DWORD. The
+finite relation `DWORD = 6250 * code` held for all 56 returned pairs, without
+establishing units or rail identity. No VMIN edit was made. This demonstrates
+response variability despite exact saved configuration checks and prevents
+treating the earlier single VMIN triplet as a stable configuration mapping.
+The producer, physical meaning and consumed write path remain unresolved.
+Raw inputs/outputs, timings, scope and independent audits are recorded in the
+[GET-only control](experiments/voltage-replay-followup-20261028.json).
+
+The B212/B218 public getters use 32-entry masks: INFO is
 `0x10D48` bytes with version `0x10D48`, header `0x48`
 and stride `0x868`; CONTROL is `0x2348` bytes with version `0x12348`, header
 `0x48` and stride `0x118`. The complete INFO allocation cannot be derived from

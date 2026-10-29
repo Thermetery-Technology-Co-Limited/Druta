@@ -62,7 +62,7 @@
       "sequence": "A typed VMIN 800000 -> 805000 -> 800000 comparison was bracketed by three B214 GETs.",
       "result": "All three B214 reads returned status 0; native/public B212 inventory and B218 cached CONTROL stayed unchanged, while B214 response rows changed across all three stages. All requested/policy fields remained unchanged within each GET.",
       "caveat": "The normalized configured comparison excludes capture timestamps/paths and dynamic policy telemetry. The active child's only remaining configured difference was its evaluated V/F curve, which alone triggered active-child attention. This does not qualify an active B214 correlation or establish voltage units or cause.",
-      "raw_response_note": "Twenty-one paired raw records satisfied DWORD = 6250 \u00d7 adjacent byte; no units, rail association, or cause were inferred. Baseline and restored raw responses differed.",
+      "raw_response_note": "Twenty-one paired raw records satisfied DWORD = 6250 × adjacent byte; no units, rail association, or cause were inferred. Baseline and restored raw responses differed.",
       "restoration": "The full original normalized configuration matched after restoration, excluding capture timestamps/paths and dynamic policy telemetry. The parent journal records state restored with the active-child comparison error retained; the process returned exit 1."
     },
     "typed_status_bridge": "The established0x465F9BCF rail-status wrapper uses B201/B202 or B209/B210. A conditional B202/B214 same-owner/base/backing-entry path is now traced, but their mapped ranges and record correspondence remain unbound. The typed rail-status voltage units cannot be transferred to B214 records."
@@ -523,6 +523,29 @@
       "experiments\\registry-overrides\\voltage-modern-evidence-audit-20261029\\findings.json": "ad804d88ac9d8a8ac02f38cddc14704c71ea9369bee875a88f2d90fe035c5826",
       "experiments\\registry-overrides\\voltage-vcrit-consumers-20261029\\findings.json": "2285a8798b9d7b423777f62bf8776db64e409363f6c206d708a3522faa91f2cb",
       "experiments\\registry-overrides\\voltage-offset-root-20261029\\root-anchor-reproduction-final.json": "49166675aaf115b5cf0794662577b96064eff67f54cffeb8824717f431207b79"
+    }
+  },
+  "ClockManager_key200_dispatch_20261029": {
+    "scope": "Conditional static path in the independently hashed installed driver; root reproduced 12 bounded disassembly windows and the dispatch table exactly. No runtime class/invocation/retention observation.",
+    "dispatch": [
+      "1217A0..B2 calls 122310 with class BCADD3 and destination GPU+23B8",
+      "122310 constructs selected instance via 112400 and retrieves class through 112680",
+      "1224F2..501 calls 112350 with instance and class descriptor EE8210; null result fails",
+      "122533..543 loads table from the cast result R14, sets RDX=R14 and RCX=GPU, loads table+30 and invokes through guard thunk",
+      "ClockManager constructor 17D5352..53B3 installs table F27828 at root+8; table points at descriptor EE8210 and table+30 is 6A7380",
+      "6A7380 subtracts 8 from RDX then jumps A7C640, which retains root through A7E940, A8AD50 and 6132D0; 613369 inserts key200 at root+4B0"
+    ],
+    "thunk_correction": "6A7384 is the jump inside the thunk beginning6A7380; the preceding sub RDX,8 adjusts the constructed interface to its allocation root.",
+    "allocation": "At 0x613357..0x613369, registration uses key 0x200 on adjusted receiver+0x4B0. Helper 0x7D0D40 separately allocates a 0x18-byte node and 0x2A708-byte buffer. Lookup 0x7D0EE0 returns the data pointer at node+8. Dispatcher 0x61D9C0 supplies data+0x880+i*0x53D0 for i=0..7; eight records end at 0x2A700 inside the 0x2A708-byte allocation.",
+    "conclusion": "Successful constructed-instance/cast/dispatch binds registration and lookup to the same ClockManager root. Numeric field-offset coincidence does not make the separately allocated destination PERF+588 or establish a voltage request route.",
+    "remaining": "Actual PERF post-group callback, modern record producer/consumer and runtime endpoint, units/rail association, F219 effects and consumed arbitrary offset replay remain unresolved.",
+    "private_evidence_sha256": {
+      "experiments/registry-overrides/voltage-offset-key200-owner-20261029/findings.json": "37b6f93f5a24615883a2642ef62de81d96d79c0bd644f2e46783a2b1d0c73a1c",
+      "experiments/registry-overrides/voltage-offset-key200-owner-20261029/dispatch-binding.json": "3bd508e1fe9178f2b1ffdf6a14df106989dc43cd45213108f44325d66427803e",
+      "experiments/registry-overrides/voltage-offset-key200-owner-20261029/engine-dispatch/findings.json": "1b4c50c2ac97abb61c1f649d28bb1d1b35132da62f9d977f7f9676498120035f",
+      "experiments/registry-overrides/voltage-offset-key200-owner-20261029/engine-dispatch/trace.py": "2be661e12b6d95d6dca3242feaa091e1da7146feb390a22b690aa337d07440eb",
+      "experiments/registry-overrides/voltage-offset-key200-owner-20261029/engine-dispatch/root-review/reproduce.py": "935fad12a61c2dcd74ce7e61ead9c354137638180e7d40746e8e32e13e5036c6",
+      "experiments/registry-overrides/voltage-offset-key200-owner-20261029/engine-dispatch/root-review/byte-audit.json": "ac45937ba3d7034ddffad487294d6becd567a0521bdbb647501ab97f38fe5a8f"
     }
   }
 }
