@@ -1,0 +1,135 @@
+{
+  "schema": 1,
+  "date": "2026-10-29",
+  "scope": "Offline PMU/statistics provenance plus two paired public architecture GETs; no new activity/residency control or statistic read is qualified",
+  "binary_identity": {
+    "driver_sha256": "3f8d33495cabeb2fa11ebdcf0b12705e9ccfb4e53005324bcd86e9dea8ba2ab4",
+    "GetArchInfo_actual_module_sha256": "46586752524af6075736eb655bb3a1da4030dfa42e6b6872afab400d50f249e7",
+    "gsp_sha256": "6c4de07caa7f494a44419f3cad67bfda95de4304f057985da03cd7756a1c533d",
+    "ucodes_sha256": "0622d13a9f18d7d1d6c232736a06239ef367474ee447bbf29758fb8091c36df4",
+    "role": "Identifies these traces only; never a product compatibility allowlist"
+  },
+  "candidate_statistics": {
+    "command": "0x2080A801",
+    "attributes": [
+      "0x26",
+      "0x28"
+    ],
+    "host_scalar_offsets": [
+      "0x28",
+      "0x2C"
+    ],
+    "host_width": "DWORD result and 32-bit host-carry addition; firmware counter width/units remain unproved",
+    "address_provenance": "771E00 builds a controller-specific request prefix00 06 13, length0x28, feature DWORD at+0x20 and controller at+0x24. On successful 376D60 return, reply DWORD+0x10 becomes controller S+0x74. Existing scalar/64-byte reads consume that base plus their offset.",
+    "separate_refresh": "772220 uses prefix00 03 05, length0x54 and returned64-byte block. The receiver and copy/latch/reset semantics remain unproved; it was not invoked."
+  },
+  "freshness_audit": {
+    "cache": "76F1D0 ignores772220status and marks the per-query cache flag valid. The helper can fail without copying data, or returnzero on an early skip without copying.",
+    "direct_read": "The scalar callback logs a failed30C7E0 firmware-memory read without updating its EDI status accumulator; the caller can mark the row valid.",
+    "zero_qualification": "A zero-initialized result can retain zero only when later host carry is absent or zero; otherwise that carry can produce a valid-looking nonzero result. Neither case independently proves freshness.",
+    "scope": "Pinned static control flow only; no induced firmware failure or current failing sample is claimed"
+  },
+  "public_architecture_observation": {
+    "slot": "0000:01:00.0",
+    "API": "NVIDIA NvAPI_GPU_GetArchInfo V2",
+    "samples": [
+      {
+        "sample": 0,
+        "requested_version": 2,
+        "status": 0,
+        "raw_hex": "10000200b001000003000000a1000000",
+        "returned_version": 131088,
+        "architecture": 432,
+        "implementation": 3,
+        "revision": 161
+      },
+      {
+        "sample": 1,
+        "requested_version": 2,
+        "status": 0,
+        "raw_hex": "10000200b001000003000000a1000000",
+        "returned_version": 131088,
+        "architecture": 432,
+        "implementation": 3,
+        "revision": 161
+      }
+    ],
+    "paired_identity_stable": true,
+    "actual_implementation_module_bound": true,
+    "SDK": "https://github.com/NVIDIA/nvapi/blob/main/nvapi.h"
+  },
+  "normal_construction_projection": {
+    "Pmu_base_class_id": "0xF3D722",
+    "OBJGPU_class_id": "0x7EF3CB",
+    "shared_source": "The matched normal initialization shares chip DWORD X between constructor tuple((X>>24)&0x3F,(X>>20)&0xF) and public fields((X>>20)&0x3F0,(X>>20)&0xF). RM20801701 returns those GPU fields; public07000001 escape copies them.",
+    "observed_pair": "0x1B0/3",
+    "projected_tuple": "0x1B/3",
+    "projected_HAL_word": "0x42",
+    "table_callback_rva": "0x680CC0",
+    "table_rva": "0xF1BFB0",
+    "Pmu_record_rva": "0xF1C410",
+    "projected_descriptor_rva": "0xF33840",
+    "profile_selector": "On this projection, RmPmuUcodeProfile zero or lookup failure uses the table descriptor, and successful4/5 explicitly selects the same descriptor. Other successful values error. This is not a recommendation to change the key.",
+    "rewrites": "The two traced V2 compatibility rewrites output170/0 or190/2 and cannot manufacture the observed1B0/3 pair.",
+    "conditions": [
+      "Normal matched construction/initialization path; alternate zero-producing initialization paths are distinct",
+      "Public API can use a per-handle cache",
+      "Descriptor numbers are RVAs in this image, not portable class IDs",
+      "No live HAL word, current class, retained endpoint pointer or firmware receiver was directly observed"
+    ],
+    "significance": "Narrows the host construction path shared with earlier B202/B214 voltage investigation. It does not prove voltage replay, a receiving processor, counter units or runtime endpoint retention."
+  },
+  "firmware_metadata": {
+    "header": "NVUCODES v1",
+    "entries": 1223,
+    "descriptor_bytes": 24,
+    "nonempty": 864,
+    "empty": 359,
+    "fingerprint": "0x1d258e32fe003951",
+    "bounds_nonoverlap_verified": true,
+    "source_mismatch": "Cached official generated index has different fingerprint/order and maxindex237; its labels cannot be assigned to installed bundle indices by ordinal.",
+    "bounded_GSP_check": "Five four-entry size/stride windows tested. Candidate counts0/0/0/10/0; all ten size-only candidates fail flags/relative-offset checks and do not map into the inspected ELF loads/sections. No matching table was established; relocated/transformed/runtime tables remain possible.",
+    "meaning": "Container geometry only; no PMU payload/producer was identified or extracted",
+    "GSP_window_start_indices": [
+      4,
+      475,
+      500,
+      801,
+      1102
+    ]
+  },
+  "verification": {
+    "root": "Verified pinned binary hashes, seven setup-reply instruction anchors, six Pmu table records, constructor/public-field and carry instruction fragments, module provenance, and reproduced descriptor/GSP metadata reports",
+    "Luna": "Independently reproduced host status/validity gaps and confirmed current product requests only configured-state attributes39h/36h",
+    "Terra": "Bounded transport, constructor/table/selector, public-getter bridge and firmware metadata tracing"
+  },
+  "current_product": "Configured LPWR support/masks remain separate from activity/residency; no telemetry surface, PMU profile control, command sweep or compatibility gate was added.",
+  "operations": {
+    "public_architecture_samples": 2,
+    "candidate_statistics_requests": 0,
+    "firmware_RPC_probes": 0,
+    "registry_writes": 0,
+    "GPU_restarts": 0,
+    "Windows_reboot": false,
+    "workload_started": false,
+    "physical_measurement": false,
+    "release_changes": false
+  },
+  "primary_source": {
+    "repository": "https://github.com/NVIDIA/open-gpu-kernel-modules",
+    "commit": "ca2d03e6fafd4d4b56b383497d931c25b283bfcf",
+    "paths": [
+      "src/nvidia/generated/g_gpu_nvoc.h",
+      "src/nvidia/generated/g_eng_desc_nvoc.h",
+      "src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080mc.h",
+      "src/nvidia/src/kernel/core/bin_data_pvt.h",
+      "src/nvidia/src/kernel/core/bin_data.c"
+    ]
+  },
+  "still_required": [
+    "Identify receiving handler for the setup/refresh prefixes and actual statistics writer",
+    "Establish units, update/reset/wrap/epoch and coherent-sample semantics from matching producer/schema",
+    "Find a read path that propagates failures or provides independent freshness",
+    "Resolve typed modern voltage request replay separately; this constructor projection alone does not implement it"
+  ]
+}

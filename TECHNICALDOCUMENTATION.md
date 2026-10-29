@@ -2373,8 +2373,11 @@ an established sampling-registration protocol. A failed firmware-memory read
 at76FD2A is logged without propagating failure to the row-valid result; the
 refresh hook also ignores its helper's status. Outer RM success and a stable
 valid row cannot distinguish a fresh zero from an internal read failure.
+Zero retention requires the later host-carry contribution to be absent or
+zero; a nonzero carry can instead leave a valid-looking accumulated value.
 Producer units, reset epoch and reliable freshness remain unresolved. These
 limitations do not apply to the separately traced39h/36h configuration paths.
+[Updated PMU provenance and remaining boundaries](experiments/lpwr-telemetry-provenance-20261029.json).
 
 `voltage_bios_runtime.py` adds independent effective-policy contracts for
 constant VMIN equations. It binds each BIOS rail to the existing singleton-mask
@@ -3754,3 +3757,44 @@ source that goes with a given build.
 "Druta" and "Thermetery" are trademarks of Thermetery Technology Co Limited.
 The GPL grants no rights in them: you may redistribute and fork the code, but
 not use these names to brand a derivative.
+
+## PMU statistics provenance (2026-10-29)
+
+The pinned host trace now identifies the statistics address handoff. A
+controller-specific request with prefix bytes `00 06 13` returns a DWORD at
+reply +0x10, stored at controller S+0x74. The existing scalar/64-byte readers
+consume that address. The separate refresh request uses prefix `00 03 05`.
+Neither receiver's producer, units, reset/latch behavior or freshness contract
+has been established, and neither request was invoked in this follow-up.
+
+The factory's requested base is NVIDIA's Pmu class ID F3D722. Its table
+selection is now bound to the same constructed OBJGPU root as +0xF00 and
++0x2480. A paired public GetArchInfo capture returned 1B0/3/A1 twice, from the
+hash-matched installed implementation. On the traced normal shared-source
+initialization, public architecture equals constructor architecture shifted
+left four bits and implementation is unchanged. The two traced compatibility
+rewrites cannot produce this observed pair.
+
+That normal construction projects tuple1B/3 to HAL42, callback680CC0 and
+Pmu descriptor RVA F33840. Accepted profile zero/lookup-failure fallback and
+RmPmuUcodeProfile4/5 overrides converge on that descriptor for this projection.
+These numbers identify this binary's static paths, not compatibility gates.
+The public getter can use a cache; no live HAL word, class or retained endpoint
+pointer was read. This narrows the earlier B202/B214 investigation but does not
+establish firmware receiver behavior or implement arbitrary voltage replay.
+
+The installed NVUCODES v1 bundle has 1,223 descriptors, 864 nonempty and 359
+empty. Bounds/nonoverlap and the metadata layout were independently reproduced.
+Its fingerprint/order differs from the cached public generated index, so that
+index's names cannot be imported by ordinal. Five bounded metadata comparisons
+did not establish a matching GSP table; relocated or transformed tables remain
+possible. No PMU payload or statistics writer has been identified.
+
+Root reproduced pinned instruction anchors, table records, metadata and module
+provenance; Luna independently audited the status/validity gaps. The research
+probe added only two existing public architecture GETs, with identity reads;
+routine package validation uses the existing configured-state GETs.
+No candidate statistics request, registry mutation, GPU restart or workload
+was performed. Current diagnostics remain configured support/masks, and the
+telemetry producer, units, epoch/reset/wrap and independent freshness remain
+pending. [Source identities, evidence and limits](experiments/lpwr-telemetry-provenance-20261029.json).
