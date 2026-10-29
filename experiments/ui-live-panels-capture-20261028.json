@@ -614,7 +614,70 @@
       "original_registry_and_configuration_restored": true
     },
     "packaged": {
-      "state": "pending qualification"
+      "state": "complete",
+      "runtime_code_commit": "5711ade2d84be22c950481a950fbbe372b2b9c96",
+      "captures": [
+        {
+          "phase": "initial",
+          "stage": "before",
+          "width": 1528,
+          "height": 1261,
+          "sha256": "031ebadc90f57935499240dc54a41707082ac5066d5f3c9e6a9def6619f4ad4b",
+          "ui": {
+            "checkbox": false,
+            "status": "Read 340 fields from <selected adapter>.",
+            "preview": "Values staged in this window. Preview changes before applying."
+          }
+        },
+        {
+          "phase": "initial",
+          "stage": "preview",
+          "width": 1528,
+          "height": 1261,
+          "sha256": "05d498b3dad97e1fce7f1efd3a7d9d7ccf906692db5e42c3b5e2302ef7a9dd51",
+          "ui": {
+            "checkbox": true,
+            "status": "Preview ready. Registry settings have not changed.",
+            "preview": "Expose all-P-state overclocking editability: disabled -> enabled\nGPU restart required. Undo saved before applying.\nReceipt: <private local receipt>"
+          }
+        },
+        {
+          "phase": "applying",
+          "stage": "active",
+          "width": 1528,
+          "height": 1261,
+          "sha256": "c43952657ff4978cb9ba381477eafd9a566ae62f0396e290638f87030f7be483",
+          "ui": {
+            "checkbox": true,
+            "status": "Read 340 fields from <selected adapter>. Last transaction: active.",
+            "preview": "Values staged in this window. Preview changes before applying."
+          }
+        },
+        {
+          "phase": "restoring",
+          "stage": "restored",
+          "width": 1528,
+          "height": 1261,
+          "sha256": "031ebadc90f57935499240dc54a41707082ac5066d5f3c9e6a9def6619f4ad4b",
+          "ui": {
+            "checkbox": false,
+            "status": "Read 340 fields from <selected adapter>.",
+            "preview": "Values staged in this window. Preview changes before applying."
+          }
+        }
+      ],
+      "independent_checks": {
+        "complete_independent_original_configuration": true,
+        "receipt_restored": true,
+        "same_target": true,
+        "only_selected_change": true,
+        "before_active_restored_enabled": true,
+        "both_helper_results_verified": true,
+        "full_pstate_contracts_verified": true
+      },
+      "helper_results_verified": 2,
+      "GPU_only_restarts": 2,
+      "original_registry_and_configuration_restored": true
     },
     "preview_preflight": {
       "real_panel_prepare": true,
@@ -636,9 +699,13 @@
       "F219_SET": false
     },
     "remaining": [
-      "Packaged qualification for this trial.",
       "Broader fields/adapters, post-restart failure/recovery states and physical input.",
       "Other PR39 research and control qualifications remain open."
+    ],
+    "source_packaged_normalized_widget_metadata_equal": true,
+    "manual_inspection": [
+      "Source before/preview/active/restored",
+      "Packaged preview/active/restored"
     ]
   }
 }

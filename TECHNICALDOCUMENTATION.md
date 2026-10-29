@@ -3143,10 +3143,16 @@ and Undo callbacks and existing receipt/helper path; there is no alternate
 registry mutator. Before, preview, active and restored frames are captured while
 a durable trial record and each helper's recovery result carry state across
 fresh-process continuations. The command rejects `--startup-profile`,
-`--ui-capture` and `--ui-capture-live-vmin`. One source run verified the selected
-Boolean transition and restoration of the full normalized configuration.
-Packaged qualification remains pending, as do checks on other adapters,
-physical mouse/keyboard input and broader failure/recovery cases.
+`--ui-capture` and `--ui-capture-live-vmin`. Source and packaged runs on the
+captured RTX 5080/621.01 each produced four valid 1528×1261 frames and completed
+false→true→false through two helper-driven GPU restart/relaunch cycles. The
+checkbox and normalized preview/status metadata agreed across the builds.
+Independent exact P-state contracts, restored receipt, original registry,
+BIOS and complete configured peer state passed. A separate real Preview with
+the launcher deliberately blocked preserved the full independent baseline.
+The complete suite passed 6,517 tests; 187 focused UI/registry cases include
+mocked continuation and failure reporting. Other adapters, physical input,
+broader fields and post-restart failure/recovery cases remain unqualified.
 
 ## Source for a binary release
 
