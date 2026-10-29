@@ -1250,3 +1250,38 @@ def test_last_type4_role_preview_only_claims_all_unavailable_when_every_query_is
     unavailable_notice = "All support queries for this auxiliary group become unavailable"
     assert (unavailable_notice in text) is all_type4_unavailable
     assert "Undo verifies the original configuration" in text
+
+
+def _rendered_texts(parent):
+    values = []
+    if dpg.get_item_type(parent).endswith("mvAppItemType::mvText"):
+        values.append(dpg.get_value(parent))
+    for children in dpg.get_item_children(parent).values():
+        for child in children:
+            values.extend(_rendered_texts(child))
+    return values
+
+
+@pytest.mark.parametrize(("current", "expected"), [(False, "False"), (True, "True"), (None, "unavailable")])
+def test_read_only_boolean_fields_render_boolean_state(harness, current, expected):
+    h = harness
+    field = bios_field("lpwr.gr_pg.0.enabled", label="GR power gate", group="Boolean rendering",
+                       units="bool", current=current, mask=1, capability="read-only")
+    h.mocks.inspect.return_value = {"sha256": "fake-digest", "fields": [field], "diagnostics": []}
+    h.panel.refresh()
+    texts = _rendered_texts("reg_fields")
+    assert expected in texts
+    if current is False:
+        assert "0.0" not in texts
+
+
+def test_read_only_numeric_fields_keep_display_units(harness):
+    h = harness
+    field = bios_field("power.4.maximum", label="Board maximum", group="Numeric rendering",
+                       units="mW", current=325000, capability="read-only")
+    h.mocks.inspect.return_value = {"sha256": "fake-digest", "fields": [field], "diagnostics": []}
+    h.panel.refresh()
+    texts = _rendered_texts("reg_fields")
+    assert "325.0" in texts
+    assert "Board maximum (W)" in texts
+    assert "325000.0" not in texts

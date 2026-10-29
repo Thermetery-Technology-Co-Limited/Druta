@@ -1202,9 +1202,9 @@ class RegistryPanel:
             elif field["key"].startswith("lpwr.gr_pg."):
                 field["detail"] = (
                     "Disable a captured enabled GR power-gating entry in a separate transaction. "
-                    "Apply and Restore verify configured P-state eligibility and preserve the other low-power controllers. "
+                    "Apply and Restore verify configured P-state eligibility and the predicted low-power controller changes. "
                     "A qualified removal of the last shared auxiliary contributor also verifies its available readbacks. "
-                    "Removing the last enabled entry or other shared contributors needs further validation. "
+                    "Preview admits understood dependency transitions and verifies the predicted related readbacks. "
                     "Physical residency and power savings are unmeasured."
                 )
             groups[field["group"]].append(field)
@@ -1258,7 +1258,8 @@ class RegistryPanel:
                                 )
                             else:
                                 dpg.add_text(
-                                    "unavailable" if field["current"] is None else str(field["current"] / factor)
+                                    "unavailable" if field["current"] is None else
+                                    str(bool(field["current"])) if unit == "bool" else str(field["current"] / factor)
                                 )
                             dpg.add_text(f"{field['label']} ({unit})")
                         if writable:
