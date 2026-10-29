@@ -14225,7 +14225,8 @@ deliberately does not put behind a button."""
                         if trial_dir:
                             capture = RegistryUiTrial(dpg, self, trial_dir,
                                                       resume=getattr(self, "_ui_pstates_trial_resume", False),
-                                                      kind=getattr(self, "_ui_registry_trial_kind", "pstates"))
+                                                      kind=getattr(self, "_ui_registry_trial_kind", "pstates"),
+                                                      family=getattr(self, "_ui_lpwr_family", None))
                         else:
                             capture_type = LiveVminCapture if getattr(self, "_ui_capture_live_vmin", False) else UiCapture
                             capture = capture_type(dpg, self, self._ui_capture_dir)
@@ -14317,6 +14318,7 @@ def main(argv=None):
     ui_pstates_trial_dir = None
     ui_pstates_trial_resume = False
     ui_registry_trial_kind = "pstates"
+    ui_lpwr_family = None
     while argv:
         a = argv.pop(0)
         if a in ("--version", "-V"):
@@ -14340,6 +14342,16 @@ def main(argv=None):
                 return 2
             ui_capture_dir = os.path.abspath(argv.pop(0))
             ui_capture_live_vmin = a == "--ui-capture-live-vmin"
+        elif a == "--ui-capture-lpwr-trial":
+            if len(argv) < 2 or ui_pstates_trial_dir is not None:
+                _tell(a + " needs a family and new directory")
+                return 2
+            ui_lpwr_family = argv.pop(0)
+            if ui_lpwr_family not in ("gr_pg", "ms", "nvdec", "nvenc", "ofa", "nvjpg"):
+                _tell("Unknown LPWR trial family")
+                return 2
+            ui_pstates_trial_dir = os.path.abspath(argv.pop(0))
+            ui_registry_trial_kind = "lpwr"
         elif a in ("--ui-capture-pstates-trial", "--ui-capture-power-trial", "--ui-pstates-trial-resume"):
             if not argv or ui_pstates_trial_dir is not None:
                 _tell(a + " needs one directory")
@@ -14369,7 +14381,8 @@ def main(argv=None):
                   "  --ui-capture NEW_DIRECTORY  capture a display-only developer walkthrough\n"
                   "  --ui-capture-live-vmin NEW_DIRECTORY  apply +5 mV to rail 0 VMIN, capture, then restore\n"
                   "  --ui-capture-pstates-trial NEW_DIRECTORY  preview, apply and restore the P-state gate\n"
-                  "  --ui-capture-power-trial NEW_DIRECTORY  preview, apply and restore a +5 W board maximum\n\n"
+                  "  --ui-capture-power-trial NEW_DIRECTORY  preview, apply and restore a +5 W board maximum\n"
+                  "  --ui-capture-lpwr-trial FAMILY NEW_DIRECTORY  preview, apply and restore LPWR row 0\n\n"
                   "With no --gpu, Druta opens on the lowest PCI slot.\n"
                   "Device > Card switches cards in a running window.")
             return 0
@@ -14419,6 +14432,7 @@ def main(argv=None):
             app._ui_pstates_trial_dir = ui_pstates_trial_dir
             app._ui_pstates_trial_resume = ui_pstates_trial_resume
             app._ui_registry_trial_kind = ui_registry_trial_kind
+            app._ui_lpwr_family = ui_lpwr_family
         if recovery_path:
             try:
                 app._recovery_result = devicerecovery.read_result(recovery_path, app.gpu.slot())

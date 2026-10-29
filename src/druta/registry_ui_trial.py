@@ -7,17 +7,29 @@ import struct
 from dataclasses import asdict
 from pathlib import Path
 
-from . import all_pstates_registry, client_power_runtime, power_runtime, startup, vbios_fields
+from . import (
+    all_pstates_registry,
+    client_power_runtime,
+    grpg_runtime,
+    media_lpwr_runtime,
+    ms_runtime,
+    nvdec_runtime,
+    power_runtime,
+    startup,
+    vbios_fields,
+)
 from . import registry_overrides as overrides
 from .ui_capture import UiCapture
 
 KEY = "pstates.all_editable"
 FIELD = "pstate." + KEY
 TAG = "reg_field_" + FIELD
+LPWR_MODULES = {"gr_pg": grpg_runtime, "ms": ms_runtime, "nvdec": nvdec_runtime,
+                "nvenc": media_lpwr_runtime, "ofa": media_lpwr_runtime, "nvjpg": media_lpwr_runtime}
 
 
 class RegistryUiTrial(UiCapture):
-    def __init__(self, dpg, app, directory, *, resume=False, kind="pstates"):
+    def __init__(self, dpg, app, directory, *, resume=False, kind="pstates", family=None):
         self.root = Path(directory)
         self.resume = resume
         self.power_scroll_pending = 0
@@ -27,12 +39,14 @@ class RegistryUiTrial(UiCapture):
                 raise RuntimeError("Registry UI trial has no resumable phase")
         else:
             self.root.mkdir(exist_ok=False)
-            if kind not in ("pstates", "power"):
+            if kind not in ("pstates", "power", "lpwr") or (kind == "lpwr" and family not in LPWR_MODULES):
                 raise RuntimeError("Unknown registry UI trial")
             self.trial = {"schema": 1, "kind": kind, "phase": "starting", "error": None, "receipt": None}
+            if kind == "lpwr":
+                self.trial["family"] = family
             self._save_trial()
         self.kind = self.trial.get("kind", "pstates")
-        if self.kind not in ("pstates", "power"):
+        if self.kind not in ("pstates", "power", "lpwr") or (self.kind == "lpwr" and self.trial.get("family") not in LPWR_MODULES):
             raise RuntimeError("Unknown saved registry UI trial")
         phase = self.trial["phase"]
         super().__init__(dpg, app, self.root / ("initial" if not resume else phase))
@@ -60,6 +74,8 @@ class RegistryUiTrial(UiCapture):
             raise RuntimeError("Trial adapter or receipt target changed")
         if self.kind == "power":
             return self._verify_power(receipt, target, phase)
+        if self.kind == "lpwr":
+            return self._verify_lpwr(receipt, target, phase)
         expected = {KEY: self.trial["wanted"]}
         if (receipt.get("pstate_changes") != expected or any(receipt.get(k) for k in
                 ("changes", "named_changes", "flag_changes", "clock_vf_changes", "startup_changes"))):
@@ -85,6 +101,69 @@ class RegistryUiTrial(UiCapture):
         all_pstates_registry.verify(observation, contract, restore=phase != "active")
         startup.atomic_json(self.root / ("pstates-" + ("before" if phase == "prepared" else phase) + ".json"),
                             observation)
+        return receipt
+
+    def _lpwr_module(self):
+        return LPWR_MODULES[self.trial["family"]]
+
+    def _lpwr_scoped_read(self, saved):
+        if self.trial["family"] != "gr_pg":
+            return self._lpwr_module().read(self.app.gpu)
+        schema = saved["schema"]
+        kwargs = ({"main": True} if schema in (5, 6, 7, 8, 9) else
+                  {"auxiliary": True, "bit1": True} if schema == 4 else
+                  {"bit1": True} if schema == 3 else {"auxiliary": True} if schema == 2 else {})
+        return grpg_runtime.read(self.app.gpu, **kwargs)
+
+    def _verify_lpwr(self, receipt, target, phase):
+        field = self.trial["field"]
+        if receipt.get("changes") != {field: False} or any(receipt.get(k) for k in
+                ("named_changes", "flag_changes", "pstate_changes", "clock_vf_changes", "startup_changes")):
+            raise RuntimeError("Trial receipt must contain only the selected LPWR row")
+        family = self.trial["family"]
+        name = "grpg" if family == "gr_pg" else family if family in ("ms", "nvdec") else "media"
+        validator = getattr(overrides, "_validate_" + name + "_receipt")
+        saved = validator(receipt, target, restore=phase == "restored")
+        if not saved:
+            raise RuntimeError("LPWR trial receipt has no runtime contract")
+        expected_contract = self.trial["contract"]
+        if (set(saved) != set(expected_contract) or any(
+                not overrides.registry_flags._same_state(saved[k], expected_contract[k])
+                for k in saved if k != "before")
+                or not overrides.registry_flags._same_state(saved["before"]["identity"], expected_contract["before"]["identity"])):
+            raise RuntimeError("LPWR receipt differs from the captured contract")
+        if (receipt.get("plan") != self.trial["plan"] or receipt.get("before") != self.trial["registry_before"]
+                or receipt.get("after") != self.trial["registry_after"]):
+            raise RuntimeError("LPWR receipt differs from the selected BIOS plan")
+        expected_state = {"prepared": "prepared", "active": "active", "restored": "restored"}[phase]
+        if receipt.get("state") != expected_state:
+            raise RuntimeError("LPWR trial receipt state differs")
+        registry = overrides.WindowsRegistry(target).snapshot()
+        if registry != receipt["after" if phase == "active" else "before"]:
+            raise RuntimeError("LPWR registry readback differs")
+        image = overrides.read_vbios(self.app.gpu)
+        digest = hashlib.sha256(image).hexdigest()
+        expected_digest = self.trial["plan"]["expected_sha256" if phase == "active" else "baseline_sha256"]
+        if digest != expected_digest or receipt["before_image_sha256"] != self.trial["plan"]["baseline_sha256"]:
+            raise RuntimeError("LPWR image readback differs")
+        observation, error = self._lpwr_scoped_read(saved)
+        if error or observation is None:
+            raise RuntimeError("LPWR scoped readback failed: " + str(error))
+        self._lpwr_module().verify(observation, saved, restore=phase != "active")
+        if phase == "prepared":
+            self._lpwr_module().verify(observation, expected_contract, restore=True)
+        full, error = grpg_runtime.read(self.app.gpu, main=True)
+        if error or full is None:
+            raise RuntimeError("LPWR complete readback failed: " + str(error))
+        client = client_power_runtime.ClientPowerController(self.app.gpu).read()
+        state = client_power_runtime._state(client)
+        if not overrides.registry_flags._same_state(state, self.trial["client_state"]):
+            raise RuntimeError("Client power requests changed during LPWR trial")
+        if not overrides.registry_flags._same_state(full["identity"], expected_contract["before"]["identity"]):
+            raise RuntimeError("LPWR complete readback target changed")
+        startup.atomic_json(self.root / ("lpwr-" + ("before" if phase == "prepared" else phase) + ".json"),
+                            {"observation": full, "client": client, "client_state": state,
+                             "image_sha256": digest, "image_hex": image.hex()})
         return receipt
 
     def _verify_power(self, receipt, target, phase):
@@ -166,6 +245,53 @@ class RegistryUiTrial(UiCapture):
         self.live_scroll = "registry_header"
         if name == "before":
             self.panel.refresh()
+            if self.kind == "lpwr":
+                family = self.trial["family"]
+                self.field = f"lpwr.{family}.0.enabled"
+                self.tag = "reg_field_" + self.field
+                field = self.panel.fields.get(self.field, {})
+                expected_mask = 2 if family == "nvjpg" else 1
+                if (self.panel.active is not None or field.get("capability") != "editable"
+                        or field.get("current") is not True or field.get("mask") != expected_mask
+                        or self.field not in self.panel.inputs):
+                    raise RuntimeError("LPWR row 0 is not an independently editable enabled field")
+                image = overrides.read_vbios(self.app.gpu)
+                if hashlib.sha256(image).hexdigest() != self.panel.inspection["sha256"]:
+                    raise RuntimeError("LPWR BIOS changed since panel refresh")
+                changes = {self.field: False}
+                plan = vbios_fields.plan(image, changes)
+                patches = plan.get("patches", [])
+                if len(patches) != 1 or patches[0].get("field_keys") != [self.field]:
+                    raise RuntimeError("LPWR plan is not a singleton")
+                old, new = bytes.fromhex(patches[0]["before"]), bytes.fromhex(patches[0]["after"])
+                if (len(old) != len(new) or not old or old[0] ^ new[0] != expected_mask
+                        or old[1:] != new[1:] or image[patches[0]["offset"]:patches[0]["offset"]+len(old)] != old):
+                    raise RuntimeError("LPWR plan changes bytes beyond the selected enable mask")
+                contract = self._lpwr_module().contracts(self.app.gpu, image, changes)
+                if not contract:
+                    raise RuntimeError("LPWR row 0 has no qualified runtime contract")
+                full, error = grpg_runtime.read(self.app.gpu, main=True)
+                if error or full is None:
+                    raise RuntimeError("LPWR complete readback failed: " + str(error))
+                if not overrides.registry_flags._same_state(full["identity"], contract["before"]["identity"]):
+                    raise RuntimeError("LPWR initial readback target changed")
+                client = client_power_runtime.ClientPowerController(self.app.gpu).read()
+                state = client_power_runtime._state(client)
+                target = overrides.bind_target(self.app.gpu)
+                registry_before = overrides.WindowsRegistry(target).snapshot()
+                identity = vbios_fields.inspect(image)["identity"]
+                registry_after = overrides.compose_records(image, plan, registry_before,
+                                                          identity["vbios_version_raw"], identity["oem_revision"])
+                self.trial.update(target=asdict(target), field=self.field, original=True, wanted=False,
+                                  plan=plan, contract=contract, client_state=state,
+                                  registry_before=registry_before, registry_after=registry_after)
+                startup.atomic_json(self.root / "lpwr-initial.json", {"observation": full, "client": client,
+                                    "client_state": state, "image_sha256": plan["baseline_sha256"],
+                                    "image_hex": image.hex()})
+                self.dpg.set_value(self.tag, True)
+                self.trial["phase"] = "before"
+                self._save_trial()
+                return self._frame_details(name)
             if self.kind == "power":
                 controller = client_power_runtime.ClientPowerController(self.app.gpu)
                 metadata = controller.read_metadata()
@@ -270,8 +396,11 @@ class RegistryUiTrial(UiCapture):
             self.tag = "reg_field_" + self.field
             field = self.panel.fields.get(self.field, {})
             expected = self.trial["wanted"] if name == "active" else self.trial["original"]
-            shown = self.dpg.get_value(self.tag)
-            if self.kind == "power":
+            shown = self.dpg.get_value(self.tag) if self.kind != "lpwr" or self.tag in (value[0] for value in self.panel.inputs.values()) else None
+            if self.kind == "lpwr":
+                if field.get("current") is not expected or (shown is not None and shown is not expected):
+                    raise RuntimeError("LPWR field differs from verified readback")
+            elif self.kind == "power":
                 if field.get("current") != expected or shown * self.panel.inputs[self.field][1] != expected:
                     raise RuntimeError("Power input differs from verified readback")
             elif field.get("current") is not expected or shown is not expected:
@@ -296,18 +425,24 @@ class RegistryUiTrial(UiCapture):
     def _frame_details(self, name):
         self.dpg.set_value("ctl_clocks", "Developer registry trial: " + name)
         if name in ("before", "preview", "active", "restored"):
-            parent = self.dpg.get_item_parent(self.tag)
+            anchor = self.tag
+            if self.kind == "lpwr" and self.field not in self.panel.inputs:
+                anchor = next((tag for key, (tag, _) in self.panel.inputs.items()
+                               if key.startswith("lpwr." + self.trial["family"] + ".")), "registry_header")
+            parent = self.dpg.get_item_parent(anchor)
             while parent:
                 if self.dpg.get_item_type(parent).endswith("mvCollapsingHeader"):
                     self.dpg.set_value(parent, True)
                 parent = self.dpg.get_item_parent(parent)
-            self.live_scroll = "reg_preview" if name == "preview" else self.tag
-            if self.kind == "power" and name != "preview":
+            self.live_scroll = "reg_preview" if name == "preview" else anchor
+            if self.kind in ("power", "lpwr") and name != "preview":
                 # Item positions can be relative to nested parents. Wait for a
                 # rendered layout and use screen rectangles for page scrolling.
                 self.live_scroll = None
                 self.power_scroll_pending = 2
-            widget = {"field": self.field, "value": self.dpg.get_value(self.tag),
+                self.scroll_tag = anchor
+            shown = self.panel.fields[self.field]["current"] if self.kind == "lpwr" and self.field not in self.panel.inputs else self.dpg.get_value(self.tag)
+            widget = {"field": self.field, "value": shown,
                       "status": self.dpg.get_value("reg_status"), "preview": self.dpg.get_value("reg_preview")}
             if self.kind == "pstates":
                 widget["checkbox"] = widget["value"]
@@ -321,9 +456,9 @@ class RegistryUiTrial(UiCapture):
             if self.power_scroll_pending:
                 return
             try:
-                item_y = self.dpg.get_item_rect_min(self.tag)[1]
+                item_y = self.dpg.get_item_rect_min(self.scroll_tag)[1]
                 page_y = self.dpg.get_item_pos("page_control")[1]
-                scroll = self.dpg.get_y_scroll("page_control") + item_y - page_y - 80
+                scroll = self.dpg.get_y_scroll("page_control") + item_y - page_y - (240 if self.kind == "lpwr" else 80)
                 self.dpg.set_y_scroll("page_control", max(0, min(scroll, self.dpg.get_y_scroll_max("page_control"))))
                 self.power_scroll_pending = 0
                 # Let the scroll render before requesting the framebuffer.
@@ -335,11 +470,31 @@ class RegistryUiTrial(UiCapture):
         if not self.active and self.trial.get("phase") == "restored" and not self.manifest["errors"]:
             self.trial["phase"] = "attention" if self.trial.get("error") else "complete"
             self._save_trial()
+            self._terminal_snapshot(self.root / "trial-result.json", "restored")
+
+    def _terminal_snapshot(self, path, prior_phase):
+        # This immutable copy lets an external observer wait for publication
+        # without reading the still-live trial or framebuffer manifests.
+        if not path.exists():
+            startup.atomic_json(path, {"schema": 1, "phase": self.trial.get("phase"),
+                                       "phase_at_failure": prior_phase if self.trial.get("phase") == "attention" else None,
+                                       "error": self.trial.get("error"), "receipt": self.trial.get("receipt"),
+                                       "capture_directory": str(self.directory),
+                                       "manifest_state": self.manifest.get("state"),
+                                       "recovery_check_required": bool(self.trial.get("receipt") and
+                                           prior_phase in ("applying", "active", "restoring"))})
 
     def _finish(self, error=None):
         self.app._registry_ui_trial = None
+        prior_phase = self.trial.get("phase")
         if error is not None:
             self.trial["error"] = self.trial.get("error") or str(error)
             self.trial["phase"] = "attention"
             self._save_trial()
         super()._finish(error)
+        if self.manifest["errors"]:
+            if error is None:
+                self.trial["error"] = self.trial.get("error") or self.manifest["errors"][0]
+                self.trial["phase"] = "attention"
+                self._save_trial()
+            self._terminal_snapshot(self.directory / "failed-result.json", prior_phase)

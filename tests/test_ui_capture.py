@@ -533,7 +533,8 @@ def test_trial_changed_target_halts_before_undo(monkeypatch, tmp_path):
     panel.restore.assert_not_called()
 
 
-@pytest.mark.parametrize("other", ["--ui-capture", "--ui-capture-live-vmin", "--startup-profile", "--recovery-result"])
+@pytest.mark.parametrize("other", ["--ui-capture", "--ui-capture-live-vmin", "--ui-capture-lpwr-trial",
+                                    "--startup-profile", "--recovery-result"])
 def test_trial_cli_exclusivity(monkeypatch, tmp_path, other):
     gpu_app = Mock()
     monkeypatch.setattr(druta, "Druta", gpu_app)
@@ -840,6 +841,7 @@ def test_power_trial_rejects_unrelated_receipt_changes(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize("other", ["--ui-capture", "--ui-capture-live-vmin", "--ui-capture-pstates-trial",
+                                    "--ui-capture-lpwr-trial",
                                     "--startup-profile", "--recovery-result"])
 def test_power_trial_cli_exclusivity(monkeypatch, tmp_path, other):
     gpu_app = Mock()
@@ -967,3 +969,317 @@ def test_power_trial_rejects_field_bounds_before_preview(monkeypatch, tmp_path):
     assert not capture.active and capture.trial["phase"] == "attention"
     assert "exceeds" in capture.trial["error"] and not state["registry"]
     panel.apply.assert_not_called()
+
+
+def setup_lpwr_trial(monkeypatch, family="gr_pg"):
+    import hashlib
+    from dataclasses import dataclass
+
+    dpg, application, panel, _ = setup_trial(monkeypatch)
+    dpg.values.update(registry_header=False, reg_preview="", reg_status="")
+    field = f"lpwr.{family}.0.enabled"
+    tag = "reg_field_" + field
+    identity = {"slot": "fake", "instance_id": "id", "driver_key": "key"}
+    @dataclass
+    class Target:
+        slot: str = "fake"
+        instance_id: str = "id"
+        driver_key: str = "key"
+    target = Target()
+    mask = 2 if family == "nvjpg" else 1
+    before_image = bytes((0xFF, 0x22)) + b"baseline"
+    after_image = bytes((0xFF ^ mask, 0x22)) + b"baseline"
+    state = {"enabled": True, "image": before_image, "registry": {}, "receipt": None,
+             "client": {"requested_mw": 360000, "control_hex": "client-control",
+                        "native_control_hex": "native-control"}, "field_present": True,
+             "capability": "editable", "field_mask": mask, "plan_override": None}
+    plan = {"baseline_sha256": hashlib.sha256(before_image).hexdigest(),
+            "expected_sha256": hashlib.sha256(after_image).hexdigest(),
+            "patches": [{"offset": 0, "before": before_image[:2].hex(), "after": after_image[:2].hex(),
+                         "field_keys": [field]}]}
+    expected_contract = {"schema": 8 if family == "gr_pg" else 1, "family": family,
+                         "before": {"identity": identity, "image_sha256": plan["baseline_sha256"]},
+                         "selected": {field: {"before": True, "after": False}}}
+    contract_keys = {
+        "gr_pg": ("grpg_contract_version", "grpg_contracts", "_validate_grpg_receipt"),
+        "ms": ("ms_contract_version", "ms_contracts", "_validate_ms_receipt"),
+        "nvdec": ("nvdec_contract_version", "nvdec_contracts", "_validate_nvdec_receipt"),
+        "nvenc": ("media_contract_version", "media_contracts", "_validate_media_receipt"),
+        "ofa": ("media_contract_version", "media_contracts", "_validate_media_receipt"),
+        "nvjpg": ("media_contract_version", "media_contracts", "_validate_media_receipt"),
+    }
+    version_key, saved_key, validator_name = contract_keys[family]
+    module = trial.LPWR_MODULES[family]
+    calls = {"contracts": [], "reads": [], "verifies": [], "validator": []}
+
+    def refresh():
+        panel.active = state["receipt"] if state["receipt"] and state["receipt"]["state"] == "active" else None
+        panel.inspection = {"sha256": hashlib.sha256(state["image"]).hexdigest()}
+        panel.fields = {}
+        panel.inputs = {}
+        if state["field_present"]:
+            panel.fields[field] = {"capability": state["capability"], "current": state["enabled"],
+                                   "mask": state["field_mask"]}
+            if state["enabled"]:
+                panel.inputs[field] = (tag, 1)
+            else:
+                panel.fields[field]["capability"] = "read-only"
+        peer = f"lpwr.{family}.1.enabled"
+        panel.fields[peer] = {"capability": "editable", "current": True, "mask": mask}
+        panel.inputs[peer] = ("reg_field_" + peer, 1)
+        dpg.set_value("reg_field_" + peer, True)
+        if state["field_present"]:
+            dpg.set_value(tag, state["enabled"])
+        dpg.set_value("reg_status", "read")
+
+    def make_receipt():
+        selected = dpg.get_value(tag)
+        assert selected is False
+        receipt = {"path": "lpwr-receipt", "target": {"slot": target.slot, "instance_id": target.instance_id,
+                    "driver_key": target.driver_key}, "changes": {field: False}, "plan": copy.deepcopy(plan),
+                   "before": {}, "after": {"flag": 1}, "state": "prepared", "verify_bios": True,
+                   "before_image_sha256": plan["baseline_sha256"], "after_image_sha256": plan["expected_sha256"],
+                   version_key: 1, saved_key: copy.deepcopy(expected_contract)}
+        panel.preview = receipt
+        state["receipt"] = receipt
+        dpg.set_value("reg_preview", "LPWR row 0 preview")
+        dpg.set_value("reg_status", "prepared")
+
+    def apply():
+        state["receipt"]["state"] = "active"
+        state["registry"] = {"flag": 1}
+        state["enabled"] = False
+        state["image"] = after_image
+        application._closing = True
+
+    def restore():
+        state["receipt"]["state"] = "restored"
+        state["registry"] = {}
+        state["enabled"] = True
+        state["image"] = before_image
+        application._closing = True
+
+    panel.refresh = refresh
+    panel.prepare = Mock(side_effect=make_receipt)
+    panel.apply = Mock(side_effect=apply)
+    panel.restore = Mock(side_effect=restore)
+    application._registry_panel = panel
+    application._closing = False
+    application.gpu.read_power_policies = Mock(return_value=([], None))
+
+    def bind(_gpu):
+        return target
+
+    monkeypatch.setattr(trial.overrides, "bind_target", bind)
+    monkeypatch.setattr(trial.overrides, "load_receipt", lambda _path: state["receipt"])
+    monkeypatch.setattr(trial.overrides, "WindowsRegistry", lambda _target: SimpleNamespace(
+        snapshot=lambda: copy.deepcopy(state["registry"])))
+    monkeypatch.setattr(trial.overrides, "read_vbios", lambda _gpu: state["image"])
+    monkeypatch.setattr(trial.overrides, "compose_records", lambda *_args: {"flag": 1})
+    monkeypatch.setattr(trial.vbios_fields, "plan", lambda _image, _changes: copy.deepcopy(
+        state["plan_override"] if state["plan_override"] is not None else plan))
+    monkeypatch.setattr(trial.vbios_fields, "inspect", lambda _image: {"identity": {
+        "vbios_version_raw": 1, "oem_revision": 0}})
+    monkeypatch.setattr(trial.grpg_runtime, "read", lambda _gpu, **kwargs: (
+        calls["reads"].append(("gr_pg", kwargs)) or {"identity": identity, "scope": kwargs}, None))
+    if module is not trial.grpg_runtime:
+        monkeypatch.setattr(module, "read", lambda _gpu: (
+            calls["reads"].append((family, {})) or {"identity": identity, "scope": family}, None))
+    monkeypatch.setattr(module, "contracts", lambda _gpu, _image, changes: (
+        calls["contracts"].append(copy.deepcopy(changes)) or copy.deepcopy(expected_contract)))
+    monkeypatch.setattr(module, "verify", lambda observation, saved, restore=False: calls["verifies"].append(
+        (copy.deepcopy(observation), copy.deepcopy(saved), restore)))
+
+    def client_read(_gpu):
+        return {"identity": identity, **copy.deepcopy(state["client"])}
+
+    monkeypatch.setattr(trial.client_power_runtime, "ClientPowerController", lambda _gpu: SimpleNamespace(
+        read=Mock(side_effect=lambda: client_read(application.gpu))))
+    monkeypatch.setattr(trial.client_power_runtime, "_state", lambda value: {
+        key: value[key] for key in ("requested_mw", "control_hex", "native_control_hex")})
+
+    validator_calls = []
+    def validate(receipt, _target, *, restore=False):
+        validator_calls.append((copy.deepcopy(receipt), restore))
+        if receipt.get(version_key) != 1:
+            raise RuntimeError("unrecognized LPWR contract version")
+        return copy.deepcopy(receipt.get(saved_key, {}))
+    monkeypatch.setattr(trial.overrides, validator_name, validate)
+    calls["validator"] = validator_calls
+    refresh()
+    return dpg, application, panel, state, calls, plan, expected_contract
+
+
+@pytest.mark.parametrize("family", ["gr_pg", "ms", "nvdec", "nvenc", "ofa", "nvjpg"])
+def test_lpwr_trial_row0_prepare_apply_resume_restore_for_each_family(monkeypatch, tmp_path, family):
+    dpg, application, panel, state, calls, plan, contract = setup_lpwr_trial(monkeypatch, family)
+    root = tmp_path / family
+    capture = trial.RegistryUiTrial(dpg, application, root, kind="lpwr", family=family)
+    assert capture.trial["kind"] == "lpwr" and capture.trial["family"] == family
+    assert capture.trial["field"] == f"lpwr.{family}.0.enabled"
+    assert calls["contracts"] == [{capture.trial["field"]: False}]
+    assert plan["patches"][0]["field_keys"] == [capture.trial["field"]]
+    run(capture, dpg)
+    assert panel.prepare.call_count == 1 and panel.apply.call_count == 1 and panel.restore.call_count == 0
+    assert capture.trial["phase"] == "applying" and state["registry"] == {"flag": 1}
+    assert contract["family"] == family
+    assert not (root / "trial-result.json").exists()
+    assert (root / "lpwr-initial.json").exists() and (root / "lpwr-before.json").exists()
+    initial = json.loads((root / "lpwr-initial.json").read_text())
+    before = json.loads((root / "lpwr-before.json").read_text())
+    assert set(initial) == {"observation", "client", "client_state", "image_sha256", "image_hex"}
+    assert set(before) == {"observation", "client", "client_state", "image_sha256", "image_hex"}
+    assert initial["client_state"] == before["client_state"]
+    assert initial["image_hex"] == before["image_hex"]
+    assert initial["image_sha256"] == plan["baseline_sha256"]
+    assert initial["observation"]["scope"] == {"main": True}
+    assert before["observation"]["scope"] == {"main": True}
+    assert initial["client_state"]["requested_mw"] == 360000
+
+    application._closing = False
+    application._recovery_result = {"ok": True, "reboot_required": False}
+    resumed = trial.RegistryUiTrial(dpg, application, root, resume=True, family="wrong-on-resume")
+    assert resumed.kind == "lpwr" and resumed.trial["family"] == family
+    run(resumed, dpg)
+    assert resumed.trial["phase"] == "restoring" and panel.restore.call_count == 1
+    assert state["registry"] == {} and state["enabled"] is True
+    assert not (root / "trial-result.json").exists()
+
+    application._closing = False
+    resumed = trial.RegistryUiTrial(dpg, application, root, resume=True)
+    run(resumed, dpg)
+    assert resumed.trial["phase"] == "complete" and state["registry"] == {}
+    assert panel.apply.call_count == panel.restore.call_count == 1
+    assert (root / "lpwr-active.json").exists() and (root / "lpwr-restored.json").exists()
+    assert (root / "initial" / "preview.png").exists()
+    assert (root / "applying" / "active.png").exists()
+    assert (root / "restoring" / "restored.png").exists()
+    result_path = root / "trial-result.json"
+    result_bytes = result_path.read_bytes()
+    result = json.loads(result_bytes)
+    assert result["schema"] == 1 and result["phase"] == "complete"
+    assert result["phase_at_failure"] is None and result["receipt"] == "lpwr-receipt"
+    assert result["manifest_state"] == "complete" and result["recovery_check_required"] is False
+    resumed.trial["error"] = "late mutation must not replace terminal evidence"
+    resumed._terminal_snapshot(result_path, "restored")
+    assert result_path.read_bytes() == result_bytes
+    assert calls["contracts"] == [{capture.trial["field"]: False}]
+    assert any(call[2] is False for call in calls["verifies"])
+    assert any(call[2] is True for call in calls["verifies"])
+    assert calls["validator"] and {restore for _receipt, restore in calls["validator"]} == {False, True}
+
+
+@pytest.mark.parametrize("case", ["missing", "read-only", "wrong-baseline", "wrong-mask", "no-input", "no-plan"])
+def test_lpwr_trial_refuses_nonadmitted_or_nondiscriminating_row0(monkeypatch, tmp_path, case):
+    dpg, application, panel, state, calls, _plan, _contract = setup_lpwr_trial(monkeypatch, "nvjpg")
+    if case == "missing":
+        state["field_present"] = False
+    elif case == "read-only":
+        state["capability"] = "read-only"
+    elif case == "wrong-baseline":
+        state["enabled"] = False
+    elif case == "wrong-mask":
+        state["field_mask"] = 1
+    elif case == "no-input":
+        state["field_present"] = True
+        # The field is observed, but the panel has not admitted it as editable.
+        state["capability"] = "editable"
+        panel.refresh = lambda: (setattr(panel, "fields", {"lpwr.nvjpg.0.enabled": {
+            "capability": "editable", "current": True, "mask": 2}}), setattr(panel, "inputs", {}),
+            setattr(panel, "inspection", {"sha256": __import__("hashlib").sha256(state["image"]).hexdigest()}))
+    elif case == "no-plan":
+        state["plan_override"] = {"baseline_sha256": _plan["baseline_sha256"],
+                                  "expected_sha256": _plan["expected_sha256"], "patches": []}
+    capture = trial.RegistryUiTrial(dpg, application, tmp_path / case, kind="lpwr", family="nvjpg")
+    assert not capture.active and capture.trial["phase"] == "attention"
+    assert capture.trial["error"]
+    panel.prepare.assert_not_called()
+    panel.apply.assert_not_called()
+    assert calls["contracts"] == []
+    assert state["registry"] == {}
+
+
+@pytest.mark.parametrize("family", ["gr_pg", "ms", "nvdec", "nvenc", "ofa", "nvjpg"])
+def test_lpwr_trial_uses_family_mask_and_rejects_non_singleton_plan(monkeypatch, tmp_path, family):
+    dpg, application, panel, state, calls, plan, _contract = setup_lpwr_trial(monkeypatch, family)
+    expected_mask = 2 if family == "nvjpg" else 1
+    assert state["field_mask"] == expected_mask
+    state["plan_override"] = copy.deepcopy(plan)
+    state["plan_override"]["patches"][0]["field_keys"] = [f"lpwr.{family}.1.enabled"]
+    capture = trial.RegistryUiTrial(dpg, application, tmp_path / family, kind="lpwr", family=family)
+    assert not capture.active and capture.trial["phase"] == "attention"
+    assert capture.trial["error"] and calls["contracts"] == []
+    panel.apply.assert_not_called()
+
+
+@pytest.mark.parametrize("mutation", ["target", "schema", "image", "registry", "client-peer"])
+def test_lpwr_trial_preserves_receipt_and_refuses_changed_state_before_undo(monkeypatch, tmp_path, mutation):
+    dpg, application, panel, state, _calls, _plan, _contract = setup_lpwr_trial(monkeypatch, "ms")
+    root = tmp_path / mutation
+    capture = trial.RegistryUiTrial(dpg, application, root, kind="lpwr", family="ms")
+    run(capture, dpg)
+    assert state["registry"] == {"flag": 1}
+    if mutation == "target":
+        state["receipt"]["target"]["slot"] = "other"
+    elif mutation == "schema":
+        state["receipt"]["ms_contract_version"] = 99
+    elif mutation == "image":
+        state["image"] = b"unexpected image"
+    elif mutation == "registry":
+        state["registry"] = {"unexpected": 1}
+    elif mutation == "client-peer":
+        state["client"]["control_hex"] = "changed-peer-control"
+    application._closing = False
+    application._recovery_result = {"ok": True, "reboot_required": False}
+    resumed = trial.RegistryUiTrial(dpg, application, root, resume=True)
+    assert not resumed.active and resumed.trial["phase"] == "attention"
+    assert resumed.trial["receipt"] == "lpwr-receipt"
+    panel.restore.assert_not_called()
+    assert state["registry"] != {}
+
+
+@pytest.mark.parametrize("other", ["--ui-capture", "--ui-capture-live-vmin", "--ui-capture-pstates-trial",
+                                    "--ui-capture-power-trial", "--startup-profile", "--recovery-result"])
+def test_lpwr_trial_cli_rejects_other_capture_and_startup_modes(monkeypatch, tmp_path, other):
+    gpu_app = Mock()
+    monkeypatch.setattr(druta, "Druta", gpu_app)
+    monkeypatch.setattr(druta, "_tell", Mock())
+    args = ["--ui-capture-lpwr-trial", "gr_pg", str(tmp_path / "trial"), other]
+    if other != "--startup-profile":
+        args.append(str(tmp_path / "other"))
+    assert druta.main(args) == 2
+    gpu_app.assert_not_called()
+
+
+def test_lpwr_trial_cli_refuses_unknown_family_before_app_creation(monkeypatch, tmp_path):
+    gpu_app = Mock()
+    tell = Mock()
+    monkeypatch.setattr(druta, "Druta", gpu_app)
+    monkeypatch.setattr(druta, "_tell", tell)
+    assert druta.main(["--ui-capture-lpwr-trial", "unknown", str(tmp_path / "trial")]) == 2
+    gpu_app.assert_not_called()
+    assert "Unknown LPWR trial family" in tell.call_args.args[0]
+
+
+def test_lpwr_trial_failed_restore_helper_retains_original_receipt_and_error(monkeypatch, tmp_path):
+    dpg, application, panel, state, _calls, _plan, _contract = setup_lpwr_trial(monkeypatch, "nvdec")
+    root = tmp_path / "failed-restore"
+    capture = trial.RegistryUiTrial(dpg, application, root, kind="lpwr", family="nvdec")
+    run(capture, dpg)
+    application._closing = False
+    application._recovery_result = {"ok": True, "reboot_required": False}
+    resumed = trial.RegistryUiTrial(dpg, application, root, resume=True)
+    run(resumed, dpg)
+    assert resumed.trial["phase"] == "restoring" and state["enabled"] is True
+    application._closing = False
+    application._recovery_result = {"ok": False, "reboot_required": False, "message": "restore helper failed"}
+    resumed = trial.RegistryUiTrial(dpg, application, root, resume=True)
+    assert not resumed.active and resumed.trial["phase"] == "attention"
+    assert "restore helper failed" in resumed.trial["error"]
+    assert resumed.trial["receipt"] == "lpwr-receipt" and state["registry"] == {}
+    failure_path = root / "restoring" / "failed-result.json"
+    failure = json.loads(failure_path.read_text())
+    assert failure["phase"] == "attention" and failure["phase_at_failure"] == "restoring"
+    assert failure["receipt"] == "lpwr-receipt" and failure["manifest_state"] == "failed"
+    assert failure["recovery_check_required"] is True
+    assert not (root / "trial-result.json").exists()
