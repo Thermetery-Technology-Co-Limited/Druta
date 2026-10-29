@@ -25,6 +25,7 @@ class LiveRelBoundsCapture(UiCapture):
         self.restore_attempted = False
         self.restored = False
         self.identity_changed = False
+        self.before_deadline = None
         self.active_deadline = None
         super().__init__(dpg, app, directory)
         if not self.active:
@@ -139,6 +140,9 @@ class LiveRelBoundsCapture(UiCapture):
                                  qualification="Loaded equations, rail control and boost are compared here; clock requests, final curve and broad state require independent audit.")
             self.live_cases = dict.fromkeys(("rel-before", "rel-active", "rel-restored"),
                                             ("rel", self.label, False))
+            self.before_deadline = time.monotonic() + 27.0
+            self.manifest["before_observation_window_seconds"] = 27.0
+            self.manifest["before_deadline_monotonic"] = self.before_deadline
         elif name == "rel-active":
             self._select()
             self.dpg.set_value("reg_rel_live_value", self.panel._rel_mv(self.wanted))
@@ -164,6 +168,9 @@ class LiveRelBoundsCapture(UiCapture):
         return True
 
     def tick(self):
+        if (self.active and self.before_deadline is not None
+                and self.stages[self.stage] == "rel-before" and time.monotonic() < self.before_deadline):
+            return
         if (self.active and self.active_deadline is not None
                 and self.stages[self.stage] == "rel-active" and time.monotonic() < self.active_deadline):
             return

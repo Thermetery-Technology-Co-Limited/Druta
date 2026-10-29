@@ -207,18 +207,19 @@ def test_active_observation_window_waits_without_blocking(setup, tmp_path, monke
     now = [100.0]
     monkeypatch.setattr(rel_bounds_ui_trial.time, "monotonic", lambda: now[0])
     capture = LiveRelBoundsCapture(dpg, application, tmp_path / "run", 0, 1045000)
+    now[0] = 127.0
     while capture.stages[capture.stage] != "rel-active":
         dpg.frame += 1
         capture.tick()
     assert capture.manifest["active_observation_window_seconds"] == 27.0
-    assert capture.manifest["active_deadline_monotonic"] == 127.0
-    for moment in (100.0, 115.0, 126.99):
+    assert capture.manifest["active_deadline_monotonic"] == 154.0
+    for moment in (127.0, 140.0, 153.99):
         now[0] = moment
         dpg.frame += 1
         capture.tick()
         assert panel.rel_live_control.calls == [("fixed", 0, 1045000)]
         assert capture.stages[capture.stage] == "rel-active"
-    now[0] = 127.0
+    now[0] = 154.0
     run(capture, dpg)
     assert panel.rel_live_control.calls == [("fixed", 0, 1045000), ("restore", 0)]
     assert capture.manifest["state"] == "complete"
@@ -226,8 +227,10 @@ def test_active_observation_window_waits_without_blocking(setup, tmp_path, monke
 
 def test_interruption_during_observation_window_restores(setup, tmp_path, monkeypatch):
     dpg, application, panel = setup
-    monkeypatch.setattr(rel_bounds_ui_trial.time, "monotonic", lambda: 100.0)
+    now = [100.0]
+    monkeypatch.setattr(rel_bounds_ui_trial.time, "monotonic", lambda: now[0])
     capture = LiveRelBoundsCapture(dpg, application, tmp_path / "run", 0, 1045000)
+    now[0] = 127.0
     while capture.stages[capture.stage] != "rel-active":
         dpg.frame += 1
         capture.tick()
@@ -260,3 +263,34 @@ def test_guard_block_and_changed_target_never_fallback(setup, tmp_path):
     assert panel.rel_live_control.calls == [("fixed", 0, 1045000)]
     assert capture.identity_changed and not capture.manifest["restoration_verified"]
     assert not capture.manifest.get("recovery_fallback_attempted", False)
+
+
+def test_before_observation_window_delays_all_writes(setup, tmp_path, monkeypatch):
+    dpg, application, panel = setup
+    now = [100.0]
+    monkeypatch.setattr(rel_bounds_ui_trial.time, "monotonic", lambda: now[0])
+    capture = LiveRelBoundsCapture(dpg, application, tmp_path / "run", 0, 1045000)
+    assert capture.manifest["before_observation_window_seconds"] == 27.0
+    assert capture.manifest["before_deadline_monotonic"] == 127.0
+    for moment in (100.0, 115.0, 126.99):
+        now[0] = moment
+        dpg.frame += 1
+        capture.tick()
+        assert capture.stages[capture.stage] == "rel-before"
+        assert panel.rel_live_control.calls == []
+    now[0] = 127.0
+    while capture.stages[capture.stage] != "rel-active":
+        dpg.frame += 1
+        capture.tick()
+    assert panel.rel_live_control.calls == [("fixed", 0, 1045000)]
+    capture._finish(RuntimeError("interrupted"))
+    assert panel.rel_live_control.calls[-1] == ("restore", 0)
+
+
+def test_interruption_during_before_window_never_writes(setup, tmp_path, monkeypatch):
+    dpg, application, panel = setup
+    monkeypatch.setattr(rel_bounds_ui_trial.time, "monotonic", lambda: 100.0)
+    capture = LiveRelBoundsCapture(dpg, application, tmp_path / "run", 0, 1045000)
+    capture._finish(RuntimeError("before interrupted"))
+    assert panel.rel_live_control.calls == []
+    assert "before interrupted" in capture.manifest["errors"]
