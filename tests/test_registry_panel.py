@@ -1032,3 +1032,17 @@ def test_rel_clamp_preview_separates_definition_and_reported_voltage(harness):
     assert "Reported REL can remain below the clamp" in text
     assert "rounded to a voltage step" in text
     assert "GPU restart required" in text
+
+
+def test_bit4_preview_describes_shared_capability_and_main_support(harness):
+    h = harness
+    h.mocks.prepare.return_value["grpg_contracts"] = {
+        "schema": 6,
+        "before": {"controllers": {"0": {"configured_pstate_mask": 0x120}}},
+        "after": {"controllers": {"0": {"configured_pstate_mask": 0x100}}},
+    }
+    prepare_speedo(h)
+    text = dpg.get_value("reg_preview")
+    assert "last contributor to a shared auxiliary capability" in text
+    assert "main controller remains supported" in text
+    assert "P5/P8 -> P8" in text

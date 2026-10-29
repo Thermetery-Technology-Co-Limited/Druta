@@ -1,0 +1,127 @@
+{
+  "schema": 1,
+  "scope": "One RTX 5080/621.01 source execution of production preparation, durable receipt reload, Apply and Undo. A temporary singleton raw-bit4 setup established the tested before-state; this does not qualify a product enable action.",
+  "control": "Disable an enabled routed GRPG entry when it removes only the final aggregate raw-bit4 capability and a supported type7 peer remains. Contract schema6 verifies full captured controller/features/type1/type4/type7 dependencies.",
+  "phases": [
+    {
+      "phase": "original",
+      "image_sha256": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+      "entry_byte": "0x6b",
+      "main_mask": 288,
+      "controller0_features": 32804372,
+      "bit3_mask": 288,
+      "bit4_role0_support": 0,
+      "bit4_role0_mask": 0,
+      "bit4_peer_role1_supported": true
+    },
+    {
+      "phase": "setup",
+      "image_sha256": "7da822e14ff75e5711261c4876b7c9655130d0e91399c12f36721fe8377d3ce2",
+      "entry_byte": "0x7b",
+      "main_mask": 288,
+      "controller0_features": 32804380,
+      "bit3_mask": 288,
+      "bit4_role0_support": 1,
+      "bit4_role0_mask": 32,
+      "bit4_peer_role1_supported": true
+    },
+    {
+      "phase": "active",
+      "image_sha256": "1f663a8e6dfe306f028897011d28baeec6c666743ff7059513a9ff1e27f3ff88",
+      "entry_byte": "0x7a",
+      "main_mask": 256,
+      "controller0_features": 32804372,
+      "bit3_mask": 256,
+      "bit4_role0_support": 0,
+      "bit4_role0_mask": 0,
+      "bit4_peer_role1_supported": true
+    },
+    {
+      "phase": "undo_setup",
+      "image_sha256": "7da822e14ff75e5711261c4876b7c9655130d0e91399c12f36721fe8377d3ce2",
+      "entry_byte": "0x7b",
+      "main_mask": 288,
+      "controller0_features": 32804380,
+      "bit3_mask": 288,
+      "bit4_role0_support": 1,
+      "bit4_role0_mask": 32,
+      "bit4_peer_role1_supported": true
+    },
+    {
+      "phase": "final",
+      "image_sha256": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+      "entry_byte": "0x6b",
+      "main_mask": 288,
+      "controller0_features": 32804372,
+      "bit3_mask": 288,
+      "bit4_role0_support": 0,
+      "bit4_role0_mask": 0,
+      "bit4_peer_role1_supported": true
+    }
+  ],
+  "raw_packet_audit": "Full A801 support/states/features/type1/type7 packets match independent projections changing only the documented DWORDs; full raw A7 and all type4 roles match in every phase.",
+  "apply_and_undo_verified_fields": [
+    "lpwr.gr_pg.1.enabled"
+  ],
+  "durable_schema": 6,
+  "final_registry_empty": true,
+  "final_active_receipt": null,
+  "full_original_configuration_restored": true,
+  "broad_GET_attempts": {
+    "setup": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ],
+    "active": [
+      false,
+      false,
+      false,
+      false,
+      true
+    ],
+    "undo_setup": [
+      false,
+      false,
+      false,
+      true
+    ],
+    "final": [
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "broad_scope": "Existing configured-state comparison excludes host paths/timestamps and live telemetry; all failed/intermediate broad captures remain private. No failed capture is discarded or converted into a SET retry.",
+  "source_validation": {
+    "full_tests": 6537,
+    "full_seconds": 115.73,
+    "focused_tests": 399,
+    "Ruff_changed_files": "passed"
+  },
+  "implementation": "Schemas1-5 remain supported; schema6 handles only aggregate loss0x10. Available duplicate feature reads must agree; an unavailable optional duplicate is preserved independently. Other surviving roles retain support while their affected routed masks contract.",
+  "remaining": [
+    "Combined raw-bit4 losses and whole-group disappearance without a surviving witness.",
+    "Conditional controller2/4 support losses and the complete dependency graph.",
+    "Physical residency/power savings and broader adapters.",
+    "Originally disabled DIFR activation and modern voltage record/replay semantics."
+  ],
+  "GPU_only_restarts_in_production_trial": 4,
+  "Windows_reboot": false,
+  "workload": false,
+  "physical_measurement": false,
+  "F219_SET": false,
+  "private_evidence_sha256": {
+    "production-probe-532f91dcad3e4d72adc7a2d43193541b.json": "82c98e90195bc75b247d1acc76526cdc9a1daf847e0642b9a6161c94e37bee77"
+  },
+  "source_files_sha256": {
+    "src/druta/grpg_runtime.py": "5a4e15ff06309c963f5891dbc9feea1b8b623d361e3132a4cb26f17c3932bdf8",
+    "src/druta/registry_overrides.py": "62544cc4bdc44956770bb1f553a43512b8217d229eace3ec13a22f13d5df65e2",
+    "src/druta/registry_panel.py": "74bd65951e8b7549aa19abc7b6a729716ada4b555a86ccf24e60c26642599dc4"
+  }
+}

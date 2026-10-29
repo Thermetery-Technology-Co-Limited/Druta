@@ -15,7 +15,7 @@ from tests.test_registry_overrides import digest, transaction
 
 
 def configured(
-    monkeypatch, *, multiple=False, slot=None, device=0xC321, auxiliary=False, bit1=False, combined=False, main=False
+    monkeypatch, *, multiple=False, slot=None, device=0xC321, auxiliary=False, bit1=False, combined=False, main=False, bit4=False
 ):
     inspect, plan = vbios_fields.inspect, vbios_fields.plan
     receipt, registry, snapshot, restarts, kwargs = transaction(monkeypatch)
@@ -25,7 +25,9 @@ def configured(
         receipt["target"]["slot"] = slot
     target = ro.Target(**receipt["target"])
     flags = (
-        {"flags": (0x0B, 0x0B, 0x03)}
+        {"flags": (0x1B, 0x0B, 0x03)}
+        if bit4
+        else {"flags": (0x0B, 0x0B, 0x03)}
         if main
         else {"flags": (0x1B, 0x11, 0x11)}
         if combined
@@ -39,7 +41,9 @@ def configured(
     changes = {f"lpwr.gr_pg.{1 if bit1 else 0}.enabled": False}
     if multiple:
         changes["lpwr.gr_pg.2.enabled"] = False
-    if main:
+    if bit4:
+        observe, make_contract = fixtures.bit4_observation, fixtures.make_bit4_contract
+    elif main:
         changes = {f"lpwr.gr_pg.{index}.enabled": False for index in range(3)}
         observe, make_contract = fixtures.main_observation, fixtures.make_main_contract
     elif combined:
@@ -392,7 +396,7 @@ def test_saved_grpg_receipt_cannot_mix_difr(monkeypatch, restore):
     assert not result["ok"] and not reg.operations and not restarts
 
 
-@pytest.mark.parametrize("scope", ["ordinary", "auxiliary", "bit1", "combined", "main"])
+@pytest.mark.parametrize("scope", ["ordinary", "auxiliary", "bit1", "combined", "main", "bit4"])
 def test_prepare_durable_reload_apply_and_undo_keep_exact_runtime_binding(monkeypatch, tmp_path, scope):
     original, reg, snap, restarts, kwargs, before, _ = configured(
         monkeypatch,
@@ -401,6 +405,7 @@ def test_prepare_durable_reload_apply_and_undo_keep_exact_runtime_binding(monkey
         bit1=scope == "bit1",
         combined=scope == "combined",
         main=scope == "main",
+        bit4=scope == "bit4",
     )
     target = ro.Target(**original["target"])
     monkeypatch.setattr(ro, "bind_target", lambda gpu: target)
@@ -887,3 +892,77 @@ def test_bit1_restore_readback_failure_keeps_original_registry(monkeypatch, phas
     assert result["state"] == "recovery-required", result["message"]
     assert not result["ok"] and not reg.values and len(restarts) == 2
     assert all(values == receipt["before"] for values in reg.operations[1:])
+
+
+def test_bit4_apply_undo_and_durable_projection(monkeypatch):
+    import json
+
+    receipt, reg, snap, restarts, kwargs, before, after = configured(monkeypatch, bit4=True)
+    receipt["grpg_contracts"] = json.loads(json.dumps(receipt["grpg_contracts"]))
+    assert receipt["grpg_contracts"]["schema"] == 6
+    result = ro.execute(receipt, **kwargs)
+    assert result["state"] == "active", result["message"]
+    assert snap["grpg"] == after
+    result = ro.execute(receipt, restore=True, **kwargs)
+    assert result["state"] == "restored", result["message"]
+    assert snap["grpg"] == before and not reg.values and len(restarts) == 2
+
+
+def test_bit4_peer_mismatch_compensates(monkeypatch):
+    receipt, reg, snap, restarts, kwargs, before, _ = configured(monkeypatch, bit4=True)
+    restart = kwargs["restart"]
+
+    def wrong_peer(device):
+        outcome = restart(device)
+        if reg.values:
+            main = copy.deepcopy(snap["grpg"]["main"])
+            main["bit4_group"]["805:1"]["value"] ^= 1
+            snap["grpg"]["main"] = fixtures._main_packets(snap["grpg"]["controllers"], main)
+        return outcome
+
+    kwargs["restart"] = wrong_peer
+    result = ro.execute(receipt, **kwargs)
+    assert result["state"] == "rolled-back", result["message"]
+    assert snap["grpg"] == before and not reg.values and len(restarts) == 2
+
+
+def test_bit4_malformed_contract_refused_before_mutation(monkeypatch):
+    receipt, reg, _, restarts, kwargs, _, _ = configured(monkeypatch, bit4=True)
+    receipt["grpg_contracts"]["after"]["auxiliary"]["feature"]["value"] |= 8
+    kwargs["gpu_factory"] = lambda slot: pytest.fail("Malformed receipt caused GPU access")
+    result = ro.execute(receipt, **kwargs)
+    assert not result["ok"] and not reg.operations and not restarts
+
+
+@pytest.mark.parametrize("recovery", [False, True])
+def test_bit4_scoped_reads_cover_apply_undo_and_recovery(monkeypatch, recovery):
+    from druta import nvbackend
+
+    receipt, reg, snap, restarts, kwargs, before, after = configured(monkeypatch, bit4=True)
+    snap.pop("grpg")
+    gpu, calls = SimpleNamespace(), []
+    monkeypatch.setattr(nvbackend, "GPU", lambda slot: gpu)
+    monkeypatch.setattr(ro, "bind_target", lambda value: snap["target"])
+
+    def read(value, **options):
+        assert value is gpu and options == {"main": True}
+        calls.append(bool(reg.values))
+        return copy.deepcopy((before if recovery else after) if reg.values else before), None
+
+    monkeypatch.setattr(gr, "read", read)
+    restart = kwargs["restart"]
+
+    def without_injection(device):
+        result = restart(device)
+        snap.pop("grpg")
+        return result
+
+    kwargs["restart"] = without_injection
+    result = ro.execute(receipt, **kwargs)
+    if recovery:
+        assert result["state"] == "rolled-back", result["message"]
+    else:
+        assert result["state"] == "active", result["message"]
+        result = ro.execute(receipt, restore=True, **kwargs)
+        assert result["state"] == "restored", result["message"]
+    assert calls == [False, True, False] and not reg.values and len(restarts) == 2

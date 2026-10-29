@@ -2141,8 +2141,8 @@ mask0x8 clears in a profile only when no surviving class0 provider (1, 2 or 20)
 supplies feature0x200000; an unresolved provider prevents that profile. Activation must match
 one complete profile; Undo verifies the captured before state. The dependency
 graph is not exhaustively known, and broader hardware qualification remains
-pending. The OR-presence of raw bit4 among enabled GR PG entries must still
-remain unchanged; its final BIOS contributor cannot yet be removed.
+pending. Those main-loss profiles still require the OR-presence of raw bit4
+among enabled GR PG entries to remain unchanged.
 Raw bits1/3/4 feed separate feature-group operations92A650,927470 and92B350
 respectively; their numeric role0 is not controller0.
 
@@ -2154,6 +2154,28 @@ The complete controller and auxiliary projection, image, registry and other
 requests matched, and the final baseline was restored exactly. This trial did
 not test the conditional loss of controller2 or controller4, establish broader
 hardware qualification, or measure physical residency.
+
+Schema6 separately qualifies aggregate loss10h only: disabling the last routed
+raw-bit4 contributor while main controller0 and an independently supported
+type7 peer remain. It reads the complete dependency scope and verifies role0
+support/mask removal and controller0 feature8 clearing. Both available feature
+copies must agree; an unavailable optional duplicate stays independently
+unavailable. Other controllers and roles are retained. When selected entries
+also contribute raw bit3, their type1 mask806:0 loses only those routed IDs,
+while surviving support and feature10h stay active. Combined bit4 losses and
+unwitnessed group disappearance remain refused.
+
+A temporary singleton raw-bit4 setup on the captured RTX 5080/621.01 established
+a distinguishing before-state. Normal production preparation, durable reload,
+Apply and Undo then passed with schema6: main and type1 masks120h→100h→120h,
+type7 role0 support1→0→1 and mask20h→0→20h, and feature8 removal/restoration.
+Full A801 packets matched independently patched projections, raw A7 stayed
+exact, and all captured peers and the complete original registry/image/requests
+were restored after removing the setup. Intermediate broad GET differences
+were retained and bounded GET-only recovery reached each exact projection.
+The full suite passed 6,537 tests, including 399 focused tests. This qualifies
+configured transitions on that setup, not a product enable action, physical
+residency or power savings. [Bit4 qualification and remaining scope](experiments/grpg-bit4-qualified-20261029.json).
 
 For the raw-bit3 transition,927470 clears controller0's available feature bit10h
 at group+138 and role0's bit in the separate LPWR+12F8 group support mask+5C.

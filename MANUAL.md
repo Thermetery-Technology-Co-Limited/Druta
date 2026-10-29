@@ -547,8 +547,13 @@ main controller 0 becomes unsupported with an unavailable configured mask,
 and independently checks all controller features and type 7 configuration.
 Known profiles can include loss of GRRG controller 2 or MSCG controller 4;
 other peer changes fail verification and trigger restoration. Restore checks
-the captured original configuration. Removal of the final raw bit 4 BIOS
-contributor remains unavailable. The complete dependency graph and broader
+the captured original configuration. A separate path supports removing the final
+raw bit 4 contributor when the selected entries have verified P-state routes,
+main GR power gating stays supported, and another auxiliary role remains
+supported. It checks the affected feature/support/masks and the other captured
+controllers and roles, including the mask contraction of any surviving role
+that also used those entries. Combined bit 4 capability losses and whole-group
+disappearance remain unavailable. The complete dependency graph and broader
 hardware qualification remain open; configured eligibility does not establish
 actual power-gating residency or power savings.
 
