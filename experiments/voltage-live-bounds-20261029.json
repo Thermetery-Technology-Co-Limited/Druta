@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "date": "2026-10-29",
-  "scope": "Two source product-controller Apply/Restore trials on one RTX5080 configuration; exact loaded equation/settings readback, no physical voltage measurement",
+  "scope": "Source controller and packaged panel callback trials on one RTX5080 configuration; exact loaded equation/settings readback, no physical voltage measurement",
   "operation": "Live fixed lower/upper REL head bounds on existing BIOS type7/native type6 roots; preserves type, graph, terms, links and all unrelated packet bytes",
   "product": {
     "upper_only": "VoltageRelController.set",
@@ -127,7 +127,7 @@
       "seconds": 120.59
     },
     "source_hardware": "passed",
-    "packaged_callback_trial": "not performed",
+    "packaged_callback_trial": "Both fixed-head Apply / Restore BIOS bounds callback trials independently qualified after strict original GUI baseline observation; physical input and recovery walkthroughs remain pending",
     "physical_input": "not performed",
     "focused_runtime_tests": 54,
     "panel_tests": 12,
@@ -137,7 +137,7 @@
   "remaining": [
     "Arbitrary six-word voltage-offset replay and modern firmware semantics",
     "Physical enforcement and other adapters/operating points",
-    "Packaged fixed-head callback/input and recovery walkthroughs"
+    "Packaged fixed-head physical input and failure/recovery walkthroughs, other adapters and operating points"
   ],
   "source_sha256": {
     "src/druta/vfe_equation_runtime.py": "4ea73b1399c167d9ab4dbde5ac602a79a60589649dfbe5c1b4f5fa78f7a762ce",
@@ -147,5 +147,318 @@
   "audit_sha256": {
     "experiments\\registry-overrides\\voltage-live-bounds-review-20261029\\terra-audit.json": "8211d67015daf895e8136b20f4bd4ac0bcfaafefe2f420274d198dfed2757a5a",
     "experiments\\registry-overrides\\voltage-live-bounds-luna-20261029\\audit.json": "022a78e1f74af3cf0d39bc52af5b8a925c0fc16a3d9e00dd7cf182e8a8574e16"
+  },
+  "packaged_callback_qualification": {
+    "scope": "Real packaged programmatic panel callbacks, not physical mouse/keyboard input; one captured adapter/driver/ROM configuration",
+    "CLI": "--gpu 0000:01:00.0 --ui-capture-live-rel-bounds RAIL VALUE_UV NEW_DIRECTORY",
+    "trials": [
+      {
+        "rail": 0,
+        "equation": 3,
+        "original_bounds_uv": [
+          900000.0,
+          1120000.0
+        ],
+        "fixed_bounds_uv": [
+          1045000,
+          1045000
+        ],
+        "source_commit": "2242ab6bd158f458e569ddd22eee75c305a90c68",
+        "exe_sha256": "e1f4435e02fb89523d42158996fa11ba794362fa4ff98058ffe9b717858f89da",
+        "supervisor_exit": 0,
+        "GUI_exit": 0,
+        "before_samples": 8,
+        "before_strict_original": [
+          false,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "last_two_before_strict_original": true,
+        "active_samples": 8,
+        "last_active_sample_seconds": 22.00111520010978,
+        "all_active_strict_projected": true,
+        "active_curve_changed_bytes": [
+          230,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "observed_policy_before_uv": {
+          "reliability": 1040000,
+          "alt_reliability": 1060000,
+          "overvoltage": 1200000,
+          "effective": 1040000,
+          "vmin": 800000
+        },
+        "observed_policy_active_uv": {
+          "alt_reliability": 1065000,
+          "effective": 1045000,
+          "overvoltage": 1200000,
+          "reliability": 1045000,
+          "vmin": 800000
+        },
+        "final_comparison_sequence": [
+          {
+            "exact": false
+          },
+          {
+            "exact": true
+          }
+        ],
+        "final_strict_original_including_curve": true,
+        "GUI_immediate_restored_curve_exact": false,
+        "GUI_equation_request_evidence_exact": true,
+        "frames": [
+          {
+            "stage": "rel-before",
+            "png": {
+              "sha256": "d7a1793f6faee00601d8e16c56d54d24c3719fd701ea9a78cb7ccee2e5cc8a6c",
+              "dimensions": [
+                1528,
+                1261
+              ]
+            },
+            "manifest_match": true,
+            "selected_rail_exact": true,
+            "value_uv_exact": true
+          },
+          {
+            "stage": "rel-active",
+            "png": {
+              "sha256": "04fbcac848ad7824b9f361b037a4d602a00e9eca89078e5767d7c1037bef72cb",
+              "dimensions": [
+                1528,
+                1261
+              ]
+            },
+            "manifest_match": true,
+            "selected_rail_exact": true,
+            "value_uv_exact": true
+          },
+          {
+            "stage": "rel-restored",
+            "png": {
+              "sha256": "30ee286c40538f5895ccf9e5afea800124ae5d382643e6addf68798e9887096b",
+              "dimensions": [
+                1528,
+                1261
+              ]
+            },
+            "manifest_match": true,
+            "selected_rail_exact": true,
+            "value_uv_exact": true
+          },
+          {
+            "stage": "restored-display",
+            "png": {
+              "sha256": "5d774a58bf9afdefbc7e2b367c53ed70e63c50e8cdc0ae74c88e9bb4b140398c",
+              "dimensions": [
+                1528,
+                1261
+              ]
+            },
+            "manifest_match": true,
+            "selected_rail_exact": null,
+            "value_uv_exact": null
+          }
+        ],
+        "independent_audit_sha256": "9683e86b565e8a5dedd8b6f6aa62686afb8b8bd973adc08546f2b2c004072306",
+        "supervisor_sha256": "5d5938243de79e968e642aa2c0008b2582aae82a7827eaa42b685d20d0928a68"
+      },
+      {
+        "rail": 1,
+        "equation": 265,
+        "original_bounds_uv": [
+          900000.0,
+          1120000.0
+        ],
+        "fixed_bounds_uv": [
+          1045000,
+          1045000
+        ],
+        "source_commit": "2242ab6bd158f458e569ddd22eee75c305a90c68",
+        "exe_sha256": "e1f4435e02fb89523d42158996fa11ba794362fa4ff98058ffe9b717858f89da",
+        "supervisor_exit": 0,
+        "GUI_exit": 0,
+        "before_samples": 8,
+        "before_strict_original": [
+          false,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "last_two_before_strict_original": true,
+        "active_samples": 8,
+        "last_active_sample_seconds": 21.9832569998689,
+        "all_active_strict_projected": true,
+        "active_curve_changed_bytes": [
+          230,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "observed_policy_before_uv": {
+          "reliability": 990000,
+          "alt_reliability": 1060000,
+          "overvoltage": 1200000,
+          "effective": 990000,
+          "vmin": 800000
+        },
+        "observed_policy_active_uv": {
+          "alt_reliability": 1065000,
+          "effective": 995000,
+          "overvoltage": 1200000,
+          "reliability": 995000,
+          "vmin": 800000
+        },
+        "final_comparison_sequence": [
+          {
+            "exact": false
+          },
+          {
+            "exact": true
+          }
+        ],
+        "final_strict_original_including_curve": true,
+        "GUI_immediate_restored_curve_exact": false,
+        "GUI_equation_request_evidence_exact": true,
+        "frames": [
+          {
+            "stage": "rel-before",
+            "png": {
+              "sha256": "0c3cc191e1d4c9a222c017f76dfb6337b417e60fb8f392767ab487af8698cbdb",
+              "dimensions": [
+                1528,
+                1261
+              ]
+            },
+            "manifest_match": true,
+            "selected_rail_exact": true,
+            "value_uv_exact": true
+          },
+          {
+            "stage": "rel-active",
+            "png": {
+              "sha256": "2972f143c5d48da2f7d5046bc7fa44a0ec541e2347e4fbf55cedd15803890061",
+              "dimensions": [
+                1528,
+                1261
+              ]
+            },
+            "manifest_match": true,
+            "selected_rail_exact": true,
+            "value_uv_exact": true
+          },
+          {
+            "stage": "rel-restored",
+            "png": {
+              "sha256": "3d84476884c1b38aab0d39f372d5a51dd362517b742c00b3dabad0b6d7591dea",
+              "dimensions": [
+                1528,
+                1261
+              ]
+            },
+            "manifest_match": true,
+            "selected_rail_exact": true,
+            "value_uv_exact": true
+          },
+          {
+            "stage": "restored-display",
+            "png": {
+              "sha256": "195f5ce696dc9f802662f6e5a2591641e1007a7a94df8abf4ded3fd55a645f69",
+              "dimensions": [
+                1528,
+                1261
+              ]
+            },
+            "manifest_match": true,
+            "selected_rail_exact": null,
+            "value_uv_exact": null
+          }
+        ],
+        "independent_audit_sha256": "733014f12a87d5d5a7a5d9136c06ac96d0df38fb06effcbe6983d3b2e40c3588",
+        "supervisor_sha256": "0f9e798b819f9fc0c578c8f64a911db31ac5f8df290dc21f0c2cda1b4e3da4c8"
+      }
+    ],
+    "independent_audit": "Terra raw audit; root reproduction is JSON-identical for both terminal cases",
+    "root_visual_review": "All four full framebuffer images per rail inspected: original bounds, fixed head, restored bounds and restored normal display",
+    "startup_control": {
+      "result": "Display-only packaged control reproduced the first BOOST_LOW request change with unchanged full VFE INFO/CONTROL; later samples and final state strictly matched original",
+      "explicit_equation_tuning_operation": false,
+      "interpretation": "Startup/read-path confound; exact producer, live conditional class, duration and physical effect remain unproven",
+      "audit_sha256": "81d37057107d8c7157b6bf37b27f2693198e26e4d4a2076a38b4f10f2980e95b"
+    },
+    "retained_negative_trials": [
+      {
+        "rail": 0,
+        "state": "attention",
+        "reason": "RuntimeError('Independent active packet or configured peer projection differs')",
+        "active_samples": 1,
+        "complete_original_restored": true,
+        "exe_sha256": "48689e02171953366d189755e9885f2f393793c406aa1f2eda96d0ca6ae9111d",
+        "supervisor_sha256": "de71b79f3ff63678cc408d81179fb9f97cd67d1f8974601704cd751720f45d16"
+      },
+      {
+        "rail": 0,
+        "state": "attention",
+        "reason": "Independent active projection mismatches retained at samples [0]",
+        "active_samples": 8,
+        "complete_original_restored": true,
+        "exe_sha256": "48689e02171953366d189755e9885f2f393793c406aa1f2eda96d0ca6ae9111d",
+        "supervisor_sha256": "2f1ec9292921e8646b4bcc5ec05c758da513483f3fe4f1c964cf503fa53d86bf"
+      },
+      {
+        "rail": 1,
+        "state": "attention",
+        "reason": "Independent active projection mismatches retained at samples [0]",
+        "active_samples": 8,
+        "complete_original_restored": true,
+        "exe_sha256": "48689e02171953366d189755e9885f2f393793c406aa1f2eda96d0ca6ae9111d",
+        "supervisor_sha256": "f00e2ffcb656398c9cd89a813c6097c13d3b8915403b33510d0d6d76ca8a2a06"
+      }
+    ],
+    "comparison_contract": "BOOST_LOW and all other retained configured peers remain compared. Last two before samples, all eight active projections and strict final state including curve are required. No mismatch exclusions were added.",
+    "observer_limits": "27-second before and active acquisition windows are not firmware settling guarantees. First before sample retains the BOOST_LOW inactive to type3/vP-state-index0 request change. First active and first final curves differ by230 bytes, then match; immediate GUI restored curve is unequal.",
+    "operations_this_packaged_arc": {
+      "fixed_writes": 5,
+      "restore_writes": 5,
+      "includes": "Three retained attention cases and two independently qualified repeated cases",
+      "registry_writes": 0,
+      "GPU_restarts": 0,
+      "Windows_reboot": false,
+      "workload": false,
+      "physical_measurement": false
+    },
+    "latest_full_suite": {
+      "passed": 6890,
+      "seconds": 121.76
+    },
+    "focused_capture_tests": 15,
+    "CLI_tests": 33,
+    "lint": "New capture module/tests clean; druta.py retains the same 26 preexisting diagnostics",
+    "guard_cleanup_regression": "Offline old-code reproduction and independent tests verify restoration through the bound controller when the panel guard blocks cleanup; changed target/image/selected equation refuses fallback. The faulty first trial binary was never used for a hardware trial.",
+    "unresolved_BOOST_LOW_producer": "Conditional class8 driver path binds the native PERF-limits SET 2080E025 to the same backing object consumed by its getter. The NVAPI client wrapper copies caller-supplied fields. Neither trace establishes the actual producer of the observed startup request; no SET through this path was attempted.",
+    "research_sha256": {
+      "experiments/registry-overrides/boost-low-vfe-producer-20261029/findings.json": "5b7fe5c66ad5f188d2a8d7c4d6047dafc880c591adf0079e7b28edb3b297f1f6",
+      "experiments/registry-overrides/boost-low-vfe-producer-20261029/same-owner-binding.json": "c2cfb46897fa0c9ffba712567712a860a92abac431cc0d8cd2cc7729c075cbc5",
+      "experiments/registry-overrides/boost-low-client-20261029/findings.json": "c7b0a400d0f445a6892be84b5a1d931b2c452434b9193d8b7084f2e7da794813"
+    }
   }
 }

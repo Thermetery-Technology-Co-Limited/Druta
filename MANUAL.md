@@ -502,6 +502,18 @@ readable clock requests are verified independently; unavailable optional
 readbacks are listed. Failed dispatched changes attempt one restoration of the equation bounds
 captured before the write and report whether recovery was verified. Arbitrary rail-offset
 replay remains unqualified.
+
+The opt-in developer command `--ui-capture-live-rel-bounds RAIL VALUE_UV DIRECTORY`
+exercises the packaged panel's Fix both bounds and Restore BIOS bounds callbacks
+and records four frames. RAIL is 0 or 1, VALUE_UV is a positive integer in
+microvolts, and DIRECTORY must be new with an existing parent. It cannot be
+combined with another capture, startup-profile mode or recovery relaunch. It
+performs real live edits, attempts restoration before exiting and records any
+restoration failure. Ordinary launch does not run this trial.
+Two packaged trials on the captured RTX5080 configuration verified both rails
+after an independently observed original baseline. This covers programmatic
+callbacks; physical input and failure/recovery walkthroughs remain pending.
+
 Changing ALT can change the shared boost contribution and the computed REL and
 effective limits on both rails. OV can change the selected rail's effective
 limit. These computed outputs are recorded without assuming a firmware formula.

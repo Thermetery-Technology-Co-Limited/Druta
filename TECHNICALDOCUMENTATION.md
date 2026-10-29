@@ -3831,6 +3831,35 @@ strict final capture matched the original curve. These negatives are retained;
 no curve exclusion or universal settling delay follows. Independent raw audit
 and root reproduction confirm the changes and complete original restoration.
 No registry write, GPU restart, Windows reboot, workload or physical measurement
-was used. Packaged fixed-head callback/input/recovery walkthroughs and arbitrary
-six-word rail-offset replay remain pending.
+was used. The source trials do not cover packaged callbacks or physical input.
+
+The subsequent opt-in `--ui-capture-live-rel-bounds RAIL VALUE_UV DIRECTORY`
+runner exercises the existing panel callbacks in the packaged EXE. It requires
+the understood original bounds, rejects a fixed no-op, captures before/active/
+restored/display frames and exits after restoration. If the panel guard blocks
+cleanup, one identity-bound controller restoration remains available; a changed
+target, image or selected equation prevents that fallback. The original failure
+is retained.
+
+Initial packaged trials retained a first-sample BOOST_LOW request change and
+therefore did not qualify. A display-only control reproduced the same request
+change while all equation definitions remained unchanged. This identifies a
+startup/read-path confound, not its exact producer or physical effect. On this
+configuration the observed type6 request changes from inactive to type3 with
+vP-state index0, then returns to the original request. No comparison exclusion
+or harmlessness assumption was added.
+
+The repeated trials provide 27-second acquisition windows before Apply and
+before Restore. The independent observer requires the last two of eight
+pre-Apply samples to match the full original state, then all eight active
+packet/retained-peer projections to pass. Both rails passed at 1045000 uV fixed
+heads, including LPWR and client requests and all four GUI frames. The first
+active and first final curves retained 230-byte differences; later observations
+and the second final capture matched exactly, including the curve. The windows
+are observation opportunities, not firmware settling guarantees. Root reproduced
+the independent raw audits and visually reviewed all eight frames.
+
+These packaged tests cover programmatic callbacks on one configuration.
+Physical input, failure/recovery walkthroughs, other adapters/operating points
+and arbitrary six-word rail-offset replay remain pending.
 [Source trials and exact qualification](experiments/voltage-live-bounds-20261029.json).
