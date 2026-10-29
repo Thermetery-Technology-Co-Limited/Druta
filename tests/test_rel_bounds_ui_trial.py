@@ -236,3 +236,27 @@ def test_interruption_during_observation_window_restores(setup, tmp_path, monkey
     capture._finish(RuntimeError("window interrupted"))
     assert panel.rel_live_control.calls == [("fixed", 0, 1045000), ("restore", 0)]
     assert capture.manifest["restoration_verified"] and "window interrupted" in capture.manifest["errors"]
+
+
+def test_interrupted_guard_blocked_uses_one_fallback_restore(setup, tmp_path):
+    dpg, application, panel = setup
+    capture = LiveRelBoundsCapture(dpg, application, tmp_path / "run", 0, 1045000)
+    capture._stage("rel-active")
+    application.guard = lambda: False
+    capture._finish(RuntimeError("interrupted"))
+    assert panel.rel_live_control.calls == [("fixed", 0, 1045000), ("restore", 0)]
+    assert capture.manifest["recovery_fallback_attempted"]
+    assert capture.manifest["restoration_verified"]
+    assert capture.manifest["state"] == "failed" and "interrupted" in capture.manifest["errors"]
+
+
+def test_guard_block_and_changed_target_never_fallback(setup, tmp_path):
+    dpg, application, panel = setup
+    capture = LiveRelBoundsCapture(dpg, application, tmp_path / "run", 0, 1045000)
+    capture._stage("rel-active")
+    application.guard = lambda: False
+    panel.rel_live_control.image = "changed"
+    capture._finish(RuntimeError("interrupted"))
+    assert panel.rel_live_control.calls == [("fixed", 0, 1045000)]
+    assert capture.identity_changed and not capture.manifest["restoration_verified"]
+    assert not capture.manifest.get("recovery_fallback_attempted", False)

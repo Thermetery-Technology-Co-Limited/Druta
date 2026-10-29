@@ -181,6 +181,8 @@ class LiveRelBoundsCapture(UiCapture):
             self.panel.refresh_rel_live()
             self._check_panel_identity()
             self._select()
+            if not self.app.guard():
+                raise RuntimeError("Live REL panel guard blocked restoration")
             self.restore_attempted = True
             self.manifest["restore_attempted"] = True
             self._save()
