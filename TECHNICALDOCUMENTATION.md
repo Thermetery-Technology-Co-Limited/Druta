@@ -2969,8 +2969,10 @@ Further candidate-image tracing reaches concrete row operations. The legacy
 F214 construction path installs a setter which, after a successful type check,
 either copies six DWORDs from the selected packet row or skips all six while
 returning success. It tests byte `+0x334` of the pointer at GPU `+0x20C8`.
-A candidate class-key getter maps the Perf key to that slot before an EngState
-cast; the actual stored instance, flag value and creation/retention remain unproved.
+A conditional child-creation path now joins the Perf class request, successful
+creation/cast and that slot. The constructor derives byte `+0x334` from a selector
+halfword on its reached-store paths. This does not observe the current selector,
+stored instance, flag value or later retention.
 The row accessor's runtime table and returned interface identity also remain unproved;
 this conditional body is not established as the cause of the captured no-op.
 
@@ -2980,9 +2982,13 @@ and three additional bytes, plus four DWORDs, into its destination row. Exact
 source/destination offsets and the constructor/callback chain are retained in the
 [candidate-consumer evidence](experiments/driver-transport-followup-20261028.json).
 Those copies establish field transport on that path, not numerical units, rail
-identity or voltage application. The enclosing destination buffer, later mutation
-and downstream consumer are still unbound. Neither image loading nor live handler
-selection was observed, and no modern F219 SET was performed.
+identity or voltage application. Further construction tracing gives a `0x2C`
+serialized header and `0x24` row stride, submitted with selector `0x1F`. Three
+conditional backends copy that buffer or store its words at unclassified
+context-derived addresses; the active receiver and eventual consumption remain
+unbound. A default response path also copies selected fields into object state,
+subject to validation and callback retention. Neither image loading nor live
+handler selection was observed, and no modern F219 SET was performed.
 
 A separate variable investigation matched native INFO `0x2080A0B1`
 (`0xC364` bytes, header `0x28`, 255 rows of `0xC4`) and CONTROL

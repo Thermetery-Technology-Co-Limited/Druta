@@ -844,5 +844,11 @@
     "legacy": "A candidate setter conditionally skips six copies with successful return, but runtime accessor identity, gate owner/value, loaded image and captured-call path remain unproved. It is not established as the cause of the prior ignored request.",
     "modern": "A conditional type2 row callback copies specific fields to its destination row. Field units/rails, enclosing destination/later consumer and live selection remain unproved; no F219 SET was issued.",
     "preserved": "All earlier experiment/capture objects are retained. This qualification adds no replay or physical-effect claim."
+  },
+  "candidate_firmware_flow_qualification_20261029": {
+    "evidence": "driver-transport-followup-20261028.json:candidate_firmware_flow_20261029",
+    "legacy": "Conditional class creation/cast now stores Perf in GPU20C8 and constructor334 formula is traced; current flag/selector, retention/accessor and actual captured execution remain unproved.",
+    "modern": "Input-to-serialized-buffer and default response-to-object copies are traced; backend selection, actual receiver and eventual consumption/units/rails remain unproved. No modern SET, replay or physical effect is claimed.",
+    "preserved": "Earlier raw objects and trial results retained unchanged."
   }
 }
