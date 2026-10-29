@@ -3911,8 +3911,8 @@ samples 3-7 match. All 48 before/final full curves match without exclusions.
 No independent active broad window was captured. These trials used six GPU-only
 restarts; physical input and effects were not measured.
 
-Other-family packaged no-peer UI and post-restart failure/recovery remain
-pending, as do other profiles, layouts and physical residency/savings. Device
+Other dependency no-peer UI and post-restart failure/recovery remain pending,
+as do other profiles, layouts and physical residency/savings. Device
 and driver identities identify evidence, not product compatibility lists.
 Legacy image-only receipts retain Undo; fresh runtime contracts are required
 for a new Apply.
@@ -4068,10 +4068,30 @@ labels, and before/Undo-to-setup show five checked boxes with identical PNGs.
 All four eight-sample before/setup/Undo/final windows per attempt retained
 strict last-two matches and all 96 full curves matched. Earlier driver-flag
 differences remain recorded; no independent active broad window was captured.
-These attempts used twelve GPU-only restarts. Other-family no-peer UI, physical
+These attempts used twelve GPU-only restarts. Other dependency no-peer UI, physical
 input and recovery, independent group-mask/presence readback, curve freshness,
 other dependencies and physical effects remain unqualified.
 [Packaged NVDEC no-peer evidence](experiments/media-type4-last-role-qualified-20261029.json).
+
+Separate packaged NVENC, OFA and NVJPG no-peer trials used the same temporary
+setup method and ordinary panel/helper Undo path. Each selected five enabled rows,
+made its native controller unsupported and returned all eleven type4 replies
+unavailable; this does not prove an independently read empty group mask.
+Undo returned to the temporary setup, then the supervisor restored and audited
+the exact original image, registry and full peer state. Root and Luna inspected
+all twelve frames: five checked rows before and after Undo, five read-only
+False labels active, and five change lines plus the no-peer explanation,
+restart and receipt in Preview. Target checkboxes were below the Preview
+viewport; before/restored images depict the setup, not the original image.
+
+Each case retained four eight-sample broad windows with strict final-two
+matches. Setup samples 0-3, Undo sample 0 and final samples 0-2 retained
+driver-flag differences; all 96 full curves matched without exclusions. No
+independent active broad window was captured. These three cases used twelve
+separately counted GPU-only restarts. GRPG no-peer and other dependency
+profiles, recovery, physical input, telemetry, other layouts and physical
+effects remain pending.
+[Packaged media no-peer evidence](experiments/media-type4-last-role-qualified-20261029.json).
 [Scoped type 4 availability evidence](experiments/grpg-bit1-availability-qualified-20261029.json).
 
 ## Source for a binary release

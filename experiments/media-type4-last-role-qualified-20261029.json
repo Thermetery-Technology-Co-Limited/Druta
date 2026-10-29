@@ -98,7 +98,7 @@
     "Curve freshness/recalculation semantics, actual BOOST_LOW producer and physical effect; the two older OFA broad negatives remain recorded",
     "Independent type4 group-mask/presence readback",
     "Supported alternate controllers, mixed aggregate losses, wider MS/conditional dependencies and other layouts",
-    "Other-family no-peer packaged visual, physical-input and recovery walkthroughs; NVDEC no-peer packaged callback qualification is recorded separately",
+    "GRPG no-peer and other dependency profiles, physical-input and recovery walkthroughs; captured media-family no-peer packaged callbacks are recorded separately",
     "Physical residency, reliable activity telemetry and savings"
   ],
   "OFA_repeat_20261029": {
@@ -1387,7 +1387,10 @@
     "strict_auditor_sha256": "e2ee691b5b5881a0f69120035dadb5494342c1fb2cd671ff04df7e5d91f9a6c2",
     "preview_layout_fix": {
       "source_commit": "2125b7e9ce5f286cf7e3e648abe11d1a9ab3d758",
-      "height_scaled_pixels": [110, 180],
+      "height_scaled_pixels": [
+        110,
+        180
+      ],
       "scope": "Existing read-only multiline Preview only; width, staging and callbacks preserved"
     },
     "observer_correction": "Private harness sampling changed from two-second intervals with full journal writes to faster polling with observations held in memory and an explicit terminal OS snapshot. The original strict auditor remained unchanged.",
@@ -1403,5 +1406,662 @@
       "experiments/registry-overrides/ui-type4-no-peer-root-20261029/audit_external.py": "e2ee691b5b5881a0f69120035dadb5494342c1fb2cd671ff04df7e5d91f9a6c2"
     },
     "pending": "Other-family no-peer UI, post-restart failure/recovery, physical input, other adapters/layouts and physical effects."
+  },
+  "packaged_media_no_peer_20261029": {
+    "scope": "One captured configuration; separate packaged NVENC/OFA/NVJPG last-type4-role panel/helper Apply and Undo trials. No product runtime or admission change.",
+    "source_commit": "ee8dcd52fd4d7bee4237087539213fc491d68340",
+    "executable_sha256": "aaa7922e2a4b84df2ca96865e3424dc4b652ed7acbb0a2376f7b6ca75dd84cdc",
+    "package_reference": {
+      "path": "experiments/registry-overrides/ui-media-no-peer-root-20261029/trial-package-reference.json",
+      "sha256": "e44846fe097a54667184ab0d28cbfe81660ebd175a8133c5eac0500743ef3190",
+      "previous_verification": "experiments/registry-overrides/ui-type4-no-peer-root-20261029/compiled-final-package-check.json",
+      "previous_verification_sha256": "fede56b293e497f8fd4905146134f25b413e0544cedb355f617146703b846d54",
+      "source_manifest_sha256": "a9ebc529ecaa6f3ae478233149ed06e5485cb6c27d6d59da0335020198cc4610",
+      "source_manifest_files": 460,
+      "compiled_modules_previously_verified": 20
+    },
+    "cases": {
+      "nvenc": {
+        "family": "nvenc",
+        "primary": 13,
+        "alternate": 18,
+        "type4_role": 5,
+        "pstate_route_byte": 14,
+        "enable_mask": 1,
+        "target_fields": [
+          "lpwr.nvenc.0.enabled",
+          "lpwr.nvenc.1.enabled",
+          "lpwr.nvenc.2.enabled",
+          "lpwr.nvenc.3.enabled",
+          "lpwr.nvenc.4.enabled"
+        ],
+        "image_sha256": {
+          "original": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+          "setup": "4edd5ebbaecb86191904428e4eeb6818b5289adea0db2f7f99f2187b79b89e9a",
+          "active": "c8f75c367c9ee8751f0549f95c36a7e8ba7890885786e4ac5799fe2a4d2f307d"
+        },
+        "phase_GUI_PIDs": {
+          "initial": 1608,
+          "applying": 5720,
+          "restoring": 25772
+        },
+        "helpers": [
+          {
+            "action": "apply",
+            "pid": 23780,
+            "parent": 1608
+          },
+          {
+            "action": "restore",
+            "pid": 17916,
+            "parent": 5720
+          }
+        ],
+        "receipt": "Ordinary panel Apply/Undo, exact selected fields and setup/target registry and receipt verified by terminal audits.",
+        "frame_sha256": {
+          "before": "debfcbc68d74e674d3a39f6dceef916ae7d3df97ed5ae2315e8fa6fe92603de8",
+          "preview": "2b6e486333eac2db09d8b43a63295ef253661e0bbde157d84d91dde3a78e5c43",
+          "active": "b51987a3fecdea2c6f3cac4901073d30350911dce2edd54595d5dcb20cd72abe",
+          "restored": "debfcbc68d74e674d3a39f6dceef916ae7d3df97ed5ae2315e8fa6fe92603de8"
+        },
+        "source_sha256": {
+          "druta.py": "be12e1e3c80185008439e4d3042ab833605e8b76295ec5215fc2fa3c6a3a38b4",
+          "grpg_runtime.py": "eae295d031f6c12712014b50417eb0051e78d9ad36eff7b4d5d67d7611d221a1",
+          "media_lpwr_runtime.py": "823c6083c949edcb07f8ebe60ffea11eca76994710f253f3c3db948aeb6245ef",
+          "nvdec_runtime.py": "bf234e1876b29d537485acadf1248c9bd8affff05028bdb461abd928e0efe0c6",
+          "registry_overrides.py": "b67080f4b635d7ae7903a87e0fc2da6a224f7424064459a09e29d14941c0bd29",
+          "registry_panel.py": "de6c89f7f96fb42473b01b8036c68c0ac3d5448f735328984d639bb7ab995e4d",
+          "registry_ui_trial.py": "2dc273fb893bc46be20e03abb05c000143e6fa5e133167f9e7a08eb05dc9c943",
+          "vbios_fields.py": "68d6e3bff5ef194f9cfd751ec12fb62683c72ed863d8ceb564f590bd8443532e"
+        },
+        "supervisor_sha256": "a264df5d5957d8f6d8c51dee5c21a4a5cfc5608fd1b2d2919e7b245250014d16",
+        "executable_sha256": "aaa7922e2a4b84df2ca96865e3424dc4b652ed7acbb0a2376f7b6ca75dd84cdc",
+        "GPU_only_restarts": 4,
+        "original_restored": true,
+        "evidence_sha256": {
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/packaged-nvenc-no-peer-1-supervisor.json": "0c9ccb12e53ec7cf1dfe00704908a6ccf8457064bef14aa299cea9758609a264",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/nvenc-root-ui-audit.json": "c27acd4f1d4dcca6a610ca112acf1484ea07dffa220be5c16f1b4cd93db230b2",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/nvenc-root-external-audit.json": "a4eac5bb3ff2db10a71f68ad3f2d8ce91bd4aa1cc247de9518b73cdc41a77eff",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/nvenc-terra-ui-audit.json": "c27acd4f1d4dcca6a610ca112acf1484ea07dffa220be5c16f1b4cd93db230b2",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/nvenc-terra-external-audit.json": "a4eac5bb3ff2db10a71f68ad3f2d8ce91bd4aa1cc247de9518b73cdc41a77eff",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/nvenc-luna-visual-review.json": "e829a6531f84694f5f5ce69af46b352fbc1cd5e3c24e57856b9fbcaa63eff39b",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/packaged-nvenc-no-peer-1/trial.json": "c68aa07426be9f40074df3e2d67a1f0f2b9657d9b3079d8ff98ca9f17104ecdd",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/packaged-nvenc-no-peer-1/trial-result.json": "86f1ffc12228f5b69c344e6321a914f41c9612fb32007c5ef1884d52ea22157c",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/packaged-nvenc-no-peer-1/lpwr-initial.json": "63c57e0dafb70f20abbecc811a9dda4ad7bcdfeaffa548c3a8fa80d504277366",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/packaged-nvenc-no-peer-1/lpwr-before.json": "c5f77d5437256fa83a1cd030400a9957b2b3bf10b008559b44cce385d9aa81a6",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/packaged-nvenc-no-peer-1/lpwr-active.json": "4bc8b031894f0e35a69f8847fc169526c02332fa6c281ef413ac9b8abce4d500",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/packaged-nvenc-no-peer-1/lpwr-restored.json": "a857505b18e6ff1bf120f578de1be72349861720bb1b99122d8b6c36e19781d4",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/packaged-nvenc-no-peer-1/initial/manifest.json": "d0a60771eb3fb002763ab1ea7c67fec6cfabf245b2c1da47b3d5f7f6953864af",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/packaged-nvenc-no-peer-1/applying/manifest.json": "99682daa6db4acb59c3b64e32b9dbc4290c85759fb31d1d97e566ec835f1146d",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/packaged-nvenc-no-peer-1/restoring/manifest.json": "aa71a60dd58ce98dd94a6cdaddea10bd9c4b72461e1185c126a887980c55ec17",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/nvenc-root-terminal-review.json": "ed830b59b476dc5c1bdadeb21bf91b9e8b2a39a01b83a1055fa05a785b2c2081",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/nvenc-root-visual-review.json": "3a48b36e3b680e7e8e645ea637ea753c4aa04328d5fa3f51cf9b74321d73cc9d"
+        },
+        "terminal_session": 23621,
+        "receipt_sha256": "b0334b7beacd448151396ff91f8075ede6382198b9a0aa5df220b4b68bc93f0f",
+        "receipt_scope": "Restored target receipt; GUI Undo returns temporary setup, supervisor then restores original.",
+        "setup_patches_byte_changes": [
+          {
+            "offset": 253661,
+            "before": "6b",
+            "after": "69"
+          },
+          {
+            "offset": 253666,
+            "before": "6b",
+            "after": "69"
+          },
+          {
+            "offset": 253671,
+            "before": "63",
+            "after": "61"
+          },
+          {
+            "offset": 254627,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254629,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254631,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254633,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254635,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254667,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254669,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254671,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254673,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254675,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254687,
+            "before": "f7",
+            "after": "f5"
+          },
+          {
+            "offset": 254689,
+            "before": "f7",
+            "after": "f5"
+          },
+          {
+            "offset": 254691,
+            "before": "f7",
+            "after": "f5"
+          },
+          {
+            "offset": 254693,
+            "before": "f7",
+            "after": "f5"
+          },
+          {
+            "offset": 254695,
+            "before": "f7",
+            "after": "f5"
+          }
+        ],
+        "active_patches_byte_changes": [
+          {
+            "offset": 254647,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254649,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254651,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254653,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254655,
+            "before": "eb",
+            "after": "ea"
+          }
+        ],
+        "difference_paths_when_nonexact": [
+          "voltage.broad.broad.driver_flags.control_sha256",
+          "voltage.broad.broad.driver_flags.entries[13].control_hex"
+        ],
+        "all_32_broad_curves_exact": true,
+        "strict_window_pattern": {
+          "before": "8/8 exact",
+          "setup": "samples 0-3 differ; 4-7 exact",
+          "undo_setup": "sample 0 differs; 1-7 exact",
+          "final": "samples 0-2 differ; 3-7 exact"
+        }
+      },
+      "ofa": {
+        "family": "ofa",
+        "primary": 14,
+        "alternate": 19,
+        "type4_role": 7,
+        "pstate_route_byte": 15,
+        "enable_mask": 1,
+        "target_fields": [
+          "lpwr.ofa.0.enabled",
+          "lpwr.ofa.1.enabled",
+          "lpwr.ofa.2.enabled",
+          "lpwr.ofa.3.enabled",
+          "lpwr.ofa.4.enabled"
+        ],
+        "image_sha256": {
+          "original": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+          "setup": "389e42fddb33dcc03510c39e8067c2c8105add4689c3b753e5247d11c20fe315",
+          "active": "c8f75c367c9ee8751f0549f95c36a7e8ba7890885786e4ac5799fe2a4d2f307d"
+        },
+        "phase_GUI_PIDs": {
+          "initial": 28840,
+          "applying": 8084,
+          "restoring": 10300
+        },
+        "helpers": [
+          {
+            "action": "apply",
+            "pid": 27588,
+            "parent": 28840
+          },
+          {
+            "action": "restore",
+            "pid": 27204,
+            "parent": 8084
+          }
+        ],
+        "receipt": "Ordinary panel Apply/Undo, exact selected fields and setup/target registry and receipt verified by terminal audits.",
+        "frame_sha256": {
+          "before": "f50fb9c55890569bf7055d884e966fb54791fab820c3c96c7fb988b0e97472f7",
+          "preview": "900cc7e4b5613ca0a076dd2d9013aaff1fde6994fe2566310548889635a72670",
+          "active": "d3382ad2b000cd3f2c4c98f9918211e9bdbfbb7bd72aff9f83d0cd4a64a123ce",
+          "restored": "f50fb9c55890569bf7055d884e966fb54791fab820c3c96c7fb988b0e97472f7"
+        },
+        "source_sha256": {
+          "druta.py": "be12e1e3c80185008439e4d3042ab833605e8b76295ec5215fc2fa3c6a3a38b4",
+          "grpg_runtime.py": "eae295d031f6c12712014b50417eb0051e78d9ad36eff7b4d5d67d7611d221a1",
+          "media_lpwr_runtime.py": "823c6083c949edcb07f8ebe60ffea11eca76994710f253f3c3db948aeb6245ef",
+          "nvdec_runtime.py": "bf234e1876b29d537485acadf1248c9bd8affff05028bdb461abd928e0efe0c6",
+          "registry_overrides.py": "b67080f4b635d7ae7903a87e0fc2da6a224f7424064459a09e29d14941c0bd29",
+          "registry_panel.py": "de6c89f7f96fb42473b01b8036c68c0ac3d5448f735328984d639bb7ab995e4d",
+          "registry_ui_trial.py": "2dc273fb893bc46be20e03abb05c000143e6fa5e133167f9e7a08eb05dc9c943",
+          "vbios_fields.py": "68d6e3bff5ef194f9cfd751ec12fb62683c72ed863d8ceb564f590bd8443532e"
+        },
+        "supervisor_sha256": "a264df5d5957d8f6d8c51dee5c21a4a5cfc5608fd1b2d2919e7b245250014d16",
+        "executable_sha256": "aaa7922e2a4b84df2ca96865e3424dc4b652ed7acbb0a2376f7b6ca75dd84cdc",
+        "GPU_only_restarts": 4,
+        "original_restored": true,
+        "evidence_sha256": {
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/packaged-ofa-no-peer-1-supervisor.json": "2377366a48da556854247049d2428d152bdf892bddf3a940ae77f402ab607e2e",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/ofa-root-ui-audit.json": "80d82a29354959c85633e8c7354f15d51023ea450da924f9eeb56a89aa508446",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/ofa-root-external-audit.json": "6da3bbd4902cbdc933928ac0201587b41776b243b6df5296daf88933e284ff38",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/ofa-terra-ui-audit.json": "80d82a29354959c85633e8c7354f15d51023ea450da924f9eeb56a89aa508446",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/ofa-terra-external-audit.json": "6da3bbd4902cbdc933928ac0201587b41776b243b6df5296daf88933e284ff38",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/ofa-luna-visual-review.json": "6d8bcc7fdc803771ca665dd5c69d0309666c68be6fe1790c30b501c1f9eda4e7",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/packaged-ofa-no-peer-1/trial.json": "b5d799a8e5da970ef22d475d135a4c658bc570a3331cd314e76c906fb5ba8669",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/packaged-ofa-no-peer-1/trial-result.json": "192604bcfb892e58511f88ec34625920506e9823555c8da14ae174358081eb9c",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/packaged-ofa-no-peer-1/lpwr-initial.json": "0c445fa0f19fa861709abac58ebb796fd950bd5d8168723d665e770de57ae7cb",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/packaged-ofa-no-peer-1/lpwr-before.json": "b98d23a45375a5c7fef985f2c163185a678f37e555471f6c901dd0374cff5369",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/packaged-ofa-no-peer-1/lpwr-active.json": "42977cdef5d300d5014d34d81d30cac5ca2d28d4c3b3430a63d9f205b773ad00",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/packaged-ofa-no-peer-1/lpwr-restored.json": "de7bd035a461dbacd8f9e62e1853efb5dd626f70725ae7df2125c9b2bd933862",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/packaged-ofa-no-peer-1/initial/manifest.json": "57140b8576cc3814875e13738eec667e0e4e74832e389e7bcc1995453f4f1970",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/packaged-ofa-no-peer-1/applying/manifest.json": "f723926abab8ea42df4c10798ccc84827e50107367017c6bbcbbb5b065805231",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/packaged-ofa-no-peer-1/restoring/manifest.json": "dc09968c1af28a96739d8e6e8d6d72c82c9b3156a1e0ebb8bf19f8ac407c404f",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/ofa-root-terminal-review.json": "1375461f30a61eca8fdfdc2084046b1fd4206ec04aa259b87e678a54231a1492",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/ofa-root-visual-review.json": "17c89ac7b91cf32115b14aeed51554496cbde5931965ffa3d672bad15f7cd8ed"
+        },
+        "terminal_session": 74167,
+        "receipt_sha256": "f14528d6e05c5345bcbb6d7c87b3a249eb2a498bbbea4724bec37c437ae20fe0",
+        "receipt_scope": "Restored target receipt; GUI Undo returns temporary setup, supervisor then restores original.",
+        "setup_patches_byte_changes": [
+          {
+            "offset": 253661,
+            "before": "6b",
+            "after": "69"
+          },
+          {
+            "offset": 253666,
+            "before": "6b",
+            "after": "69"
+          },
+          {
+            "offset": 253671,
+            "before": "63",
+            "after": "61"
+          },
+          {
+            "offset": 254627,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254629,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254631,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254633,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254635,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254647,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254649,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254651,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254653,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254655,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254687,
+            "before": "f7",
+            "after": "f5"
+          },
+          {
+            "offset": 254689,
+            "before": "f7",
+            "after": "f5"
+          },
+          {
+            "offset": 254691,
+            "before": "f7",
+            "after": "f5"
+          },
+          {
+            "offset": 254693,
+            "before": "f7",
+            "after": "f5"
+          },
+          {
+            "offset": 254695,
+            "before": "f7",
+            "after": "f5"
+          }
+        ],
+        "active_patches_byte_changes": [
+          {
+            "offset": 254667,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254669,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254671,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254673,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254675,
+            "before": "eb",
+            "after": "ea"
+          }
+        ],
+        "difference_paths_when_nonexact": [
+          "voltage.broad.broad.driver_flags.control_sha256",
+          "voltage.broad.broad.driver_flags.entries[13].control_hex"
+        ],
+        "all_32_broad_curves_exact": true,
+        "strict_window_pattern": {
+          "before": "8/8 exact",
+          "setup": "samples 0-3 differ; 4-7 exact",
+          "undo_setup": "sample 0 differs; 1-7 exact",
+          "final": "samples 0-2 differ; 3-7 exact"
+        }
+      },
+      "nvjpg": {
+        "family": "nvjpg",
+        "primary": 15,
+        "alternate": null,
+        "type4_role": 6,
+        "pstate_route_byte": 16,
+        "enable_mask": 2,
+        "target_fields": [
+          "lpwr.nvjpg.0.enabled",
+          "lpwr.nvjpg.1.enabled",
+          "lpwr.nvjpg.2.enabled",
+          "lpwr.nvjpg.3.enabled",
+          "lpwr.nvjpg.4.enabled"
+        ],
+        "image_sha256": {
+          "original": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+          "setup": "c72cc0cba38bc908bd391ae7ec66cfb28318ec4c2dfec07795cc226011b5ae95",
+          "active": "c8f75c367c9ee8751f0549f95c36a7e8ba7890885786e4ac5799fe2a4d2f307d"
+        },
+        "phase_GUI_PIDs": {
+          "initial": 18588,
+          "applying": 25396,
+          "restoring": 12172
+        },
+        "helpers": [
+          {
+            "action": "apply",
+            "pid": 27880,
+            "parent": 18588
+          },
+          {
+            "action": "restore",
+            "pid": 4780,
+            "parent": 25396
+          }
+        ],
+        "receipt": "Ordinary panel Apply/Undo, exact selected fields and setup/target registry and receipt verified by terminal audits.",
+        "frame_sha256": {
+          "before": "ec5ede709a8da6d813a8a418c91f8a6c563e5d2c86b1d72c87644ab44e593ee1",
+          "preview": "ed9b7fdacff5b61dbaa33d1969e23a32e51a6b1224ac519bf69f59da63e259bd",
+          "active": "a1bd7c979812aa4fb36edb54ad1e08e9b01fd75f63b593c12c4b0f7792011a8b",
+          "restored": "ec5ede709a8da6d813a8a418c91f8a6c563e5d2c86b1d72c87644ab44e593ee1"
+        },
+        "source_sha256": {
+          "druta.py": "be12e1e3c80185008439e4d3042ab833605e8b76295ec5215fc2fa3c6a3a38b4",
+          "grpg_runtime.py": "eae295d031f6c12712014b50417eb0051e78d9ad36eff7b4d5d67d7611d221a1",
+          "media_lpwr_runtime.py": "823c6083c949edcb07f8ebe60ffea11eca76994710f253f3c3db948aeb6245ef",
+          "nvdec_runtime.py": "bf234e1876b29d537485acadf1248c9bd8affff05028bdb461abd928e0efe0c6",
+          "registry_overrides.py": "b67080f4b635d7ae7903a87e0fc2da6a224f7424064459a09e29d14941c0bd29",
+          "registry_panel.py": "de6c89f7f96fb42473b01b8036c68c0ac3d5448f735328984d639bb7ab995e4d",
+          "registry_ui_trial.py": "2dc273fb893bc46be20e03abb05c000143e6fa5e133167f9e7a08eb05dc9c943",
+          "vbios_fields.py": "68d6e3bff5ef194f9cfd751ec12fb62683c72ed863d8ceb564f590bd8443532e"
+        },
+        "supervisor_sha256": "a264df5d5957d8f6d8c51dee5c21a4a5cfc5608fd1b2d2919e7b245250014d16",
+        "executable_sha256": "aaa7922e2a4b84df2ca96865e3424dc4b652ed7acbb0a2376f7b6ca75dd84cdc",
+        "GPU_only_restarts": 4,
+        "original_restored": true,
+        "evidence_sha256": {
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/packaged-nvjpg-no-peer-1-supervisor.json": "972105ccd5fd2b50a154b986581694266ce8e7251376cfc5517b7ad0535e0363",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/nvjpg-root-ui-audit.json": "28ddbdf7297ae455d2ad6894fdaded6470bf4e5e69d073d8a65fd7689b166f4e",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/nvjpg-root-external-audit.json": "49cdc85f0c8cdfbebb94b6859304f2b69fc4a6c15ba115daf954df9de75c3628",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/nvjpg-terra-ui-audit.json": "28ddbdf7297ae455d2ad6894fdaded6470bf4e5e69d073d8a65fd7689b166f4e",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/nvjpg-terra-external-audit.json": "49cdc85f0c8cdfbebb94b6859304f2b69fc4a6c15ba115daf954df9de75c3628",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/nvjpg-luna-visual-review.json": "b7012fa5a1d585eb05f305de6187ee825298672b00133679574340894b284ddb",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/packaged-nvjpg-no-peer-1/trial.json": "5216fa6371e73048509c2bba63841bbf9172eeb99eea649f42d9ebecfdbd6783",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/packaged-nvjpg-no-peer-1/trial-result.json": "021de5a0aeda1e3890a4d150f2c801c12f13a5f6695b62e043d1614d43a823c6",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/packaged-nvjpg-no-peer-1/lpwr-initial.json": "0eeb8b16bfe4a9e24b81d5f38edd4edc3fb8d98711674ce9557bf92b2bf45648",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/packaged-nvjpg-no-peer-1/lpwr-before.json": "b3e5cb20ef1726a6e566f08daf84bc14a18b049f1f37772ffae390e5dafa1d50",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/packaged-nvjpg-no-peer-1/lpwr-active.json": "aa5403827a9f430b3004a31f67baa3331c045657f630c7977b682b902828c8c4",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/packaged-nvjpg-no-peer-1/lpwr-restored.json": "c4d07cea3424717dc528a5fcfccc277527aef027575f61d6c77672dc457d3c3b",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/packaged-nvjpg-no-peer-1/initial/manifest.json": "8b77676c9bed1e4e10c3bfbd66ccce4b8e552644f55212599756914f02fcbde4",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/packaged-nvjpg-no-peer-1/applying/manifest.json": "6544321ba88deb3259dde5393bc2035ade6c301260a3a83dbf0f3402b088ff35",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/packaged-nvjpg-no-peer-1/restoring/manifest.json": "caed51199971395230718a243c8522b489bd06e46e181c93f910145aa92648aa",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/nvjpg-root-terminal-review.json": "97b7ca726c421d02f2c7b4deec609212ea57b6be9b92f3d4ea09a33e52f9f4de",
+          "experiments/registry-overrides/ui-media-no-peer-root-20261029/nvjpg-root-visual-review.json": "84f28586a00e53de108e7dc75cda2093d61f1ae7653a53ffa100561bcdbd2b6d"
+        },
+        "terminal_session": 32346,
+        "receipt_sha256": "9cfb22b0cb8646b582371f4d79441065c2cd845d3dad25548c33aed455486998",
+        "receipt_scope": "Restored target receipt; GUI Undo returns temporary setup, supervisor then restores original.",
+        "setup_patches_byte_changes": [
+          {
+            "offset": 253661,
+            "before": "6b",
+            "after": "69"
+          },
+          {
+            "offset": 253666,
+            "before": "6b",
+            "after": "69"
+          },
+          {
+            "offset": 253671,
+            "before": "63",
+            "after": "61"
+          },
+          {
+            "offset": 254627,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254629,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254631,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254633,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254635,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254647,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254649,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254651,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254653,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254655,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254667,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254669,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254671,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254673,
+            "before": "eb",
+            "after": "ea"
+          },
+          {
+            "offset": 254675,
+            "before": "eb",
+            "after": "ea"
+          }
+        ],
+        "active_patches_byte_changes": [
+          {
+            "offset": 254687,
+            "before": "f7",
+            "after": "f5"
+          },
+          {
+            "offset": 254689,
+            "before": "f7",
+            "after": "f5"
+          },
+          {
+            "offset": 254691,
+            "before": "f7",
+            "after": "f5"
+          },
+          {
+            "offset": 254693,
+            "before": "f7",
+            "after": "f5"
+          },
+          {
+            "offset": 254695,
+            "before": "f7",
+            "after": "f5"
+          }
+        ],
+        "difference_paths_when_nonexact": [
+          "voltage.broad.broad.driver_flags.control_sha256",
+          "voltage.broad.broad.driver_flags.entries[13].control_hex"
+        ],
+        "all_32_broad_curves_exact": true,
+        "strict_window_pattern": {
+          "before": "8/8 exact",
+          "setup": "samples 0-3 differ; 4-7 exact",
+          "undo_setup": "sample 0 differs; 1-7 exact",
+          "final": "samples 0-2 differ; 3-7 exact"
+        }
+      }
+    },
+    "configuration": "Each setup changes 18 understood enable/GRPG bits; the target Apply changes five enable bits only. Full image, registry, receipt, LPWR raw/opaque, Pstate and client/native peers are independently audited. Native target becomes unsupported and all eleven type4 replies unavailable; this does not prove an independently read empty group mask.",
+    "restoration": "Panel Undo returns to temporary setup; supervisor then removes setup and verifies exact original image, registry and state. Before/restored frame pixels show temporary setup, not original.",
+    "visual": "Root and Luna reviewed all 12 frames: each before and Undo-to-setup shows five checked rows; active shows five read-only False labels. Each Preview shows five change lines, full no-peer explanation, restart and receipt; target checkboxes are below viewport. Before/restored PNGs match per family.",
+    "broad": "Four eight-sample windows per case, last two strict in each; setup samples 0\u20133, Undo-to-setup 0 and final 0\u20132 retain driver-flag differences. All 96 full curves exact; no independent active broad window.",
+    "GPU_only_restarts": 12,
+    "Windows_reboot": false,
+    "workload_started": false,
+    "physical_input": false,
+    "physical_effects_measured": false,
+    "validation": "209 focused panel/LPWR view/capture tests and Ruff passed after Preview height fix; the 6965-test full suite predates that fix and was not rerun.",
+    "pending": "GRPG no-peer and other dependency profiles, post-restart failure/recovery, physical input, independent group-mask readback, telemetry, other adapters/layouts and physical effects."
   }
 }

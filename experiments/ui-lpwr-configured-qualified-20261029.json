@@ -337,7 +337,7 @@
   },
   "pending": [
     "Physical mouse/keyboard input and other displays/DPI/adapters",
-    "Other-family type4 no-peer and post-restart failure/recovery walkthroughs; the separate NVDEC no-peer and peer-bearing packaged shutdown qualifications are linked below",
+    "GRPG no-peer and other dependency profiles, and post-restart failure/recovery walkthroughs; captured media-family no-peer packaged qualifications are linked below",
     "Earlier OFA all-shutdown/no-peer intermediate curve-negative records are retained; later source full-phase qualification does not extend this packaged row0 scope",
     "Curve freshness/recalculation and observer stability semantics",
     "Other field types, cross-generation validation and physical residency/power effects"
@@ -489,5 +489,6 @@
     },
     "pending": "Other schema5 conditional profiles, no-peer UI, recovery, physical input and effects, other adapters/layouts."
   },
-  "later_NVDEC_no_peer_callback": "See media-type4-last-role-qualified-20261029.json packaged_NVDEC_no_peer_20261029: three packaged attempts preserve an OS-observer negative and a clipped Preview negative; the fixed-height third passes strict and visual checks. Undo returns temporary setup, then the supervisor restores original. Twelve GPU-only restarts are separate from this original row0 series; no independent active broad window or physical input/effects claim."
+  "later_NVDEC_no_peer_callback": "See media-type4-last-role-qualified-20261029.json packaged_NVDEC_no_peer_20261029: three packaged attempts preserve an OS-observer negative and a clipped Preview negative; the fixed-height third passes strict and visual checks. Undo returns temporary setup, then the supervisor restores original. Twelve GPU-only restarts are separate from this original row0 series; no independent active broad window or physical input/effects claim.",
+  "later_media_no_peer_callback": "See media-type4-last-role-qualified-20261029.json packaged_media_no_peer_20261029 for separately scoped NVENC/OFA/NVJPG packaged last-role callbacks. Undo returns temporary setup; the supervisor then restores original. Twelve restarts are separate from earlier series; no active broad window, independent empty-mask, physical-input or effect claim."
 }
