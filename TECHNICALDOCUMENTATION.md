@@ -2155,6 +2155,29 @@ requests matched, and the final baseline was restored exactly. This trial did
 not test the conditional loss of controller2 or controller4, establish broader
 hardware qualification, or measure physical residency.
 
+A later packaged trial disabled all three enabled GRPG rows using the ordinary
+panel, durable helper and Undo. Main0 became unsupported with mask and feature
+unavailable; controller2 was already unsupported and controller4 remained
+supported. The standalone auxiliary feature row was marked unavailable, with
+its raw value uninterpreted; the bulk row was absent. Controller9 feature Fh became
+7h, type1 role0 support/mask became valid zero, type4 role0 became unavailable
+and type7 remained available through the MS peer. Full LPWR packet and opaque
+peer projections, P-state, client/native requests and original restoration
+were independently audited. This does not qualify the conditional loss of
+controller2 or 4.
+
+Root and Luna inspected all four frames: three checked boxes before and after,
+three blank boxes and change lines in Preview, and three read-only False labels
+active. The Preview shows the main support and P5/P8 unavailable clauses; the
+far-right generic caption tail has no separate legibility qualification.
+Before/restored images are byte-identical. All eight before samples matched;
+final samples 0-2 retained BOOST_LOW request/hash differences and 3-7 matched.
+All sixteen before/final curves matched without exclusions. There was no
+independent active broad window, physical input or physical effect measurement.
+This packaged trial used two GPU-only restarts. No-peer UI, failure/recovery
+and other configurations remain pending.
+[Packaged GRPG evidence](experiments/ui-lpwr-configured-qualified-20261029.json).
+
 The initial schema6 qualification covered aggregate loss10h: disabling the last
 routed raw-bit4 contributor while main controller0 and an independently
 supported type7 peer remain. It reads the complete dependency scope and verifies role0

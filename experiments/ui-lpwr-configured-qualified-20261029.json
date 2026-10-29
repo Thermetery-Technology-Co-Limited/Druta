@@ -337,7 +337,7 @@
   },
   "pending": [
     "Physical mouse/keyboard input and other displays/DPI/adapters",
-    "GRPG full shutdown, type4 no-peer and post-restart failure/recovery walkthroughs; later MS, NVDEC and media peer-bearing packaged shutdown qualifications are linked below",
+    "Type4 no-peer and post-restart failure/recovery walkthroughs; separately scoped GRPG, MS, NVDEC and media packaged shutdown qualifications are linked below",
     "Earlier OFA all-shutdown/no-peer intermediate curve-negative records are retained; later source full-phase qualification does not extend this packaged row0 scope",
     "Curve freshness/recalculation and observer stability semantics",
     "Other field types, cross-generation validation and physical residency/power effects"
@@ -346,5 +346,147 @@
   "later_MS_compound_callback": "See ms-configured-qualified-20261029.json partial_aggregate_extension_20261029.packaged_callback_qualification for the separate schema2 rows0/1 callback/framebuffer trial, four visually inspected frames, exact native/client/receipt/Undo and last-two strict final broad match; all early BOOST_LOW negatives retained. No physical input or independent active broad window added. Its two GPU restarts are excluded from this original row0 series'14.",
   "later_MS_full_shutdown_callback": "See ms-configured-qualified-20261029.json packaged_full_shutdown_20261029 for schema1 disabling all3enabledMSrows, corrected four visually inspected frames and exact native/client/receipt/Undo. Attempt1's collapsed active frame and all early BOOST_LOW negatives remain retained. The4GPUrestarts are excluded from this original row0series14. Other-family shutdown/no-peer, physical input and recovery remain pending; no independent active broad window is added",
   "later_NVDEC_full_shutdown_callback": "See nvdec-configured-qualified-20261029.json packaged_full_shutdown_20261029: existing schema1 disables all five enabled NVDEC rows through packaged panel/helper/relaunch and durable Undo, with exact native/client/receipt recovery. All four framebuffers inspected by root/Luna; Preview qualifies the five change lines, while its checkbox rows are below the viewport. Final samples0-2 retain driver-flag differences and samples3-7 match; all16 before/final curves match. Its two GPU restarts are separate from this original row0 series14. Other-family shutdown/no-peer, physical input and failure/recovery remain pending; no independent active broad window added",
-  "later_media_full_shutdown_callback": "See media-lpwr-configured-qualified-20261029.json packaged_full_shutdown_20261029 for separate five-row peer-bearing NVENC/OFA/NVJPG panel/helper/Undo trials. Preview change lines are visible but checkbox rows are below viewport; all before/final curves match and early driver-flag differences are retained. Six restarts are separate from the original row0 series. No independent active broad window, physical input or effects claim."
+  "later_media_full_shutdown_callback": "See media-lpwr-configured-qualified-20261029.json packaged_full_shutdown_20261029 for separate five-row peer-bearing NVENC/OFA/NVJPG panel/helper/Undo trials. Preview change lines are visible but checkbox rows are below viewport; all before/final curves match and early driver-flag differences are retained. Six restarts are separate from the original row0 series. No independent active broad window, physical input or effects claim.",
+  "packaged_GRPG_full_shutdown_20261029": {
+    "scope": "One captured configuration, programmatic packaged panel callbacks and durable helper Apply/Undo for all three enabled GRPG rows; no product runtime or admission change.",
+    "command": "--ui-capture-lpwr-rows gr_pg 0,1,2 NEW_DIRECTORY",
+    "contract": "Existing GRPG schema5, outer version1; all three selected byte bit0 fields verified on Apply and Undo",
+    "source_commit": "2f32fbe45bd96ce1ebcca9bdede98f3637860688",
+    "executable_sha256": "ba57c070cb78e2f10936e00191693d0c129cb633b7a0f82ac40cf69c319b8dec",
+    "package_provenance": "Previous verified 460 sources and 20 compiled modules, same executable; no new runtime code",
+    "session": 25518,
+    "exit_code": 0,
+    "selected_fields": [
+      "lpwr.gr_pg.0.enabled",
+      "lpwr.gr_pg.1.enabled",
+      "lpwr.gr_pg.2.enabled"
+    ],
+    "image_changes": "Three selected GRPG row byte bit0 changes only",
+    "ROM_sha256": {
+      "before": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+      "active": "d6372a72eef572b35d85ddf2cc0560f3c5a0ae97fe4d31fa46d7f127ae40cdb0",
+      "restored": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202"
+    },
+    "controller_transition": "Main0 unsupported and mask/feature unavailable; controller2 already unsupported, controller4 remains supported. Conditional losses of 2/4 are not qualified.",
+    "auxiliary_transition": "Auxiliary controller0 feature row has invalid flag and uninterpreted raw value; corresponding bulk feature row absent. Native controller9 feature 0xF to 0x7; type1 role0 support/mask valid zero; type4 role0 unavailable; type7 remains available through MS peer.",
+    "preservation": "Independent full raw LPWR packet and opaque-byte projections, full Pstate and client/native power requests, receipt, target, image and original registry restored; unselected peers retained.",
+    "GUI_PIDs": {
+      "initial": 11260,
+      "applying": 24740,
+      "restoring": 27568
+    },
+    "observed_helpers": [
+      {
+        "action": "apply",
+        "process_id": 13320,
+        "parent_pid": 11260
+      },
+      {
+        "action": "restore",
+        "process_id": 12728,
+        "parent_pid": 24740
+      }
+    ],
+    "frame_sha256": {
+      "before": "f1c3059c7e722af7e5b24a5d36c8f1dcf4f94774408da91eb1055f3a7398d8a2",
+      "preview": "96c1725fde91b045ee41ff3bb37159827c3c36919abf13f5e17eeaa66d3bb5b8",
+      "active": "45b93ee596a9137c6080b39eff21999551b77ae5ab5a9439d10441ae8de45404",
+      "restored": "f1c3059c7e722af7e5b24a5d36c8f1dcf4f94774408da91eb1055f3a7398d8a2"
+    },
+    "visual": "Root and Luna inspected four frames: all three checkboxes checked before/restored and visibly blank in Preview, with three change lines and main0 unsupported/P5-P8 unavailable clauses visible; active rows show read-only False. Far-right generic caption tail has no separate legibility qualification. Before/restored images are byte-identical.",
+    "before_broad_exact": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ],
+    "final_broad_exact": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true
+    ],
+    "final_difference_paths": [
+      [
+        "voltage.broad.broad.driver_flags.control_sha256",
+        "voltage.broad.broad.driver_flags.entries[13].control_hex"
+      ],
+      [
+        "voltage.broad.broad.driver_flags.control_sha256",
+        "voltage.broad.broad.driver_flags.entries[13].control_hex"
+      ],
+      [
+        "voltage.broad.broad.driver_flags.control_sha256",
+        "voltage.broad.broad.driver_flags.entries[13].control_hex"
+      ],
+      [],
+      [],
+      [],
+      [],
+      []
+    ],
+    "before_final_curve_changed_bytes": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "broad_scope": "Before eight exact; final 0\u20132 retain BOOST_LOW request/hash differences and 3\u20137 exact; all sixteen full curves exact without exclusions. No independent active broad window.",
+    "GPU_only_restarts": 2,
+    "physical_input": false,
+    "physical_effects_measured": false,
+    "source_sha256": {
+      "registry_ui_trial.py": "2dc273fb893bc46be20e03abb05c000143e6fa5e133167f9e7a08eb05dc9c943",
+      "druta.py": "be12e1e3c80185008439e4d3042ab833605e8b76295ec5215fc2fa3c6a3a38b4",
+      "registry_panel.py": "d3903a662398aa9aff9dadd53258f16b721bba1263d34d4ee54ab38d2c0492a0",
+      "registry_overrides.py": "b67080f4b635d7ae7903a87e0fc2da6a224f7424064459a09e29d14941c0bd29",
+      "grpg_runtime.py": "eae295d031f6c12712014b50417eb0051e78d9ad36eff7b4d5d67d7611d221a1",
+      "ms_runtime.py": "d7eafb6f6477dc52f2b5b2d1aef910eab0c214a79ce25b33971cd8c4ff474f5e",
+      "nvdec_runtime.py": "bf234e1876b29d537485acadf1248c9bd8affff05028bdb461abd928e0efe0c6",
+      "media_lpwr_runtime.py": "823c6083c949edcb07f8ebe60ffea11eca76994710f253f3c3db948aeb6245ef"
+    },
+    "private_evidence_sha256": {
+      "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/root-ui-audit.json": "db72f8da284436054e733690aa52e9dd513f1cc570f5e6b7288a2d0811634786",
+      "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/root-external-audit.json": "64d191924f9ca6376efa6ebaa3067921dd52e8a0c9816046e1d32095a42e2d31",
+      "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/luna-visual-review.json": "3472c43d5e3bb867b658b89d9097a1a05818cbfd8262c3f2998afb5ce0598926",
+      "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/trial-package-reference.json": "276e69c51ec98babfeedbcabd6dd5bbc1dfd5963066397994bed8e972541d8ff",
+      "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/packaged-grpg-shutdown-1-baseline.json": "44431bd5faa4174621b86909cfe32496ff10922226483d11939361cd47f5f5af",
+      "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/packaged-grpg-shutdown-1-launch.json": "622fa2a76ebada229cb48065550077a846a29ec958c74e24ac4c0a844d2cebc4",
+      "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/packaged-grpg-shutdown-1-root-baseline-review.json": "b77f77a0026f948ae7bf7b05aaa945ec2e9bbd98f70473aa945e97d6a925d560",
+      "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/packaged-grpg-shutdown-1-root-final.json": "8cf18a34d63c1f9f21edadb74cb6c3fcb0ef2ca1cf6d07811371fc41ba1d25f6",
+      "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/packaged-grpg-shutdown-1/trial.json": "497a0a4409e6761d005a1a3427a1ef2890025c4990fc071d700c3c7b3869a327",
+      "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/packaged-grpg-shutdown-1/trial-result.json": "5b45a285456713a236147fef37c2e2d7b0997b45e7521a832b20a2e8087fb8d7",
+      "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/packaged-grpg-shutdown-1/lpwr-initial.json": "77742a2eadf60ad876ae791c48c70dd69ea2e6117875b2c4efe2958762c2378b",
+      "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/packaged-grpg-shutdown-1/lpwr-before.json": "bb648f27eb5913c8f619a11fa499c238bf4aa956f32e7877837320d8e3149ade",
+      "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/packaged-grpg-shutdown-1/lpwr-active.json": "2d3d8df938ae2ff5036ed5effbc79e16db0d0d2d0e09378749c3647531421cb9",
+      "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/packaged-grpg-shutdown-1/lpwr-restored.json": "c1d270f696ed114b4d3eda369774139122bf0ec1fa7d64f12bf777e4e5a6e222",
+      "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/packaged-grpg-shutdown-1/initial/manifest.json": "53ec2af44fa504d5722544914061f5fa71c334141410a4f6253e6d3f308ea61a",
+      "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/packaged-grpg-shutdown-1/applying/manifest.json": "4733a04ffcb9a1a5ffcd5ff76005ad5572856e49f172258d698aed7bb61bc08e",
+      "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/packaged-grpg-shutdown-1/restoring/manifest.json": "ef579c0a1e5c54e534617a6f8eb4a14ff7b3369bc56948069c1f4ba8e0c6d2bd",
+      "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/launch_grpg.py": "97d955248aebda8f92ae6189053f26a308cc68c7f4a002c21bbe1797b741cb76",
+      "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/audit_grpg.py": "f724c221fdd89929acd3f8aa6dce4ee10549a30e745d3da1d76dfa2564a41ae0",
+      "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/audit_external.py": "005bdd32a8ba857e9458509683ec2564dd6bfb206dfe66ebc96a6c4940d9e4b6"
+    },
+    "pending": "Other schema5 conditional profiles, no-peer UI, recovery, physical input and effects, other adapters/layouts."
+  }
 }
