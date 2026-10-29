@@ -538,5 +538,107 @@
       "F219_SET": false
     },
     "capture_method": "Application framebuffer and actual callbacks; native screenshot API failed twice with0x80040154. This does not qualify physical mouse/keyboard interaction."
+  },
+  "registry_pstates_trial": {
+    "mode": "--ui-capture-pstates-trial NEW_DIRECTORY",
+    "scope": "One RTX5080/621.01 adapter; actual panel/receipt helper, framebuffer and runtime configuration. No physical input or clock setter effect is established.",
+    "field": "pstates.all_editable",
+    "observed_values": [
+      false,
+      true,
+      false
+    ],
+    "source": {
+      "state": "complete",
+      "captures": [
+        {
+          "phase": "initial",
+          "stage": "before",
+          "width": 1528,
+          "height": 1261,
+          "sha256": "1ad163b399ec1580f2eb32ed0e6f9cf3b417305ba1ab82fdaed81facdfe89648",
+          "ui": {
+            "checkbox": false,
+            "status": "Read 340 fields from <selected adapter>.",
+            "preview": "Values staged in this window. Preview changes before applying."
+          }
+        },
+        {
+          "phase": "initial",
+          "stage": "preview",
+          "width": 1528,
+          "height": 1261,
+          "sha256": "e4890e366d3bde14ef8dc4d8e33b1fc25882b178990c0407a341f5eb0f1c83a2",
+          "ui": {
+            "checkbox": true,
+            "status": "Preview ready. Registry settings have not changed.",
+            "preview": "Expose all-P-state overclocking editability: disabled -> enabled\nGPU restart required. Undo saved before applying.\nReceipt: <private local receipt>"
+          }
+        },
+        {
+          "phase": "applying",
+          "stage": "active",
+          "width": 1528,
+          "height": 1261,
+          "sha256": "c43952657ff4978cb9ba381477eafd9a566ae62f0396e290638f87030f7be483",
+          "ui": {
+            "checkbox": true,
+            "status": "Read 340 fields from <selected adapter>. Last transaction: active.",
+            "preview": "Values staged in this window. Preview changes before applying."
+          }
+        },
+        {
+          "phase": "restoring",
+          "stage": "restored",
+          "width": 1528,
+          "height": 1261,
+          "sha256": "031ebadc90f57935499240dc54a41707082ac5066d5f3c9e6a9def6619f4ad4b",
+          "ui": {
+            "checkbox": false,
+            "status": "Read 340 fields from <selected adapter>.",
+            "preview": "Values staged in this window. Preview changes before applying."
+          }
+        }
+      ],
+      "independent_checks": {
+        "complete_independent_original_configuration": true,
+        "receipt_restored": true,
+        "same_target": true,
+        "only_selected_change": true,
+        "before_active_restored_enabled": true,
+        "both_helper_results_verified": true,
+        "full_pstate_contracts_verified": true
+      },
+      "helper_results_verified": 2,
+      "GPU_only_restarts": 2,
+      "original_registry_and_configuration_restored": true
+    },
+    "packaged": {
+      "state": "pending qualification"
+    },
+    "preview_preflight": {
+      "real_panel_prepare": true,
+      "launcher_intentionally_blocked_before_mutation": true,
+      "full_independent_before_after_equal": true
+    },
+    "validation": {
+      "full_suite_passed": 6517,
+      "full_suite_seconds": 115.91,
+      "focused_UI_and_registry_tests_passed": 187,
+      "new_lint_diagnostics": 0,
+      "failure_and_relaunch_cases": "Hardware-free tests; the preview preflight intentionally stopped before the helper."
+    },
+    "constraints": {
+      "registry_changes": "Only the existing receipt-projected all-P-state Boolean; Undo restores the captured registry.",
+      "Windows_reboot": false,
+      "workload": false,
+      "NVIDIA_App": false,
+      "F219_SET": false
+    },
+    "remaining": [
+      "Packaged qualification for this trial.",
+      "Broader fields/adapters, post-restart failure/recovery states and physical input.",
+      "Other PR39 research and control qualifications remain open."
+    ]
   }
 }

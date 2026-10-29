@@ -3135,6 +3135,19 @@ interaction. The complete suite passed 6,503 tests, including 22 capture tests.
 [Power capture evidence](experiments/ui-render-capture-20261028.json) and
 [live-panel source evidence](experiments/ui-live-panels-capture-20261028.json).
 
+The opt-in developer command `--ui-capture-pstates-trial NEW_DIRECTORY` runs one
+mutating all-P-state editability Boolean trial, returning it to the captured
+original value with two selected-GPU restarts. Windows is not rebooted. Unlike ordinary
+display-only `--ui-capture`, it uses the registry panel's normal Prepare, Apply
+and Undo callbacks and existing receipt/helper path; there is no alternate
+registry mutator. Before, preview, active and restored frames are captured while
+a durable trial record and each helper's recovery result carry state across
+fresh-process continuations. The command rejects `--startup-profile`,
+`--ui-capture` and `--ui-capture-live-vmin`. One source run verified the selected
+Boolean transition and restoration of the full normalized configuration.
+Packaged qualification remains pending, as do checks on other adapters,
+physical mouse/keyboard input and broader failure/recovery cases.
+
 ## Source for a binary release
 
 Every tagged release on GitHub carries the Corresponding Source for the

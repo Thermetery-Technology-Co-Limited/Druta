@@ -1034,7 +1034,7 @@ def prepare(
     return receipt
 
 
-def launch_helper(receipt, *, restore=False):
+def launch_helper(receipt, *, restore=False, ui_trial=None):
     command = startup.application_command(
         "--registry-overrides",
         receipt["path"],
@@ -1044,6 +1044,8 @@ def launch_helper(receipt, *, restore=False):
         str(os.getpid()),
         windowed=True,
     )
+    if ui_trial is not None:
+        command.extend(["--ui-pstates-trial-resume", str(ui_trial)])
     return subprocess.Popen(command, close_fds=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
 
 
@@ -1893,13 +1895,32 @@ def cli(argv, notify):
     parser.add_argument("receipt")
     parser.add_argument("--action", choices=("apply", "restore"), default="apply")
     parser.add_argument("--parent-pid", type=int)
+    parser.add_argument("--ui-pstates-trial-resume")
     args = parser.parse_args(argv)
     parent_exited = args.parent_pid is None
+    execute_started = False
+
+    def mark_trial_error(message, *, relaunch_error=None):
+        if not args.ui_pstates_trial_resume:
+            return
+        try:
+            trial_path = Path(args.ui_pstates_trial_resume) / "trial.json"
+            trial = startup.read_json(trial_path)
+            if isinstance(trial, dict):
+                trial["error"] = trial.get("error") or message
+                if relaunch_error is not None:
+                    trial["relaunch_error"] = relaunch_error
+                trial["phase"] = "attention"
+                startup.atomic_json(trial_path, trial)
+        except Exception:
+            pass  # The receipt remains the recovery source if the manifest cannot be saved.
+
     try:
         receipt = load_receipt(args.receipt)
         if args.parent_pid is not None:
             devicerecovery.wait_for_exit(args.parent_pid)
             parent_exited = True
+        execute_started = True
         result = execute(receipt, restore=args.action == "restore")
     except Exception as exc:
         result = {
@@ -1910,7 +1931,12 @@ def cli(argv, notify):
             "message": "Override helper failed: " + str(exc),
         }
     if not parent_exited:
+        mark_trial_error(result["message"])
         notify(result["message"] + "\nThe original Druta process is still running; no second application opened.")
+        return 1
+    if args.ui_pstates_trial_resume and not execute_started:
+        mark_trial_error(result["message"])
+        notify(result["message"] + "\nThe trial did not execute; no second application opened.")
         return 1
     # Reuse the existing recovery-result UI and avoid startup-profile restoration.
     log = startup.state_dir() / "device-recovery" / (uuid.uuid4().hex + ".json")
@@ -1925,13 +1951,16 @@ def cli(argv, notify):
             },
         )
         selection = ["--gpu", result["target"]["slot"]] if result["target"]["slot"] else []
+        resume = ["--ui-pstates-trial-resume", args.ui_pstates_trial_resume] if args.ui_pstates_trial_resume else []
         subprocess.Popen(
-            startup.application_command(*selection, "--recovery-result", str(log), windowed=True),
+            startup.application_command(*selection, "--recovery-result", str(log), *resume, windowed=True),
             close_fds=True,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except Exception as exc:
-        notify(result["message"] + "\nCould not reopen Druta: " + str(exc))
+        message = result["message"] + "\nCould not reopen Druta: " + str(exc)
+        mark_trial_error(message, relaunch_error=str(exc))
+        notify(message)
     return 0 if result["ok"] else 1
 
 

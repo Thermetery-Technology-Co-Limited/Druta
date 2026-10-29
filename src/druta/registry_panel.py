@@ -1533,7 +1533,11 @@ class RegistryPanel:
             self.status("Administrator rights are required to change GPU registry settings.", False)
             return
         try:
-            overrides.launch_helper(receipt, restore=restore)
+            trial = getattr(self.app, "_registry_ui_trial", None)
+            if trial is None:
+                overrides.launch_helper(receipt, restore=restore)
+            else:
+                overrides.launch_helper(receipt, restore=restore, ui_trial=trial)
         except Exception as exc:
             self.status("Could not start override helper: " + str(exc), False)
             return

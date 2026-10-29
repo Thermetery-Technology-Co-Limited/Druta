@@ -14103,7 +14103,7 @@ deliberately does not put behind a button."""
 
         last = 0.0
         capture = None
-        capture_pending = bool(getattr(self, "_ui_capture_dir", None))
+        capture_pending = bool(getattr(self, "_ui_capture_dir", None) or getattr(self, "_ui_pstates_trial_dir", None))
         # try/finally, not a bare loop: the tail below is what stops this app
         # leaving the card pinned, and the lock is the ONE write that outlives
         # the process unread. Anything the loop raises - a DPG call on a
@@ -14218,10 +14218,16 @@ deliberately does not put behind a button."""
                 dpg.render_dearpygui_frame()
                 if capture_pending:
                     capture_pending = False
+                    from .registry_ui_trial import RegistryUiTrial
                     from .ui_capture import LiveVminCapture, UiCapture
                     try:
-                        capture_type = LiveVminCapture if getattr(self, "_ui_capture_live_vmin", False) else UiCapture
-                        capture = capture_type(dpg, self, self._ui_capture_dir)
+                        trial_dir = getattr(self, "_ui_pstates_trial_dir", None)
+                        if trial_dir:
+                            capture = RegistryUiTrial(dpg, self, trial_dir,
+                                                      resume=getattr(self, "_ui_pstates_trial_resume", False))
+                        else:
+                            capture_type = LiveVminCapture if getattr(self, "_ui_capture_live_vmin", False) else UiCapture
+                            capture = capture_type(dpg, self, self._ui_capture_dir)
                     except Exception as exc:
                         self.log("UI capture could not start: " + str(exc), False)
         finally:
@@ -14307,6 +14313,8 @@ def main(argv=None):
     recovery_path = None
     ui_capture_dir = None
     ui_capture_live_vmin = False
+    ui_pstates_trial_dir = None
+    ui_pstates_trial_resume = False
     while argv:
         a = argv.pop(0)
         if a in ("--version", "-V"):
@@ -14330,6 +14338,12 @@ def main(argv=None):
                 return 2
             ui_capture_dir = os.path.abspath(argv.pop(0))
             ui_capture_live_vmin = a == "--ui-capture-live-vmin"
+        elif a in ("--ui-capture-pstates-trial", "--ui-pstates-trial-resume"):
+            if not argv or ui_pstates_trial_dir is not None:
+                _tell(a + " needs one directory")
+                return 2
+            ui_pstates_trial_dir = os.path.abspath(argv.pop(0))
+            ui_pstates_trial_resume = a == "--ui-pstates-trial-resume"
         elif a == "--recovery-result":
             if not argv:
                 _tell("--recovery-result needs a receipt path")
@@ -14350,13 +14364,24 @@ def main(argv=None):
                   "  --registry-recover SLOT  undo saved registry overrides without a live GPU backend\n\n"
                   "  --startup-profile  apply the opted-in sign-in profile after shutdown checks\n\n"
                   "  --ui-capture NEW_DIRECTORY  capture a display-only developer walkthrough\n"
-                  "  --ui-capture-live-vmin NEW_DIRECTORY  apply +5 mV to rail 0 VMIN, capture, then restore\n\n"
+                  "  --ui-capture-live-vmin NEW_DIRECTORY  apply +5 mV to rail 0 VMIN, capture, then restore\n"
+                  "  --ui-capture-pstates-trial NEW_DIRECTORY  preview, apply and restore the P-state gate\n\n"
                   "With no --gpu, Druta opens on the lowest PCI slot.\n"
                   "Device > Card switches cards in a running window.")
             return 0
         else:
             _tell(f"unknown argument {a!r} (try --help)")
             return 2
+    if ui_pstates_trial_dir and (ui_capture_dir or automatic or bool(recovery_path) != ui_pstates_trial_resume):
+        _tell("P-state trial cannot be combined with capture or startup; resume requires a recovery result")
+        return 2
+    if ui_pstates_trial_dir and ((ui_pstates_trial_resume and not os.path.isdir(ui_pstates_trial_dir))
+                                 or (not ui_pstates_trial_resume and os.path.exists(ui_pstates_trial_dir))):
+        _tell("P-state trial directory must be new initially and exist for resume")
+        return 2
+    if ui_pstates_trial_dir and not os.path.isdir(os.path.dirname(ui_pstates_trial_dir)):
+        _tell("P-state trial requires an existing parent directory")
+        return 2
     if ui_capture_dir and (automatic or recovery_path):
         _tell("--ui-capture cannot be combined with startup profile or recovery relaunch")
         return 2
@@ -14386,6 +14411,9 @@ def main(argv=None):
         if ui_capture_dir:
             app._ui_capture_dir = ui_capture_dir
             app._ui_capture_live_vmin = ui_capture_live_vmin
+        if ui_pstates_trial_dir:
+            app._ui_pstates_trial_dir = ui_pstates_trial_dir
+            app._ui_pstates_trial_resume = ui_pstates_trial_resume
         if recovery_path:
             try:
                 app._recovery_result = devicerecovery.read_result(recovery_path, app.gpu.slot())
