@@ -484,18 +484,23 @@ upper limits and retained signed VMIN offset. Druta checks the loaded constant
 against the reported minimum before changing it. The new reported VMIN must
 match exactly, while other policy values and requests remain unchanged.
 
-**Live REL upper bounds** provides a separate control for the loaded REL
-equation's upper bound. Read the supported rails, enter a value in mV, and use
-**Apply now** without restarting the GPU. The panel shows the loaded and
-stored upper bounds separately from reported REL, ALT and effective limits.
-The reported limits can differ from the bound. **Restore initial bound** uses
-the value first read for this adapter and loaded image in this Druta session.
+**Live REL equation bounds** changes the loaded REL equation without restarting
+the GPU. Read the supported rails and enter a value in mV. **Apply upper**
+changes only its upper bound. **Fix both bounds** sets its lower and upper
+bounds to the entered value, preserving the equation's terms and links.
+The panel shows loaded and stored bounds separately from reported REL, ALT and
+effective limits. A fixed equation head does not fix the entire chained policy
+or measured rail voltage.
+**Restore BIOS bounds** restores both bounds from the currently loaded BIOS.
+**Restore initial upper** restores only the upper value first read for this
+adapter and image in the current Druta session. Use **Restore BIOS bounds** to
+remove a changed lower bound as well.
 Live edits last for the driver session; use the BIOS fields for persistent edits.
 The evaluated V/F curve can briefly refresh after a write. A timed research
 trial returned to its original curve without a second SET. Retained voltage and
 readable clock requests are verified independently; unavailable optional
-readbacks are listed. Failed dispatched changes attempt one original-row
-restoration and report whether recovery was verified. Arbitrary rail-offset
+readbacks are listed. Failed dispatched changes attempt one restoration of the equation bounds
+captured before the write and report whether recovery was verified. Arbitrary rail-offset
 replay remains unqualified.
 Changing ALT can change the shared boost contribution and the computed REL and
 effective limits on both rails. OV can change the selected rail's effective

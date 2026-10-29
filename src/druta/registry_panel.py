@@ -170,10 +170,11 @@ class RegistryPanel:
                 tag="reg_vf_live_status",
                 wrap=self.app.s(900),
             )
-        with dpg.collapsing_header(label="Live REL upper bounds", tag="reg_rel_live_header"):
+        with dpg.collapsing_header(label="Live REL equation bounds", tag="reg_rel_live_header"):
             dpg.add_text(
-                "Change the loaded equation upper bound for this driver session without restarting the GPU. "
-                "Reported REL and ALT values can differ from the bound. Physical enforcement has not been measured.",
+                "Change the loaded REL equation bounds for this driver session without restarting the GPU. "
+                "Fix both bounds uses the entered value for both bounds; linked equations can still affect REL and ALT. "
+                "These are equation settings, not measured rail voltage.",
                 wrap=self.app.s(900),
             )
             with dpg.group(horizontal=True):
@@ -182,14 +183,22 @@ class RegistryPanel:
                     [], tag="reg_rel_live_select", width=self.app.s(220), enabled=False, callback=self.select_rel_live
                 )
                 dpg.add_input_text(
-                    label="Upper bound (mV)", tag="reg_rel_live_value", width=self.app.s(130), enabled=False
+                    label="Bound value (mV)", tag="reg_rel_live_value", width=self.app.s(130), enabled=False
                 )
-                dpg.add_button(label="Apply now", tag="reg_rel_live_apply", callback=self.apply_rel_live, enabled=False)
+                dpg.add_button(label="Apply upper", tag="reg_rel_live_apply", callback=self.apply_rel_live, enabled=False)
                 dpg.add_button(
-                    label="Restore initial bound",
+                    label="Restore initial upper",
                     tag="reg_rel_live_restore",
                     callback=self.restore_rel_live,
                     enabled=False,
+                )
+            with dpg.group(horizontal=True):
+                dpg.add_button(
+                    label="Fix both bounds", tag="reg_rel_live_fixed", callback=self.fix_rel_live, enabled=False
+                )
+                dpg.add_button(
+                    label="Restore BIOS bounds", tag="reg_rel_live_restore_bounds",
+                    callback=self.restore_rel_live_bounds, enabled=False,
                 )
             dpg.add_text("Read live bounds before changing them.", tag="reg_rel_live_status", wrap=self.app.s(900))
             dpg.add_input_text(
@@ -457,7 +466,8 @@ class RegistryPanel:
         self.rel_live_snapshot = None
         self.rel_live_choices = {}
         self.rel_live_stale = False
-        for tag in ("reg_rel_live_select", "reg_rel_live_value", "reg_rel_live_apply", "reg_rel_live_restore"):
+        for tag in ("reg_rel_live_select", "reg_rel_live_value", "reg_rel_live_apply", "reg_rel_live_restore",
+                    "reg_rel_live_fixed", "reg_rel_live_restore_bounds"):
             dpg.configure_item(tag, enabled=False)
         dpg.set_value("reg_rel_live_status", message)
         dpg.set_value("reg_rel_live_inventory", "")
@@ -481,9 +491,12 @@ class RegistryPanel:
                     for name in ("reliability", "alt_reliability", "effective")
                 ]
                 lines.append(
-                    f"{label}: loaded upper {self._rel_mv(row['upper_uv'])} mV; "
-                    f"stored upper {self._rel_mv(row['stored_upper_uv'])} mV; " + ", ".join(parts)
+                    f"{label}: loaded bounds {self._rel_mv(row['lower_uv'])} to {self._rel_mv(row['upper_uv'])} mV; "
+                    f"stored bounds {self._rel_mv(row['stored_lower_uv'])} to "
+                    f"{self._rel_mv(row['stored_upper_uv'])} mV; " + ", ".join(parts)
                 )
+                if row.get("fixed_status") != "ready":
+                    lines.append("  Fixed bounds unavailable: " + "; ".join(row.get("fixed_issues", [])))
             else:
                 lines.append(f"{label}: {row['status']}; " + "; ".join(row.get("issues", [])))
         unavailable = snapshot.get("unavailable_peers", [])
@@ -510,12 +523,19 @@ class RegistryPanel:
         dpg.set_value("reg_rel_live_value", self._rel_mv(row["upper_uv"]))
         dpg.configure_item("reg_rel_live_value", enabled=True)
         dpg.configure_item("reg_rel_live_apply", enabled=True)
+        dpg.configure_item("reg_rel_live_fixed", enabled=row.get("fixed_status") == "ready")
+        dpg.configure_item(
+            "reg_rel_live_restore_bounds",
+            enabled=row.get("fixed_status") == "ready" and
+            (row["lower_uv"], row["upper_uv"]) != (row["stored_lower_uv"], row["stored_upper_uv"]),
+        )
         initial = self.app._rel_live_initial_states[self._rel_live_key(self.rel_live_snapshot, row)]
         dpg.configure_item("reg_rel_live_restore", enabled=row["upper_uv"] != initial)
         dpg.set_value(
             "reg_rel_live_status",
             ("Previous read is stale. " if self.rel_live_stale else "")
-            + f"{row['label']}: loaded upper {self._rel_mv(row['upper_uv'])} mV.",
+            + f"{row['label']}: loaded bounds {self._rel_mv(row['lower_uv'])} "
+            + f"to {self._rel_mv(row['upper_uv'])} mV.",
         )
 
     def refresh_rel_live(self, *unused):
@@ -541,7 +561,7 @@ class RegistryPanel:
             else:
                 self._rel_live_failed(message)
 
-    def _set_rel_live(self, value):
+    def _set_rel_live(self, value, *, operation="upper"):
         if not self.app.guard():
             return
         row = self.rel_live_choices.get(dpg.get_value("reg_rel_live_select"))
@@ -555,8 +575,14 @@ class RegistryPanel:
             self._rel_live_failed("Read live bounds for the selected adapter first.")
             return
         try:
-            self._show_rel_live(self.rel_live_control.set(row["rail"], value), "Applied live. ")
-            self.app.log("Live REL bound applied.", True)
+            if operation == "fixed":
+                snapshot = self.rel_live_control.set_fixed(row["rail"], value)
+            elif operation == "restore_bounds":
+                snapshot = self.rel_live_control.restore_bounds(row["rail"])
+            else:
+                snapshot = self.rel_live_control.set(row["rail"], value)
+            self._show_rel_live(snapshot, "Applied live. ")
+            self.app.log("Live REL equation bounds applied.", True)
         except Exception as exc:
             message = "Live bound change failed: " + str(exc)
             rollback = getattr(exc, "rollback", None)
@@ -567,18 +593,27 @@ class RegistryPanel:
                     dpg.set_value("reg_rel_live_status", message)
                     self.app.log(message, False)
             elif isinstance(rollback, dict) and rollback.get("verified") and rollback.get("readback"):
-                self._show_rel_live(rollback["readback"], message + " Original bound restored. ")
+                self._show_rel_live(rollback["readback"], message + " Original bounds restored. ")
                 self.app.log(message, False)
             else:
                 self._rel_live_failed(message + " Recovery required; read and verify the current state.")
 
     def apply_rel_live(self, *unused):
+        self._apply_rel_live_value("upper")
+
+    def fix_rel_live(self, *unused):
+        self._apply_rel_live_value("fixed")
+
+    def _apply_rel_live_value(self, operation):
         try:
             value = self._parse_live_mv(dpg.get_value("reg_rel_live_value"))
         except (AttributeError, TypeError, ValueError, InvalidOperation):
             dpg.set_value("reg_rel_live_status", "Enter a finite mV value with whole-microvolt precision.")
             return
-        self._set_rel_live(value)
+        self._set_rel_live(value, operation=operation)
+
+    def restore_rel_live_bounds(self, *unused):
+        self._set_rel_live(None, operation="restore_bounds")
 
     def restore_rel_live(self, *unused):
         row = self.rel_live_choices.get(dpg.get_value("reg_rel_live_select"))

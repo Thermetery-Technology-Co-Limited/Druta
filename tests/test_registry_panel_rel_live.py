@@ -20,8 +20,11 @@ def snapshot():
                 "label": "NVVDD",
                 "equation": 3,
                 "status": "ready",
+                "fixed_status": "ready",
+                "fixed_issues": [],
                 "issues": [],
                 "lower_uv": 900000,
+                "stored_lower_uv": 900000,
                 "upper_uv": 1120000,
                 "stored_upper_uv": 1120000,
                 "policy_uv": {"reliability": 1040000, "alt_reliability": 1060000, "effective": 1040000},
@@ -36,7 +39,8 @@ def view(monkeypatch):
     dpg.create_context()
     app = SimpleNamespace(gpu=SimpleNamespace(slot=lambda: "A"), guard=Mock(return_value=True), log=Mock())
     panel = RegistryPanel(app)
-    controller = SimpleNamespace(gpu=app.gpu, read=Mock(return_value=snapshot()), set=Mock())
+    controller = SimpleNamespace(gpu=app.gpu, read=Mock(return_value=snapshot()), set=Mock(),
+                                 set_fixed=Mock(), restore_bounds=Mock())
     monkeypatch.setitem(
         sys.modules, "druta.voltage_rel_live", SimpleNamespace(VoltageRelController=lambda gpu: controller)
     )
@@ -45,6 +49,8 @@ def view(monkeypatch):
         dpg.add_input_text(tag="reg_rel_live_value")
         dpg.add_button(tag="reg_rel_live_apply")
         dpg.add_button(tag="reg_rel_live_restore")
+        dpg.add_button(tag="reg_rel_live_fixed")
+        dpg.add_button(tag="reg_rel_live_restore_bounds")
         dpg.add_text(tag="reg_rel_live_status")
         dpg.add_input_text(tag="reg_rel_live_inventory")
     yield panel, app, controller
@@ -177,3 +183,70 @@ def test_identity_error_before_dispatch_clears_controls(view):
     panel.apply_rel_live()
     assert not enabled("reg_rel_live_apply")
     assert panel.rel_live_snapshot is None
+
+
+def test_fixed_bounds_and_bios_restore_use_distinct_actions(view):
+    panel, _, controller = view
+    panel.refresh_rel_live()
+    assert not enabled("reg_rel_live_restore_bounds")
+    updated = snapshot()
+    updated["rows"][0].update(lower_uv=1045000, upper_uv=1045000)
+    controller.set_fixed.return_value = updated
+    dpg.set_value("reg_rel_live_value", "1045")
+    panel.fix_rel_live()
+    controller.set_fixed.assert_called_once_with(0, 1045000)
+    controller.set.assert_not_called()
+    assert enabled("reg_rel_live_restore_bounds")
+    inventory = dpg.get_value("reg_rel_live_inventory")
+    assert "loaded bounds 1045 to 1045 mV" in inventory
+    assert "stored bounds 900 to 1120 mV" in inventory
+    controller.restore_bounds.return_value = snapshot()
+    panel.restore_rel_live_bounds()
+    controller.restore_bounds.assert_called_once_with(0)
+    assert not enabled("reg_rel_live_restore_bounds")
+
+
+def test_fixed_invalid_input_and_guard_never_dispatch(view):
+    panel, app, controller = view
+    panel.refresh_rel_live()
+    dpg.set_value("reg_rel_live_value", "1045.0001")
+    panel.fix_rel_live()
+    controller.set_fixed.assert_not_called()
+    app.guard.return_value = False
+    dpg.set_value("reg_rel_live_value", "1045")
+    panel.fix_rel_live()
+    panel.restore_rel_live_bounds()
+    controller.set_fixed.assert_not_called()
+    controller.restore_bounds.assert_not_called()
+
+
+def test_unavailable_fixed_control_preserves_upper_control(view):
+    panel, _, controller = view
+    observed = snapshot()
+    observed["rows"][0].update(fixed_status="unsupported", fixed_issues=["fixed binding unavailable"])
+    controller.read.return_value = observed
+    panel.refresh_rel_live()
+    assert enabled("reg_rel_live_apply")
+    assert not enabled("reg_rel_live_fixed")
+    assert "fixed binding unavailable" in dpg.get_value("reg_rel_live_inventory")
+
+
+def test_fixed_write_compensation_restores_display_and_clears_failed_recovery(view):
+    panel, _, controller = view
+    panel.refresh_rel_live()
+
+    class FailureError(Exception):
+        attempted = True
+        rollback = {"verified": True, "readback": snapshot()}
+
+    controller.set_fixed.side_effect = FailureError("peer differs")
+    panel.fix_rel_live()
+    assert "Original bounds restored" in dpg.get_value("reg_rel_live_status")
+    assert enabled("reg_rel_live_fixed")
+    error = FailureError("restore failed")
+    error.rollback = {"verified": False}
+    controller.restore_bounds.side_effect = error
+    panel.restore_rel_live_bounds()
+    assert "Recovery required" in dpg.get_value("reg_rel_live_status")
+    assert not enabled("reg_rel_live_fixed")
+    assert not enabled("reg_rel_live_restore_bounds")

@@ -502,5 +502,27 @@
       "experiments/registry-overrides/b214-record-semantics-20261028/exact-owner-membership/backing-entry-comparison/b202-descriptor-producer/findings.json": "56a24df0660cd8842ba697fa52817f9f09bc26f4bb3ce12cc0a478d4e6d45d4f",
       "experiments/registry-overrides/b214-record-semantics-20261028/class-metadata-check/findings.json": "0dcf7157dc8c2ce2d4c02fef571c18100ef75522e2b1c7d7ee18d3a76eda2c2f"
     }
+  },
+  "consumer_followup_20261029": {
+    "scope": "Offline installed-image traces; no unknown command or operand probe. RVAs identify these images, not compatibility gates.",
+    "type2_inventory": "Conditional section selector19, logical headerD0/stride7A8, supplies the row through D0CA50 to D1E5A0. Source DWORD+8 reaches object+24 and native B212 row+4, and selects type2 response records. Source byte/word metadata shares that provenance; no typed rail/clock/VFE ownership or units is established.",
+    "F219_common_serializer": "CB1220 copies the normalized type; CB0A20 checks object identity. D1E160 copies three bytes and four DWORDs without establishing numeric units or accepted range. The actual semantic receiver remains downstream of mapped submission and transport.",
+    "PERF_callback_candidates": "The766760 candidate is conditionally called by2080A0AC with an incoming payload destination and a separately passed PERF pointer. A83E10 belongs to ClockManager classBCADD3 at GPU+23B8, descriptorF27798 (F27790 is padding). Its paired61D9C0 dispatcher obtains a key200 list-node+8 pointer, then passes destinations starting+880 at stride53D0. Neither connected caller establishes PERF+588 as its write destination. The actual equation post-group callback remains unresolved.",
+    "VCRIT_limit": "NVIDIA-authored ABI names the last two legacy signed-uV request deltas VCRIT_LOW/HIGH. Current native type5 B202/common serializer does not populate the candidate RAM-assist threshold fields, and the public wrapper maps them only for another subtype. Current v30 row+21/+23 byte routing does not prove full16-bit VCRIT equation selectors. No low/high threshold readout or write is qualified.",
+    "B214_address_correction": {
+      "old_private_report_RVA": "0x1CF514",
+      "actual_instruction_RVA": "0x1CF511",
+      "bytes": "c7463414b28020",
+      "meaning": "mov DWORD [rsi+34],2080B214; command identity unchanged"
+    },
+    "review": "Terra traced both source and candidate destinations; Luna independently checked wrapper/source-row geometry; root reproduced metadata/instruction anchors and corrected the ClockManager descriptor start.",
+    "remaining": "Match the actual modern numerical record producer/consumer and runtime endpoint; bind the real PERF+588 writer. No F219 SET or arbitrary six-word replay follows.",
+    "evidence_sha256": {
+      "experiments\\registry-overrides\\voltage-modern-consumer-20261029\\inventory-source-identity.json": "c63d806ecb52d2bf607eac1464a47d2d9fd8b3b32870d5901d38e3090195b8ad",
+      "experiments\\registry-overrides\\voltage-offset-copy-path-20261029\\caller-checkpoint4.json": "2d6a9bb20a5e487e1247fdc90a904a49afeb657634a3045278cdb34fecbefc8f",
+      "experiments\\registry-overrides\\voltage-modern-evidence-audit-20261029\\findings.json": "ad804d88ac9d8a8ac02f38cddc14704c71ea9369bee875a88f2d90fe035c5826",
+      "experiments\\registry-overrides\\voltage-vcrit-consumers-20261029\\findings.json": "2285a8798b9d7b423777f62bf8776db64e409363f6c206d708a3522faa91f2cb",
+      "experiments\\registry-overrides\\voltage-offset-root-20261029\\root-anchor-reproduction-final.json": "49166675aaf115b5cf0794662577b96064eff67f54cffeb8824717f431207b79"
+    }
   }
 }

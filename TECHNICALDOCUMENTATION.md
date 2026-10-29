@@ -3798,3 +3798,39 @@ No candidate statistics request, registry mutation, GPU restart or workload
 was performed. Current diagnostics remain configured support/masks, and the
 telemetry producer, units, epoch/reset/wrap and independent freshness remain
 pending. [Source identities, evidence and limits](experiments/lpwr-telemetry-provenance-20261029.json).
+
+## Live fixed REL equation bounds (2026-10-29)
+
+The live controller now extends the existing persistent `REL.value` field contract
+without changing equation types or graph structure. `set_fixed` selects the
+understood type7/native type6 root and changes only its lower/upper CONTROL
+floats. `restore_bounds` restores both values from the current ROM definition;
+the existing `set` remains upper-only. Repeated edits bind fresh loaded bounds
+while checking the original graph, terms, identity and complete peer packets.
+Fixed-head availability is independent of the upper-only capability.
+
+The singleton two-bound writer reuses the existing E0B7 transport and complete
+definition readback. A dispatched failure attempts one compensation to the
+captured pre-write row, retaining the original error and verified recovery
+status. Both Apply and Restore require the independent boost and affected-rail
+policy readbacks. The panel distinguishes current bounds, ROM bounds and
+reported policy; neither a fixed head nor exact definition readback establishes
+the final chained limit or physical voltage.
+
+Two source product-controller trials set roots3/265 from900000/1120000 to
+1045000/1045000 uV, with eight independent active captures per rail spanning
+at least21 seconds. NVVDD REL/effective changed1040000 to1045000 uV; MSVDD
+changed990000 to995000 uV. ALT changed1060000 to1065000 uV in each selected
+rail's trial. Full native INFO/CONTROL, retained requests and configured peers,
+LPWR observations and client power requests matched their exact projections.
+Computed arbitration telemetry remains separate from request equality.
+
+For both trials, the first active curve and first two post-Restore curves
+differed from the original by230 bytes. Later active captures and the third
+strict final capture matched the original curve. These negatives are retained;
+no curve exclusion or universal settling delay follows. Independent raw audit
+and root reproduction confirm the changes and complete original restoration.
+No registry write, GPU restart, Windows reboot, workload or physical measurement
+was used. Packaged fixed-head callback/input/recovery walkthroughs and arbitrary
+six-word rail-offset replay remain pending.
+[Source trials and exact qualification](experiments/voltage-live-bounds-20261029.json).

@@ -578,6 +578,16 @@ def write_constants(gpu, saved, *, restore=False, on_attempt=None):
     return _write_selected_equation(gpu, saved, restore=restore, on_attempt=on_attempt)
 
 
+def write_voltage_bounds(gpu, saved, *, restore=False, on_attempt=None):
+    """Write one validated type6 two-bound projection and verify loaded state."""
+    if not isinstance(saved, dict):
+        raise VfeEquationError("Malformed VFE voltage-bound contract")
+    validate_voltage_bounds_contracts(saved.get("selected"), saved)
+    if len(saved.get("selected", {})) != 1 or type(restore) is not bool:
+        raise VfeEquationError("A live VFE write requires exactly one voltage-bound row")
+    return _write_selected_equation(gpu, saved, restore=restore, on_attempt=on_attempt)
+
+
 def _write_selected_equation(gpu, saved, *, restore, on_attempt):
     if on_attempt is not None and not callable(on_attempt):
         raise VfeEquationError("VFE write attempt marker must be callable")
