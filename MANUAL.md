@@ -356,6 +356,13 @@ binding and restart/Undo checks. Other classes in that shorter table remain
 read-only. Source planning is covered by offline tests; activation and recovery
 on the RTX 3070 Ti are still pending their separate machine validation.
 
+Numeric power/current fields use the displayed W or A units in both the
+input and Preview. Raising a policy maximum leaves the configured request
+separate: on the tested RTX 5080, a 450 -> 455 W board maximum and its Undo
+preserved the 360 W request and all other power control records. This verifies
+the panel workflow and loaded definition, not physical enforcement under load.
+[Numeric workflow evidence](experiments/ui-registry-power-qualified-20261029.json).
+
 **Linked current limits** configure a current limit carried by another power
 policy. Druta resolves the BIOS relationship to its target policy and verifies
 the loaded cache and firmware-reported value after a GPU restart. Other power

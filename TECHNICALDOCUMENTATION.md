@@ -3282,6 +3282,41 @@ The complete suite passed 6,517 tests; 187 focused UI/registry cases include
 mocked continuation and failure reporting. Other adapters, physical input,
 broader fields and post-restart failure/recovery cases remain unqualified.
 
+The separate opt-in `--ui-capture-power-trial NEW_DIRECTORY` extends this
+workflow to a numeric board-policy maximum. Current role1 metadata selects the
+policy and the panel must expose independently matching editable mW bounds.
+The trial stages maximum +5000 mW through the real numeric input and normal
+Prepare callback. Native maximum contracts are required; transformed maximum
+policies are rejected before Apply. A saved kind keeps the numeric workflow
+across the existing helper/relaunch path while older Boolean records remain
+compatible. No separate registry mutator or live client-power SET is added.
+
+Source and packaged runs on the captured RTX 5080/621.01 each produced four
+valid 1528x1261 before/preview/active/restored frames. The selected input showed
+450/455/455/450 W; before, active and restored images matched across builds,
+and initial/restored images were byte-identical. Both Apply and Undo passed,
+with exact independent singleton-ROM and whole client/ROLE/native INFO
+projections. Both complete CONTROL buffers and the 360000 mW request stayed
+unchanged, typed policy peers matched, and the full original configuration,
+registry, BIOS, requests and evaluated curve returned exactly after each trial.
+
+The first source attempt passed runtime/Undo checks but clipped the selected
+field and is not visual qualification. A launcher-blocked diagnostic reproduced
+first-layout scroll_max 643 followed by 2778; clamping against the first value
+left the field outside the page. Power-only capture now waits for settled
+layout, uses the input's screen rectangle and child-window position, and lets
+the scroll render before output. The diagnostic moved the field from Y1911 to
+Y344/visible. Boolean/default scrolling is unchanged. The intermediate child
+rect_min error and all original captures remain recorded separately.
+
+The final suite passed 6,586 tests, including 128 focused UI/power cases; Ruff
+passed for the trial/tests and the large app module has no new diagnostics.
+Six GPU-only restarts include the initial runtime-only attempt plus the two
+qualified source/package trials. No Windows reboot or workload occurred.
+Physical mouse/keyboard input, other field types, post-restart failure/recovery
+visual states, other DPI/viewports/adapters and physical enforcement remain
+unqualified. [Scoped numeric qualification and retained evidence](experiments/ui-registry-power-qualified-20261029.json).
+
 ## Source for a binary release
 
 Every tagged release on GitHub carries the Corresponding Source for the

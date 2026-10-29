@@ -1,5 +1,6 @@
-"""Framebuffer capture staging is display-only and always restores UI state."""
+﻿"""Framebuffer capture staging is display-only and always restores UI state."""
 
+import copy
 import json
 import struct
 from pathlib import Path
@@ -53,8 +54,7 @@ class FakeDpg:
         self.config[item].update(kwargs)
 
     def get_item_pos(self, item):
-        assert item != "page_control"
-        return (0, 300)
+        return (0, 100 if item == "page_control" else 300)
 
     def get_item_parent(self, item):
         return 0
@@ -63,7 +63,7 @@ class FakeDpg:
         return ""
 
     def get_item_rect_min(self, item):
-        raise KeyError("rect_min")
+        return (0, 100 if item == "page_control" else 400)
 
     def get_y_scroll_max(self, item):
         return 1000
@@ -712,3 +712,258 @@ def test_plot_visibility_is_tracked_while_framebuffer_pending(tmp_path):
     dpg.frame += 1
     capture.tick()
     assert len(dpg.output_values) == 2
+
+
+def setup_power_trial(monkeypatch):
+    import hashlib
+    import struct
+
+    dpg, application, panel, state = setup_trial(monkeypatch)
+    index, key = 8, "power.8.maximum"
+    before_image, active_image = b"original image", b"changed image"
+    binding = {"client_index": 2, "native_index": index, "semantic_role": 1, "client": 254,
+               "units": "mW", "minimum_mw": 250000, "rated_mw": 360000, "maximum_mw": 450000}
+    runtime_binding = {"policy_index": index, "vbios_type": 12, "channel": 1, "units": "mW", "runtime_type": 33}
+    def rows():
+        return [{"policy": index, "type": 33, "channel": 1, "unit": "mW", "consistent": True,
+                 "minimum": 250000, "default": 360000, "maximum": 455000 if state["enabled"] else 450000},
+                {"policy": 4, "type": 1, "channel": 2, "unit": "mW", "consistent": True,
+                 "minimum": 100, "default": 200, "maximum": 300}]
+    application.gpu.read_power_policies = lambda: (rows(), None)
+    def metadata():
+        current = dict(binding, maximum_mw=455000 if state["enabled"] else 450000)
+        client_info = bytearray(trial.client_power_runtime.INFO_BASE + 3 * trial.client_power_runtime.INFO_STRIDE)
+        native_info = bytearray(trial.client_power_runtime.NATIVE_INFO_BASE + 9 * trial.client_power_runtime.NATIVE_INFO_STRIDE)
+        role_info = bytearray(24)
+        struct.pack_into("<I", client_info, trial.client_power_runtime.INFO_BASE + 2 * trial.client_power_runtime.INFO_STRIDE + 12, current["maximum_mw"])
+        struct.pack_into("<I", native_info, trial.client_power_runtime.NATIVE_INFO_BASE + 8 * trial.client_power_runtime.NATIVE_INFO_STRIDE + 16, current["maximum_mw"])
+        struct.pack_into("<I", role_info, 20, current["maximum_mw"])
+        return {"binding": current, "identity": {"slot": "fake"}, "info_hex": client_info.hex(),
+                "native_info_hex": native_info.hex(), "role_info_hex": role_info.hex()}
+    monkeypatch.setattr(trial.client_power_runtime, "ClientPowerController",
+                        lambda gpu: SimpleNamespace(read_metadata=metadata, read=lambda: {
+                            **metadata(), "control_hex": "0102", "native_control_hex": "0304", "requested_mw": 360000}))
+    monkeypatch.setattr(trial.overrides, "read_vbios", lambda gpu: active_image if state["enabled"] else before_image)
+    plan = {"baseline_sha256": hashlib.sha256(before_image).hexdigest(),
+            "expected_sha256": hashlib.sha256(active_image).hexdigest(),
+            "patches": [{"offset": 0, "before": "01", "after": "02", "field_keys": [key]}]}
+    monkeypatch.setattr(trial.vbios_fields, "plan", lambda image, changes: copy.deepcopy(plan))
+    monkeypatch.setattr(trial.vbios_fields, "inspect", lambda image: {"identity": {"vbios_version_raw": 1, "oem_revision": 0}})
+    monkeypatch.setattr(trial.overrides, "compose_records", lambda *args: {"flag": 1})
+    before_bounds = {"minimum": 250000, "default": 360000, "maximum": 450000}
+    after_bounds = dict(before_bounds, maximum=455000)
+    def refresh():
+        panel.active = state["receipt"] if state["receipt"] and state["receipt"]["state"] == "active" else None
+        maximum = 455000 if state["enabled"] else 450000
+        panel.inspection = {"sha256": hashlib.sha256(active_image if state["enabled"] else before_image).hexdigest()}
+        panel.fields = {f"power.{index}.{name}": {"capability": "editable", "current": value, "policy": index,
+                        "channel": 1, "units": "mW", "policy_type": 12, "mask": None, "maximum": 1000000,
+                        "runtime_binding": runtime_binding} for name, value in
+                        (("minimum", 250000), ("default", 360000), ("maximum", maximum))}
+        panel.inputs = {key: ("reg_field_" + key, 1000)}
+        dpg.set_value("reg_field_" + key, maximum / 1000)
+        dpg.set_value("reg_status", "read")
+    def prepare():
+        wanted = int(dpg.get_value("reg_field_" + key) * 1000)
+        contract = {"schema": 2, "policy": index, "type": 33, "channel": 1, "unit": "mW", "mode": "native",
+                    "before": 450000, "before_bounds": before_bounds, "after_bounds": after_bounds,
+                    "rom_before_bounds": before_bounds, "rom_after_bounds": after_bounds,
+                    "preserved_policies": {"4": {"policy": 4, "type": 1, "channel": 2, "unit": "mW",
+                                                     "bounds": {"minimum": 100, "default": 200, "maximum": 300}}}}
+        panel.preview = {"path": "receipt", "target": {"slot": "fake", "instance_id": "id", "driver_key": "key"},
+                         "changes": {key: wanted}, "policy_contracts": {key: contract}, "plan": copy.deepcopy(plan),
+                         "before_image_sha256": plan["baseline_sha256"], "after_image_sha256": plan["expected_sha256"],
+                         "state": "prepared", "before": {}, "after": {"flag": 1}}
+        state["receipt"] = panel.preview
+        dpg.set_value("reg_preview", "board maximum preview")
+        dpg.set_value("reg_status", "prepared")
+    panel.refresh, panel.prepare = refresh, prepare
+    return dpg, application, panel, state
+
+
+def test_power_trial_scroll_uses_settled_nested_rectangles(monkeypatch, tmp_path):
+    dpg, application, panel, state = setup_power_trial(monkeypatch)
+    capture = trial.RegistryUiTrial(dpg, application, tmp_path / "power", kind="power")
+    calls = []
+    # The field's local position is not the page coordinate; the page is a
+    # child window with pos but no rect_min. Its first-frame maximum is stale.
+    dpg.get_item_pos = lambda item: (0, 264 if item == "page_control" else 1647)
+    dpg.get_item_rect_min = lambda item: (0, 1911) if item == capture.tag else (_ for _ in ()).throw(KeyError(item))
+    def scroll_max(item):
+        calls.append(dpg.frame)
+        return 643 if dpg.frame < 2 else 1200
+    dpg.get_y_scroll_max = scroll_max
+    dpg.frame += 1
+    capture.tick()
+    assert not calls and not dpg.output_values
+    dpg.frame += 1
+    capture.tick()
+    assert calls == [2] and dpg.scroll == 1200
+    assert not dpg.output_values
+    while not dpg.output_values:
+        dpg.frame += 1
+        capture.tick()
+    assert dpg.output_viewports[0][0] == 1200 and dpg.frame > 2
+
+
+def test_power_trial_numeric_prepare_relaunch_and_restore(monkeypatch, tmp_path):
+    dpg, application, panel, state = setup_power_trial(monkeypatch)
+    root = tmp_path / "power"
+    capture = trial.RegistryUiTrial(dpg, application, root, kind="power")
+    assert capture.trial["kind"] == "power" and not state["registry"]
+    run(capture, dpg)
+    assert capture.manifest["state"] == "handoff" and panel.apply.call_count == 1
+    assert capture.trial["wanted"] == 455000
+    application._closing = False
+    application._recovery_result = {"ok": True, "reboot_required": False}
+    capture = trial.RegistryUiTrial(dpg, application, root, resume=True)
+    assert capture.kind == "power"
+    run(capture, dpg)
+    application._closing = False
+    capture = trial.RegistryUiTrial(dpg, application, root, resume=True)
+    run(capture, dpg)
+    assert capture.trial["phase"] == "complete" and not state["registry"]
+    assert all((root / f"power-{phase}.json").exists() for phase in ("before", "active", "restored"))
+    assert (root / "initial" / "preview.png").exists()
+
+
+def test_power_trial_rejects_unrelated_receipt_changes(monkeypatch, tmp_path):
+    dpg, application, panel, state = setup_power_trial(monkeypatch)
+    prepare = panel.prepare
+    def wrong_receipt():
+        prepare()
+        panel.preview["changes"]["power.4.maximum"] = 301
+    panel.prepare = wrong_receipt
+    capture = trial.RegistryUiTrial(dpg, application, tmp_path / "power", kind="power")
+    run(capture, dpg)
+    assert capture.trial["phase"] == "attention" and panel.apply.call_count == 0 and not state["registry"]
+
+
+@pytest.mark.parametrize("other", ["--ui-capture", "--ui-capture-live-vmin", "--ui-capture-pstates-trial",
+                                    "--startup-profile", "--recovery-result"])
+def test_power_trial_cli_exclusivity(monkeypatch, tmp_path, other):
+    gpu_app = Mock()
+    monkeypatch.setattr(druta, "Druta", gpu_app)
+    monkeypatch.setattr(druta, "_tell", Mock())
+    args = ["--ui-capture-power-trial", str(tmp_path / "power"), other]
+    if other != "--startup-profile":
+        args.append(str(tmp_path / "other"))
+    assert druta.main(args) == 2
+    gpu_app.assert_not_called()
+
+
+def test_power_trial_refuses_unsupported_client_request_before_preview(monkeypatch, tmp_path):
+    dpg, application, panel, state = setup_power_trial(monkeypatch)
+    def unavailable():
+        raise RuntimeError("FE client request unavailable")
+    monkeypatch.setattr(trial.client_power_runtime, "ClientPowerController", lambda gpu: SimpleNamespace(
+        read_metadata=lambda: {"binding": {"native_index": 8, "semantic_role": 1, "units": "mW"}},
+        read=unavailable))
+    capture = trial.RegistryUiTrial(dpg, application, tmp_path / "power", kind="power")
+    assert not capture.active and capture.trial["phase"] == "attention"
+    assert "FE client request unavailable" in capture.trial["error"] and panel.apply.call_count == 0
+    assert not state["registry"]
+
+
+def test_power_trial_rejects_transformed_contract_before_apply(monkeypatch, tmp_path):
+    dpg, application, panel, state = setup_power_trial(monkeypatch)
+    prepare = panel.prepare
+    def transformed():
+        prepare()
+        panel.preview["policy_contracts"]["power.8.maximum"]["mode"] = "rated-maximum"
+    panel.prepare = transformed
+    capture = trial.RegistryUiTrial(dpg, application, tmp_path / "power", kind="power")
+    run(capture, dpg)
+    assert capture.trial["phase"] == "attention" and panel.apply.call_count == 0 and not state["registry"]
+
+
+def test_power_trial_peer_control_change_preserves_receipt_before_undo(monkeypatch, tmp_path):
+    dpg, application, panel, state = setup_power_trial(monkeypatch)
+    controller = trial.client_power_runtime.ClientPowerController(application.gpu)
+    def changed():
+        result = controller.read()
+        if state["enabled"]:
+            result["native_control_hex"] = "ffff"
+        return result
+    monkeypatch.setattr(trial.client_power_runtime, "ClientPowerController", lambda gpu: SimpleNamespace(
+        read_metadata=controller.read_metadata, read=changed))
+    root = tmp_path / "power"
+    capture = trial.RegistryUiTrial(dpg, application, root, kind="power")
+    run(capture, dpg)
+    application._closing = False
+    application._recovery_result = {"ok": True, "reboot_required": False}
+    capture = trial.RegistryUiTrial(dpg, application, root, resume=True)
+    assert not capture.active and capture.trial["phase"] == "attention"
+    assert "peer controls changed" in capture.trial["error"]
+    assert capture.trial["receipt"] == "receipt" and state["registry"] == {"flag": 1}
+    panel.restore.assert_not_called()
+
+
+def test_power_trial_rejects_unrelated_info_change_before_undo(monkeypatch, tmp_path):
+    dpg, application, panel, state = setup_power_trial(monkeypatch)
+    controller = trial.client_power_runtime.ClientPowerController(application.gpu)
+
+    def changed_metadata():
+        result = controller.read_metadata()
+        if state["enabled"]:
+            raw = bytearray.fromhex(result["info_hex"])
+            raw[0] ^= 1
+            result["info_hex"] = raw.hex()
+        return result
+
+    def changed_read():
+        result = controller.read()
+        result["info_hex"] = changed_metadata()["info_hex"]
+        return result
+
+    monkeypatch.setattr(trial.client_power_runtime, "ClientPowerController", lambda gpu: SimpleNamespace(
+        read_metadata=changed_metadata, read=changed_read))
+    root = tmp_path / "power"
+    capture = trial.RegistryUiTrial(dpg, application, root, kind="power")
+    run(capture, dpg)
+    application._closing = False
+    application._recovery_result = {"ok": True, "reboot_required": False}
+    capture = trial.RegistryUiTrial(dpg, application, root, resume=True)
+    assert not capture.active and capture.trial["phase"] == "attention"
+    assert "INFO changed beyond" in capture.trial["error"]
+    assert capture.trial["receipt"] == "receipt" and state["registry"] == {"flag": 1}
+    panel.restore.assert_not_called()
+
+
+def test_power_trial_apply_helper_failure_keeps_original_error(monkeypatch, tmp_path):
+    dpg, application, panel, state = setup_power_trial(monkeypatch)
+    root = tmp_path / "power"
+    capture = trial.RegistryUiTrial(dpg, application, root, kind="power")
+    run(capture, dpg)
+    application._closing = False
+    application._recovery_result = {"ok": False, "reboot_required": False, "message": "first failure"}
+    capture = trial.RegistryUiTrial(dpg, application, root, resume=True)
+    run(capture, dpg)
+    application._closing = False
+    application._recovery_result = {"ok": True, "reboot_required": False}
+    capture = trial.RegistryUiTrial(dpg, application, root, resume=True)
+    run(capture, dpg)
+    assert capture.trial["phase"] == "attention" and "first failure" in capture.trial["error"]
+    assert not state["registry"] and capture.trial["receipt"] == "receipt"
+
+
+def test_power_trial_launcher_failure_retains_receipt_and_reports_error(monkeypatch, tmp_path):
+    dpg, application, panel, state = setup_power_trial(monkeypatch)
+    panel.apply = Mock()
+    capture = trial.RegistryUiTrial(dpg, application, tmp_path / "power", kind="power")
+    run(capture, dpg)
+    assert capture.trial["phase"] == "attention" and capture.trial["receipt"] == "receipt"
+    assert "did not launch" in capture.trial["error"] and not state["registry"]
+
+
+def test_power_trial_rejects_field_bounds_before_preview(monkeypatch, tmp_path):
+    dpg, application, panel, state = setup_power_trial(monkeypatch)
+    refresh = panel.refresh
+    def limited():
+        refresh()
+        panel.fields["power.8.maximum"]["maximum"] = 450000
+    panel.refresh = limited
+    capture = trial.RegistryUiTrial(dpg, application, tmp_path / "power", kind="power")
+    assert not capture.active and capture.trial["phase"] == "attention"
+    assert "exceeds" in capture.trial["error"] and not state["registry"]
+    panel.apply.assert_not_called()

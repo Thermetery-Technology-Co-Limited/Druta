@@ -1012,5 +1012,6 @@
     "windows_reboot": false,
     "F219_SET": false,
     "workload": false
-  }
+  },
+  "numeric_registry_followup": "ui-registry-power-qualified-20261029.json qualifies the native board-power maximum numeric Preview/Apply/Undo on the captured adapter. Other fields/recovery/physical-input scopes remain pending; earlier Boolean and live-voltage evidence retains its original scope."
 }
