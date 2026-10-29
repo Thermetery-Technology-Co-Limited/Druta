@@ -1,0 +1,723 @@
+{
+  "schema": 1,
+  "scope": "Source production Prepare, durable reload, Apply and Undo on one RTX 5080/621.01. Temporary understood raw-bit1/bit4 setup flags establish each distinguishing before-state; no product enable action is qualified.",
+  "control": "Schema7 accepts exact aggregate losses 0x12, 0x18, 0x1A only with main support retained and independently supported type7 peers; bit1 loss also requires another supported type4 query witness.",
+  "behavior": "Main configured mask can be valid zero with support true. Type1 role0 support/mask and feature 0x10 clear on last bit3 loss; type4 role0 becomes unavailable on last bit1 loss; type7 role0 support/mask and feature8 clear on last bit4 loss. Surviving bit3 membership contracts only for selected bit3 routes. Both available complete feature words project consistently; other captured scopes remain exact.",
+  "compatibility": "Schemas1-6 and their read scopes/receipts remain supported. Unknown/fallback routes and unqualified combinations remain rejected; unavailable optional duplicate feature copies remain independently unavailable.",
+  "trials": [
+    {
+      "loss": "0x12",
+      "selected": [
+        1
+      ],
+      "removed_mask": 32,
+      "carrier_mask": 32,
+      "phases": [
+        {
+          "phase": "original",
+          "main": {
+            "available": true,
+            "configured_pstate_mask": 288,
+            "states_available": true,
+            "supported": true
+          },
+          "controller0_features": {
+            "available": true,
+            "value": 32804372
+          },
+          "type1_role0_support": {
+            "available": true,
+            "value": 1
+          },
+          "type1_role0_mask": {
+            "available": true,
+            "value": 288
+          },
+          "type4_role0_support": {
+            "available": true,
+            "supported": true
+          },
+          "type7_role0_support": {
+            "available": true,
+            "value": 0
+          },
+          "type7_role0_mask": {
+            "available": true,
+            "value": 0
+          }
+        },
+        {
+          "phase": "setup",
+          "main": {
+            "available": true,
+            "configured_pstate_mask": 288,
+            "states_available": true,
+            "supported": true
+          },
+          "controller0_features": {
+            "available": true,
+            "value": 32804380
+          },
+          "type1_role0_support": {
+            "available": true,
+            "value": 1
+          },
+          "type1_role0_mask": {
+            "available": true,
+            "value": 288
+          },
+          "type4_role0_support": {
+            "available": true,
+            "supported": true
+          },
+          "type7_role0_support": {
+            "available": true,
+            "value": 1
+          },
+          "type7_role0_mask": {
+            "available": true,
+            "value": 32
+          }
+        },
+        {
+          "phase": "active",
+          "main": {
+            "available": true,
+            "configured_pstate_mask": 256,
+            "states_available": true,
+            "supported": true
+          },
+          "controller0_features": {
+            "available": true,
+            "value": 32804372
+          },
+          "type1_role0_support": {
+            "available": true,
+            "value": 1
+          },
+          "type1_role0_mask": {
+            "available": true,
+            "value": 256
+          },
+          "type4_role0_support": {
+            "available": false,
+            "supported": null
+          },
+          "type7_role0_support": {
+            "available": true,
+            "value": 0
+          },
+          "type7_role0_mask": {
+            "available": true,
+            "value": 0
+          }
+        },
+        {
+          "phase": "undo_setup",
+          "main": {
+            "available": true,
+            "configured_pstate_mask": 288,
+            "states_available": true,
+            "supported": true
+          },
+          "controller0_features": {
+            "available": true,
+            "value": 32804380
+          },
+          "type1_role0_support": {
+            "available": true,
+            "value": 1
+          },
+          "type1_role0_mask": {
+            "available": true,
+            "value": 288
+          },
+          "type4_role0_support": {
+            "available": true,
+            "supported": true
+          },
+          "type7_role0_support": {
+            "available": true,
+            "value": 1
+          },
+          "type7_role0_mask": {
+            "available": true,
+            "value": 32
+          }
+        },
+        {
+          "phase": "final",
+          "main": {
+            "available": true,
+            "configured_pstate_mask": 288,
+            "states_available": true,
+            "supported": true
+          },
+          "controller0_features": {
+            "available": true,
+            "value": 32804372
+          },
+          "type1_role0_support": {
+            "available": true,
+            "value": 1
+          },
+          "type1_role0_mask": {
+            "available": true,
+            "value": 288
+          },
+          "type4_role0_support": {
+            "available": true,
+            "supported": true
+          },
+          "type7_role0_support": {
+            "available": true,
+            "value": 0
+          },
+          "type7_role0_mask": {
+            "available": true,
+            "value": 0
+          }
+        }
+      ],
+      "images_sha256": {
+        "original": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+        "setup": "626047dc01b433ef1e9404bea074fa918e20facbb7fc15fc96b11c0cf3485a51",
+        "active": "909f57375bad50c8ddece285efea132c70561d39fdc469e6e26964bfe14a5393"
+      },
+      "full_independent_raw_audit": "passed",
+      "raw_A7_bytes": 17676,
+      "durable_schema": 7,
+      "runtime_verified_fields": [
+        "lpwr.gr_pg.1.enabled"
+      ],
+      "apply_ok": true,
+      "undo_ok": true,
+      "full_original_restored": true,
+      "broad_GET_attempts": {
+        "setup": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          true
+        ],
+        "active": [
+          false,
+          false,
+          false,
+          false,
+          true
+        ],
+        "undo_setup": [
+          false,
+          false,
+          false,
+          true
+        ],
+        "final": [
+          false,
+          false,
+          false,
+          true
+        ]
+      },
+      "GPU_only_restarts": 4,
+      "journal_sha256": "d95cb67436f391b26b1081d5d1578e3eb4511ba05a045d021a08252ff4177d98",
+      "script_sha256": "55ab2c4800cfc9c27e975fcaf4a8eee9c2c2dddfc0e72c6d699d8b6e63bcf5c9",
+      "projection_script_sha256": "38a3c9623425f203c0c3442be0aa169a9e7e791543e2048c356c98378a503ae9"
+    },
+    {
+      "loss": "0x18",
+      "selected": [
+        0,
+        1
+      ],
+      "removed_mask": 288,
+      "carrier_mask": 32,
+      "phases": [
+        {
+          "phase": "original",
+          "main": {
+            "available": true,
+            "configured_pstate_mask": 288,
+            "states_available": true,
+            "supported": true
+          },
+          "controller0_features": {
+            "available": true,
+            "value": 32804372
+          },
+          "type1_role0_support": {
+            "available": true,
+            "value": 1
+          },
+          "type1_role0_mask": {
+            "available": true,
+            "value": 288
+          },
+          "type4_role0_support": {
+            "available": true,
+            "supported": true
+          },
+          "type7_role0_support": {
+            "available": true,
+            "value": 0
+          },
+          "type7_role0_mask": {
+            "available": true,
+            "value": 0
+          }
+        },
+        {
+          "phase": "setup",
+          "main": {
+            "available": true,
+            "configured_pstate_mask": 288,
+            "states_available": true,
+            "supported": true
+          },
+          "controller0_features": {
+            "available": true,
+            "value": 32804380
+          },
+          "type1_role0_support": {
+            "available": true,
+            "value": 1
+          },
+          "type1_role0_mask": {
+            "available": true,
+            "value": 288
+          },
+          "type4_role0_support": {
+            "available": true,
+            "supported": true
+          },
+          "type7_role0_support": {
+            "available": true,
+            "value": 1
+          },
+          "type7_role0_mask": {
+            "available": true,
+            "value": 32
+          }
+        },
+        {
+          "phase": "active",
+          "main": {
+            "available": true,
+            "configured_pstate_mask": 0,
+            "states_available": true,
+            "supported": true
+          },
+          "controller0_features": {
+            "available": true,
+            "value": 32804356
+          },
+          "type1_role0_support": {
+            "available": true,
+            "value": 0
+          },
+          "type1_role0_mask": {
+            "available": true,
+            "value": 0
+          },
+          "type4_role0_support": {
+            "available": true,
+            "supported": true
+          },
+          "type7_role0_support": {
+            "available": true,
+            "value": 0
+          },
+          "type7_role0_mask": {
+            "available": true,
+            "value": 0
+          }
+        },
+        {
+          "phase": "undo_setup",
+          "main": {
+            "available": true,
+            "configured_pstate_mask": 288,
+            "states_available": true,
+            "supported": true
+          },
+          "controller0_features": {
+            "available": true,
+            "value": 32804380
+          },
+          "type1_role0_support": {
+            "available": true,
+            "value": 1
+          },
+          "type1_role0_mask": {
+            "available": true,
+            "value": 288
+          },
+          "type4_role0_support": {
+            "available": true,
+            "supported": true
+          },
+          "type7_role0_support": {
+            "available": true,
+            "value": 1
+          },
+          "type7_role0_mask": {
+            "available": true,
+            "value": 32
+          }
+        },
+        {
+          "phase": "final",
+          "main": {
+            "available": true,
+            "configured_pstate_mask": 288,
+            "states_available": true,
+            "supported": true
+          },
+          "controller0_features": {
+            "available": true,
+            "value": 32804372
+          },
+          "type1_role0_support": {
+            "available": true,
+            "value": 1
+          },
+          "type1_role0_mask": {
+            "available": true,
+            "value": 288
+          },
+          "type4_role0_support": {
+            "available": true,
+            "supported": true
+          },
+          "type7_role0_support": {
+            "available": true,
+            "value": 0
+          },
+          "type7_role0_mask": {
+            "available": true,
+            "value": 0
+          }
+        }
+      ],
+      "images_sha256": {
+        "original": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+        "setup": "7da822e14ff75e5711261c4876b7c9655130d0e91399c12f36721fe8377d3ce2",
+        "active": "63ab624045f3b0ac8491e6c15c96d5a02e6f896893b1f42781c8ec0c609cfacb"
+      },
+      "full_independent_raw_audit": "passed",
+      "raw_A7_bytes": 17676,
+      "durable_schema": 7,
+      "runtime_verified_fields": [
+        "lpwr.gr_pg.0.enabled",
+        "lpwr.gr_pg.1.enabled"
+      ],
+      "apply_ok": true,
+      "undo_ok": true,
+      "full_original_restored": true,
+      "broad_GET_attempts": {
+        "setup": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          true
+        ],
+        "active": [
+          false,
+          false,
+          false,
+          false,
+          true
+        ],
+        "undo_setup": [
+          false,
+          false,
+          false,
+          true
+        ],
+        "final": [
+          false,
+          false,
+          false,
+          true
+        ]
+      },
+      "GPU_only_restarts": 4,
+      "journal_sha256": "6decc553fb83867141004ea08286e2977faac6eb5727ceeba3f7ab20389a4d25",
+      "script_sha256": "55ab2c4800cfc9c27e975fcaf4a8eee9c2c2dddfc0e72c6d699d8b6e63bcf5c9",
+      "projection_script_sha256": "38a3c9623425f203c0c3442be0aa169a9e7e791543e2048c356c98378a503ae9"
+    },
+    {
+      "loss": "0x1a",
+      "selected": [
+        0,
+        1
+      ],
+      "removed_mask": 288,
+      "carrier_mask": 32,
+      "phases": [
+        {
+          "phase": "original",
+          "main": {
+            "available": true,
+            "configured_pstate_mask": 288,
+            "states_available": true,
+            "supported": true
+          },
+          "controller0_features": {
+            "available": true,
+            "value": 32804372
+          },
+          "type1_role0_support": {
+            "available": true,
+            "value": 1
+          },
+          "type1_role0_mask": {
+            "available": true,
+            "value": 288
+          },
+          "type4_role0_support": {
+            "available": true,
+            "supported": true
+          },
+          "type7_role0_support": {
+            "available": true,
+            "value": 0
+          },
+          "type7_role0_mask": {
+            "available": true,
+            "value": 0
+          }
+        },
+        {
+          "phase": "setup",
+          "main": {
+            "available": true,
+            "configured_pstate_mask": 288,
+            "states_available": true,
+            "supported": true
+          },
+          "controller0_features": {
+            "available": true,
+            "value": 32804380
+          },
+          "type1_role0_support": {
+            "available": true,
+            "value": 1
+          },
+          "type1_role0_mask": {
+            "available": true,
+            "value": 288
+          },
+          "type4_role0_support": {
+            "available": true,
+            "supported": true
+          },
+          "type7_role0_support": {
+            "available": true,
+            "value": 1
+          },
+          "type7_role0_mask": {
+            "available": true,
+            "value": 32
+          }
+        },
+        {
+          "phase": "active",
+          "main": {
+            "available": true,
+            "configured_pstate_mask": 0,
+            "states_available": true,
+            "supported": true
+          },
+          "controller0_features": {
+            "available": true,
+            "value": 32804356
+          },
+          "type1_role0_support": {
+            "available": true,
+            "value": 0
+          },
+          "type1_role0_mask": {
+            "available": true,
+            "value": 0
+          },
+          "type4_role0_support": {
+            "available": false,
+            "supported": null
+          },
+          "type7_role0_support": {
+            "available": true,
+            "value": 0
+          },
+          "type7_role0_mask": {
+            "available": true,
+            "value": 0
+          }
+        },
+        {
+          "phase": "undo_setup",
+          "main": {
+            "available": true,
+            "configured_pstate_mask": 288,
+            "states_available": true,
+            "supported": true
+          },
+          "controller0_features": {
+            "available": true,
+            "value": 32804380
+          },
+          "type1_role0_support": {
+            "available": true,
+            "value": 1
+          },
+          "type1_role0_mask": {
+            "available": true,
+            "value": 288
+          },
+          "type4_role0_support": {
+            "available": true,
+            "supported": true
+          },
+          "type7_role0_support": {
+            "available": true,
+            "value": 1
+          },
+          "type7_role0_mask": {
+            "available": true,
+            "value": 32
+          }
+        },
+        {
+          "phase": "final",
+          "main": {
+            "available": true,
+            "configured_pstate_mask": 288,
+            "states_available": true,
+            "supported": true
+          },
+          "controller0_features": {
+            "available": true,
+            "value": 32804372
+          },
+          "type1_role0_support": {
+            "available": true,
+            "value": 1
+          },
+          "type1_role0_mask": {
+            "available": true,
+            "value": 288
+          },
+          "type4_role0_support": {
+            "available": true,
+            "supported": true
+          },
+          "type7_role0_support": {
+            "available": true,
+            "value": 0
+          },
+          "type7_role0_mask": {
+            "available": true,
+            "value": 0
+          }
+        }
+      ],
+      "images_sha256": {
+        "original": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+        "setup": "626047dc01b433ef1e9404bea074fa918e20facbb7fc15fc96b11c0cf3485a51",
+        "active": "7c5ef7c6700d928f1eebf2ee10c1f1fba7b6e8fc979c6a7d9ea44bc8c2c162cc"
+      },
+      "full_independent_raw_audit": "passed",
+      "raw_A7_bytes": 17676,
+      "durable_schema": 7,
+      "runtime_verified_fields": [
+        "lpwr.gr_pg.0.enabled",
+        "lpwr.gr_pg.1.enabled"
+      ],
+      "apply_ok": true,
+      "undo_ok": true,
+      "full_original_restored": true,
+      "broad_GET_attempts": {
+        "setup": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          true
+        ],
+        "active": [
+          false,
+          false,
+          false,
+          false,
+          true
+        ],
+        "undo_setup": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          true
+        ],
+        "final": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          true
+        ]
+      },
+      "GPU_only_restarts": 4,
+      "journal_sha256": "f02bef15e6e17648e35f298123a69dcb36d13f0712a017b6803930bcfd05a6b3",
+      "script_sha256": "55ab2c4800cfc9c27e975fcaf4a8eee9c2c2dddfc0e72c6d699d8b6e63bcf5c9",
+      "projection_script_sha256": "38a3c9623425f203c0c3442be0aa169a9e7e791543e2048c356c98378a503ae9"
+    }
+  ],
+  "raw_audit_scope": "Whole A801 support, state, feature, type1/type4/type7 packets and both independent feature copies match independently derived projections. Selected unavailable type4 value DWORDs have no established meaning and are retained as unspecified audit data; flags, routing and all remaining bytes are exact. Raw A7 equality is evidence for these idle captures, not a universal product gate.",
+  "broad_scope": "Every intermediate broad GET attempt is retained. Existing exact configured-state comparison excludes host paths/timestamps and live telemetry; bounded GET-only recovery reached all four expected states for every completed trial.",
+  "first_attempt_failure": {
+    "loss": "0x12",
+    "observed": "Apply and independent active checks passed, then cleanup recorded AccessDenied before an Undo result; final baseline verification failed. The exact failure location/cause was not captured and remains unresolved.",
+    "recovery": "A separately journaled durable Undo restored the exact temporary setup, then ownership-aware cleanup restored the full original registry/image/requests. A fresh complete 0x12 retry passed without a cleanup error. No failed capture or operation is treated as successful.",
+    "failed_journal_sha256": "7c449dce315046be5740833f2ce4b3b498da0ba6e18dea129517f7b4401f4a3d",
+    "recovery_journal_sha256": "a37c4fc28a5a3f8b84c3c8e64b90cc3d794f8a1ce398b53d0c8d64266bf707e3",
+    "recovered_full_original": true
+  },
+  "validation": {
+    "full_tests": 6563,
+    "full_seconds": 116.77,
+    "focused_tests": 425,
+    "changed_file_Ruff": "passed"
+  },
+  "source_files_sha256": {
+    "grpg_runtime.py": "e5391d0ff51bdd81fb2dd9d2ef44484e2bfdbe39aeb1f17a20f6532ec44ed45c",
+    "registry_overrides.py": "669e91c4e24ae3f0aa6a4f6247f0bc25a54fc2093571a14df128478d27d11927",
+    "registry_panel.py": "c32239ccfa8bc70c1721be8d5e89c2110b819bb0767b111c6de67d876795c7d8"
+  },
+  "remaining": [
+    "Whole-group disappearance without surviving independent query witnesses.",
+    "Conditional controller2/4 support losses and the final dependency graph.",
+    "Originally disabled DIFR activation, physical residency/power savings and broader adapters.",
+    "Modern voltage record/producer/units and arbitrary changing-offset replay.",
+    "The first private cleanup AccessDenied cause was not located; recovery and subsequent complete trials are separately evidenced."
+  ],
+  "GPU_only_restarts_total": 16,
+  "Windows_reboot": false,
+  "NVIDIA_App_install": false,
+  "workload": false,
+  "physical_measurement": false,
+  "F219_SET": false
+}

@@ -106,7 +106,7 @@
   },
   "implementation": "Schemas1-5 remain supported; schema6 handles only aggregate loss0x10. Available duplicate feature reads must agree; an unavailable optional duplicate is preserved independently. Other surviving roles retain support while their affected routed masks contract.",
   "remaining": [
-    "Combined raw-bit4 losses and whole-group disappearance without a surviving witness.",
+    "Whole-group disappearance without surviving independent query witnesses.",
     "Conditional controller2/4 support losses and the complete dependency graph.",
     "Physical residency/power savings and broader adapters.",
     "Originally disabled DIFR activation and modern voltage record/replay semantics."
@@ -123,5 +123,6 @@
     "src/druta/grpg_runtime.py": "5a4e15ff06309c963f5891dbc9feea1b8b623d361e3132a4cb26f17c3932bdf8",
     "src/druta/registry_overrides.py": "62544cc4bdc44956770bb1f553a43512b8217d229eace3ec13a22f13d5df65e2",
     "src/druta/registry_panel.py": "74bd65951e8b7549aa19abc7b6a729716ada4b555a86ccf24e60c26642599dc4"
-  }
+  },
+  "followup": "grpg-bit4-combined-qualified-20261029.json qualifies witnessed combined raw-bit4 losses with main/peer support retained; the schema6 trial above remains its original historical scope."
 }

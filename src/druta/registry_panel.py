@@ -1394,9 +1394,15 @@ class RegistryPanel:
                     "Restore verifies the original configuration."
                 )
             else:
-                after_controllers = contract["after"]["controllers"] if contract.get("schema") == 6 else contract["after"]
+                after_controllers = contract["after"]["controllers"] if contract.get("schema") in (6, 7) else contract["after"]
                 after = after_controllers["0"]["configured_pstate_mask"]
-            if contract.get("schema") == 6:
+            if contract.get("schema") == 7:
+                shared = (
+                    "The last contributors to multiple shared auxiliary capabilities will be removed. "
+                    "Their support, configured masks and controller features must match the preview; "
+                    "the main controller remains supported and independent roles remain readable. "
+                )
+            elif contract.get("schema") == 6:
                 shared = (
                     "The last contributor to a shared auxiliary capability will be removed; "
                     "its support, configured P-state mask and controller feature must clear while "

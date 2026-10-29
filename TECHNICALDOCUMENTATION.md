@@ -2162,8 +2162,9 @@ support/mask removal and controller0 feature8 clearing. Both available feature
 copies must agree; an unavailable optional duplicate stays independently
 unavailable. Other controllers and roles are retained. When selected entries
 also contribute raw bit3, their type1 mask806:0 loses only those routed IDs,
-while surviving support and feature10h stay active. Combined bit4 losses and
-unwitnessed group disappearance remain refused.
+while surviving support and feature10h stay active. Schema7 composes the
+witnessed mixed losses described below; unwitnessed group disappearance remains
+refused.
 
 A temporary singleton raw-bit4 setup on the captured RTX 5080/621.01 established
 a distinguishing before-state. Normal production preparation, durable reload,
@@ -2176,6 +2177,49 @@ were retained and bounded GET-only recovery reached each exact projection.
 The full suite passed 6,537 tests, including 399 focused tests. This qualifies
 configured transitions on that setup, not a product enable action, physical
 residency or power savings. [Bit4 qualification and remaining scope](experiments/grpg-bit4-qualified-20261029.json).
+
+Schema7 adds the exact aggregate losses 12h, 18h and 1Ah while main support
+remains. It composes the existing type1 bit3 projection, type4 bit1 support
+query, and type7 bit4 projection under the same complete dependency readback.
+For bit3 loss, role0 support/mask and controller0 feature10h clear; group-any
+is derived from independently read peer roles. For bit1 loss, role0 becomes
+unavailable and another supported type4 role must remain. For bit4 loss, role0
+support/mask and feature8 clear with a supported type7 peer. Both available
+feature copies receive the complete combined projection; an unavailable
+optional duplicate stays independently unavailable. If bit3 survives, only its
+selected contributing routes contract. Schemas1-6 remain valid.
+
+Three source executions of the production workflow on the captured RTX 5080/621.01 passed normal
+Prepare, durable reload, Apply and Undo from distinguishing temporary setups:
+
+| Aggregate loss | Main mask before/after | Type1 role0 after | Type4 role0 after |
+| --- | --- | --- | --- |
+| 12h (bit1+bit4) | 120h / 100h | supported, mask100h | unavailable |
+| 18h (bit3+bit4) | 120h / 0 | unsupported, valid mask0 | supported |
+| 1Ah (bit1+bit3+bit4) | 120h / 0 | unsupported, valid mask0 | unavailable |
+
+Main controller0 remained supported with an available mask in all cases,
+including the valid-zero results. Type7 role0 support/mask cleared while its
+supported peer and group remained. Both feature copies and all remaining A801
+packet bytes matched independent projections; the selected unavailable type4
+value DWORD is unspecified, not assigned a false value. Full raw A7 remained
+identical in these idle captures. That raw equality is diagnostic evidence for
+these trials, not a universal gate on evaluated clock tails. Every successful
+Undo recovered its exact setup, and ownership-aware setup removal recovered
+the complete original registry, image, requests and peer configuration.
+Intermediate broad GET differences remain recorded; bounded GET-only recovery
+reached each expected state.
+
+The first 12h attempt passed Apply but recorded AccessDenied during cleanup
+before an Undo result and failed final restoration verification. A separate
+durable Undo and setup removal restored the full original; a fresh complete 12h
+trial then passed. The failure location/cause was not captured and remains
+unresolved, rather than being treated as successful restoration. The retained
+failure, recovery and three successful trials used sixteen GPU-only restarts
+in total, without Windows reboot or workload. The full suite passed 6,563 tests,
+including 425 focused tests. Whole-group disappearance without witnesses,
+conditional controller2/4 losses, physical residency/savings and broader
+adapters remain unqualified. [Mixed-loss evidence and exact limits](experiments/grpg-bit4-combined-qualified-20261029.json).
 
 For the raw-bit3 transition,927470 clears controller0's available feature bit10h
 at group+138 and role0's bit in the separate LPWR+12F8 group support mask+5C.

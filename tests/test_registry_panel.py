@@ -1046,3 +1046,17 @@ def test_bit4_preview_describes_shared_capability_and_main_support(harness):
     assert "last contributor to a shared auxiliary capability" in text
     assert "main controller remains supported" in text
     assert "P5/P8 -> P8" in text
+
+
+def test_mixed_bit4_preview_describes_multiple_shared_capabilities(harness):
+    h = harness
+    h.mocks.prepare.return_value["grpg_contracts"] = {
+        "schema": 7,
+        "before": {"controllers": {"0": {"configured_pstate_mask": 0x120}}},
+        "after": {"controllers": {"0": {"configured_pstate_mask": 0}}},
+    }
+    prepare_speedo(h)
+    text = dpg.get_value("reg_preview")
+    assert "multiple shared auxiliary capabilities" in text
+    assert "main controller remains supported" in text
+    assert "P5/P8 -> none" in text

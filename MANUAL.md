@@ -552,10 +552,14 @@ raw bit 4 contributor when the selected entries have verified P-state routes,
 main GR power gating stays supported, and another auxiliary role remains
 supported. It checks the affected feature/support/masks and the other captured
 controllers and roles, including the mask contraction of any surviving role
-that also used those entries. Combined bit 4 capability losses and whole-group
-disappearance remain unavailable. The complete dependency graph and broader
-hardware qualification remain open; configured eligibility does not establish
-actual power-gating residency or power savings.
+that also used those entries. These bit 4 removals may now be combined with
+loss of the other shared capabilities when the same independent readbacks and
+supported peer witnesses are available. Main support can remain available with
+an empty configured P-state mask; Preview shows that empty eligibility without
+calling the controller unsupported. Whole-group disappearance without a
+supported query witness remains unavailable. The complete dependency graph and
+broader hardware qualification remain open; configured eligibility does not
+establish actual power-gating residency or power savings.
 
 **DIFR entry disables** use the existing **Idle power management** registry
 fields. Disable a currently enabled DIFR entry in its own transaction, preview,
