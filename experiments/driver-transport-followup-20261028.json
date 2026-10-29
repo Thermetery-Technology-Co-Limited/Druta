@@ -62,7 +62,7 @@
       "sequence": "A typed VMIN 800000 -> 805000 -> 800000 comparison was bracketed by three B214 GETs.",
       "result": "All three B214 reads returned status 0; native/public B212 inventory and B218 CONTROL readback stayed unchanged, while B214 response rows changed across all three stages. All requested/policy fields remained unchanged within each GET.",
       "caveat": "The normalized configured comparison excludes capture timestamps/paths and dynamic policy telemetry. The active child's only remaining configured difference was its evaluated V/F curve, which alone triggered active-child attention. This does not qualify an active B214 correlation or establish voltage units or cause.",
-      "raw_response_note": "Twenty-one paired raw records satisfied DWORD = 6250 × adjacent byte; no units, rail association, or cause were inferred. Baseline and restored raw responses differed.",
+      "raw_response_note": "Twenty-one paired raw records satisfied DWORD = 6250 \u00d7 adjacent byte; no units, rail association, or cause were inferred. Baseline and restored raw responses differed.",
       "restoration": "The full original normalized configuration matched after restoration, excluding capture timestamps/paths and dynamic policy telemetry. The parent journal records state restored with the active-child comparison error retained; the process returned exit 1."
     },
     "typed_status_bridge": "The established0x465F9BCF rail-status wrapper uses B201/B202 or B209/B210. A conditional B202/B214 same-owner/base/backing-entry path is now traced, but their mapped ranges and record correspondence remain unbound. The typed rail-status voltage units cannot be transferred to B214 records."
@@ -926,6 +926,490 @@
       "experiments/registry-overrides/firmware-flow-review-root-20261029/root-review.json": "5007dc1f0ca3a8ca643b7fb4022ab921971798e9ad9006b18c3a30ba1a176573",
       "experiments/registry-overrides/firmware-post-root-20261029/trace.py": "b96df6e55179d1959d7c4ffe33da90555469f8ffc7b17fb8926f07acf0b10214",
       "experiments/registry-overrides/firmware-post-root-20261029/findings.json": "875135733c45c4925968ede6a08934dd13ab3fe23aba38d439561e32ac0b78ce"
+    }
+  },
+  "candidate_evaluator_and_source_20261029": {
+    "scope": "Offline candidate firmware and saved native-definition evidence. No new runtime control, coefficient SET, modern F219 SET, registry/API mutation, GPU restart, workload or physical measurement.",
+    "candidate_sha256": "6c4de07caa7f494a44419f3cad67bfda95de4304f057985da03cd7756a1c533d",
+    "supersedes_unresolved_items": {
+      "prior_record": "candidate_firmware_flow_20261029",
+      "equation_callback": "One conditional same-Perf builder assignment now binds +590 to a success-only leaf. This is not proof of live retention/invocation or of an evaluator elsewhere being absent.",
+      "effective_policy_source": "The candidate B202 refresh, returned group/selected entry and descriptor chain are conditionally connected; the mapped-value writer remains unknown.",
+      "receiver": "Candidate receiver lifecycle and three descriptor-provider callbacks are now distinguished; none of the traced descriptor writes establishes the separate EA+60 receiver assignment."
+    },
+    "REL_definition_provenance": {
+      "capture_sha256": "c3140589252a40133eeaad329575be15c56b9cd3cdf761a6ab3dc2c626646de2",
+      "image_sha256_recorded_in_capture": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+      "native_packet_sha256": {
+        "info": "91743ceecee765a86f32814c5805136b974881e2681588384443596cfc39c034",
+        "control": "e36502be1fbeb8dfc377c097663a7846b0e121bc4a08d20e3d5d2ec5923aec8e"
+      },
+      "packet_sizes": {
+        "info": 918536,
+        "control": 1049608
+      },
+      "inventory_count": 1860,
+      "rows": [
+        {
+          "key": "voltage.0.REL.maximum",
+          "native_definition": {
+            "index": 3,
+            "lower_uv": 900000,
+            "upper_uv": 1120000,
+            "next_index": 65535,
+            "variable": 255,
+            "output_type": 2,
+            "variables": [
+              {
+                "type": 2,
+                "value": 8
+              },
+              {
+                "type": 2,
+                "value": 16
+              }
+            ],
+            "coefficients": [
+              {
+                "type": 1,
+                "value": 1234805768
+              },
+              {
+                "type": 1,
+                "value": 3235428665
+              },
+              {
+                "type": 1,
+                "value": 934858001
+              },
+              {
+                "type": 1,
+                "value": 2962083760
+              },
+              {
+                "type": 1,
+                "value": 756396175
+              },
+              {
+                "type": 1,
+                "value": 2829146504
+              }
+            ]
+          },
+          "rom_binding_matches_native_definition": true,
+          "native_info_row_hex": "0600ffff000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006ff0200",
+          "native_control_row_hex": "0600000000ba5b4900b88849000000000200000008000000020000001000000000000000000000000100000008a499490100000039b9d8c00100000011cdb83701000000b0cf8db0010000008fb0152d010000008859a1a800000000000000000000000000000000000000000000000000000000000000000206000006000000",
+          "coefficient_float32_views": [
+            1258625.0,
+            -6.772610187530518,
+            2.2030000764061697e-05,
+            -1.03181285737719e-09,
+            8.508873293455732e-12,
+            -1.7913418686767157e-14
+          ],
+          "known_rail_consumers_from_rom_graph": [
+            {
+              "rail_index": 0,
+              "rail_identity": 1,
+              "role": "REL",
+              "selector_offset": 19376,
+              "equation": 3,
+              "dependency_indices": [
+                3
+              ]
+            },
+            {
+              "rail_index": 0,
+              "rail_identity": 1,
+              "role": "ALT",
+              "selector_offset": 19378,
+              "equation": 6,
+              "dependency_indices": [
+                3,
+                6
+              ]
+            }
+          ],
+          "known_clock_consumers_from_rom_graph": [],
+          "graph_scope": "understood VFE edges, rail selectors and C+0C main-entry roots; other BIOS consumers unverified"
+        },
+        {
+          "key": "voltage.1.REL.maximum",
+          "native_definition": {
+            "index": 265,
+            "lower_uv": 900000,
+            "upper_uv": 1120000,
+            "next_index": 266,
+            "variable": 255,
+            "output_type": 2,
+            "variables": [
+              {
+                "type": 2,
+                "value": 8
+              },
+              {
+                "type": 2,
+                "value": 16
+              }
+            ],
+            "coefficients": [
+              {
+                "type": 1,
+                "value": 1234805768
+              },
+              {
+                "type": 1,
+                "value": 3235428665
+              },
+              {
+                "type": 1,
+                "value": 934858001
+              },
+              {
+                "type": 1,
+                "value": 2962083760
+              },
+              {
+                "type": 1,
+                "value": 756396175
+              },
+              {
+                "type": 1,
+                "value": 2829146504
+              }
+            ]
+          },
+          "rom_binding_matches_native_definition": true,
+          "native_info_row_hex": "06000a01000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006ff0200",
+          "native_control_row_hex": "0600000000ba5b4900b88849000000000200000008000000020000001000000000000000000000000100000008a499490100000039b9d8c00100000011cdb83701000000b0cf8db0010000008fb0152d010000008859a1a800000000000000000000000000000000000000000000000000000000000000000206000006000000",
+          "coefficient_float32_views": [
+            1258625.0,
+            -6.772610187530518,
+            2.2030000764061697e-05,
+            -1.03181285737719e-09,
+            8.508873293455732e-12,
+            -1.7913418686767157e-14
+          ],
+          "known_rail_consumers_from_rom_graph": [
+            {
+              "rail_index": 1,
+              "rail_identity": 2,
+              "role": "REL",
+              "selector_offset": 19441,
+              "equation": 265,
+              "dependency_indices": [
+                2,
+                265,
+                266,
+                267
+              ]
+            },
+            {
+              "rail_index": 1,
+              "rail_identity": 2,
+              "role": "ALT",
+              "selector_offset": 19443,
+              "equation": 268,
+              "dependency_indices": [
+                2,
+                265,
+                266,
+                267,
+                268
+              ]
+            }
+          ],
+          "known_clock_consumers_from_rom_graph": [],
+          "graph_scope": "understood VFE edges, rail selectors and C+0C main-entry roots; other BIOS consumers unverified"
+        }
+      ],
+      "qualification": "The feasibility script reads ROM-derived fields, not the native packet directly. This audit independently decodes the saved native INFO/CONTROL rows and verifies those two bindings match the native bytes. The graph remains ROM-derived.",
+      "limits": [
+        "Matching terms prove saved definition equality, not a polynomial evaluation, coefficient order or physical voltage.",
+        "Known ALT coupling and the second REL next chain are effects to account for. They are not automatic disqualifications, and no exhaustive unknown-consumer absence gate is introduced.",
+        "The capture's two-stable-read metadata is historical evidence; this offline comparison performs no new read or freshness qualification."
+      ],
+      "addend_status": "A literal float32 view or matching native descriptor does not prove which coefficient is additive, evaluator arithmetic, clamp/next composition or policy quantization. Known ALT sharing and the second REL tail are effects to model, not automatic refusal or a requirement to prove absence of every unknown consumer."
+    },
+    "type6_creation_and_SET": {
+      "source": "The conditional source parser reads Perf+348, obtains Perf+350 through owner+8, maps source type7 to native type6 and passes its typed descriptors to factory19E70C4. The type6 branch creates an allocation of0x128 bytes through1A06F60 and installs selector1 interface+30=15B21E8.",
+      "copies": "15B21E8 first calls15B1DF4 ->15AF4A4, which may copy request DWORDs+4/+8 to adjusted object+28/+2C before count-pair validation. Successful count pairs1/3,2/6,3/10 permit descriptor copies from request+10/+28 to object+B8/+D4.",
+      "error_handling": "A later error need not mean no state changed. Existing entered-attempt compensation and exact readback/restoration remain necessary; no malformed live request was sent and no new recovery framework was added.",
+      "limits": "Constructor, validation and dependency traversal do not establish coefficient ordering or a numerical evaluator."
+    },
+    "Perf_post_equation_callback": {
+      "conditional_assignment": "Builder15A7F98 retains Perf root in s2. On the traced guarded setup path,15A8DE8/DEC materialize15A9968 and15A8DF2 stores it at Perf+590;15A8DF6 sets byte31C. Other branches/replacements and actual retention remain open.",
+      "leaf": {
+        "va": "0x15a9968",
+        "end_exclusive": "0x15a997a",
+        "bytes": "411122e006e40008a2600264014541018280",
+        "sha256": "0560d7191595cb4ccee3c67c5586b6f52e5dd5384701a2820c62707563f84e9e",
+        "effect": "Save/restore frame, a0=0, return; no data update, numeric evaluation or transport."
+      },
+      "handler_relation": "The candidate E0B7 handler calls direct member Perf+590 after successful group dispatch. Only if this assignment is retained and that route is used does it reach the leaf above."
+    },
+    "B202_refresh_and_backing": {
+      "command": "Public5D0634EE binds native2080B202; it is distinct from definition getters and B214.",
+      "refresh": "Group initializer1964760 installs interface+108=161496C at196487E; the final t1 definition is196483E/4842. With required nonzero buffer/type fields,161496C clears interface+D0, invokes interface+F8=16110F4 and calls1614298 with descriptor interface+C0. Descriptor+10 is exactly interface+D0.",
+      "F8_store_correction": "The F8 store is1964876.196487A instead stores1614690 at interface+100. The earlier private report's487A location for F8 was incorrect.",
+      "returned_group": "For candidate class5DFED5,188EDB2 allocates a separate0x2B8 group;188EDBA replaces s4 with it.161C540/161C4C8 initialize its inline array and +38=160E79C.188EE0C installs direct member+30=169E0DC. The earlier root+F78 alias was wrong because s4 is overwritten at188ECFE and188EDBA.",
+      "same_entry": "1A04DAC creates entry retained in s9.16A3BEC ->18A66C0 creates a separate0x90 object at entry+30. After setup,188EFBA loads group+30;188EFC4 invokes it with group,entry,index0.169E0DC ->1619178 inserts this entry and records index0 at group+178.188EFD0 stores the group pointer at derived root+1958. Under retention, Pmu virtual+388 ->187C414 returns this group and group+38(0) returns the same entry.",
+      "descriptor": "16A3C58 initializes entry+30 object's +60 descriptor. On parent byte+441 nonzero, arguments to1346224 are (&object+60,GPU,0xDB5800,0,1,2,object+6C,4). The successful path supplies descriptor type2 and flags0x604. A separate same-entry16A79B0 mapping requests offset0,length0x63FF00; these constants are construction geometry, not voltage units or universal capacities.",
+      "conditional_provider": "Under additional traced GPU+838-object byte88=0 and GPU+77A=0 predicates,1346A80's type2 path can obtain descriptor+A0 from [GPU+1F40]+2C0. Exact getter key22AD47 matches public MemoryManager; this labels the class key only, not its active derived class, address space, processor, contents or data writer.",
+      "remaining": "Actual loaded image, selected class/branch, retained callbacks/pointers, original backing writer and numerical evaluation remain unobserved. The alternative descriptor branches remain distinct."
+    },
+    "receiver_and_modern_type2": {
+      "receiver": "EA=*(VOLTroot+118), receiver=*(EA+60); neither is the address of a descriptor field.",
+      "lifecycle": "Standalone EA631D constructor initially zeroes its0x70 bytes. The derived list lifecycle sets owner list displacement0x90, giving writes at EA+88/+90 rather than EA+60. Derived slot50 child1 returns success; child0 conditionally dispatches manager selector30 and may reach registered callback168D5B4 ->19F4F60.",
+      "provider_callbacks": "The three selector1 providers from this callback initially use+D8=1613ED0 on traced construction paths. First/third embedded providers are VOLT+2E8/+588; the middle is a separate group+170. Writes update their own+A8/+C0 descriptor+10 fields through1A04A30; they do not establish EA+60 population. Later indirect overrides are not excluded.",
+      "readout": "The traced type2 interface+38 method copies object bytesBE/D0/D1 and DWORDsC0/C4/C8/CC to output bytes5/6/7 and DWORDs8/C/10/14 without numeric conversion in that body. Its upstream values, consumed units, rails and actual invocation remain unknown."
+    },
+    "root_verification": {
+      "reports": 14,
+      "bounded_code_windows": 115,
+      "instruction_records": 31516,
+      "metadata_regions": 13,
+      "literal_assignment_checks": [
+        {
+          "at": "0x196487e",
+          "instruction": "sd t1, 0x108(a0)",
+          "source_register": "t1",
+          "source_definition": {
+            "at": "0x1964842",
+            "instruction": "addi t1, t1, 0x12e"
+          },
+          "resolved_value": "0x161496c",
+          "expected": "0x161496c",
+          "exact": true,
+          "window_start": "0x1964760",
+          "window_sha256": "9d43918eef30c6dd5f3d0cf3ecc3fa69fd22fd4b398c778e505dca37d0f7e337"
+        },
+        {
+          "at": "0x161dd0c",
+          "instruction": "sd a6, 0x1f0(a0)",
+          "source_register": "a6",
+          "source_definition": {
+            "at": "0x161dcaa",
+            "instruction": "addi a6, a6, 0x14e"
+          },
+          "resolved_value": "0x1611df4",
+          "expected": "0x1611df4",
+          "exact": true,
+          "window_start": "0x161dc74",
+          "window_sha256": "78f08f36612ed525c9b2f309c06c62be3d7aad36da5354420379ca1bbe011e9d"
+        },
+        {
+          "at": "0x161dd14",
+          "instruction": "sd a2, 0x200(a0)",
+          "source_register": "a2",
+          "source_definition": {
+            "at": "0x161dce4",
+            "instruction": "addi a2, a2, 0x640"
+          },
+          "resolved_value": "0x1612320",
+          "expected": "0x1612320",
+          "exact": true,
+          "window_start": "0x161dc74",
+          "window_sha256": "dba72421c07017fcb3d8f29a8810e869c3d20008c6691135e3d0c02d82703d16"
+        },
+        {
+          "at": "0x168fdbe",
+          "instruction": "sd a2, 0x1f8(s3)",
+          "source_register": "a2",
+          "source_definition": {
+            "at": "0x168fd96",
+            "instruction": "addi a2, a2, 0x2ee"
+          },
+          "resolved_value": "0x168f080",
+          "expected": "0x168f080",
+          "exact": true,
+          "window_start": "0x168fd62",
+          "window_sha256": "e946ff4a31304d9532706177d5d286970f554c2187a3ce07398450b3548ceedd"
+        },
+        {
+          "at": "0x168569c",
+          "instruction": "sd a7, 0x28(a0)",
+          "source_register": "a7",
+          "source_definition": {
+            "at": "0x168566e",
+            "instruction": "addi a7, a7, 0x32e"
+          },
+          "resolved_value": "0x1686998",
+          "expected": "0x1686998",
+          "exact": true,
+          "window_start": "0x168566a",
+          "window_sha256": "88cfce439b60eebc807b54ae57ea7e9a11f25ac04f5103c7fe5617c32a224344"
+        },
+        {
+          "at": "0x1691684",
+          "instruction": "c.sd a1, 0x40(a5)",
+          "source_register": "a1",
+          "source_definition": {
+            "at": "0x169165a",
+            "instruction": "addi a1, a1, -0x542"
+          },
+          "resolved_value": "0x1693114",
+          "expected": "0x1693114",
+          "exact": true,
+          "window_start": "0x169164e",
+          "window_sha256": "ac87d6104dc97bb7f890885c5de60f50fa2705a160683279470ee53532d90345"
+        },
+        {
+          "at": "0x1691686",
+          "instruction": "c.sd a2, 0x48(a5)",
+          "source_register": "a2",
+          "source_definition": {
+            "at": "0x1691662",
+            "instruction": "addi a2, a2, -0x592"
+          },
+          "resolved_value": "0x16910cc",
+          "expected": "0x16910cc",
+          "exact": true,
+          "window_start": "0x169164e",
+          "window_sha256": "7f41c5760e6ddcaa26c9a63453a2b137877aa9cf62a01079b38b887a9b6ef31d"
+        },
+        {
+          "at": "0x15a8df2",
+          "instruction": "sd a4, 0x590(s2)",
+          "source_register": "a4",
+          "source_definition": {
+            "at": "0x15a8dec",
+            "instruction": "addi a4, a4, -0x480"
+          },
+          "resolved_value": "0x15a9968",
+          "expected": "0x15a9968",
+          "exact": true,
+          "window_start": "0x15a8de8",
+          "window_sha256": "9a4ef35e19cececea7d717e0b7a00b60625932f8727e439e3ecba1777ff56b72"
+        },
+        {
+          "at": "0x188ee0c",
+          "instruction": "sd a3, 0x30(s4)",
+          "source_register": "a3",
+          "source_definition": {
+            "at": "0x188edf0",
+            "instruction": "addi a3, a3, 0x2f0"
+          },
+          "resolved_value": "0x169e0dc",
+          "expected": "0x169e0dc",
+          "exact": true,
+          "window_start": "0x188edec",
+          "window_sha256": "a453c4ea38d30948bbf63473b2bf3081047941d662859567724221f0428a42b5"
+        },
+        {
+          "at": "0x161c526",
+          "instruction": "sd a6, 0x38(a0)",
+          "source_register": "a6",
+          "source_definition": {
+            "at": "0x161c4f0",
+            "instruction": "addi a6, a6, 0x2b0"
+          },
+          "resolved_value": "0x160e79c",
+          "expected": "0x160e79c",
+          "exact": true,
+          "window_start": "0x161c4c8",
+          "window_sha256": "b33f7bf0073474e0187f24e2ddf6759a58d0cfc079b8d92469355018350f739a"
+        },
+        {
+          "at": "0x1964876",
+          "instruction": "sd t4, 0xf8(a0)",
+          "source_register": "t4",
+          "source_definition": {
+            "at": "0x1964832",
+            "instruction": "addi t4, t4, -0x73a"
+          },
+          "resolved_value": "0x16110f4",
+          "expected": "0x16110f4",
+          "exact": true,
+          "window_start": "0x1964760",
+          "window_sha256": "5dead5ff75020c4c4363cdd12bb5d05b69721a03278ab94eea354bceb4556a7a"
+        },
+        {
+          "at": "0x1964866",
+          "instruction": "sd t2, 0xd8(a0)",
+          "source_register": "t2",
+          "source_definition": {
+            "at": "0x1964812",
+            "instruction": "addi t2, t2, 0x6c2"
+          },
+          "resolved_value": "0x1613ed0",
+          "expected": "0x1613ed0",
+          "exact": true,
+          "window_start": "0x1964760",
+          "window_sha256": "3d28e568f76f22c011827ac26af31db67d554269ab9dee7b4decfb6cdf497981"
+        }
+      ],
+      "saved_native_rows_checked": 2,
+      "artifact_erratum": {
+        "manifest_sha256": "d6682187e55c7029a1b01c466308c22b9bb539f4b1cee85fa2c129848d294aa0",
+        "scope": "Two historical script references are stale after in-place script extension; original scripts were not retained. Frozen report hashes and existing dumps remain. Root verifies current literal window ranges and current raw bytes independently; it does not claim original script reproduction.",
+        "declared_stale_references": [
+          {
+            "report": "lifecycle-backing\\interface-initialization\\backing-source\\findings.json",
+            "section": "artifacts_sha256",
+            "item": "trace.py",
+            "expected": "b1fbc08cf483d55aeab79aff15bd25f94fa00133c0cc744d82eb78a7df0bb7dc",
+            "actual": "7b7d42b1351c172e335a11ce85c6b479035535dc320a06c860c7c7f5e7984c6e",
+            "match": false
+          },
+          {
+            "report": "lifecycle-backing\\interface-initialization\\findings.json",
+            "section": "artifact_sha256",
+            "item": "trace.py",
+            "expected": "e975da52d0602c7279f4dc5ac2a86e053d1054e7b3b79fe68abfb6f79d75e82f",
+            "actual": "ffad8735d30b67d41fd7a503f0ee99802ca114192afb4765a16d1715b7bcdbdf",
+            "match": false
+          }
+        ]
+      },
+      "private_audits_sha256": {
+        "audit_candidate_windows.py": "23ba054bdec7750d6f33c796a748e3b3ddaf40d1b015a68475b59ce661ec30ce",
+        "candidate-window-audit.json": "7fc9415ad927eeae3bde89e24a3b03f76a13e759e83939cbe6f2db6f5e2912a3",
+        "audit_rel_provenance.py": "8daa1ed40764815a25ca09dace8c784c8f31e9307c43c886433347931f70f166",
+        "rel-provenance-audit.json": "fc16fa2d614ff158f67b5384594734b113b5b116cf843f2cca1d7e1b0a788936",
+        "audit_assignments.py": "51ba8e50a39e0bd02a1a448d0e3ce7bc720910b08e09b28b8e985afad91207d1",
+        "assignment-audit.json": "f7f64d41414bd90c66a6d9fd00615c475130f8d1478b174edce89a097e4b31dc"
+      },
+      "reports_sha256": {
+        "gsp-voltage-export-candidates-20261029/f219-handler/downstream-consumer/receiver-owner/common-creator/findings.json": "e57beb22e98c9a7282fb433c5c67867b21f694add0f74cff421ecb94c3703608",
+        "gsp-voltage-export-candidates-20261029/f219-handler/downstream-consumer/receiver-owner/derived-initialization/list-offset-owner/lifecycle-continuation/findings.json": "05a97d026959272d7164bb9ff6cec7ad1611ae83d1b6dfac7d9d12265b8dd755",
+        "gsp-voltage-export-candidates-20261029/f219-handler/type2-numeric-consumer/findings.json": "459435f2217d913b6e60a39cac1c2d5ed4415111f06ce3c49c100cae6c9ddab9",
+        "rel-addend-feasibility-20261029/evaluator-semantics/group-lifecycle/findings.json": "6b97ee899c3806b584eb1c3e50f1676f75a3430f5eccb87a8ddc531087b0549a",
+        "rel-addend-feasibility-20261029/evaluator-semantics/group-lifecycle/type6-row/findings.json": "e7a176d869bd946ce81b441b0f43c2722f6077133f601d59224184180b85ffdd",
+        "rel-addend-feasibility-20261029/perf590-root-xref/bound-assignment/findings.json": "a5e1f0e29b053c1de17fda10e9c259bdff769393ea4c06f8d456cd6d63a8cd71",
+        "rel-addend-feasibility-20261029/effective-policy-source/buffer-population/findings.json": "4fee5cfa71d22198be2abc4f6e8871891deb8592b723168cd66107621b3002a7",
+        "rel-addend-feasibility-20261029/effective-policy-source/backing-owner/findings.json": "a5844082525d7c7f7be2316a9aeaede6629f19f3336c057c2af9c1b2a367ff6b",
+        "gsp-voltage-export-candidates-20261029/f219-handler/downstream-consumer/receiver-owner/slot50-body/findings.json": "eecd008b8f6ec6ab632f5957d42c48a518a122aed92f0761a86b276bdc939c96",
+        "gsp-voltage-export-candidates-20261029/f219-handler/downstream-consumer/receiver-owner/callback-continuation/findings.json": "8b2114e72ae45c16fbbbcee91c5ab191ae158681f8e658dba6345aee6f2dfa4c",
+        "rel-addend-feasibility-20261029/effective-policy-source/backing-owner/lifecycle-backing/interface-initialization/bound-group-erratum.json": "6c241d4cc0137e06e2579f1f289822ffbbfa7bf93b64c468becac4e79e2478a3",
+        "rel-addend-feasibility-20261029/effective-policy-source/backing-owner/lifecycle-backing/interface-initialization/backing-source/findings.json": "6010acaf0bed6165862e653eaa98e5bfec50d9144203718c24b30deb0f81697f",
+        "rel-addend-feasibility-20261029/effective-policy-source/backing-owner/lifecycle-backing/interface-initialization/backing-source/argument-binding/findings.json": "5534b4bbeb60d4672df71a56f548e58510212e6070037f15767bcfe03c466f5e",
+        "gsp-voltage-export-candidates-20261029/f219-handler/downstream-consumer/receiver-owner/callback-continuation/embedded-providers/findings.json": "eba11bb9e96b1fa1b006fe2b98a8a60aeec868505c7c9919a3cbe7d2885c3779"
+      },
+      "qualification": "Root reproduced candidate bytes/disassembly and inspected the critical last register definitions, group allocation/call/store chain, saved native row equality and type6 bounds-before-count-validation path. Bounded byte equality does not prove full CFG, numerical semantics or runtime execution. Two overwritten historical trace scripts are disclosed explicitly; current dump/byte reproduction is not original script reproduction."
+    },
+    "remaining": [
+      "Actual numerical evaluator/coefficient order, clamp versus next-chain order and quantization for a true REL addend.",
+      "Original mapped-policy producer, live route/retention and candidate image identity.",
+      "Modern EA+60 receiver writer, actual backend, numerical units/rail association and consumed SET/replay semantics."
+    ],
+    "preserved_prior_record_sha256": {
+      "schema": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+      "scope": "55be957d651fb512976533f114c7bdc3da58a0ea938cfd150340929fcbe8dd9d",
+      "power_status": "45ea7a27d30055a4e8cad1c13e9ceaee39bd6875b03ab35bf69e846d80eb654b",
+      "command_roles_and_b214": "a2876c1386e7e8002e6700c5eced37790b2574d4f2fb83a87ba7cdd3d98226da",
+      "modern_voltage_receiver": "91837c8a0376279bcb4deb30389f9606dfd806c0b400c21df41fd315b180956f",
+      "perf_callback": "b20b7ee9c1ff18c03f7d5cc176ec16852a20b14cecdf038cfb428c1b4e7d9cf1",
+      "public_schema_lookup": "ca0228610b23a69887f0aa7e754ec325742809a4929b721de268fe13ba52ffc9",
+      "product_runtime": "02116328f561123bc29dd9003aef6d40d4882b05047329ba59ac9691b6b59ecb",
+      "private_evidence": "b5b09a0e213d97e4572faa031de2e5e23a9f21347ad7cf94d2c6cc9e52916984",
+      "evidence_sha256": "cc376a6bc78f2cbb998379ca0f536330f8beff7b021889438266f9d6aff8bf33",
+      "consumer_followup_20261029": "cad7e1956687996fa818f17fdf385ab38858f76dd09731268190abef0f2f2d76",
+      "ClockManager_key200_dispatch_20261029": "e5e6800524d08e93fc3226ee662b68dcf482f92c9639d3cc893c448d7ab4c143",
+      "response_copy_and_PERF_owner_20261029": "5c1e0c29da391a600324f3d6ddc5fa47d49694c9b8a85e1967dc380646d2ee3c",
+      "RM_routing_and_candidate_firmware_20261029": "9656a0434533d1f634c8c931cc4c681b0e452ad35f0a95c620a19c1b04a1b931",
+      "candidate_firmware_consumers_20261029": "fbad502bff9aad972d5cd4a8eb05b5e656d3216a29206296c3f521be3a52a6ed",
+      "candidate_firmware_flow_20261029": "018a8e0647f749357e57df42188deb9628cc3039fa74ffc204622fe96b24f6db"
     }
   }
 }

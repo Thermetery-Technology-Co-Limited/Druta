@@ -2990,6 +2990,33 @@ unbound. A default response path also copies selected fields into object state,
 subject to validation and callback retention. Neither image loading nor live
 handler selection was observed, and no modern F219 SET was performed.
 
+The candidate equation parser maps source type7 to native type6 and installs
+the selected-row setter. That setter can copy both bounds before rejecting a
+later descriptor-count mismatch. Entered-attempt compensation and exact
+restoration therefore remain necessary even after an error. On one guarded
+same-Perf construction path, direct member `+0x590` is assigned a leaf that
+only returns success; this particular callback is not a numerical evaluator.
+Its live retention and invocation remain unobserved.
+
+An offline comparison independently decoded the saved native INFO/CONTROL
+packets and matched both REL term/bound bindings to the ROM-derived fields.
+This establishes definition equality, not coefficient order, polynomial
+evaluation, clamp/next composition or quantization. A true additive REL
+control remains unqualified. Known ALT sharing and the second REL chain are
+effects to account for, rather than automatic disqualifications.
+
+The candidate B202 effective-policy refresh now connects its destination
+buffer to a selected group entry and backing descriptor on a conditional
+same-instance path. The group is a separate allocation; an earlier private
+alias to an embedded object was corrected after following intervening register
+assignments. A guarded descriptor branch reaches a MemoryManager class-key
+lookup, but the original mapped-value writer and live route remain unknown.
+Separate receiver lifecycle callbacks update their own provider descriptors;
+they do not establish population of `EA=*(VOLT+0x118)`, `receiver=*(EA+0x60)`.
+These findings do not qualify modern voltage SET or arbitrary replay. The
+[evaluator/source checkpoint](experiments/driver-transport-followup-20261028.json)
+records the exact bindings, corrections, byte audits and remaining boundaries.
+
 A separate variable investigation matched native INFO `0x2080A0B1`
 (`0xC364` bytes, header `0x28`, 255 rows of `0xC4`) and CONTROL
 `0x2080A0B3` (`0x2BFC` bytes, rows of `0x2C`) to the installed NVAPI
