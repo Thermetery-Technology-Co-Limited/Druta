@@ -3771,11 +3771,31 @@ The full suite passed 6,667 tests in 116.54 seconds; 110 focused NVDEC/Preview
 cases and changed-file Ruff also passed. An independent raw-packet audit was
 reproduced by root for both terminal trials.
 
-The hardware evidence covers source production transactions. The package is
-checked separately for source/compiled-code parity and restored-baseline GETs.
-The packaged LPWR follow-up is scoped to row 0 through panel callbacks and
-framebuffer capture; full shutdown, type4 no-peer UI, physical input and
-physical savings remain pending. [Scoped NVDEC evidence](experiments/nvdec-configured-qualified-20261029.json).
+The original hardware evidence covers source production transactions. The
+earlier packaged LPWR follow-up covers row 0 through panel callbacks and
+framebuffer capture. A later packaged trial disables all five enabled NVDEC
+rows through the ordinary panel, durable helper and app relaunch, then uses
+Undo. Its unchanged executable matches the current committed runtime; 460
+packaged sources and 20 compiled modules were checked before execution.
+
+The independent audit reconstructs the five enable-bit changes and complete
+LPWR packet projection. Controller 12 loses support; its mask and feature become
+unavailable, while type4 role4 becomes unavailable with independently supported
+peers retained. Other captured LPWR fields, opaque packet bytes, complete client
+requests and the full P-state packet match. Undo restores the original image and
+configuration. OS observations bind the three GUI processes and both helpers.
+All eight before samples match strictly. Final samples 0-2 retain the observed
+BOOST_LOW request/hash difference; samples 3-7 match strictly. All sixteen
+before/final full V/F curves match, with no exclusions. No independent active
+broad window was captured in this packaged run.
+
+Root and Luna inspected all four frames: five checked rows before, five visible
+enabled-to-disabled Preview lines, five read-only False labels active and five
+checked rows restored. The Preview checkbox rows are below the viewport; their
+unchecked appearance is not visually qualified. Before/restored PNGs are
+byte-identical. This trial used two GPU-only restarts. Type4 no-peer UI,
+post-restart failure/recovery, physical input and physical savings remain
+pending. [Scoped source and packaged NVDEC evidence](experiments/nvdec-configured-qualified-20261029.json).
 
 ## NVENC, OFA and NVJPG configured-state contracts (2026-10-29)
 

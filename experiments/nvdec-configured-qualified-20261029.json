@@ -54,7 +54,7 @@
   "pending": [
     "Supported controller17 profiles, mixed aggregate loss and additional layouts",
     "Curve freshness and remaining dependency transitions remain pending; later_availability_extension records the qualified OFA final-two full-phase repeat with its early negative observations and scope limits",
-    "Additional packaged full-shutdown/no-peer/error-recovery and physical-input walkthroughs; row0 callback/framebuffer evidence linked in later_packaged_row0_UI",
+    "Packaged type4 no-peer/error-recovery and physical-input walkthroughs; peer-bearing five-row full shutdown is separately qualified in packaged_full_shutdown_20261029",
     "Physical residency, activity-counter semantics and power savings"
   ],
   "GPU_only_restarts": 4,
@@ -77,5 +77,390 @@
     "package_scope": "Source/compiled-code parity and restored-baseline GETs checked separately from source transactions"
   },
   "later_availability_extension": "See media-type4-last-role-qualified-20261029.json: no-peer source contract, three clean media trials and the later OFA repeat with the last two full-state captures exact in every phase and all curves exact. Its earlier OFA curve-negative records and early BOOST_LOW differences remain recorded; producer and physical effect are unresolved. Original trials here retain their historical scope.",
-  "later_packaged_row0_UI": "See ui-lpwr-configured-qualified-20261029.json: programmatic row0 partial-disable callback/framebuffer sequence. Full-shutdown/no-peer, physical input and other packaged cases remain separate. The later source OFA repeat is reported in media-type4-last-role-qualified-20261029.json; it does not extend this packaged scope, and the earlier OFA curve-negative records remain retained."
+  "later_packaged_row0_UI": "See ui-lpwr-configured-qualified-20261029.json: programmatic row0 partial-disable callback/framebuffer sequence. Full-shutdown/no-peer, physical input and other packaged cases remain separate. The later source OFA repeat is reported in media-type4-last-role-qualified-20261029.json; it does not extend this packaged scope, and the earlier OFA curve-negative records remain retained.",
+  "packaged_full_shutdown_20261029": {
+    "scope": "One captured RTX5080 configuration; packaged programmatic panel callbacks disable all five enabled NVDEC entries, then durable Undo. Software configured-state and framebuffer qualification",
+    "command": "--ui-capture-lpwr-rows nvdec 0,1,2,3,4 NEW_DIRECTORY",
+    "backend_contract": "Existing NVDEC schema1 peer-bearing full shutdown; current table ownership, capabilities, actual Pstate routes and exact readbacks. No runtime code or admission change",
+    "source_build_commit": "a692fc46ea1becf772844fa8c34c946c49595a9c",
+    "executable_sha256": "ba57c070cb78e2f10936e00191693d0c129cb633b7a0f82ac40cf69c319b8dec",
+    "supervisor_session": 42097,
+    "exit_code": 0,
+    "selected_fields": [
+      "lpwr.nvdec.0.enabled",
+      "lpwr.nvdec.1.enabled",
+      "lpwr.nvdec.2.enabled",
+      "lpwr.nvdec.3.enabled",
+      "lpwr.nvdec.4.enabled"
+    ],
+    "contract_schema": 1,
+    "configured_transition": {
+      "native12_before": {
+        "supported": true,
+        "configured_mask": "0x129",
+        "feature": "0x3E005"
+      },
+      "native12_active": "Unsupported; mask and feature unavailable, not valid zero values",
+      "native17": "Independently unsupported before and after",
+      "type4_role4": "Supported to unavailable; independently supported peer roles remain readable",
+      "preserved": "All other captured LPWR controller/support/mask/feature and auxiliary fields, full Pstate packet, complete native/client power requests, unselected ROM bits and packet routing/opaque bytes"
+    },
+    "ROM_sha256": {
+      "before": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+      "active": "97af2891d14cc21644bc5f53a4a42021ea2238adb7550d02bfff10bee5d57b00",
+      "restored": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202"
+    },
+    "ROM_byte_changes": [
+      {
+        "offset": 254627,
+        "before": 235,
+        "after": 234
+      },
+      {
+        "offset": 254629,
+        "before": 235,
+        "after": 234
+      },
+      {
+        "offset": 254631,
+        "before": 235,
+        "after": 234
+      },
+      {
+        "offset": 254633,
+        "before": 235,
+        "after": 234
+      },
+      {
+        "offset": 254635,
+        "before": 235,
+        "after": 234
+      }
+    ],
+    "active_full_raw_packet_projection": {
+      "controller_support": {
+        "sha256_before": "8f683b1cf21fefd2d6af60dce4ea1f1ed8f7382ad89dfa735465fb8d5e4c332e",
+        "sha256_actual": "989828e5fefbe5815b7f31d1959773cb8bde9dcea328b6af84906fbba30157e1",
+        "count_before": 22,
+        "count_actual": 22,
+        "typed_fields_and_opaque_bytes_match": true,
+        "unavailable_values_not_interpreted": []
+      },
+      "controller_states": {
+        "sha256_before": "9bcd3b0e3f6ccaf765c9647febfc1a6f23be4ea58194ae48b468e0f7692b1d29",
+        "sha256_actual": "b180429aebeb7fe2b5a80011c8e12e0857ee673296f5ea192a9d5c70f30dedad",
+        "count_before": 11,
+        "count_actual": 10,
+        "typed_fields_and_opaque_bytes_match": true,
+        "unavailable_values_not_interpreted": []
+      },
+      "controller_features": {
+        "sha256_before": "ea73ebfde8da1a14e2e5491985b0568fe02a5d334b02e8da08956bc3c59197c5",
+        "sha256_actual": "27d4daf25ca16c1b6e6c1f95ade0822b4c197aa008f0c18fa0068f0f8323936a",
+        "count_before": 11,
+        "count_actual": 10,
+        "typed_fields_and_opaque_bytes_match": true,
+        "unavailable_values_not_interpreted": []
+      },
+      "aux_controller0_feature": {
+        "sha256_before": "6264887e3dc3b0f26788fdddd03d2546ab38b03ce52f65e297a3414da2e9d762",
+        "sha256_actual": "6264887e3dc3b0f26788fdddd03d2546ab38b03ce52f65e297a3414da2e9d762",
+        "count_before": 1,
+        "count_actual": 1,
+        "typed_fields_and_opaque_bytes_match": true,
+        "unavailable_values_not_interpreted": []
+      },
+      "type1_group": {
+        "sha256_before": "8a5676efd7b79301f8668b3800ee354a355b61c1dd239eee2561f7d204ead949",
+        "sha256_actual": "8a5676efd7b79301f8668b3800ee354a355b61c1dd239eee2561f7d204ead949",
+        "count_before": 9,
+        "count_actual": 9,
+        "typed_fields_and_opaque_bytes_match": true,
+        "unavailable_values_not_interpreted": []
+      },
+      "type4_role_support": {
+        "sha256_before": "461954f5c7c596edfdb01d29f0862cc628252a1b929c389fb924329ba7910d4b",
+        "sha256_actual": "d2b0e13c4c95c5a672f193024794f9a3d6bca6c85fd6e6839913d450a78b4782",
+        "count_before": 11,
+        "count_actual": 11,
+        "typed_fields_and_opaque_bytes_match": true,
+        "unavailable_values_not_interpreted": [
+          {
+            "type": 4,
+            "role": 1,
+            "attribute": 9,
+            "raw_value_uninterpreted": 0
+          },
+          {
+            "type": 4,
+            "role": 2,
+            "attribute": 9,
+            "raw_value_uninterpreted": 0
+          },
+          {
+            "type": 4,
+            "role": 3,
+            "attribute": 9,
+            "raw_value_uninterpreted": 0
+          },
+          {
+            "type": 4,
+            "role": 4,
+            "attribute": 9,
+            "raw_value_uninterpreted": 0
+          },
+          {
+            "type": 4,
+            "role": 8,
+            "attribute": 9,
+            "raw_value_uninterpreted": 0
+          },
+          {
+            "type": 4,
+            "role": 9,
+            "attribute": 9,
+            "raw_value_uninterpreted": 0
+          },
+          {
+            "type": 4,
+            "role": 10,
+            "attribute": 9,
+            "raw_value_uninterpreted": 0
+          }
+        ]
+      },
+      "type7_group": {
+        "sha256_before": "2296b9a610c4cf45f908ea98b0ac19010e3a0acd30d233edc2fa0e18a05a6d0d",
+        "sha256_actual": "2296b9a610c4cf45f908ea98b0ac19010e3a0acd30d233edc2fa0e18a05a6d0d",
+        "count_before": 6,
+        "count_actual": 6,
+        "typed_fields_and_opaque_bytes_match": true,
+        "unavailable_values_not_interpreted": []
+      }
+    },
+    "full_client_requests_and_Pstate_exact": true,
+    "phase_GUI_PIDs": {
+      "initial": 27340,
+      "applying": 19264,
+      "restoring": 11676
+    },
+    "observed_helpers": [
+      {
+        "action": "apply",
+        "process_id": 13800,
+        "parent_pid": 27340
+      },
+      {
+        "action": "restore",
+        "process_id": 18628,
+        "parent_pid": 19264
+      }
+    ],
+    "receipt": "Exactly five selected false fields, inner schema1/outer version1, bound target/image/registry/plan, all five fields verified on Apply and Undo, successful helper events and two GPU-only restarts",
+    "frames": {
+      "before": {
+        "width": 1528,
+        "height": 1261,
+        "sha256": "9237612fb4359bc34b28d55fb99dec1059b530973f162f2662564801cc8c32f2",
+        "recorded_values": {
+          "lpwr.nvdec.0.enabled": true,
+          "lpwr.nvdec.1.enabled": true,
+          "lpwr.nvdec.2.enabled": true,
+          "lpwr.nvdec.3.enabled": true,
+          "lpwr.nvdec.4.enabled": true
+        }
+      },
+      "preview": {
+        "width": 1528,
+        "height": 1261,
+        "sha256": "2e424397ca042bc19ac3620bef1d0eba89e7a3c0069b6405f914eeff1a6bae8a",
+        "recorded_values": {
+          "lpwr.nvdec.0.enabled": false,
+          "lpwr.nvdec.1.enabled": false,
+          "lpwr.nvdec.2.enabled": false,
+          "lpwr.nvdec.3.enabled": false,
+          "lpwr.nvdec.4.enabled": false
+        }
+      },
+      "active": {
+        "width": 1528,
+        "height": 1261,
+        "sha256": "7dcca3f0b6710eabb6fc802f1800eaca0b9ad508375571fd5177dc5901e79860",
+        "recorded_values": {
+          "lpwr.nvdec.0.enabled": false,
+          "lpwr.nvdec.1.enabled": false,
+          "lpwr.nvdec.2.enabled": false,
+          "lpwr.nvdec.3.enabled": false,
+          "lpwr.nvdec.4.enabled": false
+        }
+      },
+      "restored": {
+        "width": 1528,
+        "height": 1261,
+        "sha256": "9237612fb4359bc34b28d55fb99dec1059b530973f162f2662564801cc8c32f2",
+        "recorded_values": {
+          "lpwr.nvdec.0.enabled": true,
+          "lpwr.nvdec.1.enabled": true,
+          "lpwr.nvdec.2.enabled": true,
+          "lpwr.nvdec.3.enabled": true,
+          "lpwr.nvdec.4.enabled": true
+        }
+      }
+    },
+    "visual_review": {
+      "root": "All five NVDEC boxes visibly checked before and after Undo; all five read-only False labels visible active. Preview shows all five enabled-to-disabled change lines and the support-removed/unavailable caption",
+      "Luna": "Independent four-frame pixel review agrees; before/restored PNGs are byte-identical",
+      "limits": "NVDEC checkbox rows are below the Preview viewport; their unchecked appearance is not visually qualified. Short helper-status text has no separate legibility claim"
+    },
+    "before_full_broad": [
+      {
+        "strict_exact": true,
+        "difference_paths": [],
+        "curve_changed_bytes": 0
+      },
+      {
+        "strict_exact": true,
+        "difference_paths": [],
+        "curve_changed_bytes": 0
+      },
+      {
+        "strict_exact": true,
+        "difference_paths": [],
+        "curve_changed_bytes": 0
+      },
+      {
+        "strict_exact": true,
+        "difference_paths": [],
+        "curve_changed_bytes": 0
+      },
+      {
+        "strict_exact": true,
+        "difference_paths": [],
+        "curve_changed_bytes": 0
+      },
+      {
+        "strict_exact": true,
+        "difference_paths": [],
+        "curve_changed_bytes": 0
+      },
+      {
+        "strict_exact": true,
+        "difference_paths": [],
+        "curve_changed_bytes": 0
+      },
+      {
+        "strict_exact": true,
+        "difference_paths": [],
+        "curve_changed_bytes": 0
+      }
+    ],
+    "final_full_broad": [
+      {
+        "strict_exact": false,
+        "difference_paths": [
+          "voltage.broad.broad.driver_flags.control_sha256",
+          "voltage.broad.broad.driver_flags.entries[13].control_hex"
+        ],
+        "curve_changed_bytes": 0
+      },
+      {
+        "strict_exact": false,
+        "difference_paths": [
+          "voltage.broad.broad.driver_flags.control_sha256",
+          "voltage.broad.broad.driver_flags.entries[13].control_hex"
+        ],
+        "curve_changed_bytes": 0
+      },
+      {
+        "strict_exact": false,
+        "difference_paths": [
+          "voltage.broad.broad.driver_flags.control_sha256",
+          "voltage.broad.broad.driver_flags.entries[13].control_hex"
+        ],
+        "curve_changed_bytes": 0
+      },
+      {
+        "strict_exact": true,
+        "difference_paths": [],
+        "curve_changed_bytes": 0
+      },
+      {
+        "strict_exact": true,
+        "difference_paths": [],
+        "curve_changed_bytes": 0
+      },
+      {
+        "strict_exact": true,
+        "difference_paths": [],
+        "curve_changed_bytes": 0
+      },
+      {
+        "strict_exact": true,
+        "difference_paths": [],
+        "curve_changed_bytes": 0
+      },
+      {
+        "strict_exact": true,
+        "difference_paths": [],
+        "curve_changed_bytes": 0
+      }
+    ],
+    "comparison_rule": "Eight retained full broad samples before and after at scheduled three-second intervals; last two must match strictly. Final samples0-2 retain driver_flags control-hash/entry13 request differences; samples3-7 match. No exclusions or universal settling-time claim",
+    "curve_scope": "All sixteen before/final full curves are byte-exact. No independent active broad window was captured in this packaged trial; earlier source full-phase qualification remains separate",
+    "original_restored": true,
+    "baseline_matches_immutable_control": true,
+    "terminal_GUI_closed_before_offline_reads": true,
+    "independent_audits": "Terra independently audited raw packets, image bits, actual-route projection, receipts, OS helper/GUI identities, frames and full external comparisons; root reproduced both audit objects exactly. Root and Luna separately inspected all four framebuffers",
+    "validation": {
+      "trial_package_committed_sources": 460,
+      "trial_package_compiled_modules": 20,
+      "runtime_suite": "6965 passed in120.88s remains applicable to unchanged runtime; not rerun for this evidence/documentation-only checkpoint"
+    },
+    "source_sha256": {
+      "registry_ui_trial.py": "2dc273fb893bc46be20e03abb05c000143e6fa5e133167f9e7a08eb05dc9c943",
+      "druta.py": "be12e1e3c80185008439e4d3042ab833605e8b76295ec5215fc2fa3c6a3a38b4",
+      "registry_panel.py": "d3903a662398aa9aff9dadd53258f16b721bba1263d34d4ee54ab38d2c0492a0",
+      "registry_overrides.py": "b67080f4b635d7ae7903a87e0fc2da6a224f7424064459a09e29d14941c0bd29",
+      "grpg_runtime.py": "eae295d031f6c12712014b50417eb0051e78d9ad36eff7b4d5d67d7611d221a1",
+      "ms_runtime.py": "d7eafb6f6477dc52f2b5b2d1aef910eab0c214a79ce25b33971cd8c4ff474f5e",
+      "nvdec_runtime.py": "bf234e1876b29d537485acadf1248c9bd8affff05028bdb461abd928e0efe0c6",
+      "media_lpwr_runtime.py": "823c6083c949edcb07f8ebe60ffea11eca76994710f253f3c3db948aeb6245ef"
+    },
+    "GPU_only_restarts": 2,
+    "restart_count_scope": "This packaged NVDEC trial only; original NVDEC source4 and original six-family row0 UI14 remain separately scoped",
+    "Windows_reboot": false,
+    "workload_started": false,
+    "physical_input": false,
+    "physical_effects_measured": false,
+    "F219_SET": false,
+    "NVIDIA_App_installed": false,
+    "release_changes": false,
+    "pending": [
+      "Packaged type4 no-peer and other-family full shutdown profiles",
+      "Post-restart failure/recovery screens and physical input",
+      "Other layouts/adapters/displays, curve freshness and physical residency/power measurements"
+    ],
+    "private_evidence_sha256": {
+      "experiments/registry-overrides/ui-nvdec-shutdown-root-20261029/launch_nvdec.py": "1bd50dc32238c7dc935cdefd554a2d6e4ec19453c97218696b3e537e7bfe4fa5",
+      "experiments/registry-overrides/ui-nvdec-shutdown-root-20261029/audit_nvdec.py": "db8f7636c5af2cc0e3e99ddee838bfea932136cf0f77e92a47b56c886e4ae352",
+      "experiments/registry-overrides/ui-nvdec-shutdown-root-20261029/audit_external.py": "65bd24c69f27250ea2bd31e354d4aad76fdf59da789f7e31da6efbd2b9fc1d4e",
+      "experiments/registry-overrides/ui-nvdec-shutdown-root-20261029/root-ui-audit.json": "052047983ef581842c778fe3c7199f80ced9481631c0434a4ab891714bc14141",
+      "experiments/registry-overrides/ui-nvdec-shutdown-root-20261029/root-external-audit.json": "b6c3cdb0b728f311bb49de5bed2106664d8617e335911038cdf565a3a88485f1",
+      "experiments/registry-overrides/ui-nvdec-shutdown-root-20261029/luna-visual-review.json": "d970167ecb55276d81f5024bc565f0ce4066dd0d5858325d37a6b4bcef6cc304",
+      "experiments/registry-overrides/ui-nvdec-shutdown-root-20261029/preflight-root-review.json": "5d14d65217fc10324581750277ec6d3d08196344187a7fc403ea91970cde5875",
+      "experiments/registry-overrides/ui-nvdec-shutdown-root-20261029/packaged-nvdec-shutdown-1-baseline.json": "c17f33473dc8639d2e7b17dfdd8d77d7babb87426ec62c2d179f70a7bc825eba",
+      "experiments/registry-overrides/ui-nvdec-shutdown-root-20261029/packaged-nvdec-shutdown-1-launch.json": "f78642a8369fbbe1efd8320372454f1f3a1b4a3aa911e7e8014fa73e9162261b",
+      "experiments/registry-overrides/ui-nvdec-shutdown-root-20261029/packaged-nvdec-shutdown-1-root-final.json": "fa8145aaae61421a3bea81b770c1bc317b417c291ed4046140d7441960bed2a7",
+      "experiments/registry-overrides/ui-nvdec-shutdown-root-20261029/packaged-nvdec-shutdown-1/trial.json": "4c09cf2d304cc722ba60db4754707865cb5274ff2daba10ceae9b8babaf6f222",
+      "experiments/registry-overrides/ui-nvdec-shutdown-root-20261029/packaged-nvdec-shutdown-1/trial-result.json": "638e28239cd2eb6f53cd70855633698fc965ec0d94dda14c611ac12de96ac6e8",
+      "experiments/registry-overrides/ui-nvdec-shutdown-root-20261029/packaged-nvdec-shutdown-1/lpwr-initial.json": "68150fed34d3c32599dbac251c1265a8f64d26a05f7fa4b9a84ab80cb2a32d79",
+      "experiments/registry-overrides/ui-nvdec-shutdown-root-20261029/packaged-nvdec-shutdown-1/lpwr-before.json": "7b15da9d0bbdb4d4f60358c8b4ef3737f36aa06ad1ba29c92c56d9ccdc40aa2b",
+      "experiments/registry-overrides/ui-nvdec-shutdown-root-20261029/packaged-nvdec-shutdown-1/lpwr-active.json": "4a95a939c5a6269ab6d8c9486e44ca51e7d55a746b9e5704c29abdffead7f7fa",
+      "experiments/registry-overrides/ui-nvdec-shutdown-root-20261029/packaged-nvdec-shutdown-1/lpwr-restored.json": "2f7f912121593bf7b80fad7bcf7e95d391b9032dcdc7446991cdfe1b3a6c7c39",
+      "experiments/registry-overrides/ui-nvdec-shutdown-root-20261029/packaged-nvdec-shutdown-1/initial/manifest.json": "5aa53ca11c7e0358e8d37a4cee0b53594e8e38a587e3ae978d721727a81106bb",
+      "experiments/registry-overrides/ui-nvdec-shutdown-root-20261029/packaged-nvdec-shutdown-1/applying/manifest.json": "bd2679b9e735baa232ef477cbbc7d00f709b9c21d3f603e45beb3c94194ccbc6",
+      "experiments/registry-overrides/ui-nvdec-shutdown-root-20261029/packaged-nvdec-shutdown-1/restoring/manifest.json": "bde6a3bf9812cc5223ac023e87c94c16ebc2276685237c8385563eb99739c252"
+    }
+  },
+  "later_packaged_full_shutdown": "See packaged_full_shutdown_20261029 for the separate five-row peer-bearing packaged shutdown/Undo qualification. Type4 no-peer UI, failure/recovery and physical input/effects remain pending"
 }
