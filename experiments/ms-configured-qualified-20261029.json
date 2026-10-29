@@ -1052,5 +1052,747 @@
         "experiments/registry-overrides/ui-ms-partial-root-20261029/packaged-ms-partial-1/trial.json": "0a9c7aaf0afa17171da9ccde10c873755713f3a03bd2fd9c1e57d8a88db0430d"
       }
     }
-  }
+  },
+  "packaged_full_shutdown_20261029": {
+    "scope": "One captured RTX5080 configuration; packaged programmatic panel callbacks disable every currently enabled MS entry0/1/2, then durable Undo. Software configured-state readback and framebuffer, no physical-input/effect claim",
+    "command": "--ui-capture-lpwr-rows ms 0,1,2 NEW_DIRECTORY",
+    "backend_contract": "Existing MS schema1 all-enabled shutdown, current owners/layout/capabilities/routes; no admission change and no new device/driver identity gates",
+    "configured_transition": {
+      "controller1_mask": [
+        288,
+        0
+      ],
+      "controller4": "support false; mask and feature unavailable, not valid zero",
+      "type1_role1": "support1 to0 and configured mask120h to0; shared type1 remains readable via role0",
+      "type7": "All six queried support/mask replies become unavailable; uninterpreted raw values retained. This does not independently prove an empty group mask",
+      "preserved": "Other LPWR native controllers/features, type1/type4 peers, full Pstate packet and complete client requests; exact unselected ROM bits and packet routing/opaque bytes"
+    },
+    "attempts": [
+      {
+        "attempt": 1,
+        "supervisor_session": 28692,
+        "exit_code": 0,
+        "source_build_commit": "dc32bdb57e7bcef8c97e851f7008703e1d7deb2a",
+        "executable_sha256": "f5c945133c8054f8ccc7ade533ace2d2c7f19d19e4d117a1577027179322c3cd",
+        "contract_schema": 1,
+        "selected_fields": [
+          "lpwr.ms.0.enabled",
+          "lpwr.ms.1.enabled",
+          "lpwr.ms.2.enabled"
+        ],
+        "ROM_sha256": {
+          "before": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+          "active": "9df7b945749c5a81d198a6793ddb57b8c979c3b7c946a9160ed9757812136202",
+          "restored": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202"
+        },
+        "ROM_byte_changes": [
+          {
+            "offset": 253693,
+            "before": 125,
+            "after": 124
+          },
+          {
+            "offset": 253709,
+            "before": 125,
+            "after": 124
+          },
+          {
+            "offset": 253725,
+            "before": 1,
+            "after": 0
+          }
+        ],
+        "active_full_raw_packet_projection": {
+          "controller_support": {
+            "sha256_before": "8f683b1cf21fefd2d6af60dce4ea1f1ed8f7382ad89dfa735465fb8d5e4c332e",
+            "sha256_actual": "a4e4697144003146a696237367f9e441c1e8101e9265596881e25cde813d6162",
+            "count_before": 22,
+            "count_actual": 22,
+            "typed_fields_and_opaque_bytes_match": true,
+            "unavailable_values_not_interpreted": []
+          },
+          "controller_states": {
+            "sha256_before": "9bcd3b0e3f6ccaf765c9647febfc1a6f23be4ea58194ae48b468e0f7692b1d29",
+            "sha256_actual": "63e1cd9e7ee07b2c8198200af891d9ba3f4607a419bb7dccf39cdffd3db0fe6e",
+            "count_before": 11,
+            "count_actual": 10,
+            "typed_fields_and_opaque_bytes_match": true,
+            "unavailable_values_not_interpreted": []
+          },
+          "controller_features": {
+            "sha256_before": "ea73ebfde8da1a14e2e5491985b0568fe02a5d334b02e8da08956bc3c59197c5",
+            "sha256_actual": "94210a770aa41873c770322bc740625a8e4d752fcb0be40f8c5f541837b07c45",
+            "count_before": 11,
+            "count_actual": 10,
+            "typed_fields_and_opaque_bytes_match": true,
+            "unavailable_values_not_interpreted": []
+          },
+          "aux_controller0_feature": {
+            "sha256_before": "6264887e3dc3b0f26788fdddd03d2546ab38b03ce52f65e297a3414da2e9d762",
+            "sha256_actual": "6264887e3dc3b0f26788fdddd03d2546ab38b03ce52f65e297a3414da2e9d762",
+            "count_before": 1,
+            "count_actual": 1,
+            "typed_fields_and_opaque_bytes_match": true,
+            "unavailable_values_not_interpreted": []
+          },
+          "type1_group": {
+            "sha256_before": "8a5676efd7b79301f8668b3800ee354a355b61c1dd239eee2561f7d204ead949",
+            "sha256_actual": "2326bd046a4dbcd524a5dd023294a1c4f4961550c1f72d33692b8ebccb0572bd",
+            "count_before": 9,
+            "count_actual": 9,
+            "typed_fields_and_opaque_bytes_match": true,
+            "unavailable_values_not_interpreted": []
+          },
+          "type4_role_support": {
+            "sha256_before": "461954f5c7c596edfdb01d29f0862cc628252a1b929c389fb924329ba7910d4b",
+            "sha256_actual": "461954f5c7c596edfdb01d29f0862cc628252a1b929c389fb924329ba7910d4b",
+            "count_before": 11,
+            "count_actual": 11,
+            "typed_fields_and_opaque_bytes_match": true,
+            "unavailable_values_not_interpreted": [
+              {
+                "type": 4,
+                "role": 1,
+                "attribute": 9,
+                "raw_value_uninterpreted": 0
+              },
+              {
+                "type": 4,
+                "role": 2,
+                "attribute": 9,
+                "raw_value_uninterpreted": 0
+              },
+              {
+                "type": 4,
+                "role": 3,
+                "attribute": 9,
+                "raw_value_uninterpreted": 0
+              },
+              {
+                "type": 4,
+                "role": 8,
+                "attribute": 9,
+                "raw_value_uninterpreted": 0
+              },
+              {
+                "type": 4,
+                "role": 9,
+                "attribute": 9,
+                "raw_value_uninterpreted": 0
+              },
+              {
+                "type": 4,
+                "role": 10,
+                "attribute": 9,
+                "raw_value_uninterpreted": 0
+              }
+            ]
+          },
+          "type7_group": {
+            "sha256_before": "2296b9a610c4cf45f908ea98b0ac19010e3a0acd30d233edc2fa0e18a05a6d0d",
+            "sha256_actual": "872920c687ed2528a26fee751aa6814dbd28afeb9cbc4125ca50aa34a7f48fd7",
+            "count_before": 6,
+            "count_actual": 6,
+            "typed_fields_and_opaque_bytes_match": true,
+            "unavailable_values_not_interpreted": [
+              {
+                "type": 7,
+                "role": 0,
+                "attribute": 1,
+                "raw_value_uninterpreted": 0
+              },
+              {
+                "type": 7,
+                "role": 0,
+                "attribute": 2049,
+                "raw_value_uninterpreted": 0
+              },
+              {
+                "type": 7,
+                "role": 1,
+                "attribute": 2049,
+                "raw_value_uninterpreted": 0
+              },
+              {
+                "type": 7,
+                "role": 2,
+                "attribute": 2049,
+                "raw_value_uninterpreted": 0
+              },
+              {
+                "type": 7,
+                "role": 0,
+                "attribute": 2053,
+                "raw_value_uninterpreted": 0
+              },
+              {
+                "type": 7,
+                "role": 1,
+                "attribute": 2053,
+                "raw_value_uninterpreted": 0
+              }
+            ]
+          }
+        },
+        "full_client_requests_and_Pstate_exact": true,
+        "phase_GUI_PIDs": {
+          "initial": 27872,
+          "applying": 25316,
+          "restoring": 21732
+        },
+        "observed_helpers": [
+          {
+            "action": "apply",
+            "process_id": 15204,
+            "parent_pid": 27872
+          },
+          {
+            "action": "restore",
+            "process_id": 20832,
+            "parent_pid": 25316
+          }
+        ],
+        "receipt": "Three selected false fields only; inner schema1/outer version1, exact target/image/registry/plan, three Apply/Undo verified fields, successful normal helper events and no reboot required",
+        "frames": {
+          "before": {
+            "width": 1528,
+            "height": 1261,
+            "sha256": "feefe6a5c5ff8cbf3f01f819a736900778715443a86bd0e206b9120244c457ec",
+            "values": {
+              "lpwr.ms.0.enabled": true,
+              "lpwr.ms.1.enabled": true,
+              "lpwr.ms.2.enabled": true
+            }
+          },
+          "preview": {
+            "width": 1528,
+            "height": 1261,
+            "sha256": "8ab477b078b46ebf701a9dbabf003488664cefb8b3a01169bbfe56fec3e4d54f",
+            "values": {
+              "lpwr.ms.0.enabled": false,
+              "lpwr.ms.1.enabled": false,
+              "lpwr.ms.2.enabled": false
+            }
+          },
+          "active": {
+            "width": 1528,
+            "height": 1261,
+            "sha256": "77ddd82a3a468a68a1b9cde64e17a095ccda53906cde54a4aa8a39c9e8f520b5",
+            "values": {
+              "lpwr.ms.0.enabled": false,
+              "lpwr.ms.1.enabled": false,
+              "lpwr.ms.2.enabled": false
+            }
+          },
+          "restored": {
+            "width": 1528,
+            "height": 1261,
+            "sha256": "feefe6a5c5ff8cbf3f01f819a736900778715443a86bd0e206b9120244c457ec",
+            "values": {
+              "lpwr.ms.0.enabled": true,
+              "lpwr.ms.1.enabled": true,
+              "lpwr.ms.2.enabled": true
+            }
+          }
+        },
+        "root_visual_review": "Before/Preview/restored selected rows legible; active Idle category collapsed and rows hidden. Backend and restoration passed; four-frame visual walkthrough unqualified",
+        "backend_qualified": true,
+        "complete_four_frame_visual_qualified": false,
+        "before_full_broad": [
+          {
+            "strict_exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          },
+          {
+            "strict_exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          },
+          {
+            "strict_exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          },
+          {
+            "strict_exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          },
+          {
+            "strict_exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          },
+          {
+            "strict_exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          },
+          {
+            "strict_exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          },
+          {
+            "strict_exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          }
+        ],
+        "final_full_broad": [
+          {
+            "strict_exact": false,
+            "difference_paths": [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex"
+            ],
+            "curve_changed_bytes": 0
+          },
+          {
+            "strict_exact": false,
+            "difference_paths": [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex"
+            ],
+            "curve_changed_bytes": 0
+          },
+          {
+            "strict_exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          },
+          {
+            "strict_exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          },
+          {
+            "strict_exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          },
+          {
+            "strict_exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          },
+          {
+            "strict_exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          },
+          {
+            "strict_exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          }
+        ],
+        "curve_scope": "All16 saved before/final full curves exact. No independent active broad window in this packaged run",
+        "original_restored": true,
+        "terminal_GUI_closed_before_offline_reads": true,
+        "GPU_only_restarts": 2,
+        "source_sha256": {
+          "registry_ui_trial.py": "dcaa9e9402033bce58016d342839eff0fcfd0d9a80327f49d8121c7e1c6f1a70",
+          "druta.py": "be12e1e3c80185008439e4d3042ab833605e8b76295ec5215fc2fa3c6a3a38b4",
+          "registry_panel.py": "9df73de453e56e1cb72f07378f7b5551a6d0f958372a38794ff2be15b5fe6989",
+          "registry_overrides.py": "b67080f4b635d7ae7903a87e0fc2da6a224f7424064459a09e29d14941c0bd29",
+          "grpg_runtime.py": "eae295d031f6c12712014b50417eb0051e78d9ad36eff7b4d5d67d7611d221a1",
+          "ms_runtime.py": "d7eafb6f6477dc52f2b5b2d1aef910eab0c214a79ce25b33971cd8c4ff474f5e",
+          "nvdec_runtime.py": "bf234e1876b29d537485acadf1248c9bd8affff05028bdb461abd928e0efe0c6",
+          "media_lpwr_runtime.py": "823c6083c949edcb07f8ebe60ffea11eca76994710f253f3c3db948aeb6245ef"
+        }
+      },
+      {
+        "attempt": 2,
+        "supervisor_session": 25278,
+        "exit_code": 0,
+        "source_build_commit": "e2e02927ea10e1963cd2e25d7ebedba4760ff09f",
+        "executable_sha256": "ba57c070cb78e2f10936e00191693d0c129cb633b7a0f82ac40cf69c319b8dec",
+        "contract_schema": 1,
+        "selected_fields": [
+          "lpwr.ms.0.enabled",
+          "lpwr.ms.1.enabled",
+          "lpwr.ms.2.enabled"
+        ],
+        "ROM_sha256": {
+          "before": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+          "active": "9df7b945749c5a81d198a6793ddb57b8c979c3b7c946a9160ed9757812136202",
+          "restored": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202"
+        },
+        "ROM_byte_changes": [
+          {
+            "offset": 253693,
+            "before": 125,
+            "after": 124
+          },
+          {
+            "offset": 253709,
+            "before": 125,
+            "after": 124
+          },
+          {
+            "offset": 253725,
+            "before": 1,
+            "after": 0
+          }
+        ],
+        "active_full_raw_packet_projection": {
+          "controller_support": {
+            "sha256_before": "8f683b1cf21fefd2d6af60dce4ea1f1ed8f7382ad89dfa735465fb8d5e4c332e",
+            "sha256_actual": "a4e4697144003146a696237367f9e441c1e8101e9265596881e25cde813d6162",
+            "count_before": 22,
+            "count_actual": 22,
+            "typed_fields_and_opaque_bytes_match": true,
+            "unavailable_values_not_interpreted": []
+          },
+          "controller_states": {
+            "sha256_before": "9bcd3b0e3f6ccaf765c9647febfc1a6f23be4ea58194ae48b468e0f7692b1d29",
+            "sha256_actual": "63e1cd9e7ee07b2c8198200af891d9ba3f4607a419bb7dccf39cdffd3db0fe6e",
+            "count_before": 11,
+            "count_actual": 10,
+            "typed_fields_and_opaque_bytes_match": true,
+            "unavailable_values_not_interpreted": []
+          },
+          "controller_features": {
+            "sha256_before": "ea73ebfde8da1a14e2e5491985b0568fe02a5d334b02e8da08956bc3c59197c5",
+            "sha256_actual": "94210a770aa41873c770322bc740625a8e4d752fcb0be40f8c5f541837b07c45",
+            "count_before": 11,
+            "count_actual": 10,
+            "typed_fields_and_opaque_bytes_match": true,
+            "unavailable_values_not_interpreted": []
+          },
+          "aux_controller0_feature": {
+            "sha256_before": "6264887e3dc3b0f26788fdddd03d2546ab38b03ce52f65e297a3414da2e9d762",
+            "sha256_actual": "6264887e3dc3b0f26788fdddd03d2546ab38b03ce52f65e297a3414da2e9d762",
+            "count_before": 1,
+            "count_actual": 1,
+            "typed_fields_and_opaque_bytes_match": true,
+            "unavailable_values_not_interpreted": []
+          },
+          "type1_group": {
+            "sha256_before": "8a5676efd7b79301f8668b3800ee354a355b61c1dd239eee2561f7d204ead949",
+            "sha256_actual": "2326bd046a4dbcd524a5dd023294a1c4f4961550c1f72d33692b8ebccb0572bd",
+            "count_before": 9,
+            "count_actual": 9,
+            "typed_fields_and_opaque_bytes_match": true,
+            "unavailable_values_not_interpreted": []
+          },
+          "type4_role_support": {
+            "sha256_before": "461954f5c7c596edfdb01d29f0862cc628252a1b929c389fb924329ba7910d4b",
+            "sha256_actual": "461954f5c7c596edfdb01d29f0862cc628252a1b929c389fb924329ba7910d4b",
+            "count_before": 11,
+            "count_actual": 11,
+            "typed_fields_and_opaque_bytes_match": true,
+            "unavailable_values_not_interpreted": [
+              {
+                "type": 4,
+                "role": 1,
+                "attribute": 9,
+                "raw_value_uninterpreted": 0
+              },
+              {
+                "type": 4,
+                "role": 2,
+                "attribute": 9,
+                "raw_value_uninterpreted": 0
+              },
+              {
+                "type": 4,
+                "role": 3,
+                "attribute": 9,
+                "raw_value_uninterpreted": 0
+              },
+              {
+                "type": 4,
+                "role": 8,
+                "attribute": 9,
+                "raw_value_uninterpreted": 0
+              },
+              {
+                "type": 4,
+                "role": 9,
+                "attribute": 9,
+                "raw_value_uninterpreted": 0
+              },
+              {
+                "type": 4,
+                "role": 10,
+                "attribute": 9,
+                "raw_value_uninterpreted": 0
+              }
+            ]
+          },
+          "type7_group": {
+            "sha256_before": "2296b9a610c4cf45f908ea98b0ac19010e3a0acd30d233edc2fa0e18a05a6d0d",
+            "sha256_actual": "872920c687ed2528a26fee751aa6814dbd28afeb9cbc4125ca50aa34a7f48fd7",
+            "count_before": 6,
+            "count_actual": 6,
+            "typed_fields_and_opaque_bytes_match": true,
+            "unavailable_values_not_interpreted": [
+              {
+                "type": 7,
+                "role": 0,
+                "attribute": 1,
+                "raw_value_uninterpreted": 0
+              },
+              {
+                "type": 7,
+                "role": 0,
+                "attribute": 2049,
+                "raw_value_uninterpreted": 0
+              },
+              {
+                "type": 7,
+                "role": 1,
+                "attribute": 2049,
+                "raw_value_uninterpreted": 0
+              },
+              {
+                "type": 7,
+                "role": 2,
+                "attribute": 2049,
+                "raw_value_uninterpreted": 0
+              },
+              {
+                "type": 7,
+                "role": 0,
+                "attribute": 2053,
+                "raw_value_uninterpreted": 0
+              },
+              {
+                "type": 7,
+                "role": 1,
+                "attribute": 2053,
+                "raw_value_uninterpreted": 0
+              }
+            ]
+          }
+        },
+        "full_client_requests_and_Pstate_exact": true,
+        "phase_GUI_PIDs": {
+          "initial": 21588,
+          "applying": 17332,
+          "restoring": 28460
+        },
+        "observed_helpers": [
+          {
+            "action": "apply",
+            "process_id": 21636,
+            "parent_pid": 21588
+          },
+          {
+            "action": "restore",
+            "process_id": 27564,
+            "parent_pid": 17332
+          }
+        ],
+        "receipt": "Three selected false fields only; inner schema1/outer version1, exact target/image/registry/plan, three Apply/Undo verified fields, successful normal helper events and no reboot required",
+        "frames": {
+          "before": {
+            "width": 1528,
+            "height": 1261,
+            "sha256": "feefe6a5c5ff8cbf3f01f819a736900778715443a86bd0e206b9120244c457ec",
+            "values": {
+              "lpwr.ms.0.enabled": true,
+              "lpwr.ms.1.enabled": true,
+              "lpwr.ms.2.enabled": true
+            }
+          },
+          "preview": {
+            "width": 1528,
+            "height": 1261,
+            "sha256": "3a0d0441fe058daf5cf9251abc946d23437fd80104581574ecff9fd21310b43d",
+            "values": {
+              "lpwr.ms.0.enabled": false,
+              "lpwr.ms.1.enabled": false,
+              "lpwr.ms.2.enabled": false
+            }
+          },
+          "active": {
+            "width": 1528,
+            "height": 1261,
+            "sha256": "15d962bbf9aa8a267912663954269657140964e053a982bdf4d9b73da4c8a538",
+            "values": {
+              "lpwr.ms.0.enabled": false,
+              "lpwr.ms.1.enabled": false,
+              "lpwr.ms.2.enabled": false
+            }
+          },
+          "restored": {
+            "width": 1528,
+            "height": 1261,
+            "sha256": "feefe6a5c5ff8cbf3f01f819a736900778715443a86bd0e206b9120244c457ec",
+            "values": {
+              "lpwr.ms.0.enabled": true,
+              "lpwr.ms.1.enabled": true,
+              "lpwr.ms.2.enabled": true
+            }
+          }
+        },
+        "root_visual_review": "All three selected rows checked before, unchecked in Preview, read-only False visible active, checked restored; Preview support-removed/unavailable caption legible. Before/restored PNGs byte-identical. Luna independently inspected the same four frames",
+        "backend_qualified": true,
+        "complete_four_frame_visual_qualified": true,
+        "before_full_broad": [
+          {
+            "strict_exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          },
+          {
+            "strict_exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          },
+          {
+            "strict_exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          },
+          {
+            "strict_exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          },
+          {
+            "strict_exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          },
+          {
+            "strict_exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          },
+          {
+            "strict_exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          },
+          {
+            "strict_exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          }
+        ],
+        "final_full_broad": [
+          {
+            "strict_exact": false,
+            "difference_paths": [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex"
+            ],
+            "curve_changed_bytes": 0
+          },
+          {
+            "strict_exact": false,
+            "difference_paths": [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex"
+            ],
+            "curve_changed_bytes": 0
+          },
+          {
+            "strict_exact": false,
+            "difference_paths": [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex"
+            ],
+            "curve_changed_bytes": 0
+          },
+          {
+            "strict_exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          },
+          {
+            "strict_exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          },
+          {
+            "strict_exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          },
+          {
+            "strict_exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          },
+          {
+            "strict_exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          }
+        ],
+        "curve_scope": "All16 saved before/final full curves exact. No independent active broad window in this packaged run",
+        "original_restored": true,
+        "terminal_GUI_closed_before_offline_reads": true,
+        "GPU_only_restarts": 2,
+        "source_sha256": {
+          "registry_ui_trial.py": "2dc273fb893bc46be20e03abb05c000143e6fa5e133167f9e7a08eb05dc9c943",
+          "druta.py": "be12e1e3c80185008439e4d3042ab833605e8b76295ec5215fc2fa3c6a3a38b4",
+          "registry_panel.py": "d3903a662398aa9aff9dadd53258f16b721bba1263d34d4ee54ab38d2c0492a0",
+          "registry_overrides.py": "b67080f4b635d7ae7903a87e0fc2da6a224f7424064459a09e29d14941c0bd29",
+          "grpg_runtime.py": "eae295d031f6c12712014b50417eb0051e78d9ad36eff7b4d5d67d7611d221a1",
+          "ms_runtime.py": "d7eafb6f6477dc52f2b5b2d1aef910eab0c214a79ce25b33971cd8c4ff474f5e",
+          "nvdec_runtime.py": "bf234e1876b29d537485acadf1248c9bd8affff05028bdb461abd928e0efe0c6",
+          "media_lpwr_runtime.py": "823c6083c949edcb07f8ebe60ffea11eca76994710f253f3c3db948aeb6245ef"
+        }
+      }
+    ],
+    "presentation_fix": {
+      "commit": "e2e02927ea10e1963cd2e25d7ebedba4760ff09f",
+      "cause": "Read-only values had no field item tags; with no editable family peer, capture anchored at registry header and left Idle collapsed",
+      "change": "Give existing field tags to read-only text and anchor to the actual selected item when present; preserve legacy peer/header fallback and writable-only input map",
+      "regressions": "All-read-only three-row anchor opens ancestor and scrolls selected item while metadata stays Boolean; Boolean/numeric read-only tags do not become writable inputs",
+      "retained_negative": "Attempt1 active framebuffer remains visibly collapsed; its backend/readback success is separate from its failed visual coverage"
+    },
+    "comparison_rule": "Eight retained full broad samples before and after, last two strict exact, no curve/driver-request exclusions. Attempt1 final0-1 and attempt2 final0-2 retain BOOST_LOW request/hash differences; later samples exact. No universal settling claim",
+    "active_scope": "Initial/before/active/restored full native LPWR/client/image snapshots. Root broad windows cover before/final only; previous source full-phase qualification remains separate",
+    "independent_audits": "Terra reconstructed raw packets, image edits, receipts, process identities, frames and external comparisons; root reproduced both audits for both attempts exactly. Root and Luna separately inspected corrected four-frame pixels",
+    "validation": {
+      "full_tests": 6965,
+      "full_test_seconds": 120.88,
+      "focused_tests": 104,
+      "Ruff": "All four changed source/test files passed",
+      "trial_package_source_files": 459,
+      "trial_package_compiled_modules": 20
+    },
+    "GPU_only_restarts": 4,
+    "restart_count_scope": "Two packaged attempts only,2each. Original sourceMS10, later source partial-aggregate6, older row0UI14 and partial-MS callback2 remain separately scoped",
+    "Windows_reboot": false,
+    "workload": false,
+    "physical_effects_measured": false,
+    "physical_input": false,
+    "NVIDIA_App_installed": false,
+    "release_changes": false,
+    "pending": [
+      "Other dependency profiles and other-family full-shutdown/no-peer packaged cases",
+      "Physical input and failure/recovery screens",
+      "Other layouts/adapters/displays and physical residency or power effects"
+    ],
+    "private_evidence_sha256": {
+      "experiments/registry-overrides/ui-ms-shutdown-root-20261029/launch_trial.py": "84484cd57eaa40dc9de53e6093870f082d58e4c60c783d02fb457c6607d9eb9d",
+      "experiments/registry-overrides/ui-ms-shutdown-root-20261029/trial-1-visual-negative.json": "b2a321e57cb51ab84c57a55eff1a988ad94c780dd7079bfeeec9dc6858174b5a",
+      "experiments/registry-overrides/ui-ms-shutdown-review-20261029/audit-ui-ms-shutdown.py": "0c25b0ac3e2848ff247024f8a82f99c207994089447267514a9c2ce62cc9948a",
+      "experiments/registry-overrides/ui-ms-shutdown-review-20261029/audit-ui-ms-shutdown-external.py": "0b128eb67a96e287a2685a5294a8af8c354c22b6b9ffc5a9997943690d66faf0",
+      "experiments/registry-overrides/ui-ms-shutdown-root-20261029/root-trial-1-ui-audit.json": "977572a07feb6daca684cf6f777ffa2585d52598fddfdef8be70472be889b571",
+      "experiments/registry-overrides/ui-ms-shutdown-root-20261029/root-trial-1-external-audit.json": "06110831baac40e2e8b5eae2c4d5d4cb1a2c055bd9c95a22088ee0f3663703aa",
+      "experiments/registry-overrides/ui-ms-shutdown-root-20261029/packaged-ms-shutdown-1-baseline.json": "9ce9b7c9b0af44226fb12ac6b8f6006f9aa2cd8ba96d57f6f7af7e96a4d89080",
+      "experiments/registry-overrides/ui-ms-shutdown-root-20261029/packaged-ms-shutdown-1-launch.json": "43fed7564441677243aab6d8900e771b95dfdb31e1a34a616470c83524f2183f",
+      "experiments/registry-overrides/ui-ms-shutdown-root-20261029/packaged-ms-shutdown-1-root-final.json": "4bfae0e86d2443d2fe81b473704ed44ced49d69557dcbf19b8dbbb00f21a8406",
+      "experiments/registry-overrides/ui-ms-shutdown-root-20261029/packaged-ms-shutdown-1/trial.json": "93b556ba776fb31fe95a46f75a90bd0d1fa9e3c77321d529d1bb4032a516ac6e",
+      "experiments/registry-overrides/ui-ms-shutdown-root-20261029/packaged-ms-shutdown-1/trial-result.json": "1319ddd6267f141bd1aee86a2863aca356a1278c2a598d925be01e6a32e0c7a3",
+      "experiments/registry-overrides/ui-ms-shutdown-root-20261029/root-trial-2-ui-audit.json": "7b116360d5a484bb47fd9eac946564b1d107513a60124fb78021d0bae3f25c8b",
+      "experiments/registry-overrides/ui-ms-shutdown-root-20261029/root-trial-2-external-audit.json": "d9a52ca307f29e435b0a42830e5e56720e673445bd067f1d5ea8996275039382",
+      "experiments/registry-overrides/ui-ms-shutdown-root-20261029/packaged-ms-shutdown-2-baseline.json": "998050187d8d59ad6be62b1fe5b49a7b2f4e062b22a7b69d944118989ff64287",
+      "experiments/registry-overrides/ui-ms-shutdown-root-20261029/packaged-ms-shutdown-2-launch.json": "2cb06225ff0566bfd2c702613dc3f1ceace7af362b56f36076ed2044973e25cf",
+      "experiments/registry-overrides/ui-ms-shutdown-root-20261029/packaged-ms-shutdown-2-root-final.json": "c20f7e1ccef296c0d9a32202d1f48f1f5ddf0e4414c8e1f6f5cf7c3f795c9868",
+      "experiments/registry-overrides/ui-ms-shutdown-root-20261029/packaged-ms-shutdown-2/trial.json": "cd1dfe948e9e090336af2577af23e234b5e4c879f45d60fcae4faec95429f574",
+      "experiments/registry-overrides/ui-ms-shutdown-root-20261029/packaged-ms-shutdown-2/trial-result.json": "560928ae8c0af4c4fa5002cb3bb10bddf204c20ea2a8b0d9d86f954210b102a5"
+    }
+  },
+  "later_packaged_full_shutdown": "The separately scoped three-row all-enabled MS callback/framebuffer qualification is in packaged_full_shutdown_20261029; other family/profile, physical input and recovery cases remain pending"
 }

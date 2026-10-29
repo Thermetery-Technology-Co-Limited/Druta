@@ -3425,10 +3425,11 @@ does not establish physical input. The final suite passed 6,823 tests in
 CLI lines are clean; the app file retains its 26 pre-existing lint findings.
 
 The original packaged qualification is scoped to one row-0 transition per
-family. A later packaged MS trial additionally exercised rows 0 and 1 together;
-it does not extend the other families' row-0 coverage. These checks do not
-qualify full-table shutdown, complete shared-group disappearance, failure/recovery
-screens, physical input, multiple displays/DPI/adapters or physical effects.
+family. Later packaged MS trials additionally exercised rows 0 and 1 together
+and all three currently enabled rows; they do not extend the other families'
+row-0 coverage. Full-table shutdown and no-peer profiles for other families,
+failure/recovery screens, physical input, multiple displays/DPI/adapters and
+physical effects remain unqualified.
 The later OFA source full-phase repeat is separate; its two
 earlier curve-negative records remain retained. Counts and per-family outcomes belong in
 [the scoped LPWR UI qualification record](experiments/ui-lpwr-configured-qualified-20261029.json).
@@ -3516,10 +3517,41 @@ bytes, receipt events and observed process handoffs; root reproduced both audit
 outputs exactly. The earlier negative research result remains retained.
 The suite passed 6,963 tests in 121.94 seconds and 144 focused tests in 1.16
 seconds; the package check covered 459 committed source files and 20 compiled
-modules. These programmatic framebuffer checks do not exercise physical input,
-recovery screens, other adapters, full-table shutdown or complete shared-group
-disappearance. Ten
-GPU-only restarts include the retained initial negative trial, corrected
+modules.
+
+A subsequent packaged MS full-shutdown trial selected all three currently
+enabled rows through the same panel callbacks and helper relaunches. The
+corrected four frames showed all three checked before, unchecked in Preview,
+read-only False when active, and checked after Undo. Preview described support
+removal and unavailable readbacks. Controller 1's mask changed from 0x120 to
+zero; controller 4 support was removed and its mask and feature became
+unavailable. Type1 role1 support and mask cleared, and all six queried type7
+fields became unavailable. This does not independently establish an empty group
+mask. Type4 roles, other native peers, client requests, P-state data and opaque
+packet bytes remained exact; the ROM changed only the three selected enable
+bits and Undo restored the original. Initial, active and restored UI snapshots
+included full native and client readbacks. There was no independent active
+broad-state window in this UI trial; the earlier source qualification covered
+full phases separately.
+
+The first packaged attempt passed backend Apply/Undo and original restoration,
+but its active frame left the Idle section collapsed and is retained as a
+visual qualification failure. The read-only value widgets now retain their
+field tags, so capture can open and scroll to the selected section; read-only
+False and unavailable values remain outside the writable inputs. In that first
+attempt all eight before samples and final samples 2-7 matched strictly; final
+samples 0-1 differed in BOOST_LOW request/hash. In the corrected trial all eight
+before samples and final samples 3-7 matched; final samples 0-2 differed in that
+request/hash. All 16 full curves matched in each attempt, with no comparison
+exclusions. The corrected result and independent raw audits were reproduced by
+root. Both attempts together used four GPU-only restarts. The full suite passed
+6,965 tests in 120.88 seconds, with 104 focused tests passing and Ruff clean for
+the four changed source/test files; the package check covered 459 committed
+source files and 20 compiled modules before the trial.
+
+These programmatic framebuffer checks do not exercise physical input, recovery
+screens, other adapters, or full-table shutdown and no-peer profiles for other
+families. Ten GPU-only restarts include the retained initial negative trial, corrected
 research and both production cases. The later partial-aggregate series adds
 six restarts across its retained negative, corrected research and production
 trial. The packaged compound callback trial adds two separately counted

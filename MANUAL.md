@@ -375,7 +375,9 @@ query remains readable and reports false. The controller and related DIFR
 support remain. Druta requires the current
 feature and DIFR witnesses before admitting it. A packaged follow-up exercised
 MS rows 0 and 1 together through the panel callbacks and framebuffer capture;
-row 2 remained enabled and Undo restored the original. Other dependency profiles,
+row 2 remained enabled and Undo restored the original. A later packaged trial
+also disabled all three enabled MS rows and verified their restored state through
+the same callbacks and frames. Other dependency profiles,
 physical input, recovery screens, other adapters and physical effects remain pending.
 [MS configuration evidence](experiments/ms-configured-qualified-20261029.json).
 
@@ -405,9 +407,10 @@ match the predicted unsupported state. Unavailable rows are not valid false
 values and do not prove an empty group mask. The NVJPG field now follows the
 enable bit consumed by its loader. The packaged follow-up is scoped to one
 captured row-0 disable per LPWR family, staged through panel callbacks and
-framebuffer capture; the separate MS follow-up also exercised rows 0 and 1
-together. These checks do not exercise physical mouse or keyboard input,
-full-table shutdown, or no-peer outcomes. Other dependency profiles and
+framebuffer capture; separate MS follow-ups also exercised rows 0 and 1 together
+and all three currently enabled MS rows. These checks do not exercise physical
+mouse or keyboard input, or full-table shutdown and no-peer profiles for other
+families. Other dependency profiles and
 physical residency or power savings remain pending. [LPWR row-0 UI
 qualification](experiments/ui-lpwr-configured-qualified-20261029.json).
 [Media configuration evidence](experiments/media-lpwr-configured-qualified-20261029.json).
