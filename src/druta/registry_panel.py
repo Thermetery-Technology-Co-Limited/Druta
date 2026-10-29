@@ -87,7 +87,7 @@ class RegistryPanel:
                 enabled=False,
             )
         dpg.add_text("Read fields to inspect this adapter.", tag="reg_status", wrap=self.app.s(900))
-        dpg.add_input_text(tag="reg_preview", readonly=True, multiline=True, width=-1, height=self.app.s(110))
+        dpg.add_input_text(tag="reg_preview", readonly=True, multiline=True, width=-1, height=self.app.s(180))
         with dpg.group(tag="reg_fields"):
             pass
         with dpg.collapsing_header(label="Driver policy diagnostics"):
