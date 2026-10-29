@@ -98,7 +98,7 @@
     "Curve freshness/recalculation semantics, actual BOOST_LOW producer and physical effect; the two older OFA broad negatives remain recorded",
     "Independent type4 group-mask/presence readback",
     "Supported alternate controllers, mixed aggregate losses, wider MS/conditional dependencies and other layouts",
-    "Media-specific packaged visual/input/recovery walkthroughs",
+    "Other-family no-peer packaged visual, physical-input and recovery walkthroughs; NVDEC no-peer packaged callback qualification is recorded separately",
     "Physical residency, reliable activity telemetry and savings"
   ],
   "OFA_repeat_20261029": {
@@ -856,5 +856,552 @@
     "runtime_change": "None; unchanged existing product Prepare/Apply/Undo with longer independent observation",
     "test_scope": "Latest unchanged-runtime full suite remains6890 passed in121.76s; not rerun for evidence/docs-only changes"
   },
-  "GPU_restart_count_scope": "Eighteen restarts across the original five attempts plus four in the later OFA repeat; excludes separate packaged UI trials"
+  "GPU_restart_count_scope": "Eighteen restarts across the original five attempts plus four in the later OFA repeat; excludes separate packaged UI trials",
+  "packaged_NVDEC_no_peer_20261029": {
+    "scope": "One captured configuration; packaged NVDEC last-type4-role programmatic callbacks, receipt and Undo, with a separately restored temporary setup. Three attempts retained; only third qualifies strict process and visual review.",
+    "setup": "18 exact image bit changes: all enabled NVENC, OFA and NVJPG enable bits and enabled GRPG bit1. The target panel then disables five NVDEC bit0 fields.",
+    "observed_active": "Native12 independently unsupported; all eleven type4 replies unavailable. Availability does not independently prove an empty group mask. Other full LPWR/opaque, Pstate and client/native peers follow the independently audited projection.",
+    "restoration": "GUI Undo returns the temporary setup and verifies its receipt; only then the root supervisor removes the setup and verifies the exact original image, registry and full state.",
+    "attempts": [
+      {
+        "attempt": 1,
+        "classification": "Functional/readback/restoration pass; strict OS GUI observation incomplete",
+        "source_commit": "a35024c09304daf22428635bcc24f15811300164",
+        "executable_sha256": "ba57c070cb78e2f10936e00191693d0c129cb633b7a0f82ac40cf69c319b8dec",
+        "supervisor_sha256": "de483db1de6f20a7003fd0bb29d425cb11d9cda786ce0ecf47292a153aab01df",
+        "image_sha256": {
+          "original": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+          "setup": "0aa548ea6415e9c881b3e58f00f4807d672d20b65e212c29fd1a582afbe9a683",
+          "active": "c8f75c367c9ee8751f0549f95c36a7e8ba7890885786e4ac5799fe2a4d2f307d"
+        },
+        "GUI_PIDs": {
+          "initial": 27824,
+          "applying": 14532,
+          "restoring": 24580
+        },
+        "helpers": [
+          {
+            "action": "apply",
+            "pid": 3948,
+            "parent": 27824
+          },
+          {
+            "action": "restore",
+            "pid": 25624,
+            "parent": 14532
+          }
+        ],
+        "frame_sha256": {
+          "before": "2b49617e4e2663913c39534fac868eea42c9018f1a4320ad6d249e63a5ac2945",
+          "preview": "4605767585ac84941295ab310eba29832ab19e209aa288cffd3b09244934310e",
+          "active": "c1debcec3914113c2913ba17863d1ce110f22edd4ca0526ea61ce0b8df6e0f85",
+          "restored": "2b49617e4e2663913c39534fac868eea42c9018f1a4320ad6d249e63a5ac2945"
+        },
+        "broad_exact": {
+          "before": [
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+          ],
+          "setup": [
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true
+          ],
+          "undo_setup": [
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+          ],
+          "final": [
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true
+          ]
+        },
+        "broad_difference_paths": {
+          "before": [
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            []
+          ],
+          "setup": [
+            [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex"
+            ],
+            [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex"
+            ],
+            [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex"
+            ],
+            [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex"
+            ],
+            [],
+            [],
+            [],
+            []
+          ],
+          "undo_setup": [
+            [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex"
+            ],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            []
+          ],
+          "final": [
+            [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex"
+            ],
+            [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex"
+            ],
+            [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex"
+            ],
+            [],
+            [],
+            [],
+            [],
+            []
+          ]
+        },
+        "all_32_full_curves_exact": true,
+        "original_restored": true,
+        "GPU_only_restarts": 4,
+        "private_evidence_sha256": {
+          "experiments/registry-overrides/ui-type4-no-peer-root-20261029/packaged-nvdec-no-peer-1-supervisor.json": "1e403d15d7f4b0656b8a1047474aacb88f80e1a80dbd520e6f58d06b44fb8236",
+          "experiments/registry-overrides/ui-type4-no-peer-root-20261029/root-external-observed-attempt1.json": "270aefe5601385075a4c40ac0c71837f2fa6bfc42f99060d08cba5c89c89e0d8",
+          "experiments/registry-overrides/ui-type4-no-peer-root-20261029/root-ui-audit.json": "2b46dcf8d1b150724bf101ef94c54c86e1fd286eb551b7b546e0f73ab89298d8",
+          "experiments/registry-overrides/ui-type4-no-peer-root-20261029/luna-visual-review.json": "d8a24cde5976fddcd9ca46737a5cde5241b616f383e40a6abe96955afd3bfc20",
+          "experiments/registry-overrides/ui-type4-no-peer-root-20261029/packaged-nvdec-no-peer-1/trial.json": "c4de6d58043809f6e3e9a686aaf945db77681f1fc32d3402e84e1e655d3ca82d",
+          "experiments/registry-overrides/ui-type4-no-peer-root-20261029/packaged-nvdec-no-peer-1/trial-result.json": "47064e9f24a38081d4b54ceca4027288363627b73ef766d5aa5c15512cbe723e",
+          "experiments/registry-overrides/ui-type4-no-peer-root-20261029/packaged-nvdec-no-peer-1/lpwr-initial.json": "b7e20277dad04c1c064352f650687d98730e8d6452d86657e6c20464060baadf",
+          "experiments/registry-overrides/ui-type4-no-peer-root-20261029/packaged-nvdec-no-peer-1/lpwr-before.json": "cf8fba5e5a3dc3bf2f4fc8e066b4edfe4faeaeb71bafd578c65ccd50c6493c94",
+          "experiments/registry-overrides/ui-type4-no-peer-root-20261029/packaged-nvdec-no-peer-1/lpwr-active.json": "e63bd673fa2308c90333d25c8753c627c9ead44274c0ed9051216b0973f37e8f",
+          "experiments/registry-overrides/ui-type4-no-peer-root-20261029/packaged-nvdec-no-peer-1/lpwr-restored.json": "9b0b0bb30f68cda8bd516e3521aea8c47dad0a4ec24d468f3596e79babdaef9c",
+          "experiments/registry-overrides/ui-type4-no-peer-root-20261029/packaged-nvdec-no-peer-1/initial/manifest.json": "ca55e83bad543b553402395e9e3d06ac021953c04eba4eb3e7021b12efa203b3",
+          "experiments/registry-overrides/ui-type4-no-peer-root-20261029/packaged-nvdec-no-peer-1/applying/manifest.json": "ff18378abb8932e26f4ddf06c8e51025c0a17be2db07430e65ac38471472a959",
+          "experiments/registry-overrides/ui-type4-no-peer-root-20261029/packaged-nvdec-no-peer-1/restoring/manifest.json": "e254e138242fdd30e5f48261b5e9811a77a58c59e841fbcf2875c5bd5b5ff7dc"
+        },
+        "source_sha256": {
+          "druta.py": "be12e1e3c80185008439e4d3042ab833605e8b76295ec5215fc2fa3c6a3a38b4",
+          "grpg_runtime.py": "eae295d031f6c12712014b50417eb0051e78d9ad36eff7b4d5d67d7611d221a1",
+          "media_lpwr_runtime.py": "823c6083c949edcb07f8ebe60ffea11eca76994710f253f3c3db948aeb6245ef",
+          "nvdec_runtime.py": "bf234e1876b29d537485acadf1248c9bd8affff05028bdb461abd928e0efe0c6",
+          "registry_overrides.py": "b67080f4b635d7ae7903a87e0fc2da6a224f7424064459a09e29d14941c0bd29",
+          "registry_panel.py": "d3903a662398aa9aff9dadd53258f16b721bba1263d34d4ee54ab38d2c0492a0",
+          "registry_ui_trial.py": "2dc273fb893bc46be20e03abb05c000143e6fa5e133167f9e7a08eb05dc9c943",
+          "vbios_fields.py": "68d6e3bff5ef194f9cfd751ec12fb62683c72ed863d8ceb564f590bd8443532e"
+        }
+      },
+      {
+        "attempt": 2,
+        "classification": "Strict audit pass; extra Preview explanation line clipped",
+        "source_commit": "a35024c09304daf22428635bcc24f15811300164",
+        "executable_sha256": "ba57c070cb78e2f10936e00191693d0c129cb633b7a0f82ac40cf69c319b8dec",
+        "supervisor_sha256": "2be9e7bf42cdfd51f57ae5270eabc1c63dcb11f3542dd49cbc2ad494d72df1eb",
+        "image_sha256": {
+          "original": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+          "setup": "0aa548ea6415e9c881b3e58f00f4807d672d20b65e212c29fd1a582afbe9a683",
+          "active": "c8f75c367c9ee8751f0549f95c36a7e8ba7890885786e4ac5799fe2a4d2f307d"
+        },
+        "GUI_PIDs": {
+          "initial": 28796,
+          "applying": 15212,
+          "restoring": 17336
+        },
+        "helpers": [
+          {
+            "action": "apply",
+            "pid": 12856,
+            "parent": 28796
+          },
+          {
+            "action": "restore",
+            "pid": 20420,
+            "parent": 15212
+          }
+        ],
+        "frame_sha256": {
+          "before": "2b49617e4e2663913c39534fac868eea42c9018f1a4320ad6d249e63a5ac2945",
+          "preview": "4605767585ac84941295ab310eba29832ab19e209aa288cffd3b09244934310e",
+          "active": "c1debcec3914113c2913ba17863d1ce110f22edd4ca0526ea61ce0b8df6e0f85",
+          "restored": "2b49617e4e2663913c39534fac868eea42c9018f1a4320ad6d249e63a5ac2945"
+        },
+        "broad_exact": {
+          "before": [
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+          ],
+          "setup": [
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true
+          ],
+          "undo_setup": [
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+          ],
+          "final": [
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true
+          ]
+        },
+        "broad_difference_paths": {
+          "before": [
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            []
+          ],
+          "setup": [
+            [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex"
+            ],
+            [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex"
+            ],
+            [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex"
+            ],
+            [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex"
+            ],
+            [],
+            [],
+            [],
+            []
+          ],
+          "undo_setup": [
+            [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex"
+            ],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            []
+          ],
+          "final": [
+            [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex"
+            ],
+            [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex"
+            ],
+            [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex"
+            ],
+            [],
+            [],
+            [],
+            [],
+            []
+          ]
+        },
+        "all_32_full_curves_exact": true,
+        "original_restored": true,
+        "GPU_only_restarts": 4,
+        "private_evidence_sha256": {
+          "experiments/registry-overrides/ui-type4-no-peer-root-20261029/packaged-nvdec-no-peer-2-supervisor.json": "0f2ac347202ff8771e0eb919ac15738b5d5ddf2c7136904543943ac19d633ac7",
+          "experiments/registry-overrides/ui-type4-no-peer-root-20261029/root-external-audit-attempt2.json": "f5877add6c9dcf1071e4a321291fd927d2e59c2d7dc88c59906b2c7b7be9e835",
+          "experiments/registry-overrides/ui-type4-no-peer-root-20261029/root-ui-audit-attempt2.json": "1c6d5476ae54ea5e0acfcb1a477dbe4cb09ea0f3118c85c58b1aecab06966a9a",
+          "experiments/registry-overrides/ui-type4-no-peer-root-20261029/luna-visual-review-attempt2.json": "3d1e33d99265865c4b3deeefd18ec8c82bb7f8ac1372e850e417cc896864d094",
+          "experiments/registry-overrides/ui-type4-no-peer-root-20261029/packaged-nvdec-no-peer-2/trial.json": "2a41f9fe3e7fe57cfe91dfd0f7515f2729a020d09d2e6b8819dcfa9f54f30f7f",
+          "experiments/registry-overrides/ui-type4-no-peer-root-20261029/packaged-nvdec-no-peer-2/trial-result.json": "1abf52dd603de1d4c67aec46a06569e5700279de6f7902abfc0cf13365cde8dc",
+          "experiments/registry-overrides/ui-type4-no-peer-root-20261029/packaged-nvdec-no-peer-2/lpwr-initial.json": "7a4ce2b5aed7e6c452a80fb3bcc6efddeecdd44a28edf766144842cf4f531a91",
+          "experiments/registry-overrides/ui-type4-no-peer-root-20261029/packaged-nvdec-no-peer-2/lpwr-before.json": "a1f625f05069a1b84fd6fc18fbcd4172f9566f4db70307c7461b24cd051bdccc",
+          "experiments/registry-overrides/ui-type4-no-peer-root-20261029/packaged-nvdec-no-peer-2/lpwr-active.json": "a33eac58eae9abb416c5adf96a16206814b852d5c5ee394d7a4bc20ebaea1acc",
+          "experiments/registry-overrides/ui-type4-no-peer-root-20261029/packaged-nvdec-no-peer-2/lpwr-restored.json": "491339ba06dfead03d12fc231ac18f1a41066c7510e11702176ba197f1b759fd",
+          "experiments/registry-overrides/ui-type4-no-peer-root-20261029/packaged-nvdec-no-peer-2/initial/manifest.json": "3e59d2dbeacf9355532fc4903dd947068d31be1bcfe2c700e44a414e790f2c74",
+          "experiments/registry-overrides/ui-type4-no-peer-root-20261029/packaged-nvdec-no-peer-2/applying/manifest.json": "adc16798e91c096381b7a1345d75b21c941baf63d51b8e41bb712aea054cffb2",
+          "experiments/registry-overrides/ui-type4-no-peer-root-20261029/packaged-nvdec-no-peer-2/restoring/manifest.json": "15795f159d6d026b5e4713672a786943cd15eaee6d920bfe156ab5eafb389399"
+        },
+        "source_sha256": {
+          "druta.py": "be12e1e3c80185008439e4d3042ab833605e8b76295ec5215fc2fa3c6a3a38b4",
+          "grpg_runtime.py": "eae295d031f6c12712014b50417eb0051e78d9ad36eff7b4d5d67d7611d221a1",
+          "media_lpwr_runtime.py": "823c6083c949edcb07f8ebe60ffea11eca76994710f253f3c3db948aeb6245ef",
+          "nvdec_runtime.py": "bf234e1876b29d537485acadf1248c9bd8affff05028bdb461abd928e0efe0c6",
+          "registry_overrides.py": "b67080f4b635d7ae7903a87e0fc2da6a224f7424064459a09e29d14941c0bd29",
+          "registry_panel.py": "d3903a662398aa9aff9dadd53258f16b721bba1263d34d4ee54ab38d2c0492a0",
+          "registry_ui_trial.py": "2dc273fb893bc46be20e03abb05c000143e6fa5e133167f9e7a08eb05dc9c943",
+          "vbios_fields.py": "68d6e3bff5ef194f9cfd751ec12fb62683c72ed863d8ceb564f590bd8443532e"
+        }
+      },
+      {
+        "attempt": 3,
+        "classification": "Strict audit and visual review pass on fixed Preview height",
+        "source_commit": "2125b7e9ce5f286cf7e3e648abe11d1a9ab3d758",
+        "executable_sha256": "aaa7922e2a4b84df2ca96865e3424dc4b652ed7acbb0a2376f7b6ca75dd84cdc",
+        "supervisor_sha256": "2be9e7bf42cdfd51f57ae5270eabc1c63dcb11f3542dd49cbc2ad494d72df1eb",
+        "image_sha256": {
+          "original": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+          "setup": "0aa548ea6415e9c881b3e58f00f4807d672d20b65e212c29fd1a582afbe9a683",
+          "active": "c8f75c367c9ee8751f0549f95c36a7e8ba7890885786e4ac5799fe2a4d2f307d"
+        },
+        "GUI_PIDs": {
+          "initial": 6080,
+          "applying": 18904,
+          "restoring": 13952
+        },
+        "helpers": [
+          {
+            "action": "apply",
+            "pid": 15600,
+            "parent": 6080
+          },
+          {
+            "action": "restore",
+            "pid": 16896,
+            "parent": 18904
+          }
+        ],
+        "frame_sha256": {
+          "before": "5d4c3f39554a6fd39a873a253c760a992d4e6a385265ba5992fa9d186cb06a78",
+          "preview": "77c290c4b5e122d17dfc4950b884d4597ba34d2357ebfea2bb4e6b06adf15076",
+          "active": "30e25517605c08ea03c6bfa7c9b731790aea038b878303a23e067e48005b5475",
+          "restored": "5d4c3f39554a6fd39a873a253c760a992d4e6a385265ba5992fa9d186cb06a78"
+        },
+        "broad_exact": {
+          "before": [
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+          ],
+          "setup": [
+            false,
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true
+          ],
+          "undo_setup": [
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+          ],
+          "final": [
+            false,
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true
+          ]
+        },
+        "broad_difference_paths": {
+          "before": [
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            []
+          ],
+          "setup": [
+            [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex"
+            ],
+            [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex"
+            ],
+            [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex"
+            ],
+            [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex"
+            ],
+            [],
+            [],
+            [],
+            []
+          ],
+          "undo_setup": [
+            [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex"
+            ],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            []
+          ],
+          "final": [
+            [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex"
+            ],
+            [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex"
+            ],
+            [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex"
+            ],
+            [],
+            [],
+            [],
+            [],
+            []
+          ]
+        },
+        "all_32_full_curves_exact": true,
+        "original_restored": true,
+        "GPU_only_restarts": 4,
+        "private_evidence_sha256": {
+          "experiments/registry-overrides/ui-type4-no-peer-root-20261029/packaged-nvdec-no-peer-3-supervisor.json": "5fe16c757ff139c49572f5bff2d14f28c777c1f000b4561552bf8b8d38fa3248",
+          "experiments/registry-overrides/ui-type4-no-peer-root-20261029/root-external-audit-attempt3.json": "1b21f37a9072a0a5b1534b619ac30a207cc05386985ecc240c697231b9ca1d40",
+          "experiments/registry-overrides/ui-type4-no-peer-root-20261029/root-ui-audit-attempt3.json": "994af027d678a82c0519449b16e3b41eb197403274b840cb7a1e8c5fa120ad33",
+          "experiments/registry-overrides/ui-type4-no-peer-root-20261029/luna-visual-review-attempt3.json": "d668d755d12ba7438845c303afbe8dea087c6183b626e7e9aae27f20f122fec8",
+          "experiments/registry-overrides/ui-type4-no-peer-root-20261029/packaged-nvdec-no-peer-3/trial.json": "954385b68c8d2c66eabe0d94e3880ead04e455b82ffb0d6fbe6618446749f06f",
+          "experiments/registry-overrides/ui-type4-no-peer-root-20261029/packaged-nvdec-no-peer-3/trial-result.json": "d320f230c69773efd490bd3aff2e7c0ba2bc6ffd59b2c7bbc01ac7f1854961e2",
+          "experiments/registry-overrides/ui-type4-no-peer-root-20261029/packaged-nvdec-no-peer-3/lpwr-initial.json": "eb063d76248d1eeb4c770f058e84a9a21cbe6eb457c5c86586682d439b96d875",
+          "experiments/registry-overrides/ui-type4-no-peer-root-20261029/packaged-nvdec-no-peer-3/lpwr-before.json": "5dae6aa152499d8de12c1354073d77a20952a25d64264c83d0e7402643b2adac",
+          "experiments/registry-overrides/ui-type4-no-peer-root-20261029/packaged-nvdec-no-peer-3/lpwr-active.json": "3d01255afdc17f6c1a408c31fafc77697a69590a33b8b85541282a94183971bf",
+          "experiments/registry-overrides/ui-type4-no-peer-root-20261029/packaged-nvdec-no-peer-3/lpwr-restored.json": "49633a4a5bc2b6831b774b595dc23d1879662f043ec3a31f961c7b826c435379",
+          "experiments/registry-overrides/ui-type4-no-peer-root-20261029/packaged-nvdec-no-peer-3/initial/manifest.json": "20e61420d1c0fe02ef31a52908fd27eb4a4f61af0b95272a3b5d6a1bb0ac9231",
+          "experiments/registry-overrides/ui-type4-no-peer-root-20261029/packaged-nvdec-no-peer-3/applying/manifest.json": "cc4c02c5b1e4cc1fd51ba92fe56e4e9a10ad4e25b4df87d96b0f883b66a9a154",
+          "experiments/registry-overrides/ui-type4-no-peer-root-20261029/packaged-nvdec-no-peer-3/restoring/manifest.json": "991211e24dcdf694e361eadd8ad68e852d6a924ad84f05c869d33167c8fec273"
+        },
+        "source_sha256": {
+          "druta.py": "be12e1e3c80185008439e4d3042ab833605e8b76295ec5215fc2fa3c6a3a38b4",
+          "grpg_runtime.py": "eae295d031f6c12712014b50417eb0051e78d9ad36eff7b4d5d67d7611d221a1",
+          "media_lpwr_runtime.py": "823c6083c949edcb07f8ebe60ffea11eca76994710f253f3c3db948aeb6245ef",
+          "nvdec_runtime.py": "bf234e1876b29d537485acadf1248c9bd8affff05028bdb461abd928e0efe0c6",
+          "registry_overrides.py": "b67080f4b635d7ae7903a87e0fc2da6a224f7424064459a09e29d14941c0bd29",
+          "registry_panel.py": "de6c89f7f96fb42473b01b8036c68c0ac3d5448f735328984d639bb7ab995e4d",
+          "registry_ui_trial.py": "2dc273fb893bc46be20e03abb05c000143e6fa5e133167f9e7a08eb05dc9c943",
+          "vbios_fields.py": "68d6e3bff5ef194f9cfd751ec12fb62683c72ed863d8ceb564f590bd8443532e"
+        }
+      }
+    ],
+    "attempt3_visual": "Root and Luna saw five change lines, the complete no-peer explanation, restart and receipt lines; NVDEC checkbox rows were below the Preview viewport. Active shows five read-only False labels; before and Undo-to-setup show five checked boxes and identical PNGs.",
+    "broad_scope": "Each attempt retained eight strict full broad samples for original, setup, Undo-to-setup and final; last two exact each window. Earlier driver-flag differences are retained. All 96 full curves exact without exclusions. No independent active broad window.",
+    "GPU_only_restarts": 12,
+    "Windows_reboot": false,
+    "workload_started": false,
+    "physical_input": false,
+    "physical_effects_measured": false,
+    "strict_auditor_sha256": "e2ee691b5b5881a0f69120035dadb5494342c1fb2cd671ff04df7e5d91f9a6c2",
+    "preview_layout_fix": {
+      "source_commit": "2125b7e9ce5f286cf7e3e648abe11d1a9ab3d758",
+      "height_scaled_pixels": [110, 180],
+      "scope": "Existing read-only multiline Preview only; width, staging and callbacks preserved"
+    },
+    "observer_correction": "Private harness sampling changed from two-second intervals with full journal writes to faster polling with observations held in memory and an explicit terminal OS snapshot. The original strict auditor remained unchanged.",
+    "validation": "209 focused panel/LPWR view/capture tests and Ruff passed after Preview height fix. The prior 6965-test full suite predates that change and was not rerun.",
+    "package": "Attempt3 source/compiled parity: 460 sources and 20 compiled modules; previous attempt images use earlier executable.",
+    "shared_private_evidence_sha256": {
+      "experiments/registry-overrides/ui-type4-no-peer-root-20261029/attempt1-classification.json": "cecc1e41245f106b6094916436edb5cbce03c01fe3b95767c7dee5a501db9bbf",
+      "experiments/registry-overrides/ui-type4-no-peer-root-20261029/compiled-fixed-trial-package-check.json": "229e7c15109b44aa230c92652bc2853830fa1a2f33fe530cdd4e7a9be73742a5",
+      "experiments/registry-overrides/ui-type4-no-peer-root-20261029/archive-fixed-trial-validation.json": "e257ed6ea17871dc7207be7c6401def3ef6eeb96ae32d2265bd32758f8369abe",
+      "experiments/registry-overrides/ui-type4-no-peer-root-20261029/trial-package-reference.json": "3085699ed313e1fc284c1d1966516848257d06048ea5c580a4fd348618528f7f",
+      "experiments/registry-overrides/ui-type4-no-peer-root-20261029/supervisor.py": "de483db1de6f20a7003fd0bb29d425cb11d9cda786ce0ecf47292a153aab01df",
+      "experiments/registry-overrides/ui-type4-no-peer-root-20261029/audit_ui.py": "80f1c672ef03da390bb8e5359704ad97e1e331a927cb9d7406dca6a224b4a3c3",
+      "experiments/registry-overrides/ui-type4-no-peer-root-20261029/audit_external.py": "e2ee691b5b5881a0f69120035dadb5494342c1fb2cd671ff04df7e5d91f9a6c2"
+    },
+    "pending": "Other-family no-peer UI, post-restart failure/recovery, physical input, other adapters/layouts and physical effects."
+  }
 }

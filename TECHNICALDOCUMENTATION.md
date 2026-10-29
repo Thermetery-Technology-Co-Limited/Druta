@@ -3816,9 +3816,9 @@ Root and Luna inspected all four frames: five checked rows before, five visible
 enabled-to-disabled Preview lines, five read-only False labels active and five
 checked rows restored. The Preview checkbox rows are below the viewport; their
 unchecked appearance is not visually qualified. Before/restored PNGs are
-byte-identical. This trial used two GPU-only restarts. Type4 no-peer UI,
+byte-identical. This trial used two GPU-only restarts. Other type4 no-peer UI,
 post-restart failure/recovery, physical input and physical savings remain
-pending. [Scoped source and packaged NVDEC evidence](experiments/nvdec-configured-qualified-20261029.json).
+pending; the later NVDEC no-peer trial is recorded separately. [Scoped source and packaged NVDEC evidence](experiments/nvdec-configured-qualified-20261029.json).
 
 ## NVENC, OFA and NVJPG configured-state contracts (2026-10-29)
 
@@ -3911,7 +3911,7 @@ samples 3-7 match. All 48 before/final full curves match without exclusions.
 No independent active broad window was captured. These trials used six GPU-only
 restarts; physical input and effects were not measured.
 
-Packaged no-peer UI, GRPG full shutdown and post-restart failure/recovery remain
+Other-family packaged no-peer UI and post-restart failure/recovery remain
 pending, as do other profiles, layouts and physical residency/savings. Device
 and driver identities identify evidence, not product compatibility lists.
 Legacy image-only receipts retain Undo; fresh runtime contracts are required
@@ -4049,10 +4049,29 @@ Windows reboot, workload, F219 SET or physical measurement occurred.
 The full suite passed 6,750 tests in 117.17 seconds; 492 focused runtime,
 transaction and Preview cases plus changed-file Ruff passed.
 
-Package source/compiled-code parity and restored-baseline GETs are separate
-from the source transaction trials. Packaged type 4 no-peer visual/input
-coverage, independent group-mask/presence readback, curve freshness semantics, remaining
-conditional dependency transitions and physical effects remain unqualified.
+A later packaged NVDEC no-peer sequence used a temporary setup that changed
+18 understood bits in the other media and GRPG rows. The ordinary panel then
+disabled five NVDEC entries and Undo returned to that setup; the supervisor
+removed it and verified the original image, registry and state. Native12 became
+unsupported and all eleven type4 replies unavailable. This does not establish
+an independently read empty group mask. Full packet/opaque peer, P-state and
+client/native request projections were independently audited.
+
+Three attempts are retained. The first restored original state but did not
+capture every GUI process in the strict OS observer. The second passed the
+strict audit, but clipped the extra no-peer Preview line. After increasing the
+existing Preview height, the third passed strict and visual review: five change
+lines, the full no-peer explanation, restart and receipt are visible. The
+checkbox rows remain below that viewport; active shows five read-only False
+labels, and before/Undo-to-setup show five checked boxes with identical PNGs.
+
+All four eight-sample before/setup/Undo/final windows per attempt retained
+strict last-two matches and all 96 full curves matched. Earlier driver-flag
+differences remain recorded; no independent active broad window was captured.
+These attempts used twelve GPU-only restarts. Other-family no-peer UI, physical
+input and recovery, independent group-mask/presence readback, curve freshness,
+other dependencies and physical effects remain unqualified.
+[Packaged NVDEC no-peer evidence](experiments/media-type4-last-role-qualified-20261029.json).
 [Scoped type 4 availability evidence](experiments/grpg-bit1-availability-qualified-20261029.json).
 
 ## Source for a binary release

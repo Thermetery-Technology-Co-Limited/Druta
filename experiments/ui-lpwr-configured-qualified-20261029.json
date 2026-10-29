@@ -337,7 +337,7 @@
   },
   "pending": [
     "Physical mouse/keyboard input and other displays/DPI/adapters",
-    "Type4 no-peer and post-restart failure/recovery walkthroughs; separately scoped GRPG, MS, NVDEC and media packaged shutdown qualifications are linked below",
+    "Other-family type4 no-peer and post-restart failure/recovery walkthroughs; the separate NVDEC no-peer and peer-bearing packaged shutdown qualifications are linked below",
     "Earlier OFA all-shutdown/no-peer intermediate curve-negative records are retained; later source full-phase qualification does not extend this packaged row0 scope",
     "Curve freshness/recalculation and observer stability semantics",
     "Other field types, cross-generation validation and physical residency/power effects"
@@ -488,5 +488,6 @@
       "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/audit_external.py": "005bdd32a8ba857e9458509683ec2564dd6bfb206dfe66ebc96a6c4940d9e4b6"
     },
     "pending": "Other schema5 conditional profiles, no-peer UI, recovery, physical input and effects, other adapters/layouts."
-  }
+  },
+  "later_NVDEC_no_peer_callback": "See media-type4-last-role-qualified-20261029.json packaged_NVDEC_no_peer_20261029: three packaged attempts preserve an OS-observer negative and a clipped Preview negative; the fixed-height third passes strict and visual checks. Undo returns temporary setup, then the supervisor restores original. Twelve GPU-only restarts are separate from this original row0 series; no independent active broad window or physical input/effects claim."
 }
