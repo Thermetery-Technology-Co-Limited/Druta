@@ -1058,6 +1058,7 @@ def test_mixed_bit4_preview_describes_multiple_shared_capabilities(harness):
         "before": {"controllers": {"0": {"configured_pstate_mask": 0x120}}},
         "after": {
             "controllers": {"0": {"configured_pstate_mask": 0}},
+            "bit1": {"roles": {str(i): {"available": False, "supported": None} for i in range(11)}},
             "main": {"bit4_group": {"1:0": {"available": True, "value": 1}}},
         },
     }
@@ -1076,6 +1077,7 @@ def test_bit4_preview_distinguishes_empty_group_from_main_support(harness, schem
         "before": {"controllers": {"0": {"configured_pstate_mask": 0x120}}},
         "after": {
             "controllers": {"0": {"configured_pstate_mask": mask, "supported": True}},
+            "bit1": {"roles": {str(i): {"available": False, "supported": None} for i in range(11)}},
             "main": {"bit4_group": {"1:0": {"available": False, "value": None}}},
         },
     }
@@ -1116,6 +1118,62 @@ def test_media_lpwr_preview_distinguishes_mask_and_support_states(
     assert expected in text
     assert other_state not in text
     assert "Undo verifies the original configuration" in text
+
+
+@pytest.mark.parametrize("schema", [8, 9])
+@pytest.mark.parametrize("all_unavailable", [False, True])
+def test_full_main_grpg_preview_describes_peer_readability(harness, schema, all_unavailable):
+    h = harness
+    before_roles = {str(i): {"available": False, "supported": None} for i in range(11)}
+    before_roles["0"] = {"available": True, "supported": True}
+    after_roles = {str(i): {"available": False, "supported": None} for i in range(11)}
+    if not all_unavailable:
+        after_roles["1"] = {"available": True, "supported": True}
+    h.mocks.prepare.return_value["grpg_contracts"] = {
+        "schema": schema,
+        "before": {
+            "controllers": {"0": {"configured_pstate_mask": 0x8542}},
+            "bit1": {"roles": before_roles},
+        },
+        "after": {
+            "controllers": {"0": {"supported": True, "configured_pstate_mask": 0x8540}},
+            "bit1": {"roles": after_roles},
+        },
+    }
+    prepare_speedo(h)
+    text = dpg.get_value("reg_preview")
+    assert "Restore verifies the original configuration" in text
+    if all_unavailable:
+        assert "main controller remains supported and provides a separate configured-mask and feature readback" in text
+        assert "selected auxiliary support queries all become unavailable" in text
+        assert "another supported role remains readable" not in text
+    else:
+        assert "selected auxiliary role's support query becomes unavailable while another supported role remains readable" in text
+        assert "selected auxiliary support queries all become unavailable" not in text
+
+
+def test_schema7_no_peer_preview_does_not_promise_a_readable_type4_peer(harness):
+    h = harness
+    roles = {str(i): {"available": False, "supported": None} for i in range(11)}
+    roles["0"] = {"available": True, "supported": True}
+    h.mocks.prepare.return_value["grpg_contracts"] = {
+        "schema": 7,
+        "before": {
+            "controllers": {"0": {"configured_pstate_mask": 0x8542}},
+            "bit1": {"roles": roles},
+        },
+        "after": {
+            "controllers": {"0": {"supported": True, "configured_pstate_mask": 0x8540}},
+            "bit1": {"roles": {str(i): {"available": False, "supported": None} for i in range(11)}},
+            "main": {"bit4_group": {"1:0": {"available": True, "value": 1}}},
+        },
+    }
+    prepare_speedo(h)
+    text = dpg.get_value("reg_preview")
+    assert "All support queries for the selected auxiliary group also become unavailable" in text
+    assert "another supported role remains readable" not in text
+    assert "another auxiliary role remains available" not in text
+    assert "Restore verifies the original configuration" in text
 
 
 @pytest.mark.parametrize(

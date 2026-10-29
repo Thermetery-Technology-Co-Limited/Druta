@@ -1441,13 +1441,26 @@ class RegistryPanel:
                     "Restore verifies the original configuration."
                 )
             else:
-                after_controllers = contract["after"]["controllers"] if contract.get("schema") in (6, 7) else contract["after"]
+                after_controllers = contract["after"]["controllers"] if contract.get("schema") in (6, 7, 8, 9) else contract["after"]
                 after = after_controllers["0"]["configured_pstate_mask"]
+            support_queries_unavailable = (
+                contract.get("schema") in (7, 8, 9)
+                and all(not item["available"] for item in contract["after"]["bit1"]["roles"].values())
+            )
             group_removed = (
                 contract.get("schema") in (6, 7)
                 and not contract["after"]["main"]["bit4_group"]["1:0"]["available"]
             )
-            if group_removed:
+            if contract.get("schema") in (8, 9):
+                shared = (
+                    "The selected auxiliary support queries all become unavailable; the main controller remains "
+                    "supported and provides a separate configured-mask and feature readback. "
+                    if support_queries_unavailable else
+                    "The selected auxiliary role's support query becomes unavailable while another supported role "
+                    "remains readable. "
+                )
+                shared += "Related support, configured masks, features and all captured peers must match the preview. "
+            elif group_removed:
                 shared = (
                     "The last contributor to a shared capability group will be removed. "
                     "All readbacks for that group become unavailable; the main controller remains supported "
@@ -1458,7 +1471,7 @@ class RegistryPanel:
                 shared = (
                     "The last contributors to multiple shared auxiliary capabilities will be removed. "
                     "Their support, configured masks and controller features must match the preview; "
-                    "the main controller remains supported and independent roles remain readable. "
+                    "the main controller remains supported. "
                 )
             elif contract.get("schema") == 6:
                 shared = (
@@ -1487,6 +1500,11 @@ class RegistryPanel:
                 )
             elif contract.get("schema") != 5:
                 shared = "Shared capability flags are retained. "
+            if contract.get("schema") == 7 and support_queries_unavailable:
+                shared += (
+                    "All support queries for the selected auxiliary group also become unavailable; "
+                    "the other captured groups and peers must match the preview. "
+                )
             if contract.get("schema") != 5:
                 lines.append(
                     f"GR power gating: configured P-state eligibility {states(before)} -> {states(after)}. "

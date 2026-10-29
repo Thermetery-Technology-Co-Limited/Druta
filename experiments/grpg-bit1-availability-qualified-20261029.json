@@ -1,0 +1,123 @@
+{
+  "schema": 1,
+  "scope": "Finite GRPG/type4 configured-availability transitions; no independently read empty mask or physical residency claim",
+  "tested_configuration": {
+    "adapter": "GeForce RTX 5080",
+    "architecture": "Blackwell",
+    "driver": "621.01",
+    "identity_role": "Evidence identification only; no tested-device or driver-version compatibility lists"
+  },
+  "protocol_boundary": [
+    "A801 type4 attribute9 gates group and role support; invalid rows are unavailable rather than valid false",
+    "Before role0 is valid1 in the same packet and other queried roles are unavailable; after all eleven support queries are unavailable",
+    "Global success and all-invalid rows do not independently distinguish null group from zero mask",
+    "Main controller support, configured mask and feature plus all captured peers independently verify the selected entry-disable outcome"
+  ],
+  "receipt_compatibility": {
+    "new_loss_02": "schema8 with complete main/feature/type1/type4/type7 capture",
+    "new_loss_0A": "schema9 with the same full scope",
+    "legacy_schemas_3_4": "Original read scopes, positive-peer witness and projections retained",
+    "schema7": "Adds the finite availability profile for combined losses12h/1Ah; previous peer-bearing outputs unchanged"
+  },
+  "qualified_source_production_cases": [
+    {
+      "loss": "0x02",
+      "receipt_schema": 8,
+      "main_mask_setup_active": [
+        "0x120",
+        "0x100"
+      ],
+      "type1_role0_mask_setup_active": [
+        "0x120",
+        "0x100"
+      ],
+      "type1_role0_support": "retained",
+      "type4_after": "all support queries unavailable",
+      "original_restored": true
+    },
+    {
+      "loss": "0x0A",
+      "receipt_schema": 9,
+      "main_mask_setup_active": [
+        "0x120",
+        "0x100"
+      ],
+      "type1_role0_mask_setup_active": [
+        "0x20",
+        "0"
+      ],
+      "type1_role0_support": "valid0",
+      "type4_after": "all support queries unavailable",
+      "original_restored": true
+    },
+    {
+      "loss": "0x12",
+      "receipt_schema": 7,
+      "main_mask_setup_active": [
+        "0x120",
+        "0x100"
+      ],
+      "type1_role0_mask_setup_active": [
+        "0x120",
+        "0x100"
+      ],
+      "type1_role0_support": "retained",
+      "type4_after": "all support queries unavailable",
+      "original_restored": true
+    },
+    {
+      "loss": "0x1A",
+      "receipt_schema": 7,
+      "main_mask_setup_active": [
+        "0x120",
+        "0x100"
+      ],
+      "type1_role0_mask_setup_active": [
+        "0x20",
+        "0"
+      ],
+      "type1_role0_support": "valid0",
+      "type4_after": "all support queries unavailable",
+      "original_restored": true
+    }
+  ],
+  "temporary_setup": "Understood enabled-entry shutdown of four media providers with enable masks0x1/0x1/0x1/0x2, plus known GRPG carrier masks0x02/0x08/0x10. Unknown bits and initially disabled entry-enable bits preserved; production clears only selected carrier bit0 and verifies durable Apply/Undo.",
+  "independent_checks": [
+    "Complete original/setup/active/Undo-setup/final ROMs and selected-bit-only production plan",
+    "Actual loaded P-state IDs, main/type1/type7 masks, both controller0 feature copies and all captured peers",
+    "Complete 1028-byte raw packet pairs, typed fields and opaque bytes; no unavailable-to-false conversion",
+    "Complete native/client power records and configured requests",
+    "Durable receipts and selected-field verification on source Apply and Undo",
+    "Strict compared configuration including the full curve at settled phases; all earlier samples retained"
+  ],
+  "retained_negative": {
+    "case": "Initial1Ah temporary setup",
+    "targeted_LPWR_and_client": "passed",
+    "production_Apply": "not reached; no production receipt created",
+    "failure": "Strict setup/final broad comparison differed only in the evaluated frequency curve after flags settled",
+    "curve_delta": "110 bytes in50 GPU frequency words; other curve fields equal",
+    "cleanup_and_later_readback": "Setup removed; later GET-only complete original comparison passed without another restart",
+    "retry": "Unchanged strict harness passed, with no frequency exclusions",
+    "cause": "unproven; negative retained as a cleanup warning rather than an active recovery receipt"
+  },
+  "pending": [
+    "Independent type4 group-mask/presence readback",
+    "Last-role removal by NVDEC/media providers without a surviving type4 peer",
+    "Remaining conditional dependencies, wider MS and mixed-flag profiles",
+    "Packaged type4 visual/input walkthrough and curve freshness semantics",
+    "Physical residency, activity and power effects"
+  ],
+  "GPU_only_restarts": 18,
+  "Windows_reboot": false,
+  "workload_started": false,
+  "F219_SET": false,
+  "physical_effects_measured": false,
+  "release_changes": false,
+  "validation": {
+    "full_suite": "6750 passed in117.17s",
+    "focused_runtime_transactions_Preview": "492passed",
+    "changed_source_and_test_Ruff": "passed",
+    "independent_raw_audit": "Four clean source cases plus the retained setup-only negative and later GET restoration; root reproduced all five",
+    "package_scope": "Source/compiled-code parity and restored-baseline GETs checked separately from source production transactions"
+  }
+}

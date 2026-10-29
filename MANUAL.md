@@ -580,10 +580,12 @@ Ordinary entry disables require enabled entries consumed by the loaded P-state
 map. Two shared auxiliary capabilities can lose
 their last contributor when the corresponding driver readbacks are available.
 For one, Druta checks its support, P-state mask and controller feature. For the
-other, it checks that the role's support query becomes unavailable while another
-supported role remains readable; no separate per-P-state mask is established.
-These two removals may be combined when both checks are available. Preview
-explains the applicable checks, and Restore verifies the original state.
+other, it checks that the role's support query becomes unavailable. New full-state
+contracts also cover the case where all support queries for that group become
+unavailable, using separate main-controller mask/feature and peer checks. No
+separate per-P-state mask for this auxiliary role is established. These two
+removals may be combined when both checks are available. Preview explains the
+applicable checks, and Restore verifies the original state.
 The development continuation also supports disabling every enabled entry in one
 transaction, including enabled entries unused by the loaded map. It checks that
 main controller 0 becomes unsupported with an unavailable configured mask,
@@ -595,15 +597,16 @@ raw bit 4 contributor while main GR power gating stays supported. When a peer
 role survives, the affected role's support and mask clear. When both peers are
 independently known to be unsupported, the whole dependent type 7 group becomes
 unavailable; the main controller provides a separate configuration readback.
-These bit 4 removals may also include bit 1 and bit 3 losses. Bit 1 removal
-still requires another supported type 4 role. The affected features, masks and
-all untouched peers must match the preview, including any surviving role's
-mask contraction. Main support can remain available with an empty configured
-P-state mask; Preview distinguishes this valid zero from an unavailable group.
-Unknown peer support cannot establish absence. Type 4 whole-group disappearance,
-conditional dependency losses and broader hardware qualification remain open.
+These bit 4 removals may also include bit 1 and bit 3 losses. The affected
+features, masks and all untouched peers must match the preview, including any
+surviving role's mask contraction. Main support can remain available with an
+empty configured P-state mask; Preview distinguishes this valid zero from an
+unavailable group. The type 4 path verifies unavailable replies without claiming
+an independently read empty support mask. Conditional dependency losses and
+broader hardware qualification remain open.
 Configured eligibility does not establish physical residency or power savings.
 [No-peer configuration evidence](experiments/grpg-bit4-no-peer-qualified-20261029.json).
+[Type 4 availability evidence](experiments/grpg-bit1-availability-qualified-20261029.json).
 
 **DIFR entry disables** use the existing **Idle power management** registry
 fields. Disable a currently enabled DIFR entry in its own transaction, preview,

@@ -2183,7 +2183,8 @@ remains. It composes the existing type1 bit3 projection, type4 bit1 support
 query, and type7 bit4 projection under the same complete dependency readback.
 For bit3 loss, role0 support/mask and controller0 feature10h clear; group-any
 is derived from independently read peer roles. For bit1 loss, role0 becomes
-unavailable and another supported type4 role must remain. The initial bit4
+unavailable; the initial qualification retained another supported type4 role
+as a witness. The later full-state availability contracts are described below. The initial bit4
 profiles clear role0 support/mask and feature8 while retaining a type7 peer. Both available
 feature copies receive the complete combined projection; an unavailable
 optional duplicate stays independently unavailable. If bit3 survives, only its
@@ -2294,7 +2295,8 @@ driver gates the query both on group support and on the individual role.
 An unavailable row is therefore not a reported false value. Schema3 requires
 role0 and another role to be readable before the change; it verifies role0's
 row becomes unavailable while the witness and all other observed role rows
-remain unchanged. Whole-group disappearance is unqualified. No reliable
+remain unchanged. This legacy schema does not qualify all-unavailable
+replies; the later schemas8/9 add a full-state availability contract. No reliable
 per-P-state mask for this auxiliary role has been identified; its configured
 membership is not claimed. These additional reads apply only to schema3,
 leaving schema1/2 transactions and older Undo receipts at their existing scope.
@@ -3548,6 +3550,80 @@ remain pending. Device and driver identities identify evidence, not product
 compatibility lists. Legacy image-only receipts retain Undo; fresh runtime
 contracts are required for a new Apply.
 [Scoped media evidence](experiments/media-lpwr-configured-qualified-20261029.json).
+
+## GRPG type 4 availability contracts (2026-10-29)
+
+New bit1-loss previews use schemas 8/9 for aggregate losses 0x02/0x0A and
+capture the complete main-controller, feature, type 1, type 4 and type 7 state.
+Legacy schemas 3/4 keep their narrow reads, positive-peer witness requirements
+and original projections. Schema 7, already full-scope, also accepts the new
+finite availability profile for combined 0x12/0x1A losses; previously accepted
+peer-bearing projections remain unchanged.
+
+The exact A801 type 4 attribute 9 path is gated by group presence/nonempty
+support and then the queried role. Unsupported roles produce invalid rows,
+not valid false values; the row's status is not preserved in the successful
+aggregate command status. After the role check, attribute 9 reads the support
+bit without another fallible helper. An all-invalid packet cannot independently
+distinguish null group from zero mask. None of the already traced attributes
+bypasses both gates to expose a status-preserving support mask.
+
+The new contract therefore verifies the exposed availability outcome. Before
+role 0 is valid 1 in the same packet, with all other queried roles unavailable;
+afterward all eleven support queries are unavailable. No unavailable value
+is converted to false, and no independently read empty mask is claimed.
+Controller 0 must remain supported with available configured-mask and feature
+readbacks. Actual loaded P-state IDs, selected entry bytes, native support,
+all captured features and all other groups/peers must match the recomputed
+projection. Identity, global errors, packet geometry and opaque-byte checks
+remain enforced. This is configured-state evidence, not physical residency.
+
+The temporary setup disables all enabled NVDEC/NVENC/OFA/NVJPG entries using
+their understood enable masks 0x1/0x1/0x1/0x2, then isolates known GRPG raw flag masks 0x02/0x08/0x10 around an
+enabled carrier. No unknown bits or initially disabled entry enable bits are
+changed. Normal production Prepare/durable Apply/Undo clears only the carrier's
+bit 0; Undo restores the setup and cleanup removes it. Four cases passed on the
+captured RTX 5080/621.01 configuration:
+
+| Removed aggregate bits | Schema | Main mask setup / active | Type1 role 0 mask setup / active | Type4 support replies after |
+| --- | --- | --- | --- | --- |
+| 02h | 8 | 120h / 100h | 120h / 100h | all unavailable |
+| 0Ah | 9 | 120h / 100h | 20h / 0 | all unavailable |
+| 12h | 7 | 120h / 100h | 120h / 100h | all unavailable |
+| 1Ah | 7 | 120h / 100h | 20h / 0 | all unavailable |
+
+Main support stays true. Last raw bit 3 losses clear feature mask 10h and type 1 role 0
+support to valid 0; otherwise that role retains support with its contracted
+mask. Raw bit 4 losses clear feature mask 8h and type 7 role 0 support/mask while the
+independent MS peer remains. All untouched controller/group state stays exact.
+Four normal source Apply/Undo pairs verified the selected field and full
+readback, and the complete original compared configuration including the curve
+was restored after each clean case.
+
+An initial 1Ah setup passed full targeted LPWR/client checks but failed strict
+setup/final broad comparisons. It never reached production Prepare or Apply.
+After driver flags settled, only 110 bytes in 50 evaluated GPU frequency words
+differed; other curve fields stayed equal. The setup was removed, and a later
+GET-only capture matched the complete original state without another restart.
+The negative remains retained separately; the unchanged strict repeat passed.
+No frequency exclusions were used, and the recalculation cause is unproven.
+
+An independent offline audit, reproduced by root, reconstructs all complete
+ROM plans, actual-ID masks and role/feature changes, and checks full 1028-byte
+raw packet pairs/opaque bytes, complete client/native requests, receipts and
+every retained broad-comparison sample. Eighteen logical GPU-only restarts
+cover the four clean cases and two negative setup/cleanup operations. No
+Windows reboot, workload, F219 SET or physical measurement occurred.
+
+The full suite passed 6,750 tests in 117.17 seconds; 492 focused runtime,
+transaction and Preview cases plus changed-file Ruff passed.
+
+Package source/compiled-code parity and restored-baseline GETs are separate
+from the source transaction trials. Packaged type 4 visual/input coverage,
+independent group-mask/presence readback, last-role media-provider removals,
+curve freshness semantics, remaining
+conditional dependency transitions and physical effects remain unqualified.
+[Scoped type 4 availability evidence](experiments/grpg-bit1-availability-qualified-20261029.json).
 
 ## Source for a binary release
 

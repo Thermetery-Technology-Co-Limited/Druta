@@ -93,6 +93,7 @@ function Get-SourceSnapshot {
         'experiments/grpg-bit4-no-peer-qualified-20261029.json',
         'experiments/nvdec-configured-qualified-20261029.json',
         'experiments/media-lpwr-configured-qualified-20261029.json',
+        'experiments/grpg-bit1-availability-qualified-20261029.json',
         'experiments/driver-transport-followup-20261028.json',
         'experiments/capture_power_provenance.py',
         'experiments/ampere-provenance-handoff-20261028.json',
