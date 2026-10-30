@@ -62,7 +62,7 @@
       "sequence": "A typed VMIN 800000 -> 805000 -> 800000 comparison was bracketed by three B214 GETs.",
       "result": "All three B214 reads returned status 0; native/public B212 inventory and B218 CONTROL readback stayed unchanged, while B214 response rows changed across all three stages. All requested/policy fields remained unchanged within each GET.",
       "caveat": "The normalized configured comparison excludes capture timestamps/paths and dynamic policy telemetry. The active child's only remaining configured difference was its evaluated V/F curve, which alone triggered active-child attention. This does not qualify an active B214 correlation or establish voltage units or cause.",
-      "raw_response_note": "Twenty-one paired raw records satisfied DWORD = 6250 \u00d7 adjacent byte; no units, rail association, or cause were inferred. Baseline and restored raw responses differed.",
+      "raw_response_note": "Twenty-one paired raw records satisfied DWORD = 6250 × adjacent byte; no units, rail association, or cause were inferred. Baseline and restored raw responses differed.",
       "restoration": "The full original normalized configuration matched after restoration, excluding capture timestamps/paths and dynamic policy telemetry. The parent journal records state restored with the active-child comparison error retained; the process returned exit 1."
     },
     "typed_status_bridge": "The established0x465F9BCF rail-status wrapper uses B201/B202 or B209/B210. A conditional B202/B214 same-owner/base/backing-entry path is now traced, but their mapped ranges and record correspondence remain unbound. The typed rail-status voltage units cannot be transferred to B214 records."
@@ -1922,6 +1922,114 @@
       "https://github.com/NVIDIA/open-gpu-kernel-modules/blob/ca2d03e6fafd4d4b56b383497d931c25b283bfcf/src/nvidia/inc/kernel/rmapi/control.h",
       "https://github.com/NVIDIA/open-gpu-kernel-modules/blob/ca2d03e6fafd4d4b56b383497d931c25b283bfcf/src/nvidia/inc/libraries/nvoc/rtti.h",
       "https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-ioopendeviceregistrykey"
+    ]
+  },
+  "difr_enable_and_force_boundaries_20261029": {
+    "scope": "Offline pinned driver trace and prior saved baseline; no new GPU/API/registry/app call, write, restart or workload.",
+    "driver_sha256": "3f8d33495cabeb2fa11ebdcf0b12705e9ccfb4e53005324bcd86e9dea8ba2ab4",
+    "captured_image_sha256": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+    "captured_factory_disabled_rows": "Rows 1-4 flags 0xFFFFF800, no subfeature bits1/2/3 and no loaded routes. Bit0-only changes leave known controller9/10/11 aggregate support and configured masks unchanged; this does not establish absence of other effects.",
+    "parameter_consumers": "5F4085-5F410C copies six words unchanged. Routed helpers 7A8C60 and 7A8D10 return selected values, including FFFF as 65535; caller 731CEE multiplies one returned value by 1000. Units, ranges, downstream semantics and whether FFFF is a sentinel or invalid remain unproved.",
+    "readback": "A801 attrs39/36 report configured controller support and routed masks, not an arbitrary loaded row. Existing internal word helpers require P-state selection; no direct independent loaded-row getter has been established.",
+    "force_control": "Conditional 7A9B50 requires controller9 presence then may call 76EF80 reason6. Public 20802801 enable uses reason0 and distinct counter handling; same caller-owner binding and later owner+270 target remain unresolved.",
+    "attribute37": "Type3 attr37 is a conjunction of presence, a nonzero byte at group+index*0x108+0xF1, a zero DWORD at group+index*0x108+0x110, and the group+0x80 callback result. Reason6 can affect one field on one branch; attr37 is not a direct reason-mask read.",
+    "attribute3a_3b": "Attrs3A/3B scale group+98 callback output by 1000 and divide by a GPU-associated field. Actual installed callback, unit and meaning remain unproved; these are not raw reason-mask values.",
+    "scope_limit": "No new factory-disabled enable, physical residency or power effect established. Existing production remains disable-only. Do not repeat the same bit0-only no-op as qualification or manufacture extra fields/routes.",
+    "primary_source": {
+      "commit": "ca2d03e6fafd4d4b56b383497d931c25b283bfcf",
+      "path": "src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080lpwr.h",
+      "sha256": "ac61274f5cc243e111334011488008779b3b71b47eca1c2904c54c340c313efa",
+      "url": "https://github.com/NVIDIA/open-gpu-kernel-modules/blob/ca2d03e6fafd4d4b56b383497d931c25b283bfcf/src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080lpwr.h"
+    },
+    "private_evidence_sha256": [
+      {
+        "path": "experiments/registry-overrides/difr-enable-20261029/findings.json",
+        "sha256": "0e1e3dc05a96a176b6b99605046d2f234ae61654bcd2c56b20c3bc7e2d8781b6"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-enable-terra-20261029/findings.json",
+        "sha256": "fa0ac59110fe56102efb177af16bb02deff0e94e4cd8076bb392b47c42126d8d"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-enable-terra-20261029/parameter-consumption.json",
+        "sha256": "6c2f7041084db8817c65a4c6c2c2927a23e04fcf5bf545207a0b75d09c927f58"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-enable-terra-20261029/parameter-windows.py",
+        "sha256": "bbe8cc9088d356c3ecf793047f8778fb4a8dbe6ed837dccf745b0ea4ee326d9c"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-enable-terra-20261029/parameter-windows.json",
+        "sha256": "2c5df1aecebeb19ad7a8e602c8fbad6bee3cbe7d3935ed9e772b011d7202fb2e"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-enable-terra-20261029/parameter-branch.py",
+        "sha256": "63c1f0fe8d4647f859ade0a10b56d7c2bad33c4bbe87781be30d200787c02d05"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-enable-terra-20261029/parameter-branch.json",
+        "sha256": "bf2141286186144e6739b5877f5b76406e5f783404c2711f9853728c6621e232"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-enable-terra-20261029/known-callers.py",
+        "sha256": "00ee86dfc081802627459b310873a2c6239b6946316906e9ad07b926ec4c617d"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-enable-terra-20261029/known-callers.json",
+        "sha256": "0b309ae66dd4edef2488e1200e0195f02d7ba942f8da0fe177cf978c1da2f1a7"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-enable-terra-20261029/loaded-row-readback.json",
+        "sha256": "00f3eea66662fd23f8b50af0c493c84e52eb22159eeaabfadbb787d93734a071"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-enable-review-terra-20261029/findings.json",
+        "sha256": "3c3e2df3bc9b163a5955a7807d3580aa7d754a9116c76353142866757ad661b7"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-enable-review-terra-20261029/trace.py",
+        "sha256": "6f370964124c44a046fef8b2c352a11d1f8f88073f65b4de3cbba167f8a36bf8"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-enable-review-terra-20261029/reason6-findings.json",
+        "sha256": "9085581480f58e8d975f6c1d0c6f520925ae91af5376a0f76a789082dae6ba67"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-enable-review-terra-20261029/reason6-trace.py",
+        "sha256": "4ac368d665f821e2e94f946b623975ea1c15592211ecd510bca32e7c1d13689d"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-enable-review-terra-20261029/attribute37-findings.json",
+        "sha256": "76f1d958eeb2c549135ed5adf7ff1885ec86d128f495151b42dc89fc3409b8a3"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-enable-review-terra-20261029/attribute37-trace.py",
+        "sha256": "0e4297a2293b0077d84201a93eb1d36f8ec940abe3b9560139703672ea673723"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-enable-review-terra-20261029/readback-findings.json",
+        "sha256": "b73993b062b83945d4b74148015555694696c82e8c4f0437ee49b4620036fa78"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-enable-review-terra-20261029/readback-trace.py",
+        "sha256": "64acb26af7e2d60e610adab2af498903d7b7e55490854fbd64d4762a70b880e4"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-enable-root-20261029/verify_static.py",
+        "sha256": "c2cfe069a52034e110dab263d32a4da796f668716d27f72d36244a06ae5957d3"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-enable-root-20261029/root-static-review.json",
+        "sha256": "650cdef17c43ee7627b2b4c74aa7cbda86621c83f6ea195695b193c3fc039138"
+      },
+      {
+        "path": "experiments/registry-overrides/ui-ms-shutdown-root-20261029/difr-enable-current-boundary.json",
+        "sha256": "c27fbd4f863e962a3ccbed7b9fd1d3ebc5428b17e162da82539e5fa1782dc368"
+      },
+      {
+        "path": "experiments/registry-overrides/vbios-fields/lpwr-followup-findings.json",
+        "sha256": "defe40fff6d68867a53eb19eabf132e04180cb1aef43ff24e49eaef352781b83"
+      }
     ]
   }
 }

@@ -149,7 +149,7 @@
   "physical_input": false,
   "physical_effects_measured": false,
   "pending": [
-    "Actual failed helper-origin Apply/recovery error and relaunch",
+    "Actual post-execution helper Apply/recovery errors and relaunch",
     "Other recovery-required states and failure cases",
     "Unavailable-backend cases and native faults",
     "Physical input, other DPI/adapters and physical effects"
@@ -767,5 +767,232 @@
       "experiments/registry-overrides/ui-recovery-undo-root-20261029/root_review.py": "f75699693771de22b41fc8d713c6c9e06fa1b7260345bc042552b339f9e8e90c",
       "experiments/registry-overrides/ui-recovery-undo-root-20261029/full-tests.log": "62a2a21b44c1d01902eda23352800b19536a287a75cf09148f00ff60c9694665"
     }
+  },
+  "helper_receipt_load_failure_20261029": {
+    "scope": "Two packaged helper receipt-load failures on one adapter and operating point; no physical input or native/device fault claim. Neither case entered a registry transaction.",
+    "source_commit": "806f17e82492e54ce4ccc2c7db40352388feac7c",
+    "trial_executable_sha256": "a4180ba55fcf32ad6e2157644de6dc0041964ac84cfc2c42444c446237cc06a2",
+    "trial_package": "468 committed sources and 22 compiled modules verified for the trial package; no assertion about a later final package.",
+    "code_fix": "Helper waits for parent exit before receipt load, carries expected selected slot to failure relaunch, refuses mismatched receipt targets before execute, and validates the optional read-only capture path before wait/load. A software-mock reproduction records the prior parent/load ordering bug.",
+    "cases": [
+      {
+        "name": "missing-helper-1",
+        "classification": "Invalid receipt path rejected before file access",
+        "parent_gui_pid": 14632,
+        "helper_pid": 2604,
+        "helper_exit_code": 1,
+        "relaunched_gui_pid": 10536,
+        "relaunched_gui_exit_code": 0,
+        "selected_slot": "0000:01:00.0",
+        "helper_result_sha256": "c18502e703bfbb1ee7d80e87f0cfe85325a1c6393c7cfb9ad1106eb950ac98f0",
+        "helper_result_origin": "Actual helper-generated failure result accepted by actual helper-relaunched GUI.",
+        "waiting_parent": "Immutable marker and OS observations bind the actual helper and still-running parent before root closed that parent.",
+        "receipt_metadata": null,
+        "undo_enabled": false,
+        "frame_review": "Panel and raw log show the complete invalid-path error and Details.",
+        "before_broad_exact": true,
+        "final_broad_exact": [
+          false,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "final_difference_paths": [
+          [
+            "voltage.broad.broad.driver_flags.control_sha256",
+            "voltage.broad.broad.driver_flags.entries[13].control_hex"
+          ],
+          [],
+          [],
+          [],
+          [],
+          [],
+          [],
+          []
+        ],
+        "all_nine_curves_exact": true,
+        "raw_LPWR_Pstate_client_exact": true,
+        "no_receipt_file_created": true
+      },
+      {
+        "name": "valid-missing-helper-1",
+        "classification": "Valid state-directory UUID path absent; file stat produced WinError 2 before transaction",
+        "parent_gui_pid": 23596,
+        "helper_pid": 11260,
+        "helper_exit_code": 1,
+        "relaunched_gui_pid": 24388,
+        "relaunched_gui_exit_code": 0,
+        "selected_slot": "0000:01:00.0",
+        "helper_result_sha256": "38d8d8d644590fdcb31d53798583dce72bd70ff0592b4714d0cea945417c07cd",
+        "helper_result_origin": "Actual helper-generated failure result accepted by actual helper-relaunched GUI.",
+        "waiting_parent": "Immutable marker and OS observations bind the actual helper and still-running parent before root closed that parent.",
+        "receipt_metadata": null,
+        "undo_enabled": false,
+        "frame_review": "Panel shows complete wrapped WinError 2 and Details. Raw log clips the long error-line tail; its separate Details line is complete.",
+        "before_broad_exact": true,
+        "final_broad_exact": [
+          false,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "final_difference_paths": [
+          [
+            "voltage.broad.broad.driver_flags.control_sha256",
+            "voltage.broad.broad.driver_flags.entries[13].control_hex"
+          ],
+          [],
+          [],
+          [],
+          [],
+          [],
+          [],
+          []
+        ],
+        "all_nine_curves_exact": true,
+        "raw_LPWR_Pstate_client_exact": true,
+        "no_receipt_file_created": true
+      }
+    ],
+    "qualification_limits": [
+      "The first case is path validation refusal, not file-not-found.",
+      "The second is file-not-found at a syntactically valid location before Apply or Undo; it does not qualify a post-execution failure, rollback failure, native fault or recovery-required state.",
+      "The wrapped message is a pixel finding. Receipt and Undo state are capture metadata, not inferred from button styling.",
+      "Both cases retain the first final driver-flags mismatch; no full-curve exclusions were made.",
+      "No physical mouse or keyboard input, physical effect, configuration SET, registry transaction, GPU restart, Windows reboot or workload was requested."
+    ],
+    "validation": {
+      "full_suite": "6996 passed in 121.87 seconds",
+      "focused": "267 passed",
+      "ruff": "Two changed files clean",
+      "two_independent_audit_pairs_equal": true,
+      "total_saved_curves_exact": 18
+    },
+    "private_evidence_sha256": [
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/supervisor.py",
+        "sha256": "fafcd623503ee0178187d9beb7339491161db151b97e959bf80e523804fc96f2"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/audit.py",
+        "sha256": "5042f211233d2ac78f3ec71ea01b75ff45dc0a04e123693800df27d1ca13c88f"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/supervisor_v2.py",
+        "sha256": "9967b7a533a46c2e9dfa9168d163128aab4c71d0193b7d90de7d731294b0fd26"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/audit_v2.py",
+        "sha256": "6cc47dea66bed96fa356f0f99a9f43b1b4ac701b13c261603659b8edad054d03"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/parent-load-reproduction.json",
+        "sha256": "b29a140fc8b931ec379c56d38f06e4df6ae8dad0bb5dd0b156091fc1105cbcdf"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/reproduce_parent_load.py",
+        "sha256": "d3f0a65434c88f20a3cc25e827cc6c6bafe74d784834533321dc01ac2e8a2e76"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/review_execution.py",
+        "sha256": "7f04c82722697b5b48a3906df0f861d50dd72f0e0f8cb967b3488657a87d3f9e"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/root-execution-review.json",
+        "sha256": "91a238afe4eac2fc8701feb8f59d7fdbb6f298c142792ae1104be194e29a615b"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/compiled-trial-package-check.json",
+        "sha256": "d0e981590e0a1aa2d59eb8971fd85c5ef3ddbd6743766c83322234d2e470d000"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/archive-trial-validation.json",
+        "sha256": "153d95db2bfd79ad8f7c7a4b0be1ff63f15b67dbeb13bfdb263a8eab505abec2"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/full-tests.log",
+        "sha256": "cd24ac8a5dc439088533393c42f745754d79ac0d85192232ffe58f7b55e85b6d"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/missing-helper-1-launch.json",
+        "sha256": "479384af03509dacbf91979e36fdf94d2a8d00d47f5e6dde429c674a7652701c"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/missing-helper-1-supervisor.json",
+        "sha256": "1436366998d5120fe2470939545687d5a713f280cdec88fc1daa1b6972fd10e8"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/root-helper-audit.json",
+        "sha256": "0912d9ff5b49ceda947fbf1fb247097abba5de0d72792989c3320724d34b4e82"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/terra-helper-audit.json",
+        "sha256": "0912d9ff5b49ceda947fbf1fb247097abba5de0d72792989c3320724d34b4e82"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/root-visual-review.json",
+        "sha256": "f619ab0ba14ea2256fde58856ab156c03ff2b23056b3363ecf0c20b243c916c6"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/luna-visual-review.json",
+        "sha256": "7cada67e3bde61a14a6c40e731c19afb043dbf4085f669aacd50eb043268b7e7"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/missing-helper-1/manifest.json",
+        "sha256": "ec80aa2d772be39801561e8dbdfe68367e786939ed69c3f0dcfa689bc07209c9"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/missing-helper-1/recovery-panel.png",
+        "sha256": "f0ebd8b542a09cdb47c3fa15984f94f7126e9f1568e202f9aea08ba9e7cdec2c"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/missing-helper-1/recovery-log.png",
+        "sha256": "e84d39fd750939b29279fb568e3e88523977128ad53471945a21f0d8da87cfb9"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/valid-missing-helper-1-launch.json",
+        "sha256": "99c1a405d1741660d9b28cd87ba9397f196bf2bc9d1ef4e76e6f33152461485e"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/valid-missing-helper-1-supervisor.json",
+        "sha256": "9d635297213fbb8fcdc4a7f1142a74bb2f1e45fe96813bf3a70c400a49c37ea7"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/root-valid-missing-audit.json",
+        "sha256": "f8ea21105dd44a991a649b856c129e940e544b8ac2fe00d5ccb33ebe659d382a"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/terra-valid-missing-audit.json",
+        "sha256": "f8ea21105dd44a991a649b856c129e940e544b8ac2fe00d5ccb33ebe659d382a"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/root-valid-missing-visual-review.json",
+        "sha256": "91e56e065b5b1b9263dfb5ce83e8435770a41f6cf4ba780d4dcf7e0984dae4dd"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/luna-valid-missing-visual-review.json",
+        "sha256": "905bf3e6d08b9c33968ad6cf6314a49beee140ae63dc1a224027a2caf30b36eb"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/valid-missing-helper-1/manifest.json",
+        "sha256": "ee65de6690e9482115d7138a251cd70d3221db989dd180cf6cfb23de3b6f6b61"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/valid-missing-helper-1/recovery-panel.png",
+        "sha256": "4819ddf46520a46f2f3df0bb4d69a2702813a44edb804a9ff1ac1298c5a3c338"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/valid-missing-helper-1/recovery-log.png",
+        "sha256": "347a3f36321da7c2d409a295100c5ce65e9852f9b564175d66e41cbbbc68effc"
+      }
+    ]
   }
 }

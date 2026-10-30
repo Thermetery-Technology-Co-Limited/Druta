@@ -2101,6 +2101,26 @@ and restoration. The production diagnostic callback was exercised against
 real driver GETs before, during and after the trial; its rendered text
 distinguished unsupported controllers from a supported zero state mask.
 
+In the captured image, factory-disabled DIFR rows 1-4 have raw flags 0xFFFFF800, zero
+subfeature bits and no loaded P-state routes; enabling bit 0 alone leaves the
+understood controller 9/10/11 support and mask projection unchanged. The enabled-row
+loader also copies six 16-bit parameters: routed internal consumers return the
+captured 0xFFFF values as 65535, and one caller multiplies a returned value by 1000.
+Their units and valid ranges remain unproved; 0xFFFF is not identified as a sentinel
+or as invalid. No direct native getter of an arbitrary loaded row has been
+established, and no new factory-disabled enable or compound routing control is
+qualified.
+
+A separate static path for RmForceEnableDIFR can, subject to controller presence and
+other conditions, call the controller-9 enable helper with reason 6. The public
+0x20802801 DIFR control uses reason 0 and separate counter/bit handling. Attribute
+0x37 is a conjunction involving controller presence, record fields and a callback,
+rather than a direct reason-mask read; attributes 0x3A/0x3B serialize scaled callback
+values, not raw reason bits. Actual same-owner binding, the subsequent owner+0x270
+callback, selected callback/runtime path and physical effect are unproved. These
+traces do not add a control or establish that the disabled BIOS entries became active.
+See the [transport evidence](experiments/driver-transport-followup-20261028.json).
+
 New DIFR previews carry a versioned structural contract bound to their image
 and paired adapter. Apply, post-restart verification, Undo and automatic rollback
 check the selected configuration. Contract validation before registry cleanup
@@ -3518,6 +3538,19 @@ not button styling. All sixteen source and eight GUI-final curves matched;
 early driver-flag differences remain recorded. This does not qualify native
 faults, other recovery states, physical input or physical effects.
 [Scoped GUI Restore evidence](experiments/ui-recovery-result-qualified-20261029.json).
+
+Two later packaged helper trials exercised receipt-load errors before any
+registry transaction. In each, the helper was observed waiting for the normal
+parent GUI to exit, then produced its own failure result and relaunched a GUI
+on the selected adapter. The first rejected an invalid receipt path before file
+access. The second used a valid receipt path whose file was absent and returned
+WinError 2. Its wrapped panel message and Details path were fully readable;
+the raw log clipped the long error-line tail, while its separate Details line
+remained visible. Receipt absence and disabled Undo come from capture metadata.
+Both trials retained an early driver-flag difference; all eighteen saved curves
+matched. No GPU restart or registry transaction was requested. Post-execution
+helper failures, native faults, other recovery states and physical input remain
+unqualified. [Scoped helper-load evidence](experiments/ui-recovery-result-qualified-20261029.json).
 
 The separate opt-in developer mode `--ui-capture-live-vmin NEW_DIRECTORY`
 performs one +5 mV change to rail 0 VMIN through the panel's real Apply and
