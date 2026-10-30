@@ -2867,6 +2867,50 @@
         },
         "not_qualified": "The selected backing resource's allocation/mapping producer, active runtime dispatch and numerical voltage evaluator remain unbound. These source paths do not qualify effective arbitrary voltage replay or current F219 field semantics."
       },
+      "firmware_format_and_live_architecture": {
+        "scope": "Source-qualified, fixed read-only PMU architecture query and separate offline candidate-image analysis. No tuning SET, registry write, driver restart or workload. Device and driver identities identify evidence, not product eligibility gates.",
+        "architecture_query": {
+          "command": "0x20803118",
+          "engine": "0x29",
+          "parameter_bytes": 8,
+          "windows_handler_rva": "0x30ee90",
+          "windows_export_flags": "0x48",
+          "windows_export_access_right": 0,
+          "candidate_gsp_handler_va": "0x130a6c0",
+          "candidate_gsp_getter": "The PMU engine maps to lookup key 0x34 and a registered object discriminator 0xF3D72200. The handler returns object +0x518 when it is 1, 2 or 3; other values produce 0. This source path does not observe a live handler pointer.",
+          "selected_slot": "0000:01:00.0",
+          "selected_gpu": "NVIDIA GeForce RTX 5080",
+          "rounds": 2,
+          "request_response_bytes": 76,
+          "transport_status_each": 0,
+          "rm_status_each": 0,
+          "reported_architecture_each": 3,
+          "public_enum_name": "RISCV_EB",
+          "requests_equal": true,
+          "responses_equal": true,
+          "changed_request_response_dword_indices": [5, 11, 18],
+          "request_packet_hex": "4144564e020001004c0000002a2a564e2b00000500000000000000000000000000000000000000000000000000000000cc00d0c1000000b21831802008000000000000002900000000000000",
+          "response_packet_hex": "4144564e020001004c0000002a2a564e2b00000501000000000000000000000000000000000000000000000001000000cc00d0c1000000b21831802008000000000000002900000003000000"
+        },
+        "candidate_format": {
+          "descriptor_row": 775,
+          "payload_row": 785,
+          "descriptor_prefix_offset_4c": "The source RM_RISCV_UCODE_DESC prefix names this fbReservedSize: total framebuffer carveout for image and reserved space. The selected descriptor value 0x71F000 is not decoded-size evidence. The full version-7 schema is not asserted.",
+          "materialization": "The inspected external-archive callback bounds its context offset/size and copies bytes. The inspected 12C5374 staging body allocates/maps a size-matched temporary buffer and copies the input; the 19B50C4 fallback partitions spans and retries the same transfer. No explicit CPU decompressor or decryptor appears in those bodies.",
+          "optional_secure_copy": "In the shown selector-2 ordinary request, byte +0x50 is initialized and retained as zero. Its copy-engine builder skips secure-mode, authentication-tag and IV method packets and contributes zero to COPY_TYPE_SECURE. NVIDIA class headers corroborate those packet meanings. This excludes that request-enabled secure-copy block, not other branches, secure boot, or all possible transforms.",
+          "encoding": "Unqualified; opacity and absent ELF magic do not identify encryption, compression or directly executable code."
+        },
+        "evidence_sha256": {
+          "root_architecture_capture": "03ed8ce5fb2dcad5ae1c1283b35e25f90e808306a4822a6f65b5cb5c418b21d5",
+          "root_packet_and_descriptor_audit": "3443516f648f324a97db64b6c2b8ecb05ab88b8d2d1681cdd3cfbf1d4333c1ef",
+          "independent_capture_audit": "3809b225292e2922f1a6f82557cbc0312747d2a50f329a3688e510630ed2b7c8",
+          "candidate_getter_trace": "553d13c65430fdb098806c5deec7bc0d5b2829d0dacdd1f35b2bf70cece80873",
+          "candidate_format_trace": "d9b5f28577a3f99495b3a1b6869f00e4c5d4238bfee77e9ffdc5efc989c87553",
+          "copy_engine_primary_source_audit": "ad6ef8364d71c3ab68b351b89a7c792fd107a8ed0fe52e6efefe0a85f150cf9c",
+          "rmRiscvUcode_header": "42295cbf9cf71e6e9e4106a20d3c6537d2c662a67eaa85c3265ba06c896cda1a"
+        },
+        "limits": "The live query establishes API-reported RISCV_EB only. Exact loaded-image identity, encoding, selected resource mapping, numerical voltage evaluation and effective arbitrary replay remain unqualified. No new control or compatibility gate was added."
+      },
       "root_static_byte_windows_reproduced": 16,
       "root_terminal_trials_independently_checked": 2,
       "evidence_sha256": {

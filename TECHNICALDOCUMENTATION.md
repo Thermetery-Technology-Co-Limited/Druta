@@ -3687,6 +3687,19 @@ dispatch and receiver-side numerical voltage evaluator remain unbound.
 Root independently reproduced 11 further byte windows. These offline audits
 made no new GPU call or mutation and do not qualify arbitrary voltage replay.
 
+Two subsequent fixed, read-only `FLCN_GET_ENGINE_ARCH` queries (`0x20803118`,
+8-byte parameters, PMU engine `0x29`) returned 3, named `RISCV_EB` by NVIDIA,
+on the captured RTX 5080. Both complete exchanges matched and returned zero
+transport/RM status. This establishes the API-reported architecture, not an
+exact loaded image or voltage effect. The candidate image's inspected
+materialization, staging and fallback bodies copy bytes without a visible CPU
+decoder; the shown selector-2 ordinary copy request leaves its optional
+secure-copy gate disabled.
+These observations do not classify the payload's encoding. The matching
+descriptor prefix's +0x4C value, 0x71F000, is `fbReservedSize` in NVIDIA's header:
+space for the image and reserved memory, not a decoded-output length. No tuning
+SET, registry edit, restart or workload was used in the architecture query.
+
 An offline comparison of NVIDIA-signed 617.14 package data with the installed
 621.01 driver identifies a specific legacy write-suppression path. The older
 `Perf` constructor clears the gate byte tested by its six-word rail setter.
