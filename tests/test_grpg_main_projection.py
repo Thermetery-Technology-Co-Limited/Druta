@@ -214,3 +214,13 @@ def test_unmodeled_auxiliary_bit1_and_type7_fields_preserved():
             assert item["main"]["bit4_group"]["801:1"] == source["main"]["bit4_group"]["801:1"]
         assert item["main"]["bit4_group"]["801:2"] == source["main"]["bit4_group"]["801:2"]
         assert item["main"]["bit4_group"]["805:1"] == source["main"]["bit4_group"]["805:1"]
+
+
+def test_expanded_main_projection_can_observe_every_type4_role_unavailable():
+    source = core()
+    for i in (2, 3, 6):
+        source["bit1"]["roles"][str(i)] = {"available": False, "supported": None}
+    with pytest.raises(MainProjectionError):
+        profiles(source)
+    for result in profiles(source, allow_no_peer=True):
+        assert all(not row["available"] for row in result["bit1"]["roles"].values())

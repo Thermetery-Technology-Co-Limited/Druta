@@ -17,7 +17,7 @@ from tests.test_registry_overrides import digest, transaction
 
 def configured(
     monkeypatch, *, multiple=False, slot=None, device=0xC321, auxiliary=False, bit1=False, combined=False,
-    main=False, bit4=False, mixed=None, no_peer=False, full_main_loss=None
+    main=False, bit4=False, mixed=None, no_peer=False, full_main_loss=None, main_bit4_loss=None
 ):
     inspect, plan = vbios_fields.inspect, vbios_fields.plan
     receipt, registry, snapshot, restarts, kwargs = transaction(monkeypatch)
@@ -26,7 +26,11 @@ def configured(
     if slot is not None:
         receipt["target"]["slot"] = slot
     target = ro.Target(**receipt["target"])
+    main = main or main_bit4_loss is not None
     flags = (
+        {"flags": (main_bit4_loss, 1, 1)}
+        if main_bit4_loss is not None
+        else
         {"flags": (0x69, 0x6B, 0x61)}
         if full_main_loss == 2
         else {"flags": (0x1B, 0x11, 0x11)}
@@ -68,7 +72,8 @@ def configured(
         observe, make_contract = fixtures.bit4_observation, fixtures.make_bit4_contract
     elif main:
         changes = {f"lpwr.gr_pg.{index}.enabled": False for index in range(3)}
-        observe, make_contract = fixtures.main_observation, fixtures.make_main_contract
+        observe = fixtures.main_observation if main_bit4_loss is None else fixtures.bit4_observation
+        make_contract = fixtures.make_main_contract
     elif combined:
         observe, make_contract = fixtures.combined_observation, fixtures.make_combined_contract
     elif bit1:
@@ -740,6 +745,55 @@ def test_main_each_saved_profile_applies_and_undoes(monkeypatch):
         result = ro.execute(receipt, restore=True, **kwargs)
         assert result["state"] == "restored", result["message"]
         assert snap["grpg"] == before and not reg.values and len(restarts) == 2
+
+
+@pytest.mark.parametrize("loss", [0x11, 0x13, 0x19, 0x1B])
+@pytest.mark.parametrize("profile", range(4))
+def test_complete_main_bit4_apply_accepts_each_whole_dependency_profile(monkeypatch, loss, profile):
+    receipt, reg, snap, restarts, kwargs, _, _ = configured(monkeypatch, main_bit4_loss=loss)
+    saved = receipt["grpg_contracts"]
+    assert saved["schema"] == 10
+    restart = kwargs["restart"]
+
+    def selected_profile(device):
+        result = restart(device)
+        snap["grpg"] = fixtures.observed_main(saved, profile=profile)
+        return result
+
+    kwargs["restart"] = selected_profile
+    result = ro.execute(receipt, **kwargs)
+    assert result["ok"] and result["state"] == "active", result["message"]
+    assert result["runtime_verified_fields"] == sorted(receipt["changes"])
+    assert reg.values == receipt["after"] and len(restarts) == 1
+    assert snap["grpg"] == fixtures.observed_main(saved, profile=profile)
+
+
+def test_complete_main_bit4_apply_reads_full_dependency_scope(monkeypatch):
+    from druta import nvbackend
+
+    receipt, reg, snap, restarts, kwargs, before, after = configured(monkeypatch, main_bit4_loss=0x1B)
+    snap.pop("grpg")
+    gpu, calls = SimpleNamespace(), []
+    monkeypatch.setattr(nvbackend, "GPU", lambda slot: gpu)
+    monkeypatch.setattr(ro, "bind_target", lambda value: snap["target"])
+
+    def read(value, **options):
+        assert value is gpu and options == {"main": True}
+        calls.append(bool(reg.values))
+        return copy.deepcopy(after if reg.values else before), None
+
+    monkeypatch.setattr(gr, "read", read)
+    restart = kwargs["restart"]
+
+    def without_injection(device):
+        result = restart(device)
+        snap.pop("grpg")
+        return result
+
+    kwargs["restart"] = without_injection
+    result = ro.execute(receipt, **kwargs)
+    assert result["ok"] and result["state"] == "active", result["message"]
+    assert calls == [False, True] and len(restarts) == 1
 
 
 @pytest.mark.parametrize("restore", [False, True])

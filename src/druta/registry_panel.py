@@ -1527,7 +1527,7 @@ class RegistryPanel:
             def states(mask):
                 return "/".join(f"P{i}" for i in range(32) if mask >> i & 1) or "none"
 
-            if contract.get("schema") == 5:
+            if contract.get("schema") in (5, 10):
                 cleared = {index for profile in contract["after_profiles"] for index in profile["cleared"]}
                 optional = []
                 if 2 in cleared:
@@ -1545,6 +1545,26 @@ class RegistryPanel:
                     "The readback must match an accepted support and configuration profile. "
                     "Restore verifies the original configuration."
                 )
+                if contract.get("schema") == 10:
+                    profiles = contract["after_profiles"]
+                    support_absent = [all(not row["available"] for row in p["bit1"]["roles"].values()) for p in profiles]
+                    group_absent = [not p["main"]["bit4_group"]["1:0"]["available"] for p in profiles]
+                    if any(support_absent):
+                        lines.append(
+                            "All support queries for one auxiliary group become unavailable."
+                            if all(support_absent) else
+                            "Depending on the accepted profile, all support queries for one auxiliary group may become unavailable."
+                        )
+                    if any(group_absent):
+                        lines.append(
+                            "The final shared capability group becomes unavailable."
+                            if all(group_absent) else
+                            "Depending on the accepted profile, the final shared capability group may become unavailable."
+                        )
+                    lines.append(
+                        "The related auxiliary support, configured masks, features and all captured peers must match "
+                        "one complete previewed profile. Physical residency and power savings remain unmeasured."
+                    )
             else:
                 after_controllers = contract["after"]["controllers"] if contract.get("schema") in (6, 7, 8, 9) else contract["after"]
                 after = after_controllers["0"]["configured_pstate_mask"]
@@ -1603,14 +1623,14 @@ class RegistryPanel:
                     "The other role's support query must become unavailable while another supported role remains readable. "
                     "Both checks must pass; the other auxiliary roles remain unchanged. "
                 )
-            elif contract.get("schema") != 5:
+            elif contract.get("schema") not in (5, 10):
                 shared = "Shared capability flags are retained. "
             if contract.get("schema") == 7 and support_queries_unavailable:
                 shared += (
                     "All support queries for the selected auxiliary group also become unavailable; "
                     "the other captured groups and peers must match the preview. "
                 )
-            if contract.get("schema") != 5:
+            if contract.get("schema") not in (5, 10):
                 lines.append(
                     f"GR power gating: configured P-state eligibility {states(before)} -> {states(after)}. "
                     "Loaded routing, controller support and the other low-power controller masks must stay unchanged. "

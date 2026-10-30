@@ -28,7 +28,8 @@ _TABLES = (("index", 0x74, 0x24, 6, 18), ("grpg", 0x80, 0x39, 10, 5))
 _AUX_KEYS = ((0, 1), *((role, 0x800) for role in range(4)), *((role, 0x806) for role in range(4)))
 _BIT1_ROLES = tuple(range(11))
 _BIT4_KEYS = ((0, 1), *((role, 0x801) for role in range(3)), (0, 0x805), (1, 0x805))
-_SCHEMAS = {0: 1, 8: 2, 2: 3, 10: 4, 1: 5, 3: 5, 9: 5, 11: 5, 16: 6, 18: 7, 24: 7, 26: 7}
+_SCHEMAS = {0: 1, 8: 2, 2: 3, 10: 4, 1: 5, 3: 5, 9: 5, 11: 5,
+            17: 10, 19: 10, 25: 10, 27: 10, 16: 6, 18: 7, 24: 7, 26: 7}
 
 
 class GrpgError(RuntimeError):
@@ -467,10 +468,10 @@ def _bit1_projection(core, *, allow_no_peer=False):
     return project_type4_role(core["bit1"], 0, allow_no_peer=allow_no_peer)
 
 
-def _derive(changes, before, tables, *, full_scope=False):
+def _derive(changes, before, tables, *, full_scope=False, expanded_main=False):
     requested = selected(changes)
     loss = _aggregate_change(requested, tables)
-    core, data = _observation(before, allow_missing_aux_feature=full_scope or loss in (16, 18, 24, 26)), _table_data(tables)
+    core, data = _observation(before, allow_missing_aux_feature=full_scope or expanded_main or loss in (16, 18, 24, 26)), _table_data(tables)
     controller = core["controllers"]["0"]
     if not controller["available"] or controller["supported"] is not True or not controller["states_available"]:
         raise GrpgError("GRPG needs available support and a configured Pstate mask")
@@ -517,8 +518,24 @@ def _derive(changes, before, tables, *, full_scope=False):
             raise GrpgError("Main GRPG removal requires every enabled BIOS entry")
         if not {"auxiliary", "bit1", "main"} <= core.keys():
             raise GrpgError("Main GRPG removal requires independent dependency readbacks")
+        if expanded_main and loss & 0x10:
+            feature, group = core["main"]["features"]["0"], core["main"]["bit4_group"]
+            if (not feature["available"] or not feature["value"] & 8
+                    or group["1:0"] != {"available": True, "value": 1}
+                    or group["801:0"] != {"available": True, "value": 1}
+                    or not group["805:0"]["available"]):
+                raise GrpgError("Main GRPG bit4 removal requires active feature, role and configured mask")
+            bit4_mask = 0
+            for slot, ids in routes:
+                if slot < len(flags) and flags[slot] & 0x11 == 0x11:
+                    bit4_mask |= ids
+            if group["805:0"]["value"] != bit4_mask:
+                raise GrpgError("GRPG bit4 configured mask differs from the known BIOS routes")
+        roles = core["bit1"]["roles"]
+        if expanded_main and loss & 2 and roles["0"] != {"available": True, "supported": True}:
+            raise GrpgError("Main GRPG bit1 removal needs an available role0 witness")
         try:
-            after_profiles = main_profiles(core)
+            after_profiles = main_profiles(core, allow_no_peer=expanded_main)
         except MainProjectionError as exc:
             raise GrpgError(str(exc)) from exc
         return bindings, after_profiles, None, None
@@ -621,7 +638,7 @@ def contracts(gpu, image_bytes, changes):
     tables = _tables(image_bytes)
     loss = _aggregate_change(changes, tables)
     schema = {2: 8, 10: 9}.get(loss, _SCHEMAS[loss])
-    if schema in (5, 6, 7, 8, 9):
+    if schema in (5, 6, 7, 8, 9, 10):
         before, error = read(gpu, main=True)
     elif schema == 4:
         before, error = read(gpu, auxiliary=True, bit1=True)
@@ -633,7 +650,25 @@ def contracts(gpu, image_bytes, changes):
         before, error = read(gpu)
     if error or before is None:
         raise GrpgError("GRPG configuration is unavailable: " + str(error))
-    bindings, after, after_auxiliary, after_bit1 = _derive(changes, before, tables, full_scope=schema in (8, 9))
+    try:
+        bindings, after, after_auxiliary, after_bit1 = _derive(
+            changes, before, tables, full_scope=schema in (8, 9), expanded_main=schema == 10
+        )
+    except GrpgError:
+        if schema != 5:
+            raise
+        bindings, after, after_auxiliary, after_bit1 = _derive(changes, before, tables, expanded_main=True)
+        schema = 10
+    else:
+        if schema == 5:
+            try:
+                expanded = _derive(changes, before, tables, expanded_main=True)
+            except GrpgError:
+                pass
+            else:
+                if not _same_state(expanded[1], after):
+                    bindings, after, after_auxiliary, after_bit1 = expanded
+                    schema = 10
     result = {
         "schema": schema,
         "kind": "lpwr_grpg_disable",
@@ -642,7 +677,7 @@ def contracts(gpu, image_bytes, changes):
         "tables": tables,
         "selected": bindings,
     }
-    result["after_profiles" if schema == 5 else "after"] = after
+    result["after_profiles" if schema in (5, 10) else "after"] = after
     if schema in (2, 4):
         result["after_auxiliary"] = after_auxiliary
     if schema in (3, 4):
@@ -660,11 +695,11 @@ def validate_contracts(changes, saved):
         not requested
         or not isinstance(saved, dict)
         or type(saved.get("schema")) is not int
-        or saved["schema"] not in (1, 2, 3, 4, 5, 6, 7, 8, 9)
+        or saved["schema"] not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
     ):
         raise GrpgError("Missing or malformed GRPG disable contract")
     keys = {"schema", "kind", "before_image_sha256", "before", "tables", "selected"}
-    keys.add("after_profiles" if saved["schema"] == 5 else "after")
+    keys.add("after_profiles" if saved["schema"] in (5, 10) else "after")
     if saved["schema"] in (2, 4):
         keys.add("after_auxiliary")
     if saved["schema"] in (3, 4):
@@ -678,16 +713,19 @@ def validate_contracts(changes, saved):
     schema = saved["schema"]
     expected_schema = {8: 2, 9: 10}.get(schema)
     if (
-        (expected_schema != loss if schema in (8, 9) else schema != _SCHEMAS[loss])
+        (expected_schema != loss if schema in (8, 9) else
+         not bool(loss & 1) if schema == 10 else schema != _SCHEMAS[loss])
         or not isinstance(saved["before"], dict)
-        or ("auxiliary" in saved["before"]) != (schema in (2, 4, 5, 6, 7, 8, 9))
-        or ("bit1" in saved["before"]) != (schema in (3, 4, 5, 6, 7, 8, 9))
-        or ("main" in saved["before"]) != (schema in (5, 6, 7, 8, 9))
+        or ("auxiliary" in saved["before"]) != (schema in (2, 4, 5, 6, 7, 8, 9, 10))
+        or ("bit1" in saved["before"]) != (schema in (3, 4, 5, 6, 7, 8, 9, 10))
+        or ("main" in saved["before"]) != (schema in (5, 6, 7, 8, 9, 10))
     ):
         raise GrpgError("GRPG contract schema does not match its auxiliary scope")
-    bindings, after, after_auxiliary, after_bit1 = _derive(requested, saved["before"], saved["tables"], full_scope=schema in (8, 9))
+    bindings, after, after_auxiliary, after_bit1 = _derive(
+        requested, saved["before"], saved["tables"], full_scope=schema in (8, 9), expanded_main=schema == 10
+    )
     if not _same_state(bindings, saved["selected"]) or not _same_state(
-        after, saved["after_profiles" if schema == 5 else "after"]
+        after, saved["after_profiles" if schema in (5, 10) else "after"]
     ):
         raise GrpgError("Saved GRPG projection differs from selected fields or BIOS model")
     if schema in (2, 4) and not _same_state(after_auxiliary, saved["after_auxiliary"]):
@@ -704,17 +742,17 @@ def verify(observation, saved, restore=False):
         raise GrpgError("Malformed GRPG disable contract")
     changes = dict.fromkeys(saved["selected"], False)
     validate_contracts(changes, saved)
-    allow_missing = saved["schema"] in (6, 7, 8, 9)
+    allow_missing = saved["schema"] in (6, 7, 8, 9, 10)
     before = _observation(saved["before"], allow_missing_aux_feature=allow_missing)
     actual = _observation(observation, allow_missing_aux_feature=allow_missing)
     if not _same_state(actual["identity"], before["identity"]) or not _same_state(actual["pstates"], before["pstates"]):
         raise GrpgError("Loaded GRPG target or Pstate routing changed")
-    if saved["schema"] in (5, 6, 7, 8, 9):
+    if saved["schema"] in (5, 6, 7, 8, 9, 10):
         keys = ("controllers", "auxiliary", "bit1", "main")
-        outcomes = [before] if restore else (saved["after_profiles"] if saved["schema"] == 5 else [saved["after"]])
+        outcomes = [before] if restore else (saved["after_profiles"] if saved["schema"] in (5, 10) else [saved["after"]])
         if not any(all(_same_state(actual.get(key), expected[key]) for key in keys) for expected in outcomes):
             message = ("Loaded GRPG main dependency state differs from every qualified projection"
-                       if saved["schema"] == 5 else "Loaded GRPG dependency readback differs from the qualified projection")
+                       if saved["schema"] in (5, 10) else "Loaded GRPG dependency readback differs from the qualified projection")
             raise GrpgError(message)
         return sorted(changes)
     expected = before["controllers"] if restore else saved["after"]

@@ -712,7 +712,12 @@ The development continuation also supports disabling every enabled entry in one
 transaction, including enabled entries unused by the loaded map. It checks that
 main controller 0 becomes unsupported with an unavailable configured mask,
 and independently checks all controller features and type 7 configuration.
-Known profiles can include loss of GRRG controller 2 or MSCG controller 4;
+This all-entry shutdown can also remove the last raw bit 4 contributor in the
+same transaction. Its active feature, auxiliary role and exact routed mask must
+be readable before Apply. Preview describes any complete profile in which
+auxiliary support queries or the final shared capability group become
+unavailable; unavailable replies do not establish an independently read empty
+support mask. Known profiles can include loss of GRRG controller 2 or MSCG controller 4;
 other peer changes fail verification and trigger restoration. Restore checks
 the captured original configuration. A separate path supports removing the final
 raw bit 4 contributor while main GR power gating stays supported. When a peer

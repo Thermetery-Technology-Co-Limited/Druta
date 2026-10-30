@@ -1381,7 +1381,7 @@ def _execute(
             gpu = GPU(target.slot)
             if bind_target(gpu) != target:
                 raise OverrideError("Selected GPU or its driver mapping changed before GRPG readback")
-        if grpg_contracts["schema"] in (5, 6, 7, 8, 9):
+        if grpg_contracts["schema"] in (5, 6, 7, 8, 9, 10):
             observation, error = grpg_runtime.read(gpu, main=True)
         elif grpg_contracts["schema"] == 4:
             observation, error = grpg_runtime.read(gpu, auxiliary=True, bit1=True)

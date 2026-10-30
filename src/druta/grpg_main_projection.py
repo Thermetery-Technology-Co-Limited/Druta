@@ -29,7 +29,7 @@ def _any(rows):
     raise MainProjectionError("Remaining group support is unknown")
 
 
-def _project(core, cleared):
+def _project(core, cleared, *, allow_no_peer=False):
     controllers = copy.deepcopy(core["controllers"])
     auxiliary = copy.deepcopy(core["auxiliary"])
     bit1 = copy.deepcopy(core["bit1"])
@@ -67,7 +67,7 @@ def _project(core, cleared):
     had_affected = any(roles[str(i)]["supported"] is True for i in affected)
     for index in affected:
         roles[str(index)] = {"available": False, "supported": None}
-    if had_affected and not any(row["available"] and row["supported"] is True for row in roles.values()):
+    if had_affected and not allow_no_peer and not any(row["available"] and row["supported"] is True for row in roles.values()):
         raise MainProjectionError("Bit1 group has no remaining supported query witness")
 
     group = auxiliary["group"]
@@ -106,7 +106,7 @@ def _project(core, cleared):
     return {"cleared": sorted(cleared), "controllers": controllers, "auxiliary": auxiliary, "bit1": bit1, "main": main}
 
 
-def profiles(core):
+def profiles(core, *, allow_no_peer=False):
     """Return deterministic, qualified post-main-loss candidates."""
     controller0 = core["controllers"]["0"]
     if not controller0["available"] or controller0["supported"] is not True:
@@ -120,7 +120,7 @@ def profiles(core):
     for count in range(len(optional) + 1):
         for subset in itertools.combinations(optional, count):
             try:
-                candidate = _project(core, {0, *subset})
+                candidate = _project(core, {0, *subset}, allow_no_peer=allow_no_peer)
             except MainProjectionError:
                 continue
             if candidate not in result:

@@ -2249,8 +2249,19 @@ mask0x8 clears in a profile only when no surviving class0 provider (1, 2 or 20)
 supplies feature0x200000; an unresolved provider prevents that profile. Activation must match
 one complete profile; Undo verifies the captured before state. The dependency
 graph is not exhaustively known, and broader hardware qualification remains
-pending. Those main-loss profiles still require the OR-presence of raw bit4
-among enabled GR PG entries to remain unchanged.
+pending. Historical schema5 main-loss profiles require the OR-presence of raw
+bit4 among enabled GR PG entries to remain unchanged. Schema10 extends full
+main removal to aggregate losses11h/13h/19h/1Bh: it requires active controller0
+feature8, type7 group/role0 support, and a valid role0 mask exactly matching
+the consumed enabled bit4 routes, including a valid zero for an unrouted
+carrier. BEEC27 clears main0 through771730 before the later BEF342..355
+bit4-role cleanup, which is redundant on this bound path. Schema10 also
+admits the complete all-unavailable type4 support-query outcome when the
+affected roles leave no positive peer. For raw-bit1 loss it requires a positive
+before role0 witness. No independent empty support mask is inferred. Fresh
+preparation uses schema10 when its expanded complete outcomes differ; saved
+schema5 contracts retain their original narrow recomputation. Available
+feature copies must agree; an unavailable optional duplicate is not zero.
 Raw bits1/3/4 feed separate feature-group operations92A650,927470 and92B350
 respectively; their numeric role0 is not controller0.
 
@@ -2285,6 +2296,25 @@ independent active broad window, physical input or physical effect measurement.
 This packaged trial used two GPU-only restarts. No-peer UI, failure/recovery
 and other configurations remain pending.
 [Packaged GRPG evidence](experiments/ui-lpwr-configured-qualified-20261029.json).
+
+A 2026-10-30 source execution qualified the combined main+bit4 shutdown on
+the same captured RTX5080/621.01 configuration. A temporary setup changed
+only known bit10h on one already enabled, routed GRPG row, producing a
+positive type7 role0 with mask20h and feature8. Real RegistryPanel refresh/
+Prepare callbacks and normal durable Apply then disabled all three enabled
+rows, aggregate loss1Bh, using schema10. Main0 became unsupported with mask
+and feature unavailable; type1/type7 role0 masks became valid0, type4 role0
+became unavailable, and DFPR9 featureFh became7h. Controller4 and its shared
+roles remained supported; controller2 was already unsupported. Complete LPWR
+and settled broad image/registry/clock/voltage/power projections matched.
+Intermediate broad mismatches remain recorded: setup settled on samples6/7,
+active and final on3/4, with no curve exclusions. Existing cleanup removed
+the experiment and recovered the complete original. Four GPU-only restarts
+were used. This was a source callback/Apply trial, without physical input, a
+packaged helper walkthrough, physical measurement or a conditional2/4-loss
+observation. The main-loss no-peer variants are source/test qualified here,
+rather than separate hardware observations.
+[Complete-main evidence and limits](experiments/grpg-main-complete-qualified-20261030.json).
 
 The initial schema6 qualification covered aggregate loss10h: disabling the last
 routed raw-bit4 contributor while main controller0 and an independently

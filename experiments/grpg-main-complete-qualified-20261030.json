@@ -1,0 +1,59 @@
+{
+  "schema": 1,
+  "scope": "Complete main GRPG disable with last raw-bit4 loss; configured state only",
+  "contract": {
+    "new_schema": 10,
+    "new_aggregate_losses_hex": ["11", "13", "19", "1b"],
+    "before_witness": "Every enabled GRPG entry selected; fresh main support and configured mask; full controller/type1/type4/type7 scope. For last bit4, main feature8 and type7 group/role0 active, valid mask exactly equal consumed bit4 routes including valid0. For raw-bit1 loss, role0 support independently positive.",
+    "after": "One complete finite controller/feature/role profile must match, including conditional controllers2/4. Type4 all-unavailable queries are an availability outcome, not independent empty-group readback.",
+    "compatibility": "Historical schema5 recomputes the original peer-pruned profiles. Fresh old-loss preparation uses schema10 when expanded candidates differ. Other historical scopes unchanged.",
+    "optional_duplicate": "Available independent feature copies agree; unavailable duplicate stays unavailable and its value is uninterpreted."
+  },
+  "tested_configuration": {
+    "adapter": "GeForce RTX 5080 GB203",
+    "driver": "621.01",
+    "identity_role": "Identifies evidence; no board, VBIOS or driver allowlist"
+  },
+  "source": {
+    "driver_sha256": "3f8d33495cabeb2fa11ebdcf0b12705e9ccfb4e53005324bcd86e9dea8ba2ab4",
+    "cleanup_order": "BEEC27 invokes771730(controller0), clearing controller and auxiliary roles before the later raw-bit4 cleanup atBEF342..355. The latter is redundant on the bound main-loss path.",
+    "independently_reproduced_windows": 8,
+    "trace_report_sha256": "020596df16286d7dbbd9a2e5e32f3e949011ff84a280372836353637622413a1",
+    "root_reproduction_sha256": "2d7f3851757fdc3542f0c8f51867638c3fc352570b32a0f348061c0226e5c744",
+    "independent_implementation_review_sha256": "93379c3e499bc5a882974ff1dd27c88c981e55137ea68ef6207dcbe87db88478"
+  },
+  "production_trial": {
+    "journal_sha256": "3489944e7f7aa66cb853fca8238978372122a36c8fc968987ac4221f8e25fe5c",
+    "script_sha256": "753bfd0e269f90e2ef0b9df629e3c876016a5184f5180fd9a11202fea9be4c0c",
+    "terminal_exit": 0,
+    "state": "verified",
+    "temporary_setup": "One known bit10h at byte253666: 6b->7b on already-enabled routed row1; every other image byte preserved. Type7 role0 support becomes1 and mask20h; main feature8 becomes active.",
+    "product_action": "Real RegistryPanel refresh/Prepare callbacks, durable receipt readback, normal production Apply of all three enabled GRPG rows; aggregate loss1Bh, schema10.",
+    "product_image_changes": "Only enable bit0 at bytes253661/253666/253671: 6b/7b/63 -> 6a/7a/62",
+    "loaded_outcome": "Main0 unsupported with mask/feature unavailable; type1/type7 role0 support/mask valid0; type4 role0 unavailable; DFPR9 featureFh->7h. Controller4 and its peer roles survive; controller2 was already unsupported.",
+    "complete_LPWR_projection_exact": true,
+    "settled_broad_projection_exact": true,
+    "broad_windows": {
+      "setup": [false, false, false, false, false, false, true, true],
+      "active": [false, false, false, true, true],
+      "final": [false, false, false, true, true]
+    },
+    "intermediate_mismatches": "Retained in the terminal journal; no frequency or curve exclusion and no causal inference from settling",
+    "complete_original_LPWR_and_broad_state_restored": true,
+    "logical_GPU_only_restarts": 4,
+    "Windows_reboot": false,
+    "workload": false
+  },
+  "validation": {
+    "functionality_tests_passed": 374,
+    "deferred_recovery_named_cases_deselected": 85,
+    "ruff": "clean for all eight changed source/test files"
+  },
+  "limits": [
+    "Source callbacks and normal Apply, not a physical-input or packaged-helper walkthrough",
+    "Current trial retains type4/type7 peers; expanded main no-peer profiles are source/test coverage rather than separate hardware observations here",
+    "Conditional controller2/4 disappearance not observed in this trial",
+    "No physical residency, power savings, enforcement, voltage or cross-adapter claim",
+    "Recovery/Undo development and ordinary profile restoration/replay remain deferred under AGENTS.md"
+  ]
+}
