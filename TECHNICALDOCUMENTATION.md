@@ -3638,6 +3638,13 @@ returned at row +4 and imported from row +0. A base type mismatch can log and
 still return success. The row +0x1F4 field has no verified voltage meaning.
 No effective voltage writer or arbitrary six-word replay is qualified.
 
+The inspected PMU-capable GSP constructor supplies STATUS backing rows at
+buffer +0x750 + index * 0x1F0, for indices 0 through 511. Its final group
+serializer retains a 64-byte copy from backing +0x50 to payload +0x1C4.
+The type-6 serializer copies one backing-row client block to both STATUS row
++4 and +0xB4; those duplicate blocks are not independent results. These are
+conditional static paths, not a live loaded-handler observation.
+
 The selected STATUS row +0xB4 client block feeds the current type-4 voltage
 converter. It matches the source's rail, element count,
 signed global microvolt delta and 20-byte VFE element layout. The eight captured
@@ -3657,6 +3664,17 @@ experiments. No registry edit, restart or workload was used. The cause and
 timing of the later refresh remain unresolved; five seconds is not an interface
 latency guarantee. Older SDK sync-flag documentation does not establish that
 the inspected current setter honors that field.
+
+A further offline audit of both completed tests and the later read-only
+capture reports STATUS version 8 and the same 27 bits at +0x1C4. Those bits
+exactly match rows with a nonzero client-input tag at row +4 in these captures.
+In each test, the DWORD at +0x4C increments once after applying the request and
+once after cleanup, while the aggregate header bytes +0x50 through +0x963 stay
+identical. Neither this counter nor the bitmap proves numerical evaluation or
+identifies an arbitration winner. The conditional queue paths include bounded
+waits, but state 3 is also written on timeout; the normal reply-data producer
+remains unbound. Root reproduced 16 static byte windows and independently
+checked both terminal trials. This audit made no new GPU call or mutation.
 
 An offline comparison of NVIDIA-signed 617.14 package data with the installed
 621.01 driver identifies a specific legacy write-suppression path. The older

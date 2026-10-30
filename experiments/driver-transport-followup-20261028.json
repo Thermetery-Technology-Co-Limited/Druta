@@ -2816,7 +2816,50 @@
       "root_collector": "76cf518ea0b41017e44201bf88a103dc1687cb6913fa1b0735f2f075287d1ec8",
       "reviewed_agent_collector": "4a3b238c296c4ded553a6442711c1164eab267b522965313feaea3c70a1ae5b1"
     },
-    "limits": "244 selected rows with19 distinct raw row payloads demonstrate a returned status inventory, not numerical voltage units, rail identity, active constraints, physical measurement or consumed voltage control. All four INFO/CONTROL before/after comparisons are byte-identical; both STATUS payloads match. Arbitrary six-word voltage replay including VCRIT remains unresolved. No product control or compatibility gate was added."
+    "limits": "244 selected rows with19 distinct raw row payloads demonstrate a returned status inventory, not numerical voltage units, rail identity, active constraints, physical measurement or consumed voltage control. All four INFO/CONTROL before/after comparisons are byte-identical; both STATUS payloads match. Arbitrary six-word voltage replay including VCRIT remains unresolved. No product control or compatibility gate was added.",
+    "backing_and_header_followup": {
+      "scope": "Offline analysis of the pinned candidate GSP image and three completed captures. No new GPU query, SET, registry change, restart or workload. Static branches do not establish retained live handlers or the loaded firmware image.",
+      "candidate_gsp_sha256": "6c4de07caa7f494a44419f3cad67bfda95de4304f057985da03cd7756a1c533d",
+      "static_path": {
+        "constructor_helper_va": "0x15a6964",
+        "final_status_callback_va": "0x1599044",
+        "inherited_status_callback_va": "0x15613bc",
+        "status_backing_accessor_va": "0x155e968",
+        "status_backing_accessor_interface_offset": "0x120",
+        "status_backing_row_formula": "buffer + 0x750 + index * 0x1f0",
+        "valid_indices": [0, 511],
+        "declared_status_buffer_bytes": "0x3e750",
+        "size_relation": "0x750 + 512 * 0x1f0 = 0x3e750",
+        "type6_client_copy": "One backing row+0x0c block of length0xb0 supplies both STATUS row+4 and row+0xb4; these are duplicate sources, not independent evaluated values.",
+        "type6_extension_copy": "Backing row+0xbc of length0x128 supplies STATUS row+0x164.",
+        "candidate_bitmap_copy": "Final callback1599044 calls15613bc, retaining backing+0x50 to STATUS payload+0x1c4, length0x40. Later copies do not overlap it."
+      },
+      "completed_capture_observations": {
+        "status_version_byte_at_44": 8,
+        "candidate_bitmap_offset": "0x1c4",
+        "candidate_bitmap_bytes": 64,
+        "candidate_bitmap_indices": [3, 4, 15, 16, 17, 83, 85, 152, 153, 154, 155, 156, 157, 160, 162, 165, 167, 170, 172, 182, 183, 184, 185, 186, 187, 199, 201],
+        "candidate_bitmap_count": 27,
+        "bitmap_matches_nonzero_client_input_tags": "Exactly matches rows with nonzero DWORD at row+4 across all512 rows in both rounds of before, active and restored phases of both terminal trials, and both later read-only rounds.",
+        "counter_dword_offset": "0x4c",
+        "trial1_before_active_cleanup_counters": [6245, 6246, 6247],
+        "trial2_before_active_cleanup_counters": [6445, 6446, 6447],
+        "aggregate_header_comparison": "All bytes at +0x50 through +0x963 are identical across the captured before, active and immediate-cleanup phases in each trial. Counter advancement and bitmap correlation do not establish numerical evaluation or arbitration winners.",
+        "target_row": "Index199 at payload+0x20438 retains the stored +5000 request in both duplicate client blocks; the previously reported cleared debug/result fields remain separate from request equality."
+      },
+      "queue_completion_boundary": "Both identified conditional +0x30 queue implementations wait on the traced path. Their predicates can terminate on state0 or3, and state3 is explicitly written on timeout branches. The retained candidate interface table binds +0xe0 to187c93c for record access and +0x100 to16c7d98 for sequence waiting. Normal reply processing, response-data production and effective voltage evaluation remain unbound.",
+      "root_static_byte_windows_reproduced": 16,
+      "root_terminal_trials_independently_checked": 2,
+      "evidence_sha256": {
+        "root_static_and_trial_audit": "ec9d4f8fcdbc864ae3e94f120480049c92808b6d2810abc4734b3e6830394541",
+        "independent_round_audit": "540514c970e0762b7de8a0eb649d05aa5b5ed4c445c5e2d4f13ccd9f01d90a86",
+        "conditional_queue_wait_checkpoint": "819c26959b05fba3cf6131d57ad0acc17049ca7a8c80eb089786b9f8ec17cbaa",
+        "native_delta1_capture": "3f9dd68984a56c826849aa2f12274ffc52aa5bfb8495e89eedfc4b4913fc2785",
+        "native_delta2_capture": "dccabcf92e6bbe07e02a4cb9c1f057dbe30fced8e2230306b5adaaf84b4066ff",
+        "later_read_only_capture": "37ccfc3bdf47cbb20dacbab093c4f43621b0dc1b3f1364f86b6e890d48bae33c"
+      },
+      "limits": "No current matching schema or producer independently names the bitmap. Do not label it an active-limit or winning-constraint mask, or qualify arbitrary voltage replay from these observations. No product compatibility gate, control or restoration mechanism is added."
+    }
   },
   "perf_limit_native_delta_checks_20261030": {
     "scope": "Two fixed +5000uV global client-input delta experiments on the current named VMIN_NVVDD_0 type6/type4 row; index resolved from each fresh inventory, no fixed index compatibility gate. This tests nativeE025 request submission, not modernF219 or unknown offsets.",
