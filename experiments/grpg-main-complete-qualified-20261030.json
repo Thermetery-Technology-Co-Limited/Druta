@@ -38,7 +38,7 @@
       "active": [false, false, false, true, true],
       "final": [false, false, false, true, true]
     },
-    "intermediate_mismatches": "Retained in the terminal journal; no frequency or curve exclusion and no causal inference from settling",
+    "intermediate_mismatches": "Independent reproduction finds driver_flags.control_sha256 and entries[13].control_hex differences in early setup/active samples; early final samples also differ in clocks.vf.curve. Power fields stay exact. No frequency/curve exclusion or causal inference from settling.",
     "complete_original_LPWR_and_broad_state_restored": true,
     "logical_GPU_only_restarts": 4,
     "Windows_reboot": false,
@@ -48,6 +48,12 @@
     "functionality_tests_passed": 374,
     "deferred_recovery_named_cases_deselected": 85,
     "ruff": "clean for all eight changed source/test files"
+  },
+  "independent_raw_audit": {
+    "script_sha256": "191167caefff1809ab84a0300e2383d668a55c4ac4f5649e7f6557fccb2443c0",
+    "findings_sha256": "e054f396b38ab875a235ae8330e46361d369f1d9dedb6bde6c0b0d893ef13b6b",
+    "root_reproduced": true,
+    "scope": "Exact selected ROM bits, routed mask20h, two native rounds per phase, full raw A801 and Pstate payloads, typed projections, request/opaque preservation and all stored broad comparator booleans. Current trial has surviving type4/type7 peers."
   },
   "limits": [
     "Source callbacks and normal Apply, not a physical-input or packaged-helper walkthrough",

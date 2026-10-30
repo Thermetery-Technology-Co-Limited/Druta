@@ -2308,7 +2308,11 @@ became unavailable, and DFPR9 featureFh became7h. Controller4 and its shared
 roles remained supported; controller2 was already unsupported. Complete LPWR
 and settled broad image/registry/clock/voltage/power projections matched.
 Intermediate broad mismatches remain recorded: setup settled on samples6/7,
-active and final on3/4, with no curve exclusions. Existing cleanup removed
+active and final on3/4, with no curve exclusions. Independent raw reconstruction
+reproduced both native rounds and every broad comparator flag. Early setup/
+active differences were confined to driver-flag request/hash fields; early
+final samples also differed in the V/F curve. Power fields stayed exact, and
+no recalculation cause is inferred. Existing cleanup removed
 the experiment and recovered the complete original. Four GPU-only restarts
 were used. This was a source callback/Apply trial, without physical input, a
 packaged helper walkthrough, physical measurement or a conditional2/4-loss
@@ -3150,6 +3154,22 @@ context-derived addresses; the active receiver and eventual consumption remain
 unbound. A default response path also copies selected fields into object state,
 subject to validation and callback retention. Neither image loading nor live
 handler selection was observed, and no modern F219 SET was performed.
+
+On the installed Windows/NVAPI images, public F219 wrapper0xC268BC22 requires
+version DWORD12348h (size2348h), with row base48h/stride118h. Its type3 branch
+copies six DWORDs unchanged to native row+8..+1C and maps a separate public
+discriminator to native byte+20. That modern object's constructor, serializer
+and getter are distinct from the legacy rail object. The inspected subtype
+getter does not copy the discriminator, and the five captured B218 objects
+were types2/2/2/2/4. Neither count nor copied words establishes voltage units.
+Both modern type2/type3 descriptor factories join an indexed mapped section
+with logical headerD0h, stride7A8h and selector19h; its payload writer and
+address space remain unresolved. The legacy PERF+32C gate is constructor-set
+from a resolved selector range41h..47h on the bound path, but its name, current
+value and later retention are unbound. The row validator can also return0
+after a type mismatch. Root reproduced27 instruction windows and one data
+descriptor. These bindings do not qualify arbitrary six-word replay or F219
+SET; exact input/owner boundaries are in the same evidence record.
 
 The candidate equation parser maps source type7 to native type6 and installs
 the selected-row setter. That setter can copy both bounds before rejecting a

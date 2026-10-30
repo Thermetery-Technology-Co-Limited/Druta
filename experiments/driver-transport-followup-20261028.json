@@ -2447,5 +2447,43 @@
         "sha256": "faa262ebb7ee03f2d8c589b570551ee0efd9f61c2907932afecc879db9f9bfe8"
       }
     ]
+  },
+  "legacy_and_modern_voltage_input_20261030": {
+    "scope": "Offline installed Windows/NVAPI images and exact primary header snapshots; no new GPU calls, SET, registry edits or driver restart.",
+    "modern_input": {
+      "public_export": "0xC268BC22 to native0x2080F219",
+      "geometry": "Public version DWORD0x12348 (payload size0x2348), row base0x48 and stride0x118; native row base0x28 and stride0x24.",
+      "types2_6_7": "The selected branches copy three bytes and four DWORDs unchanged. No arithmetic or numeric-unit/range conversion is observed in these branches.",
+      "type3": "Public byte+84 -> native+5; six DWORDs+88..+9C -> native+8..+1C. Public DWORD+A0 maps to native byte+20: values1/2 retained, zero/other values become0; other values take a logging branch rather than rejection.",
+      "ownership": "D0CA50 selects D208D0/D20090 for native type3. D20550 serializes into a separate outgoing buffer. D206B0 GET reads the modern object's six fields+C0/CC/D8/C4/D0/DC and byte+BA, but no +20 discriminator copy is demonstrated on that subtype path. This is not the separately selected old rail object written by CACC70.",
+      "captured_inventory": "The five previously captured B218 objects were2/2/2/2/4; none of those five was type3. Other configurations/objects are not ruled out. Six matching word counts do not identify legacy rail-offset semantics."
+    },
+    "descriptor_source": {
+      "tuple": "Logical header0xD0, stride0x7A8, section selector0x19 from CF77E0",
+      "path": "Group+98 -> C96AA0 selects an indexed receiver through group+B8/+60, validates a WORD index table+888 and passes the selected section/source object from receiver+38 to C9CA20. C0D960 subsequently iterates parsed rows through C96C90 -> D0CA50, feeding both type2/type3 factories.",
+      "boundary": "Existing source-wrapper backing reaches a MemoryDescriptor and generic mapped read. Payload writer and address space remain unresolved. No BIT P table, numerical unit or rail correspondence follows."
+    },
+    "legacy_gate": {
+      "source": "On the bound Windows constructor path, PERF+32C is set for resolved HAL selector41h..47h and cleared otherwise. The initializer obtains the selector from its third argument+10 and is called with the same constructed Perf allocation.",
+      "setter": "CACC70 skips all six old rail-object+6C..+80 copies when this gate is nonzero. Its base row-type mismatch path6AD300 can log and return0; success alone proves neither row acceptance nor copying.",
+      "route_properties": "F214 descriptor flags44h: PRIVILEGED|ROUTE_TO_PHYSICAL. B213 flags48h: NON_PRIVILEGED|ROUTE_TO_PHYSICAL. Neither proves the live local/GSP route.",
+      "boundary": "Primary class ED0B65 is Perf, but the field name, current value, any later same-owner update, independent readback and deprecation/GSP-mode meaning remain unbound. No qualified alternate six-word writer was found in the bounded paths."
+    },
+    "primary_header_boundary": "Inspected NVIDIA-authored declarations name B215 generic test and B216 PMUMON rail samples; no B217/B218/F219 schema was found in those specific copies. Legacy policy discriminators and signed rail voltDeltauV[6] cannot name modern object types by numeric overlap.",
+    "root_reproduction": {
+      "windows": 28,
+      "instruction_windows": 27,
+      "descriptor_windows": 1,
+      "report_sha256": "856656d1efa5a15cc2fb33671a5668176cd64f1cc7d3a06a3f24368116e79a66"
+    },
+    "private_evidence": {
+      "voltage-modern-input-terra-20261030/findings.json": "21d1064be7660df79f7f3e5f3c71274262dd389e6158697f8130e7612b646801",
+      "voltage-modern-input-terra-20261030/type3-owner-join.json": "65762c9c960781cd98df907962fa0ec83a02aaf0735c42be94e6aa7887c7574d",
+      "voltage-legacy-gate-terra-20261030/findings.json": "2efb84d52d7cab0ba64ddae322e9506176f7c95ddb5a18a872213e04219bdd84",
+      "voltage-modern-input-terra-20261030/descriptor-producer.json": "d836fae87b631cc39e7bd4d93f7cefe6b9270075f22af3d80971fa1c0e336c3d",
+      "voltage-legacy-gate-terra-20261030/constructor-capability.json": "e58170b3fdc9a5434982fb6d665561ae8f0e816ff58064497f2ae5b61157aaa0"
+    },
+    "primary_schema_review_sha256": "ffbcf5348955214a0301545d5627cbc739342a4da8177be90c0109fe8b851bca",
+    "remaining": "Bind numerical semantics/units, selected-object association and actual consumed path before any F219 SET; bind an effective legacy write capability or alternate writer before claiming arbitrary six-word replay. The remote Ampere inventory is not yet run."
   }
 }
