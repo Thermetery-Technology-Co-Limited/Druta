@@ -542,6 +542,19 @@ settings, restart the GPU, or create or inject a failure. The displayed
 is restored; it does not mean recovery is still pending. Undo availability
 comes from the current saved receipt.
 
+To capture a missing or unreadable receipt error from the helper, use:
+`Druta --registry-overrides MISSING_RECEIPT --parent-pid PID --expected-slot
+SLOT --ui-capture-recovery NEW_DIRECTORY`.
+`NEW_DIRECTORY` must be new, with an existing parent. The helper waits for
+`PID` to exit before reading the receipt, checks its target against `SLOT` when
+the receipt loads, and relaunches the GUI on that slot with the helper result.
+A missing or unreadable receipt is reported as the actual helper error; the
+helper returns 1 without executing a registry transaction. This does not inject
+a native/device failure. The capture flag itself does not apply settings or
+restart the GPU, but a valid receipt still runs through the ordinary helper
+action (default `apply`; use `--action restore` for restore) and can change
+registry state and restart the GPU.
+
 To exercise the real Undo callback, run the separate opt-in trial:
 `Druta --ui-capture-recovery-undo NEW_DIRECTORY --recovery-result RESULT`.
 `NEW_DIRECTORY` must be new, with an existing parent. `RESULT` must be accepted

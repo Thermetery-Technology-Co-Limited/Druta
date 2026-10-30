@@ -1197,6 +1197,9 @@ def launch_helper(receipt, *, restore=False, ui_trial=None):
         str(os.getpid()),
         windowed=True,
     )
+    slot = receipt.get("target", {}).get("slot")
+    if slot:
+        command.extend(["--expected-slot", slot])
     if ui_trial is not None:
         command.extend(["--ui-pstates-trial-resume", str(ui_trial)])
     return subprocess.Popen(command, close_fds=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
@@ -2129,8 +2132,24 @@ def cli(argv, notify):
     parser.add_argument("receipt")
     parser.add_argument("--action", choices=("apply", "restore"), default="apply")
     parser.add_argument("--parent-pid", type=int)
-    parser.add_argument("--ui-pstates-trial-resume")
+    capture = parser.add_mutually_exclusive_group()
+    capture.add_argument("--ui-pstates-trial-resume")
+    capture.add_argument("--ui-capture-recovery")
+    parser.add_argument("--expected-slot")
     args = parser.parse_args(argv)
+    if args.expected_slot is not None:
+        try:
+            args.expected_slot = devicereset._parse_slot(args.expected_slot)[0]
+        except devicereset.DeviceResetError as exc:
+            parser.error(str(exc))
+    if args.ui_capture_recovery:
+        if not args.expected_slot:
+            parser.error("--ui-capture-recovery requires --expected-slot")
+        capture_path = os.path.abspath(args.ui_capture_recovery)
+        if os.path.exists(capture_path):
+            parser.error("--ui-capture-recovery requires a new directory")
+        if not os.path.isdir(os.path.dirname(capture_path)):
+            parser.error("--ui-capture-recovery requires an existing parent directory")
     parent_exited = args.parent_pid is None
     execute_started = False
 
@@ -2150,15 +2169,19 @@ def cli(argv, notify):
             pass  # The receipt remains the recovery source if the manifest cannot be saved.
 
     try:
-        receipt = load_receipt(args.receipt)
         if args.parent_pid is not None:
             devicerecovery.wait_for_exit(args.parent_pid)
             parent_exited = True
+        receipt = load_receipt(args.receipt)
+        if args.expected_slot is not None:
+            actual_slot = devicereset._parse_slot(receipt.get("target", {}).get("slot"))[0]
+            if actual_slot != args.expected_slot:
+                raise OverrideError("Receipt target does not match the expected PCI slot")
         execute_started = True
         result = execute(receipt, restore=args.action == "restore")
     except Exception as exc:
         result = {
-            "target": {"slot": locals().get("receipt", {}).get("target", {}).get("slot", "")},
+            "target": {"slot": args.expected_slot or locals().get("receipt", {}).get("target", {}).get("slot", "")},
             "ok": False,
             "reboot_required": False,
             "path": args.receipt,
@@ -2186,6 +2209,8 @@ def cli(argv, notify):
         )
         selection = ["--gpu", result["target"]["slot"]] if result["target"]["slot"] else []
         resume = ["--ui-pstates-trial-resume", args.ui_pstates_trial_resume] if args.ui_pstates_trial_resume else []
+        if args.ui_capture_recovery:
+            resume = ["--ui-capture-recovery", args.ui_capture_recovery]
         subprocess.Popen(
             startup.application_command(*selection, "--recovery-result", str(log), *resume, windowed=True),
             close_fds=True,
@@ -2210,4 +2235,4 @@ def recovery_cli(argv, notify):
     except Exception as exc:
         notify("Registry recovery unavailable: " + str(exc))
         return 1
-    return cli([receipt["path"], "--action", "restore"], notify)
+    return cli([receipt["path"], "--action", "restore", "--expected-slot", args.slot], notify)
