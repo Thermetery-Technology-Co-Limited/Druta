@@ -87,6 +87,7 @@ class RegistryPanel:
                 enabled=False,
             )
         dpg.add_text("Read fields to inspect this adapter.", tag="reg_status", wrap=self.app.s(900))
+        dpg.add_text("", tag="reg_last_recovery", wrap=self.app.s(900), show=False)
         dpg.add_input_text(tag="reg_preview", readonly=True, multiline=True, width=-1, height=self.app.s(180))
         with dpg.group(tag="reg_fields"):
             pass
@@ -991,7 +992,13 @@ class RegistryPanel:
 
     def recover(self):
         try:
-            self.active = overrides.recovery_receipt(self.app.gpu.slot())
+            slot = self.app.gpu.slot()
+            result = getattr(self.app, "_recovery_result", None)
+            show = (isinstance(result, dict) and isinstance(result.get("slot"), str)
+                    and result["slot"].casefold() == slot.casefold() and isinstance(result.get("message"), str))
+            dpg.configure_item("reg_last_recovery", show=show)
+            dpg.set_value("reg_last_recovery", "Last device recovery (historical): " + result["message"] if show else "")
+            self.active = overrides.recovery_receipt(slot)
             dpg.configure_item("reg_restore_button", enabled=self.active is not None)
             if self.active:
                 self.status("Saved override transaction: " + self.active["state"])

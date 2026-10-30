@@ -53,6 +53,8 @@ class RecoveryUiCapture(UiCapture):
             "receipt": ({"path": self.panel.active["path"], "state": self.panel.active["state"]}
                         if self.panel.active is not None else None),
             "log": log,
+            "last_recovery": (self.dpg.get_value("reg_last_recovery")
+                              if self.dpg.does_item_exist("reg_last_recovery") else None),
         }
         return True
 

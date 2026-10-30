@@ -16,6 +16,7 @@ class RecoveryDpg(FakeDpg):
         self.values.update({"registry_header": False, "reg_rel_live_header": False,
                             "reg_constants_live_header": False, "reg_rel_live_select": "",
                             "reg_constants_live_select": "", "reg_status": "Read fields",
+                            "reg_last_recovery": "Last device recovery (historical): rollback completed",
                             "log": "[!!] Device recovery: rollback completed"})
         self.config["reg_restore_button"] = {"enabled": False}
         self.stop_dearpygui = Mock()
@@ -56,6 +57,7 @@ def test_real_log_and_receipt_state_are_captured_without_writers(tmp_path, activ
         assert view["undo_enabled"] is (active is not None)
         assert view["receipt"] == active
         assert view["log"] == "[!!] Device recovery: rollback completed"
+        assert view["last_recovery"] == "Last device recovery (historical): rollback completed"
     assert capture.manifest["recovery_result"] == application._recovery_result
     assert capture.manifest["process_id"] == os.getpid()
     assert dpg.values["registry_header"] is False and dpg.values["tabs"] == "tab_monitor"

@@ -537,9 +537,10 @@ exist, and its parent directory must already exist. This mode cannot be combined
 with another capture mode, a startup profile, or a registry trial. It captures
 two frames—the saved Undo state in the Registry panel and the existing Control
 log—then restores the display and exits. It does not apply or undo registry
-settings, restart the GPU, or create or inject a failure. The result message
-alone does not determine Undo availability; that comes from the saved registry
-receipt.
+settings, restart the GPU, or create or inject a failure. The displayed
+`Last device recovery (historical)` result may remain visible after the registry
+is restored; it does not mean recovery is still pending. Undo availability
+comes from the current saved receipt.
 
 Changing ALT can change the shared boost contribution and the computed REL and
 effective limits on both rails. OV can change the selected rail's effective

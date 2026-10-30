@@ -110,6 +110,29 @@ def enabled(tag):
     return dpg.get_item_configuration(tag)["enabled"]
 
 
+def test_last_recovery_wraps_complete_message_for_selected_adapter(harness):
+    h = harness
+    message = "active failure " * 40 + "\nDetails: saved-receipt.json"
+    h.app._recovery_result = {"slot": h.app.gpu.slot(), "message": message}
+    h.mocks.recover.return_value = receipt("recovery-required")
+    h.panel.recover()
+    assert dpg.get_item_configuration("reg_last_recovery")["show"] is True
+    assert dpg.get_item_configuration("reg_last_recovery")["wrap"] > 0
+    assert dpg.get_value("reg_last_recovery") == "Last device recovery (historical): " + message
+    assert enabled("reg_restore_button") is True
+
+
+@pytest.mark.parametrize("result", [None, {"slot": "0000:01:00.0", "message": "other adapter"}])
+def test_last_recovery_hidden_without_matching_result_but_undo_independent(harness, result):
+    h = harness
+    h.app._recovery_result = result
+    h.mocks.recover.return_value = receipt("recovery-required")
+    h.panel.recover()
+    assert dpg.get_item_configuration("reg_last_recovery")["show"] is False
+    assert dpg.get_value("reg_last_recovery") == ""
+    assert enabled("reg_restore_button") is True
+
+
 def fixed_rel_field():
     return bios_field(
         "voltage.0.REL.value",
