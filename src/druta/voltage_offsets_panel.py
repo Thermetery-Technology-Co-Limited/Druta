@@ -22,6 +22,7 @@ class VoltageOffsetsPanel:
             dpg.add_text(
                 "Independent offsets for REL, ALT, OV and VMIN policies. Enable once to install the "
                 "offset definitions and restart the selected GPU. Live changes do not restart the GPU. "
+                "Voltage boost can recompute REL and effective limits. "
                 "Reported values are not measured rail voltage. These settings are separate from legacy "
                 "voltage requests.", wrap=self.app.s(900),
             )

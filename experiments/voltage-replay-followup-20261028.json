@@ -1018,6 +1018,876 @@
       "raw_artifact_sha256": "d38af6d8e0a8266f0f7c40bd10ead63123603a9d11cc7233cf3960ea9cbf7dd6",
       "activation_helper": "Parent-exit wait and GUI reopen paths verified with mocks; actual helper/reopen workflow is not covered by this callback trial.",
       "independent_packet_audit_sha256": "6699ba1bcdfe87f973dfba8d9899f5b1df2f5d9e9611e0d7d431b3360415697f"
+    },
+    "nonzero_boost_live_controls": {
+      "request_percent": 25,
+      "roles": [
+        "REL",
+        "ALT"
+      ],
+      "rails": [
+        0,
+        1
+      ],
+      "offsets_uv": [
+        -5000,
+        5000
+      ],
+      "cases": [
+        {
+          "key": "voltage.0.REL.offset",
+          "delta_uv": 5000,
+          "active_policy": {
+            "identity": {
+              "architecture": 10,
+              "device_id": 11266,
+              "slot": "0000:01:00.0",
+              "subsystem_id": 2313031747
+            },
+            "rails": {
+              "0": {
+                "boost_uv": 5000,
+                "control_type": 3,
+                "name": "NVVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": 0,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 1050000,
+                  "overvoltage": 1200000,
+                  "reliability": 1050000,
+                  "vmin": 800000
+                },
+                "type": 1
+              },
+              "1": {
+                "boost_uv": 5000,
+                "control_type": 3,
+                "name": "MSVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": -50000,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 995000,
+                  "overvoltage": 1200000,
+                  "reliability": 995000,
+                  "vmin": 800000
+                },
+                "type": 3
+              }
+            }
+          },
+          "zero_policy": {
+            "identity": {
+              "architecture": 10,
+              "device_id": 11266,
+              "slot": "0000:01:00.0",
+              "subsystem_id": 2313031747
+            },
+            "rails": {
+              "0": {
+                "boost_uv": 5000,
+                "control_type": 3,
+                "name": "NVVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": 0,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 1045000,
+                  "overvoltage": 1200000,
+                  "reliability": 1045000,
+                  "vmin": 800000
+                },
+                "type": 1
+              },
+              "1": {
+                "boost_uv": 5000,
+                "control_type": 3,
+                "name": "MSVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": -50000,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 995000,
+                  "overvoltage": 1200000,
+                  "reliability": 995000,
+                  "vmin": 800000
+                },
+                "type": 3
+              }
+            }
+          },
+          "zero_full_observation_exact": true
+        },
+        {
+          "key": "voltage.0.REL.offset",
+          "delta_uv": -5000,
+          "active_policy": {
+            "identity": {
+              "architecture": 10,
+              "device_id": 11266,
+              "slot": "0000:01:00.0",
+              "subsystem_id": 2313031747
+            },
+            "rails": {
+              "0": {
+                "boost_uv": 5000,
+                "control_type": 3,
+                "name": "NVVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": 0,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 1040000,
+                  "overvoltage": 1200000,
+                  "reliability": 1040000,
+                  "vmin": 800000
+                },
+                "type": 1
+              },
+              "1": {
+                "boost_uv": 5000,
+                "control_type": 3,
+                "name": "MSVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": -50000,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 995000,
+                  "overvoltage": 1200000,
+                  "reliability": 995000,
+                  "vmin": 800000
+                },
+                "type": 3
+              }
+            }
+          },
+          "zero_policy": {
+            "identity": {
+              "architecture": 10,
+              "device_id": 11266,
+              "slot": "0000:01:00.0",
+              "subsystem_id": 2313031747
+            },
+            "rails": {
+              "0": {
+                "boost_uv": 5000,
+                "control_type": 3,
+                "name": "NVVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": 0,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 1045000,
+                  "overvoltage": 1200000,
+                  "reliability": 1045000,
+                  "vmin": 800000
+                },
+                "type": 1
+              },
+              "1": {
+                "boost_uv": 5000,
+                "control_type": 3,
+                "name": "MSVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": -50000,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 995000,
+                  "overvoltage": 1200000,
+                  "reliability": 995000,
+                  "vmin": 800000
+                },
+                "type": 3
+              }
+            }
+          },
+          "zero_full_observation_exact": true
+        },
+        {
+          "key": "voltage.0.ALT.offset",
+          "delta_uv": 5000,
+          "active_policy": {
+            "identity": {
+              "architecture": 10,
+              "device_id": 11266,
+              "slot": "0000:01:00.0",
+              "subsystem_id": 2313031747
+            },
+            "rails": {
+              "0": {
+                "boost_uv": 5000,
+                "control_type": 3,
+                "name": "NVVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": 0,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1065000,
+                  "effective": 1045000,
+                  "overvoltage": 1200000,
+                  "reliability": 1045000,
+                  "vmin": 800000
+                },
+                "type": 1
+              },
+              "1": {
+                "boost_uv": 5000,
+                "control_type": 3,
+                "name": "MSVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": -50000,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 995000,
+                  "overvoltage": 1200000,
+                  "reliability": 995000,
+                  "vmin": 800000
+                },
+                "type": 3
+              }
+            }
+          },
+          "zero_policy": {
+            "identity": {
+              "architecture": 10,
+              "device_id": 11266,
+              "slot": "0000:01:00.0",
+              "subsystem_id": 2313031747
+            },
+            "rails": {
+              "0": {
+                "boost_uv": 5000,
+                "control_type": 3,
+                "name": "NVVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": 0,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 1045000,
+                  "overvoltage": 1200000,
+                  "reliability": 1045000,
+                  "vmin": 800000
+                },
+                "type": 1
+              },
+              "1": {
+                "boost_uv": 5000,
+                "control_type": 3,
+                "name": "MSVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": -50000,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 995000,
+                  "overvoltage": 1200000,
+                  "reliability": 995000,
+                  "vmin": 800000
+                },
+                "type": 3
+              }
+            }
+          },
+          "zero_full_observation_exact": true
+        },
+        {
+          "key": "voltage.0.ALT.offset",
+          "delta_uv": -5000,
+          "active_policy": {
+            "identity": {
+              "architecture": 10,
+              "device_id": 11266,
+              "slot": "0000:01:00.0",
+              "subsystem_id": 2313031747
+            },
+            "rails": {
+              "0": {
+                "boost_uv": 5000,
+                "control_type": 3,
+                "name": "NVVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": 0,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1055000,
+                  "effective": 1045000,
+                  "overvoltage": 1200000,
+                  "reliability": 1045000,
+                  "vmin": 800000
+                },
+                "type": 1
+              },
+              "1": {
+                "boost_uv": 5000,
+                "control_type": 3,
+                "name": "MSVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": -50000,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 995000,
+                  "overvoltage": 1200000,
+                  "reliability": 995000,
+                  "vmin": 800000
+                },
+                "type": 3
+              }
+            }
+          },
+          "zero_policy": {
+            "identity": {
+              "architecture": 10,
+              "device_id": 11266,
+              "slot": "0000:01:00.0",
+              "subsystem_id": 2313031747
+            },
+            "rails": {
+              "0": {
+                "boost_uv": 5000,
+                "control_type": 3,
+                "name": "NVVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": 0,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 1045000,
+                  "overvoltage": 1200000,
+                  "reliability": 1045000,
+                  "vmin": 800000
+                },
+                "type": 1
+              },
+              "1": {
+                "boost_uv": 5000,
+                "control_type": 3,
+                "name": "MSVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": -50000,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 995000,
+                  "overvoltage": 1200000,
+                  "reliability": 995000,
+                  "vmin": 800000
+                },
+                "type": 3
+              }
+            }
+          },
+          "zero_full_observation_exact": true
+        },
+        {
+          "key": "voltage.1.REL.offset",
+          "delta_uv": 5000,
+          "active_policy": {
+            "identity": {
+              "architecture": 10,
+              "device_id": 11266,
+              "slot": "0000:01:00.0",
+              "subsystem_id": 2313031747
+            },
+            "rails": {
+              "0": {
+                "boost_uv": 5000,
+                "control_type": 3,
+                "name": "NVVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": 0,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 1045000,
+                  "overvoltage": 1200000,
+                  "reliability": 1045000,
+                  "vmin": 800000
+                },
+                "type": 1
+              },
+              "1": {
+                "boost_uv": 5000,
+                "control_type": 3,
+                "name": "MSVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": -50000,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 1000000,
+                  "overvoltage": 1200000,
+                  "reliability": 1000000,
+                  "vmin": 800000
+                },
+                "type": 3
+              }
+            }
+          },
+          "zero_policy": {
+            "identity": {
+              "architecture": 10,
+              "device_id": 11266,
+              "slot": "0000:01:00.0",
+              "subsystem_id": 2313031747
+            },
+            "rails": {
+              "0": {
+                "boost_uv": 3750,
+                "control_type": 3,
+                "name": "NVVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": 0,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 1045000,
+                  "overvoltage": 1200000,
+                  "reliability": 1045000,
+                  "vmin": 800000
+                },
+                "type": 1
+              },
+              "1": {
+                "boost_uv": 3750,
+                "control_type": 3,
+                "name": "MSVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": -50000,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 995000,
+                  "overvoltage": 1200000,
+                  "reliability": 995000,
+                  "vmin": 800000
+                },
+                "type": 3
+              }
+            }
+          },
+          "zero_full_observation_exact": false
+        },
+        {
+          "key": "voltage.1.REL.offset",
+          "delta_uv": -5000,
+          "active_policy": {
+            "identity": {
+              "architecture": 10,
+              "device_id": 11266,
+              "slot": "0000:01:00.0",
+              "subsystem_id": 2313031747
+            },
+            "rails": {
+              "0": {
+                "boost_uv": 3750,
+                "control_type": 3,
+                "name": "NVVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": 0,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 1045000,
+                  "overvoltage": 1200000,
+                  "reliability": 1045000,
+                  "vmin": 800000
+                },
+                "type": 1
+              },
+              "1": {
+                "boost_uv": 3750,
+                "control_type": 3,
+                "name": "MSVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": -50000,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 990000,
+                  "overvoltage": 1200000,
+                  "reliability": 990000,
+                  "vmin": 800000
+                },
+                "type": 3
+              }
+            }
+          },
+          "zero_policy": {
+            "identity": {
+              "architecture": 10,
+              "device_id": 11266,
+              "slot": "0000:01:00.0",
+              "subsystem_id": 2313031747
+            },
+            "rails": {
+              "0": {
+                "boost_uv": 3750,
+                "control_type": 3,
+                "name": "NVVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": 0,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 1045000,
+                  "overvoltage": 1200000,
+                  "reliability": 1045000,
+                  "vmin": 800000
+                },
+                "type": 1
+              },
+              "1": {
+                "boost_uv": 3750,
+                "control_type": 3,
+                "name": "MSVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": -50000,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 995000,
+                  "overvoltage": 1200000,
+                  "reliability": 995000,
+                  "vmin": 800000
+                },
+                "type": 3
+              }
+            }
+          },
+          "zero_full_observation_exact": false
+        },
+        {
+          "key": "voltage.1.ALT.offset",
+          "delta_uv": 5000,
+          "active_policy": {
+            "identity": {
+              "architecture": 10,
+              "device_id": 11266,
+              "slot": "0000:01:00.0",
+              "subsystem_id": 2313031747
+            },
+            "rails": {
+              "0": {
+                "boost_uv": 3750,
+                "control_type": 3,
+                "name": "NVVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": 0,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 1045000,
+                  "overvoltage": 1200000,
+                  "reliability": 1045000,
+                  "vmin": 800000
+                },
+                "type": 1
+              },
+              "1": {
+                "boost_uv": 3750,
+                "control_type": 3,
+                "name": "MSVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": -50000,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1065000,
+                  "effective": 995000,
+                  "overvoltage": 1200000,
+                  "reliability": 995000,
+                  "vmin": 800000
+                },
+                "type": 3
+              }
+            }
+          },
+          "zero_policy": {
+            "identity": {
+              "architecture": 10,
+              "device_id": 11266,
+              "slot": "0000:01:00.0",
+              "subsystem_id": 2313031747
+            },
+            "rails": {
+              "0": {
+                "boost_uv": 3750,
+                "control_type": 3,
+                "name": "NVVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": 0,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 1045000,
+                  "overvoltage": 1200000,
+                  "reliability": 1045000,
+                  "vmin": 800000
+                },
+                "type": 1
+              },
+              "1": {
+                "boost_uv": 3750,
+                "control_type": 3,
+                "name": "MSVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": -50000,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 995000,
+                  "overvoltage": 1200000,
+                  "reliability": 995000,
+                  "vmin": 800000
+                },
+                "type": 3
+              }
+            }
+          },
+          "zero_full_observation_exact": false
+        },
+        {
+          "key": "voltage.1.ALT.offset",
+          "delta_uv": -5000,
+          "active_policy": {
+            "identity": {
+              "architecture": 10,
+              "device_id": 11266,
+              "slot": "0000:01:00.0",
+              "subsystem_id": 2313031747
+            },
+            "rails": {
+              "0": {
+                "boost_uv": 3750,
+                "control_type": 3,
+                "name": "NVVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": 0,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 1045000,
+                  "overvoltage": 1200000,
+                  "reliability": 1045000,
+                  "vmin": 800000
+                },
+                "type": 1
+              },
+              "1": {
+                "boost_uv": 3750,
+                "control_type": 3,
+                "name": "MSVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": -50000,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1055000,
+                  "effective": 995000,
+                  "overvoltage": 1200000,
+                  "reliability": 995000,
+                  "vmin": 800000
+                },
+                "type": 3
+              }
+            }
+          },
+          "zero_policy": {
+            "identity": {
+              "architecture": 10,
+              "device_id": 11266,
+              "slot": "0000:01:00.0",
+              "subsystem_id": 2313031747
+            },
+            "rails": {
+              "0": {
+                "boost_uv": 3750,
+                "control_type": 3,
+                "name": "NVVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": 0,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 1045000,
+                  "overvoltage": 1200000,
+                  "reliability": 1045000,
+                  "vmin": 800000
+                },
+                "type": 1
+              },
+              "1": {
+                "boost_uv": 3750,
+                "control_type": 3,
+                "name": "MSVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": -50000,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 995000,
+                  "overvoltage": 1200000,
+                  "reliability": 995000,
+                  "vmin": 800000
+                },
+                "type": 3
+              }
+            }
+          },
+          "zero_full_observation_exact": false
+        }
+      ],
+      "all_selected_native_definitions_exact": true,
+      "all_zero_native_definition_returns_exact": true,
+      "boost_request_and_rail_controls_exact": true,
+      "selected_ALT_delta_and_ALT_OV_VMIN_peers_exact": true,
+      "derived_observations": [
+        "REL",
+        "effective",
+        "boost_uv"
+      ],
+      "derived_scope": "Both rails after REL/ALT changes with nonzero or unavailable boost; no numerical formula is imposed. Confirmed zero retains the earlier strict direct-policy comparisons.",
+      "unavailable_boost": "Unknown, not zero; independently supported controls remain available with derived outputs recorded.",
+      "initial_trial": {
+        "state": "failed",
+        "complete_cases": 4,
+        "fifth_active_native_projection_verified": true,
+        "failure": "The fifth zero return matched full native definitions, retained requests and direct policies, but reported boost_uv changed from 5000 to 3750 on both rails; the original full zero-return comparison failed.",
+        "raw_sha256": "049085d25061a73348b7eff67a0deed3546b57cde0ca240de3a0a596880e8191",
+        "audit_sha256": "00f46275705216b09d11c69259275d5606ba04ce298a650977e809e871d8004b",
+        "final_checks": {
+          "active_receipt_absent": true,
+          "image_exact": true,
+          "registry_exact": true,
+          "target_exact": true,
+          "voltage_exact": true
+        }
+      },
+      "completed_trial": {
+        "state": "verified",
+        "complete_cases": 8,
+        "zero_full_observation_exact_count": 4,
+        "zero_returns_with_derived_differences": 4,
+        "raw_sha256": "6f4b23e145878cc75e4e27aa16094a8d04cae8788ecbd38baa0e7b7b16f8e43a",
+        "audit_sha256": "d9c01e45fd4327db728db8ab34178d4e3c846c5c6b4602a6e9d0be77904e8b7e",
+        "final_checks": {
+          "active_receipt_absent": true,
+          "image_exact": true,
+          "registry_exact": true,
+          "target_exact": true,
+          "voltage_exact": true
+        },
+        "test_profile_removed": true
+      },
+      "scope": "One captured configuration and operating point. No workload, physical voltage measurement or universal boost formula. This changes live controls only; named-profile restoration/integration is deferred.",
+      "gpu_restarts_total": 4,
+      "windows_reboot": false
     }
   }
 }

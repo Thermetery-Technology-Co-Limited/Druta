@@ -3350,6 +3350,22 @@ outside the owned VFE and rail regions; initial activation requires the whole
 planned image. Existing live edits to the original equations must be returned
 to their saved definitions before this recognition can succeed.
 
+With a confirmed zero voltage-boost request, the selected direct policy delta
+and other direct policies remain exact. For REL/ALT changes with nonzero or
+unavailable boost, the driver can recompute REL, effective limits and
+`boost_uv` on both rails. Those three outputs are retained as observations;
+the exact native head, selected ALT delta, all other ALT/OV/VMIN policies and
+retained rail/boost requests remain verified. An unavailable boost reading is
+not interpreted as zero and does not remove independently supported controls.
+
+A root-run fixed 25% boost trial verified all eight REL/ALT ±5 mV cases and
+their zero native-definition returns. Four rail-1 zero-return observations
+differed in derived fields; the recorded values remain available individually.
+The preceding trial stopped at its fifth case because its full zero-return
+comparison included changed `boost_uv` metadata; its failure is retained.
+Both trials restored the original complete voltage snapshot, image and registry.
+No physical voltage or universal boost formula is established.
+
 The CLI and Controls panel expose read, set, capture and explicit profile
 replay. Profiles hold app-owned offsets, not the six cached legacy rail words.
 A driver restart reloads zero heads while the saved profile remains available

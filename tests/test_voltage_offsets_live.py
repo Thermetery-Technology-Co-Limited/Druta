@@ -87,6 +87,70 @@ def test_unexpected_policy_is_not_saved_as_verified(engine, monkeypatch):
     assert state['profile']['values'][heads[0]['key']] == 0
 
 
+@pytest.mark.parametrize('role', ['REL', 'ALT'])
+def test_nonzero_boost_observes_derived_fields_but_checks_direct_limits(engine, monkeypatch, role):
+    state, heads = engine
+    state['observed']['boost_percent'] = 25
+    state['observed']['policy']['rails']['0']['boost_uv'] = 0
+    state['observed']['policy']['rails']['1'] = copy.deepcopy(state['observed']['policy']['rails']['0'])
+    writer = eq.write_constants
+
+    def boosted(gpu, contract):
+        writer(gpu, contract)
+        for row in state['observed']['policy']['rails'].values():
+            row['boost_uv'] += 100
+            row['policy_uv']['reliability'] += 100
+            row['policy_uv']['effective'] += 100
+
+    monkeypatch.setattr(eq, 'write_constants', boosted)
+    key = next(h['key'] for h in heads if h['role'] == role)
+    result = live.set_offsets('adapter', {key: 5000})
+    assert result['values'][key] == 5000
+    assert result['policy']['rails']['1']['boost_uv'] == 100
+
+
+def test_unknown_boost_allows_rel_alt_without_assuming_zero(engine, monkeypatch):
+    state, heads = engine
+    state['observed']['boost_percent'] = None
+    writer = eq.write_constants
+
+    def derived(gpu, contract):
+        writer(gpu, contract)
+        state['observed']['policy']['rails']['0']['policy_uv']['effective'] += 100
+        state['observed']['policy']['rails']['0']['policy_uv']['reliability'] += 100
+
+    monkeypatch.setattr(eq, 'write_constants', derived)
+    values = {h['key']: 5000 for h in heads}
+    assert live.set_offsets('adapter', values)['values'] == values
+
+
+def test_nonzero_boost_still_rejects_other_direct_policy_change(engine, monkeypatch):
+    state, heads = engine
+    state['observed']['boost_percent'] = 25
+    writer = eq.write_constants
+
+    def changed_peer(gpu, contract):
+        writer(gpu, contract)
+        state['observed']['policy']['rails']['0']['policy_uv']['vmin'] += 1
+
+    monkeypatch.setattr(eq, 'write_constants', changed_peer)
+    with pytest.raises(live.VoltageOffsetsError, match='Reported policy'):
+        live.set_offsets('adapter', {heads[1]['key']: 5000})
+
+
+def test_zero_boost_still_requires_exact_rel_for_alt_change(engine, monkeypatch):
+    state, heads = engine
+    writer = eq.write_constants
+
+    def changed_rel(gpu, contract):
+        writer(gpu, contract)
+        state['observed']['policy']['rails']['0']['policy_uv']['reliability'] += 1
+
+    monkeypatch.setattr(eq, 'write_constants', changed_rel)
+    with pytest.raises(live.VoltageOffsetsError, match='Reported policy'):
+        live.set_offsets('adapter', {heads[1]['key']: 5000})
+
+
 @pytest.mark.parametrize('mode', ['normal', 'partial', 'capacity', 'refuse'])
 def test_enable_stages_composed_image_and_checks_fresh_activation(monkeypatch, tmp_path, mode):
     image, before, variables = case(free=1 if mode == 'capacity' else 3)

@@ -19,6 +19,11 @@ not design, extend, or validate recovery/Undo mechanisms until every requested
 functionality for that goal is production-ready. Recovery/Undo is not a
 prerequisite for shipping otherwise production-ready small feature increments.
 
+Do not design, implement, or validate profile restoration/replay
+integration until every other requested functionality for that goal is
+production-ready. Profile restoration/replay is not a prerequisite for
+shipping otherwise production-ready small feature increments.
+
 # Agent collaboration
 
 The root agent supervises the work. Subagents are authorized for concrete,

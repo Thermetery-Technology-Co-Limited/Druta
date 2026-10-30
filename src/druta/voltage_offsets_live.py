@@ -186,6 +186,16 @@ def capture(slot):
     return read(slot)["values"]
 
 
+def _policy_contract(policy, *, derived_boost):
+    result = copy.deepcopy(policy)
+    if derived_boost:
+        for row in result["rails"].values():
+            row.pop("boost_uv", None)
+            row["policy_uv"].pop("reliability", None)
+            row["policy_uv"].pop("effective", None)
+    return result
+
+
 def set_offsets(slot, values):
     """Set selected offsets through existing singleton VFE constant writes."""
     if not isinstance(values, dict) or not values:
@@ -220,7 +230,10 @@ def set_offsets(slot, values):
         expected["rails"][rail]["policy_uv"][_POLICY[head["role"]]] += wanted - head["value_uv"]
         # Effective is an independent firmware-derived observation.
         expected["rails"][rail]["policy_uv"]["effective"] = after["policy"]["rails"][rail]["policy_uv"]["effective"]
-        if after["policy"] != expected or any(after[k] != before[k] for k in ("rail_control", "boost_percent")):
+        derived_boost = before["boost_percent"] != 0 and head["role"] in ("REL", "ALT")
+        if (_policy_contract(after["policy"], derived_boost=derived_boost)
+                != _policy_contract(expected, derived_boost=derived_boost)
+                or any(after[k] != before[k] for k in ("rail_control", "boost_percent"))):
             raise VoltageOffsetsError("Reported policy or preserved requests differ after offset write")
         profile["values"][key] = wanted
         _save(slot, profile)
