@@ -3548,9 +3548,23 @@ WinError 2. Its wrapped panel message and Details path were fully readable;
 the raw log clipped the long error-line tail, while its separate Details line
 remained visible. Receipt absence and disabled Undo come from capture metadata.
 Both trials retained an early driver-flag difference; all eighteen saved curves
-matched. No GPU restart or registry transaction was requested. Post-execution
-helper failures, native faults, other recovery states and physical input remain
-unqualified. [Scoped helper-load evidence](experiments/ui-recovery-result-qualified-20261029.json).
+matched. No GPU restart or registry transaction was requested. These load-failure
+cases do not qualify post-execution helper errors, native faults, other recovery
+states or physical input. [Scoped helper-load evidence](experiments/ui-recovery-result-qualified-20261029.json).
+
+A further packaged helper trial deliberately supplied an incorrect expected
+image digest in a copy of an otherwise valid NVDEC receipt. After the registry
+write and GPU-only restart, the helper's image comparison failed against that
+test value; the helper restored the original registry and image through a second
+GPU-only restart and relaunched the selected adapter's GUI with its own failure
+result. This was a controlled incorrect expectation, not a spontaneous driver
+or native fault. The failure occurred before active NVDEC verification; no
+independent complete active image or peer snapshot was saved. Before and final raw peers
+matched; early final driver-flag differences are retained, and all seventeen
+saved curves matched. Root and Luna viewed the complete failure, restored suffix
+and Details path in both captured frames without clipping at this viewport. Other failure modes,
+failed restart and physical input remain unqualified.
+[Scoped post-execution evidence](experiments/ui-recovery-result-qualified-20261029.json).
 
 The separate opt-in developer mode `--ui-capture-live-vmin NEW_DIRECTORY`
 performs one +5 mV change to rail 0 VMIN through the panel's real Apply and
