@@ -3454,6 +3454,20 @@ VMIN rows and the two parser errors. Repeat capture and independent state
 comparison for each packaged build. This checks rendering and readback, not
 physical power or voltage enforcement.
 
+The separate read-only `--ui-capture-recovery NEW_DIRECTORY` requires an
+accepted `--recovery-result` and captures the RegistryPanel receipt/Undo state
+and actual Control log in separate frames. It does not invoke Apply, Undo or
+live-voltage callbacks. A packaged presentation used a root-created result
+envelope from a real source rollback after a deliberately injected application
+exception. The complete existing failure log and Details path were visible;
+metadata bound the accepted result and recorded no active receipt and Undo disabled. The panel
+pixels alone do not establish the button state. The source trial verified the
+active NVDEC row0 change before the exception and restored the original image
+and state through two GPU-only restarts. Early driver-flag differences remain
+recorded; before/final curves matched. This does not qualify a native fault or
+helper-created relaunch, active recovery-required Undo, physical input or other
+adapters. [Scoped rollback and presentation evidence](experiments/ui-recovery-result-qualified-20261029.json).
+
 The separate opt-in developer mode `--ui-capture-live-vmin NEW_DIRECTORY`
 performs one +5 mV change to rail 0 VMIN through the panel's real Apply and
 Restore callbacks. It selects the unique current ready row, uses its current
