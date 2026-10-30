@@ -1795,4 +1795,304 @@
     }
   },
   "later_packaged_full_shutdown": "The separately scoped three-row all-enabled MS callback/framebuffer qualification is in packaged_full_shutdown_20261029; other family/profile, physical input and recovery cases remain pending"
+,
+  "partial_aggregate_no_difr_20261030": {
+    "scope": "Source production transactions on one observed adapter and operating point. Configured eligibility only, not physical residency or power savings.",
+    "source_ms_runtime_sha256": "52b859df9803e8c2e79836fd091756eb091fce934f5e6089e256feab1cc1bdd1",
+    "setup": "Ordinary durable DIFR row0 disable, exact one-bit image and full setup verification; native9/10/11 support became false. Its receipt remained the parent of the separate MS transaction.",
+    "operation": "Ordinary MS rows0 and1 disable under schema3, retaining row2; last aggregate raw bits0x10,0x20,0x40 lost within 0x37C. Then durable MS Undo restored setup and DIFR Undo restored exact original.",
+    "image_sha256": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+    "setup_image_sha256": "1837f6946d18ef829afad35ae0eb357448a7e6e098a6e35ed5bbd71916785aad",
+    "active_image_sha256": "3a68353cb944079d7c157516aae33f9acd3dc86f6ef670c4361c06eb5b876ab1",
+    "difr_patch": [
+      {
+        "after": "be",
+        "before": "bf",
+        "field_keys": [
+          "lpwr.difr.0.enabled"
+        ],
+        "offset": 254527
+      }
+    ],
+    "ms_patches": [
+      {
+        "after": "7c",
+        "before": "7d",
+        "field_keys": [
+          "lpwr.ms.0.enabled"
+        ],
+        "offset": 253693
+      },
+      {
+        "after": "7c",
+        "before": "7d",
+        "field_keys": [
+          "lpwr.ms.1.enabled"
+        ],
+        "offset": 253709
+      }
+    ],
+    "projection": "Native1/4 configured masks 0x120 to 0; native4 remains supported and available feature word changes 0x023971EF to 0x020910CC; type1 role1 support and mask clear. With both other type7 roles independently valid false, all six queried type7 values become unavailable. This does not independently prove an empty group mask.",
+    "peer_verification": "Corrected independent raw packet audit reconstructs support-dependent attr36/38 inventories and verifies opaque bytes, independent Pstate INFO and complete client control/request packets. Exact saved image, registry, receipt parent and Undo state are checked.",
+    "v4_negative": "Original v4 raw audit rejected controller_features routing/order because the supported-controller getter inventory changes; no output was written. Corrected v5 audit independently reconstructs each full 1028-byte request/reply and root reproduced the independent audit; no hardware repeat.",
+    "static_scope": "19 root-reproduced pinned instruction windows across original and supplement. DIFR six-slot zero/loader/HAL proof is conditional on the bounded construction path. Static erratum retains the correction: surviving raw0x40 may preserve role1 through feature0x100000, so schema3 requires last raw0x10/0x20/0x40 lost. Fresh native4 0x100000 and known type7 peer readbacks are required.",
+    "windows": {
+      "before_broad": {
+        "exact": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "negative_samples": []
+      },
+      "setup_broad": {
+        "exact": [
+          false,
+          false,
+          false,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "negative_samples": [
+          {
+            "index": 0,
+            "difference_paths": [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex",
+              "voltage.broad.clocks.vf.curve"
+            ],
+            "curve_changed_bytes": 110
+          },
+          {
+            "index": 1,
+            "difference_paths": [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex",
+              "voltage.broad.clocks.vf.curve"
+            ],
+            "curve_changed_bytes": 110
+          },
+          {
+            "index": 2,
+            "difference_paths": [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex",
+              "voltage.broad.clocks.vf.curve"
+            ],
+            "curve_changed_bytes": 110
+          }
+        ]
+      },
+      "active_broad": {
+        "exact": [
+          false,
+          false,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "negative_samples": [
+          {
+            "index": 0,
+            "difference_paths": [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex",
+              "voltage.broad.clocks.vf.curve"
+            ],
+            "curve_changed_bytes": 110
+          },
+          {
+            "index": 1,
+            "difference_paths": [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex",
+              "voltage.broad.clocks.vf.curve"
+            ],
+            "curve_changed_bytes": 110
+          }
+        ]
+      },
+      "undo_setup_broad": {
+        "exact": [
+          false,
+          false,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "negative_samples": [
+          {
+            "index": 0,
+            "difference_paths": [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex",
+              "voltage.broad.clocks.vf.curve"
+            ],
+            "curve_changed_bytes": 110
+          },
+          {
+            "index": 1,
+            "difference_paths": [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex",
+              "voltage.broad.clocks.vf.curve"
+            ],
+            "curve_changed_bytes": 110
+          }
+        ]
+      },
+      "final_broad": {
+        "exact": [
+          false,
+          false,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "negative_samples": [
+          {
+            "index": 0,
+            "difference_paths": [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex",
+              "voltage.broad.clocks.vf.curve"
+            ],
+            "curve_changed_bytes": 110
+          },
+          {
+            "index": 1,
+            "difference_paths": [
+              "voltage.broad.clocks.vf.curve"
+            ],
+            "curve_changed_bytes": 110
+          }
+        ]
+      }
+    },
+    "curve_summary": "31 of 40 complete curves matched; 9 early samples differ by 110 bytes each (setup 0-2, active 0-1, Undo-to-setup 0-1, final 0-1). Last two complete snapshots per phase match strictly; differences are retained without exclusion or cause attribution.",
+    "gpu_only_restarts": 4,
+    "Windows_reboot": false,
+    "workload": false,
+    "validation": "7004 tests passed in 121.34 seconds; 338 focused tests and Ruff passed before the source trial.",
+    "pending": "Packaged schema3 callback/framebuffer, physical input, other layouts/adapters, broader dependency profiles and physical effects remain unqualified.",
+    "evidence": [
+      {
+        "path": "experiments/registry-overrides/ms-no-difr-root-20261030/trial-1.json",
+        "sha256": "f1e597e50bc0b92930a50f2ce75b710c83c076dfed64719dfe02eaba66b8d9ab"
+      },
+      {
+        "path": "experiments/registry-overrides/ms-no-difr-root-20261030/root-audit-v4-negative.json",
+        "sha256": "10d33687556192db1ddd3a4e6db4c1ca04ac62e2b1d1222ec1667f875ee6ac88"
+      },
+      {
+        "path": "experiments/registry-overrides/ms-no-difr-root-20261030/root-audit-v5.json",
+        "sha256": "28cdb425b171df2380e9b92b61774a14a9b7cf9f13de5dbda344a38eac5fe37c"
+      },
+      {
+        "path": "experiments/registry-overrides/ms-no-difr-root-20261030/terra-audit-v5.json",
+        "sha256": "28cdb425b171df2380e9b92b61774a14a9b7cf9f13de5dbda344a38eac5fe37c"
+      },
+      {
+        "path": "experiments/registry-overrides/ms-no-difr-root-20261030/root-static-review.json",
+        "sha256": "1d34e19175de41bffc05331a47b43ea84a7eb379857476731a9b5e48d33c0ea3"
+      },
+      {
+        "path": "experiments/registry-overrides/ms-no-difr-root-20261030/verify_static.py",
+        "sha256": "8c8740351c03f177a1670c4dc6f3aa844fce4c85aa9ba8b2d3cb5eccd49182ce"
+      },
+      {
+        "path": "experiments/registry-overrides/ms-no-difr-root-20261030/root-static-supplement-review.json",
+        "sha256": "40a1b4f48fdc393cee4dc6884d991bd11c96f90197a5371c1f1e60adc0ae74bb"
+      },
+      {
+        "path": "experiments/registry-overrides/ms-no-difr-root-20261030/verify_supplement.py",
+        "sha256": "464cf70d8dc76796f3aa04f7b2ac72c56a4410ae33028eea2207d3a5fe5b4f40"
+      },
+      {
+        "path": "experiments/registry-overrides/ms-no-difr-root-20261030/full-tests.log",
+        "sha256": "5d3bd9a24741b0970282beceefd437aaec2195b4b20c67077336bee12574b6f3"
+      },
+      {
+        "path": "experiments/registry-overrides/lpwr-next-transition-terra-20261030/selection.json",
+        "sha256": "47ac6fde558496fcd9f07eb896ef2786e237fd6fe31baa1b4853d8899138dc67"
+      },
+      {
+        "path": "experiments/registry-overrides/lpwr-next-transition-terra-20261030/no-provider-proof.json",
+        "sha256": "2525d048071f604991cd3eb1863b05835727d07f757722506421c5d634cc4f50"
+      },
+      {
+        "path": "experiments/registry-overrides/lpwr-next-transition-terra-20261030/no-provider-proof-erratum.json",
+        "sha256": "15ccd7bd27ce9951fa0784ee79cede9e5648834b76600a7e51c2405fb61b0ac0"
+      },
+      {
+        "path": "experiments/registry-overrides/lpwr-next-transition-terra-20261030/contributor-windows.py",
+        "sha256": "4fb717a94a5a4de1d977d73bc4a7b27f222ac646a6bd91f05f036465a3874c1d"
+      },
+      {
+        "path": "experiments/registry-overrides/lpwr-next-transition-terra-20261030/contributor-windows.json",
+        "sha256": "050688cd8ab6fe995fd26b764460ee6e55f2b72f024146ca652e671ae9b25947"
+      },
+      {
+        "path": "experiments/registry-overrides/lpwr-next-transition-terra-20261030/supervisor_v2.py",
+        "sha256": "ba2e70cab88121f7303e33cbc624cf9ec6469d9e53c900a9725fe8198fe8d19d"
+      },
+      {
+        "path": "experiments/registry-overrides/lpwr-next-transition-terra-20261030/audit_v4.py",
+        "sha256": "7ff71d9fafcbc0ec4a9950bbe5623ba97a4a6a631d9fc896175e873a59062bc5"
+      },
+      {
+        "path": "experiments/registry-overrides/lpwr-next-transition-terra-20261030/audit_v5.py",
+        "sha256": "a693daccb0e5be7a0e633123a94d06214a82fbdd9fbf18be1256f6fc930bb3ef"
+      },
+      {
+        "path": "experiments/registry-overrides/lpwr-next-transition-terra-20261030/terminal-review.json",
+        "sha256": "c02c7debc18e8ef0ed19a134c5c84d92170ae483c2aba853e3ae4fe7497e1a1a"
+      },
+      {
+        "path": "experiments/registry-overrides/lpwr-next-transition-review-terra-20261030/no-provider-proof.json",
+        "sha256": "3edd7ddf8c5f00a4f942cf99d50a7b79751bf9f13716d4c2b13c62b06f920a0d"
+      },
+      {
+        "path": "experiments/registry-overrides/lpwr-next-transition-review-terra-20261030/reproduce.py",
+        "sha256": "81d2310e7ce6ba2f8436dda1c39fea637058c8566fbf1a373ba93f99a5d4b15a"
+      },
+      {
+        "path": "experiments/registry-overrides/lpwr-next-transition-review-terra-20261030/pure-projection.json",
+        "sha256": "60e935c1de95862a08f3d6bcca4a24f3228aab6c510659ad7520464defe7ac18"
+      },
+      {
+        "path": "experiments/registry-overrides/ms-no-difr-root-20261030/root-terminal-review.json",
+        "sha256": "b52c90f506534d345be12a17c2fdc1da61de582d5b228001f6cae9bbabc7b2c3"
+      },
+      {
+        "path": "experiments/registry-overrides/ms-no-difr-root-20261030/review_terminal.py",
+        "sha256": "de4cb748f469a7ef8d16fe707540943f41f6e30b975253f351b87b674b4a4492"
+      },
+      {
+        "path": "tests/test_ms_runtime.py",
+        "sha256": "14223cebe54aaccde6e633862db480f559733d66ebd84b19092633402aa1ef05"
+      },
+      {
+        "path": "tests/test_registry_ms.py",
+        "sha256": "a46cdc8fd9be44d24b3537b0e878540ba0661624adb56727dd4e882b5838483d"
+      }
+    ]
+  }
 }

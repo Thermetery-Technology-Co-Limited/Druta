@@ -276,3 +276,105 @@ def test_schema2_projects_alternate_feature_word(monkeypatch):
     saved = prepare(monkeypatch, img=partial_image(), obs=obs)
     assert saved["after"]["main"]["features"]["4"]["value"] == 0x000910CC
     assert ms.verify(actual(saved), saved)
+
+
+def test_schema3_partial_no_difr_preserves_supported_type7_peer(monkeypatch):
+    obs = partial_observation(slot="0000:44:01.0", device=0x1234)
+    main = copy.deepcopy(obs["main"])
+    main["bit4_group"]["801:2"]["value"] = 0
+    obs["main"] = _main_packets(obs["controllers"], main)
+    saved = prepare(monkeypatch, img=partial_image(difr_flags=0), obs=obs)
+    assert saved["schema"] == 3
+    out = saved["after"]
+    assert out["controllers"]["4"]["supported"] is True
+    assert out["controllers"]["4"]["configured_pstate_mask"] == 0
+    assert out["main"]["features"]["4"] == {"available": True, "value": 0x020910CC}
+    assert out["auxiliary"]["group"]["800:1"] == {"available": True, "value": 0}
+    group = out["main"]["bit4_group"]
+    assert group["1:0"] == {"available": True, "value": 1}
+    assert group["801:0"] == {"available": True, "value": 1}
+    assert group["801:1"] == {"available": True, "value": 0}
+    assert group["805:1"] == {"available": True, "value": 0}
+    assert group["805:0"] == main["bit4_group"]["805:0"]
+    saved = json.loads(json.dumps(saved))
+    assert ms.verify(actual(saved), saved)
+    assert ms.verify(obs, saved, restore=True)
+
+
+def test_schema3_partial_no_difr_last_type7_role_unavailable(monkeypatch):
+    obs = partial_observation()
+    main = copy.deepcopy(obs["main"])
+    for role in (0, 2):
+        main["bit4_group"][f"801:{role}"]["value"] = 0
+    main["bit4_group"]["805:0"]["value"] = 0
+    obs["main"] = _main_packets(obs["controllers"], main)
+    saved = prepare(monkeypatch, img=partial_image(difr_flags=0), obs=obs)
+    assert saved["schema"] == 3
+    assert saved["after"]["main"]["bit4_group"] == {
+        key: {"available": False, "value": None} for key in main["bit4_group"]
+    }
+    assert ms.verify(actual(saved), saved)
+    assert ms.verify(obs, saved, restore=True)
+
+
+def test_schema3_rejects_missing_feature_unknown_peer_and_tampering(monkeypatch):
+    obs = partial_observation()
+    main = copy.deepcopy(obs["main"])
+    main["features"]["4"]["value"] &= ~0x100000
+    obs["main"] = _main_packets(obs["controllers"], main)
+    with pytest.raises(ms.MsError, match="feature predicate"):
+        prepare(monkeypatch, img=partial_image(difr_flags=0), obs=obs)
+    obs = partial_observation()
+    main = copy.deepcopy(obs["main"])
+    main["bit4_group"]["801:2"] = {"available": False, "value": None}
+    obs["main"] = _main_packets(obs["controllers"], main)
+    with pytest.raises(ms.MsError, match="peer support"):
+        prepare(monkeypatch, img=partial_image(difr_flags=0), obs=obs)
+    saved = prepare(monkeypatch, img=partial_image(difr_flags=0), obs=partial_observation())
+    altered = copy.deepcopy(saved)
+    raw = bytearray.fromhex(altered["tables"]["difr"]["raw_hex"])
+    raw[11] |= 1
+    altered["tables"]["difr"]["raw_hex"] = raw.hex()
+    with pytest.raises(ms.MsError, match="all DIFR rows disabled"):
+        ms.validate_contracts({"lpwr.ms.0.enabled": False}, altered)
+    altered = copy.deepcopy(saved)
+    altered["after"]["main"]["bit4_group"]["801:1"]["value"] = 1
+    with pytest.raises(ms.MsError, match="differs"):
+        ms.validate_contracts({"lpwr.ms.0.enabled": False}, altered)
+
+
+def test_schema3_requires_losing_raw20(monkeypatch):
+    # 0x10 is lost but 0x20 survives in other enabled rows.
+    with pytest.raises(ms.MsError, match="last raw bits 0x20 and 0x40"):
+        prepare(monkeypatch, img=partial_image((0x77D, 0x421, 0x421), difr_flags=0),
+                obs=partial_observation())
+
+
+def test_schema3_rejects_when_raw40_provider_survives(monkeypatch):
+    with pytest.raises(ms.MsError, match="last raw bits 0x20 and 0x40"):
+        prepare(monkeypatch, img=partial_image((0x77D, 0x441, 0x441), difr_flags=0),
+                obs=partial_observation())
+
+
+def test_schema3_duplicate_ids_and_role2_peer_preserved(monkeypatch):
+    routes = ((3, 0x40, 0, 1), (12, 0x2, 1, 0), (27, 0x40, 2, 2))
+    obs = partial_observation(routes=routes, slot="0000:44:01.0", device=0x8888)
+    main = copy.deepcopy(obs["main"])
+    main["bit4_group"]["801:0"]["value"] = 0
+    main["bit4_group"]["805:0"]["value"] = 0
+    obs["main"] = _main_packets(obs["controllers"], main)
+    image = bytearray(partial_image((0x77D, 0x401, 0x401), difr_flags=0))
+    image[0x4500 + 6 + 2 * 18 + 2] = 2
+    saved = prepare(monkeypatch, img=bytes(image), obs=obs)
+    assert saved["after"]["controllers"]["4"]["configured_pstate_mask"] == 0x40
+    group = saved["after"]["main"]["bit4_group"]
+    assert group["1:0"] == {"available": True, "value": 1}
+    assert group["801:2"] == {"available": True, "value": 1}
+    assert group["801:1"] == {"available": True, "value": 0}
+    assert ms.verify(actual(saved), saved)
+
+
+def test_schema3_transient_read_is_reported(monkeypatch):
+    monkeypatch.setattr(ms, "read", lambda gpu: (None, "transient"))
+    with pytest.raises(ms.MsError, match="transient"):
+        ms.contracts(None, partial_image(difr_flags=0), {"lpwr.ms.0.enabled": False})

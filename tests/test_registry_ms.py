@@ -10,13 +10,13 @@ from tests import test_ms_runtime as fixtures
 from tests.test_registry_overrides import digest, transaction
 
 
-def configured(monkeypatch, shutdown=False, partial=False):
+def configured(monkeypatch, shutdown=False, partial=False, no_difr=False):
     inspect, plan = vbios_fields.inspect, vbios_fields.plan
     receipt, registry, snapshot, restarts, kwargs = transaction(monkeypatch)
     monkeypatch.setattr(vbios_fields, "inspect", inspect)
     monkeypatch.setattr(vbios_fields, "plan", plan)
     target = ro.Target(**receipt["target"])
-    image = fixtures.partial_image() if partial else fixtures.bios()
+    image = fixtures.partial_image(difr_flags=0 if no_difr else 0x31) if partial else fixtures.bios()
     changes = {f"lpwr.ms.{i}.enabled": False for i in (range(3) if shutdown else (0,))}
     before = (fixtures.partial_observation if partial else fixtures.observation)(slot=target.slot, device=0xD123)
     saved = fixtures.make_contract(monkeypatch, img=image, obs=before, changes=changes)
@@ -141,3 +141,28 @@ def test_schema2_peer_mismatch_compensates(monkeypatch):
     result = ro.execute(receipt, **kwargs)
     assert result["state"] == "rolled-back", result["message"]
     assert snapshot["ms"] == before and not registry.values and len(restarts) == 2
+
+
+def test_schema3_apply_undo_and_failure_compensation(monkeypatch):
+    receipt, registry, snapshot, restarts, kwargs, before, after = configured(monkeypatch, partial=True, no_difr=True)
+    assert receipt["ms_contracts"]["schema"] == 3
+    result = ro.execute(receipt, **kwargs)
+    assert result["state"] == "active", result["message"]
+    assert snapshot["ms"] == after
+    result = ro.execute(receipt, restore=True, **kwargs)
+    assert result["state"] == "restored", result["message"]
+    assert not registry.values and snapshot["ms"] == before and len(restarts) == 2
+
+    receipt, registry, snapshot, restarts, kwargs, before, _ = configured(monkeypatch, partial=True, no_difr=True)
+    original = kwargs["restart"]
+
+    def restart(device):
+        result = original(device)
+        if registry.values:
+            snapshot["ms"]["identity"]["device_id"] ^= 1
+        return result
+
+    kwargs["restart"] = restart
+    result = ro.execute(receipt, **kwargs)
+    assert result["state"] == "rolled-back", result["message"]
+    assert not result["ok"] and not registry.values and snapshot["ms"] == before and len(restarts) == 2

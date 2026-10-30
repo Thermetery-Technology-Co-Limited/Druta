@@ -372,8 +372,10 @@ qualified profiles support partial disables that retain the aggregate flags,
 complete enabled-entry shutdown, and one understood partial feature-loss case.
 That last case also reduces available MS features, and the shared MS support
 query remains readable and reports false. The controller and related DIFR
-support remain. Druta requires the current
-feature and DIFR witnesses before admitting it. A packaged follow-up exercised
+support remain. A separate source-qualified profile covers this feature loss when
+all DIFR entries are disabled, provided the current native feature and type7 peer
+readbacks satisfy the required witnesses. A packaged schema3 callback has not
+yet been qualified. A packaged follow-up exercised
 MS rows 0 and 1 together through the panel callbacks and framebuffer capture;
 row 2 remained enabled and Undo restored the original. A later packaged trial
 also disabled all three enabled MS rows and verified their restored state through

@@ -3792,6 +3792,34 @@ The new profile passed the 6,907-test suite in 120.17 seconds. After a Preview
 caption clarification, 143 focused panel/MS tests passed in 0.82 seconds;
 the backend was unchanged after the full suite.
 
+Schema3 adds a separately bounded partial MS loss with every DIFR row disabled. It
+requires the last raw0x10, 0x20 and 0x40 contributors to disappear, a fresh native4
+feature0x100000 witness, and independently available type7 peer values. The native4
+role1 cleanup clears feature0x100100 before the existing dependency closure. A
+surviving type7 peer remains supported; if both other roles are valid false, all six
+queried type7 fields become unavailable. This is an availability result, not an
+independently verified empty group mask. Existing schema1/2 receipts and read scopes
+remain unchanged.
+
+A source trial used two durable receipts: ordinary DIFR0 disable established setup, MS
+rows0/1 were applied and undone with row2 retained, then DIFR Undo restored the
+original. Four GPU-only restarts completed; native1/4 masks changed from 0x120 to zero
+while native4 stayed supported, and its feature word changed from 0x023971EF to
+0x020910CC. Type1 role1 cleared and, in this captured no-peer state, all six type7
+query values became unavailable. Independent full native packet, opaque byte, P-state,
+client, ROM, receipt and broad checks reproduced the result.
+
+The initial v4 raw auditor rejected the changing controller-feature query inventory;
+corrected v5 independently reconstructs the support-dependent full packets and passed
+root and independent audits without another hardware operation. Of 40 broad-window
+curves, 31 matched and nine early samples differed by 110 bytes each: setup samples
+0-2, active 0-1, Undo-to-setup 0-1, and final 0-1. Each phase ended with two strict
+full matches; no cause or exclusion is inferred. The 7004-test suite passed in 121.34
+seconds and 338 focused tests passed. The [MS
+evidence](experiments/ms-configured-qualified-20261029.json) retains the raw audit
+negative and all curve differences. Packaged schema3 callbacks, physical input, other
+layouts and physical effects remain unqualified.
+
 Unresolved mixed feature loss, nondiscriminating changes, ambiguous routes,
 support6 cascades and other layouts remain pending. Capability/layout/readback checks govern
 eligibility; tested device IDs and driver versions do not gate support.
