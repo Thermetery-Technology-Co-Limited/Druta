@@ -12,6 +12,13 @@ whose current valid state has already been established. Add meaningful tests
 for observable behavior and failure cases, rather than tests that merely mirror
 the implementation.
 
+# Active-goal priority
+
+Prioritize implementing and shipping all functionality in the active goal. Do
+not design, extend, or validate recovery/Undo mechanisms until every requested
+functionality for that goal is production-ready. Recovery/Undo is not a
+prerequisite for shipping otherwise production-ready small feature increments.
+
 # Agent collaboration
 
 The root agent supervises the work. Subagents are authorized for concrete,
