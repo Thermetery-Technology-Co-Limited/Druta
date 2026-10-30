@@ -387,8 +387,8 @@ def schema4_packet(mask=13):
     return raw.hex()
 
 
-def schema4_image(selector=7):
-    raw = bytearray(partial_image((0x77D, 0x779, 0x401)))
+def schema4_image(selector=7, loss=0x04):
+    raw = bytearray(partial_image((0x77D, 0x77D & ~loss, 0x401)))
     raw[0x4A00 + 7 + 8] = 7
     raw[0x4A00 + 7 + 16 + 8] = selector
     return bytes(raw)
@@ -474,3 +474,38 @@ def test_mapping_reader_rejects_invalid_or_opaque_mapping_response(monkeypatch, 
     monkeypatch.setattr(lp, "_get", lambda *args: bytes(raw))
     result, error = ms.read(gpu, mapping=True)
     assert result is None and "mapping witness" in error
+
+
+@pytest.mark.parametrize("loss, expected_feature", [(0x08, 0x020950EE), (0x0C, 0x020910CC)])
+def test_schema4_neighbor_loss_preserves_peers_and_mapping(monkeypatch, loss, expected_feature):
+    before = partial_observation(slot="0000:45:02.0", device=0x9999)
+    packet = schema4_packet()
+    monkeypatch.setattr(ms, "read", lambda gpu, *, mapping=False: ({"core": before, "mapping_hex": packet}, None))
+    img = schema4_image(loss=loss)
+    changes = {"lpwr.ms.0.enabled": False}
+    saved = ms.contracts(None, bytes(img), changes)
+    assert saved["schema"] == 4
+    assert saved["after"]["main"]["features"]["4"]["value"] == expected_feature
+    assert saved["after"]["controllers"]["4"]["supported"] is True
+    assert saved["after"]["auxiliary"]["group"]["800:1"]["value"] == 1
+    assert saved["after"]["main"]["bit4_group"]["801:1"]["value"] == 1
+    actual_core = observed_main(dict(saved, schema=6, before=before))
+    assert ms.verify({"core": actual_core, "mapping_hex": packet}, saved) == list(changes)
+    wrong_peer = copy.deepcopy(actual_core)
+    main = copy.deepcopy(wrong_peer["main"])
+    main["bit4_group"]["801:1"]["value"] = 0
+    wrong_peer["main"] = _main_packets(wrong_peer["controllers"], main)
+    with pytest.raises(ms.MsError, match="dependency readback"):
+        ms.verify({"core": wrong_peer, "mapping_hex": packet}, saved)
+    with pytest.raises(ms.MsError, match="mapping readback"):
+        ms.verify({"core": actual_core, "mapping_hex": schema4_packet(5)}, saved)
+
+
+def test_schema4_prior_loss04_serialized_receipt_remains_valid(monkeypatch):
+    before = partial_observation()
+    packet = schema4_packet()
+    monkeypatch.setattr(ms, "read", lambda gpu, *, mapping=False: ({"core": before, "mapping_hex": packet}, None))
+    changes = {"lpwr.ms.0.enabled": False}
+    saved = json.loads(json.dumps(ms.contracts(None, schema4_image(), changes)))
+    ms.validate_contracts(changes, saved)
+    assert saved["after"]["main"]["features"]["4"]["value"] == 0x020910CC

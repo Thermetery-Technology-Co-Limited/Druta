@@ -4031,8 +4031,8 @@ evidence](experiments/ms-configured-qualified-20261029.json) retains the raw aud
 negative and all curve differences. Packaged schema3 callbacks, physical input, other
 layouts and physical effects remain unqualified.
 
-Schema4 adds exactly raw04 aggregate loss while a retained raw10 entry
-preserves mapped capability support. A801 type1/index1/808 reads the current
+Schema4 covers raw04, raw08 and combined raw0C aggregate losses while a
+retained raw10 entry preserves mapped capability support. A801 type1/index1/808 reads the current
 postfilter role mask; group1 and role800 must independently report support
 and the mask must be positive. The loader maps row-byte8 selector bits
 through the same per-adapter mapping. Retained eligible selector OR covering
@@ -4057,6 +4057,28 @@ the research trial and production setup/removal. The61 selected functionality
 tests and Ruff passed. This is source callback/Apply evidence, without
 a packaged-helper, physical-input or physical-effect qualification.
 [Mapping-covered MS evidence](experiments/ms-mapping-loss04-qualified-20261030.json).
+
+The raw 0x08 and 0x0C extension changes only two admission checks. The
+mapping reader, selector coverage and complete projection stay the same. The
+historical 0x04 receipt and native active capture still validate. Both normal
+panel Preview and durable Apply cases passed: native controller 4 features
+changed from 0x023971EF to 0x020950EE for loss 0x08 and to 0x020910CC for
+loss 0x0C. Native controller 1/4 and shared routed masks changed from 0x120
+to zero, while support and the mapping mask 0xD remained. Complete packets
+match apart from paired transport pointers and five predicted typed DWORD
+changes per round. Configured clients match; variable arbitration telemetry
+remains separately captured.
+
+The curve-control packet `clock_vf.control_bytes` matches in every sample.
+The separate 7,208-byte reported `clocks.vf.curve` differs in 110 bytes during
+final samples 0?3 in both cases; final samples 4?5 match, as do all setup and
+active reported curves. Complete broad comparison windows end with two exact
+samples in each phase. No curve fields are excluded, and no cause is inferred.
+The 66 selected functionality tests and Ruff passed; nine source windows were
+independently reproduced. Eight GPU-only restarts cover both cases and
+experimental cleanup, which restored the original state exactly. Physical
+input, a packaged-helper walkthrough and physical effects remain unqualified.
+[MS neighbor evidence](experiments/ms-mapping-neighbors-qualified-20261030.json).
 
 Other mixed feature loss, nondiscriminating changes, ambiguous routes,
 support6 cascades and other layouts remain pending. Capability/layout/readback checks govern

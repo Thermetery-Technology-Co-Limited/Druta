@@ -379,6 +379,11 @@ yet been qualified. A further profile reduces MS features while a retained
 entry preserves the mapped capability. Its shared support remains readable
 and true; Apply checks the mapping, related masks and all captured peers.
 [Mapped-capability evidence](experiments/ms-mapping-loss04-qualified-20261030.json).
+
+The same mapped-capability profile also covers row configurations that remove
+the other covered feature contribution, or both contributions together.
+[Additional mapped-capability cases](experiments/ms-mapping-neighbors-qualified-20261030.json).
+
 A packaged follow-up exercised
 MS rows 0 and 1 together through the panel callbacks and framebuffer capture;
 row 2 remained enabled and Undo restored the original. A later packaged trial

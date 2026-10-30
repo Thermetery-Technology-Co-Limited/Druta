@@ -252,7 +252,7 @@ def _derive(changes, before, tables, schema=1):
     if schema == 1 and not shutdown and lost:
         raise MsError("Partial MS disable changes unresolved aggregate flags")
     if schema in (2, 3, 4):
-        if shutdown or not lost or (schema == 4 and lost != 0x04) or (schema != 4 and (lost & ~0x37C or not lost & 0x10)):
+        if shutdown or not lost or (schema == 4 and lost not in (0x04, 0x08, 0x0C)) or (schema != 4 and (lost & ~0x37C or not lost & 0x10)):
             raise MsError("Partial MS aggregate loss is not understood")
         difr = data["difr"]
         difr_flags = [struct.unpack_from("<I", difr, 11 + i * 18)[0] for i in range(difr[3])]
@@ -423,7 +423,7 @@ def contracts(gpu, image, changes):
     schema = 2 if new_union and old_union != new_union else 1
     if schema == 2:
         lost = old_union & ~new_union
-        if lost == 0x04:
+        if lost in (0x04, 0x08, 0x0C):
             schema = 4
         elif lost & ~0x37C or not lost & 0x10:
             raise MsError("Partial MS aggregate flags are not understood")

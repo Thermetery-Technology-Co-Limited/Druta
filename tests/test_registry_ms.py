@@ -11,13 +11,13 @@ from tests import test_ms_runtime as fixtures
 from tests.test_registry_overrides import digest, transaction
 
 
-def configured(monkeypatch, shutdown=False, partial=False, no_difr=False, mapped=False):
+def configured(monkeypatch, shutdown=False, partial=False, no_difr=False, mapped=False, mapped_loss=0x04):
     inspect, plan = vbios_fields.inspect, vbios_fields.plan
     receipt, registry, snapshot, restarts, kwargs = transaction(monkeypatch)
     monkeypatch.setattr(vbios_fields, "inspect", inspect)
     monkeypatch.setattr(vbios_fields, "plan", plan)
     target = ro.Target(**receipt["target"])
-    image = (fixtures.schema4_image() if mapped else
+    image = (fixtures.schema4_image(loss=mapped_loss) if mapped else
              fixtures.partial_image(difr_flags=0 if no_difr else 0x31) if partial else fixtures.bios())
     changes = {f"lpwr.ms.{i}.enabled": False for i in (range(3) if shutdown else (0,))}
     core = (fixtures.partial_observation if partial or mapped else fixtures.observation)(slot=target.slot, device=0xD123)
@@ -128,9 +128,11 @@ def test_ms_preview_isolated_from_other_control_changes():
         ro._ms_separate({"lpwr.ms.0.enabled": False}, pstate_changes={"all_pstates": True})
 
 
-def test_schema4_apply_verifies_mapping_and_complete_state(monkeypatch):
-    receipt, registry, snapshot, restarts, kwargs, _, after = configured(monkeypatch, mapped=True)
+@pytest.mark.parametrize("loss,feature", [(0x04, 0x020910CC), (0x08, 0x020950EE), (0x0C, 0x020910CC)])
+def test_schema4_apply_verifies_mapping_and_complete_state(monkeypatch, loss, feature):
+    receipt, registry, snapshot, restarts, kwargs, _, after = configured(monkeypatch, mapped=True, mapped_loss=loss)
     assert receipt["ms_contracts"]["schema"] == 4
+    assert after["core"]["main"]["features"]["4"]["value"] == feature
     result = ro.execute(receipt, **kwargs)
     assert result["ok"] and result["state"] == "active", result["message"]
     assert result["runtime_verified_fields"] == sorted(receipt["changes"])
