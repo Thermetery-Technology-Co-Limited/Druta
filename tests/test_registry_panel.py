@@ -1285,6 +1285,47 @@ def _rendered_texts(parent):
     return values
 
 
+@pytest.mark.parametrize("removed", ["9", "10", "11"])
+def test_difr_subfeature_preview_distinguishes_independent_controllers(harness, removed):
+    h = harness
+    before = {key: {"supported": True, "configured_pstate_mask": 0x120} for key in ("9", "10", "11")}
+    after = copy.deepcopy(before)
+    after[removed] = {"supported": False, "configured_pstate_mask": None}
+    h.mocks.prepare.return_value["lpwr_contracts"] = {"before": {"controllers": before}, "after": after}
+    h.mocks.prepare.return_value["lpwr_contracts"]["before"]["features"] = dict.fromkeys(before, 3)
+    h.mocks.prepare.return_value["lpwr_contracts"]["after_features"] = {key: 3 for key in after if key != removed}
+    prepare_speedo(h)
+    text = dpg.get_value("reg_preview")
+    for key, label in panel_module._DIFR_LABELS.items():
+        expected = "unavailable; support removed" if key == removed else "P5/P8; support retained"
+        assert f"{label}: configured P-states P5/P8 -> {expected}." in text
+        feature = "unavailable" if key == removed else "0x3"
+        assert f"{label} configured features: 0x3 -> {feature}." in text
+
+
+def test_difr_preview_displays_complete_conditional_outcomes(harness):
+    h = harness
+    before = {key: {"supported": True, "configured_pstate_mask": 0x100} for key in ("9", "10", "11")}
+    alone = copy.deepcopy(before)
+    absent = {"supported": False, "configured_pstate_mask": None}
+    alone["9"] = absent
+    outcomes = [
+        {"controllers": alone, "features": {"10": 3, "11": 3}},
+        {"controllers": dict.fromkeys(before, absent), "features": {}},
+    ]
+    h.mocks.prepare.return_value["lpwr_contracts"] = {
+        "before": {"controllers": before, "features": dict.fromkeys(before, 3)},
+        "after": alone, "after_features": outcomes[0]["features"], "after_alternatives": outcomes,
+    }
+    prepare_speedo(h)
+    text = dpg.get_value("reg_preview")
+    assert "Driver dependencies allow either of these complete configured outcomes" in text
+    first, second = text.split("Possible outcome 1:")[1].split("Possible outcome 2:")
+    assert "MS DIFR SW-ASR: configured P-states P8 -> P8; support retained." in first
+    assert "MS DIFR SW-ASR: configured P-states P8 -> unavailable; support removed." in second
+    assert "MS DIFR CG configured features: 0x3 -> unavailable." in second
+
+
 @pytest.mark.parametrize(("current", "expected"), [(False, "False"), (True, "True"), (None, "unavailable")])
 def test_read_only_boolean_fields_render_boolean_state(harness, current, expected):
     h = harness

@@ -1133,3 +1133,30 @@ def test_short_v30_requires_exact_geometry_and_complete_table():
         parsed = vf.inspect(raw)
         assert not any(t["name"] == "power" for t in parsed["tables"])
         assert not any(f["key"].startswith("power.") for f in parsed["fields"])
+
+
+def test_difr_subfeatures_require_active_captured_bits():
+    table = bytearray(11 + 18 * 2)
+    table[:4] = bytes((0x10, 11, 18, 2))
+    table[11] = 0x07
+    table[29] = 0x0E
+    image = extend(fixture(), [(0xE8, 0x8E, 0x4600, table)])
+    fields = {f['key']: f for f in vf.inspect(image)['fields']}
+    assert fields['lpwr.difr.0.dfpr_enabled']['capability'] == 'editable'
+    assert fields['lpwr.difr.0.cg_enabled']['capability'] != 'editable'
+    assert fields['lpwr.difr.1.dfpr_enabled']['capability'] != 'editable'
+    result = apply(image, vf.plan(image, {'lpwr.difr.0.dfpr_enabled': False,
+                                         'lpwr.difr.0.sw_asr_enabled': False}))
+    assert result[0x460B] == 1
+    assert result[0x461D] == 0x0E
+
+
+def test_difr_same_byte_unchanged_true_preserved():
+    table = bytearray(11 + 18)
+    table[:4] = bytes((0x10, 11, 18, 1))
+    table[11] = 0x07
+    image = extend(fixture(), [(0xE8, 0x8E, 0x4600, table)])
+    entries = [("lpwr.difr.0.dfpr_enabled", False), ("lpwr.difr.0.sw_asr_enabled", True)]
+    for order in (entries, list(reversed(entries))):
+        result = apply(image, vf.plan(image, dict(order)))
+        assert result[0x460B] == 0x05

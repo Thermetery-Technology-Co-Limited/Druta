@@ -2204,5 +2204,126 @@
         "sha256": "fabd22caa8f0ace25e4fa68d0b332556a96b558f305a64429816eed09731da77"
       }
     ]
+  },
+  "difr_subfeature_configuration_20261030": {
+    "scope": "Source-grounded child-only disable selections in an already enabled captured DIFR row, plus root-only fixed sequential software trials on the current RTX5080. Six GPU-only restarts in the positive matrix; four more in the retained failed DFPR predictions. No Windows reboot, workload or physical measurement.",
+    "keys": [
+      "lpwr.difr.N.dfpr_enabled",
+      "lpwr.difr.N.sw_asr_enabled",
+      "lpwr.difr.N.cg_enabled"
+    ],
+    "selected_bits": {
+      "dfpr_enabled": "0x02",
+      "sw_asr_enabled": "0x04",
+      "cg_enabled": "0x08"
+    },
+    "features": "Controller9/10/11 attr0x38 is bound through the per-slot 99C/9A0/9A4 unions and native feature filter. CG contribution uses full DWORD flags, including raw0x200?feature0x1000. Before native bits must be a subset of the modeled contribution union; surviving features intersect captured native values with the new union. Unsupported features are unavailable, not zero.",
+    "dependencies": "Same-group constructor: 9?10 only when LPWR+2D8 bit0x40 is set; 10?11 unconditionally. Support removal recursively follows record+F8 dependency masks. These are configured dependencies, not physical residency.",
+    "contract": "Schema2 enumerates both source-grounded shared-Boolean modes, retains only modes matching the complete fresh before-controller state, computes complete after support/masks/features, and deduplicates identical outcomes. Preview shows all remaining outcomes. Apply must match one entire candidate, never a hybrid. Schema1 whole-row contracts retain their prior shape and read scope. Row and child disables use separate transactions. No board/driver allowlist or hidden-predicate value inferred from a passing result.",
+    "registry_reader_correction": "The RMLpwrArch producer is bound to the same LPWR constructor path. An absent value in the selected PDO software key triggers fallback: ZwQueryValueKey NAME_NOT_FOUND?0x57, F2CE0 nonzero, then F0740/334A80. Key-open success alone does not suppress fallback. The selected-adapter read found no RMLpwrArch value; neither effective default nor active hidden predicate is claimed. The product does not write this value.",
+    "negative_trials": "The original independent-controller DFPR prediction failed twice and rolled back. Trial2 retained actual support9/10/11=false and features{}, resolving the missing dependency cascade. Immediate broad final comparisons differed only in BOOST_LOW; later separate read-only captures reproduced the original exactly. These negatives remain unchanged.",
+    "positive_matrix": [
+      {
+        "selection": "dfpr",
+        "flag_byte": "BF?BD",
+        "unsupported_controllers": [
+          9,
+          10,
+          11
+        ]
+      },
+      {
+        "selection": "sw_asr",
+        "flag_byte": "BF?BB",
+        "unsupported_controllers": [
+          10,
+          11
+        ]
+      },
+      {
+        "selection": "cg",
+        "flag_byte": "BF?B7",
+        "unsupported_controllers": [
+          11
+        ]
+      }
+    ],
+    "matrix_verification": "Each real DPG RegistryPanel Preview and production Apply selected only one raw bit. Independent reconstruction checked complete1028-byte support/state/feature payloads, retained opaque bytes, all other checked type1/type4/type7/auxiliary peer packets and full Pstate data. Complete images changed only the selected bit and returned to the original. Active receipt target, exact changes, plan and both image hashes were bound.",
+    "settling": "Every positive trial retained active broad samples [false,false,false,false,true,true] and final samples [false,false,false,true,true]. Independent root and Terra recomputation identified the early differences as BOOST_LOW control bytes/digest only. The final two full broad comparisons in each window were exact, including complete curves; no assertion makes the early samples exact.",
+    "validation": {
+      "focused_functionality_tests": 329,
+      "deferred_recovery_named_tests_excluded": 26,
+      "ruff": "passed",
+      "root_pinned_raw_windows": 34,
+      "root_broad_recomputation": "passed",
+      "independent_raw_matrix": "passed"
+    },
+    "limitations": "Configured support/masks/features, not physical DIFR entry/residency or power savings. Does not enable originally disabled rows/subfeatures or alter unknown parameters/routes. The unobserved conditional dependency predicate is not identified by matching one candidate. Other layouts and wider mixed profiles retain independent capability/refusal behavior. Recovery/Undo and profile restoration/replay integration remain deferred.",
+    "private_evidence_sha256": [
+      {
+        "path": "experiments/registry-overrides/difr-subfeatures-root-20261030/static-review-2.json",
+        "sha256": "d8395ac821e549cb0e1557ce1d1f77e28fb529dc82e31e53ea680c37abe9da89"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-subfeatures-root-20261030/product_trial_v4.py",
+        "sha256": "1380d4be499d3e6dcda1adcd4bda17afb8f88217e41a8798c74a28b52cd23261"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-subfeatures-root-20261030/trial-dfpr-1.json",
+        "sha256": "bc42630b70bb6e657dad2294f6ed86281ae6930cc9990cacc00ac2fc729cb040"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-subfeatures-root-20261030/trial-dfpr-2.json",
+        "sha256": "d959b65a2be517465847819cdfde11840b4a198d31c0723bcecd0c1ebd2c5da7"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-subfeatures-root-20261030/trial-dfpr-3.json",
+        "sha256": "5ff8265c03ac85cb1f4090cbccf2f502c508c1611b071276f9adee4e5251fc37"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-subfeatures-root-20261030/trial-sw-asr-1.json",
+        "sha256": "02ba70ae0ba8720a0443ac158df7365549a8ff438670f58b7f39511dbf64d310"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-subfeatures-root-20261030/trial-cg-1.json",
+        "sha256": "ca7e442e3793c801f16ea342b93d842db9344c1455868c792741230cc3538b07"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-subfeatures-root-20261030/matrix-broad-review-1.json",
+        "sha256": "b6f42fe3a98b8b787cc9349efbc9e90b0aa34518229163d925c2351743bc38c3"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-subfeatures-review-terra-20261030/dfpr-matrix.json",
+        "sha256": "21ee59940c688054e78069c4064a945f5e7428caf2715c848849c30c53d028c2"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-subfeatures-review-terra-20261030/sw-asr-matrix.json",
+        "sha256": "68e4ff5327314034d8a51f5498666ff24530eef580386aa2e6155d8dd3eb2fd6"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-subfeatures-review-terra-20261030/cg-matrix.json",
+        "sha256": "2a9ecf579004b43434776072ba471924ec40788ec98c1c0d19273c8acfd7c00d"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-subfeatures-luna-audit-20261030/luna-difr-audit.json",
+        "sha256": "ed50f729197f593788c42d7ad3c3a9e5fa8cd465ddb1e85256ebb4324aff361a"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-dependency-witness-terra-20261030/reader-order-addendum.json",
+        "sha256": "425ea8aea0a580e4925b1707ec6479f2d4dec195e34cc5ae36fbb377f2555b8b"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-subfeatures-root-20261030/rmlpwrarch-selected-read-1.json",
+        "sha256": "6dc73b6e8f5ff9d11c14a8dd3747be89908088710029f6f8689f16c3cad391a0"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-subfeatures-root-20261030/post-dfpr-negative-original-1.json",
+        "sha256": "24fd4cf0416c4d84c0c745db2e2cea396526a577fe89ec50f91a43fce7916ca3"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-subfeatures-root-20261030/post-dfpr-negative-original-2.json",
+        "sha256": "b849568c2a1911697ffa94a1fc44aaf7d7d7628233b04b0828050c8859f01aff"
+      }
+    ]
   }
 }

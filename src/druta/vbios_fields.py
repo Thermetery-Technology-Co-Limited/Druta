@@ -777,6 +777,17 @@ class _Image:
                         else "disabled entry: captured bytes cannot prove it is supported when enabled",
                         meta={"disable_only": True},
                     )
+                    if name == "difr" and self.objects:
+                        for role, bit in (("dfpr", 2), ("sw_asr", 4), ("cg", 8)):
+                            active = enabled and bool(self.u(fmt, at) & bit)
+                            self.field(
+                                f"lpwr.difr.{i}.{role}_enabled",
+                                f"DIFR entry {i} {role.upper()} enabled",
+                                "Idle power management", at, fmt, "bool", mask=bit,
+                                editable=active,
+                                reason="" if active else "only enabled captured DIFR subfeatures may be disabled",
+                                meta={"disable_only": True},
+                            )
 
             self.optional("lpwr_" + name, add)
 
@@ -1565,6 +1576,20 @@ def plan(blob, changes):
             chunk = encoded
             if f["mask"] is not None:
                 old = f["raw_values"][index]
+                if key.startswith("lpwr.difr.") and at in writes:
+                    previous = writes[at][1]
+                    if all(k.startswith("lpwr.difr.") and fields[k]["offsets"] == f["offsets"]
+                           and not fields[k]["mask"] & f["mask"] for k in previous):
+                        old = int.from_bytes(bytes(writes.get(at + j, [b, set()])[0]
+                                                   for j, b in enumerate(struct.pack("<" + f["encoding"], old))), "little")
+                        for j in range(struct.calcsize("<" + f["encoding"])):
+                            writes.pop(at + j, None)
+                        chunks.append((at, struct.pack("<" + f["encoding"],
+                                                       old | f["mask"] if value else old & ~f["mask"])))
+                        # Restore earlier ownership when emitting the merged bytes.
+                        for j in range(struct.calcsize("<" + f["encoding"])):
+                            writes[at + j] = [chunks[-1][1][j], set(previous)]
+                        continue
                 chunk = struct.pack("<" + f["encoding"], old | f["mask"] if value else old & ~f["mask"])
             chunks.append((at, chunk))
         for at, chunk in chunks:

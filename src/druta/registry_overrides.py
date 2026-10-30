@@ -741,7 +741,7 @@ def _validate_startup_receipt(receipt, target):
 def _lpwr_separate(changes, **other_changes):
     selected = {key: value for key, value in changes.items() if lpwr_runtime.KEY.fullmatch(key)}
     if selected and (len(selected) != len(changes) or any(other_changes.values())):
-        raise OverrideError("Apply DIFR entry disables separately from other controls")
+        raise OverrideError("Apply DIFR entry or subfeature disables separately from other controls")
     return selected
 
 
@@ -1362,7 +1362,7 @@ def _execute(
             gpu = GPU(target.slot)
             if bind_target(gpu) != target:
                 raise OverrideError("Selected GPU or its driver mapping changed before LPWR readback")
-        observation, error = lpwr_runtime.read(gpu)
+        observation, error = lpwr_runtime.read(gpu, **({"features": True} if lpwr_contracts.get("schema") == 2 else {}))
         if error:
             raise OverrideError(error)
         return observation

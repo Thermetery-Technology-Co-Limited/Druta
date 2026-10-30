@@ -103,7 +103,7 @@ class RegistryPanel:
             dpg.add_text(
                 "Read the loaded P-state to LPWR mapping and configured DFPR/MS DIFR support. "
                 "These values describe configuration, not the current P-state, residency or measured power savings. "
-                "DIFR entry disables use the registry field preview and GPU restart above.",
+                "DIFR entry and subfeature disables use the registry field preview and GPU restart above.",
                 wrap=self.app.s(900),
             )
             dpg.add_button(label="Read DIFR configuration", callback=self.refresh_difr)
@@ -1245,7 +1245,7 @@ class RegistryPanel:
         for field in self.fields.values():
             if field["key"].startswith("lpwr.difr."):
                 field["detail"] = (
-                    "Disable this captured enabled DIFR entry in a separate registry transaction. "
+                    "Disable a captured enabled DIFR entry or its selected subfeatures in a separate registry transaction. "
                     "Apply and Restore check the loaded P-state routing, configured controller support and state masks. "
                     "An unsupported controller has an unavailable mask, not a zero mask. "
                     "Physical residency and power savings are unmeasured."
@@ -1423,6 +1423,36 @@ class RegistryPanel:
         if any(value is False for value in clock_vf_changes.values()):
             lines.append("Disabling either VF check also changes a derived VF processing mode.")
         if receipt.get("lpwr_contracts"):
+            contract = receipt["lpwr_contracts"]
+
+            def difr_states(row):
+                if not row["supported"]:
+                    return "unavailable"
+                mask = row["configured_pstate_mask"]
+                return "/".join(f"P{i}" for i in range(32) if mask >> i & 1) or "none"
+
+            def feature_text(values, controller):
+                return f"0x{values[controller]:X}" if controller in values else "unavailable"
+
+            outcomes = contract.get("after_alternatives") or [
+                {"controllers": contract["after"], "features": contract.get("after_features")}
+            ]
+            if len(outcomes) > 1:
+                lines.append("Driver dependencies allow either of these complete configured outcomes:")
+            for number, outcome in enumerate(outcomes, 1):
+                if len(outcomes) > 1:
+                    lines.append(f"Possible outcome {number}:")
+                for key, label in _DIFR_LABELS.items():
+                    before = contract["before"]["controllers"][key]
+                    after = outcome["controllers"][key]
+                    support = "retained" if after["supported"] else "removed" if before["supported"] else "unavailable"
+                    lines.append(
+                        f"{label}: configured P-states {difr_states(before)} -> {difr_states(after)}; support {support}."
+                    )
+                    if outcome["features"] is not None:
+                        old = feature_text(contract["before"]["features"], key)
+                        new = feature_text(outcome["features"], key)
+                        lines.append(f"  {label} configured features: {old} -> {new}.")
             lines.append(
                 "DIFR: loaded P-state routing and configured DFPR/MS DIFR support and masks must match after GPU restart. "
                 "Unsupported controllers have unavailable state masks. Restore verifies the original configuration. "

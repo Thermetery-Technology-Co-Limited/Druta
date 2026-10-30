@@ -2101,6 +2101,41 @@ and restoration. The production diagnostic callback was exercised against
 real driver GETs before, during and after the trial; its rendered text
 distinguished unsupported controllers from a supported zero state mask.
 
+Enabled DIFR entries also expose independent disable selections for DFPR,
+MS DIFR SW-ASR and MS DIFR CG (raw bits0x02/0x04/0x08). Their schema2 Apply
+contract verifies type3 controller9/10/11 support, configured P-state masks and
+attribute0x38 feature words. A single-byte plan can combine selected child clears
+without changing the entry enable bit, other flags or six loaded parameters.
+Whole-row disables retain schema1 and use a separate transaction.
+
+The child contribution words are combined across the bounded loaded slots and
+filtered into native features. The CG word depends on the full flag DWORD,
+including bit0x200. A native before-feature containing bits outside its modeled
+contribution union refuses the operation. Surviving features use the captured
+native word intersected with the new union, preserving other filter inputs.
+
+Controller dependencies also matter: removal of controller10 removes11;
+controller9 removal can remove10, depending on an LPWR initialization predicate.
+Schema2 constructs both source-grounded shared-predicate projections, keeps only
+those compatible with the complete fresh before state, and deduplicates complete
+after support/mask/feature outcomes. Preview lists all remaining outcomes. Apply
+must match one entire outcome; it cannot mix fields from different alternatives.
+The RMLpwrArch initializer is traced, but a missing selected-PDO value triggers
+fallback lookups and does not establish its effective default or hidden predicate.
+The product neither guesses that value nor writes RMLpwrArch.
+
+On the captured RTX5080, real panel Preview and production Apply separately
+cleared each child bit: DFPR removed9/10/11, SW-ASR removed10/11, and CG removed11.
+Independent raw-packet reconstruction checked complete support/state/feature
+payloads, retained opaque bytes, other LPWR peers and P-state data. Each complete
+image changed only its selected bit and returned to the original after the trial.
+Full broad comparisons in every positive trial retained four early active and
+three early final BOOST_LOW mismatches, then two exact samples in each window;
+complete curves remained in those comparisons. Two earlier independent-controller
+DFPR predictions failed and remain negative evidence. Root reproduced 34 pinned
+instruction windows; 329 focused functionality tests and Ruff passed. These are
+configured-state qualifications, not physical residency or power measurements.
+
 In the captured image, factory-disabled DIFR rows 1-4 have raw flags 0xFFFFF800, zero
 subfeature bits and no loaded P-state routes; enabling bit 0 alone leaves the
 understood controller 9/10/11 support and mask projection unchanged. The enabled-row

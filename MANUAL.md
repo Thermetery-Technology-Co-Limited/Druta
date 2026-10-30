@@ -737,6 +737,15 @@ LPWR routing and the resulting configured DFPR/MS DIFR support and state masks.
 **Restore previous registry settings** restores the captured original entry and
 verifies its original configuration. Enabling an originally disabled entry
 remains unavailable because its captured bytes do not establish support.
+For a captured enabled entry, DFPR, MS DIFR SW-ASR, and CG subfeatures can also
+be disabled. Preview reports the expected support, routed-state, and feature
+result for each controller. Child-flag changes use a separate transaction from
+a whole-row disable. Originally disabled rows or subfeatures remain read-only
+because their captured bytes do not establish support. These configured
+readbacks do not measure physical residency. Disabling DFPR may also remove
+supported SW-ASR and CG; disabling SW-ASR also removes CG. Preview lists the
+complete outcomes it can validate, and Apply verifies one complete outcome
+after the GPU restart.
 
 **DIFR configured state > Read DIFR configuration** shows the loaded mapping
 and controller support. A supported controller with a zero mask has no configured
