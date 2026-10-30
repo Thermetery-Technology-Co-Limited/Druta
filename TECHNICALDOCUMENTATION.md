@@ -3485,9 +3485,27 @@ showed the complete historical message and Details path; the original log line
 remained clipped. Receipt and Undo availability come from capture metadata,
 not button appearance. Early driver-flag differences remain recorded; all
 source, helper-final and replay curves matched. Actual failed helper-origin
-Apply or recovery errors, other recovery-required states, execution of the GUI
-Restore callback, native faults, physical input and other adapters remain
-pending. [Scoped helper recovery and replay evidence](experiments/ui-recovery-result-qualified-20261029.json).
+Apply or recovery errors, other recovery-required states, native faults,
+physical input and other adapters remain pending.
+[Scoped helper recovery and replay evidence](experiments/ui-recovery-result-qualified-20261029.json).
+
+A subsequent packaged `--ui-capture-recovery-undo NEW_DIRECTORY` trial used
+the actual RegistryPanel Restore callback on a separately created pending
+receipt. Two labeled application exceptions followed successful real active
+and rollback verifiers; the original registry and image were already restored
+when the recovery-required pointer remained. The panel launched the normal
+restore helper and its actual resumed GUI captured the verified restored
+receipt and cleared pointer. Two source GPU-only restarts and one helper
+restart are counted separately from the earlier CLI case.
+
+Root and Luna inspected the four actual initial and resumed frames. The pending
+panel shows the complete wrapped failure and Details; its raw log still clips
+the long line. The restored panel and log show the complete helper success
+message. Receipt state and Undo availability are established by metadata,
+not button styling. All sixteen source and eight GUI-final curves matched;
+early driver-flag differences remain recorded. This does not qualify native
+faults, other recovery states, physical input or physical effects.
+[Scoped GUI Restore evidence](experiments/ui-recovery-result-qualified-20261029.json).
 
 The separate opt-in developer mode `--ui-capture-live-vmin NEW_DIRECTORY`
 performs one +5 mV change to rail 0 VMIN through the panel's real Apply and
