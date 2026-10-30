@@ -3671,10 +3671,21 @@ exactly match rows with a nonzero client-input tag at row +4 in these captures.
 In each test, the DWORD at +0x4C increments once after applying the request and
 once after cleanup, while the aggregate header bytes +0x50 through +0x963 stay
 identical. Neither this counter nor the bitmap proves numerical evaluation or
-identifies an arbitration winner. The conditional queue paths include bounded
-waits, but state 3 is also written on timeout; the normal reply-data producer
-remains unbound. Root reproduced 16 static byte windows and independently
-checked both terminal trials. This audit made no new GPU call or mutation.
+identifies an arbitration winner. Root reproduced 16 static byte windows and
+independently checked both terminal trials.
+
+The candidate's default queue receiver now has a traced normal reply path:
+it processes a state-2 record, copies the command response, derives its status
+and then resets the record. The synchronous sender returns the mapped response
+status unchanged for a valid family and index. This submission's destination
+is a 20-byte command header; a received flag can select a local 16-byte header
+instead. That copy is separate from the large STATUS buffer. Its setup helper,
+on the constructor's initial descriptor branch, derives the backing pointer
+from a selected resource's +0x40 base plus offset 0x27BF10. The transport
+validator checks a different +0x38 field. The base allocation, active runtime
+dispatch and receiver-side numerical voltage evaluator remain unbound.
+Root independently reproduced 11 further byte windows. These offline audits
+made no new GPU call or mutation and do not qualify arbitrary voltage replay.
 
 An offline comparison of NVIDIA-signed 617.14 package data with the installed
 621.01 driver identifies a specific legacy write-suppression path. The older

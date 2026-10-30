@@ -2847,7 +2847,26 @@
         "aggregate_header_comparison": "All bytes at +0x50 through +0x963 are identical across the captured before, active and immediate-cleanup phases in each trial. Counter advancement and bitmap correlation do not establish numerical evaluation or arbitration winners.",
         "target_row": "Index199 at payload+0x20438 retains the stored +5000 request in both duplicate client blocks; the previously reported cleared debug/result fields remain separate from request equality."
       },
-      "queue_completion_boundary": "Both identified conditional +0x30 queue implementations wait on the traced path. Their predicates can terminate on state0 or3, and state3 is explicitly written on timeout branches. The retained candidate interface table binds +0xe0 to187c93c for record access and +0x100 to16c7d98 for sequence waiting. Normal reply processing, response-data production and effective voltage evaluation remain unbound.",
+      "queue_completion_boundary": "Both identified conditional +0x30 queue implementations wait on the traced path. Their predicates can terminate on state 0 or 3, and state 3 is explicitly written on timeout branches. The candidate interface table binds +0xE0 to 187C93C for record access and +0x100 to 16C7D98 for sequence waiting. The follow-up below binds normal command-reply processing; production of the separate large STATUS buffer and effective voltage evaluation remain unbound.",
+      "normal_reply_followup": {
+        "scope": "Offline candidate code only. No new GPU calls, SETs, registry writes, driver restarts or workloads; no live loaded-handler observation.",
+        "normal_receiver_va": "0x189e26c",
+        "normal_response": "A state-2 record processes a response copied through its recorded destination/length or through a local header selected by incoming flag bit 1. It maps response byte +5 through 130CE94 and eventually resets the record through 130DDC8. A state-3 record takes a distinct cleanup path.",
+        "actual_default_submission": "1614298 submits a 20-byte command header through 16A461C. The default sender records this header as the response destination with length 20 and a null callback. The receiver's alternate flag path uses a local 16-byte header. Neither copy is the separate 0x3E750 STATUS backing buffer.",
+        "mapped_status_return": "For valid family/index, 1A0F6F0 updates statistics and returns its mapped-status argument unchanged. Thus synchronous 16A461C returns 130CE94(header byte +5) to 1614298, which checks the result. Invalid family/index follows an error path. A terminal wait alone does not prove successful response status.",
+        "backing_setup": "Interface +0xD8 invokes 1613ED0, which calls 1A04A30 on the +0xC0 descriptor. On initial descriptor +1=0, it sets interface +0xD0 to selected resource +0x40 base plus unsigned descriptor +4, initially 0x27BF10. A different descriptor branch allocates the descriptor +8 size. The 1A0D00C validator checks resource +0x38; it does not equate that field with the +0x40 base or perform an explicit copy.",
+        "ownership_limits": "Reciprocal transport-parent constructor fields and metadata dispatch remain conditional on the selected derived class and retained interface. Distinct allocation-root and ancestor-interface offsets must not be equated: the inspected cast-result +0x1950 list registration is not proof of the primary-interface +0x1950 pointer producer. Repeated selectors are not a live resource-identity observation.",
+        "root_byte_windows_reproduced": 11,
+        "evidence_sha256": {
+          "root_receiver_scope_audit": "27f9d25b08b628962a61ad5585ea1525248e348b40a855a6b2262c8c539f32ab",
+          "independent_byte_audit": "cedcbff69d707c4f86ecbdae0f01c0bdf3c859cb54e238a2a85534ca7e462792",
+          "reply_status_checkpoint": "350641835be812ea216a4410afcd87500c3563974a550adc794646d6b2ecae6e",
+          "backing_setup_checkpoint": "7edb81d1b9f93ed0b2c891b5ca27e7de2cc9528f84ff9cd255ebc8a2b6dd3c6a",
+          "manager_offset_erratum": "11fc951b4f7a8ec59ccbae713cb3a27d508d0c7feb9feb1a8b85326322ed2c5b",
+          "derived_dispatch_erratum": "87ea7cab9c533cf6bb17f0fb72ff09c251fa8b011e1ca12cdcbc486869a10d0f"
+        },
+        "not_qualified": "The selected backing resource's allocation/mapping producer, active runtime dispatch and numerical voltage evaluator remain unbound. These source paths do not qualify effective arbitrary voltage replay or current F219 field semantics."
+      },
       "root_static_byte_windows_reproduced": 16,
       "root_terminal_trials_independently_checked": 2,
       "evidence_sha256": {
