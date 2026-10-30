@@ -90,6 +90,8 @@ function Get-SourceSnapshot {
         'experiments/ui-live-panels-capture-20261028.json',
         'experiments/ui-registry-power-qualified-20261029.json',
         'experiments/ms-configured-qualified-20261029.json',
+        'experiments/ms-mapping-loss04-qualified-20261030.json',
+        'experiments/grpg-main-complete-qualified-20261030.json',
         'experiments/grpg-bit4-no-peer-qualified-20261029.json',
         'experiments/nvdec-configured-qualified-20261029.json',
         'experiments/media-lpwr-configured-qualified-20261029.json',

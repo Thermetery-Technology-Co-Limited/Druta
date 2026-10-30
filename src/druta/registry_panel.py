@@ -1460,7 +1460,8 @@ class RegistryPanel:
             )
         if receipt.get("ms_contracts"):
             contract = receipt["ms_contracts"]
-            before = contract["before"]["controllers"]["4"]["configured_pstate_mask"]
+            before_state = contract["before"]["core"] if contract.get("schema") == 4 else contract["before"]
+            before = before_state["controllers"]["4"]["configured_pstate_mask"]
             after = contract["after"]["controllers"]["4"]
 
             def ms_states(mask):
@@ -1477,6 +1478,11 @@ class RegistryPanel:
                 lines.append(
                     "The shared MS support query remains readable and reports false. "
                     "Available MS features are reduced; related DIFR support remains."
+                )
+            elif contract.get("schema") == 4:
+                lines.append(
+                    "Available MS features are reduced while the remaining mapped capability stays supported. "
+                    "Its mapping, related support and all captured peers must match the preview."
                 )
         if receipt.get("nvdec_contracts"):
             contract = receipt["nvdec_contracts"]

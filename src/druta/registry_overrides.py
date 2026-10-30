@@ -842,7 +842,8 @@ def _validate_ms_receipt(receipt, target, *, restore=False):
             for name in ("named_changes", "flag_changes", "pstate_changes", "clock_vf_changes", "startup_changes")
         },
     )
-    if saved["before"]["identity"]["slot"] != target.slot:
+    core = saved["before"]["core"] if saved["schema"] == 4 else saved["before"]
+    if core["identity"]["slot"] != target.slot:
         raise OverrideError("Saved MS contract does not match the selected GPU")
     if (
         not receipt.get("verify_bios", bool(receipt["plan"]["patches"]))
@@ -1408,7 +1409,7 @@ def _execute(
             gpu = GPU(target.slot)
             if bind_target(gpu) != target:
                 raise OverrideError("Selected GPU or its driver mapping changed before MS readback")
-        observation, error = ms_runtime.read(gpu)
+        observation, error = ms_runtime.read(gpu, **({"mapping": True} if ms_contracts.get("schema") == 4 else {}))
         if error:
             raise OverrideError(error)
         return observation

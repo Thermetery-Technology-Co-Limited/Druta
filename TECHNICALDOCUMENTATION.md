@@ -4031,7 +4031,34 @@ evidence](experiments/ms-configured-qualified-20261029.json) retains the raw aud
 negative and all curve differences. Packaged schema3 callbacks, physical input, other
 layouts and physical effects remain unqualified.
 
-Unresolved mixed feature loss, nondiscriminating changes, ambiguous routes,
+Schema4 adds exactly raw04 aggregate loss while a retained raw10 entry
+preserves mapped capability support. A801 type1/index1/808 reads the current
+postfilter role mask; group1 and role800 must independently report support
+and the mask must be positive. The loader maps row-byte8 selector bits
+through the same per-adapter mapping. Retained eligible selector OR covering
+removed OR preserves that union without embedding a driver mapping table.
+The existing controller6/16, native-feature and DIFR witnesses remain. Only
+schema4 adds the validated mapping packet to its observation; old contracts
+retain their read scopes. Typed stability ignores evaluated A7 tails, which
+remain captured diagnostics. Full mapped/core readback must match.
+
+The fixed 2026-10-30 research and production cases changed only known
+raw04 in enabled row1 (7D->79), then disabled row0 (7D->7C). Normal panel
+Preview, durable reload and Apply passed schema4: native4 feature
+023971EFh->020910CCh, native1/4 and type1/type7 role1 masks120h->0,
+with main/auxiliary support retained and mapped maskDh unchanged. The
+independent audit and root reproduction matched all complete packets
+apart from paired transport pointers and the five predicted DWORD values
+per round. Client configuration was exact; arbitration telemetry remained
+separately variable. Early broad negatives were retained; final two samples
+per phase were exact and all18 saved curve controls matched. The complete
+original was restored after each case. Seven GPU-only restarts include
+the research trial and production setup/removal. The61 selected functionality
+tests and Ruff passed. This is source callback/Apply evidence, without
+a packaged-helper, physical-input or physical-effect qualification.
+[Mapping-covered MS evidence](experiments/ms-mapping-loss04-qualified-20261030.json).
+
+Other mixed feature loss, nondiscriminating changes, ambiguous routes,
 support6 cascades and other layouts remain pending. Capability/layout/readback checks govern
 eligibility; tested device IDs and driver versions do not gate support.
 Physical residency/savings remain unqualified. A packaged compound MS trial

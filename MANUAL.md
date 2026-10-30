@@ -369,13 +369,17 @@ have no eligible P-states; removing every enabled entry can instead remove
 support and make dependent readbacks unavailable. Preview distinguishes
 these outcomes, and Undo verifies the captured original state. The current
 qualified profiles support partial disables that retain the aggregate flags,
-complete enabled-entry shutdown, and one understood partial feature-loss case.
+complete enabled-entry shutdown, and understood partial feature-loss cases.
 That last case also reduces available MS features, and the shared MS support
 query remains readable and reports false. The controller and related DIFR
 support remain. A separate source-qualified profile covers this feature loss when
 all DIFR entries are disabled, provided the current native feature and type7 peer
 readbacks satisfy the required witnesses. A packaged schema3 callback has not
-yet been qualified. A packaged follow-up exercised
+yet been qualified. A further profile reduces MS features while a retained
+entry preserves the mapped capability. Its shared support remains readable
+and true; Apply checks the mapping, related masks and all captured peers.
+[Mapped-capability evidence](experiments/ms-mapping-loss04-qualified-20261030.json).
+A packaged follow-up exercised
 MS rows 0 and 1 together through the panel callbacks and framebuffer capture;
 row 2 remained enabled and Undo restored the original. A later packaged trial
 also disabled all three enabled MS rows and verified their restored state through

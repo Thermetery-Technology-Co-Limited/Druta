@@ -378,3 +378,99 @@ def test_schema3_transient_read_is_reported(monkeypatch):
     monkeypatch.setattr(ms, "read", lambda gpu: (None, "transient"))
     with pytest.raises(ms.MsError, match="transient"):
         ms.contracts(None, partial_image(difr_flags=0), {"lpwr.ms.0.enabled": False})
+
+
+def schema4_packet(mask=13):
+    raw = bytearray(ms._mapping_request())
+    for i, value in enumerate((1, 1, mask)):
+        struct.pack_into("<HI", raw, 4 + i * 16 + 6, 1, value)
+    return raw.hex()
+
+
+def schema4_image(selector=7):
+    raw = bytearray(partial_image((0x77D, 0x779, 0x401)))
+    raw[0x4A00 + 7 + 8] = 7
+    raw[0x4A00 + 7 + 16 + 8] = selector
+    return bytes(raw)
+
+
+def test_schema4_covered_selector_retains_role_and_projects_ordered_features(monkeypatch):
+    before = partial_observation(slot="0000:44:01.0", device=0x1234)
+    packet = schema4_packet()
+    monkeypatch.setattr(ms, "read", lambda gpu, *, mapping=False: ({"core": before, "mapping_hex": packet}, None))
+    changes = {"lpwr.ms.0.enabled": False}
+    saved = ms.contracts(None, schema4_image(), changes)
+    assert saved["schema"] == 4
+    assert saved["after"]["main"]["features"]["4"]["value"] == 0x020910CC
+    assert saved["after"]["auxiliary"]["group"]["800:1"]["value"] == 1
+    assert saved["after"]["auxiliary"]["group"]["806:1"]["value"] == 0
+    surrogate = dict(saved, schema=6, before=before)
+    after = {"core": observed_main(surrogate), "mapping_hex": packet}
+    assert ms.verify(after, saved) == list(changes)
+    assert ms.verify(saved["before"], saved, restore=True) == list(changes)
+    for bad_packet in (schema4_packet(0), schema4_packet(3)):
+        with pytest.raises(ms.MsError):
+            ms.verify(dict(after, mapping_hex=bad_packet), saved)
+    tampered = copy.deepcopy(saved)
+    tampered["before"]["mapping_hex"] = schema4_packet(0)
+    with pytest.raises(ms.MsError):
+        ms.validate_contracts(changes, tampered)
+
+
+def test_schema4_rejects_lost_selector_coverage(monkeypatch):
+    before = partial_observation()
+    monkeypatch.setattr(ms, "read", lambda gpu, *, mapping=False: ({"core": before, "mapping_hex": schema4_packet()}, None))
+    with pytest.raises(ms.MsError, match="selector coverage"):
+        ms.contracts(None, schema4_image(selector=3), {"lpwr.ms.0.enabled": False})
+
+
+def test_mapping_reader_preserves_typed_state_with_changing_evaluated_clock_tails(monkeypatch):
+    from threading import RLock
+    from types import SimpleNamespace
+
+    first = partial_observation()
+    second = copy.deepcopy(first)
+    raw = bytearray.fromhex(second["pstate_info_hex"])
+    raw[12 + 3*552 + 0x90] ^= 1
+    second["pstate_info_hex"] = raw.hex()
+    assert gr._observation(first, allow_missing_aux_feature=True) == gr._observation(second, allow_missing_aux_feature=True)
+    cores = iter((first, second))
+    gpu = SimpleNamespace(_lock=RLock())
+    monkeypatch.setattr(gr, "PerfDiagnosticsReader", lambda value: SimpleNamespace(gpu=value))
+    monkeypatch.setattr(lp.clock, "_binding", lambda reader: first["identity"])
+    monkeypatch.setattr(gr, "_once", lambda *args, **kwargs: copy.deepcopy(next(cores)))
+    calls = []
+
+    def get(reader, identity, command, size, request):
+        calls.append((identity, command, size, request))
+        return bytes.fromhex(schema4_packet())
+
+    monkeypatch.setattr(lp, "_get", get)
+    result, error = ms.read(gpu, mapping=True)
+    assert not error and result == {"core": second, "mapping_hex": schema4_packet()}
+    assert len(calls) == 2
+    assert all(c == (first["identity"], lp.ATTRIBUTE_COMMAND, lp.ATTRIBUTE_SIZE, ms._mapping_request()) for c in calls)
+
+
+@pytest.mark.parametrize("mutation", ["unavailable", "zero", "opaque", "routing"])
+def test_mapping_reader_rejects_invalid_or_opaque_mapping_response(monkeypatch, mutation):
+    from threading import RLock
+    from types import SimpleNamespace
+
+    before = partial_observation()
+    gpu = SimpleNamespace(_lock=RLock())
+    monkeypatch.setattr(gr, "PerfDiagnosticsReader", lambda value: SimpleNamespace(gpu=value))
+    monkeypatch.setattr(lp.clock, "_binding", lambda reader: before["identity"])
+    monkeypatch.setattr(gr, "_once", lambda *args, **kwargs: copy.deepcopy(before))
+    raw = bytearray.fromhex(schema4_packet())
+    if mutation == "unavailable":
+        struct.pack_into("<H", raw, 42, 0)
+    elif mutation == "zero":
+        struct.pack_into("<I", raw, 44, 0)
+    elif mutation == "opaque":
+        raw[-1] = 1
+    else:
+        struct.pack_into("<H", raw, 40, 0x809)
+    monkeypatch.setattr(lp, "_get", lambda *args: bytes(raw))
+    result, error = ms.read(gpu, mapping=True)
+    assert result is None and "mapping witness" in error

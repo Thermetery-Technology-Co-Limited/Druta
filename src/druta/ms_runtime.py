@@ -38,8 +38,60 @@ def selected(changes):
     return result
 
 
-def read(gpu):
-    return gr.read(gpu, main=True)
+def _mapping_request():
+    raw = bytearray(lp.ATTRIBUTE_SIZE)
+    struct.pack_into("<I", raw, 0, 3)
+    for i, (index, attribute) in enumerate(((0, 1), (1, 0x800), (1, 0x808))):
+        struct.pack_into("<HHH", raw, 4 + 16 * i, 1, index, attribute)
+    return bytes(raw)
+
+
+def _mapping(raw_hex):
+    raw = lp._hex(raw_hex, lp.ATTRIBUTE_SIZE)
+    request = _mapping_request()
+    checked = bytearray(raw)
+    values = []
+    for i in range(3):
+        at = 4 + 16 * i
+        valid, value = struct.unpack_from("<HI", raw, at + 6)
+        if valid != 1:
+            raise MsError("MS mapping witness is unavailable")
+        values.append(value)
+        checked[at + 6:at + 12] = request[at + 6:at + 12]
+    if checked != request or values[:2] != [1, 1] or not values[2]:
+        raise MsError("MS mapping witness is invalid")
+    return values[2]
+
+
+def read(gpu, *, mapping=False):
+    if not mapping:
+        return gr.read(gpu, main=True)
+    reader = gr.PerfDiagnosticsReader(gpu)
+    try:
+        with gpu._lock:
+            identity = lp.clock._binding(reader)
+            for attempt in range(2):
+                try:
+                    captures = []
+                    for _ in range(2):
+                        core = gr._once(reader, identity, main=True)
+                        raw = lp._get(reader, identity, lp.ATTRIBUTE_COMMAND, lp.ATTRIBUTE_SIZE, _mapping_request())
+                        _mapping(raw.hex())
+                        captures.append({"core": core, "mapping_hex": raw.hex()})
+                    if not _same_state(
+                        gr._observation(captures[0]["core"], allow_missing_aux_feature=True),
+                        gr._observation(captures[1]["core"], allow_missing_aux_feature=True),
+                    ) or captures[0]["mapping_hex"] != captures[1]["mapping_hex"]:
+                        raise gr.PerfDiagnosticError("transient", "MS mapping or configuration changed between reads")
+                    return captures[1], None
+                except gr.PerfDiagnosticError as exc:
+                    if exc.kind != "transient" or attempt == 1:
+                        raise
+                    gpu._current_limit_transport = None
+                    gpu._current_limit_layout_choice = None
+    except Exception as exc:
+        return None, str(exc)
+    return None, "MS mapping is unavailable"
 
 
 def _tables(image, include_difr=False):
@@ -81,7 +133,7 @@ def _tables(image, include_difr=False):
 
 
 def _table_data(tables, schema=1):
-    expected = {"index", "ms", "perf"} | ({"difr"} if schema in (2, 3) else set())
+    expected = {"index", "ms", "perf"} | ({"difr"} if schema in (2, 3, 4) else set())
     if not isinstance(tables, dict) or set(tables) != expected:
         raise MsError("Missing MS table evidence")
     data, spans = {}, []
@@ -106,7 +158,7 @@ def _table_data(tables, schema=1):
             raise MsError("MS table geometry differs")
         data[name] = raw
         spans.append((at, at + len(raw)))
-    if schema in (2, 3):
+    if schema in (2, 3, 4):
         item = tables["difr"]
         if not isinstance(item, dict) or set(item) != {"offset", "owner", "raw_hex"} or item["owner"] != 0x8E:
             raise MsError("Malformed DIFR table witness")
@@ -157,6 +209,11 @@ def _any(rows):
 def _derive(changes, before, tables, schema=1):
     requested = selected(changes)
     data = _table_data(tables, schema)
+    if schema == 4:
+        if not isinstance(before, dict) or set(before) != {"core", "mapping_hex"}:
+            raise MsError("Missing MS mapping witness")
+        _mapping(before["mapping_hex"])
+        before = before["core"]
     core = gr._observation(before, allow_missing_aux_feature=True)
     if not {"main", "bit1", "auxiliary"} <= core.keys():
         raise MsError("MS needs complete independent readback")
@@ -194,15 +251,26 @@ def _derive(changes, before, tables, schema=1):
     lost = old_union & ~new_union
     if schema == 1 and not shutdown and lost:
         raise MsError("Partial MS disable changes unresolved aggregate flags")
-    if schema in (2, 3):
-        if shutdown or not lost or lost & ~0x37C or not lost & 0x10:
+    if schema in (2, 3, 4):
+        if shutdown or not lost or (schema == 4 and lost != 0x04) or (schema != 4 and (lost & ~0x37C or not lost & 0x10)):
             raise MsError("Partial MS aggregate loss is not understood")
         difr = data["difr"]
         difr_flags = [struct.unpack_from("<I", difr, 11 + i * 18)[0] for i in range(difr[3])]
-        if schema == 2 and not any(flag & 0x31 == 0x31 for flag in difr_flags):
+        if schema in (2, 4) and not any(flag & 0x31 == 0x31 for flag in difr_flags):
             raise MsError("Independent DIFR witness is unavailable")
         if schema == 3 and ((lost & 0x60) != 0x60 or any(flag & 1 for flag in difr_flags)):
             raise MsError("MS no-DIFR projection requires all DIFR rows disabled and last raw bits 0x20 and 0x40 lost")
+        if schema == 4:
+            removed_selectors = retained_selectors = 0
+            for i, flag in enumerate(flags):
+                if flag & 0x11 == 0x11:
+                    selector = raw[7 + 16 * i + 8]
+                    if i in disabled:
+                        removed_selectors |= selector
+                    else:
+                        retained_selectors |= selector
+            if not retained_selectors or removed_selectors & ~retained_selectors:
+                raise MsError("MS retained selector coverage is insufficient")
         feature = core["main"]["features"]["4"]
         if not feature["available"] or not feature["value"] & 0x100000:
             raise MsError("MS feature predicate witness is unavailable")
@@ -263,7 +331,7 @@ def _derive(changes, before, tables, schema=1):
     ):
         if src[key]["available"]:
             dst[key]["value"] = project_mask(src[key]["value"], bit)
-    if schema in (2, 3):
+    if schema in (2, 3, 4):
         word = core["main"]["features"]["4"]["value"]
         for source, feature_bit in ((0x04, 0x02), (0x08, 0x01), (0x10, 0x2000),
                                     (0x20, 0x100), (0x40, 0x100000)):
@@ -286,10 +354,11 @@ def _derive(changes, before, tables, schema=1):
         if not word & 0x100000:
             word &= ~0x200000
         after["main"]["features"]["4"]["value"] = word
-        after["auxiliary"]["group"]["800:1"]["value"] = 0
-        after["auxiliary"]["group"]["1:0"]["value"] = _any(
-            [after["auxiliary"]["group"][f"800:{i}"] for i in range(4)]
-        )
+        if schema != 4:
+            after["auxiliary"]["group"]["800:1"]["value"] = 0
+            after["auxiliary"]["group"]["1:0"]["value"] = _any(
+                [after["auxiliary"]["group"][f"800:{i}"] for i in range(4)]
+            )
         if schema == 3:
             out = after["main"]["bit4_group"]
             out["801:1"]["value"] = 0
@@ -354,16 +423,18 @@ def contracts(gpu, image, changes):
     schema = 2 if new_union and old_union != new_union else 1
     if schema == 2:
         lost = old_union & ~new_union
-        if lost & ~0x37C or not lost & 0x10:
+        if lost == 0x04:
+            schema = 4
+        elif lost & ~0x37C or not lost & 0x10:
             raise MsError("Partial MS aggregate flags are not understood")
         try:
             tables = _tables(image, include_difr=True)
         except vbios_fields.FormatError as exc:
             raise MsError("Partial MS aggregate flags need an understood DIFR witness") from exc
         difr = _table_data(tables, schema=2)["difr"]
-        if not any(struct.unpack_from("<I", difr, 11 + i * 18)[0] & 1 for i in range(difr[3])):
+        if schema != 4 and not any(struct.unpack_from("<I", difr, 11 + i * 18)[0] & 1 for i in range(difr[3])):
             schema = 3
-    before, error = read(gpu)
+    before, error = read(gpu, mapping=True) if schema == 4 else read(gpu)
     if error or before is None:
         raise MsError("MS configuration is unavailable: " + str(error))
     bindings, after = _derive(changes, before, tables, schema)
@@ -389,7 +460,7 @@ def validate_contracts(changes, saved):
         or not isinstance(saved, dict)
         or set(saved) != {"schema", "kind", "before_image_sha256", "tables", "before", "selected", "after"}
         or type(saved["schema"]) is not int
-        or saved["schema"] not in (1, 2, 3)
+        or saved["schema"] not in (1, 2, 3, 4)
         or saved["kind"] != "lpwr_ms_disable"
         or not isinstance(saved["before_image_sha256"], str)
         or not lp._HEX256.fullmatch(saved["before_image_sha256"])
@@ -407,7 +478,17 @@ def verify(observation, saved, restore=False):
         raise MsError("Malformed MS contract")
     changes = dict.fromkeys(saved["selected"], False)
     validate_contracts(changes, saved)
-    before = gr._observation(saved["before"], allow_missing_aux_feature=True)
+    if saved["schema"] == 4:
+        if not isinstance(observation, dict) or set(observation) != {"core", "mapping_hex"}:
+            raise MsError("Missing MS mapping observation")
+        _mapping(observation["mapping_hex"])
+        if not _same_state(observation["mapping_hex"], saved["before"]["mapping_hex"]):
+            raise MsError("MS mapping readback changed")
+        observation = observation["core"]
+        before_data = saved["before"]["core"]
+    else:
+        before_data = saved["before"]
+    before = gr._observation(before_data, allow_missing_aux_feature=True)
     actual = gr._observation(observation, allow_missing_aux_feature=True)
     if not _same_state(actual["identity"], before["identity"]) or not _same_state(actual["pstates"], before["pstates"]):
         raise MsError("MS target or Pstate routes changed")
