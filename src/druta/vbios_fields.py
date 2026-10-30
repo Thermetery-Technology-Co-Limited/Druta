@@ -1354,13 +1354,15 @@ class _Image:
                         if role == "REL" and not writable
                         else "equation clamp only; unchanged coefficients and chained equations can still limit the evaluated voltage"
                         if writable
-                        else "INFO VMIN is not the evaluated VMIN"
+                        else "runtime role of rail selector 33 is unverified"
                         if role == "INFO_VMIN"
                         else "unrecognized or aliased rail equation"
                     )
                     self.field(
                         f"voltage.{i}.{role}.maximum",
-                        f"{label} {role} equation ceiling",
+                        f"{label} unclassified rail equation ceiling"
+                        if role == "INFO_VMIN"
+                        else f"{label} {role} equation ceiling",
                         "Voltage",
                         at + 7,
                         "f",

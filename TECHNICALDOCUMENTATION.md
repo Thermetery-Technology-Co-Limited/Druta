@@ -3497,6 +3497,22 @@ other opaque regions remain unchanged. Treating those regions as additional
 the parser and offset planner now use the same width rules. Modeled alternate
 metadata tests pass, and the complete previously tested eight-head plan is
 byte-identical. This does not identify those bytes as VCRIT thresholds.
+
+These row offsets are decimal. A focused follow-up binds full WORD selectors
+33/35 to rail members +0x2E/+0x34 and native B201 INFO row +0x12/+0x18.
+Two read-only rounds matched the captured selectors and loaded definitions.
+Selector 33 has no proven evaluated role; its historical `INFO_VMIN.maximum`
+keys remain stable, but the visible label now says "unclassified rail equation
+ceiling" and explains the unverified role. The field stays read-only.
+Selector 35 has a conditional evaluator path whose result is subsequently used
+as a Perf-state index. Its voltage units, event and timing are unproven. That
+selector was absent on both captured rails. Earlier header field order does not establish
+boot/margin or VCRIT equivalence. Root reproduced 18 source windows, and all 65
+selected parser/scaffold tests passed. The
+[evidence record](experiments/driver-transport-followup-20261028.json) preserves
+the offset-convention erratum and these limits. Existing independent policy
+controls retain their qualification; arbitrary six-word replay is unresolved.
+
 Activation composes registry ROM overrides and performs one selected-GPU PnP
 restart. All heads start at zero. No table growth, VBIOS flash or Windows reboot
 is involved. Capability checks use the current inputs; tested GPU/BIOS/driver

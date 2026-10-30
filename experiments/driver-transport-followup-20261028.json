@@ -62,7 +62,7 @@
       "sequence": "A typed VMIN 800000 -> 805000 -> 800000 comparison was bracketed by three B214 GETs.",
       "result": "All three B214 reads returned status 0; native/public B212 inventory and B218 CONTROL readback stayed unchanged, while B214 response rows changed across all three stages. All requested/policy fields remained unchanged within each GET.",
       "caveat": "The normalized configured comparison excludes capture timestamps/paths and dynamic policy telemetry. The active child's only remaining configured difference was its evaluated V/F curve, which alone triggered active-child attention. This does not qualify an active B214 correlation or establish voltage units or cause.",
-      "raw_response_note": "Twenty-one paired raw records satisfied DWORD = 6250 × adjacent byte; no units, rail association, or cause were inferred. Baseline and restored raw responses differed.",
+      "raw_response_note": "Twenty-one paired raw records satisfied DWORD = 6250 Ã— adjacent byte; no units, rail association, or cause were inferred. Baseline and restored raw responses differed.",
       "restoration": "The full original normalized configuration matched after restoration, excluding capture timestamps/paths and dynamic policy telemetry. The parent journal records state restored with the active-child comparison error retained; the process returned exit 1."
     },
     "typed_status_bridge": "The established0x465F9BCF rail-status wrapper uses B201/B202 or B209/B210. A conditional B202/B214 same-owner/base/backing-entry path is now traced, but their mapped ranges and record correspondence remain unbound. The typed rail-status voltage units cannot be transferred to B214 records."
@@ -2068,15 +2068,101 @@
     "new_gpu_calls": false,
     "new_registry_mutations": false,
     "new_gpu_restarts": false,
-    "compatibility": "Understood layout and current capability checks; no board/BIOS/driver identity allowlist. Alternate metadata examples are modeled tests, not another GPU qualification."
+    "compatibility": "Understood layout and current capability checks; no board/BIOS/driver identity allowlist. Alternate metadata examples are modeled tests, not another GPU qualification.",
+    "extra_selector_followup": {
+      "scope": "Extra v30 rail selector source trace plus two read-only B201/VFE rounds; no new write control qualified",
+      "offset_convention": "33/35 are decimal row-byte offsets, hex0x21/0x23 WORDs. Distinct decimal21/23 are hex0x15/0x17 BYTEs. The early private schema comparison confused these and is superseded by its versioned erratum.",
+      "WORD_route": "5CD8A2..B0 -> descriptor+2E/+34 -> class5 rail+2E/+34 -> B201 native INFO row+12/+18, respectively. These are full WORD copies, not just low bytes.",
+      "selector33": "Current two-rail selector words7/269 match native INFO and loaded constant definitions900000uV. These scoped values are definition data, not proof of VMIN, boot, margin, VCRIT, an evaluated value or runtime consumption. Inspected class5 initializer does not directly evaluate this member.",
+      "selector35": "On the bound conditional5000C0 path, nonzero flag invokes4FB7B0 on GPU+2440; each non-FFFF rail+34 is evaluated by4CD030 with output-type byte4 into rail+38. The zero-flag branch4FB9E0 subsequently supplies that result to4CD4B0, whose mask test and indexed Perf-state byte access establish an index operation, not voltage units. Callback registration and conditional invocation are traced; event and exact timing remain unbound. Selector35 isFFFF on both captured rails, so this trace is not a live activation result.",
+      "schema_boundary": "Inspected NVIDIA-authored older headers name boot/margin VFE fields but lack required typedef definitions for an exact derived ABI match. Neither field order nor overlapping RAM-assist names binds those fields to current VCRIT request words.",
+      "product_change": "The historical INFO_VMIN.maximum keys and role metadata are retained for compatibility. Visible labels now say unclassified rail equation ceiling, with an unverified-role explanation. Fields remain read-only; no patch geometry, selected-policy control or admission logic changed.",
+      "runtime_readback": {
+        "rounds_equal": true,
+        "B201_packets_audited": 2,
+        "rows": [
+          {
+            "rail_index": 0,
+            "native_type_byte": 5,
+            "selectors": {
+              "33": {
+                "raw_row_offset_decimal": 33,
+                "native_INFO_row_offset": "0x12",
+                "selector_word": 7,
+                "present": true,
+                "loaded_constant_definition": {
+                  "index": 7,
+                  "value_uv": 900000,
+                  "next_index": 65535,
+                  "variable": 14,
+                  "output_type": 2
+                }
+              },
+              "35": {
+                "raw_row_offset_decimal": 35,
+                "native_INFO_row_offset": "0x18",
+                "selector_word": 65535,
+                "present": false
+              }
+            }
+          },
+          {
+            "rail_index": 1,
+            "native_type_byte": 5,
+            "selectors": {
+              "33": {
+                "raw_row_offset_decimal": 33,
+                "native_INFO_row_offset": "0x12",
+                "selector_word": 269,
+                "present": true,
+                "loaded_constant_definition": {
+                  "index": 269,
+                  "value_uv": 900000,
+                  "next_index": 65535,
+                  "variable": 14,
+                  "output_type": 2
+                }
+              },
+              "35": {
+                "raw_row_offset_decimal": 35,
+                "native_INFO_row_offset": "0x18",
+                "selector_word": 65535,
+                "present": false
+              }
+            }
+          }
+        ],
+        "identity_role": "Captured configuration only; no tested identity or driver gate introduced"
+      },
+      "validation": {
+        "existing_functionality_tests_passed": 65,
+        "deferred_named_case_deselected": 1,
+        "ruff": "clean",
+        "root_instruction_windows_reproduced": 18,
+        "actual_captured_image_read_only_labels_checked": true
+      },
+      "GPU_restart": false,
+      "Windows_reboot": false,
+      "registry_write": false,
+      "SET": false,
+      "private_evidence_sha256": {
+        "root_review": "05e8ea7b92c8321ac9f676947471e00f3dfb48547e17a7a98e33cbd2de770e08",
+        "read_only_capture": "9555a23ec749cafd5d94929c84b488783c01fb5cacd251262bb762f1976f29f2",
+        "consumer_findings": "b40cedeac38210a143284df0cf5cb7f471f4da6cfe46178e072e81b621d41003",
+        "correct_WORD_join": "bf7638d1367dc2e95df61548b8639cecac25c8489c4a8a3c6573a668122d6c4f",
+        "offset_erratum": "600644ca61a8fb80fc865a78719620af09e8af9930f1b5b842fdc4bf94979016",
+        "primary_typedef_boundary": "7da367d036f973408472996ff449256ce7811cea933d142e0d11e56d9adf67cc"
+      },
+      "remaining": "No effective arbitrary six-word writer or evaluated selector33 role is established. VCRIT replay and modern field semantics remain unresolved; remote Ampere inventory still awaits task routing. Recovery/Undo and profile restoration/replay remain deferred."
+    }
   },
   "vcrit_type2_status_20261030": {
     "scope": "Offline pinned installed Windows driver/NVAPI and saved prior evidence, not a live B202 GET or proof of GSP routing.",
     "binding": [
       "NVAPI 0x5D0634EE wrapper 0x1D45F0 uses converter 0x15D710: native type2 becomes public type0; native type4 becomes public2, native type5 becomes public3.",
-      "4FB2B0 native class2 constructor 91F3D0 installs selector interface+20=91F540. That method invokes common C3DBB0→CAC850, then copies external status-row +4C,+50,+48,+54 to native row +4C,+50,+54,+58 respectively (the last is one byte). NVAPI type0 branch copies native +50,+4C,+54,+58 to public +30,+34,+38,+2C respectively. These are status-source data copies, not static constructor fields or proven threshold values.",
+      "4FB2B0 native class2 constructor 91F3D0 installs selector interface+20=91F540. That method invokes common C3DBB0â†’CAC850, then copies external status-row +4C,+50,+48,+54 to native row +4C,+50,+54,+58 respectively (the last is one byte). NVAPI type0 branch copies native +50,+4C,+54,+58 to public +30,+34,+38,+2C respectively. These are status-source data copies, not static constructor fields or proven threshold values.",
       "Constructor 91F3D0 also copies descriptor +F0 byte and +F2/+F4 words into same object offsets. The independently installed INFO callback 91F730 copies these to native INFO offsets +2C/+2E/+30 and duplicates at +36/+38/+3A; no name, numeric units or status-source origin follows from those copies.",
-      "The inspected v30 rail loader 5CD4D0 maps low five bits 0→native class4, 1→class5, otherwise invalid; it does not create class2 on that v30 branch. A different constructor caller, table layout or forwarding path could do so; do not generalize beyond this path."
+      "The inspected v30 rail loader 5CD4D0 maps low five bits 0â†’native class4, 1â†’class5, otherwise invalid; it does not create class2 on that v30 branch. A different constructor caller, table layout or forwarding path could do so; do not generalize beyond this path."
     ],
     "conclusion": "Current captured class5 does not enter the public type0 conversion or type2 serializer. For the only proven type2 callback, fields are conditionally copied from an external status row; its producer, field semantics and independent target configuration are not identified. No currently bound low/high threshold setter or valid new threshold diagnostic follows.",
     "next_boundary": "Bind the actual type2 external status buffer producer and its matching authoritative field schema or locate a captured type2 path with known population; separately bind a write path to editable configured thresholds. Do not infer threshold values from B202 type5 padding or signed VCRIT request names.",
