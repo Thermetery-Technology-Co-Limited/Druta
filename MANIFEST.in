@@ -17,6 +17,7 @@ include i2c/*.toml i2c/*.md
 
 # Only these public measurements belong in a distribution.
 include experiments/ada-ad103-validation.json
+include experiments/ui-recovery-result-qualified-20261029.json
 include experiments/ada-up9512r-product-2026-10-09.json
 include experiments/voltage-rails-20260906.json
 include experiments/legacy-offsets-47212-0000-01-00.0.json
