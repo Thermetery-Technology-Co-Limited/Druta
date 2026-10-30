@@ -2963,15 +2963,17 @@ a 1% boost request through both restarts; final cleanup restored 0% and the full
 original baseline. Both production receipts fit the unchanged 8 MiB reader
 bound. The complete regression suite passed 5330 tests after integration.
 
-## Voltage request restoration after GPU restart
+## Voltage rail requests and explicit replay
 
 `voltage_request_replay.py` captures native rail INFO (B201/0x98C), native
 CONTROL (B213/0x40C), independent V2 singleton NVAPI CONTROL packets, the small
 boost getter and reported voltage policy. Complete replay requires every active
-INFO rail to have an understood current identity and matching native type5 /
-public type3 requests. Partial captures remain readable. The full INFO payload,
-routing, types and opaque CONTROL bytes must match; no driver or board list is
-used. All six signed microvolt request words are preserved. NVIDIA's legacy
+INFO rail to have an understood current identity and matching public/native
+control types: public0/native2, public2/native4 or public3/native5. Each rail
+retains its own discriminator, including mixed-type packets. Partial captures
+remain readable but cannot be replayed. The full INFO payload, routing, types
+and opaque CONTROL bytes must match; no driver or board list is used. All six
+signed microvolt request words are preserved. NVIDIA's legacy
 `voltDeltauV[6]` ABI names them REL, ALT REL, OV, VMIN, VCRIT low and VCRIT high;
 the installed public/native adapters preserve that ordering. Those names do not
 establish the physical threshold effects or make a suppressed SET operative.
@@ -2987,6 +2989,16 @@ Readback errors identify each differing rail and offset, requested and observed
 values, whether a zero-status SET left that word unchanged, and separate boost
 or metadata differences. All six fields use their legacy ABI names and signed
 microvolt values. This diagnostic does not establish that arbitrary offset replay works.
+
+The additional public0/native2 and public2/native4 pairs share the traced
+six-word CONTROL getter and setter. Root reproduced 23 source windows and eight
+class4 callback joins. The 71 focused tests cover the added singleton types,
+mixed packets, contradictory metadata, partial inventory and ignored SETs.
+Complete current public3/native5 getter snapshots on both local rails matched
+the previous build with no SET. No local native2 or native4 adapter was captured;
+the format support is not runtime qualification of those adapters or proof of
+an effective voltage change. No saved-profile restoration integration was added.
+See the [request-format evidence](experiments/driver-transport-followup-20261028.json).
 
 `voltage_replay_worker.py` performs each capture or replay in a fresh process.
 It verifies the Windows device mapping and exact running BIOS hash before SET,

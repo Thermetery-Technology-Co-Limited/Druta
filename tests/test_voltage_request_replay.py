@@ -13,16 +13,19 @@ from tests.test_voltage_rail_control_runtime import policy
 
 
 class Gpu:
-    def __init__(self, rails=(0, 1), *, extra=(), **ident):
+    def __init__(self, rails=(0, 1), *, extra=(), wire_types=None, **ident):
         self.policy_data = policy(rails, **ident)
         self.identity = self.policy_data["identity"]
         self.offsets = {str(i): [-12345 - i, 23456, -34567, 45678, -987654, 0x12345678] for i in rails}
         self.boost = 37
+        self.wire_types = {str(i): (3, 5, 5) for i in rails}
+        if wire_types is not None:
+            self.wire_types.update(wire_types)
         self.info = bytearray(replay.INFO_SIZE)
         self.info[0], self.info[3], self.info[-1] = 255, 0xCF, 0xD9
         struct.pack_into("<I", self.info, 4, sum(1 << i for i in (*rails, *extra)))
         for i in (*rails, *extra):
-            self.info[12 + i * 76] = 5
+            self.info[12 + i * 76] = self.wire_types.get(str(i), (3, 5, 5))[1]
         self.native_opaque = 0xB4
         self.public_opaque = 0xD2
         self._lock = threading.RLock()
@@ -66,7 +69,7 @@ class Gpu:
     def policy(self):
         result = copy.deepcopy(self.policy_data)
         for index, row in result["rails"].items():
-            row["control_type"] = 3
+            row["control_type"] = self.wire_types[index][0]
             row["offsets_uv"] = dict(zip(replay.voltage._OFFSETS, self.offsets[index][:4], strict=True))
             row["boost_uv"] += self.boost * 100
         return result, None
@@ -85,7 +88,7 @@ class Gpu:
         self.calls.append(("public", index))
         data[8], data[9], data[-1] = self.boost, 0xA7, self.public_opaque
         at = 72 + int(index) * 84
-        struct.pack_into("<I6i", data, at, 3, *self.offsets[index])
+        struct.pack_into("<I6i", data, at, self.wire_types[index][0], *self.offsets[index])
         data[at + 41] = 0xF2
         return self.get_fault(self, index, data) if self.get_fault else 0
 
@@ -111,7 +114,7 @@ class Gpu:
                 if not mask & (1 << int(index)):
                     continue
                 at = 12 + int(index) * 32
-                data[at], data[at + 1], data[at + 28], data[at + 29] = 5, 0xC8, 1, 0xE7
+                data[at], data[at + 1], data[at + 28], data[at + 29] = self.wire_types[index][2], 0xC8, 1, 0xE7
                 struct.pack_into("<6i", data, at + 4, *offsets)
         packet[11] = 1
         return self.native_fault(self, command, data, packet) if self.native_fault else 0
@@ -129,7 +132,7 @@ class Gpu:
         for i in range(32):
             if mask & (1 << i):
                 at = 72 + i * 84
-                expected[at] = 3
+                expected[at] = self.wire_types[str(i)][0]
                 expected[at + 4 : at + 28] = raw[at + 4 : at + 28]
         assert raw == bytes(expected), "SET must not copy public/native GET-only opaque bytes"
         if self.set_fault:
@@ -154,6 +157,71 @@ def capture(gpu):
     state, error = replay.read(gpu)
     assert error is None
     return state
+
+
+@pytest.mark.parametrize("public_type,native_type", [(0, 2), (2, 4)])
+def test_new_type_pair_singleton_capture(public_type, native_type):
+    gpu = Gpu((0,), wire_types={"0": (public_type, native_type, native_type)})
+    state = capture(gpu)
+    assert state["complete"] and state["rail_identity"]["0"]["control_type"] == public_type
+    assert bytes.fromhex(state["info_hex"])[12] == native_type
+    assert bytes.fromhex(state["native_hex"])[12] == native_type
+    assert replay._six(bytes.fromhex(state["public"]["0"]), 72) == gpu.offsets["0"]
+
+
+@pytest.mark.parametrize(
+    "left,right", [((0, 2, 2), (3, 5, 5)), ((0, 2, 2), (2, 4, 4)), ((2, 4, 4), (3, 5, 5))]
+)
+def test_mixed_types_compose_set_and_preserve_opaque_readback(left, right):
+    gpu = Gpu(wire_types={"0": left, "1": right})
+    before = capture(gpu)
+    offsets = {"0": [1, -2, 3, -4, 5, -6], "1": [-7, 8, -9, 10, -11, 12]}
+    result = replay.replay(gpu, replay.project(before, offsets_uv=offsets))
+    assert result["verified"] and gpu.offsets == offsets
+    packet = gpu.set_calls[0]
+    assert struct.unpack_from("<I", packet, 72)[0] == left[0]
+    assert struct.unpack_from("<I", packet, 72 + 84)[0] == right[0]
+    assert list(struct.unpack_from("<6i", packet, 76)) == offsets["0"]
+    assert list(struct.unpack_from("<6i", packet, 76 + 84)) == offsets["1"]
+    assert replay._opaque(result["after"]) == replay._opaque(before)
+
+
+@pytest.mark.parametrize("field", ["public", "info", "native", "policy"])
+@pytest.mark.parametrize("public_type,native_type", [(0, 2), (2, 4)])
+def test_new_type_pair_rejects_crossed_types(field, public_type, native_type):
+    state = capture(Gpu((0,), wire_types={"0": (public_type, native_type, native_type)}))
+    if field == "policy":
+        state["policy"]["rails"]["0"]["control_type"] = 3
+    else:
+        key = {"public": "public", "info": "info_hex", "native": "native_hex"}[field]
+        raw = bytearray.fromhex(state[key]["0"] if field == "public" else state[key])
+        raw[72 if field == "public" else 12] = 3 if field == "public" else 5
+        if field == "public":
+            state[key]["0"] = raw.hex()
+        else:
+            state[key] = raw.hex()
+    with pytest.raises(replay.ReplayError):
+        replay.validate(state)
+
+
+def test_public_zero_unsupported_peer_stays_partial_and_cannot_set():
+    gpu = Gpu(wire_types={"0": (0, 2, 2), "1": (3, 4, 5)})
+    state = capture(gpu)
+    assert set(state["public"]) == {"0"} and state["missing_indices"] == [1]
+    with pytest.raises(replay.ReplayError, match="every active"):
+        replay.replay(gpu, state)
+    assert not gpu.set_calls
+
+
+@pytest.mark.parametrize("public_type,native_type", [(0, 2), (2, 4)])
+def test_new_type_pair_ignored_set_fails_independent_readback(public_type, native_type):
+    gpu = Gpu((0,), wire_types={"0": (public_type, native_type, native_type)})
+    desired = replay.project(capture(gpu), offsets_uv={"0": [1, 2, 3, 4, 5, 6]})
+    gpu.set_fault = lambda *_: 0
+    with pytest.raises(replay.ReplayError) as error:
+        replay.replay(gpu, desired)
+    assert error.value.attempted and not error.value.result["verified"]
+    assert "unchanged from before" in error.value.result["readback_error"]
 
 
 def test_noop_sets_once_and_keeps_all_requests_and_opaque_state():

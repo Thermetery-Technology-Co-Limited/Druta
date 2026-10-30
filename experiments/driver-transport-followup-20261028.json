@@ -3061,5 +3061,79 @@
       "root_pinned_readback_sha256": "cee2dac3540e0570ddccd2bf48f3bdea2ca14e30f9ef621f4cdebafd33ed7f2b"
     },
     "limits": "Constructor initialization does not exclude later changes. Older runtime operation, live gate value, exact current local/firmware route and firmware enforcement are unverified. Independent REL/ALT/OV/VMIN equation-head controls retain their qualification; arbitrary legacy/VCRIT replay remains unresolved. No new control, compatibility allowlist, recovery work or profile-restoration integration was added."
+  },
+  "legacy_voltage_request_control_types_20261030": {
+    "scope": "Explicit six-word request capture, projection and one-SET readback support; no saved-profile restoration integration, recovery work, compatibility list or new effective-voltage claim.",
+    "images": {
+      "nvlddmkm.sys": "3f8d33495cabeb2fa11ebdcf0b12705e9ccfb4e53005324bcd86e9dea8ba2ab4",
+      "nvapi64_impl.dll": "46586752524af6075736eb655bb3a1da4030dfa42e6b6872afab400d50f249e7"
+    },
+    "public_native_pairs": [
+      {
+        "public_type": 0,
+        "native_type": 2
+      },
+      {
+        "public_type": 2,
+        "native_type": 4
+      },
+      {
+        "public_type": 3,
+        "native_type": 5
+      }
+    ],
+    "public_conversion": {
+      "get_rva": "0x15D710",
+      "set_rva": "0x15D760",
+      "public_v2_bytes": 2760,
+      "public_row_base": 72,
+      "public_row_stride": 84,
+      "native_control_bytes": 1036,
+      "native_row_base": 12,
+      "native_row_stride": 32,
+      "request_words": 6,
+      "word_type": "signed int32 microvolts, named REL/ALT REL/OV/VMIN/VCRIT_LOW/VCRIT_HIGH by the legacy ABI; names do not establish physical threshold effects"
+    },
+    "class2_route": "Factory4FB2B0 -> constructor91F3D0; CONTROL GET91F5E0 -> C3DBC0 -> CAC910; SET91F720 -> C3DBE0 -> CACC70.",
+    "class4_route": "Factory4FB2B0 -> constructor91F8D0; interface+28=91FAA0 -> 91F5E0 -> C3DBC0 -> CAC910; interface+30=91FC10 -> 91F720 -> C3DBE0 -> CACC70.",
+    "common_methods": "CAC910 copies six object DWORDs+6C..80 to native row+4..18. CACC70 copies the six request words back only when the separately documented PERF+32C gate is zero. Source sharing does not establish the live gate or an effective voltage change.",
+    "product_change": "Validate each rail against fresh policy, public singleton row, native INFO and native CONTROL using its own understood pair. Preserve per-rail type in canonical zero-padded SET packets. Unsupported peers remain readable partial captures but cannot be replayed. Existing target, complete mask, geometry, six-word and opaque readback checks remain required. No driver-version gate.",
+    "root_source_review": {
+      "source_windows_reproduced": 23,
+      "class4_callback_joins": 8,
+      "audit_sha256": "d19a7344ba98be69e30716115fab9b84b027ac936055f6b74652d99c888552dc"
+    },
+    "root_current_adapter_read": {
+      "baseline_commit": "9cb04d50a449ba8e00cbf40f4e15b3a091d13bb6",
+      "baseline_source_sha256": "f3639b8b4b98ef9feb0aa7461b47898ee79f21ce67703ea9a8a132dd5f383834",
+      "new_source_sha256": "3d1dbbdd96c0029255c568d8f2f40fe8af21d8a9f25c53cd2bc1a4e10d40f303",
+      "complete_snapshots_equal": true,
+      "observed_pairs": [
+        {
+          "rail": "0",
+          "public_type": 3,
+          "native_info_type": 5,
+          "native_control_type": 5
+        },
+        {
+          "rail": "1",
+          "public_type": 3,
+          "native_info_type": 5,
+          "native_control_type": 5
+        }
+      ],
+      "capture_sha256": "38ba00c8d6987d3b56083f3240e221118b8a4dab53c75d82574fa3ddbf93227b",
+      "sets": 0,
+      "registry_writes": 0,
+      "gpu_restarts": 0,
+      "workloads": 0
+    },
+    "validation": {
+      "focused_tests_passed": 71,
+      "tests_deselected": 30,
+      "ruff": "passed for both changed Python files",
+      "independent_review": "Luna read-only review found no concrete correctness gaps in the two-file diff; no hardware actions"
+    },
+    "limits": "No native2/native4 adapter was captured locally. Added-type and mixed-type tests are modeled coverage, not hardware qualification. No generation-to-control-type mapping is inferred. Current write suppression, effective arbitrary six-word replay and VCRIT consumption remain unresolved. Recovery/Undo and ordinary saved-profile restoration/replay integration remain deferred."
   }
 }
