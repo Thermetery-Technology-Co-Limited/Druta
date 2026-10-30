@@ -2084,5 +2084,125 @@
     "root_raw_bytes_and_disassembly_reproduced": true,
     "new_threshold_get_or_set_qualified": false,
     "ABI_layout_limit": "Older declarations depend on an unbound VFE index typedef and BOARDOBJ definition; conditional U8/U16 layouts do not by themselves identify the current 0x4C-row field names."
+  },
+  "difr_live_request_20261030": {
+    "scope": "Pinned offline Windows trace plus root-only sequential fixed probes and real product panel callbacks on the current RTX5080. No registry writes, driver restart, workload or physical measurement.",
+    "driver_sha256": "3f8d33495cabeb2fa11ebdcf0b12705e9ccfb4e53005324bcd86e9dea8ba2ab4",
+    "prior_checkpoint_correction": "The 20261029 same-owner boundary is resolved on a conditional constructor/call path: GPU+0x22D0 holds the OBJDISP child, +0x11D8 selects 729390. OBJDISP+0x270 alternatives clear owner bits, submit a separate packet or return. Actual runtime selection and physical effects remain unproved; this is not equivalent to the public reason0 request.",
+    "public_protocol": {
+      "command": "0x20802801",
+      "bytes": 4,
+      "disable": 1,
+      "enable": 2,
+      "support": 3,
+      "support_results": {
+        "1": "supported",
+        "2": "not supported"
+      },
+      "counting": "Disable increments a reason0 counter and sets its bit; Enable decrements and clears at zero. This is a counted request, not a Boolean setter."
+    },
+    "mask_readback": "A801 type3/controller9 attr0x48 reads record+0x110 and attr0x49 reads +0x11C. Other attributes/controllers and unknown bytes are preserved. These are mask banks, not a count or residency getter.",
+    "branch_boundary": "Normal-mode reason0 uses +0x10C/+0x110; alternate mode uses +0x118/+0x11C. The mode-specific callback paths test the corresponding bank. No bank-to-bank copy or physical scheduler effect established.",
+    "negative_predicate_trial": "First disable/enable pair returned successful native status but attr0x37 remained1. It is retained as negative evidence for an enabled-predicate toggle, not promoted to a success.",
+    "positive_mask_trial": {
+      "controller": 9,
+      "attr0x48": [
+        0,
+        0,
+        0
+      ],
+      "attr0x49": [
+        0,
+        1,
+        0
+      ],
+      "enabled_predicate": [
+        1,
+        1,
+        1
+      ],
+      "support_and_presence": [
+        1,
+        1,
+        1
+      ],
+      "qualification": "Exact reason0 request readback only."
+    },
+    "product_callbacks": {
+      "operations": [
+        "Read",
+        "Hold",
+        "duplicate Hold",
+        "Release"
+      ],
+      "native_mutations": [
+        1,
+        2
+      ],
+      "packet_counts": {
+        "0x20802801": 16,
+        "0x2080A801": 60,
+        "0x2080A0A7": 2
+      },
+      "verified": "Both root reproduction and independent raw-packet audit passed all78 envelopes/statuses, all60 A801 routing/opaque regions, request-mask timeline and UI button states. Full before/active/final LPWR configuration, original image, registry and target identity matched. Programmatic callbacks, not physical mouse input."
+    },
+    "product_behavior": "The panel owns at most one counted request per selected GPU object, reuses that controller across panel rebuilds, and releases only its own request while preserving other current reason bits. Existing request presence prevents an unowned hold/release. Native uncertain outcomes are shown as uncertain with both writes unavailable; no automatic retry or release was added. Release before switching GPUs or closing. No GPU restart required.",
+    "validation": {
+      "focused_tests": 120,
+      "ruff": "passed for new backend/UI and their tests",
+      "diff_check": "passed",
+      "root_raw_static_windows": 48
+    },
+    "remaining": "No factory-disabled DIFR row activation, physical disable, entry, residency or power saving established. Unknown parameter units/ranges and actual runtime callback selection remain unbound. Recovery/Undo and profile restoration/replay integration remain deferred until other requested functionality is production-ready.",
+    "private_evidence_sha256": [
+      {
+        "path": "experiments/registry-overrides/difr-live-control-root-20261030/static-review-2.json",
+        "sha256": "93f5878fa6f5c775ab43786ebdf0cb80a5cee84ff05a1a2d68874df725794197"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-live-control-root-20261030/toggle-trial-1.json",
+        "sha256": "920afc77df7e0d1d8f6c45b12171340083272b116f17fe685184cf5eeb934660"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-live-control-root-20261030/mask-read-1.json",
+        "sha256": "66573823af31b030d6dcb727a456148f3e094bf0155a8205b7736c753960988d"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-live-control-root-20261030/mask-toggle-trial-1.json",
+        "sha256": "7d84acc7fd66413f86c2da65a8be6c6ff609fcce9d6dac7ecc6ab8f2ccfbfc44"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-live-control-root-20261030/product_callbacks_v1.py",
+        "sha256": "2332cb38fcb6b51fded5fff7e2a019fe98f68a9345a0d0b1981c49babf36fd7b"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-live-control-root-20261030/product-callbacks-1.json",
+        "sha256": "34971fa23138cbe41c5863853ded6fc285be10f246bedaa0b47ed0e50a7ef831"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-live-control-root-20261030/product-audit-reproduction-1.json",
+        "sha256": "e2a53c67d50a66dafa942455115c17f462d50e0b09736dbfae7515e82736b0a7"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-live-control-review-terra-20261030/toggle-trial1-audit.json",
+        "sha256": "6dea55ba380e8e608a2ea00c56d63d5208ab86875062916f0530cd4eff23d4e8"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-live-control-review-terra-20261030/mask-toggle-trial1-audit.json",
+        "sha256": "0513ec6bf63297c5bcdf2b03db6f8c92d8eccb652d3b0b282dd9dbab61fdfdc3"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-live-control-review-terra-20261030/product-callbacks1-audit.json",
+        "sha256": "ce7f94715ff32dbcc549ead66e61d6eff0531d466c42cf24f4f29e7c7fd2a7d8"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-live-control-review-terra-20261030/mask-getters-review.json",
+        "sha256": "32ba2b9bc4e919b0653834c04638aa04b544067c8e08af081ade8e1a1d1baab2"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-live-control-review-terra-20261030/local-branch-discriminator.json",
+        "sha256": "fabd22caa8f0ace25e4fa68d0b332556a96b558f305a64429816eed09731da77"
+      }
+    ]
   }
 }

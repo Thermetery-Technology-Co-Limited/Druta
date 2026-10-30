@@ -108,6 +108,11 @@ class RegistryPanel:
             )
             dpg.add_button(label="Read DIFR configuration", callback=self.refresh_difr)
             dpg.add_input_text(tag="reg_difr_readback", readonly=True, multiline=True, width=-1, height=self.app.s(190))
+        from .difr_live_panel import DifrLivePanel
+
+        self.difr_live_panel = DifrLivePanel(self.app)
+        with dpg.collapsing_header(label="Live DIFR disable request", tag="reg_difr_live_header"):
+            self.difr_live_panel.build()
         with dpg.collapsing_header(label="Power/current arbitration"):
             dpg.add_text(
                 "Compare each request with host votes, firmware votes, and the effective limit. "

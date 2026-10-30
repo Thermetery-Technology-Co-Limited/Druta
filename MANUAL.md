@@ -745,6 +745,14 @@ results. The read does not measure the executing P-state, feature residency or
 physical power savings. Table layouts and routing that cannot be qualified are
 reported before a DIFR write; unrelated controls retain their own capabilities.
 
+**Live DIFR disable request** holds one counted request for this Druta instance.
+Use **Read** to see request support and the separate driver-enabled readback;
+that readback does not report feature residency. **Hold disable request** adds
+this instance's request, and **Release this request** removes a request held by
+this instance. This control does not enable originally disabled entries and
+does not require a GPU restart. Release the request before switching GPUs or
+closing Druta; it is not released automatically.
+
 **Runtime VF policy control** reads the active monotonicity and smoothing checks.
 After **Read VF policies**, use **Apply policies now** to change either check
 without restarting the GPU. **Restore initial policies** restores the values

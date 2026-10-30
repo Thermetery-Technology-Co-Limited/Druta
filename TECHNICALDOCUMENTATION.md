@@ -2116,10 +2116,30 @@ other conditions, call the controller-9 enable helper with reason 6. The public
 0x20802801 DIFR control uses reason 0 and separate counter/bit handling. Attribute
 0x37 is a conjunction involving controller presence, record fields and a callback,
 rather than a direct reason-mask read; attributes 0x3A/0x3B serialize scaled callback
-values, not raw reason bits. Actual same-owner binding, the subsequent owner+0x270
-callback, selected callback/runtime path and physical effect are unproved. These
-traces do not add a control or establish that the disabled BIOS entries became active.
+values, not raw reason bits. A subsequent trace binds both callers to the same
+conditionally installed OBJDISP child at GPU+0x22D0. Its owner+0x270 alternatives
+clear owner bits, submit a separate packet or return; runtime selection and physical
+effect remain unproved. None establishes that disabled BIOS entries became active.
 See the [transport evidence](experiments/driver-transport-followup-20261028.json).
+
+The separate `difr_live_control.py` path sends public command **0x20802801** with
+one 32-bit value: disable1, enable2 or support3. Disable/enable increment/decrement
+a reason0 request count. Type3 controller9 attributes **0x48/0x49** read its two
+request-mask banks at record+0x110/+0x11C. The controller owns at most one request;
+a repeated Hold adds no count, and Release clears only its own reason0 request,
+preserving other current reason bits. The panel exposes Read, Hold and Release
+without a GPU restart. Its controller survives a panel rebuild for the same GPU
+object. Release before switching GPUs or closing; there is no automatic release.
+
+The initial documented command pair succeeded but left attribute0x37 unchanged;
+that trial remains negative for an enabled-predicate toggle. A later mask-readback
+trial and the real product panel callbacks observed **0x49 bit0: 0→1→0**, with
+0x48 zero throughout. The driver-enabled predicate stayed true. Duplicate Hold
+sent no extra disable, and the native mutation sequence was exactly disable/enable.
+Target identity, registry, full image and configured LPWR bytes matched the original
+afterward. All 120 focused backend, panel and registry-panel tests passed. This
+qualifies the counted software request and its exact readback, not physical DIFR
+disable, residency, power saving or activation of originally disabled entries.
 
 New DIFR previews carry a versioned structural contract bound to their image
 and paired adapter. Apply, post-restart verification, Undo and automatic rollback
