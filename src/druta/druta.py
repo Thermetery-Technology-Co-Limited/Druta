@@ -14223,11 +14223,16 @@ deliberately does not put behind a button."""
                     try:
                         trial_dir = getattr(self, "_ui_pstates_trial_dir", None)
                         if trial_dir:
-                            capture = RegistryUiTrial(dpg, self, trial_dir,
-                                                      resume=getattr(self, "_ui_pstates_trial_resume", False),
-                                                      kind=getattr(self, "_ui_registry_trial_kind", "pstates"),
-                                                      family=getattr(self, "_ui_lpwr_family", None),
-                                                      rows=getattr(self, "_ui_lpwr_rows", None))
+                            if getattr(self, "_ui_registry_trial_kind", "pstates") == "recovery-undo":
+                                from .recovery_undo_ui_trial import RecoveryUndoUiTrial
+                                capture = RecoveryUndoUiTrial(dpg, self, trial_dir,
+                                                              resume=getattr(self, "_ui_pstates_trial_resume", False))
+                            else:
+                                capture = RegistryUiTrial(dpg, self, trial_dir,
+                                                          resume=getattr(self, "_ui_pstates_trial_resume", False),
+                                                          kind=getattr(self, "_ui_registry_trial_kind", "pstates"),
+                                                          family=getattr(self, "_ui_lpwr_family", None),
+                                                          rows=getattr(self, "_ui_lpwr_rows", None))
                         else:
                             rel_bounds = getattr(self, "_ui_capture_rel_bounds", None)
                             if getattr(self, "_ui_capture_recovery", False):
@@ -14386,13 +14391,15 @@ def main(argv=None):
                 ui_lpwr_rows = [int(part) for part in parts]
             ui_pstates_trial_dir = os.path.abspath(argv.pop(0))
             ui_registry_trial_kind = "lpwr"
-        elif a in ("--ui-capture-pstates-trial", "--ui-capture-power-trial", "--ui-pstates-trial-resume"):
+        elif a in ("--ui-capture-pstates-trial", "--ui-capture-power-trial", "--ui-pstates-trial-resume",
+                    "--ui-capture-recovery-undo"):
             if not argv or ui_pstates_trial_dir is not None:
                 _tell(a + " needs one directory")
                 return 2
             ui_pstates_trial_dir = os.path.abspath(argv.pop(0))
             ui_pstates_trial_resume = a == "--ui-pstates-trial-resume"
-            ui_registry_trial_kind = "power" if a == "--ui-capture-power-trial" else "pstates"
+            ui_registry_trial_kind = ("power" if a == "--ui-capture-power-trial" else
+                                      "recovery-undo" if a == "--ui-capture-recovery-undo" else "pstates")
         elif a == "--recovery-result":
             if not argv:
                 _tell("--recovery-result needs a receipt path")
@@ -14414,6 +14421,7 @@ def main(argv=None):
                   "  --startup-profile  apply the opted-in sign-in profile after shutdown checks\n\n"
                   "  --ui-capture NEW_DIRECTORY  capture a display-only developer walkthrough\n"
                   "  --ui-capture-recovery NEW_DIRECTORY  capture a recovery-result relaunch without writes\n"
+                  "  --ui-capture-recovery-undo NEW_DIRECTORY  execute saved Undo and restart the GPU\n"
                   "  --ui-capture-live-vmin NEW_DIRECTORY  apply +5 mV to rail 0 VMIN, capture, then restore\n"
                   "  --ui-capture-live-rel-bounds RAIL VALUE_UV NEW_DIRECTORY  fix both REL head bounds, restore, capture and exit\n"
                   "  --ui-capture-pstates-trial NEW_DIRECTORY  preview, apply and restore the P-state gate\n"
@@ -14426,7 +14434,9 @@ def main(argv=None):
         else:
             _tell(f"unknown argument {a!r} (try --help)")
             return 2
-    if ui_pstates_trial_dir and (ui_capture_dir or automatic or bool(recovery_path) != ui_pstates_trial_resume):
+    recovery_trial = ui_registry_trial_kind == "recovery-undo"
+    if ui_pstates_trial_dir and (ui_capture_dir or automatic or
+                                bool(recovery_path) != (ui_pstates_trial_resume or recovery_trial)):
         _tell("Registry trial cannot be combined with capture or startup; resume requires a recovery result")
         return 2
     if ui_pstates_trial_dir and ((ui_pstates_trial_resume and not os.path.isdir(ui_pstates_trial_dir))
@@ -14442,6 +14452,10 @@ def main(argv=None):
                 saved_trial = json.load(stream)
             if not isinstance(saved_trial, dict) or saved_trial.get("phase") not in ("applying", "restoring"):
                 raise ValueError("invalid trial phase")
+            if saved_trial.get("kind") == "recovery-undo":
+                if saved_trial.get("phase") != "restoring" or not isinstance(saved_trial.get("receipt"), str):
+                    raise ValueError("invalid recovery Undo trial")
+                ui_registry_trial_kind = "recovery-undo"
             if saved_trial.get("kind") == "lpwr" and "rows" in saved_trial:
                 rows, family = saved_trial["rows"], saved_trial.get("family")
                 if (family not in ("gr_pg", "ms", "nvdec", "nvenc", "ofa", "nvjpg")

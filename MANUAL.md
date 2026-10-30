@@ -542,6 +542,19 @@ settings, restart the GPU, or create or inject a failure. The displayed
 is restored; it does not mean recovery is still pending. Undo availability
 comes from the current saved receipt.
 
+To exercise the real Undo callback, run the separate opt-in trial:
+`Druta --ui-capture-recovery-undo NEW_DIRECTORY --recovery-result RESULT`.
+`NEW_DIRECTORY` must be new, with an existing parent. `RESULT` must be accepted
+for the selected GPU, and its Details path must match the active same-adapter
+recovery-required receipt with Undo available. The trial captures the pending
+panel and log, calls the Registry panel's ordinary **Restore previous registry
+settings** action, and follows the existing helper/relaunch path. After the
+helper and readback verification succeed, it captures the restored panel and
+log. This changes the registry and restarts the selected GPU; it does not
+reboot Windows. It cannot be combined with a startup profile or another
+capture/trial mode. This exercises the callback programmatically; it does not
+qualify physical input or broader failure/recovery handling.
+
 Changing ALT can change the shared boost contribution and the computed REL and
 effective limits on both rails. OV can change the selected rail's effective
 limit. These computed outputs are recorded without assuming a firmware formula.
