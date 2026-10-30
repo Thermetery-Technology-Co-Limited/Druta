@@ -62,7 +62,7 @@
       "sequence": "A typed VMIN 800000 -> 805000 -> 800000 comparison was bracketed by three B214 GETs.",
       "result": "All three B214 reads returned status 0; native/public B212 inventory and B218 CONTROL readback stayed unchanged, while B214 response rows changed across all three stages. All requested/policy fields remained unchanged within each GET.",
       "caveat": "The normalized configured comparison excludes capture timestamps/paths and dynamic policy telemetry. The active child's only remaining configured difference was its evaluated V/F curve, which alone triggered active-child attention. This does not qualify an active B214 correlation or establish voltage units or cause.",
-      "raw_response_note": "Twenty-one paired raw records satisfied DWORD = 6250 Ã— adjacent byte; no units, rail association, or cause were inferred. Baseline and restored raw responses differed.",
+      "raw_response_note": "Twenty-one paired raw records satisfied DWORD = 6250 \u00c3\u2014 adjacent byte; no units, rail association, or cause were inferred. Baseline and restored raw responses differed.",
       "restoration": "The full original normalized configuration matched after restoration, excluding capture timestamps/paths and dynamic policy telemetry. The parent journal records state restored with the active-child comparison error retained; the process returned exit 1."
     },
     "typed_status_bridge": "The established0x465F9BCF rail-status wrapper uses B201/B202 or B209/B210. A conditional B202/B214 same-owner/base/backing-entry path is now traced, but their mapped ranges and record correspondence remain unbound. The typed rail-status voltage units cannot be transferred to B214 records."
@@ -2074,7 +2074,21 @@
       "offset_convention": "33/35 are decimal row-byte offsets, hex0x21/0x23 WORDs. Distinct decimal21/23 are hex0x15/0x17 BYTEs. The early private schema comparison confused these and is superseded by its versioned erratum.",
       "WORD_route": "5CD8A2..B0 -> descriptor+2E/+34 -> class5 rail+2E/+34 -> B201 native INFO row+12/+18, respectively. These are full WORD copies, not just low bytes.",
       "selector33": "Current two-rail selector words7/269 match native INFO and loaded constant definitions900000uV. These scoped values are definition data, not proof of VMIN, boot, margin, VCRIT, an evaluated value or runtime consumption. Inspected class5 initializer does not directly evaluate this member.",
-      "selector35": "On the bound conditional5000C0 path, nonzero flag invokes4FB7B0 on GPU+2440; each non-FFFF rail+34 is evaluated by4CD030 with output-type byte4 into rail+38. The zero-flag branch4FB9E0 subsequently supplies that result to4CD4B0, whose mask test and indexed Perf-state byte access establish an index operation, not voltage units. Callback registration and conditional invocation are traced; event and exact timing remain unbound. Selector35 isFFFF on both captured rails, so this trace is not a live activation result.",
+      "selector35": "On the bound conditional5000C0 path, nonzero flag invokes4FB7B0 on GPU+2440; each non-FFFF rail+34 is registered by4CD030 with output-type byte4 and zero variable inputs. It returns a reference-counted monitor-slot handle0..15 into rail+38, not the numerical equation value. The zero-flag branch4FB9E0 passes that handle to4CD4B0 for release. Numerical refresh and cached-value readback are separate. Callback registration and conditional invocation are traced; output-type units, live event and exact timing remain unbound. Selector35 isFFFF on both captured rails, so this trace is not a live activation result.",
+      "monitor_slot_correction_20261030": {
+        "supersedes": "The earlier evaluator-result/Perf-state-index interpretation of4CD030 output and rail+38 was incorrect; the complete allocator, release, refresh and getter bodies establish a monitoring handle.",
+        "allocation": "4CD030 reuses a matching equation/input tuple or allocates a free slot in Perf+374. Records have stride32 at Perf+378; WORD selector+394, input count+396, output-type byte+397, reference count+578+i. It increments that count and returns the slot index. This does not establish that output type participates in reuse matching.",
+        "release": "4CD4B0 decrements the selected slot reference count; when it reaches zero it clears the active mask bit and calls the refresh path. This is handle lifecycle, not numerical voltage evaluation.",
+        "refresh": "4CCDB0 sends a0x214-byte internal376D60 packet with header bytes00/13/0C only when Perf+371 is nonzero. After successful transfer it caches selected values at Perf+390+32*i and marks Perf+373. If Perf+371 is zero, it returns success without transfer or setting that marker.",
+        "readback": "4CCF40 separately requires initialization, the refreshed marker, an active slot and output type1..4 before copying the cached value. Direct rail callers inspected here use peer handles+3C/+40/+44; a direct numerical read of this owner's+38 handle remains unbound.",
+        "independent_root_windows_verified": 7,
+        "decisive_instruction_joins_verified": 21,
+        "driver_sha256": "3f8d33495cabeb2fa11ebdcf0b12705e9ccfb4e53005324bcd86e9dea8ba2ab4",
+        "live_activation_proven": false,
+        "runtime_calls": 0,
+        "product_control_added": false,
+        "root_review_sha256": "716bb0195f3279f258ffe29a55223d14da451b0af827841a136b02191baa8193"
+      },
       "schema_boundary": "Inspected NVIDIA-authored older headers name boot/margin VFE fields but lack required typedef definitions for an exact derived ABI match. Neither field order nor overlapping RAM-assist names binds those fields to current VCRIT request words.",
       "product_change": "The historical INFO_VMIN.maximum keys and role metadata are retained for compatibility. Visible labels now say unclassified rail equation ceiling, with an unverified-role explanation. Fields remain read-only; no patch geometry, selected-policy control or admission logic changed.",
       "runtime_readback": {
@@ -2160,9 +2174,9 @@
     "scope": "Offline pinned installed Windows driver/NVAPI and saved prior evidence, not a live B202 GET or proof of GSP routing.",
     "binding": [
       "NVAPI 0x5D0634EE wrapper 0x1D45F0 uses converter 0x15D710: native type2 becomes public type0; native type4 becomes public2, native type5 becomes public3.",
-      "4FB2B0 native class2 constructor 91F3D0 installs selector interface+20=91F540. That method invokes common C3DBB0â†’CAC850, then copies external status-row +4C,+50,+48,+54 to native row +4C,+50,+54,+58 respectively (the last is one byte). NVAPI type0 branch copies native +50,+4C,+54,+58 to public +30,+34,+38,+2C respectively. These are status-source data copies, not static constructor fields or proven threshold values.",
+      "4FB2B0 native class2 constructor 91F3D0 installs selector interface+20=91F540. That method invokes common C3DBB0\u00e2\u2020\u2019CAC850, then copies external status-row +4C,+50,+48,+54 to native row +4C,+50,+54,+58 respectively (the last is one byte). NVAPI type0 branch copies native +50,+4C,+54,+58 to public +30,+34,+38,+2C respectively. These are status-source data copies, not static constructor fields or proven threshold values.",
       "Constructor 91F3D0 also copies descriptor +F0 byte and +F2/+F4 words into same object offsets. The independently installed INFO callback 91F730 copies these to native INFO offsets +2C/+2E/+30 and duplicates at +36/+38/+3A; no name, numeric units or status-source origin follows from those copies.",
-      "The inspected v30 rail loader 5CD4D0 maps low five bits 0â†’native class4, 1â†’class5, otherwise invalid; it does not create class2 on that v30 branch. A different constructor caller, table layout or forwarding path could do so; do not generalize beyond this path."
+      "The inspected v30 rail loader 5CD4D0 maps low five bits 0\u00e2\u2020\u2019native class4, 1\u00e2\u2020\u2019class5, otherwise invalid; it does not create class2 on that v30 branch. A different constructor caller, table layout or forwarding path could do so; do not generalize beyond this path."
     ],
     "conclusion": "Current captured class5 does not enter the public type0 conversion or type2 serializer. For the only proven type2 callback, fields are conditionally copied from an external status row; its producer, field semantics and independent target configuration are not identified. No currently bound low/high threshold setter or valid new threshold diagnostic follows.",
     "next_boundary": "Bind the actual type2 external status buffer producer and its matching authoritative field schema or locate a captured type2 path with known population; separately bind a write path to editable configured thresholds. Do not infer threshold values from B202 type5 padding or signed VCRIT request names.",
@@ -2702,5 +2716,239 @@
       "NVML_GET_capture": "a799e94b56e4221453303e1539e6708fa7be01c51b91f2037a5e863140c23dfe"
     },
     "remaining": "Arbitrary six-word replay including VCRIT low/high remains unresolved. Bind an effective legacy writer/capability or modern numerical semantics, selected-object association and consumed path before any modern SET. Remote Ampere inventory is still pending Codex task routing. Recovery/Undo and ordinary profile restoration/replay remain deferred."
+  },
+  "perf_limit_status_query_20261030": {
+    "scope": "Native PERF_LIMITS STATUS query on the current selected type6 inventory. INFO/CONTROL getters and descriptors were already catalogued and implemented; this follow-up qualifies the additional A023 raw status observation, not a new voltage writer.",
+    "native_descriptors": [
+      {
+        "command": "0x2080a022",
+        "handler_rva": "0x390670",
+        "parameter_bytes": 31372,
+        "flags": "0x48"
+      },
+      {
+        "command": "0x2080a023",
+        "handler_rva": "0x390770",
+        "parameter_bytes": 336228,
+        "flags": "0x48"
+      },
+      {
+        "command": "0x2080a024",
+        "handler_rva": "0x390570",
+        "parameter_bytes": 92240,
+        "flags": "0x48"
+      },
+      {
+        "command": "0x2080e025",
+        "handler_rva": "0x390890",
+        "parameter_bytes": 92240,
+        "flags": "0x44"
+      }
+    ],
+    "STATUS_geometry": {
+      "parameter_bytes": 336228,
+      "capacity": 512,
+      "mask_offset": 4,
+      "mask_bytes": 64,
+      "row_offset": 2404,
+      "row_stride": 652
+    },
+    "selection": "Fresh A022 inventory mask is passed through the same group+50 method as existing A024. Current captured rows are all type6. That constructor inherits6AD250 for conditional prefetch: it checks caller row pointers but does not read their tuning contents; it supplies object type to staging.",
+    "query_transport": "Conditional A023 prefetch uses5BE610 ->5BEEB0 ->5BD380 flag1 ->376D60 ->5BD080, matching the previously qualified B202 status query builder. Staging and status-cache refresh are expected GET effects. No equivalence to old wire command numbers or proof of every remote implementation instruction is claimed.",
+    "type_boundary": "Host type0 voltage requests use internal28-byte element rows and processed debug values. Current type6 objects have a separate PMU-derived status path: BF3BB0 copies auxiliary+BC..1E3 into STATUS row+164..28B. In particular, the host type0 row+1F4 voltage meaning cannot be assigned to type6 by offset alone.",
+    "control_boundary": "Type6 CONTROL GET copies the0xB0-byte client input from object+88 into row+4; the traced SET imports0xB0 bytes starting at incoming row+0. This source-bound offset difference remains separate from a qualified typed-voltage writer. The base mismatch check logs and returns success, so return status alone would not prove acceptance.",
+    "independent_root_source_windows_verified": 20,
+    "runtime": {
+      "status_GETs": 2,
+      "complete_packets_audited": 10,
+      "rounds": [
+        {
+          "selected_rows": 244,
+          "types": {
+            "6": 244
+          },
+          "unique_rows": 19,
+          "mask_sha256": "dca29d9d7a4690e3ef8abfb7aaf865edca6002c39909d76f0c4b3df9dacdab34",
+          "info_sha256": "9d04851f55760ee2500aab16c47ba1e52a8c979462160bad62effc73041a4a21",
+          "control_sha256": "34dff98d0c81c2a7adb8e11a8c006cc011936ef8e743f16b3cae1dcb20306283",
+          "status_sha256": "518b75b66945653a7b8f7b2091b283e0b8824b040304c44b9d160912205300aa",
+          "info_bracket_equal": true,
+          "control_bracket_equal": true
+        },
+        {
+          "selected_rows": 244,
+          "types": {
+            "6": 244
+          },
+          "unique_rows": 19,
+          "mask_sha256": "dca29d9d7a4690e3ef8abfb7aaf865edca6002c39909d76f0c4b3df9dacdab34",
+          "info_sha256": "9d04851f55760ee2500aab16c47ba1e52a8c979462160bad62effc73041a4a21",
+          "control_sha256": "34dff98d0c81c2a7adb8e11a8c006cc011936ef8e743f16b3cae1dcb20306283",
+          "status_sha256": "518b75b66945653a7b8f7b2091b283e0b8824b040304c44b9d160912205300aa",
+          "info_bracket_equal": true,
+          "control_bracket_equal": true
+        }
+      ],
+      "status_rounds_equal": true,
+      "sets": 0,
+      "registry_writes": 0,
+      "gpu_restarts": 0,
+      "workloads": 0
+    },
+    "evidence_sha256": {
+      "raw_capture": "bf07959cfc6c1f217089fdd61b891d3e546de2c6956dcb8673bd749addd9c967",
+      "complete_packet_audit": "dbd99d137e3df3de0c99b5d257ff2557b3868aaa6503dd9dac3bd449cfaf3224",
+      "source_window_audit": "13f605bec595adfeb06c9825a45b3bf2f7943a0465c122e393d873ac2e8193e8",
+      "root_collector": "76cf518ea0b41017e44201bf88a103dc1687cb6913fa1b0735f2f075287d1ec8",
+      "reviewed_agent_collector": "4a3b238c296c4ded553a6442711c1164eab267b522965313feaea3c70a1ae5b1"
+    },
+    "limits": "244 selected rows with19 distinct raw row payloads demonstrate a returned status inventory, not numerical voltage units, rail identity, active constraints, physical measurement or consumed voltage control. All four INFO/CONTROL before/after comparisons are byte-identical; both STATUS payloads match. Arbitrary six-word voltage replay including VCRIT remains unresolved. No product control or compatibility gate was added."
+  },
+  "perf_limit_native_delta_checks_20261030": {
+    "scope": "Two fixed +5000uV global client-input delta experiments on the current named VMIN_NVVDD_0 type6/type4 row; index resolved from each fresh inventory, no fixed index compatibility gate. This tests nativeE025 request submission, not modernF219 or unknown offsets.",
+    "current_type4_binding": "BE7510 consumes A023 selected STATUS row+B4. Its matched type4 block has DWORD tag4, rail byte+4, count byte+5, signed global delta+8 in uV, debug output+C, then20-byte elements at+10. Current VFE element type2 has WORD equation+4, monitor byte+6, signed local delta+C and debug output+10. Primary SDK names and current converter copies agree; debug fields are not guaranteed fresh or physically measured.",
+    "source_windows_independently_reproduced": 28,
+    "write_transform": "Fresh A024 selected row+4..B3 is a0xB0-byte client block. Preserve it except the known global delta and place it at E025 selected row+0..AF; retain remaining row/header/unknown bytes and set only that current ordinal in the512-bit mask. The traced setter imports this block into type6 object+88 and its post-update packer copies it into an outbound firmware row. Conditional submission is not acceptance or effective consumption.",
+    "experiments": [
+      {
+        "capture": "native-vmin-delta-1.json",
+        "capture_sha256": "3f9dd68984a56c826849aa2f12274ffc52aa5bfb8495e89eedfc4b4913fc2785",
+        "selected_index_observed": 199,
+        "label_observed": "VMIN_NVVDD_0",
+        "requested_delta_uv": 5000,
+        "fixed_observation_hold_seconds": 0,
+        "complete_PERF_LIMIT_packets_audited": 32,
+        "sets": [
+          {
+            "phase": "apply",
+            "request_sha256": "6afb5937c4dbdf5e1076026fd46a8568679095c16a9c05eed8ebc57b064e571b",
+            "response_sha256": "3643ef60cc644e81e5deec3e5121200c5dde0813698fa946388aebe7732d7c01"
+          },
+          {
+            "phase": "cleanup",
+            "request_sha256": "c7aaced6e39c031bc7ef42a09f0447d9b085a63b5759002f115c3eeaa19efaaf",
+            "response_sha256": "37b3d690435e287b2c192b025c90d907e043a56b3564cca886d23c0fce677238"
+          }
+        ],
+        "before": [
+          {
+            "global_delta_uv": 0,
+            "debug_voltage_uv": 800000,
+            "element_debug_voltage_uv": 800000
+          },
+          {
+            "global_delta_uv": 0,
+            "debug_voltage_uv": 800000,
+            "element_debug_voltage_uv": 800000
+          }
+        ],
+        "active": [
+          {
+            "global_delta_uv": 5000,
+            "debug_voltage_uv": 0,
+            "element_debug_voltage_uv": 0
+          },
+          {
+            "global_delta_uv": 5000,
+            "debug_voltage_uv": 0,
+            "element_debug_voltage_uv": 0
+          }
+        ],
+        "immediate_cleanup": [
+          {
+            "global_delta_uv": 0,
+            "debug_voltage_uv": 0,
+            "element_debug_voltage_uv": 0
+          },
+          {
+            "global_delta_uv": 0,
+            "debug_voltage_uv": 0,
+            "element_debug_voltage_uv": 0
+          }
+        ],
+        "active_CONTROL_exact": true,
+        "original_CONTROL_exact": true,
+        "legacy_voltage_unchanged_during_and_after": true,
+        "registry_original_exact": true,
+        "effective_writer_proven": false
+      },
+      {
+        "capture": "native-vmin-delta-2.json",
+        "capture_sha256": "dccabcf92e6bbe07e02a4cb9c1f057dbe30fced8e2230306b5adaaf84b4066ff",
+        "selected_index_observed": 199,
+        "label_observed": "VMIN_NVVDD_0",
+        "requested_delta_uv": 5000,
+        "fixed_observation_hold_seconds": 5,
+        "complete_PERF_LIMIT_packets_audited": 32,
+        "sets": [
+          {
+            "phase": "apply",
+            "request_sha256": "da1d0af2a9411f4b3b1e561b08e7a75df3882251db0796e9b555e07cc62ddb72",
+            "response_sha256": "eb4df61f05c52df251d74dfc2dee39d02ea04c8e41e0ce83ea75fafd9a4b31ae"
+          },
+          {
+            "phase": "cleanup",
+            "request_sha256": "ef4f6ee94788e7054f3ad4eacdea3673b6c47783972938f419f9d9aa5670cfe1",
+            "response_sha256": "9194374ad03aea825a015857990e356e5edcb798cd19c353c9110aa497c1a4c2"
+          }
+        ],
+        "before": [
+          {
+            "global_delta_uv": 0,
+            "debug_voltage_uv": 800000,
+            "element_debug_voltage_uv": 800000
+          },
+          {
+            "global_delta_uv": 0,
+            "debug_voltage_uv": 800000,
+            "element_debug_voltage_uv": 800000
+          }
+        ],
+        "active": [
+          {
+            "global_delta_uv": 5000,
+            "debug_voltage_uv": 0,
+            "element_debug_voltage_uv": 0
+          },
+          {
+            "global_delta_uv": 5000,
+            "debug_voltage_uv": 0,
+            "element_debug_voltage_uv": 0
+          }
+        ],
+        "immediate_cleanup": [
+          {
+            "global_delta_uv": 0,
+            "debug_voltage_uv": 0,
+            "element_debug_voltage_uv": 0
+          },
+          {
+            "global_delta_uv": 0,
+            "debug_voltage_uv": 0,
+            "element_debug_voltage_uv": 0
+          }
+        ],
+        "active_CONTROL_exact": true,
+        "original_CONTROL_exact": true,
+        "legacy_voltage_unchanged_during_and_after": true,
+        "registry_original_exact": true,
+        "effective_writer_proven": false
+      }
+    ],
+    "later_original_readback": {
+      "later_read_sha256": "37ccfc3bdf47cbb20dacbab093c4f43621b0dc1b3f1364f86b6e890d48bae33c",
+      "later_original_INFO_CONTROL_exact": true,
+      "later_original_selected_client_blocks_exact": true,
+      "later_original_selected_arbitration_region_exact": true
+    },
+    "source_contract_audit_sha256": "d41a909fcbb092772daadd7727c9e2f929b9c0293e65c6cc45d656f4bf146812",
+    "independent_packet_audit_sha256": "64caa16a5295c639ec7bed35afb4c7cc4fb55103dcdd23f9282483e64c8e253a",
+    "conclusion": "The shifted E025 payload stores the selected request, but neither immediate nor fixed-five-second observation proves an evaluated voltage delta; legacy reported policies stay unchanged. Debug and arbitration-shaped data are cleared in those observations and return in later reads. No latency, refresh cause, physical effect or effective writer is established. Original selected state is verified later; unknown output counters are retained as observations.",
+    "activation_limit": "Current driver setter bodies inspected do not directly read the older SDK sync-flag field, so changing it is not qualified. Five seconds was a fixed experimental observation hold, not a supported latency guarantee. Later reads use a fresh backend instance; elapsed time, backend initialization and other query-triggered refreshes have not been separated.",
+    "sets_total": 4,
+    "registry_writes": 0,
+    "gpu_restarts": 0,
+    "workloads": 0,
+    "product_control_added": false
   }
 }

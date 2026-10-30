@@ -3504,11 +3504,17 @@ Two read-only rounds matched the captured selectors and loaded definitions.
 Selector 33 has no proven evaluated role; its historical `INFO_VMIN.maximum`
 keys remain stable, but the visible label now says "unclassified rail equation
 ceiling" and explains the unverified role. The field stays read-only.
-Selector 35 has a conditional evaluator path whose result is subsequently used
-as a Perf-state index. Its voltage units, event and timing are unproven. That
-selector was absent on both captured rails. Earlier header field order does not establish
-boot/margin or VCRIT equivalence. Root reproduced 18 source windows, and all 65
-selected parser/scaffold tests passed. The
+Selector 35 has a conditional monitoring path. `4CD030` allocates or reuses a
+reference-counted slot (0..15), storing its handle in rail member +0x38;
+`4CD4B0` releases that handle. The numerical result is refreshed and read
+separately. Refresh can return success without a transfer when its enable
+condition is false, so registration success does not prove a current value.
+This corrects the earlier description of the handle as an evaluator result or
+Perf-state index. Selector 35 was absent on both captured rails; its voltage
+units, event and timing remain unproven. Earlier header field order does not
+establish boot/margin or VCRIT equivalence. Root reproduced seven additional
+source windows for this correction; the preceding selector-width and label
+change passed all 65 selected parser/scaffold tests. The
 [evidence record](experiments/driver-transport-followup-20261028.json) preserves
 the offset-convention erratum and these limits. Existing independent policy
 controls retain their qualification; arbitrary six-word replay is unresolved.
@@ -3575,6 +3581,51 @@ configuration and operating point without a physical voltage measurement or
 workload. Legacy six-word replay and modern F219 field semantics remain
 unqualified. See the updated
 [voltage follow-up](experiments/voltage-replay-followup-20261028.json).
+
+## PERF limit voltage requests and status
+
+The native PERF limit STATUS getter (`0x2080A023`) returns a 336,228-byte
+parameter block with a 512-bit selection mask and 512 rows at +0x964, stride
+0x28C. A fresh INFO inventory supplies the selection. The inspected type-6
+prefetch callback supplies the object type without reading tuning values from
+the caller's row; its staged status-query transport matches the existing B202
+rail-status path. Query staging and status-cache refresh are expected.
+
+Two root captures returned 244 type-6 rows, with 19 distinct raw row payloads.
+Both complete STATUS payloads matched. INFO and CONTROL readbacks before and
+after each STATUS query were byte-identical; root audited all ten complete
+request/response packets and reproduced twenty source windows. That raw query
+capture performed no SET, registry edit, GPU restart or workload. The
+[evidence record](experiments/driver-transport-followup-20261028.json) retains
+the geometry, packet hashes, comparisons and limits.
+
+These PMU-derived type-6 rows differ from the host type-0 voltage-request
+object. The latter has processed voltage debug outputs, but matching offsets
+do not give the type-6 fields the same meanings. Type-6 CONTROL also has
+different getter and setter copy offsets: its 0xB0-byte client-input block is
+returned at row +4 and imported from row +0. A base type mismatch can log and
+still return success. The row +0x1F4 field has no verified voltage meaning.
+No effective voltage writer or arbitrary six-word replay is qualified.
+
+The selected STATUS row +0xB4 client block feeds the current type-4 voltage
+converter. It matches the source's rail, element count,
+signed global microvolt delta and 20-byte VFE element layout. The eight captured
+REL/ALT/OV/VMIN inputs have matching CONTROL and STATUS request fields; monitor
+indices and debug voltage outputs are separate fields. The debug outputs do
+not themselves establish fresh evaluation or sensed voltage.
+
+Two fixed +5 mV VMIN request experiments exercised the traced E025 row-offset
+transform. CONTROL and STATUS stored the intended delta, but the reported VOLT
+policy remained unchanged and the debug outputs were zero, including after a
+fixed five-second hold. Thus neither experiment qualifies an effective voltage
+writer. Original CONTROL and registry matched after cleanup, and the legacy
+reported VOLT policy stayed unchanged. Debug outputs remained zero in the
+immediate cleanup read; later reads matched the original selected client blocks
+and arbitration-shaped region. Root audited all 64 PERF limit packets across these
+experiments. No registry edit, restart or workload was used. The cause and
+timing of the later refresh remain unresolved; five seconds is not an interface
+latency guarantee. Older SDK sync-flag documentation does not establish that
+the inspected current setter honors that field.
 
 ## Live client power requests
 

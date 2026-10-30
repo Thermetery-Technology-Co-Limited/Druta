@@ -14,15 +14,12 @@ the implementation.
 
 # Active-goal priority
 
-Prioritize implementing and shipping all functionality in the active goal. Do
-not design, extend, or validate recovery/Undo mechanisms until every requested
-functionality for that goal is production-ready. Recovery/Undo is not a
-prerequisite for shipping otherwise production-ready small feature increments.
-
-Do not design, implement, or validate profile restoration/replay
-integration until every other requested functionality for that goal is
-production-ready. Profile restoration/replay is not a prerequisite for
-shipping otherwise production-ready small feature increments.
+Prioritize implementing and shipping all functionality in the active goal. Defer
+recovery/Undo mechanisms and saved-profile restoration/replay integration
+and address them together only after all other requested functionality for that
+goal is production-ready. Do not design, implement, extend, or validate this
+deferred work before then. It is not a prerequisite for shipping otherwise
+production-ready small feature increments.
 
 # Agent collaboration
 
