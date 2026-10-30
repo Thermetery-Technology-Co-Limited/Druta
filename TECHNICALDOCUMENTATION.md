@@ -3171,6 +3171,29 @@ after a type mismatch. Root reproduced27 instruction windows and one data
 descriptor. These bindings do not qualify arbitrary six-word replay or F219
 SET; exact input/owner boundaries are in the same evidence record.
 
+A later fixed A/B used the existing independent offsets: REL, ALT, OV and VMIN
+on both rails changed by the requested mixed +/-5 mV vector, then returned to
+zero. Both complete modern payloads (B212: 499,936 bytes; B218: 9,220 bytes)
+stayed identical in all ten rounds across original, zero, active, returned-zero
+and final phases. No payload fields were excluded. These host records did not
+mirror the working policy offsets in this configuration; that result does not
+establish their units, firmware behavior or a modern replacement for the six
+legacy requests. Legacy requests and boost stayed unchanged. Complete LPWR
+and mapping observations and configured client requests matched throughout;
+variable arbitration telemetry remains captured separately.
+
+The original image, registry and configured state were recovered after two
+GPU-only restarts. Final broad samples were false six times, then true twice
+under the existing configured-state comparison. The separate full clock curve
+retained 110 byte differences in each early sample before matching in the last
+two; the distinct curve-control packet matched all eight. No curve exclusions
+or cause are inferred, and no independent active broad window was captured.
+Root reproduced the independent raw audit and full-curve differences. The same
+[evidence record](experiments/driver-transport-followup-20261028.json) includes
+46 reproduced source windows, corrected initializer pointer provenance and the
+remaining numerical-consumer/writer boundaries. Arbitrary six-word replay and
+modern F219 SET remain unqualified; no product runtime code changed.
+
 The candidate equation parser maps source type7 to native type6 and installs
 the selected-row setter. That setter can copy both bounds before rejecting a
 later descriptor-count mismatch. Entered-attempt compensation and exact
@@ -3182,9 +3205,11 @@ Its live retention and invocation remain unobserved.
 An offline comparison independently decoded the saved native INFO/CONTROL
 packets and matched both REL term/bound bindings to the ROM-derived fields.
 This establishes definition equality, not coefficient order, polynomial
-evaluation, clamp/next composition or quantization. A true additive REL
-control remains unqualified. Known ALT sharing and the second REL chain are
-effects to account for, rather than automatic disqualifications.
+evaluation, clamp/next composition or quantization. These earlier bindings do
+not qualify an additive REL control on that candidate path; the independent
+app-owned policy offsets use the separately qualified route described below.
+Known ALT sharing and the second REL chain are effects to account for, rather
+than automatic disqualifications.
 
 The candidate B202 effective-policy refresh now connects its destination
 buffer to a selected group entry and backing descriptor on a conditional

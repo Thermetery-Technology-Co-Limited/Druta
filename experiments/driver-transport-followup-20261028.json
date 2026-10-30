@@ -2485,5 +2485,136 @@
     },
     "primary_schema_review_sha256": "ffbcf5348955214a0301545d5627cbc739342a4da8177be90c0109fe8b851bca",
     "remaining": "Bind numerical semantics/units, selected-object association and actual consumed path before any F219 SET; bind an effective legacy write capability or alternate writer before claiming arbitrary six-word replay. The remote Ampere inventory is not yet run."
+  },
+  "known_policy_offsets_modern_GET_AB_20261030": {
+    "scope": "One fixed known-policy-offset A/B on the captured RTX 5080; current controls exercised, no new modern setter qualified",
+    "tested_configuration": {
+      "adapter": "GeForce RTX 5080 GB203",
+      "driver": "621.01",
+      "role": "Evidence provenance only, not a product compatibility gate"
+    },
+    "terminal_exit_code": 0,
+    "operation": "Normal live.enable and live.set_offsets apply the previously qualified mixed signed +/-5000uV vector on both rails, then set zero and remove the experimental scaffold with existing APIs",
+    "requested_offsets_uv": {
+      "voltage.0.ALT.offset": 5000,
+      "voltage.0.OV.offset": -5000,
+      "voltage.0.REL.offset": -5000,
+      "voltage.0.VMIN.offset": 5000,
+      "voltage.1.ALT.offset": -5000,
+      "voltage.1.OV.offset": -5000,
+      "voltage.1.REL.offset": 5000,
+      "voltage.1.VMIN.offset": 5000
+    },
+    "all_eight_reported_policy_deltas_exact": true,
+    "legacy_six_requests_and_boost_unchanged_all_five_phases": true,
+    "modern_GET": {
+      "commands": [
+        "0x2080B212 inventory",
+        "0x2080B218 selected host-cache control"
+      ],
+      "parameter_bytes": {
+        "B212": 499936,
+        "B218": 9220
+      },
+      "phases": [
+        "original",
+        "zero",
+        "active",
+        "returned_zero",
+        "final"
+      ],
+      "rounds_per_phase": 2,
+      "full_packets_audited": 20,
+      "selected_mask": [
+        31,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "record_first_bytes_unclassified": [
+        2,
+        2,
+        2,
+        2,
+        4
+      ],
+      "payloads_identical_in_all_ten_rounds": true,
+      "payload_sha256": {
+        "inventory": "0df800647b7fcaf73a9024b8b6160615c27e1c86cb42f2ced03f7c4614f7bac5",
+        "control": "80bf8dec7252f3aaccffe3f3483bf1f243e983e2d8b846f875e3898841269639"
+      },
+      "normalization_or_field_exclusions": "None for modern payloads. Every byte compared; full request/response envelopes retained and checked individually.",
+      "inference": "In this tested configuration these modern host payloads do not mirror changes to the working independent policy offsets. This does not name their fields, prove firmware behavior or qualify F219 as an alternative legacy rail writer."
+    },
+    "captured_peers": "Complete LPWR observations, mapping and configured client requests exact in all five phases. Full peer packets differ only in paired transport pointer word12; variable arbitration telemetry is separately preserved.",
+    "final_state": {
+      "checks": {
+        "LPWR": true,
+        "active_receipt_absent": true,
+        "broad": true,
+        "client": true,
+        "image": true,
+        "mapping": true,
+        "registry": true,
+        "target": true,
+        "voltage": true
+      },
+      "experiment_profile_absent": true,
+      "configured_broad_samples_exact": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        true
+      ],
+      "clock_vf_control_bytes_exact_all_eight_samples": true,
+      "separate_reported_curve_bytes": 7208,
+      "separate_reported_curve_differing_bytes": [
+        110,
+        110,
+        110,
+        110,
+        110,
+        110,
+        0,
+        0
+      ],
+      "boundary": "First six final samples retain 110 full-curve byte differences each; final two match. No curve exclusion or cause inferred. Existing configured-state normalization keeps that full curve; variable telemetry and all raw differences are retained. No independent active broad window was captured."
+    },
+    "source_revalidation": {
+      "instruction_windows_reproduced": 46,
+      "legacy": "Type5 callback reaches CACA70, which serializes modulo-2^32 sums of six rail words+6C..80 and six companion words at [GPU+2440]->+170+2A4..2B8. A focused same-owner join binds the index0 producer through4CD5B0/4FAFA0/4FB0D0; active Perf+588 selection and indices4/5 producers remain unbound. Earlier evidence already contained the arithmetic; this is focused owner-join revalidation.",
+      "initializer_erratum": "4FAA30 zeros the supplied rail words and an array through RDX+170. Its initializer RDX is not independently joined to GPU+2440 here; do not equate those companion arrays without that condition.",
+      "modern": "Candidate firmware type3 serialization copies input byte+5 to outgoing byte+6. Its response callback caches six words. Construction and downstream transport remain separate from proven numerical consumption; concrete EA+60 receiver/destination backing and active image remain unbound."
+    },
+    "NVML_GSP_queries": {
+      "mode_status": 3,
+      "version_status": 3,
+      "interpretation": "Both documented GET exports returned3; no mode/version data or active voltage routing follows. Do not infer GSP disabled."
+    },
+    "logical_GPU_only_restarts": 2,
+    "Windows_reboot": false,
+    "NVIDIA_App_install": false,
+    "modern_F219_SET": false,
+    "workload_or_physical_measurement": false,
+    "validation": "Independent packet/peer audit exactly reproduced by root; separate full-curve byte differences independently reproduced. No product runtime code changed and no new runtime control is claimed.",
+    "private_evidence_sha256": {
+      "terminal_journal": "377e9887d654c11ba862f13d096b5f160806c5c4b20050a81e5bb8011c1f4eb9",
+      "root_semantic_review": "93f60bbce4ac45541e7d7e4a4fa6e7721f0af69865aed02d47a25bcd6c751b3a",
+      "independent_and_root_packet_audit": "3ef0bfb42fd681d0a64e49b6b57021a772b7e04cebccc6ef68026cd07c21bba7",
+      "independent_curve_supplement": "0af054e03f5cf28c540408c25b2d646b9ef75e32a2fd9332f279c0a52b8dfc57",
+      "static_root_reproduction": "a9fccc5a104afac0f55a3f9eb5aa384cd80e56f0c41114bad31d0aa584d3e0d9",
+      "initializer_erratum": "571a10c5810b5a07a20b638c57b738bb0ceee9c79c8e4c13c278cccf04974953",
+      "collector_v2": "ec9dcf73bcb1941ae2800d81ac49ebddb7e1a80f6a9c07c7308c7e8d04e88959",
+      "NVML_GET_capture": "a799e94b56e4221453303e1539e6708fa7be01c51b91f2037a5e863140c23dfe"
+    },
+    "remaining": "Arbitrary six-word replay including VCRIT low/high remains unresolved. Bind an effective legacy writer/capability or modern numerical semantics, selected-object association and consumed path before any modern SET. Remote Ampere inventory is still pending Codex task routing. Recovery/Undo and ordinary profile restoration/replay remain deferred."
   }
 }
