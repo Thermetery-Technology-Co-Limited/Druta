@@ -52,7 +52,7 @@ unavailable with the smaller layout. Other downstream limits can still apply.
 The broader controls and their remaining limitations are described in the
 [1.9.0a notes](RELEASE-NOTES-1.9.0a.md), [manual](MANUAL.md), and
 [technical documentation](TECHNICALDOCUMENTATION.md). Physical enforcement,
-remaining power-policy and low-power semantics, arbitrary voltage-offset replay,
+remaining power-policy and low-power semantics, legacy six-word voltage-request replay,
 cross-generation validation, and the packaged UI walkthrough remain open. A
 successful request or configuration readback is not a physical measurement.
 
@@ -65,6 +65,14 @@ release. Extract the complete directory and run `Druta.exe`, keeping its
 adjacent files together. Python and the NVIDIA App are not required.
 
 ## Post-release branch continuation
+
+Independent signed REL/ALT/OV/VMIN offsets now use added VFE constant heads,
+with CLI and Controls-panel capture and explicit replay. A captured RTX 5080
+passed independent ±5 mV changes on all eight roles and a mixed profile replay
+after a GPU driver restart. This qualifies reported policy changes at that
+operating point; physical voltage, broader ranges and other configurations
+remain unmeasured. This is separate from the unresolved legacy six-word request
+replay. See the manual for activation and profile commands.
 
 Development after this prerelease adds a qualified path for disabling all
 enabled GR power-gating entries, including unused entries. It verifies main

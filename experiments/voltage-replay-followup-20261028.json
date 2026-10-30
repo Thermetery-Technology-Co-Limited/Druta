@@ -7,7 +7,7 @@
     "driver": "621.01",
     "limitation": "One tested configuration and operating point; no board or driver compatibility gate follows."
   },
-  "status": "Live REL upper-only controls are integrated, with a root-run product apply/restore test. Arbitrary six-word voltage request replay remains unresolved.",
+  "status": "Live REL bounds/constants remain integrated. Independent signed VFE policy offsets now support activation, read, set, capture and explicit replay. All eight direct roles passed independent +/-5000 uV tests; the product CLI reproduced a mixed profile after a GPU restart. Arbitrary legacy six-word rail-request replay remains unresolved.",
   "new_public_lead": {
     "source": "https://github.com/b00nz/mVolt/releases/tag/v0.50.8",
     "claim": "The release describes an experimental voltage-offset BIOS override enabled after a GPU restart.",
@@ -850,5 +850,174 @@
     "legacy": "Conditional class creation/cast now stores Perf in GPU20C8 and constructor334 formula is traced; current flag/selector, retention/accessor and actual captured execution remain unproved.",
     "modern": "Input-to-serialized-buffer and default response-to-object copies are traced; backend selection, actual receiver and eventual consumption/units/rails remain unproved. No modern SET, replay or physical effect is claimed.",
     "preserved": "Earlier raw objects and trial results retained unchanged."
+  },
+  "independent_policy_offsets_20261030": {
+    "mechanism": "Zero constant heads in declared inactive VFE slots, one for each selected rail REL/ALT/OV/VMIN selector; live SET changes the new signed constants.",
+    "preserved": "Original equation rows, terms, variables, internal links and all other native packet bytes. The original ALT-to-REL link continues to use its original REL equation.",
+    "compatibility": "Current adapter-bound layout, ownership, inventory, template, variable and exact readback checks; no GPU, VBIOS or driver identity allowlist.",
+    "tested_configuration": {
+      "gpu": "GeForce RTX 5080",
+      "driver": "621.01",
+      "scope": "One captured configuration and operating point"
+    },
+    "captured_geometry": {
+      "new_heads": [
+        1860,
+        1861,
+        1862,
+        1863,
+        1864,
+        1865,
+        1866,
+        1867
+      ],
+      "changed_image_bytes": 56,
+      "table_relocated_or_grown": false
+    },
+    "independent_cases": {
+      "count": 16,
+      "values_uv": [
+        -5000,
+        5000
+      ],
+      "roles_per_rail": [
+        "REL",
+        "ALT",
+        "OV",
+        "VMIN"
+      ],
+      "rails": [
+        0,
+        1
+      ],
+      "all_selected_reported_deltas_exact": true,
+      "other_direct_policies_and_requests_preserved": true,
+      "all_heads_returned_to_zero": true,
+      "initial_broad_after_cleanup_exact": false,
+      "later_get_only_original_state_exact": true,
+      "limitation": "Immediate broad post-restart comparison failures remain recorded; later exact GET observations do not turn those earlier failures into passing comparisons."
+    },
+    "product_cli_workflow": {
+      "commands": [
+        {
+          "command": "enable",
+          "returncode": 0
+        },
+        {
+          "command": "set",
+          "returncode": 0
+        },
+        {
+          "command": "capture",
+          "returncode": 0
+        },
+        {
+          "command": "read",
+          "returncode": 0
+        },
+        {
+          "command": "replay",
+          "returncode": 0
+        }
+      ],
+      "captured_values_uv": {
+        "voltage.0.ALT.offset": 5000,
+        "voltage.0.OV.offset": -5000,
+        "voltage.0.REL.offset": -5000,
+        "voltage.0.VMIN.offset": 5000,
+        "voltage.1.ALT.offset": -5000,
+        "voltage.1.OV.offset": -5000,
+        "voltage.1.REL.offset": 5000,
+        "voltage.1.VMIN.offset": 5000
+      },
+      "after_restart_live_values_all_zero": true,
+      "after_restart_saved_values_retained": true,
+      "full_replayed_voltage_snapshot_exact": true,
+      "reported_before_uv": {
+        "0": {
+          "alt_reliability": 1060000,
+          "effective": 1040000,
+          "overvoltage": 1200000,
+          "reliability": 1040000,
+          "vmin": 800000
+        },
+        "1": {
+          "alt_reliability": 1060000,
+          "effective": 990000,
+          "overvoltage": 1200000,
+          "reliability": 990000,
+          "vmin": 800000
+        }
+      },
+      "reported_replayed_uv": {
+        "0": {
+          "alt_reliability": 1065000,
+          "effective": 1035000,
+          "overvoltage": 1195000,
+          "reliability": 1035000,
+          "vmin": 805000
+        },
+        "1": {
+          "alt_reliability": 1055000,
+          "effective": 995000,
+          "overvoltage": 1195000,
+          "reliability": 995000,
+          "vmin": 805000
+        }
+      },
+      "final_checks": {
+        "active_receipt_absent": true,
+        "image_original_exact": true,
+        "registry_original_exact": true,
+        "target_original_exact": true,
+        "voltage_original_exact": true
+      },
+      "test_profile_removed": true,
+      "gpu_restarts": 3,
+      "windows_reboot": false,
+      "workload_started": false,
+      "raw_artifact_sha256": "b52eb1bc1e2760f571d9ef8050fe08be3adf93f28bec3a08409220ac98062788",
+      "independent_packet_audit_sha256": "50f692c83deff674ed0369c53e4ed331f0f30d2e051b541e1d1d8b9bb6d57c3b"
+    },
+    "limitations": [
+      "Reported policy and definition readbacks are not a physical regulator-voltage measurement.",
+      "Signed int32 values exactly representable as float32 are the numeric contract, not a measured operating range.",
+      "This app-owned state does not substitute for arbitrary replay of the six cached legacy rail-control words.",
+      "VCRIT low/high and modern F219 fields are not controlled by this feature.",
+      "Saved offset profiles require explicit replay and are separate from ordinary tuning profiles and registry-transaction replay.",
+      "Activation currently requires no existing active registry transaction; simultaneous use with other original-equation live edits is not established."
+    ],
+    "product_gui_callbacks": {
+      "interaction": "Programmatic real Dear PyGui panel callbacks in a rendered viewport; only native file-picker return path substituted.",
+      "physical_input_or_native_picker_claimed": false,
+      "offsets_uv": {
+        "voltage.0.REL.offset": -5000,
+        "voltage.1.ALT.offset": 5000
+      },
+      "actions": [
+        "Read offsets",
+        "Apply Rail 0 REL=-5 mV",
+        "Apply Rail 1 ALT=+5 mV",
+        "Save offset profile",
+        "Apply both offsets=0",
+        "Load and apply offset profile"
+      ],
+      "full_replayed_voltage_snapshot_exact": true,
+      "saved_profile_exact": true,
+      "final_checks": {
+        "active_receipt_absent": true,
+        "image_original_exact": true,
+        "registry_original_exact": true,
+        "target_original_exact": true,
+        "voltage_original_exact": true
+      },
+      "app_test_profile_removed": true,
+      "gpu_restarts": 2,
+      "windows_reboot": false,
+      "workload_started": false,
+      "raw_artifact_sha256": "d38af6d8e0a8266f0f7c40bd10ead63123603a9d11cc7233cf3960ea9cbf7dd6",
+      "activation_helper": "Parent-exit wait and GUI reopen paths verified with mocks; actual helper/reopen workflow is not covered by this callback trial.",
+      "independent_packet_audit_sha256": "6699ba1bcdfe87f973dfba8d9899f5b1df2f5d9e9611e0d7d431b3360415697f"
+    }
   }
 }

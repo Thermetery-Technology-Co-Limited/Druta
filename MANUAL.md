@@ -478,8 +478,8 @@ Complete rail-control requests must read back unchanged. When complete request
 replay is available, Druta restores the captured rail offsets and voltage-boost
 percentage after each GPU restart, including Undo and rollback. Each replay is
 verified independently. If complete replay is unavailable, set boost to 0% before
-applying OV, ALT or REL BIOS changes. Arbitrary offset replay is not yet
-qualified: a driver can report SET success while leaving an offset unchanged.
+applying OV, ALT or REL BIOS changes. Arbitrary legacy rail-request replay is
+not yet qualified: a driver can report SET success while leaving an offset unchanged.
 Druta reports the rail, affected field, requested and observed values, and any
 separate boost or metadata discrepancy. An ignored request fails verification;
 if the captured requests cannot be restored, recovery remains required.
@@ -502,6 +502,41 @@ upper limits and retained signed VMIN offset. Druta checks the loaded constant
 against the reported minimum before changing it. The new reported VMIN must
 match exactly, while other policy values and requests remain unchanged.
 
+**Voltage policy offsets** adds a separate signed offset to each supported
+rail's REL, ALT, OV and VMIN policy. **Enable offsets and restart GPU** installs
+zero offsets and reopens Druta after restarting the selected GPU. Windows stays
+running. Activation requires understood BIOS/equation layouts and available
+unused equation slots; unsupported roles remain listed separately. An active
+registry transaction must be completed before enabling offsets.
+
+After activation, **Read offsets** shows live values and reported limits. Select
+a rail and role, enter a signed mV offset, and choose **Apply now**. These changes
+take effect without restarting the GPU. **Save offset profile** captures the current
+offsets; **Load and apply offset profile** explicitly replays them for the selected
+adapter. A GPU driver restart reloads zero offsets; saved values are not applied
+automatically. These files are separate from ordinary clock/tuning profiles.
+
+Command-line access uses an explicit PCI slot and signed microvolts:
+
+```text
+Druta.exe --voltage-offsets --gpu 0000:01:00.0 enable
+Druta.exe --voltage-offsets --gpu 0000:01:00.0 set --offset 0:REL=-5000 --offset 1:ALT=5000
+Druta.exe --voltage-offsets --gpu 0000:01:00.0 capture --out offsets.json
+Druta.exe --voltage-offsets --gpu 0000:01:00.0 read
+Druta.exe --voltage-offsets --gpu 0000:01:00.0 replay --profile offsets.json
+```
+
+Offsets must be signed 32-bit microvolt values exactly representable by the
+driver's float32 constant format. That numerical range is not a measured
+operating range. Each write checks the exact equation definition and reported
+policy change while preserving other direct policies and rail requests. The
+effective limit remains a separately reported firmware result. Tests on one
+RTX 5080 verified +5 and -5 mV independently for all eight roles and a mixed
+profile replay after a driver restart. These results establish reported policy
+control at the captured operating point, not physical regulator voltage or
+support on every GPU. The original six-word rail-request path remains separate
+and unqualified for arbitrary replay.
+
 **Live REL equation bounds** changes the loaded REL equation without restarting
 the GPU. Read the supported rails and enter a value in mV. **Apply upper**
 changes only its upper bound. **Fix both bounds** sets its lower and upper
@@ -518,8 +553,9 @@ The evaluated V/F curve can briefly refresh after a write. A timed research
 trial returned to its original curve without a second SET. Retained voltage and
 readable clock requests are verified independently; unavailable optional
 readbacks are listed. Failed dispatched changes attempt one restoration of the equation bounds
-captured before the write and report whether recovery was verified. Arbitrary rail-offset
-replay remains unqualified.
+captured before the write and report whether recovery was verified. Arbitrary legacy
+rail-request replay remains unqualified; independent voltage offsets use the
+separate controls above.
 
 The opt-in developer command `--ui-capture-live-rel-bounds RAIL VALUE_UV DIRECTORY`
 exercises the packaged panel's Fix both bounds and Restore BIOS bounds callbacks

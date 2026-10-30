@@ -14310,6 +14310,9 @@ def main(argv=None):
     The slot spelling is nvtune's and NVML's, so the three tools can be pointed
     at one card with one copied string."""
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "--voltage-offsets":
+        from . import voltage_offsets_cli
+        return voltage_offsets_cli.cli(argv[1:], _tell)
     if argv and argv[0] == "--registry-overrides":
         from . import registry_overrides
         return registry_overrides.cli(argv[1:], _tell)
@@ -14417,6 +14420,8 @@ def main(argv=None):
                   "  --version    print the Druta version\n\n"
                   "  --restart-gpu SLOT  restart that GPU through Windows PnP, then reopen\n"
                   "                      requires admin; never reboots the computer\n\n"
+                  "  --voltage-offsets --gpu SLOT enable|read|set|capture|replay\n"
+                  "                      signed voltage policy offsets; use --voltage-offsets --help\n\n"
                   "  --registry-recover SLOT  undo saved registry overrides without a live GPU backend\n\n"
                   "  --startup-profile  apply the opted-in sign-in profile after shutdown checks\n\n"
                   "  --ui-capture NEW_DIRECTORY  capture a display-only developer walkthrough\n"

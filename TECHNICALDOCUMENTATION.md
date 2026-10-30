@@ -3324,6 +3324,65 @@ claim that arbitrary preexisting runtime offsets are always recoverable.
 The UI uses explicit force/suppress choices and a leave-unchanged choice; it does
 not infer the active registry selection from a voltage number.
 
+## Independent VFE voltage-policy offsets
+
+`voltage_offset_scaffold.py` creates an independent constant head for each
+selected REL, ALT, OV or VMIN rail selector. Each new head adds a signed value
+to the selector's original equation. Original equations, internal links,
+variables and terms remain unchanged; in particular, ALT's original link to
+REL does not point to the new independent REL head. This keeps the four direct
+policy adjustments independent on the tested configuration.
+
+The planner validates the current VFE/rail layouts, owners, graph, native
+inventory and an existing loaded constant template with a present variable.
+It uses only canonical inactive slots inside the declared table capacity.
+Activation composes registry ROM overrides and performs one selected-GPU PnP
+restart. All heads start at zero. No table growth, VBIOS flash or Windows reboot
+is involved. Capability checks use the current inputs; tested GPU/BIOS/driver
+identities are not compatibility allowlists.
+
+`voltage_offsets_live.py` recognizes the installed heads against saved original
+definitions and fresh adapter-bound readbacks. It changes each signed constant
+through the existing native equation SET (`0x2080E0B7`) and verifies the full
+equation packets, exact selected reported-policy delta and retained requests.
+Effective limits are observed independently. Later recognition permits changes
+outside the owned VFE and rail regions; initial activation requires the whole
+planned image. Existing live edits to the original equations must be returned
+to their saved definitions before this recognition can succeed.
+
+The CLI and Controls panel expose read, set, capture and explicit profile
+replay. Profiles hold app-owned offsets, not the six cached legacy rail words.
+A driver restart reloads zero heads while the saved profile remains available
+for explicit replay. Values use signed int32 microvolts exactly representable
+as float32 constants. The type range does not establish a physical voltage
+range, and these offsets are not automatically included in ordinary tuning
+profiles or registry-transaction request replay.
+
+On the captured RTX 5080 configuration, eight new heads occupied inactive
+ordinals 1860–1867; eight selectors and their new rows changed 56 image bytes.
+All sixteen independent +5000/-5000 µV cases shifted the selected reported
+policy exactly, preserved the other direct policies and requests, and returned
+each head to zero. The immediate broad post-restart comparisons in those
+research runs failed; subsequent GET-only captures matched the original state.
+Those initial differences remain recorded and are not presented as passing
+full-broad comparisons.
+
+A separate root-run product CLI workflow enabled the heads, applied eight mixed
+signed offsets, captured a slot-bound profile, restarted the GPU, verified zero
+live offsets with the saved mixed values retained, and replayed the profile.
+All five CLI commands exited 0. Replay reproduced the complete mixed native
+voltage snapshot; final voltage, image and registry matched the original.
+An independent offline audit reconstructed whole INFO/CONTROL packets and
+verified that only the selected heads' constant words changed. A separate real
+Dear PyGui callback trial applied REL0 -5 mV and ALT1 +5 mV, saved a profile,
+zeroed those offsets and replayed the exact mixed native voltage snapshot.
+Only the native file-picker return path was substituted; physical input and
+the activation helper's GUI reopen were not exercised by this trial. This is one
+configuration and operating point without a physical voltage measurement or
+workload. Legacy six-word replay and modern F219 field semantics remain
+unqualified. See the updated
+[voltage follow-up](experiments/voltage-replay-followup-20261028.json).
+
 ## Live client power requests
 
 When the modern INFO packet is rejected with INVALID_ARGUMENT, an Ampere
