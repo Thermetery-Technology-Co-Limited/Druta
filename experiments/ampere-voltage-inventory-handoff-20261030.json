@@ -1,0 +1,41 @@
+{
+  "schema": "ampere-voltage-inventory-handoff-v1",
+  "purpose": "Prepare an explicit-slot, read-only Ampere voltage inventory before any later root-reviewed replay work.",
+  "collector": "experiments/ampere_voltage_inventory_20261030.py",
+  "collector_behavior": {
+    "arguments": {
+      "--gpu": "Required explicit PCI slot; no default GPU selection.",
+      "--out": "Required new JSON path whose parent directory already exists; existing output is refused."
+    },
+    "root_discovery": "Walks upward from the script until both AGENTS.md and src/druta are present; no local absolute repository path is embedded.",
+    "brackets": [
+      "before and final PCI/API identity",
+      "before and final bound Windows target",
+      "before and final complete VBIOS image bytes, length, and SHA-256",
+      "before and final managed display-driver registry snapshot",
+      "source commit, worktree status, and relevant source-file SHA-256 values before and after"
+    ],
+    "fresh_rounds": 2,
+    "per_round_readers": [
+      "voltage_bios_runtime.read(gpu)",
+      "voltage_request_replay.read(gpu)",
+      "VoltageRequestGate(gpu).read()"
+    ],
+    "error_policy": "Retain each reader's returned error or exception separately. Do not equate an unavailable or partial inventory with an empty inventory.",
+    "preservation": "Keep complete JSON-safe observations, including native/public hex blobs returned by the readers; retain the complete VBIOS image as hex.",
+    "writes": "Creates the requested local report; invokes no target registry or GPU configuration writer. Python/import and Git tooling may maintain their ordinary local caches.",
+    "exit_status": "A zero exit status means the local report was written. GPU/API capability, stability and errors must be assessed from the captured fields."
+  },
+  "copy_paste_prompt": "Continue the Druta work in this remote Codex task. First inspect AGENTS.md, CLAUDE.md, the current branch/commit, and the complete git status; preserve all existing local changes and do not reset, stash, checkout over, stage, or commit them. Review the supplied experiments/ampere_voltage_inventory_20261030.py and its called APIs before running it. Run ONLY its read-only inventory with an explicit PCI slot provided for this task and a new output path under an existing directory: python experiments/ampere_voltage_inventory_20261030.py --gpu <EXPLICIT_PCI_SLOT> --out <NEW_JSON_PATH>. Do not invoke setters, prepare/replay, registry writes, driver restarts, workloads, or process stops. Return the resulting artifact path and the recorded source commit/status, target identity, two read rounds, and any per-reader errors. Stop after this preflight; root must review the inventory before authorizing any mutation. Do not install tools, push, open a PR, or publish a release.",
+  "review_boundary": "This handoff requests inventory only. It does not authorize voltage replay, setter calls, registry changes, restart, or any other mutation.",
+  "remote_task_id": null,
+  "collector_sha256": "255aab65d301b1527649dca58f75cce3b15389aa34eba766fcdd7dc8adad6f31",
+  "machine": "WIN-S21NMM0KKIR",
+  "repository": "Thermetery-Technology-Co-Limited/Druta",
+  "branch": "codex/registry-controls",
+  "scope_notes": [
+    "Read-only preflight has not been run on the remote adapter.",
+    "No NVIDIA App or tool installation, Windows reboot, workload, or new profile/Undo/recovery work is requested.",
+    "API absence and per-reader errors remain evidence, not authorization to try alternate commands."
+  ]
+}

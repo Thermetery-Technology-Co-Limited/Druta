@@ -2146,6 +2146,27 @@ or as invalid. No direct native getter of an arbitrary loaded row has been
 established, and no new factory-disabled enable or compound routing control is
 qualified.
 
+A later consumer trace maps 16-bit words at row byte offsets+7/+9/+13/+15 to the
+four-word routed getter, +11 to the single-word getter, and +5 to a loaded field
+without a separately bound consumer. Compatible selectors join their configuration path
+to NVIDIA's `OBJISOHUB` class0x7C5E0D and selected display working states. The
+public C3720101 display-mode ABI is bound to the installed 0x800-byte command;
+its 92-byte head records supply a documented kHz pixel-clock input and raster
+width. The clock can subsequently be replaced from ClockManager data whose
+nonzero unit remains unbound. The later comparison also uses an indexed field
+whose zero-initialization and copying are established, but whose nonzero producer
+and unit are not. Neither the input kHz declaration nor matching arithmetic
+alone establishes the DIFR parameters' units.
+
+The configuration path adds these five routed words into two aggregates and
+per-head output records. A matched downstream call with the region offset and
+length only validates a pointer on the inspected path; it does not establish a
+copy, serialization or firmware consumer. Root reproduced 90 pinned byte windows
+and independently checked the primary C ABI and installed command descriptor.
+No new timing parameter or factory-disabled enable control follows yet. The
+[consumer evidence](experiments/driver-transport-followup-20261028.json) preserves
+the exact remaining boundaries and the corrected class ID.
+
 A separate static path for RmForceEnableDIFR can, subject to controller presence and
 other conditions, call the controller-9 enable helper with reason 6. The public
 0x20802801 DIFR control uses reason 0 and separate counter/bit handling. Attribute

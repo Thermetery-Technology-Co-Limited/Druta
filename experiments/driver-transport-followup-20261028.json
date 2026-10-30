@@ -2325,5 +2325,127 @@
         "sha256": "b849568c2a1911697ffa94a1fc44aaf7d7d7628233b04b0828050c8859f01aff"
       }
     ]
+  },
+  "difr_parameter_and_rail_consumer_followup_20261030": {
+    "scope": "Offline pinned Windows bytes and primary NVIDIA sources only. No new GPU/API calls, registry changes, restart, workload, firmware-route or physical-effect assertion.",
+    "row_word_byte_offsets": {
+      "+5": "loaded LPWR+9AC; no separately bound consumer",
+      "+7": "LPWR+9AE to four-word getter output+0",
+      "+9": "LPWR+9B0 to four-word getter output+4",
+      "+11": "LPWR+9B2 to single-word return",
+      "+13": "LPWR+9B4 to four-word getter output+8",
+      "+15": "LPWR+9B6 to four-word getter output+12"
+    },
+    "receiver": "Matched parent+1CF0 construction/dispatch binds class0x7C5E0D and +1A0=7F5CC0; its compatible selector branches install +C0=7F3BA0 and +188=7F2D20. Pinned NVIDIA g_eng_desc_nvoc.h identifies this exact class as OBJISOHUB. The earlier candidate0x7C5E0B was an incorrect byte reading and remains preserved only in frozen historical private evidence.",
+    "working_states": "7F5CC0 uses GPU+22D0+50C68. 14A7E0 passes that exact working pointer to DISP+1650=731D30 on its selected one-active-record path, then to1448C0. The accumulation callback can instead use state buffers selected by +988=746830, +50C58 and +456A5. Its pointer is not assumed equal to the comparison buffer.",
+    "selector_reachability": "Constructors use the same two source words in swapped register positions. The 7F5CC0/731D30 predicates have a nonempty intersection, including source tupleA=41h/B=10h, also compatible with the selected CD0 rebuild. This is a static tuple witness, not observed adapter selector identity.",
+    "primary_C372_binding": {
+      "command": "0xC3720101",
+      "installed_params_bytes": 2048,
+      "primary_type": "NVC372_CTRL_IS_MODE_POSSIBLE_PARAMS",
+      "head_array_offset": 8,
+      "head_stride": 92,
+      "clock_input_offset": 12,
+      "raster_width_input_offset": 16,
+      "clock_input_name": "maxPixelClkKHz",
+      "clock_input_unit": "kHz",
+      "width_input_unit": "pixels",
+      "checked": "Root reproduced all source hashes, exact installed export descriptor, primary head ABI size/offsets and source methodId/type pairing."
+    },
+    "clock_override_boundary": "After copying input clock to private head+4, 746880 invokes DISP+AD8 with its address. Candidate751CE0?610F20 replaces it from ClockManager+874+head*38 only when nonzero; another branch returns without changes. Windows ClockManager classBCADD3,size1BD0, GPU+23B8 constructor zeroing is bound, but a later same-owner nonzero writer or typed readback unit remains unbound. Input kHz and initial zero are not unconditional final-value or lifetime guarantees.",
+    "indexed_multiplier_boundary": "1448C0 divides record+C*1000000 by record+4, retains the low32 quotient, multiplies by working[index*4+2274] and divides by1000. The complete2328-byte state is zero-initialized and selected buffers can be copied to DISP+50C68. Complete callback250 CFG and the concrete prefix writes were inspected; a later nonzero2274 producer and unit remain unbound.",
+    "raw_word_arithmetic": "731C90 adds1000*row_word_at_byte9 to active accumulators; 731D30 compares a conditional threshold derived from those accumulators to1448C0. Configuration aggregate+C8 is word15+word9; aggregate+C4 is max(word7,word13)+word9+word15+word11. These are raw word-offset labels and exact arithmetic, not established time-unit names.",
+    "output_handoff": "Per-policy outputs use a19C stride with per-head16-byte records at+FC/+17C, aggregates+C4/+C8 and enable byte+F8. Selected backing is reached through GPU+2480 virtual388, selected interface38 and returned object+40, then+2C2E50. A matched7233F0?6F5690 call passes offset2C2E50 and sizeD10, but installed leaf8D5320 only validates pointers; it does not establish data copy, serialization or firmware receipt.",
+    "rail_bytes": "Raw rail+23?object+2A is used by927570 and conditionalLPWRrole cleanup: failed/non-FF selection predicate can clear a current role bit when its retrieved type byte is1. That type byte is not the role index. No VFE/power-equation namespace established. Raw+21?object+88?B201row+32 remains a copying/readback frontier. Both bytes remain opaque and conservatively preserved in product graph handling.",
+    "validation": {
+      "independent_root_byte_windows": 90,
+      "primary_C_ABI_and_descriptor": "passed",
+      "public_NVIDIA_sources": "pinned ca2d03e6fafd4d4b56b383497d931c25b283bfcf"
+    },
+    "product_status": "No new timing knob, originally-disabled enable, VCRIT threshold, modernF219 SET or arbitrary six-word replay is qualified by this checkpoint. Existing7ff3908 functional controls remain unchanged. Recovery/Undo and profile restoration integration remain deferred.",
+    "next_concrete_boundaries": [
+      "ClockManager override producer/typed unit",
+      "nonzero indexed2274 producer/unit",
+      "actual consumer of the generated configuration region",
+      "units/ranges and independent loaded-row readback before factory-disabled activation"
+    ],
+    "private_evidence_sha256": [
+      {
+        "path": "experiments/registry-overrides/difr-parameter-consumers-terra-20261030/findings.json",
+        "sha256": "9b84476e45e1acf8765af18fc9d24013e03d2c8de84477fff1b23282f8c89695"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-parameter-consumers-terra-20261030/receiver-join-erratum.json",
+        "sha256": "953d1f176965654dde1e18ffd82580f7ef12e60649d2e0ed3f137467514838d8"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-parameter-consumers-terra-20261030/operand-source-boundary.json",
+        "sha256": "0a3db4f44d28028b0decdb4d451d9186652470247244ed23d74368b037d9bd5d"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-parameter-consumers-terra-20261030/working-object-join.json",
+        "sha256": "d84c78205b80e78c1e491bdb6d1cd5e7757453ad011b0df78a0a2729134c1be0"
+      },
+      {
+        "path": "experiments/registry-overrides/voltage-byte-selectors-consumer-terra-20261030/findings.json",
+        "sha256": "a53d43f007901e80c356170cd2a6c56547dc8f1462b5247f2bdc2515dfee4850"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-head-timing-schema-terra-20261030/c372-copy-binding.json",
+        "sha256": "565f70f6420e4bd1547d38eceb9086357346a8375e1de46f4b81a400820ef183"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-head-timing-schema-terra-20261030/clock-override-followup.json",
+        "sha256": "a8fa79f08459d8bf435ab9f9688560ca2f23c61cd24ddb01142ae40fd01ae3ec"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-parameter-consumers-terra-20261030/indexed-field-zero-copy.json",
+        "sha256": "9e12d7add4c741449c0e28af5559098713d1ec0261b6197e835ea96852f47c03"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-parameter-consumers-terra-20261030/callback-250-full-cfg.json",
+        "sha256": "c2b1dddca52fbd644218b1a7234308fa47ec7d9f0fdf91a562a6b66610062cc5"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-parameter-consumers-terra-20261030/prefix-state-producer.json",
+        "sha256": "ddcc35dffbc88a5dec26d71d3d501d091d4014786a7337b755a88f0eb00b77f0"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-parameter-consumers-terra-20261030/selector-intersection.json",
+        "sha256": "20921a55d4d7fd2f850df5b766116001ab5fbe9d27dc8d389e81e612ad45b87b"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-parameter-consumers-terra-20261030/leaf-output-handoff.json",
+        "sha256": "768988c6adee378d7134fccec281a40df486d070b38bfb0d83f8d24511219a91"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-parameter-consumers-terra-20261030/leaf-pointer-validation.json",
+        "sha256": "0ffcda5eb63a3269b878f76fe425cf22e68611a9eff26403020edf9a7031a6c0"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-head-timing-schema-terra-20261030/clock-manager-owner-followup.json",
+        "sha256": "58e155d54693e90096af351ead2149a6cfd1a2e20094b5af695bf019697bfa84"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-semantics-root-20261030/static-review-3.json",
+        "sha256": "1e9a471058a19c06bc081e90e19dde34fd032cdfc7d7a5e312d71a740413cfd2"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-semantics-root-20261030/c372-abi-review-1.json",
+        "sha256": "9d33eadd97daf29984d3235492e071ffadff777471e9ff38c5f6f620aceb218a"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-semantics-root-20261030/primary-source-review-1.json",
+        "sha256": "b6064ac7484511cd12eb9eb69157470e1e4903b387c50c69d8a7867172cf6847"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-public-schema-luna-20261030/findings.json",
+        "sha256": "852dd201b108f6554085c19c3289a74316349a629b28bb07acbe90adc076ff7c"
+      },
+      {
+        "path": "experiments/registry-overrides/difr-public-schema-luna-20261030/class-id-addendum.json",
+        "sha256": "faa262ebb7ee03f2d8c589b570551ee0efd9f61c2907932afecc879db9f9bfe8"
+      }
+    ]
   }
 }
