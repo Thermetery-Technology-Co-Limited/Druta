@@ -695,7 +695,9 @@ like. Aligned against the frequency field, rail 0 is at `+0x110`:
 
 - **Rail 0 is NVVDD** and it works. `+50 mV` requested moves vcore exactly
   `+50 mV`, measured with the core clock pinned at 1500 MHz. Shipped as
-  *NVVDD offset (mV)*.
+  *NVVDD offset (mV)*. A domain request write succeeds only when a subsequent
+  GET reports the requested stored value. Matching readback does not establish
+  a physical voltage response.
 - **The tested MSVDD request was ineffective on this board.** It was refused
   on the measured active domains and accepted on domain 6 without establishing
   a voltage response. This experiment does not suppress other boards' controls.

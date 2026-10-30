@@ -3918,6 +3918,19 @@ class GPU:
             return self._set_msvdd_offset_mv(mv, domain)
         if type(rail) is not int or rail != 0:
             return False, "unknown rail offset index"
+        if type(domain) is not int or not 0 <= domain < CLKDOM_SLOTS:
+            return False, "clock-control index must be an integer from 0 to 31"
+        if type(mv) not in (int, float):
+            return False, "NVVDD offset must be a finite number"
+        try:
+            valid = math.isfinite(mv) and -(1 << 31) <= mv * 1000 < (1 << 31)
+        except OverflowError:
+            valid = False
+        if not valid:
+            return False, "NVVDD offset exceeds the signed 32-bit microvolt range"
+        uv = int(round(mv * 1000))
+        if not -(1 << 31) <= uv < (1 << 31):
+            return False, "rounded NVVDD request exceeds signed microvolts"
         a = self.nvapi
         if not (self.clkdom_ok() and a.ClkDomCtlSet):
             return False, "per-domain clock control unavailable"
@@ -3937,9 +3950,14 @@ class GPU:
                            "The rail itself IS readable now via "
                            "read_volt_rail_state, so the check is available. "
                            "Set this GPU's msvdd_write_enabled to allow it.")
-        st, buf = self._clkdom_get(1 << domain)
-        if st != 0:
-            return False, f"read failed (status {st})"
+        mask = 1 << domain
+        try:
+            st, buf = self._clkdom_get(mask)
+            valid = st == 0 and self._clkdom_valid_block(buf, layout, mask)
+        except Exception:  # A malformed or unavailable read cannot authorize a write.
+            valid = False
+        if not valid:
+            return False, "NVVDD request read failed or returned an invalid block"
         dw = (layout.header + domain * layout.stride + field) // 4
         was = ctypes.cast(buf, ctypes.POINTER(i32))[dw]
         if rail == 0:
@@ -3950,7 +3968,6 @@ class GPU:
             if not (lower <= mv <= upper):
                 return False, (f"NVVDD offset {mv:g} mV is outside Druta's "
                                f"{lower:g}..{upper:g} mV bound")
-        uv = int(round(mv * 1000))
         if was == uv:
             # The diff guard below demands exactly one changed dword, so a
             # no-op write would be REFUSED rather than silently doing nothing.
@@ -3959,9 +3976,13 @@ class GPU:
             return True, (f"{_RAIL_NAME[rail]} offset already "
                           f"{uv/1000:+.2f} mV")
         ctypes.cast(buf, ctypes.POINTER(i32))[dw] = uv
-        st2, ref = self._clkdom_get(1 << domain)
-        if st2 != 0:
-            return False, f"verification read failed (status {st2})"
+        try:
+            st2, ref = self._clkdom_get(mask)
+            valid = st2 == 0 and self._clkdom_valid_block(ref, layout, mask)
+        except Exception:
+            valid = False
+        if not valid:
+            return False, "NVVDD verification read failed or returned an invalid block"
         pb = ctypes.cast(buf, ctypes.POINTER(u32))
         pr = ctypes.cast(ref, ctypes.POINTER(u32))
         diffs = [i for i in range(layout.size // 4) if pb[i] != pr[i]]
@@ -3972,12 +3993,23 @@ class GPU:
         if sst != 0:
             return False, (f"{_RAIL_NAME[rail]} write failed "
                            f"(status {sst})")
+        try:
+            status, back = self._clkdom_get(mask)
+            valid = status == 0 and self._clkdom_valid_block(back, layout, mask)
+        except Exception:
+            valid = False
+        if not valid:
+            return False, "NVVDD request sent, but its readback is unavailable or invalid"
+        observed_uv = ctypes.cast(back, ctypes.POINTER(i32))[dw]
+        if observed_uv != uv:
+            return False, (f"NVVDD request readback mismatch: requested {uv / 1000:+g}, "
+                           f"stored {observed_uv / 1000:+g} mV")
         note = ("" if rail == 0 else
                 " - UNVERIFIABLE: nothing on this card reads this rail "
                 "back, so this is a request that was accepted, not a "
                 "change that was observed")
-        return True, (f"{_RAIL_NAME[rail]} offset {was/1000:+.2f} -> "
-                      f"{uv/1000:+.2f} mV{note}")
+        return True, (f"{_RAIL_NAME[rail]} stored request {was/1000:+.2f} -> "
+                      f"{uv/1000:+.2f} mV; physical voltage response is unverified{note}")
 
     def reset_msvdd_offset_mv(self, domain=0):
         """Explicitly clear a stored MSVDD request, including after XOC is off."""

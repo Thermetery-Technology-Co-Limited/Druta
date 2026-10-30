@@ -57,6 +57,52 @@ def clock_gpu(architecture=6, domains=(0, 1, 2, 3, 4, 5, 9)):
 
 
 class ClockCapabilityTests(unittest.TestCase):
+    def test_nvvdd_selected_domain_readback_and_peer_preservation(self):
+        gpu, state, layout = clock_gpu()
+        gpu.clkdom_layout()
+        _, before = gpu._clkdom_get(1 << 3)
+        ok, message = gpu.set_rail_offset_mv(25.001, 3)
+        self.assertTrue(ok, message)
+        self.assertIn("stored request", message)
+        self.assertIn("physical voltage response is unverified", message)
+        old = ctypes.cast(before, ctypes.POINTER(u32))
+        new = ctypes.cast(ctypes.create_string_buffer(state["writes"][-1]), ctypes.POINTER(u32))
+        word = (layout.header + 3 * layout.stride + layout.nvvdd_uv) // 4
+        self.assertEqual([i for i in range(layout.size // 4) if old[i] != new[i]], [word])
+        self.assertEqual(gpu.read_rail_offset_mv(3), 25.001)
+        self.assertEqual(gpu.read_rail_offset_mv(0), 42)
+
+    def test_nvvdd_ignored_set_is_failure(self):
+        gpu, state, _ = clock_gpu()
+        state["ignored"] = True
+        ok, message = gpu.set_rail_offset_mv(25, 3)
+        self.assertFalse(ok)
+        self.assertIn("readback mismatch", message)
+
+    def test_nvvdd_malformed_readback_is_failure(self):
+        gpu, state, _ = clock_gpu()
+        gpu.clkdom_layout()
+        original_get = gpu._clkdom_get
+
+        def get(mask):
+            status, buf = original_get(mask)
+            if state["writes"]:
+                ctypes.cast(buf, ctypes.POINTER(u32))[2] = 0
+            return status, buf
+
+        gpu._clkdom_get = get
+        ok, message = gpu.set_rail_offset_mv(25, 3)
+        self.assertFalse(ok)
+        self.assertIn("readback", message)
+
+    def test_nvvdd_invalid_input_never_sets(self):
+        for value, domain in ((True, 0), (float("nan"), 0), (float("inf"), 0),
+                              ("25", 0), (2147484, 0), (25, -1), (25, 32), (25, True)):
+            with self.subTest(value=value, domain=domain):
+                gpu, state, _ = clock_gpu()
+                self.assertFalse(gpu.set_rail_offset_mv(value, domain)[0])
+                self.assertEqual(state["writes"], [])
+
     def test_known_controls_survive_missing_private_counters_on_pascal_and_turing(self):
         for architecture in (4, 6):
             with self.subTest(architecture=architecture):
