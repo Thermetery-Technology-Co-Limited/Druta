@@ -1764,5 +1764,164 @@
       "candidate_firmware_flow_20261029": "018a8e0647f749357e57df42188deb9628cc3039fa74ffc204622fe96b24f6db",
       "candidate_evaluator_and_source_20261029": "626dd16cd8734ecd7792e89c662352596537c20bc4c1fa43fefc344df45fa80e"
     }
+  },
+  "core_voltage_registry_initialization_20261029": {
+    "scope": "Offline static analysis of the pinned installed Windows driver and a candidate GSP image, an earlier selected-adapter registry trial, and one current read-only GSP features GET. Image identities document evidence and are not eligibility gates.",
+    "windows_driver_sha256": "3f8d33495cabeb2fa11ebdcf0b12705e9ccfb4e53005324bcd86e9dea8ba2ab4",
+    "candidate_gsp_sha256": "6c4de07caa7f494a44419f3cad67bfda95de4304f057985da03cd7756a1c533d",
+    "primary_source_commit": "ca2d03e6fafd4d4b56b383497d931c25b283bfcf",
+    "prior_trial": "The selected PDO driver key originally lacked the value; REG_DWORD 0 was staged and read back, then the original absence was restored. A030 returned 1 in all four recorded readbacks across two GPU-only restarts. This is a negative for that configuration, not proof of its cause.",
+    "windows_conditional_path": "On the traced 0x1518a0 path, the OBJMC EngState +0x50 registry reader precedes the PERF EngState +0x60 default stage. For the same GPU processed by both loops, PERF+0x1b61 equal to zero permits the later default to write 1; nonzero skips that write. The second loop excludes its RBP GPU, and actual PnP phase, iteration and branch execution were not captured.",
+    "routing": "The current Windows A030 and A031 export records both have flags 0x48, including ROUTE_TO_PHYSICAL. This static flag does not establish actual per-command routing or loaded firmware identity.",
+    "candidate_firmware": "The candidate A030 and A031 handlers access the same Perf+0x2ed byte. Its OBJMC class 0x9aad0e initializer 0x1820184, installed in the root+8 interface table at +0x68, looks up EnableCoreVoltage and conditionally writes that byte for values 0 and 1. The candidate lookup searches an internal typed list: kind 1 yields a DWORD; kind 2 requires at least four bytes and yields its first DWORD, with a separate fallback. These internal kinds are not established as Windows registry types.",
+    "unresolved": [
+      "Whether the selected GPU traversed both Windows initialization stages and the actual branch state during the old trial.",
+      "The actual A030/A031 route and whether the candidate firmware image was loaded.",
+      "The candidate initializer lifecycle order, typed-list population and fallback source.",
+      "Physical voltage behavior and any working EnableCoreVoltage registry control."
+    ],
+    "next_boundary": "Resolve actual PnP phase and route, and candidate input population and typed provenance, before another write; an identical zero-value repeat is not discriminating.",
+    "additional_hardware_calls_or_mutations": "One read-only feature GET is recorded above; no configuration SET, registry write or restart in this follow-up.",
+    "evidence": [
+      {
+        "path": "experiments/registry-overrides/driver-controls/core-voltage-probe-20261023-011200-16808.journal.json",
+        "sha256": "17dabbdf9a2418bbc18fad9f8392665c2d81af1a66de2922d8fe029bb53de5b5"
+      },
+      {
+        "path": "experiments/registry-overrides/core-voltage-registry-terra-20261029/findings.json",
+        "sha256": "314d6a7c938b26f483dfc2a0a18a2fa3ccb71cca1dd9e4b3fbd79b191c554ece"
+      },
+      {
+        "path": "experiments/registry-overrides/core-voltage-registry-terra-20261029/trace_windows.py",
+        "sha256": "1cdd17633944d0f850063c902cc25f8a255ba3e1aa67ce672c00c11107fb2024"
+      },
+      {
+        "path": "experiments/registry-overrides/core-voltage-registry-terra-20261029/reader-windows.py",
+        "sha256": "5e11880d0bfe2529c904656cbedeede12f6ec00fc04b304af1517c39e6559d3e"
+      },
+      {
+        "path": "experiments/registry-overrides/core-voltage-registry-terra-20261029/reader-windows.json",
+        "sha256": "6e680a01f8bb394743eddc593577395637e97ce76dbb91fc1b74d2097995a620"
+      },
+      {
+        "path": "experiments/registry-overrides/core-voltage-registry-root-20261029/root-static-review.json",
+        "sha256": "c3824d2e276e11a5f0009d4c02eed54cb00dd59082fc75a547e143ec04e4d9f4"
+      },
+      {
+        "path": "experiments/registry-overrides/core-voltage-registry-root-20261029/verify_static.py",
+        "sha256": "0f2f4f2674c71db93c623dfcb3f0b8a1241f363474e79cc59a9e4b0627f525d6"
+      },
+      {
+        "path": "experiments/registry-overrides/core-voltage-registry-root-20261029/descriptor_matrix.py",
+        "sha256": "211f2b55f02d0478a927984a453292d497966ea901c3d111bca762e6bb9d48c0"
+      },
+      {
+        "path": "experiments/registry-overrides/core-voltage-registry-root-20261029/descriptor-matrix.json",
+        "sha256": "e2c10005c48dce51696080445326a7ac68beb4685b95bbea8131fc820cc765b7"
+      },
+      {
+        "path": "experiments/registry-overrides/core-voltage-registry-root-20261029/root-candidate-review.json",
+        "sha256": "cb0a2cd6680653a0733264783811526bfba1063627d8f8f680e5104f66aa3352"
+      },
+      {
+        "path": "experiments/registry-overrides/core-voltage-registry-root-20261029/verify_candidate.py",
+        "sha256": "794049b7b584a0b4384abd5c497297436bdf0574bd033d88ad668b8d8abcbe25"
+      },
+      {
+        "path": "experiments/registry-overrides/core-voltage-registry-root-20261029/firmware-exports.py",
+        "sha256": "f1165b3701f41d11f09e5e1bdddde21f2df26d9230e5f761573519b55aa1776a"
+      },
+      {
+        "path": "experiments/registry-overrides/core-voltage-registry-root-20261029/firmware-exports.json",
+        "sha256": "21b354cf806fbd04adbce440d10f549cd23ec961626ca501fcce858a8e4afda8"
+      },
+      {
+        "path": "experiments/registry-overrides/core-voltage-registry-root-20261029/initializer-lookup-evidence.py",
+        "sha256": "b2024d8870da7b3aa79a01288e78c438c8fd075afed004fd5991c6b8b03c52c2"
+      },
+      {
+        "path": "experiments/registry-overrides/core-voltage-registry-root-20261029/initializer-lookup-evidence.json",
+        "sha256": "355e270c421cb5253e89d1124f7c4fdc89ff3f4a7aaa8fe1ed43b2ebb0e9a598"
+      },
+      {
+        "path": "experiments/registry-overrides/core-voltage-registry-root-20261029/probe_gsp_features.py",
+        "sha256": "851f90c74c87913c392b80755a4e78a3e4e20d785f5012de49f369c5f78fb413"
+      },
+      {
+        "path": "experiments/registry-overrides/core-voltage-registry-root-20261029/features-preflight-1.json",
+        "sha256": "89e9d74b9217668f4929765746ac33dd9951aa116280fd748f9beff21dda9d12"
+      },
+      {
+        "path": "experiments/registry-overrides/core-voltage-registry-root-20261029/features-read-1.json",
+        "sha256": "34982fe3a81e7edb8bd6f53ab6ebd496f29d8718516282512bd9dedf6d9508df"
+      },
+      {
+        "path": "experiments/registry-overrides/core-voltage-registry-root-20261029/gsp-features-descriptor.json",
+        "sha256": "cf0d0a82a56e01e5e00ad863c6d35ab54084eee580187da1d89f993bdda63777"
+      },
+      {
+        "path": "experiments/registry-overrides/core-voltage-registry-root-20261029/gsp_features_descriptor.py",
+        "sha256": "83e7c6996cabbb954efbc7166e7c85db333b6c50acd705144719f9682e611b94"
+      },
+      {
+        "path": "experiments/registry-overrides/core-voltage-registry-root-20261029/gsp-features-static.json",
+        "sha256": "c895bdb20cf0f78a87b5172e86feee8db5f371eea78a5483205d6b44c7299665"
+      },
+      {
+        "path": "experiments/registry-overrides/core-voltage-registry-root-20261029/trace_gsp_features.py",
+        "sha256": "e565b328b74f4626ab4c5eacb7a1cd206de3b05fe221befc412e52a23501af62"
+      },
+      {
+        "path": "experiments/registry-overrides/core-voltage-registry-root-20261029/reader-windows.py",
+        "sha256": "5e11880d0bfe2529c904656cbedeede12f6ec00fc04b304af1517c39e6559d3e"
+      },
+      {
+        "path": "experiments/registry-overrides/core-voltage-registry-root-20261029/reader-windows.json",
+        "sha256": "6e680a01f8bb394743eddc593577395637e97ce76dbb91fc1b74d2097995a620"
+      },
+      {
+        "path": "experiments/registry-overrides/core-voltage-registry-root-20261029/terra-features-audit.json",
+        "sha256": "54787cae9fc10c43062298b7b3d4c2ee0285f25a513424201ea95439ea197996"
+      },
+      {
+        "path": "experiments/registry-overrides/core-voltage-observation-luna-20261029/gsp-mode-primary-schema.json",
+        "sha256": "10ac4b6241935cbd8c8e14157043530a34f0546ad28f6386fdc3944667aa3b67"
+      },
+      {
+        "path": "experiments/registry-overrides/core-voltage-observation-luna-20261029/gsp-get-features-handler-followup.json",
+        "sha256": "f786b4981ab74fbf67f9a1f7b641df9be8e892f69dcb0d12e3caa6331bf26b45"
+      },
+      {
+        "path": "experiments/registry-overrides/core-voltage-registry-root-20261029/root-features-audit.json",
+        "sha256": "9e13691a4a0d0bcdf824924ab04459a38ba92920e8a61aec995388effe7da53b"
+      },
+      {
+        "path": "experiments/registry-overrides/core-voltage-registry-root-20261029/audit_features.py",
+        "sha256": "1c78b9c21c529b41fc5e9067bc79069def068e50526aad352f11b88ede441ad2"
+      }
+    ],
+    "feature_get_20261029": {
+      "command": "0x20803601",
+      "parameter_bytes": 72,
+      "request_count": 1,
+      "transport_status": 0,
+      "rm_status": 0,
+      "completion": 1,
+      "output": "All 72 output bytes remained zero; bValid is 0. The feature mask is invalid and must not be interpreted.",
+      "brackets": "One saved full before and one full after snapshot matched the original broad state, complete curve, raw LPWR, Pstate and client comparisons. Guard integrity and post-call target binding are producer assertions; the raw guard words and independent post-call target snapshot were not retained for independent recomputation.",
+      "primary_schema": "The pinned header describes bValid true for a GSP-client/offloaded RM, but the pinned source KERNEL variant returns success while forcing bValid false; the alternate generated stub returns NOT_SUPPORTED. Neither static variant establishes the installed handler executed.",
+      "installed_descriptor": "RVA 0xebdef0, handler 0x17c9e0, flags 0x40549 and 72-byte parameters. The handler dispatches via a Subdevice member; actual selected handler and route remain unobserved.",
+      "interpretation": "This successful invalid response does not establish whether offload is disabled, which handler ran, or whether the candidate firmware was loaded. The all-zero no-change response does not prove a no-op.",
+      "primary_sources": [
+        "https://github.com/NVIDIA/open-gpu-kernel-modules/blob/ca2d03e6fafd4d4b56b383497d931c25b283bfcf/src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gsp.h",
+        "https://github.com/NVIDIA/open-gpu-kernel-modules/blob/ca2d03e6fafd4d4b56b383497d931c25b283bfcf/src/nvidia/src/kernel/gpu/subdevice/subdevice_ctrl_gpu_kernel.c"
+      ],
+      "no_configuration_SET_registry_write_or_restart": true
+    },
+    "primary_sources": [
+      "https://github.com/NVIDIA/open-gpu-kernel-modules/blob/ca2d03e6fafd4d4b56b383497d931c25b283bfcf/src/nvidia/inc/kernel/rmapi/control.h",
+      "https://github.com/NVIDIA/open-gpu-kernel-modules/blob/ca2d03e6fafd4d4b56b383497d931c25b283bfcf/src/nvidia/inc/libraries/nvoc/rtti.h",
+      "https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-ioopendeviceregistrykey"
+    ]
   }
 }

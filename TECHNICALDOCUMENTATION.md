@@ -1665,7 +1665,19 @@ require a BIOS parser or image getter. No mvolt implementation is used.
 On the tested RTX 5080 / 621.01 configuration, three power-policy maxima accepted
 999000 mW with exact restoration, and Speedo accepted 2187 -> 2188 -> 2187.
 `EnableCoreVoltage=0` left the active flag at 1 after restart; it is not exposed
-as a working registry control. These observations describe that configuration.
+as a working registry control. Static follow-up identifies a conditional Windows
+initialization path that could overwrite a registry-derived zero with 1, but
+does not establish that the tested GPU took that path. Both A030 and A031 have
+a route-to-physical flag; their actual route and the loaded firmware are not
+established. A candidate firmware image has a same-byte initializer and
+getter/setter, but its input provenance and lifecycle order remain unresolved.
+One read-only GSP-features query returned success with `bValid=0` and an
+unchanged zero-filled response. Its feature mask is invalid, so this does not
+establish the current offload mode or command route. The pinned NVIDIA source
+also includes a kernel implementation that returns success with `bValid=0`.
+The [transport evidence](experiments/driver-transport-followup-20261028.json)
+records the prior negative and the static boundaries. These observations
+describe the tested configuration.
 
 Core/memory offset ceilings also accepted 1000 -> 1001 MHz and 3000 -> 3001 MHz.
 Public NVAPI returned 1001000/3001000 kHz; NVML returned 1001/6002 in its core and
@@ -1922,7 +1934,7 @@ Additional named registry paths have been traced in the installed driver:
 | `RmPerfCfPolicyOverrides`, `RmPerfCfControllersOverrides` | Continuous-feedback policy/controller initialization | Selected policy indices and some raw flags readable; semantic roles under investigation |
 | `RMClkVfOverride` | Clock/VF initialization flags with more than one consumer | Monotonicity and smoothing flags independently activated and restored; remaining fields unresolved |
 | `RmVoltThresholdCtrlCtrl` | Voltage-threshold controller initialization bits | Bit fields, not a numeric voltage ceiling |
-| `EnableCoreVoltage` | Initialize a flag gating voltage requests | Registry zero did not change the tested flag; separate live A030/A031 GET/SET verified both states and undo |
+| `EnableCoreVoltage` | Initialize a flag gating voltage requests | Registry zero did not change the tested flag; conditional initialization and command routing remain unresolved. Separate live A030/A031 GET/SET verified both states and undo |
 
 These names are research results, not a recommendation to write arbitrary
 DWORDs. Their consumers, activation rules and supported GPU paths differ.
