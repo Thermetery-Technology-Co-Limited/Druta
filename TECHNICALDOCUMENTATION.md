@@ -3336,6 +3336,16 @@ policy adjustments independent on the tested configuration.
 The planner validates the current VFE/rail layouts, owners, graph, native
 inventory and an existing loaded constant template with a present variable.
 It uses only canonical inactive slots inside the declared table capacity.
+For the understood v30 65-byte type-1 rail rows, the confirmed VFE word
+selectors are at +13/+15/+17/+19/+33/+35. The fields at +21 and +23 are decoded
+independently as bytes. Their namespaces remain unresolved: matching active
+VFE ordinals are retained as possible dependencies, and matching inactive
+slots are excluded from new-head allocation. Their neighboring bytes and
+other opaque regions remain unchanged. Treating those regions as additional
+16-bit selectors could falsely invalidate the graph or mark equations shared;
+the parser and offset planner now use the same width rules. Modeled alternate
+metadata tests pass, and the complete previously tested eight-head plan is
+byte-identical. This does not identify those bytes as VCRIT thresholds.
 Activation composes registry ROM overrides and performs one selected-GPU PnP
 restart. All heads start at zero. No table growth, VBIOS flash or Windows reboot
 is involved. Capability checks use the current inputs; tested GPU/BIOS/driver

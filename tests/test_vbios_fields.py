@@ -511,10 +511,30 @@ class RuntimeVbiosFields(unittest.TestCase):
             with self.subTest(role=role, next_index=next_index), self.assertRaises(ValueError):
                 vf.plan(b, {f"voltage.0.{role}": 15000})
         b = bytearray(voltage_fixture())
-        struct.pack_into("<H", b, 0x800 + 5 + 21, 1)
+        struct.pack_into("<H", b, 0x800 + 5 + 35, 1)
         self.assertEqual(
             next(f for f in vf.inspect(b)["fields"] if f["key"] == "voltage.0.ALT.addend")["capability"], "read-only"
         )
+
+    def test_rail_byte_fields_are_not_word_selectors_and_possible_alias_is_preserved(self):
+        b = bytearray(voltage_fixture())
+        row = 0x800 + 5
+        for offset in (21, 23, 29, 31, *range(41, 65, 2)):
+            struct.pack_into("<H", b, row + offset, 0x1234)
+        fields = {f["key"]: f for f in vf.inspect(b)["fields"]}
+        self.assertEqual(fields["voltage.0.ALT.addend"]["capability"], "editable")
+        changed = apply(b, vf.plan(b, {"voltage.0.ALT.addend": 15000}))
+        self.assertEqual(changed[row + 21:row + 33], b[row + 21:row + 33])
+        self.assertEqual(changed[row + 41:row + 65], b[row + 41:row + 65])
+        b[row + 21:row + 23] = bytes((255, 0x12))
+        fields = {f["key"]: f for f in vf.inspect(b)["fields"]}
+        self.assertEqual(fields["voltage.0.ALT.addend"]["capability"], "editable")
+        for offset in (21, 23):
+            candidate = bytearray(b)
+            struct.pack_into("<H", candidate, row + offset, 1)
+            fields = {f["key"]: f for f in vf.inspect(candidate)["fields"]}
+            self.assertEqual(fields["voltage.0.ALT.addend"]["capability"], "read-only")
+            self.assertEqual(fields["voltage.0.ALT.addend"]["affected_rail_roots"][-1]["role"], "possible_byte")
 
     def test_polynomial_variable_and_coefficient_equation_terms_count_as_sharing(self):
         for coefficient in (False, True):
@@ -678,13 +698,13 @@ class RuntimeVbiosFields(unittest.TestCase):
     def test_rel_shared_roots_and_unsupported_peers_are_reported_independently(self):
         b = bytearray(polynomial_reference_fixture(0))
         # An extra selector consumes REL directly. Its semantics remain unnamed.
-        struct.pack_into("<H", b, 0x800 + 5 + 21, 0)
+        struct.pack_into("<H", b, 0x800 + 5 + 35, 0)
         fields = {f["key"]: f for f in vf.inspect(b)["fields"]}
         field = fields["voltage.0.REL.maximum"]
         self.assertEqual(field["capability"], "editable")
         self.assertTrue(field["shared"])
         self.assertEqual(field["affected_equation_indices"], [0, 1, 3])
-        self.assertEqual([r["role"] for r in field["affected_rail_roots"]], ["REL", "ALT", "unnamed", "INFO_VMIN"])
+        self.assertEqual([r["role"] for r in field["affected_rail_roots"]], ["REL", "ALT", "INFO_VMIN", "unnamed"])
         self.assertEqual(fields["voltage.0.INFO_VMIN.maximum"]["capability"], "read-only")
         clock = {f["key"]: f for f in vf.inspect(voltage_clock_fixture(0))["fields"]}[field["key"]]
         self.assertEqual(clock["capability"], "editable")

@@ -71,13 +71,17 @@ def plan(image, before, variable_info, requests):
     rows = [b[base + 25*i:base + 25*(i+1)] for i in range(count)]
     if mask >> count or any(bool(mask >> i & 1) != bool(row[0]) for i, row in enumerate(rows)):
         raise VoltageOffsetScaffoldError("Loaded equation inventory differs from the image")
+    possible_bytes = set()
     for rail_index in range(rail_count):
         row = rail + 5 + 65*rail_index
-        for offset in (13, 15, 17, 19, 21, 23, 29, 31, 33, 35, *range(41, 65, 2)):
+        possible_bytes.update(b[row+offset] for offset in vb.VOLTAGE_RAIL_POSSIBLE_VFE_BYTES
+                              if b[row+offset] != 255)
+        for offset in vb.VOLTAGE_RAIL_VFE_SELECTORS:
             target = struct.unpack_from("<H", b, row+offset)[0]
             if target != 0xffff and (target >= count or not rows[target][0]):
                 raise VoltageOffsetScaffoldError("A rail selector points outside the active graph")
-    slots = [i for i, row in enumerate(rows) if row == _EMPTY and not mask >> i & 1 and i not in graph and i not in clocks]
+    slots = [i for i, row in enumerate(rows) if row == _EMPTY and not mask >> i & 1
+             and i not in graph and i not in clocks and i not in possible_bytes]
     if len(slots) < len(selected):
         raise VoltageOffsetScaffoldError("Not enough canonical inactive equation slots")
     template = None

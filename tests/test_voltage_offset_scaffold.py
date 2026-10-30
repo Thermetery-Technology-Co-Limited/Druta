@@ -135,6 +135,31 @@ def test_second_rail_shared_root_remains_independent():
     assert struct.unpack_from('<H', after, 0x800+5+13)[0] == 7
 
 
+def test_non_vfe_rail_bytes_are_preserved_and_do_not_block_scaffold():
+    image, before, variables = case()
+    modified = bytearray(image)
+    row = 0x800 + 5
+    for offset in (21, 23, 29, 31, *range(41, 65, 2)):
+        struct.pack_into('<H', modified, row+offset, 0x1234)
+    result, heads = scaffold.plan(bytes(modified), before, variables, [(0, 'REL')])
+    after = apply(bytes(modified), result)
+    assert heads[0]['next_index'] == 0
+    assert after[row+21:row+33] == modified[row+21:row+33]
+    assert after[row+41:row+65] == modified[row+41:row+65]
+    struct.pack_into('<H', modified, row+35, 0x1234)
+    with pytest.raises(scaffold.VoltageOffsetScaffoldError, match='rail selector'):
+        scaffold.plan(bytes(modified), before, variables, [(0, 'REL')])
+
+
+def test_unresolved_byte_indices_reserve_matching_inactive_slots():
+    image, before, variables = case()
+    modified = bytearray(image)
+    row = 0x800 + 5
+    modified[row+21], modified[row+23] = 6, 7
+    with pytest.raises(scaffold.VoltageOffsetScaffoldError, match='inactive equation slots'):
+        scaffold.plan(bytes(modified), before, variables, [(0, 'REL')])
+
+
 def test_recognition_allows_unrelated_power_edit_but_activation_is_exact():
     image, before, variables = case()
     requests = [(0, 'REL')]

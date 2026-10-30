@@ -2031,5 +2031,58 @@
         "sha256": "defe40fff6d68867a53eb19eabf132e04180cb1aef43ff24e49eaef352781b83"
       }
     ]
+  },
+  "rail_selector_width_20261030": {
+    "scope": "Pinned Windows v30 rail rows of 65 bytes, row type1 to native rail type5. Unknown other paths and versions remain unclaimed.",
+    "normalized_layout": "Descriptor 1b14d places raw row byte0 then raw DWORDs at +1,+5,+9,+13,+17,+21,+25,+29,+33,+37,+41,+45,+49,+53.",
+    "width_mapping": "5CD863..888 copies raw +13/+15/+17/+19 as WORDs. 5CD88C..899 copies raw +21 and +23 as independent BYTEs. 5CD8A2..8B0 copies raw +33/+35 as WORDs. These map respectively to descriptor +24/+26/+28/+32, +88/+2A, and +2E/+34.",
+    "bounded_nonconsumption": "In the inspected type5 construction path the decoded +29..32 and +41..56 words are not read into the descriptor; a 65-byte row is below the 73-byte extension threshold, so +57..64 are not decoded by that branch. This is not a global proof about other BIOS consumers.",
+    "byte_consumer": "4FB370 obtains a rail group object and returns its byte+2A; 927570 calls it and checks against FF; BEFB9C uses the resulting predicate in LPWR support cleanup. This establishes non-FF use, not a named namespace or absence of other uses.",
+    "semantic_limit": "B201 row+0E and +32 are emitted bytes. Historical header layouts differ depending on an unbound index typedef, so no current VFE or power-equation name follows from that header alone. Unknown bytes remain unchanged; byte values that happen to match active equations are conservatively retained as possible VFE dependencies.",
+    "product_fix": {
+      "word_selectors": [
+        13,
+        15,
+        17,
+        19,
+        33,
+        35
+      ],
+      "possible_byte_aliases": [
+        21,
+        23
+      ],
+      "active_byte_aliases_conservatively_preserved": true,
+      "matching_inactive_slots_reserved": true,
+      "opaque_bytes_preserved": true,
+      "unrelated_high_bytes_do_not_form_word_selectors": true,
+      "false_refusal_reproduced_before_fix": "A rail selector points outside the active graph",
+      "modeled_after_plan_succeeds": true,
+      "captured_entire_plan_unchanged": true,
+      "captured_changed_bytes": 56,
+      "captured_after_sha256": "89dfd3bc898602e0df87e865ff6765f5353b2a9ca02679207ed6858993b40b82"
+    },
+    "independent_root_windows_verified": 19,
+    "raw_findings_sha256": "2d93096f64e886346236a4febe2510dc10f89305e3869dba44c79994aca152fa",
+    "root_review_sha256": "1f856285f3bbaffe9b8aa97caca1af0ad1432bf36c0786ec0adf6921d3b56006",
+    "new_gpu_calls": false,
+    "new_registry_mutations": false,
+    "new_gpu_restarts": false,
+    "compatibility": "Understood layout and current capability checks; no board/BIOS/driver identity allowlist. Alternate metadata examples are modeled tests, not another GPU qualification."
+  },
+  "vcrit_type2_status_20261030": {
+    "scope": "Offline pinned installed Windows driver/NVAPI and saved prior evidence, not a live B202 GET or proof of GSP routing.",
+    "binding": [
+      "NVAPI 0x5D0634EE wrapper 0x1D45F0 uses converter 0x15D710: native type2 becomes public type0; native type4 becomes public2, native type5 becomes public3.",
+      "4FB2B0 native class2 constructor 91F3D0 installs selector interface+20=91F540. That method invokes common C3DBB0→CAC850, then copies external status-row +4C,+50,+48,+54 to native row +4C,+50,+54,+58 respectively (the last is one byte). NVAPI type0 branch copies native +50,+4C,+54,+58 to public +30,+34,+38,+2C respectively. These are status-source data copies, not static constructor fields or proven threshold values.",
+      "Constructor 91F3D0 also copies descriptor +F0 byte and +F2/+F4 words into same object offsets. The independently installed INFO callback 91F730 copies these to native INFO offsets +2C/+2E/+30 and duplicates at +36/+38/+3A; no name, numeric units or status-source origin follows from those copies.",
+      "The inspected v30 rail loader 5CD4D0 maps low five bits 0→native class4, 1→class5, otherwise invalid; it does not create class2 on that v30 branch. A different constructor caller, table layout or forwarding path could do so; do not generalize beyond this path."
+    ],
+    "conclusion": "Current captured class5 does not enter the public type0 conversion or type2 serializer. For the only proven type2 callback, fields are conditionally copied from an external status row; its producer, field semantics and independent target configuration are not identified. No currently bound low/high threshold setter or valid new threshold diagnostic follows.",
+    "next_boundary": "Bind the actual type2 external status buffer producer and its matching authoritative field schema or locate a captured type2 path with known population; separately bind a write path to editable configured thresholds. Do not infer threshold values from B202 type5 padding or signed VCRIT request names.",
+    "raw_findings_sha256": "9eb483765992933b425b3cb4d008d8f4f223bc1cccbc7a86fbd5a6c8134e1940",
+    "root_raw_bytes_and_disassembly_reproduced": true,
+    "new_threshold_get_or_set_qualified": false,
+    "ABI_layout_limit": "Older declarations depend on an unbound VFE index typedef and BOARDOBJ definition; conditional U8/U16 layouts do not by themselves identify the current 0x4C-row field names."
   }
 }

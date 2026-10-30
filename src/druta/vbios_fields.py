@@ -49,6 +49,12 @@ POWER_V40_RUNTIME_TYPES = {
 }
 POWER_CLASS_EVIDENCE = "experiments/registry-overrides/vbios-fields/power-class-mapping.json"
 POWER_V30_CLASS_EVIDENCE = "experiments/power-v30-class1-20261028.json"
+# V30 rail type 1 / 65-byte rows: only these words are copied as VFE roots by
+# the matched rail constructor. Other row bytes remain opaque and unchanged.
+VOLTAGE_RAIL_VFE_SELECTORS = (13, 15, 17, 19, 33, 35)
+# These independently decoded bytes have an unresolved consumer namespace.
+# Treat values that name active VFE rows as possible dependencies.
+VOLTAGE_RAIL_POSSIBLE_VFE_BYTES = (21, 23)
 
 
 def power_runtime_type(version, kind):
@@ -1158,7 +1164,7 @@ class _Image:
             clock_refs, clock_error = None, str(exc)
         selected, rail_roots = [], []
         role_names = {13: "REL", 15: "ALT", 17: "OV", 19: "VMIN", 33: "INFO_VMIN"}
-        selector_offsets = (13, 15, 17, 19, 21, 23, 29, 31, 33, 35) + tuple(range(41, 65, 2))
+        selector_offsets = VOLTAGE_RAIL_VFE_SELECTORS
         for i in range(count):
             row = rail + 5 + 65 * i
             if self.span(row, 2) != bytes((1, i + 1)):
@@ -1178,6 +1184,13 @@ class _Image:
                 for d, idx in zip(selector_offsets, indices, strict=True)
                 if idx != 65535
             ]
+            for d in VOLTAGE_RAIL_POSSIBLE_VFE_BYTES:
+                idx = self.b[row + d]
+                if idx != 255 and idx < n and self.b[base + 25 * idx]:
+                    selected.append(idx)
+                    rail_roots.append({"rail_index": i, "rail_identity": self.b[row + 1],
+                                       "role": "possible_byte", "selector_offset": row + d,
+                                       "equation": idx})
         forward, closures = {}, {}
         for target, users in (refs or {}).items():
             for user in users:
@@ -1239,7 +1252,7 @@ class _Image:
                     "sharing_graph_error": graph_error or clock_error,
                     "external_sharing_complete": clock_refs is not None,
                     "external_sharing_error": clock_error,
-                    "sharing_scope": "understood VFE edges, rail selectors and C+0C main-entry roots; other BIOS consumers unverified",
+                    "sharing_scope": "understood VFE edges, rail selectors, possible byte aliases and C+0C main-entry roots; other BIOS consumers unverified",
                     "rel_lowest_uv": rel_range[0] if rel_range else None,
                     "referenced_by": refs.get(idx, []) if refs is not None else None,
                     "clock_referenced_by": clock_refs.get(idx, []) if clock_refs is not None else None,
