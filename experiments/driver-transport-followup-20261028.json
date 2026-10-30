@@ -2183,7 +2183,21 @@
     "raw_findings_sha256": "9eb483765992933b425b3cb4d008d8f4f223bc1cccbc7a86fbd5a6c8134e1940",
     "root_raw_bytes_and_disassembly_reproduced": true,
     "new_threshold_get_or_set_qualified": false,
-    "ABI_layout_limit": "Older declarations depend on an unbound VFE index typedef and BOARDOBJ definition; conditional U8/U16 layouts do not by themselves identify the current 0x4C-row field names."
+    "ABI_layout_limit": "Older declarations depend on an unbound VFE index typedef and BOARDOBJ definition; conditional U8/U16 layouts do not by themselves identify the current 0x4C-row field names.",
+    "selected_status_buffer_followup": {
+      "owner": "4FC470 -> group interface+170; 9209F0 installs interface+120=8A7C20. 5BDCA0 supplies descriptor+10 buffer pointer through interface+D0 to5BD660; selected-row callback returns buffer+10h+60h*index, passed in R9 to class2 interface+20=91F540.",
+      "geometry": {
+        "header_bytes": 16,
+        "row_bytes": 96,
+        "rows": 32,
+        "total_bytes": 3088
+      },
+      "copied_source_offsets": "Class2 reads selected external row+48/+4C/+50/+54/+58, corresponding to buffer+58/+5C/+60/+64/+68 plus60h*index. These byte-backed addresses are not independent typed VCRIT meanings.",
+      "refresh_boundary": "The constructor descriptor+1=0 path5BD080 ->6F5690 ->8D5320 only validates a nonnull selected entry+38 pointer. It does not copy a response buffer. Alternate descriptor+1!=0 path8D60A0/8D4DA0 remains separate. Group+F8 and successful376D60 endpoint population remain producer boundaries.",
+      "findings_sha256": "43cf8ad006cca8b539559f497d9f6fdf47631dafa141678f6a6ebb074e9184a3",
+      "root_audit_sha256": "c3776d41ac7e0e7b0f8ef02ac79d4671afe70588ba9eaba048430aec0ea2d7b8",
+      "limits": "No actual typed threshold producer or configured threshold setter is established. Captured nativeclass5 does not use class2 STATUS callback; no live RAM-assist value or physical effect follows."
+    }
   },
   "difr_live_request_20261030": {
     "scope": "Pinned offline Windows trace plus root-only sequential fixed probes and real product panel callbacks on the current RTX5080. No registry writes, driver restart, workload or physical measurement.",
@@ -3135,5 +3149,88 @@
       "independent_review": "Luna read-only review found no concrete correctness gaps in the two-file diff; no hardware actions"
     },
     "limits": "No native2/native4 adapter was captured locally. Added-type and mixed-type tests are modeled coverage, not hardware qualification. No generation-to-control-type mapping is inferred. Current write suppression, effective arbitrary six-word replay and VCRIT consumption remain unresolved. Recovery/Undo and ordinary saved-profile restoration/replay integration remain deferred."
+  },
+  "voltage_request_info_identity_20261030": {
+    "scope": "Explicit request capture and replay compatibility; alternate status identities are paired to INFO, not assigned physical domain semantics. Ordinary BIOS/equation role contracts remain strict; no recovery or saved-profile integration.",
+    "source": "Current NVAPI V1 absolute first DWORD is supplied by separate B201 INFO, not the B202/CONTROL subtype. 1D4272 reads envelope+4C*i+77 (native row+33) through converter15D5C0 to INFO+C0*i+50. V1 post-conversion1CAE03..10 copies INFO+C0*i+50 to absolute+54*i+48. The converter admits identity bytes1..8 unchanged and rejects other values.",
+    "product_change": "Request-only policy mode pairs returned V1 status type with same-index fresh native INFO byte+33 in1..8, separate from CONTROL pair0/2,2/4,3/5. Pure request validation binds captured policy type to captured INFO. Conventional index0/type1 and index1/type3 keep their prior labels; other converted identities use Rail N. Invalid/mismatched peers remain readable partial captures and cannot permit complete SET. No board/driver version allowlist or new retry.",
+    "modeled_integration": "Uses the actual voltage policy reader with identities8/2 and mixed public/native CONTROL0/2 plus2/4, six changing signed words on both rails, exact mocked SET/readback and preserved positional labels. Default BIOS policy validation rejects the generic request policy. Invalid peer0, mismatched peer3, out-of-range and bool identities, and same-row INFO mismatch are tested.",
+    "validation": {
+      "request_tests_passed": 76,
+      "request_tests_deselected": 30,
+      "ordinary_policy_reader_tests_passed": 12,
+      "ordinary_policy_tests_deselected": 27,
+      "ruff": "passed for both changed source modules and changed test file",
+      "independent_review": "Luna reviewed final source/test diff; no concrete correctness gaps"
+    },
+    "root_review": {
+      "source_windows_reproduced": 27,
+      "fixed_instruction_joins": 6,
+      "source_audit_sha256": "c3776d41ac7e0e7b0f8ef02ac79d4671afe70588ba9eaba048430aec0ea2d7b8",
+      "existing_capture_identity_pairs": [
+        {
+          "rail": "0",
+          "v1_policy_identity": 1,
+          "native_info_identity": 1,
+          "public_control_type": 3
+        },
+        {
+          "rail": "1",
+          "v1_policy_identity": 3,
+          "native_info_identity": 3,
+          "public_control_type": 3
+        }
+      ],
+      "additional_identity_windows_reproduced": 14,
+      "additional_fixed_instruction_joins": 3,
+      "converter_cases_independently_checked": 8,
+      "identity_audit_sha256": "11f69939c0db19e54954223b2b8dcae1aecde4c1c793d8e8d1c3ac4bac9263af"
+    },
+    "current_adapter_read": {
+      "baseline_commit": "aec27fa7a89fc3041468ef573a00574591a2c4c8",
+      "both_modified_modules_loaded_from_verified_baseline_package": true,
+      "sources": {
+        "src/druta/voltage_bios_runtime.py": {
+          "baseline_sha256": "910a8bc4908c5ba97cbeb14bb121806562359aa71c8a119c7eb6908881a7b738",
+          "current_sha256": "813f1e4ae8bb3be2c63e1366583e3985e606aa57a83b4f43ff681393a2e11688"
+        },
+        "src/druta/voltage_request_replay.py": {
+          "baseline_sha256": "3d1dbbdd96c0029255c568d8f2f40fe8af21d8a9f25c53cd2bc1a4e10d40f303",
+          "current_sha256": "df0a6bed66b643d5e10ffdf6e92347cd41d9fd6db4d4946f8364e22a3be03af8"
+        }
+      },
+      "complete_snapshots_equal": true,
+      "observed_pairs": [
+        {
+          "rail": "0",
+          "info_identity": 1,
+          "status_identity": 1,
+          "public_control_type": 3,
+          "native_control_type": 5
+        },
+        {
+          "rail": "1",
+          "info_identity": 3,
+          "status_identity": 3,
+          "public_control_type": 3,
+          "native_control_type": 5
+        }
+      ],
+      "capture_sha256": "9ee5b0adb611f3a14189acdc00674ef160eb334f9ba800c1be4dcea3628733b0",
+      "sets": 0,
+      "registry_writes": 0,
+      "gpu_restarts": 0,
+      "workloads": 0
+    },
+    "fixed_source_records": {
+      "absolute_identity_findings_sha256": "3de930b764a3e0b54af9a6b439611d4d9904665c90eeac2578f64e869c7f40d7",
+      "post_constructor_gate_candidates_sha256": "7bd32dafd958f955babcb28c01a6b46a5cf448bf2b923597fefede2ebd958252",
+      "public_documentation_inventory_sha256": "dba6440ef9980893b2a2e400bb54fc93eb456b6c2d5f3fe2714d6e93e5c3a172",
+      "identity_admission_findings_sha256": "8ba008227dd13f563a0ad1648c3b87eb2ea68ca4ec7ea4fd88e4a92072213fb2"
+    },
+    "post_constructor_gate_candidate_limit": "Write1796F56 to displacement32C is reached with a separately constructed0x3970-byte owner, not demonstrated Perf0x90A40. Indexed5E15A5 is not bound to Perf either. These exclusions do not prove absence of other aliased, indirect or bulk writers or establish a gate API.",
+    "limits": "Alternate identity/control-type coverage is modeled, not runtime qualification of other adapters. V1 INFO identity numbers do not define physical rail names. No effective arbitrary six-word/VCRIT replay, new current VCRIT threshold, F219 SET or supported post-construction gate writer is established. Recovery/Undo and ordinary saved-profile restoration/replay remain deferred.",
+    "identity_owner": "B201 row+33 identity comes from rail object+89, initialized from descriptor+89. Separate object/descriptor+88 feeds B201 row+32. Earlier private prose assigning +88 to +33 is corrected by exact byte windows; no physical domain name follows from these offsets.",
+    "v1_conversion_failure_caveat": "If nested INFO1D3D40 fails during1CAD00 conversion, its copy is skipped; outer status cleanup does not propagate that conversion result. The actual returned identity must be1..8 and equal independently captured native INFO, even when outer STATUS succeeds."
   }
 }

@@ -79,7 +79,7 @@ def validate(saved):
     if not isinstance(saved, dict) or set(saved) != _KEYS or type(saved["schema"]) is not int or saved["schema"] != 1:
         _fail("Malformed captured rail replay observation")
     try:
-        policy = voltage.validate_policy(saved["policy"])
+        policy = voltage.validate_policy(saved["policy"], request=True)
         identity = clock._identity(saved["identity"])
     except (ValueError, RuntimeError, TypeError) as exc:
         raise ReplayError("malformed", str(exc)) from exc
@@ -108,6 +108,7 @@ def validate(saved):
             row["name"] != expected["name"]
             or type(row["policy_type"]) is not int
             or row["policy_type"] != expected["type"]
+            or row["policy_type"] != info[HEADER + int(index) * INFO_STRIDE + 0x33]
             or type(row["control_type"]) is not int
             or row["control_type"] not in _CONTROL_TYPES
             or expected["control_type"] != row["control_type"]
@@ -212,7 +213,8 @@ def _native_get(gpu, reader, command, size, mask=None):
 def _once(gpu, reader):
     identity = clock._binding(reader)
     info = _native_get(gpu, reader, INFO_COMMAND, INFO_SIZE)
-    policy, error = voltage.read(gpu)
+    identities = {i: info[HEADER + i * INFO_STRIDE + 0x33] for i in (0, 1) if i in _indices(_mask(info))}
+    policy, error = voltage.read(gpu, request_identities=identities)
     if error:
         raise PerfDiagnosticError("transient", error)
     if policy["identity"] != identity:

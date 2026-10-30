@@ -2978,6 +2978,17 @@ signed microvolt request words are preserved. NVIDIA's legacy
 the installed public/native adapters preserve that ordering. Those names do not
 establish the physical threshold effects or make a suppressed SET operative.
 
+V1 absolute status uses a separate INFO identity, not the CONTROL discriminator.
+The current wrapper obtains that value from native INFO row+33h and converts
+codes1..8. Request capture pairs the status identity with the same-index fresh
+INFO value. Only the conventional index0/identity1 and index1/identity3 pairs
+retain the existing rail names; other identities use positional `Rail N`
+labels. Ordinary named BIOS/equation policy checks keep their existing role
+contracts. Invalid or mismatched peers remain partial and cannot be replayed.
+The identity byte comes from rail object+89h; object+88h instead supplies INFO
+row+32h. The V1 wrapper can skip identity conversion when its nested INFO call
+fails, so outer getter success alone does not establish a populated identity.
+
 NVAPI export `0x87C55C8A` accepts a zero-initialized V2 0xAC8 request containing
 the complete rail mask, BYTE8 percentage and each selected type plus six signed
 offsets. It wraps F214. Native GET header BYTE0 is a group discriminator, not an
@@ -2999,6 +3010,14 @@ the previous build with no SET. No local native2 or native4 adapter was captured
 the format support is not runtime qualification of those adapters or proof of
 an effective voltage change. No saved-profile restoration integration was added.
 See the [request-format evidence](experiments/driver-transport-followup-20261028.json).
+
+The INFO-identity follow-up passed 76 focused request tests and 12 ordinary
+policy-reader tests. Its modeled integration uses the actual policy reader for
+alternate identities8/2 with mixed CONTROL pairs, projects six changed words
+per rail, and verifies the mocked SET readback. The default BIOS policy validator
+rejects that generic policy. On the local conventional identities1/3, complete
+snapshots from both modified modules matched the preceding aec27fa package.
+This was a read-only comparison, not another voltage-write experiment.
 
 `voltage_replay_worker.py` performs each capture or replay in a fresh process.
 It verifies the Windows device mapping and exact running BIOS hash before SET,

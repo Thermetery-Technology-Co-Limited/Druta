@@ -45,7 +45,11 @@ def _identity(reader):
     return result
 
 
-def _once(gpu, reader):
+def _request_name(rail, identity):
+    return _RAILS[rail][0] if identity == _RAILS[rail][1] else f"Rail {rail}"
+
+
+def _once(gpu, reader, request_identities=None):
     identity = _identity(reader)
     state, offsets = gpu.read_volt_rail_state() or {}, gpu._read_volt_rail_deltas() or {}
     if _identity(reader) != identity:
@@ -53,6 +57,11 @@ def _once(gpu, reader):
     rails, issues = {}, {}
     for rail, (name, discriminator) in _RAILS.items():
         try:
+            if request_identities is not None:
+                discriminator = request_identities.get(rail)
+                if type(discriminator) is not int or not 1 <= discriminator <= 8:
+                    raise VoltageBiosError("Rail INFO identity is not understood")
+                name = _request_name(rail, discriminator)
             row, delta = state[rail], offsets[rail]
             if type(row.get("type")) is not int or row["type"] != discriminator:
                 raise VoltageBiosError("Rail status identity is not understood")
@@ -74,7 +83,7 @@ def _once(gpu, reader):
     return {"identity": identity, "rails": rails}, issues
 
 
-def read(gpu):
+def read(gpu, *, request_identities=None):
     """Two stable fresh reads; missing peers do not remove an understood rail."""
     reader = PerfDiagnosticsReader(gpu)
     last = None
@@ -82,8 +91,8 @@ def read(gpu):
         with gpu._lock:
             for attempt in range(2):
                 try:
-                    first, _ = _once(gpu, reader)
-                    second, issues = _once(gpu, reader)
+                    first, _ = _once(gpu, reader, request_identities)
+                    second, issues = _once(gpu, reader, request_identities)
                     if not second["rails"]:
                         raise VoltageBiosError("No understood rail policy: " + str(issues))
                     if not _same_state(first, second):
@@ -140,7 +149,7 @@ def contracts(gpu, inspection, changes):
     return {"schema": 1, "selected": result, "before": observation, "after": expected}
 
 
-def validate_policy(observation):
+def validate_policy(observation, *, request=False):
     """Validate a saved policy without reading hardware or requiring every rail."""
     if not isinstance(observation, dict) or set(observation) != {"identity", "rails"}:
         raise VoltageBiosError("Malformed captured voltage policy")
@@ -162,7 +171,11 @@ def validate_policy(observation):
             or set(row) != {"name", "type", "control_type", "boost_uv", "policy_uv", "offsets_uv"}
         ):
             raise VoltageBiosError("Malformed captured voltage rail")
-        if (row["name"], row["type"]) != _RAILS[int(index)] or type(row["type"]) is not int:
+        rail_type = row["type"]
+        if type(rail_type) is not int or not 1 <= rail_type <= 8:
+            raise VoltageBiosError("Malformed captured voltage rail identity")
+        expected_name = _request_name(int(index), rail_type) if request else _RAILS[int(index)][0]
+        if row["name"] != expected_name or (not request and rail_type != _RAILS[int(index)][1]):
             raise VoltageBiosError("Malformed captured voltage rail identity")
         if any(type(row[k]) is not int or not 0 <= row[k] <= 0xFFFFFFFF for k in ("boost_uv", "control_type")):
             raise VoltageBiosError("Malformed captured voltage metadata")

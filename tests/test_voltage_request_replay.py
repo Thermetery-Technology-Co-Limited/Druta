@@ -11,6 +11,8 @@ import pytest
 from druta import voltage_request_replay as replay
 from tests.test_voltage_rail_control_runtime import policy
 
+_real_policy_read = replay.voltage.read
+
 
 class Gpu:
     def __init__(self, rails=(0, 1), *, extra=(), wire_types=None, **ident):
@@ -26,6 +28,7 @@ class Gpu:
         struct.pack_into("<I", self.info, 4, sum(1 << i for i in (*rails, *extra)))
         for i in (*rails, *extra):
             self.info[12 + i * 76] = self.wire_types.get(str(i), (3, 5, 5))[1]
+            self.info[12 + i * 76 + 0x33] = {0: 1, 1: 3}.get(i, 1)
         self.native_opaque = 0xB4
         self.public_opaque = 0xD2
         self._lock = threading.RLock()
@@ -150,7 +153,66 @@ class Gpu:
 
 @pytest.fixture(autouse=True)
 def fake_policy(monkeypatch):
-    monkeypatch.setattr(replay.voltage, "read", lambda gpu: gpu.policy())
+    monkeypatch.setattr(replay.voltage, "read", lambda gpu, **kwargs: gpu.policy())
+
+
+def test_request_capture_uses_actual_policy_read_for_alternate_info_identities(monkeypatch):
+    monkeypatch.setattr(replay.voltage, "read", _real_policy_read)
+    gpu = Gpu(wire_types={"0": (0, 2, 2), "1": (2, 4, 4)})
+    gpu.info[12 + 0x33], gpu.info[12 + 76 + 0x33] = 8, 2
+
+    def status():
+        return {
+            i: {"type": identity, "_boost_mv": 0, **dict.fromkeys(replay.voltage._FIELDS, 1000)}
+            for i, identity in ((0, 8), (1, 2))
+        }
+
+    def deltas():
+        return {
+            int(i): {"type": gpu.wire_types[i][0], **dict(zip(replay.voltage._OFFSETS, (v / 1000 for v in values[:4]), strict=True))}
+            for i, values in gpu.offsets.items()
+        }
+
+    gpu.read_volt_rail_state, gpu._read_volt_rail_deltas = status, deltas
+    state = capture(gpu)
+    assert state["complete"]
+    assert [state["rail_identity"][str(i)]["name"] for i in (0, 1)] == ["Rail 0", "Rail 1"]
+    assert [state["rail_identity"][str(i)]["policy_type"] for i in (0, 1)] == [8, 2]
+    assert [state["rail_identity"][str(i)]["control_type"] for i in (0, 1)] == [0, 2]
+    with pytest.raises(replay.voltage.VoltageBiosError):
+        replay.voltage.validate_policy(state["policy"])
+    offsets = {"0": [1, -2, 3, -4, 5, -6], "1": [-7, 8, -9, 10, -11, 12]}
+    result = replay.replay(gpu, replay.project(state, offsets_uv=offsets))
+    assert result["verified"] and gpu.offsets == offsets
+    assert [result["after"]["rail_identity"][str(i)]["name"] for i in (0, 1)] == ["Rail 0", "Rail 1"]
+    gpu.set_calls.clear()
+
+    gpu.info[12 + 76 + 0x33] = 0
+    partial = capture(gpu)
+    assert set(partial["public"]) == {"0"} and partial["missing_indices"] == [1]
+    with pytest.raises(replay.ReplayError, match="every active"):
+        replay.replay(gpu, partial)
+    assert not gpu.set_calls
+    gpu.info[12 + 76 + 0x33] = 3
+    assert capture(gpu)["missing_indices"] == [1]
+
+
+@pytest.mark.parametrize("identity", [0, 9, True])
+def test_request_policy_rejects_invalid_or_boolean_identity(identity):
+    state = capture(Gpu((0,)))
+    state["policy"]["rails"]["0"]["type"] = identity
+    state["rail_identity"]["0"]["policy_type"] = identity
+    with pytest.raises(replay.ReplayError):
+        replay.validate(state)
+
+
+def test_request_policy_requires_matching_same_row_info_identity():
+    state = capture(Gpu((0,)))
+    raw = bytearray.fromhex(state["info_hex"])
+    raw[12 + 0x33] = 2
+    state["info_hex"] = raw.hex()
+    with pytest.raises(replay.ReplayError):
+        replay.validate(state)
 
 
 def capture(gpu):
