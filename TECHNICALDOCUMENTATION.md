@@ -3627,6 +3627,31 @@ timing of the later refresh remain unresolved; five seconds is not an interface
 latency guarantee. Older SDK sync-flag documentation does not establish that
 the inspected current setter honors that field.
 
+An offline comparison of NVIDIA-signed 617.14 package data with the installed
+621.01 driver identifies a specific legacy write-suppression path. The older
+`Perf` constructor clears the gate byte tested by its six-word rail setter.
+The current constructor sets the corresponding gate for its compiled GB20x
+selectors; when nonzero, the setter skips all six request-word copies and can
+return success. Root followed named class metadata to both chip initializers
+and evaluated all seven GB20x mappings independently in each binary. GB203 maps
+to selector 0x42 in both, so this is not inferred from stable selector numbers.
+The older type-5 factory, group dispatch and inherited setter chain are also
+traced. Root reproduced 28 source windows for the corrected comparison.
+
+This establishes constructor and setter behavior in the inspected code, not a
+live gate value, the current local/firmware dispatch route or physical voltage
+enforcement. Later gate changes and older runtime operation remain unverified;
+the older package was extracted for analysis and never installed. Candidate
+firmware comparisons retain separate layout and loaded-image limitations.
+
+The [mVolt+ public guide](https://github.com/b00nz/mVolt/blob/2a78e42fb7026dd3d068b03d9e017bb58368f0f4/docs/guide.md#driver-62101-and-later)
+reports this symptom for RTX 50 on 621.01 and later. That author claim is context,
+not a compatibility rule or independent proof of the cause. Product capability
+checks remain independent of driver-version allowlists. The working independent
+REL/ALT/OV/VMIN equation-head controls retain their qualification; arbitrary
+legacy/VCRIT replay is still unresolved. Recovery and profile-restoration work
+remain deferred.
+
 ## Live client power requests
 
 When the modern INFO packet is rejected with INVALID_ARGUMENT, an Ampere
