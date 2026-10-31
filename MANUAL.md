@@ -136,6 +136,9 @@ While the hold lasts, Druta also raises the voltage limits to the held point +
 25 mV (Clocks > Keep headroom above a held point, on by default), because a
 point held on the voltage ceiling runs below the clock it shows. 25 mV is a
 fixed safe margin for every card. The limits go back when the hold ends.
+The 1200 mV normal limit (1500 mV with XOC) applies before adding headroom,
+so a 1200 mV hold can temporarily raise the rail ceiling to 1225 mV without
+XOC. The held voltage must already be at or below the current rail ceiling.
 
 Kepler and Maxwell cards with the legacy P0 API instead have a yellow
 **Lock P0 and max fan** button here. Availability is based on generation and API support, without device, subsystem,

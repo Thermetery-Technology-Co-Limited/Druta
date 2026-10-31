@@ -6426,6 +6426,7 @@ class GPU:
     # straight back, so the bound below is Druta's and the only one there is.
     # User-selected request bounds, not measured hardware maxima. XOC raises
     # the software ceiling; only live readback establishes what a card uses.
+    # V/F hold headroom may add its bounded margin above these request limits.
     VOLT_LIMIT_MAX_MV = 1200.0
     VOLT_LIMIT_XOC_MAX_MV = 1500.0
     RAIL_OFFSET_MAX_MV = 200.0
@@ -6855,6 +6856,7 @@ class GPU:
     # past what was asked for, so apply_hold_headroom refuses it (result None)
     # and the caller warns instead.
     HOLD_HEADROOM_FIELDS = ("reliability", "alt_reliability", "overvoltage")
+    HOLD_HEADROOM_MAX_MARGIN_MV = 100.0
 
     # The live check's grain when this card's V/F curve cannot be read. Half a
     # TU102 V/F point, a fallback only: hold_headroom_grain_mv takes the grain
@@ -7001,6 +7003,11 @@ class GPU:
         target is hold + margin - boost: the boost the card already adds is not
         added again.
 
+        maximum_mv bounds the held voltage (1200 mV normally, 1500 mV with
+        XOC), before adding the bounded headroom margin. The temporary rail
+        ceiling may exceed that request limit by the margin, including at a
+        1200 mV hold with XOC off.
+
         Returns ({field: absolute mV}, None) naming only the fields that must
         rise - an empty dict means the ceiling already clears the hold by the
         margin - or (None, reason) when no safe plan exists. Never lowers a
@@ -7014,9 +7021,12 @@ class GPU:
             return None, "hold, margin and bound must be finite"
         if margin_mv <= 0:
             return None, "headroom margin must be positive"
+        if margin_mv > cls.HOLD_HEADROOM_MAX_MARGIN_MV:
+            return None, (f"headroom margin exceeds Druta's "
+                          f"{cls.HOLD_HEADROOM_MAX_MARGIN_MV:g} mV maximum")
         want = hold_mv + margin_mv
-        if want > maximum_mv + 1e-6:
-            return None, (f"hold {hold_mv:.2f} mV + {margin_mv:g} mV margin exceeds "
+        if hold_mv > maximum_mv + 1e-6:
+            return None, (f"hold {hold_mv:.2f} mV exceeds "
                           f"Druta's {maximum_mv:.0f} mV limit bound")
         try:
             boost = float(fields.get("_boost_mv", 0.0) or 0.0)
@@ -7070,8 +7080,9 @@ class GPU:
         bounds. This write is narrower: only the three ceiling terms, upward
         only, only for a hold at or below the ceiling (so the held point's
         voltage does not change; the rail stays under the raised ceiling),
-        to exactly hold + margin, inside the same 1200 mV
-        (XOC 1500 mV) bound, verified by read-back and undone by
+        to exactly hold + margin. The 1200 mV (XOC 1500 mV) bound applies to
+        the hold; the temporary ceiling may add the configured margin above
+        it (at most HOLD_HEADROOM_MAX_MARGIN_MV). Verified by read-back and undone by
         restore_hold_headroom. Any previous raise is restored first so two
         holds never stack their margins."""
         self._hold_headroom_unread = False

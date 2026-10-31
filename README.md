@@ -567,6 +567,12 @@ puts them back when the hold ends.
 - This is the one rail-limit write that does not need the **Rail limits**
   box: it only ever raises those three terms, to exactly the held point +
   margin, for as long as the hold lasts. Untick Keep headroom to stop it.
+- The 1200 mV normal limit (1500 mV with XOC) applies to the held voltage;
+  temporary headroom can exceed it by the selected margin. With the default
+  25 mV margin and XOC off, a 1187.5 mV hold gets a 1212.5 mV ceiling and a
+  1200 mV hold gets a 1225 mV ceiling. Manual rail requests keep their existing
+  bounds. A hold above the current rail ceiling must still be enabled by
+  raising the limits yourself before automatic headroom can apply.
 - The held point's voltage stays the same, but the rail may run up to the
   margin higher. The TITAN RTX ran up to 18.75 mV higher; the 3070 Ti ran the
   full 25 mV higher.

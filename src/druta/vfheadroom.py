@@ -21,13 +21,14 @@ import subprocess
 import sys
 
 from .startup import atomic_json, read_json, state_dir
+from .nvbackend import GPU
 
 DEFAULT_ENABLED = True
 DEFAULT_MARGIN_MV = 25.0
 # Bounds on what the box accepts. The floor is one TU102 V/F point (6.25 mV);
 # the ceiling keeps a typo from asking for a large raise.
 MIN_MARGIN_MV = 6.25
-MAX_MARGIN_MV = 100.0
+MAX_MARGIN_MV = GPU.HOLD_HEADROOM_MAX_MARGIN_MV
 
 
 def config_path():

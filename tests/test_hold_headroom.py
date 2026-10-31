@@ -138,7 +138,8 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(targets, {"reliability": 1125.0})
 
     def test_plan_is_refused_above_the_bound_and_on_bad_input(self):
-        for hold, margin, why_part in ((1190.0, 25.0, "exceeds"), (1100.0, 0.0, "positive"),
+        for hold, margin, why_part in ((1206.25, 25.0, "exceeds"), (1100.0, 0.0, "positive"),
+                                       (1100.0, 100.01, "margin"), (1200.0, float("inf"), "finite"),
                                        (float("nan"), 25.0, "finite"), ("x", 25.0, "numbers")):
             with self.subTest(hold=hold, margin=margin):
                 targets, why = GPU.hold_headroom_targets(row(1068.75, 1093.75, 1125.0), hold, margin, 1200.0)
@@ -406,13 +407,55 @@ class ApplyRestoreTests(unittest.TestCase):
                 self.assertEqual(rails.writes, [])
         self.assertTrue(gpu.apply_hold_headroom(1093.75, 25.0, before_write=lambda r: None)[0])
 
-    def test_a_plan_past_the_bound_is_withheld_not_failed(self):
-        gpu, rails, *_ = self.make()
-        rails.rows[0] = row(1212.5, 1212.5, 1212.5)      # the user's own sliders
-        ok, msg = gpu.apply_hold_headroom(1187.5, 25.0)
-        self.assertIsNone(ok)
-        self.assertIn("limit bound", msg)
-        self.assertEqual(rails.writes, [])
+    def test_normal_voltage_holds_keep_headroom_through_1200_mv_on_each_generation(self):
+        for card in CARDS:
+            for hold in (1175.0, 1181.25, 1187.5, 1193.75, 1200.0):
+                with self.subTest(card=card, hold=hold):
+                    gpu, rails, base, boost = self.make(card, second=True)
+                    rails.rows[0] = row(hold - boost, hold, hold, boost=boost, base=base)
+                    before = rails.read()
+                    self.assertFalse(gpu.voltage_xoc_enabled)
+                    ok, msg = gpu.apply_hold_headroom(hold, vfheadroom.DEFAULT_MARGIN_MV)
+                    self.assertTrue(ok, msg)
+                    self.assertEqual(GPU.rail_ceiling_mv(rails.rows[0]), hold + 25.0)
+                    self.assertEqual(rails.absolute("vmin"), GPU.abs_limit_mv(before[0], "vmin"))
+                    self.assertEqual(rails.rows[1], before[1])
+                    self.assertEqual(gpu.hold_headroom_bound_mv(), hold + 25.0)
+                    self.assertTrue(gpu.restore_hold_headroom()[0])
+                    self.assertEqual(rails.read(), before)
+
+    def test_configured_margin_is_allowed_above_the_mode_limit(self):
+        for xoc, hold in ((False, 1200.0), (True, 1500.0)):
+            for margin in (6.25, 25.0, vfheadroom.MAX_MARGIN_MV):
+                with self.subTest(xoc=xoc, margin=margin):
+                    gpu, rails, *_ = self.make()
+                    gpu.voltage_xoc_enabled = xoc
+                    rails.rows[0] = row(hold, hold, hold)
+                    before = rails.read()
+                    ok, msg = gpu.apply_hold_headroom(hold, margin)
+                    self.assertTrue(ok, msg)
+                    self.assertEqual(rails.ceiling_terms(), (hold + margin,) * 3)
+                    self.assertTrue(gpu.restore_hold_headroom()[0])
+                    self.assertEqual(rails.read(), before)
+
+    def test_unbounded_margin_is_withheld_without_writing(self):
+        for margin in (100.01, 1000.0, float("inf"), float("nan")):
+            with self.subTest(margin=margin):
+                gpu, rails, *_ = self.make()
+                ok, msg = gpu.apply_hold_headroom(1093.75, margin)
+                self.assertIsNone(ok, msg)
+                self.assertEqual(rails.writes, [])
+
+    def test_a_hold_past_the_mode_bound_is_withheld_not_failed(self):
+        for xoc, hold in ((False, 1206.25), (True, 1506.25)):
+            with self.subTest(xoc=xoc):
+                gpu, rails, *_ = self.make()
+                gpu.voltage_xoc_enabled = xoc
+                rails.rows[0] = row(hold, hold, hold)      # the user's own sliders
+                ok, msg = gpu.apply_hold_headroom(hold, 25.0)
+                self.assertIsNone(ok)
+                self.assertIn("limit bound", msg)
+                self.assertEqual(rails.writes, [])
 
     def test_the_raise_and_restore_hold_the_backend_lock(self):
         gpu, rails, *_ = self.make()
@@ -699,6 +742,20 @@ class LockStateHookTests(AppTestCase):
         self.assertEqual(self.limits(), (1093.75, 1118.75, 1125.0))
         self.app.set_lock_state(None)
         self.assertEqual(self.limits(), (1068.75, 1093.75, 1125.0))
+
+    def test_normal_1200_mv_hold_replans_headroom_and_restores_on_release(self):
+        self.rails.rows[0] = row(1200.0, 1200.0, 1200.0)
+        before = self.rails.read()
+        self.hold(1200.0)
+        self.assertEqual(self.limits(), (1225.0,) * 3)
+        self.assertIsNone(self.app._headroom_note)
+        self.assertEqual(self.app._clk_lock["req_mv"], 1200.0)
+        self.assertFalse(self.gpu.voltage_xoc_enabled)
+        self.app.headroom_mv = 50.0
+        self.app.sync_hold_headroom()
+        self.assertEqual(self.limits(), (1250.0,) * 3)       # margin does not stack
+        self.app.set_lock_state(None)
+        self.assertEqual(self.rails.read(), before)
 
     def test_plan_uses_the_lock_request_not_the_curve_point(self):
         # the lock resolved to a lower point on a flat run, but it can run up to
@@ -1779,7 +1836,7 @@ class SecondReviewAppTests(AppTestCase):
 
     def test_a_refusal_before_any_write_is_withheld_not_a_failed_write(self):
         self.rails.rows[0] = row(1212.5, 1212.5, 1212.5)
-        self.hold(1187.5)
+        self.hold(1206.25)
         self.assertEqual(self.rails.writes, [])
         self.assertEqual(self.app._headroom_note[0], "withheld")
         self.assertNotIn("write did not succeed", self.banner())
