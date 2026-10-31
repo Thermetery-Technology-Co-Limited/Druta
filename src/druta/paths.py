@@ -1,6 +1,9 @@
 # Copyright (C) 2026 Thermetery Technology Co Limited
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Application assets and existing user data across source and packaged runs."""
+# Keep annotations unevaluated: the Windows 7 build runs CPython 3.8.
+from __future__ import annotations
+
 import os
 from pathlib import Path
 import sys

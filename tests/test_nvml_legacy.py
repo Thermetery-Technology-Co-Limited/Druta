@@ -32,6 +32,37 @@ def gpu_with(**exports):
 
 
 class LegacyNvmlTests(unittest.TestCase):
+    def static_gpu(self, **exports):
+        gpu = gpu_with(**exports)
+        gpu.nvml.selected = None
+        gpu.slot = Mock(return_value=None)
+        gpu._offset_range = Mock(return_value=None)
+        gpu._native_fan_data = Mock(return_value=None)
+        return gpu
+
+    def test_missing_optional_static_exports_keep_unknown_defaults(self):
+        data = self.static_gpu()._read_static()
+        self.assertEqual((data["name"], data["driver"], data["vbios"]),
+                         ("GPU", "?", "?"))
+        self.assertNotIn("pl_def_mw", data)
+
+    def test_failed_static_reads_do_not_reuse_previous_field(self):
+        def name(_dev, buf, _length):
+            buf.value = b"Legacy NVIDIA GPU"
+            return 0
+        gpu = self.static_gpu(nvmlDeviceGetName=Mock(side_effect=name),
+                              nvmlSystemGetDriverVersion=Mock(return_value=3),
+                              nvmlDeviceGetVbiosVersion=Mock(return_value=0))
+        data = gpu._read_static()
+        self.assertEqual(data["name"], "Legacy NVIDIA GPU")
+        self.assertEqual((data["driver"], data["vbios"]), ("?", "?"))
+
+    def test_default_power_limit_available_without_constraints(self):
+        data = self.static_gpu(
+            nvmlDeviceGetPowerManagementDefaultLimit=output(250000))._read_static()
+        self.assertEqual(data["pl_def_mw"], 250000)
+        self.assertNotIn("pl_min_mw", data)
+
     def test_47212_fan_v2_without_fan_count_or_rpm(self):
         speed = output(42)
         gpu = gpu_with(nvmlDeviceGetFanSpeed_v2=speed)
