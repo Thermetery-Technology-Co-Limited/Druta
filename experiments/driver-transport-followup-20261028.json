@@ -3370,6 +3370,50 @@
       "group_findings_sha256": "4cfbd795a268959563512a9ea766886d4499ff947258ef92942039c3efdb03c3",
       "decompiler_limit": "Targeted queries64-69 aid navigation. Unsupported vendor instructions can truncate CFG despite completed=true; critical copy/add/loop/call claims were checked against raw bytes."
     },
+    "wire_contract_followup": {
+      "set_geometry": "The actual1672CA8 accessor computes buffer+20h+70h*index. The constructed group SET buffer is E20h bytes: a20h-byte header and32 rows of70h bytes. Each six-sum array therefore occupies buffer+40h..54h+70h*index.",
+      "status_geometry": "Separate accessor1672CD0 computes buffer+10h+60h*index, consistent with C10h bytes. STATUS row geometry must not be substituted for SET.",
+      "transport": "The constructed group supplies unit byte0Eh and group byte14h, then submits through its inherited1614690 ->1614298 PMU route. SET descriptor1CF7FC8 is00007000406f2300. This is a conditional request route, not a numerical receiver or proof of active runtime selection.",
+      "older_schema_mismatch": "The inspected NVIDIA-authored nvgpu PMU rail declaration has nine U8 selectors, two E32 masks and only four signed voltage deltas. The current candidate has five WORD selectors, three masks and six sums. The older declaration cannot decode the current six-word receiver or qualify VCRIT semantics.",
+      "root_fixed_windows_reproduced": 7,
+      "root_packet_audit_sha256": "82b4c67cfe498242f4ddee4499d2a2dd5f52b6b37c7659018cab72793dedb528",
+      "schema_comparison_sha256": "7c9c35d9263d4220e9d19c92c52f63a15cb47ad37509e030d771b2f95073cf75"
+    },
     "remaining": "Bind the recipient's interpretation and consumption of serialized words+30/+34, or another source-qualified effective VCRIT setter on a supported target. Neither the bitmap tail, startup workaround, boost helper nor stored six-word readback closes arbitrary voltage replay. No new SET or compatibility gate follows from this checkpoint."
+  },
+  "iddq_power_device_inventory_20261030": {
+    "scope": "Source-qualified read-only INFO inventory and a subsequent INFO-selected raw STATUS capture on the current paired RTX5080, plus offline typed-source review. This is an existing IDDQ/power-model follow-up, not a new leakage or voltage control.",
+    "command": "0x2080A610",
+    "descriptor": "Current driver record EC04F0 binds handler4E9200, flags158h, access0 and parameter sizeA410h. The handler returns a mask at payload+8 and INFO rows at payload+10h+520h*index; no caller parameter fields are read on this path.",
+    "capture": {
+      "rounds": 2,
+      "packet_bytes": 42068,
+      "parameter_bytes": 42000,
+      "ntstatus_and_rm_status": 0,
+      "request_parameters_all_zero": true,
+      "full_rounds_identical": true,
+      "inventory_mask": "0x701",
+      "raw_type_by_index": {"0": "0x26", "8": "0x0C", "9": "0x0C", "10": "0x0C"},
+      "before_after": "Managed registry, VBIOS hash, voltage policy and requested clock observations all succeeded and matched exactly. Equal-error observations are not used as preservation evidence.",
+      "sets_registry_writes_restarts_workloads": 0,
+      "capture_sha256": "8a79ab8ba331494ad8dd0cbdbbe8049b29fe788db4659fef4069d0a9880a0ff5",
+      "independent_packet_and_bracket_audit_sha256": "0b79ecf71fad924b6b34bab21c63fec726468325160ee7f67b8a44a50184b0a7"
+    },
+    "type_boundary": "Common INFO method7F90F0 copies the selected normalized object's type to row byte0. Current constructor8F9050 requires type0Ch and installs INFO8F8E80. It is distinct from old BA20 type0Bh: their prefixes overlap, but0Ch's later fields and two four-byte records have different offsets. The older BA20 header does not establish these current rows' class name, rail association, provider roles or units.",
+    "typed_source_findings_sha256": "831b35c2a8c874ab84961bbdb245faf833f831fd04573545503cd323d52a1975",
+    "status_followup": {
+      "command": "0x2080A611",
+      "geometry": "Current handler4E9390 reaches the same PMGR+5B8 group. The selected-row accessor gives payload+Ch+904h*index; total parameter size is1208Ch. The caller selection mask at payload+4 is derived from fresh INFO. Internal backing strides910h/240h are separate from the native output stride.",
+      "sequence": "A610 INFO -> two A611 STATUS samples -> A610 INFO. Fresh INFO selected only observed type0Ch rows8/9/10, mask700h. Each STATUS request had only that mask nonzero; every other parameter byte was zero. All four frames returned NTSTATUS/RM0.",
+      "observation": "Selected STATUS row headers were0c0c0200. Rows8/9 changed in the first two raw20-byte record prefixes and at row+544h; row10 changed only at+544h. No timestamp/counter, provider role, unit, freshness or causal meaning is inferred from these differences.",
+      "before_after": "Full INFO payloads matched. Managed registry, VBIOS hash, voltage policy and requested clocks were independently successful, non-null and exactly equal before/after. No SET, registry write, restart or workload was performed.",
+      "common_prefix_boundary": "Current0Ch retains common serializer C343F0 -> C33EA0, which copies14 record prefixes into60h-byte blocks. An older NVIDIA generic tuple declaration documents mW/mA/uV/mJ, but its threshold capacity and overall shape differ; structural correspondence and P=IV consistency do not independently transfer those units to this current ABI.",
+      "capture_sha256": "11e8e39943d52c8ab7498b5266e3356ce57869281354ab5a27e6735f0285aa36",
+      "independent_packet_and_bracket_audit_sha256": "b6934a8bf71bebee8a1649a16736a02ef1596d0941fc412c360bf1d692d1ca53",
+      "typed_source_findings_sha256": "3233ef394098961da9238a307046618175e562a943bcc16629d127059dcd8ff6"
+    },
+    "live_vfe_override_boundary": "A separate current type13 variable-control path is stored through E0B4 and serialized to PMU. Its current value spans16 bytes; the public getter exposes only the first eight. Legacy float32 VALUE/OFFSET/SCALE descriptions and current mode validation alone do not qualify the current encoding or evaluated override. No live override trial was run.",
+    "live_vfe_override_findings_sha256": "800ab996e67593f7c8b28dfe5bf5b97004c2d9a7d5ba9da666e9b9386e5ab847",
+    "remaining": "Bind current type0Ch's typed mode/provider/rail contract and an understood unit-labelled numerical producer before exposing modeled leakage. The raw STATUS capture does not establish physical measurement, arbitrary voltage replay or a new product write. Live VFE override needs its current numerical encoding and an independent evaluated-value readback. Profile restoration and recovery work remain deferred."
   }
 }
