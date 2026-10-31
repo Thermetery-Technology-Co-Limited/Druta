@@ -1,8 +1,9 @@
 # Druta
 
-**Version 1.8.1** — [release notes](RELEASE-NOTES-1.8.1.md).
-Supersedes 1.8.0. Adds explicit MP2888A manual PMBus control for the tested
-ASUS Strix RTX 3070 Ti while preserving the original ASUS Turing offset method.
+**Version 1.9.0b prerelease** — [release notes](RELEASE-NOTES-1.9.0b.md).
+Work in progress: registry-backed NVIDIA overrides, live power/VF/voltage-device
+controls, and DIFR configuration. See the release notes for explicit pending
+tasks, hardware coverage and limits before treating this as stable support.
 
 Hardware validation: [Maxwell/Pascal](MAXWELL-PASCAL-VALIDATION.md),
 [RTX 5080 / Blackwell](BLACKWELL-VALIDATION.md) and
@@ -73,7 +74,16 @@ a few seconds and writes no register.
 - **Reversible, needs admin, cleared by a reboot:** clock offsets, power limit,
 voltage boost, fan, both lock mechanisms, and every V/F curve edit. A V/F edit
 can crash the display driver and hang the machine; a reboot clears the settings
-either way. Nothing Druta applies *to the card* besides the I2C survives a reboot.
+either way. Registry overrides are a separate persistent path described below.
+
+- **Persistent registry overrides, needs admin:** selected VBIOS-field and driver-policy
+changes activate after restarting the selected GPU and survive driver/Windows
+restarts. Use **Restore previous registry settings** to undo them; restarting
+Windows alone does not remove them. These overrides do not flash the physical VBIOS.
+The development branch supports qualified GR power-gating entry disables,
+including removal of all enabled entries, with exact configuration readback and
+Restore. Final raw bit 4 removal and broader hardware qualification remain open;
+configuration readback does not measure physical residency. See the [manual](MANUAL.md).
 
 - **Can hang the machine and corrupt data held in VRAM, also cleared by a reboot:** memory timing writes.
 They are volatile — the driver reprograms these registers per clock band, so an
@@ -96,7 +106,7 @@ python -m pip install -r requirements.txt
 ```
 
 The local build produces `dist\Druta\Druta.exe` and
-`dist\Druta-1.8.1-win64.zip`. Distribute the
+`dist\Druta-1.9.0b-win64.zip`. Distribute the
 whole `Druta` folder or ZIP: the EXE needs its adjacent `_internal` folder.
 
 `dist\Druta\source\` contains the matching working-tree source, including

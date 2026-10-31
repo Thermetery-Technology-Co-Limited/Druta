@@ -1,0 +1,252 @@
+{
+  "schema": 1,
+  "scope": "MS schema4 neighbor aggregate losses08/0C with retained raw10 mapping coverage",
+  "status": "qualified source Preview and normal production Apply",
+  "schema4_allowed_losses": [
+    4,
+    8,
+    12
+  ],
+  "admission": "Only captured enabled rows disabled; same understood tables and fresh controller6/16/native4/DIFR witnesses as loss04; positive paired group/role/808 mask and retained selector coverage. No driver mapping-table constants or tested identity gates.",
+  "projection": "Use fresh feature word and source-ordered mapped contribution removal/dependency masks. Complete related controller, feature, role and mapping output must match; selected-slot unsupported alternatives remain rejection rather than accepted profiles.",
+  "compatibility": "Two admission checks changed. Existing schemas1/2/3 and valid old schema4 loss04 recompute identically; actual historical04 contract and native active capture verified under the extension.",
+  "tested_configuration": {
+    "adapter": "GeForce RTX 5080 GB203",
+    "driver": "621.01",
+    "role": "Evidence identification only"
+  },
+  "cases": {
+    "08": {
+      "terminal_exit": 0,
+      "product_action": "Real RegistryPanel refresh/Prepare, durable reload and normal Apply",
+      "setup_byte_changes": [
+        [
+          253709,
+          "0x7d",
+          "0x75"
+        ]
+      ],
+      "selected_enable_byte_changes": [
+        [
+          253693,
+          "0x7d",
+          "0x7c"
+        ]
+      ],
+      "native4_feature": [
+        "023971ef",
+        "020950ee"
+      ],
+      "native1_and4_and_shared_role_masks": [
+        288,
+        0
+      ],
+      "mapping_group_role_mask": [
+        1,
+        1,
+        13
+      ],
+      "other_requests_responses_and_opaque_fields": "Exact apart from paired transport pointer and five predicted typed DWORD values per round, ten total across eight response packets",
+      "client_configuration": "Exact except separately retained variable arbitration telemetry",
+      "broad_windows": {
+        "setup_broad": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          true,
+          true
+        ],
+        "active_broad": [
+          false,
+          false,
+          false,
+          true,
+          true
+        ],
+        "final_broad": [
+          false,
+          false,
+          false,
+          false,
+          true,
+          true
+        ]
+      },
+      "clock_vf_control_bytes_exact_throughout": true,
+      "separate_reported_curve": {
+        "bytes": 7208,
+        "baseline_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+        "differing_bytes_by_phase": {
+          "setup_broad": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "active_broad": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "final_broad": [
+            110,
+            110,
+            110,
+            110,
+            0,
+            0
+          ]
+        }
+      },
+      "complete_original_restored_exact": true,
+      "journal_sha256": "04b303e6fba7759b9e0379a920599d374ad463826076f68e9a5fb74ad373accb",
+      "root_audit_sha256": "023d158b931bfa850c62f3e71849052c1d508fc9a70d5ffa35e35e22226875c7",
+      "runtime_source_sha256": {
+        "experiments\\registry-overrides\\ms-mapping-neighbors-root-20261030\\product_neighbors_v1.py": "db3f46469f426b4b6a8b11ac76853022cb8b03310e4ed5abe25711573bf75f45",
+        "experiments\\registry-overrides\\ms-more-aggregate-root-20261030\\read_ms_mask_v1.py": "5dfe8df4852c20fbc5adf5baa7ed4d7a62ae8448c08e958ee942ce1076317853",
+        "src\\druta\\ms_runtime.py": "c25096a361f1b11a0f89c171978b5fa0985159fcf7c2727c6510ca0d3f18a2a0",
+        "src\\druta\\registry_overrides.py": "d15874d1dc7540d28508e06fc701f849a37061a47810a9dc41225007439fb11c",
+        "src\\druta\\registry_panel.py": "d275d2b0698f4e61bab073b46f6e8b1c27c4aa7a12b77d64936f9987aff24aee",
+        "src\\druta\\vbios_fields.py": "2d93f7d9061f3f7835c47b3264163368b50aa24e4721f0fc384c477ac0f512b1"
+      },
+      "logical_GPU_only_restarts": 4
+    },
+    "0c": {
+      "terminal_exit": 0,
+      "product_action": "Real RegistryPanel refresh/Prepare, durable reload and normal Apply",
+      "setup_byte_changes": [
+        [
+          253709,
+          "0x7d",
+          "0x71"
+        ]
+      ],
+      "selected_enable_byte_changes": [
+        [
+          253693,
+          "0x7d",
+          "0x7c"
+        ]
+      ],
+      "native4_feature": [
+        "023971ef",
+        "020910cc"
+      ],
+      "native1_and4_and_shared_role_masks": [
+        288,
+        0
+      ],
+      "mapping_group_role_mask": [
+        1,
+        1,
+        13
+      ],
+      "other_requests_responses_and_opaque_fields": "Exact apart from paired transport pointer and five predicted typed DWORD values per round, ten total across eight response packets",
+      "client_configuration": "Exact except separately retained variable arbitration telemetry",
+      "broad_windows": {
+        "setup_broad": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+          true,
+          true
+        ],
+        "active_broad": [
+          false,
+          false,
+          false,
+          true,
+          true
+        ],
+        "final_broad": [
+          false,
+          false,
+          false,
+          false,
+          true,
+          true
+        ]
+      },
+      "clock_vf_control_bytes_exact_throughout": true,
+      "separate_reported_curve": {
+        "bytes": 7208,
+        "baseline_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c",
+        "differing_bytes_by_phase": {
+          "setup_broad": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "active_broad": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "final_broad": [
+            110,
+            110,
+            110,
+            110,
+            0,
+            0
+          ]
+        }
+      },
+      "complete_original_restored_exact": true,
+      "journal_sha256": "661ce20f6e2750d499312b05aa666b8b6700a317ad7b2198ec13516016521d10",
+      "root_audit_sha256": "28d7a984da9d69d0027d33f2e2588271f59c0f3fde6f703e260b6d59b7838b64",
+      "runtime_source_sha256": {
+        "experiments\\registry-overrides\\ms-mapping-neighbors-root-20261030\\product_neighbors_v1.py": "db3f46469f426b4b6a8b11ac76853022cb8b03310e4ed5abe25711573bf75f45",
+        "experiments\\registry-overrides\\ms-more-aggregate-root-20261030\\read_ms_mask_v1.py": "5dfe8df4852c20fbc5adf5baa7ed4d7a62ae8448c08e958ee942ce1076317853",
+        "src\\druta\\ms_runtime.py": "c25096a361f1b11a0f89c171978b5fa0985159fcf7c2727c6510ca0d3f18a2a0",
+        "src\\druta\\registry_overrides.py": "d15874d1dc7540d28508e06fc701f849a37061a47810a9dc41225007439fb11c",
+        "src\\druta\\registry_panel.py": "d275d2b0698f4e61bab073b46f6e8b1c27c4aa7a12b77d64936f9987aff24aee",
+        "src\\druta\\vbios_fields.py": "2d93f7d9061f3f7835c47b3264163368b50aa24e4721f0fc384c477ac0f512b1"
+      },
+      "logical_GPU_only_restarts": 4
+    }
+  },
+  "curve_boundary": "clock_vf.control_bytes is distinct from voltage.broad.clocks.vf.curve. The separate 7208-byte reported curve differs in110 bytes during final samples0..3 in both cases; samples4/5 match. Setup/active reported curves and all curve-control packets are exact. No fields excluded or cause inferred. Both complete broad windows finish with two exact samples.",
+  "audits": {
+    "independent_terminal_auditor_sha256": "f1ed0a513785bab210ea5e88c676da00824985be10cf352c4c9f8fd7e8194d60",
+    "independent_curve_supplement_sha256": "29f7093fb12a7f5bb1f1b79b732d304433bd5d3fa28d285b1e79ca25612db956",
+    "root_curve_and_packet_reproduction": true,
+    "static_windows_reproduced": 9,
+    "static_report_sha256": "33c3e251fc71e9ddcd6b818a93caeee92a7f3257897d9145a753fbae4079b51e",
+    "actual_old04_compatibility_sha256": "99b0586949add58188cdae72c2d7ee0ef02fa25c4b7ea351c6d689315d203a26"
+  },
+  "validation": {
+    "selected_functionality_tests": 66,
+    "deferred_named_cases_deselected": 12,
+    "ruff": "clean"
+  },
+  "logical_GPU_only_restarts": 8,
+  "Windows_reboot": false,
+  "NVIDIA_App_install": false,
+  "workload": false,
+  "limits": [
+    "Source callbacks and normal Apply, not physical input or a packaged-helper walkthrough",
+    "No physical gating, voltage or power-savings claim",
+    "Other MS aggregate losses and controller6/16 cascades remain pending",
+    "Arbitrary six-word voltage replay remains pending; recovery/Undo and profile integration remain deferred"
+  ]
+}

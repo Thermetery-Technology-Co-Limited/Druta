@@ -1,0 +1,41 @@
+{
+  "scope": "Offline static tracing of one signed NVIDIA display driver and synthetic source tests. No hardware/API/registry calls or driver execution.",
+  "official_package_url": "https://ru.download.nvidia.com/Windows/595.97/595.97-desktop-win10-win11-64bit-international-dch-whql.exe",
+  "package_sha256": "979ed00fea181c786f608967377d6d83ac82e6368275994a4182ec79d97b3122",
+  "driver_member": "Display.Driver/nvlddmkm.sys",
+  "driver_file_version": "32.0.15.9597",
+  "driver_sha256": "b3c384bf432380160189d8b031c0bf4a4bebf2cfa0613277bc69209fbabc2fc3",
+  "source_provenance": "One archive member extracted without executing installer; both package and driver signatures were reported valid. No binary is included in this report.",
+  "parser": {
+    "entry": "5A41DF",
+    "supported_record_geometries": [
+      "0x30/0x2C/0x47",
+      "0x30/0x2C/0x4B",
+      "0x30/0x32/0x53",
+      "0x30/0x34/0x5B"
+    ],
+    "descriptor_prefix": "2b8d3b2w1b6d1b",
+    "encoded_class": "row[0] low nibble | (row[0x42] low nibble << 4)",
+    "class1": "switch 5A46DB..FD / table 5A5934 selects 5A4C01; runtime descriptor class=0 at 5A5012",
+    "common_fields": "5A5015..3A copies channel, units bit and minimum/default/maximum to descriptor +28/+2A/+30/+34/+38; 5A50E3 calls 4D5B70 and 5A50FB supplies row ordinal for insertion"
+  },
+  "factory_and_serializer": "4D5B70 class0 -> 8E60B0; constructor binds INFO interface+8=8E5910. Descriptor class/channel/unit are preserved through 67CB00 and 4D8BF0 constructor chain. Bounds become object +50/+9C/+E8. INFO chain 8E5910 -> B907F0 -> BFA420 writes class/channel/unit to row+4/+5/+6 and accessor 4D5710 serializes bounds to row+8/+C/+10. Row+0 is manager format byte, independent of BIOS table version. A618 handler 4D6710 uses base 0x58 and stride 0xE4; A61C handler 4D97A0 selects the role and writes INFO row at +4.",
+  "product_scope": "Only full v30 class1 maps to runtime class0; other v30 classes remain unmapped. Original-range provenance compares independently observed identity, policy index, class, channel, units and all three limits with a verified original BIOS or receipt chain. Existing persistent typed power contracts also recognize class1 only when their runtime identity and complete before/after bounds checks pass. No device or driver allowlist is introduced.",
+  "limitations": [
+    "Static evidence does not establish the actual target BIOS, its original provenance, operation on all driver versions, or physical power enforcement.",
+    "Later runtime policy changes can alter bounds; exact readback is required.",
+    "The remote RTX3070Ti read-only provenance capture is qualified separately; persistent activation/Undo on its shorter table remain pending."
+  ],
+  "synthetic_validation": "Three v30 geometries, full-class extension mismatch, provenance and peer mismatches, modern regression and persistent contract projections are covered by offline tests.",
+  "address_notation": "Hexadecimal RVAs in the identified nvlddmkm.sys; they identify static evidence, not runtime compatibility gates.",
+  "root_validation": {
+    "driver_and_private_trace_hashes_verified": true,
+    "private_trace_files": 27,
+    "full_hardware_free_suite": {
+      "passed": 6457,
+      "elapsed_seconds": 115.22
+    },
+    "current_modern_original_range_get": "250000..450000mW returned with verified live-image provenance; no setter. Target Ampere capture still pending."
+  },
+  "short_row_followup": "power-v30-short-row-20261029.json verifies the direct 0x47 descriptor path; source edits are implemented, while target persistent activation/Undo remain pending."
+}

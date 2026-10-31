@@ -1,0 +1,97 @@
+{
+  "schema": 1,
+  "scope": "Actual source and packaged DearPyGui framebuffer/callback walkthrough of one native board-power maximum on the captured RTX5080/621.01. The existing production helper owns mutations/restarts and durable Undo.",
+  "command": "--ui-capture-power-trial NEW_DIRECTORY",
+  "control": "Dynamically bind the currently editable role1 native policy maximum. Stage +5000 mW only when full current BIOS/native class, channel, units and all three bounds match and the normal native policy contract admits it; otherwise refuse before Apply. No board/driver/index allowlist.",
+  "qualification": {
+    "captured_native_policy": 8,
+    "captured_vbios_class": 12,
+    "captured_native_class": 33,
+    "channel": 0,
+    "units": "mW",
+    "minimum_mw": 250000,
+    "rated_mw": 360000,
+    "maximum_before_active_restored_mw": [
+      450000,
+      455000,
+      450000
+    ],
+    "requested_mw_retained": 360000,
+    "UI_units": "W",
+    "UI_values_before_preview_active_restored": [
+      450,
+      455,
+      455,
+      450
+    ],
+    "source_packaged_frames_each": 4,
+    "frame_dimensions": [
+      1528,
+      1261
+    ],
+    "source_packaged_before_active_restored_PNGs_byte_identical": true,
+    "source_packaged_stage_field_value_metadata_equal": true,
+    "before_restored_PNGs_byte_identical": true,
+    "selected_field_visible_root_review": true,
+    "preview_explains450_to455W": true,
+    "normal_callbacks": [
+      "refresh",
+      "prepare",
+      "apply",
+      "restore"
+    ],
+    "durable_kind_survives_helper_relaunch": true,
+    "each_completed_trial_GPU_only_restarts": 2,
+    "full_original_configuration_restored_each": true
+  },
+  "independent_readback": "All three bounds and preserved policy definitions passed existing runtime contracts. Whole client INFO, ROLE_INFO and native INFO match independent maximum-only DWORD projections. Both complete CONTROL buffers, requested power and all unknown packet bytes remain exact; before/active/restored image hashes bind to the independent singleton maximum edit. Complete original configuration, registry, image, rail/clock requests and evaluated curve matched after each completed trial.",
+  "raw_max_offsets_for_captured_target": {
+    "client_INFO": "0x30",
+    "ROLE_INFO": "0x14",
+    "native_INFO": "0x8FC",
+    "scope": "Offsets are derived from captured layout and indices, not compatibility constants."
+  },
+  "capture_fix": "The first source trial passed runtime/Undo but clipped the numeric field; it is not visual qualification. A read-only launcher-blocked diagnostic established stale first-layout scroll_max 643 then 2778, page Y264 and item Y1911. Power-only capture waits for settled layout, uses input screen rectangle and child-window position, then lets scrolling render. The resulting scroll 1567 moved the field to Y344/visible. Boolean/default capture paths retain their prior behavior.",
+  "negative_evidence_retained": [
+    "source-trial-1 runtime/raw/finalbaseline passed but numeric active screenshot was clipped; visual_review.qualified=false.",
+    "An intermediate read-only diagnostic raised rect_min because child-window state haspos/rect_size, notrect_min; noApply occurred.",
+    "Launcher-blocked previews retained intentional attention/prepared receipts with full original configuration unchanged."
+  ],
+  "validation": {
+    "full_suite": 6586,
+    "seconds": 116.51,
+    "focused_UI_power_tests": 128,
+    "Ruff_trial_tests": "passed",
+    "existing_druta_diagnostics": 26,
+    "new_druta_diagnostics": 0
+  },
+  "candidate_packaged_EXE_sha256": "29b1d5a0f6862193ee814d72beadb5d871d1087cd8aaf1342bfecb9203103628",
+  "source_sha256": {
+    "src/druta/registry_ui_trial.py": "e360ec520f8db5940a02abc35b33fa15b15bc96b49c98b0cf77d8410e6ea99ff",
+    "src/druta/druta.py": "c8abb0370a564661587e13ed9876f8bb1d239406dd57ac201ac3a88b2755db01",
+    "src/druta/registry_panel.py": "c32239ccfa8bc70c1721be8d5e89c2110b819bb0767b111c6de67d876795c7d8",
+    "src/druta/registry_overrides.py": "669e91c4e24ae3f0aa6a4f6247f0bc25a54fc2093571a14df128478d27d11927"
+  },
+  "private_evidence_sha256": {
+    "source-trial-2-root-audit.json": "f02b0ed646fbc9fa0461fd08be8fae673ec83bd3300d6ea5eb861d6a1f109c5f",
+    "packaged-trial-1-root-audit.json": "8151512f2a9df987fe868ed8b5bd951c47063d9033c22d8bdb4fb794fb0bf2b0",
+    "source-trial-1-root-audit.json": "20a5c967b70eb72eb1d75533400eac866003f7cbd941dc660c5b6d5959390208",
+    "scroll3-diagnostic.json": "470cd32f79392ad1c0f87aae143a4ef8f013b66e804e936e2cd8585f45a7f2d2",
+    "scroll3-preview-audit.json": "5d6b9b8ed3f41f00b6428075050d552b08cd8a3b085a4c3c29bdaaf7a07fbaed",
+    "luna-source-review.json": "34538ecdc4d5d40a88a8fb928eba57f787bd10cacd5f9f3f55b2ed6d4a6f2d8d",
+    "luna-final-audit.json": "dbd715184f561da292eec1f0a17fffecb42f3d637e22907cb017ca6d0e60cf11"
+  },
+  "remaining": [
+    "Physical mouse/keyboard interaction, other DPI/viewports/adapters and further registry field types.",
+    "Post-restart failure/recovery visual walkthroughs; mocked failures do not qualify every real recovery state.",
+    "Physical enforcement/current draw; this is definition/request/configuration evidence without workload.",
+    "The separate RTX3070Ti shorter-row source implementation still requires its target activation/Undo trial."
+  ],
+  "logical_GPU_only_restarts_total": 6,
+  "Windows_reboot": false,
+  "workload": false,
+  "physical_measurement": false,
+  "live_client_power_SET": false,
+  "F219_SET": false,
+  "NVIDIA_App_install": false
+}

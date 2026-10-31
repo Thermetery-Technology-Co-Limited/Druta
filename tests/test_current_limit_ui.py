@@ -123,6 +123,16 @@ class CurrentLimitUiTests(unittest.TestCase):
         self.assertEqual(self.rows[0]["limit_ma"], 600125)
         self.app.gpu.set_current_limit_ma.assert_not_called()
 
+    def test_driver_derived_current_above_api_max_remains_visible(self):
+        self.rows = rows(core=243000, other=120000, maximum=270000)
+        self.build()
+        self.rows[0]["limit_ma"] = 270389
+        self.app.refresh_current_limits(sync=True)
+        self.assertAlmostEqual(self.maximum("current13"), 270.389, places=3)
+        self.assertAlmostEqual(dpg.get_value("in_current13"), 270.389, places=3)
+        self.assertEqual(dpg.get_value("live_current13"), "32.5 A\n≤270.389 A")
+        self.app.gpu.set_current_limit_ma.assert_not_called()
+
     def test_apply_converts_amperes_to_milliamps_and_reads_back(self):
         self.build()
         self.app.apply_current_limit(13, 305.001)

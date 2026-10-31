@@ -471,6 +471,10 @@ def capture_rails(gpu, state, rail):
     required = required or (offset is not None and not -100 <= offset <= 200)
     required = required or bool(state["clock_domain_offsets_mhz"].get("2"))
     required = required or any(state["msvdd_offsets_mv"].values())
+    power = state.get("power_limit_mw")
+    if type(power) is int and power > 0:
+        required = required or not (gpu.static.get("pl_min_mw", 50000) <= power
+                                    <= gpu.static.get("pl_max_mw", 400000))
     if state["i2c"]:
         if state["i2c"].get("format") == CURRENT_DAC_FORMAT:
             # These bytes have no established universal voltage conversion.
@@ -665,8 +669,12 @@ def _validate_saved_fields(gpu, state):
     if power is not None:
         _number(power, "power limit", integer=True)
     if power:
-        low = gpu.static.get("pl_min_mw", 50000)
-        high = gpu.static.get("pl_max_mw", 400000)
+        bounds = getattr(gpu, "power_limit_bounds_mw", None)
+        if callable(bounds):
+            low, high = bounds(xoc=bool(state.get("xoc")))
+        else:
+            low = gpu.static.get("pl_min_mw", 50000)
+            high = gpu.static.get("pl_max_mw", 400000)
         if not low <= power <= high:
             raise ValueError(f"power limit is outside [{low}..{high}] mW")
     for key in ("volt_boost_pct", "fan_pct"):

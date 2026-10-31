@@ -12,6 +12,15 @@ whose current valid state has already been established. Add meaningful tests
 for observable behavior and failure cases, rather than tests that merely mirror
 the implementation.
 
+# Active-goal priority
+
+Prioritize implementing and shipping all functionality in the active goal. Defer
+recovery/Undo mechanisms and saved-profile restoration/replay integration
+and address them together only after all other requested functionality for that
+goal is production-ready. Do not design, implement, extend, or validate this
+deferred work before then. It is not a prerequisite for shipping otherwise
+production-ready small feature increments.
+
 # Agent collaboration
 
 The root agent supervises the work. Subagents are authorized for concrete,
