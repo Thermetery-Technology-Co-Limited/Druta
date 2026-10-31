@@ -1798,6 +1798,28 @@ active/override fields, complete VFE CONTROL, voltage/power policies, clocks,
 VF tables, BIOS and peer registry values were preserved, with exact undo.
 Physical IDDQ units and the internal evaluator implementation remain unresolved.
 
+A later NVVDD IDDQ trial used 26000 -> 52000 -> 26000 on the same adapter.
+The active input and cached override matched exactly. Calculated REL, ALT_REL
+and effective limits fell by 120000 uV on both reported rails; voltage offsets,
+reported boost and clock requests stayed unchanged. The full original policy,
+model, registry and compared peer state returned after the trial. Unlike the
+earlier +1 trials, this larger model change did affect calculated voltage
+policy. Druta's IDDQ detail and preview now explain that linked rails may be
+affected.
+
+Fresh-process passive A610/A611 sampling retained 16 samples in each phase.
+All baseline/restored samples and six active samples matched the recorded
+P8, 255/405 MHz and 800/800 mV operating observations. In those six active
+samples, type0C rows 9/10 record0's first two raw DWORDs were 3118/3898,
+versus 1547-1549/1934-1936 in the initial baseline and 1569/1961 after cleanup.
+The other ten active samples remain recorded as state mismatches. A1/A2 drift,
+adjacent rather than simultaneous telemetry and possible cached samples limit
+the result to an intervention-associated software response. These positional
+fields still have no qualified units, provider roles or direct numerical
+producer; this is not a physical power or voltage measurement. The earlier
+immediate-post-restart comparison and the first stopped attempt are preserved.
+[Exact captures, comparisons and limits](experiments/iddq-model-response-20261030.json).
+
 `model_registry.py` binds direct IDDQ transactions to evaluated values, cached
 overrides, typed fuse metadata, the complete variable inventory, CONTROL hash
 and a static INFO fingerprint. Only understood mutable input fields are masked

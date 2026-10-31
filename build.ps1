@@ -103,6 +103,7 @@ function Get-SourceSnapshot {
         'experiments/lpwr-telemetry-provenance-20261029.json',
         'experiments/voltage-live-bounds-20261029.json',
         'experiments/driver-transport-followup-20261028.json',
+        'experiments/iddq-model-response-20261030.json',
         'experiments/voltage-replay-followup-20261028.json',
         'experiments/capture_power_provenance.py',
         'experiments/ampere-provenance-handoff-20261028.json',

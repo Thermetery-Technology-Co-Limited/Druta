@@ -1125,6 +1125,7 @@ class RegistryPanel:
                     "This changes a software model input; hardware fuses remain unchanged."
                     + (
                         " IDDQ uses raw model integers; physical units are unresolved."
+                        " Changing an IDDQ input may also change calculated voltage limits on linked rails."
                         if name in overrides.model_registry.IDDQ_NAMES
                         else ""
                     ),
@@ -1689,7 +1690,8 @@ class RegistryPanel:
             lines.append(
                 "Evaluated model inputs and cached overrides must match after restart. "
                 "Hardware values, peer inputs and other model configuration are preserved. "
-                "IDDQ physical units remain unresolved."
+                "IDDQ physical units remain unresolved; changing an IDDQ input may also "
+                "change calculated voltage limits on linked rails."
             )
         if receipt.get("fan_policy_contracts"):
             lines.append(
