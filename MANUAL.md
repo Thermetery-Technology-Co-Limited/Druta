@@ -136,6 +136,9 @@ While the hold lasts, Druta also raises the voltage limits to the held point +
 25 mV (Clocks > Keep headroom above a held point, on by default), because a
 point held on the voltage ceiling runs below the clock it shows. 25 mV is a
 fixed safe margin for every card. The limits go back when the hold ends.
+The 1200 mV normal limit (1500 mV with XOC) applies before adding headroom,
+so a 1200 mV hold can temporarily raise the rail ceiling to 1225 mV without
+XOC. The held voltage must already be at or below the current rail ceiling.
 
 Kepler and Maxwell cards with the legacy P0 API instead have a yellow
 **Lock P0 and max fan** button here. Availability is based on generation and API support, without device, subsystem,
@@ -222,7 +225,8 @@ does not reapply a profile or reboot Windows. The result appears in the log and
 is saved in `%LOCALAPPDATA%\Druta\device-recovery`. If Windows needs a reboot,
 Druta reports that requirement. This is not a guarantee of recovery from a
 hardware hang or of stock settings. Administrator rights and Windows 10 version
-2004 or later are required.
+2004 or later are required; on an older Windows version Druta stays open and
+logs that requirement.
 
 From an elevated shell, after closing existing Druta windows, the same operation
 is available as `Druta.exe --restart-gpu 0000:01:00.0`; replace the PCI slot with

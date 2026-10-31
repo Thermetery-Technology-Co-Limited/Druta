@@ -7618,7 +7618,19 @@ class Druta:
             # "unanswered" flag set with no dialog on screen
             dpg.set_value("hrs_text", self.stale_headroom_text(record))
             self.show_win(user_data="win_headroom_stale")
-            dpg.set_value("hrs_text", self.stale_headroom_text(record, self.pnp_blocker()))
+            supported = self.pnp_restart_supported()
+            if dpg.does_item_exist("hrs_restart"):
+                dpg.configure_item("hrs_restart", enabled=supported)
+            if dpg.does_item_exist("hrs_admin_hint"):
+                dpg.configure_item("hrs_admin_hint", show=supported)
+            self.refresh_stale_headroom_text()
+
+    def refresh_stale_headroom_text(self):
+        """Redraw the open dialog's text, with what would block a restart."""
+        record = getattr(self, "_stale_headroom", None)
+        if record and dpg.does_item_exist("hrs_text"):
+            others = self.pnp_blocker() if self.pnp_restart_supported() else None
+            dpg.set_value("hrs_text", self.stale_headroom_text(record, others))
 
     def note_foreign_headroom(self, record):
         """Another running window's raise on this card: this window's restore
@@ -7675,6 +7687,12 @@ class Druta:
                         "any other Druta window before restarting.")
         return None
 
+    @staticmethod
+    def pnp_restart_supported():
+        """Whether this Windows build can restart a single device (pnputil)."""
+        from . import devicereset
+        return devicereset.pnputil_restart_supported()
+
     def stale_headroom_text(self, record, others=None):
         fields = ", ".join(k.replace("_", "-") for k in sorted(record["written_uv"]))
         hold = record.get("hold_mv")
@@ -7682,17 +7700,24 @@ class Druta:
         text = ("The last Druta session ended without restoring the voltage limits it "
                 f"raised{where} ({fields}). They are still raised on this card.\n\n"
                 "Because this session started with them raised, 'Reset all to stock' "
-                "would treat the raised values as this card's starting values.\n\n"
-                "A GPU device restart (PnP) has returned the voltage limits to the "
-                "card's own values on the card it was tested on; it is not proven "
-                "on every GPU. After the restart Druta opens again and checks this "
-                "card again. Druta will close and the screen may go black for a "
-                "few seconds.")
+                "would treat the raised values as this card's starting values.\n\n")
+        supported = self.pnp_restart_supported()
+        if supported:
+            text += ("A GPU device restart (PnP) has returned the voltage limits to the "
+                     "card's own values on the card it was tested on; it is not proven "
+                     "on every GPU. After the restart Druta opens again and checks this "
+                     "card again. Druta will close and the screen may go black for a "
+                     "few seconds.")
+        else:
+            from . import devicereset
+            text += ("Druta cannot restart the GPU device on this Windows version "
+                     f"({devicereset.PNP_RESTART_REQUIREMENT}), so no restart is offered. "
+                     "Druta does not write the limits from before the raise back itself.")
         held = getattr(self, "_held_startup_request", None)
         if held:
             text += (f"\n\nThe startup profile '{held.get('name', '')}' is waiting for this "
-                     "answer. After a restart it does not run again this boot; load it by "
-                     "hand.")
+                     + ("answer. After a restart it does not run again this boot; load it "
+                        "by hand." if supported else "answer and runs after it."))
         if others:
             text += "\n\n" + others
         return text
@@ -7765,9 +7790,15 @@ class Druta:
         self._stale_headroom = None
         if dpg.does_item_exist("win_headroom_stale"):
             dpg.configure_item("win_headroom_stale", show=False)
-        self.log("headroom: kept the raised limits as they are. 'Restart GPU device "
-                 "(PnP)' in the Device menu may clear them later (tested on one card "
-                 "so far).", None)
+        if self.pnp_restart_supported():
+            self.log("headroom: kept the raised limits as they are. 'Restart GPU device "
+                     "(PnP)' in the Device menu may clear them later (tested on one card "
+                     "so far).", None)
+        else:
+            from . import devicereset
+            self.log("headroom: kept the raised limits as they are; Druta cannot restart "
+                     "the GPU device on this Windows version to clear them "
+                     f"({devicereset.PNP_RESTART_REQUIREMENT})", None)
         self.resume_startup_profile()
 
     def resume_startup_profile(self):
@@ -11288,7 +11319,8 @@ deliberately does not put behind a button."""
                 dpg.add_button(label="Keep them for now", width=self.s(180),
                                callback=self.stale_headroom_dismiss)
             dpg.add_spacer(height=self.s(4))
-            dpg.add_text("needs Druta running as administrator", color=DIM)
+            dpg.add_text("needs Druta running as administrator", tag="hrs_admin_hint",
+                         color=DIM)
 
         with dpg.window(label="Licences", tag="win_licence", show=False,
                         width=self.s(860), height=self.s(640),
@@ -12226,6 +12258,13 @@ deliberately does not put behind a button."""
         """Start the bounded selected-GPU recovery helper without a modal step."""
         from . import devicereset
         if getattr(self, "_closing", False):
+            return
+        if not devicereset.pnputil_restart_supported():
+            # The helper checks this too, but only after this window has
+            # closed: it would restart nothing and reopen Druta without a
+            # waiting startup profile. Refuse while the window is still open.
+            self.log(f"GPU device restart: {devicereset.PNP_RESTART_REQUIREMENT}; Druta stays "
+                     "open and no device was restarted", False)
             return
         if not is_admin():
             self.log("GPU device restart requires Druta to run as administrator", False)
@@ -13999,6 +14038,8 @@ deliberately does not put behind a button."""
                 self._held_startup_request, self._startup_request = self._startup_request, None
                 self.log("startup profile held until the raised-voltage-limits dialog is "
                          "answered", None)
+                # check_stale_headroom drew the dialog before this hold
+                self.refresh_stale_headroom_text()
             elif self._startup_request and getattr(self, "_stale_recheck", False):
                 # An earlier session's marker that could not be judged yet: the
                 # same risk until the limits read. It runs once the marker is

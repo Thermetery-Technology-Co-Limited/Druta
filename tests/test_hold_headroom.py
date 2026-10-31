@@ -138,7 +138,8 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(targets, {"reliability": 1125.0})
 
     def test_plan_is_refused_above_the_bound_and_on_bad_input(self):
-        for hold, margin, why_part in ((1190.0, 25.0, "exceeds"), (1100.0, 0.0, "positive"),
+        for hold, margin, why_part in ((1206.25, 25.0, "exceeds"), (1100.0, 0.0, "positive"),
+                                       (1100.0, 100.01, "margin"), (1200.0, float("inf"), "finite"),
                                        (float("nan"), 25.0, "finite"), ("x", 25.0, "numbers")):
             with self.subTest(hold=hold, margin=margin):
                 targets, why = GPU.hold_headroom_targets(row(1068.75, 1093.75, 1125.0), hold, margin, 1200.0)
@@ -406,13 +407,55 @@ class ApplyRestoreTests(unittest.TestCase):
                 self.assertEqual(rails.writes, [])
         self.assertTrue(gpu.apply_hold_headroom(1093.75, 25.0, before_write=lambda r: None)[0])
 
-    def test_a_plan_past_the_bound_is_withheld_not_failed(self):
-        gpu, rails, *_ = self.make()
-        rails.rows[0] = row(1212.5, 1212.5, 1212.5)      # the user's own sliders
-        ok, msg = gpu.apply_hold_headroom(1187.5, 25.0)
-        self.assertIsNone(ok)
-        self.assertIn("limit bound", msg)
-        self.assertEqual(rails.writes, [])
+    def test_normal_voltage_holds_keep_headroom_through_1200_mv_on_each_generation(self):
+        for card in CARDS:
+            for hold in (1175.0, 1181.25, 1187.5, 1193.75, 1200.0):
+                with self.subTest(card=card, hold=hold):
+                    gpu, rails, base, boost = self.make(card, second=True)
+                    rails.rows[0] = row(hold - boost, hold, hold, boost=boost, base=base)
+                    before = rails.read()
+                    self.assertFalse(gpu.voltage_xoc_enabled)
+                    ok, msg = gpu.apply_hold_headroom(hold, vfheadroom.DEFAULT_MARGIN_MV)
+                    self.assertTrue(ok, msg)
+                    self.assertEqual(GPU.rail_ceiling_mv(rails.rows[0]), hold + 25.0)
+                    self.assertEqual(rails.absolute("vmin"), GPU.abs_limit_mv(before[0], "vmin"))
+                    self.assertEqual(rails.rows[1], before[1])
+                    self.assertEqual(gpu.hold_headroom_bound_mv(), hold + 25.0)
+                    self.assertTrue(gpu.restore_hold_headroom()[0])
+                    self.assertEqual(rails.read(), before)
+
+    def test_configured_margin_is_allowed_above_the_mode_limit(self):
+        for xoc, hold in ((False, 1200.0), (True, 1500.0)):
+            for margin in (6.25, 25.0, vfheadroom.MAX_MARGIN_MV):
+                with self.subTest(xoc=xoc, margin=margin):
+                    gpu, rails, *_ = self.make()
+                    gpu.voltage_xoc_enabled = xoc
+                    rails.rows[0] = row(hold, hold, hold)
+                    before = rails.read()
+                    ok, msg = gpu.apply_hold_headroom(hold, margin)
+                    self.assertTrue(ok, msg)
+                    self.assertEqual(rails.ceiling_terms(), (hold + margin,) * 3)
+                    self.assertTrue(gpu.restore_hold_headroom()[0])
+                    self.assertEqual(rails.read(), before)
+
+    def test_unbounded_margin_is_withheld_without_writing(self):
+        for margin in (100.01, 1000.0, float("inf"), float("nan")):
+            with self.subTest(margin=margin):
+                gpu, rails, *_ = self.make()
+                ok, msg = gpu.apply_hold_headroom(1093.75, margin)
+                self.assertIsNone(ok, msg)
+                self.assertEqual(rails.writes, [])
+
+    def test_a_hold_past_the_mode_bound_is_withheld_not_failed(self):
+        for xoc, hold in ((False, 1206.25), (True, 1506.25)):
+            with self.subTest(xoc=xoc):
+                gpu, rails, *_ = self.make()
+                gpu.voltage_xoc_enabled = xoc
+                rails.rows[0] = row(hold, hold, hold)      # the user's own sliders
+                ok, msg = gpu.apply_hold_headroom(hold, 25.0)
+                self.assertIsNone(ok)
+                self.assertIn("limit bound", msg)
+                self.assertEqual(rails.writes, [])
 
     def test_the_raise_and_restore_hold_the_backend_lock(self):
         gpu, rails, *_ = self.make()
@@ -699,6 +742,20 @@ class LockStateHookTests(AppTestCase):
         self.assertEqual(self.limits(), (1093.75, 1118.75, 1125.0))
         self.app.set_lock_state(None)
         self.assertEqual(self.limits(), (1068.75, 1093.75, 1125.0))
+
+    def test_normal_1200_mv_hold_replans_headroom_and_restores_on_release(self):
+        self.rails.rows[0] = row(1200.0, 1200.0, 1200.0)
+        before = self.rails.read()
+        self.hold(1200.0)
+        self.assertEqual(self.limits(), (1225.0,) * 3)
+        self.assertIsNone(self.app._headroom_note)
+        self.assertEqual(self.app._clk_lock["req_mv"], 1200.0)
+        self.assertFalse(self.gpu.voltage_xoc_enabled)
+        self.app.headroom_mv = 50.0
+        self.app.sync_hold_headroom()
+        self.assertEqual(self.limits(), (1250.0,) * 3)       # margin does not stack
+        self.app.set_lock_state(None)
+        self.assertEqual(self.rails.read(), before)
 
     def test_plan_uses_the_lock_request_not_the_curve_point(self):
         # the lock resolved to a lower point on a flat run, but it can run up to
@@ -1212,6 +1269,112 @@ class CrashMarkerTests(AppTestCase):
         self.assertTrue(nxt._closing)
         self.assertIsNotNone(vfheadroom.active_record(self.UUID))
 
+    def show_stale_dialog(self, nxt, version, others=0):
+        """check_stale_headroom on a given Windows build, with the dialog's
+        widgets present; returns the restart button's settings and the text."""
+        configured, texts = [], []
+        with patch("druta.devicereset.platform.system", return_value="Windows"), \
+                patch("druta.devicereset.platform.version", return_value=version), \
+                patch("druta.vfheadroom.other_instances", return_value=others), \
+                patch("druta.druta.dpg.does_item_exist", return_value=True), \
+                patch("druta.druta.dpg.configure_item",
+                      side_effect=lambda tag, **kw: configured.append((tag, kw))), \
+                patch("druta.druta.dpg.set_value",
+                      side_effect=lambda tag, value: texts.append(value)
+                      if tag == "hrs_text" else None):
+            nxt.check_stale_headroom()
+        nxt.show_win.assert_called_once_with(user_data="win_headroom_stale")
+        return configured, texts[-1]
+
+    def test_windows_without_pnp_restart_offers_no_restart_and_keeps_druta_open(self):
+        from druta import devicerecovery
+        nxt = self.crash()
+        nxt._held_startup_request = {"name": "p", "profile": {}}
+        configured, text = self.show_stale_dialog(nxt, "6.1.7601", others=1)
+        self.assertEqual(configured, [("hrs_restart", {"enabled": False}),
+                                      ("hrs_admin_hint", {"show": False})])
+        self.assertIn("Druta cannot restart the GPU device on this Windows version", text)
+        self.assertIn("Windows 10 version 2004", text)
+        self.assertNotIn("Druta will close", text)
+        self.assertNotIn("other Druta window", text)          # no restart to block
+        self.assertIn("is waiting for this answer and runs after it", text)
+        # Even if the restart were requested, Druta must not close: the card
+        # resolves, so only the build check can stop the helper here.
+        nxt._closing, nxt._stop = False, Mock()
+        nxt.gpu.slot = lambda: "0000:03:00.0"
+        with patch("druta.devicereset.platform.system", return_value="Windows"), \
+                patch("druta.devicereset.platform.version", return_value="6.1.7601"), \
+                patch("druta.vfheadroom.other_instances", return_value=0), \
+                patch("druta.druta.is_admin", return_value=True), \
+                patch("druta.devicereset.resolve_target", return_value=Mock()) as resolve, \
+                patch.object(devicerecovery, "launch_helper") as helper, \
+                patch("druta.druta.dpg.stop_dearpygui") as stop:
+            nxt.stale_headroom_restart()
+        resolve.assert_not_called()
+        helper.assert_not_called()
+        stop.assert_not_called()
+        self.assertFalse(nxt._closing)
+        self.assertTrue(self.logged_by(nxt, "Windows 10 version 2004"))
+        self.assertFalse(self.logged_by(nxt, "cannot identify the GPU"))
+        self.assertIsNotNone(vfheadroom.active_record(self.UUID))
+        nxt.begin_profile_load = Mock()
+        with patch("druta.devicereset.platform.system", return_value="Windows"), \
+                patch("druta.devicereset.platform.version", return_value="6.1.7601"):
+            nxt.stale_headroom_dismiss()
+        nxt.begin_profile_load.assert_called_once_with("p", {}, automatic=True)
+        self.assertTrue(self.logged_by(nxt, "Druta cannot restart the GPU device"))
+        self.assertFalse(self.logged_by(nxt, "Device menu"))
+
+    def test_startup_profile_held_after_the_dialog_is_drawn_is_shown_in_it(self):
+        # run() checks the card first and holds the startup profile after,
+        # so the open dialog must be redrawn to mention it.
+        nxt = self.crash()
+        texts = []
+        with patch("druta.devicereset.platform.system", return_value="Windows"), \
+                patch("druta.devicereset.platform.version", return_value="6.1.7601"), \
+                patch("druta.druta.dpg.does_item_exist", return_value=True), \
+                patch("druta.druta.dpg.configure_item"), \
+                patch("druta.druta.dpg.set_value",
+                      side_effect=lambda tag, value: texts.append(value)
+                      if tag == "hrs_text" else None):
+            nxt.check_stale_headroom()
+            self.assertNotIn("startup profile", texts[-1])
+            nxt._held_startup_request = {"name": "p", "profile": {}}
+            nxt.refresh_stale_headroom_text()
+        self.assertIn("The startup profile 'p' is waiting for this answer and runs after it",
+                      texts[-1])
+
+    def test_windows_with_pnp_restart_keeps_the_restart_offer(self):
+        nxt = self.crash()
+        nxt._held_startup_request = {"name": "p", "profile": {}}
+        configured, text = self.show_stale_dialog(nxt, "10.0.19045", others=1)
+        self.assertEqual(configured, [("hrs_restart", {"enabled": True}),
+                                      ("hrs_admin_hint", {"show": True})])
+        self.assertIn("Druta will close", text)
+        self.assertIn("does not run again this boot", text)
+        self.assertIn("other Druta window", text)
+        # and the restart really starts there
+        from druta import devicerecovery
+        nxt._closing, nxt._stop = False, Mock()
+        nxt.gpu.slot = lambda: "0000:03:00.0"
+        target = Mock()
+        with patch("druta.devicereset.platform.system", return_value="Windows"), \
+                patch("druta.devicereset.platform.version", return_value="10.0.19045"), \
+                patch("druta.vfheadroom.other_instances", return_value=0), \
+                patch("druta.druta.is_admin", return_value=True), \
+                patch("druta.devicereset.resolve_target", return_value=target), \
+                patch.object(devicerecovery, "launch_helper") as helper, \
+                patch("druta.druta.dpg.stop_dearpygui") as stop:
+            nxt.stale_headroom_restart()
+        helper.assert_called_once_with(target)
+        stop.assert_called_once()
+        self.assertTrue(nxt._closing)
+        self.assertIsNotNone(vfheadroom.active_record(self.UUID))   # judged after the restart
+
+    @staticmethod
+    def logged_by(app, text):
+        return any(text in str(c) for c in app.log.call_args_list)
+
     def test_restart_is_skipped_when_the_raise_is_already_gone(self):
         nxt = self.crash()
         nxt.check_stale_headroom()
@@ -1673,7 +1836,7 @@ class SecondReviewAppTests(AppTestCase):
 
     def test_a_refusal_before_any_write_is_withheld_not_a_failed_write(self):
         self.rails.rows[0] = row(1212.5, 1212.5, 1212.5)
-        self.hold(1187.5)
+        self.hold(1206.25)
         self.assertEqual(self.rails.writes, [])
         self.assertEqual(self.app._headroom_note[0], "withheld")
         self.assertNotIn("write did not succeed", self.banner())

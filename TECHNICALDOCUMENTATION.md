@@ -873,6 +873,11 @@ also raises reliability, alt-reliability and overvoltage to the held point plus
 ceiling, where it would run below the clock it shows. That raise does not need
 the Rail limits box; it is written only upward, to exactly hold + margin, and
 restored when the hold ends (`GPU.apply_hold_headroom`).
+The mode's 1200 mV normal / 1500 mV XOC request bound applies to the held
+voltage before the headroom margin is added. The automatic raise may exceed
+that bound by the selected margin (6.25-100 mV): at the default 25 mV, a
+1200 mV hold requests a 1225 mV ceiling without XOC. This does not extend the
+manual rail sliders or permit a hold above the current rail ceiling.
 
 **Headroom first, clocks last.** Cooling before the power budget rises, budget
 before the extra voltage spends it, curve last because it is the only step
