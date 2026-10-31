@@ -3414,6 +3414,24 @@
     },
     "live_vfe_override_boundary": "A separate current type13 variable-control path is stored through E0B4 and serialized to PMU. Its current value spans16 bytes; the public getter exposes only the first eight. Legacy float32 VALUE/OFFSET/SCALE descriptions and current mode validation alone do not qualify the current encoding or evaluated override. No live override trial was run.",
     "live_vfe_override_findings_sha256": "800ab996e67593f7c8b28dfe5bf5b97004c2d9a7d5ba9da666e9b9386e5ab847",
+    "live_vfe_transport_followup": {
+      "scope": "Offline current NVAPI conversion and candidate GSP same-object SET/serialization join. No hardware call, configuration mutation or new product writer was performed. File identities identify inspected source artifacts, not product compatibility gates.",
+      "public_conversion": "The current NVAPI setter2B8B40 issues E0B4. Its selected type13 path copies the two public value DWORDs bit-for-bit into native row+10h/+14h; the zero-filled allocation leaves row+18h/+1Ch zero. Modes0..3 are copied unchanged. This binds the lower-eight/upper-eight byte behavior, not the numerical encoding or effective override. The public getter exposes only the lower eight bytes of the native sixteen-byte region.",
+      "status_boundary": "Exact Windows A0B2 record EBFF50 points to12F6C0, which returnsFFFFh. Exact candidate GSP record1ABEBB8 points to1598B08, also a constant-FFFFh leaf. These inspected handlers supply no evaluated value; a local stub alone does not prove live backend selection or global absence of another readback route.",
+      "group_dispatch": "Candidate E0B4 handler15A0244 obtains PERF through GPU+20C8h and the variable group through PERF+348h. Constructed accessor15A9A0C returns the same group+880h interface for selectors0 and1. Its SET slot+28h is15AD0F4 ->15ABFB4 ->1610CEC, which iterates selected objects and calls their slot+30h. Native row accessor15A9FD8 accepts indices0..FEh and computes packet+28h+2Ch*index, consistent with parameter size2BFCh. Subsequent161C994 ->161C870 only compares metadata-adjusted owner identity.",
+      "type13_owner_join": "The variable-population path113A30C ->195F024 can create descriptor type0Dh and passes it to19E6218. That factory's type13 case calls1A06E7C ->1A06D60, retains selected SET slot+30h=15B2664 and installs final serialization slot+10h=15AEC44. The separate19E70C4 equation factory and its output-type0Dh case do not identify a type13 variable.",
+      "copy_contract": "After its parent succeeds,15B2664 copies native row+20h/+21h into the same owner's+4E8h/+4E9h, and four DWORDs+10h..1Ch into+4ECh..4F8h. Final serializer15AEC44 ->15AEA0C ->15AE704 copies these mode/value bytes unchanged into either output+440h/+441h and+430h..43Ch, or output+130h/+131h and+134h..140h, selected by the inspected PMU object's+832h byte. Neither copy interprets the numeric value.",
+      "post_callback": "On one guarded setup path,15A7F98 assigns the same PERF+590h callback to15A9968, a return-zero leaf. Thus that conditional callback supplies no separate evaluator. Runtime branch selection, retention and invocation remain unobserved; other callbacks are not excluded.",
+      "evidence_sha256": {
+        "nvapi_conversion_findings": "9e89129b14e7e2a93cfe1a943241aa73218b9c66e6ae2ff2108ba22441148c7d",
+        "gsp_group_dispatch_findings": "1b8b434b2aa07e7ff9059de33d45a67458d6db4d6fbbe02ef172b5519bfc2b05",
+        "gsp_type13_chain_findings": "884bab3bd7e3b2920c42c8f64e23e2c8e3840b7eeb5f7060858a553f6cb7a94d",
+        "independent_conversion_and_group_audit": "1dc26b46bd76494d64c0bb14cad68fb2f5b0f47a18676351c486903718bcd37b",
+        "root_type13_byte_and_target_audit": "d6e1e155484c0c5a7c726b71c0e66feef9175e178e448d6a2c5ed147a909d8ec"
+      },
+      "root_review": "Eight fixed candidate byte windows matched the pinned rm-text image, and six PC-relative factory targets were recomputed from signed immediates. Decompiled text was used for navigation; the recorded joins and copy windows have raw-byte evidence.",
+      "remaining": "The inspected path reaches outbound PMU data, whose numerical consumer remains unbound. Bind the current value encoding and an independently evaluated result before enabling live model-input writes. This checkpoint does not qualify arbitrary six-word voltage replay, VCRIT writes or a new live override. Recovery/Undo and profile restoration/replay remain deferred."
+    },
     "remaining": "Bind current type0Ch's typed mode/provider/rail contract and an understood unit-labelled numerical producer before exposing modeled leakage. The raw STATUS capture does not establish physical measurement, arbitrary voltage replay or a new product write. Live VFE override needs its current numerical encoding and an independent evaluated-value readback. Profile restoration and recovery work remain deferred."
   }
 }
