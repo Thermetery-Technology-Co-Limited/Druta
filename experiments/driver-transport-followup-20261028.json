@@ -3433,5 +3433,28 @@
       "remaining": "The inspected path reaches outbound PMU data, whose numerical consumer remains unbound. Bind the current value encoding and an independently evaluated result before enabling live model-input writes. This checkpoint does not qualify arbitrary six-word voltage replay, VCRIT writes or a new live override. Recovery/Undo and profile restoration/replay remain deferred."
     },
     "remaining": "Bind current type0Ch's typed mode/provider/rail contract and an understood unit-labelled numerical producer before exposing modeled leakage. The raw STATUS capture does not establish physical measurement, arbitrary voltage replay or a new product write. Live VFE override needs its current numerical encoding and an independent evaluated-value readback. Profile restoration and recovery work remain deferred."
+  },
+  "functional_gap_recheck_20261030": {
+    "scope": "Offline targeted source review and one fresh read-only DIFR inventory. No SET, registry write, GPU restart or workload; no new live control is qualified by this checkpoint.",
+    "vfe_contract": "The inspected NVIDIA public VFE header is stripped, and the preserved NVIDIA-authored nvgpu declarations use a four-byte override value. They do not define the current sixteen-byte value. A current globally specified-variable constructor and its selected serializer supplied no same-type numerical conversion. These are bounded source results, not proof that a current contract or evaluator is globally absent.",
+    "lpwr_eligibility": "Candidate GSP A801 handler15E90F0 rejects type4 roles before attribute dispatch when the selected group is null, its mask is zero, or the requested role bit is clear. Attribute9 emits literal1 after those checks without a fallible helper. On that traced path a complete successful fixed query describes eligibility for roles0..10; it does not identify group allocation or the full raw mask. Existing no-peer and expanded-main projections already compare these eleven role rows. Re-encoding them as another mask supplies no additional qualified transition and is not an added prerequisite for those controls.",
+    "difr_inventory": {
+      "rows": "Five current rows: row0 flagsFFFFFBBFh, enabled with subfeature bits0Eh; rows1..4 flagsFFFFF800h, disabled with those bits clear and preserved FFFFh parameter words.",
+      "routes": "Loaded P8 routes to row0; P5/P3/P1/P0 route to fallback slot5. No loaded P-state selects rows1..4. Configured controllers9/10/11 are independently available and supported, each with P-state mask100h.",
+      "activation_limit": "A bit0-only enable of rows1..4 would not distinguish the understood support/mask readback for this captured configuration. Routed parameter consumers can use preserved FFFFh words numerically; this does not establish invalidity, a sentinel, final units or activation-safe ranges. The documented C372 clock input can be overwritten before the later calculation, and a separate multiplier remains unbound.",
+      "preservation": "Both baseline captures returned non-null voltage-policy and clock observations with no errors. Managed registry, VBIOS hash, voltage policy and clock requests matched exactly; the stable LPWR read and table/route decoding passed an independent audit.",
+      "capture_sha256": "dd4c45b53efe54290c9390ea1f6e304a3b369cfe3c028a89bcb07e7ed831444b",
+      "independent_audit_sha256": "a21c9b79a100656f820742c8fb7db5a8015079873778a12b48e6722fee326ede"
+    },
+    "alternate_e0b0": "A published older-driver NVOC reverse-engineering note led to exact current E0B0 exports: Windows recordEC1490 ->4D2CF0 and candidate GSP record1AC00F8 ->15646C8, both with twelve-byte parameters. This differs from E0B4's2BFCh-byte variable-control packet. The candidate E0B0 path edits/appends a serialized record using three input DWORDs and passes the literal identifier OCT to14873B8. That shared helper's ECC/RRL/PBL/BRL branches emit the corresponding NVIDIA InfoROM object-update notification numbers141/160/161/199. This corroborates an InfoROM-related update path, not an established live VFE override. OCT field meanings, owner class, concrete backend and persistence effects remain unproven; E0B0 was not invoked.",
+    "alternate_lead": "https://github.com/Skyworks-Neo/nvoc/blob/4c05f97576511f59c519953c9205bf9959ffb96b/docs/reverse-engineering/nvapi/oc-gap-layouts-r610-74.md",
+    "evidence_sha256": {
+      "bounded_vfe_contract_search": "71833d004300c2d3ea19eff8280ae8f84eabe08716224c96013ceb320711a4b8",
+      "lpwr_role_eligibility_findings": "fa115e122404be463bb2997a7ce85565e78d1207b1658d0d071731aa18210209",
+      "difr_timing_boundary": "fafcd03eb183d9dc2e553dfd34942141f14a35017bf3ca071d7466676de52d8a",
+      "e0b0_identifier_and_notifier_findings": "c7c03717320c25773316797f6ff137e650ef585dc3a2952ece221199bdcad643",
+      "independent_e0b0_byte_and_source_audit": "86d6c5dfa77d6bf7f5afac8ccf1e2918b9a0031179fd3cf77aeef7d2d22924cb"
+    },
+    "remaining": "Effective arbitrary six-word/VCRIT replay and current VFE value encoding/evaluation remain unresolved. Factory-disabled DIFR activation still needs a distinguishable source-qualified operation on usable routed data. Existing qualified controls retain their scope; recovery/Undo and profile restoration/replay remain deferred."
   }
 }
