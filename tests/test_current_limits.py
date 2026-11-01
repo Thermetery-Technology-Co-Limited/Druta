@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Hardware-free current-policy guards, preservation and effective readback."""
 import ctypes
+import struct
 import threading
 import unittest
 from types import SimpleNamespace
@@ -189,6 +190,52 @@ class CurrentLimitTests(unittest.TestCase):
                           if pair[0] != pair[1]], [word])
         self.assertEqual(state.writes[0][4], 1 << 13)
         self.assertEqual(len(state.writes[0]) * 4, 0x18D4)
+
+    def test_extended_board_request_keeps_derived_core_current_controllable(self):
+        g, state = fixture(ampere_layout=True)
+        word = (0x14 + 13 * 0xB8) // 4 + 1
+        status_word = (0x80 + 13 * 0x168C) // 4 + 1
+        state.control[word] = state.dynamic[status_word] = 270389
+
+        def observation():
+            return ({"binding": {"layout": "legacy32", "maximum_mw": 380000},
+                     "requested_mw": 381000,
+                     "native_info_hex": struct.pack(f"<{len(state.info)}I", *state.info).hex(),
+                     "native_control_hex": struct.pack(f"<{len(state.control)}I", *state.control).hex()}, None)
+
+        g.read_live_power_request = Mock(side_effect=observation)
+        self.assertEqual(g.get_current_limits()[0]["limit_ma"], 270389)
+        self.assertFalse(g.set_current_limit_ma(13, 270001)[0])
+        self.assertEqual(state.writes, [])
+        ok, message = g.set_current_limit_ma(13, 242000)
+        self.assertTrue(ok, message)
+        self.assertEqual(g.get_current_limits()[0]["limit_ma"], 242000)
+        self.assertEqual(g._power_policy_pins[13], 242000)
+
+    def test_out_of_range_current_requires_matching_extended_board_evidence(self):
+        for reason in ("normal_board", "wrong_layout", "different_table", "effective_mismatch", "no_probe"):
+            with self.subTest(reason=reason):
+                g, state = fixture(ampere_layout=True)
+                word = (0x14 + 13 * 0xB8) // 4 + 1
+                status_word = (0x80 + 13 * 0x168C) // 4 + 1
+                state.control[word] = state.dynamic[status_word] = 270389
+                observed = {"binding": {"layout": "legacy32", "maximum_mw": 380000},
+                            "requested_mw": 381000,
+                            "native_info_hex": struct.pack(f"<{len(state.info)}I", *state.info).hex(),
+                            "native_control_hex": struct.pack(f"<{len(state.control)}I", *state.control).hex()}
+                if reason == "normal_board":
+                    observed["requested_mw"] = 380000
+                elif reason == "wrong_layout":
+                    observed["binding"]["layout"] = "modern"
+                elif reason == "different_table":
+                    observed["native_control_hex"] = "00"
+                elif reason == "effective_mismatch":
+                    state.dynamic[status_word] -= 1
+                g.read_live_power_request = Mock(return_value=(None, "probe failed") if reason == "no_probe"
+                                                 else (observed, None))
+                self.assertEqual(g.get_current_limits(), [])
+                self.assertFalse(g.set_current_limit_ma(13, 242000)[0])
+                self.assertEqual(state.writes, [])
 
     def test_new_geometry_reads_each_generation_independently_of_identity(self):
         for arch, defaults in ((n.GPU.ARCH_TURING, [350780]),

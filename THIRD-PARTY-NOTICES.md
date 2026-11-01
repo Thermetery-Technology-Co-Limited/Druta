@@ -6,8 +6,8 @@ later — see [COPYING](COPYING).
 This file carries the licenses of third-party software **redistributed inside
 the prebuilt `Druta.exe`**. Running Druta from source redistributes none of it.
 
-Nothing here is a component of Druta; each is a separate work under its own
-terms, reproduced verbatim below as those terms require. All are compatible
+Bundled libraries retain their own terms, reproduced below. Adapted source
+is identified separately. All included licenses are compatible
 with GPL-3.0-or-later. (Note that OpenSSL 3.x is Apache-2.0, which is
 compatible with GPLv3 but **not** with GPLv2 — one of the reasons this project
 is GPL-3.0-**or-later** rather than GPLv2.)
@@ -22,11 +22,17 @@ rather than a component, is not bundled, and so is not covered by this file.
 
 ## Summary
 
+The BIOS-field parser includes decoding rules adapted from
+[NVIDIA VBIOS Vix Editor](https://github.com/Panchovix/nvidia-vbios-vix-editor/tree/b0921c9d83046ee140a082e692be5ba3cc9da465),
+Copyright (C) 2026 panchovix, licensed GPL-3.0-or-later. Druta's adaptation in
+`src/druta/vbios_fields.py` supports bounded driver captures and selected-field
+patch planning. The applicable license is included in [COPYING](COPYING).
+
 | Component | Version | License | Redistributed in the EXE |
 |---|---|---|---|
 | Dear PyGui | 2.3.1 | MIT | yes |
-| CPython | 3.14.4 | Python Software Foundation License 2 | yes |
-| OpenSSL | 3.0.19 | Apache License 2.0 | yes (`libcrypto-3.dll`, `libssl-3.dll`) |
+| CPython | 3.13.7 | Python Software Foundation License 2 | yes |
+| OpenSSL | 3.0.16 | Apache License 2.0 | yes (`libcrypto-3.dll`, `libssl-3.dll`) |
 | libffi | bundled with CPython | MIT-style | yes (`libffi-8.dll`) |
 | PyInstaller bootloader | 6.22.0 | GPL-2.0-or-later + Bootloader Exception | yes (`runw.exe`) |
 | Microsoft Visual C++ / UCRT runtime | — | Microsoft redistributable terms | yes |
@@ -61,7 +67,7 @@ SOFTWARE.
 
 ---
 
-## CPython 3.14.4 — Python Software Foundation License
+## CPython 3.13.7 — Python Software Foundation License
 
 Reproduced in full, including the history and the licenses of software
 incorporated into CPython.
@@ -746,7 +752,7 @@ terms specified in this license.
 
 ---
 
-## OpenSSL 3.0.19 — Apache License 2.0
+## OpenSSL 3.0.16 — Apache License 2.0
 
 As reproduced in CPython's own documentation: “For the OpenSSL 3.0
 release, and later releases derived from that, the Apache License v2

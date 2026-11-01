@@ -1,0 +1,267 @@
+{
+  "schema": 1,
+  "date_utc": "2026-10-28",
+  "scope": "Live VMIN source-product trials plus current installed-driver/NVAPI static and guarded GET research. One RTX 5080 / 621.01 / VBIOS98.03.3b.c0.6f at idle; identities and ordinals are evidence, not product compatibility gates.",
+  "status": "Live VMIN is implemented independently for both rails. Nonzero variable values, modern F219 semantics and arbitrary six-word replay remain unresolved.",
+  "live_vmin": {
+    "panel": "Controls / Live voltage constants",
+    "role": "VMIN constant",
+    "set_api": "VoltageConstantsController.set(rail, \"VMIN\", wanted_uv)",
+    "binding": "Current loaded terminal native type3 constant, stored graph/rail/role/variable/output2 identity and exact float32 whole microvolts. Stored and loaded values remain separate, supporting repeated edits.",
+    "policy": "Loaded constant plus retained signed VMIN offset must match reported VMIN. Requested reported VMIN must be positive and no greater than each currently reported REL, ALT, OV and effective upper limit.",
+    "maximum_input": "Minimum current reported upper limit minus the retained signed VMIN offset; this is an input bound from current policy, not a physical hardware maximum.",
+    "native_write": "One singleton 0x2080E0B7 selected full-row SET; only low/high/c0 float words at row+4/+8/+0x10 change. Exact full native readback and independent full policy/request preservation; no SET retry.",
+    "recovery": "One original-row compensation after entered failure, bounded GET-only verification including original full curve; explicit per-rail session initial-value restore.",
+    "persistent_behavior": "Existing VMIN BIOS keys, transaction routing and receipt schema unchanged.",
+    "successful_trials": [
+      {
+        "rail": 0,
+        "label": "NVVDD",
+        "observed_equation_index": 9,
+        "loaded_constant_before_uv": 800000,
+        "loaded_constant_active_uv": 805000,
+        "reported_vmin_before_uv": 800000,
+        "reported_vmin_active_uv": 805000,
+        "samples": 8,
+        "last_capture_after_product_return_seconds": 20.788043,
+        "complete_info_and_control_projection_exact": true,
+        "entire_policy_except_selected_vmin_exact": true,
+        "full_rail_packets_and_six_words_unchanged": true,
+        "active_curve_equal_to_original": [
+          false,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "single_explicit_restore": true,
+        "full_original_config_and_curve_restored": true,
+        "private_journal_sha256": "1ce44ca4374fd301f10af33e0d481497983d210c7d0762dc5b99c4996cd3e1fe"
+      },
+      {
+        "rail": 1,
+        "label": "MSVDD",
+        "observed_equation_index": 271,
+        "loaded_constant_before_uv": 800000,
+        "loaded_constant_active_uv": 805000,
+        "reported_vmin_before_uv": 800000,
+        "reported_vmin_active_uv": 805000,
+        "samples": 8,
+        "last_capture_after_product_return_seconds": 20.758074,
+        "complete_info_and_control_projection_exact": true,
+        "entire_policy_except_selected_vmin_exact": true,
+        "full_rail_packets_and_six_words_unchanged": true,
+        "active_curve_equal_to_original": [
+          false,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "single_explicit_restore": true,
+        "full_original_config_and_curve_restored": true,
+        "private_journal_sha256": "ad254f415e3f18d848b33f0522b7f3fcdace1ec03efcc21fd863c6a978a417d0"
+      }
+    ],
+    "rounding_rejection": {
+      "rail": 0,
+      "loaded_before_uv": 800000,
+      "requested_and_loaded_uv": 801000,
+      "reported_active_uv": 805000,
+      "error_kind": "verify",
+      "attempted": true,
+      "automatic_compensations": 1,
+      "total_set_count": 2,
+      "rollback_verified": true,
+      "full_original_config_restored": true,
+      "private_journal_sha256": "4f0779e8083b54da727771fec71bb50c1d23ef73e9787fa80dedaa4ff389478e",
+      "qualification": "This operating-point observation does not establish a universal voltage step."
+    },
+    "hardware_boost_percent": 0,
+    "hardware_vmin_offset_uv": 0,
+    "retained_six_signed_request_words_uv": {
+      "NVVDD": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "MSVDD": [
+        -50000,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "physical_voltage_measured": false
+  },
+  "modern_public_getters": {
+    "status": "Two successful guarded native/public rounds were stable, with all statically traced fields matching after offline correction. Whole-row format equivalence and numeric meanings are not claimed.",
+    "queries": {
+      "info": "0x3FC4D4C8",
+      "cached_control": "0xE6AAED18",
+      "set_static_only_not_called": "0xC268BC22"
+    },
+    "native_commands": {
+      "info": "0x2080B212",
+      "cached_control": "0x2080B218",
+      "set_not_called": "0x2080F219"
+    },
+    "public_info": {
+      "allocation_bytes": 68936,
+      "version_word": "0x10D48",
+      "header_bytes": 72,
+      "capacity": 32,
+      "row_bytes": 2152
+    },
+    "public_control": {
+      "allocation_bytes": 9032,
+      "version_word": "0x12348",
+      "header_bytes": 72,
+      "capacity": 32,
+      "row_bytes": 280
+    },
+    "mask_qualification": "Native E255 masks must have no set bits above31 for full inventory comparison to the public E32 layout. The version low16 bits do not supply the full INFO allocation.",
+    "observed_mask": 31,
+    "rows": [
+      {
+        "index": 0,
+        "native_info_type": 2,
+        "native_control_type": 2,
+        "raw_info_enum_values": [
+          0,
+          1
+        ],
+        "raw_control_flags": [
+          0,
+          0,
+          0
+        ],
+        "raw_control_words": [
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "index": 1,
+        "native_info_type": 2,
+        "native_control_type": 2,
+        "raw_info_enum_values": [
+          0,
+          2
+        ],
+        "raw_control_flags": [
+          0,
+          0,
+          0
+        ],
+        "raw_control_words": [
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "index": 2,
+        "native_info_type": 2,
+        "native_control_type": 2,
+        "raw_info_enum_values": [
+          0,
+          1
+        ],
+        "raw_control_flags": [
+          0,
+          0,
+          0
+        ],
+        "raw_control_words": [
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "index": 3,
+        "native_info_type": 2,
+        "native_control_type": 2,
+        "raw_info_enum_values": [
+          0,
+          2
+        ],
+        "raw_control_flags": [
+          0,
+          0,
+          0
+        ],
+        "raw_control_words": [
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "index": 4,
+        "native_info_type": 0,
+        "native_control_type": 4
+      }
+    ],
+    "two_native_rounds_byte_exact": true,
+    "two_public_rounds_byte_exact": true,
+    "all_traced_fields_match_after_offline_correction": true,
+    "full_configured_before_after_exact": true,
+    "correction": "The first comparator read native CONTROL type at row+4 instead of physical row+0. Raw captures were valid and stable; the original attention journal is preserved. Offline reanalysis corrected only the comparison. Native flags+5..7 and DWORDs+8/+C/+10/+14 are established by wrapper address arithmetic, not by observed zeros.",
+    "type4_qualification": "The fifth native INFO type0 maps to public0xFE while its native/public CONTROL type is4; this does not establish object absence.",
+    "unit_boundary": "Type2 CONTROL copies three bytes and four DWORDs without numeric conversion. INFO enums are bounded0/1/2, with no proven names/rail association/units. No modern SET was attempted.",
+    "private_capture_journal_sha256": "71b814878bf823e8a02a26af6adad47a23136848f1130b1f1cd75187d89dd8f4",
+    "private_offline_analysis_sha256": "61f58d73a280f75e775a859a108ff3716656348677d9622d29da97eab564da5e"
+  },
+  "additional_static_findings": [
+    "Variable-group buffer validation is followed by a separate short command through the same conditional endpoint interface as the modern group. Runtime receiver/processor and consumption of the serialized values remain unproven.",
+    "Equation-group success calls the PERF receiver+0x588 callback without a further predicate. Constructor, registration and overlapping-store tracing did not establish its actual target.",
+    "The separate template function belongs to a ClockManager-ID owner at GPU+0x23B8 in the inspected class metadata; its eventual output destination is still unbound. A matching offset alone is not PERF ownership.",
+    "The common helper5BC630 copies a width-selected DWORD vector and establishes no arithmetic interpretation for the distinct16-byte override operand.",
+    "Older NVIDIA-authored Tegra single-u32/IEEE32 override definitions do not match/prove the installed expanded16-byte operand+flag layout. Current public NVIDIA headers and exact wrapper-ID searches did not supply modern typed definitions; this is bounded search absence."
+  ],
+  "validation": {
+    "full_tests_passed": 6430,
+    "full_suite_seconds": 115.6,
+    "focused_tests_passed": 179,
+    "new_cases": 10,
+    "ruff_passed": true,
+    "independent_controller_and_raw_packet_review": true,
+    "hardware_scope": "Both rails and actual rounding recovery; synthetic tests also cover signed VMIN offsets, retained nonzero boost, repeated edits, partial capabilities, invalid graph/range, peer mismatch and one compensation."
+  },
+  "actions": {
+    "registry_write": false,
+    "gpu_driver_restart": false,
+    "windows_reboot": false,
+    "nvidia_app_installation": false,
+    "workload": false,
+    "nonzero_variable_operand_set": false,
+    "modern_F219_set": false,
+    "physical_measurement": false
+  },
+  "remaining": [
+    "Arbitrary six-word request replay and recovery through a consumed alternative.",
+    "Current nonzero variable numeric representation, units and consumer.",
+    "Modern F219 field meanings, rail associations and firmware effects.",
+    "Actual PERF post-group callback target/runtime branch binding.",
+    "Broader adapters, nonzero-boost hardware coverage and physical enforcement.",
+    "All other original PR39 pending tasks remain open."
+  ]
+}

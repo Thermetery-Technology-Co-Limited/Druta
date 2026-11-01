@@ -1,0 +1,1021 @@
+{
+  "schema": 1,
+  "date": "2026-10-29",
+  "scope": "Source controller and packaged panel callback trials on one RTX5080 configuration; exact loaded equation/settings readback, no physical voltage measurement",
+  "operation": "Live fixed lower/upper REL head bounds on existing BIOS type7/native type6 roots; preserves type, graph, terms, links and all unrelated packet bytes",
+  "product": {
+    "upper_only": "VoltageRelController.set",
+    "fixed_head": "VoltageRelController.set_fixed",
+    "restore_current_ROM_bounds": "VoltageRelController.restore_bounds",
+    "writer": "vfe_equation_runtime.write_voltage_bounds using the existing validated singleton writer",
+    "panel": "Live REL equation bounds: Apply upper / Fix both bounds / Restore BIOS bounds / Restore initial upper",
+    "capabilities": "Upper and fixed-head capabilities remain independent; repeated edits use current loaded bounds and immutable ROM graph/terms",
+    "failure_recovery": "One compensation to the full captured pre-write row after attempted failures; restore requires the same boost/affected-rail readbacks as Apply"
+  },
+  "trials": [
+    {
+      "rail": 0,
+      "equation": 3,
+      "native_type": 6,
+      "original_bounds_uv": [
+        900000,
+        1120000
+      ],
+      "fixed_bounds_uv": [
+        1045000,
+        1045000
+      ],
+      "active_samples": 8,
+      "last_sample_seconds": 21.975960900075734,
+      "observed_policy_before_uv": {
+        "alt_reliability": 1060000,
+        "effective": 1040000,
+        "overvoltage": 1200000,
+        "reliability": 1040000,
+        "vmin": 800000
+      },
+      "observed_policy_after_uv": {
+        "alt_reliability": 1065000,
+        "effective": 1045000,
+        "overvoltage": 1200000,
+        "reliability": 1045000,
+        "vmin": 800000
+      },
+      "full_INFO_and_two_float_CONTROL_projection_exact": true,
+      "configured_peers_LPWR_requests_exact": true,
+      "active_curve_equal_to_original": [
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "original_comparison_sequence": [
+        false,
+        false,
+        true
+      ],
+      "complete_original_restored": true,
+      "journal_sha256": "558d49a8d8f8a515950f20dfdf8ef161b41037f00d9543d51cbc30edbc6d4d3f"
+    },
+    {
+      "rail": 1,
+      "equation": 265,
+      "native_type": 6,
+      "original_bounds_uv": [
+        900000,
+        1120000
+      ],
+      "fixed_bounds_uv": [
+        1045000,
+        1045000
+      ],
+      "active_samples": 8,
+      "last_sample_seconds": 21.966764299664646,
+      "observed_policy_before_uv": {
+        "alt_reliability": 1060000,
+        "effective": 990000,
+        "overvoltage": 1200000,
+        "reliability": 990000,
+        "vmin": 800000
+      },
+      "observed_policy_after_uv": {
+        "alt_reliability": 1065000,
+        "effective": 995000,
+        "overvoltage": 1200000,
+        "reliability": 995000,
+        "vmin": 800000
+      },
+      "full_INFO_and_two_float_CONTROL_projection_exact": true,
+      "configured_peers_LPWR_requests_exact": true,
+      "active_curve_equal_to_original": [
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "original_comparison_sequence": [
+        false,
+        false,
+        true
+      ],
+      "complete_original_restored": true,
+      "journal_sha256": "7a5314b387bad86dbf2400f7311dfe27c2c419745dcaa52d9bdc6b76e7dc5e56"
+    }
+  ],
+  "observer_limits": "First active and first two final samples differed from the original curve; independent audit found curve-only 230-byte differences. Later active curves and third final samples matched. No curve exclusions at final; transient timing does not establish a universal delay.",
+  "request_limit": "The six legacy rail request words and voltage boost were retained. Fixing equation bounds does not replay those requests or promise the final chained limit or physical voltage.",
+  "operations": {
+    "fixed_writes": 2,
+    "restore_writes": 2,
+    "registry_writes": 0,
+    "GPU_restarts": 0,
+    "Windows_reboot": false,
+    "workload": false,
+    "physical_measurement": false
+  },
+  "validation": {
+    "full_suite": {
+      "passed": 6842,
+      "seconds": 120.59
+    },
+    "source_hardware": "passed",
+    "packaged_callback_trial": "Both fixed-head Apply / Restore BIOS bounds callback trials independently qualified after strict original GUI baseline observation; physical input and recovery walkthroughs remain pending",
+    "physical_input": "not performed",
+    "focused_runtime_tests": 54,
+    "panel_tests": 12,
+    "Ruff": "changed files passed",
+    "independent_raw_audit": "Terra reproduced from raw inputs; root rerun produced identical report"
+  },
+  "remaining": [
+    "Arbitrary six-word voltage-offset replay and modern firmware semantics",
+    "Physical enforcement and other adapters/operating points",
+    "Packaged fixed-head physical input and failure/recovery walkthroughs, other adapters and operating points"
+  ],
+  "source_sha256": {
+    "src/druta/vfe_equation_runtime.py": "4ea73b1399c167d9ab4dbde5ac602a79a60589649dfbe5c1b4f5fa78f7a762ce",
+    "src/druta/voltage_rel_live.py": "4e19e8bd676fff77632c866e53df60cc45e661c48626904a8887c5720d0b4eb1",
+    "src/druta/registry_panel.py": "078e74eaeaa1926ad8cc630092e823ecb33e16892b0406b453179b0f326d1f81"
+  },
+  "audit_sha256": {
+    "experiments\\registry-overrides\\voltage-live-bounds-review-20261029\\terra-audit.json": "8211d67015daf895e8136b20f4bd4ac0bcfaafefe2f420274d198dfed2757a5a",
+    "experiments\\registry-overrides\\voltage-live-bounds-luna-20261029\\audit.json": "022a78e1f74af3cf0d39bc52af5b8a925c0fc16a3d9e00dd7cf182e8a8574e16"
+  },
+  "packaged_callback_qualification": {
+    "scope": "Real packaged programmatic panel callbacks, not physical mouse/keyboard input; one captured adapter/driver/ROM configuration",
+    "CLI": "--gpu 0000:01:00.0 --ui-capture-live-rel-bounds RAIL VALUE_UV NEW_DIRECTORY",
+    "trials": [
+      {
+        "rail": 0,
+        "equation": 3,
+        "original_bounds_uv": [
+          900000.0,
+          1120000.0
+        ],
+        "fixed_bounds_uv": [
+          1045000,
+          1045000
+        ],
+        "source_commit": "2242ab6bd158f458e569ddd22eee75c305a90c68",
+        "exe_sha256": "e1f4435e02fb89523d42158996fa11ba794362fa4ff98058ffe9b717858f89da",
+        "supervisor_exit": 0,
+        "GUI_exit": 0,
+        "before_samples": 8,
+        "before_strict_original": [
+          false,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "last_two_before_strict_original": true,
+        "active_samples": 8,
+        "last_active_sample_seconds": 22.00111520010978,
+        "all_active_strict_projected": true,
+        "active_curve_changed_bytes": [
+          230,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "observed_policy_before_uv": {
+          "reliability": 1040000,
+          "alt_reliability": 1060000,
+          "overvoltage": 1200000,
+          "effective": 1040000,
+          "vmin": 800000
+        },
+        "observed_policy_active_uv": {
+          "alt_reliability": 1065000,
+          "effective": 1045000,
+          "overvoltage": 1200000,
+          "reliability": 1045000,
+          "vmin": 800000
+        },
+        "final_comparison_sequence": [
+          {
+            "exact": false
+          },
+          {
+            "exact": true
+          }
+        ],
+        "final_strict_original_including_curve": true,
+        "GUI_immediate_restored_curve_exact": false,
+        "GUI_equation_request_evidence_exact": true,
+        "frames": [
+          {
+            "stage": "rel-before",
+            "png": {
+              "sha256": "d7a1793f6faee00601d8e16c56d54d24c3719fd701ea9a78cb7ccee2e5cc8a6c",
+              "dimensions": [
+                1528,
+                1261
+              ]
+            },
+            "manifest_match": true,
+            "selected_rail_exact": true,
+            "value_uv_exact": true
+          },
+          {
+            "stage": "rel-active",
+            "png": {
+              "sha256": "04fbcac848ad7824b9f361b037a4d602a00e9eca89078e5767d7c1037bef72cb",
+              "dimensions": [
+                1528,
+                1261
+              ]
+            },
+            "manifest_match": true,
+            "selected_rail_exact": true,
+            "value_uv_exact": true
+          },
+          {
+            "stage": "rel-restored",
+            "png": {
+              "sha256": "30ee286c40538f5895ccf9e5afea800124ae5d382643e6addf68798e9887096b",
+              "dimensions": [
+                1528,
+                1261
+              ]
+            },
+            "manifest_match": true,
+            "selected_rail_exact": true,
+            "value_uv_exact": true
+          },
+          {
+            "stage": "restored-display",
+            "png": {
+              "sha256": "5d774a58bf9afdefbc7e2b367c53ed70e63c50e8cdc0ae74c88e9bb4b140398c",
+              "dimensions": [
+                1528,
+                1261
+              ]
+            },
+            "manifest_match": true,
+            "selected_rail_exact": null,
+            "value_uv_exact": null
+          }
+        ],
+        "independent_audit_sha256": "9683e86b565e8a5dedd8b6f6aa62686afb8b8bd973adc08546f2b2c004072306",
+        "supervisor_sha256": "5d5938243de79e968e642aa2c0008b2582aae82a7827eaa42b685d20d0928a68"
+      },
+      {
+        "rail": 1,
+        "equation": 265,
+        "original_bounds_uv": [
+          900000.0,
+          1120000.0
+        ],
+        "fixed_bounds_uv": [
+          1045000,
+          1045000
+        ],
+        "source_commit": "2242ab6bd158f458e569ddd22eee75c305a90c68",
+        "exe_sha256": "e1f4435e02fb89523d42158996fa11ba794362fa4ff98058ffe9b717858f89da",
+        "supervisor_exit": 0,
+        "GUI_exit": 0,
+        "before_samples": 8,
+        "before_strict_original": [
+          false,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "last_two_before_strict_original": true,
+        "active_samples": 8,
+        "last_active_sample_seconds": 21.9832569998689,
+        "all_active_strict_projected": true,
+        "active_curve_changed_bytes": [
+          230,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "observed_policy_before_uv": {
+          "reliability": 990000,
+          "alt_reliability": 1060000,
+          "overvoltage": 1200000,
+          "effective": 990000,
+          "vmin": 800000
+        },
+        "observed_policy_active_uv": {
+          "alt_reliability": 1065000,
+          "effective": 995000,
+          "overvoltage": 1200000,
+          "reliability": 995000,
+          "vmin": 800000
+        },
+        "final_comparison_sequence": [
+          {
+            "exact": false
+          },
+          {
+            "exact": true
+          }
+        ],
+        "final_strict_original_including_curve": true,
+        "GUI_immediate_restored_curve_exact": false,
+        "GUI_equation_request_evidence_exact": true,
+        "frames": [
+          {
+            "stage": "rel-before",
+            "png": {
+              "sha256": "0c3cc191e1d4c9a222c017f76dfb6337b417e60fb8f392767ab487af8698cbdb",
+              "dimensions": [
+                1528,
+                1261
+              ]
+            },
+            "manifest_match": true,
+            "selected_rail_exact": true,
+            "value_uv_exact": true
+          },
+          {
+            "stage": "rel-active",
+            "png": {
+              "sha256": "2972f143c5d48da2f7d5046bc7fa44a0ec541e2347e4fbf55cedd15803890061",
+              "dimensions": [
+                1528,
+                1261
+              ]
+            },
+            "manifest_match": true,
+            "selected_rail_exact": true,
+            "value_uv_exact": true
+          },
+          {
+            "stage": "rel-restored",
+            "png": {
+              "sha256": "3d84476884c1b38aab0d39f372d5a51dd362517b742c00b3dabad0b6d7591dea",
+              "dimensions": [
+                1528,
+                1261
+              ]
+            },
+            "manifest_match": true,
+            "selected_rail_exact": true,
+            "value_uv_exact": true
+          },
+          {
+            "stage": "restored-display",
+            "png": {
+              "sha256": "195f5ce696dc9f802662f6e5a2591641e1007a7a94df8abf4ded3fd55a645f69",
+              "dimensions": [
+                1528,
+                1261
+              ]
+            },
+            "manifest_match": true,
+            "selected_rail_exact": null,
+            "value_uv_exact": null
+          }
+        ],
+        "independent_audit_sha256": "733014f12a87d5d5a7a5d9136c06ac96d0df38fb06effcbe6983d3b2e40c3588",
+        "supervisor_sha256": "0f9e798b819f9fc0c578c8f64a911db31ac5f8df290dc21f0c2cda1b4e3da4c8"
+      }
+    ],
+    "independent_audit": "Terra raw audit; root reproduction is JSON-identical for both terminal cases",
+    "root_visual_review": "All four full framebuffer images per rail inspected: original bounds, fixed head, restored bounds and restored normal display",
+    "startup_control": {
+      "result": "Display-only packaged control reproduced the first BOOST_LOW request change with unchanged full VFE INFO/CONTROL; later samples and final state strictly matched original",
+      "explicit_equation_tuning_operation": false,
+      "interpretation": "Startup/read-path confound; exact producer, live conditional class, duration and physical effect remain unproven",
+      "audit_sha256": "81d37057107d8c7157b6bf37b27f2693198e26e4d4a2076a38b4f10f2980e95b"
+    },
+    "retained_negative_trials": [
+      {
+        "rail": 0,
+        "state": "attention",
+        "reason": "RuntimeError('Independent active packet or configured peer projection differs')",
+        "active_samples": 1,
+        "complete_original_restored": true,
+        "exe_sha256": "48689e02171953366d189755e9885f2f393793c406aa1f2eda96d0ca6ae9111d",
+        "supervisor_sha256": "de71b79f3ff63678cc408d81179fb9f97cd67d1f8974601704cd751720f45d16"
+      },
+      {
+        "rail": 0,
+        "state": "attention",
+        "reason": "Independent active projection mismatches retained at samples [0]",
+        "active_samples": 8,
+        "complete_original_restored": true,
+        "exe_sha256": "48689e02171953366d189755e9885f2f393793c406aa1f2eda96d0ca6ae9111d",
+        "supervisor_sha256": "2f1ec9292921e8646b4bcc5ec05c758da513483f3fe4f1c964cf503fa53d86bf"
+      },
+      {
+        "rail": 1,
+        "state": "attention",
+        "reason": "Independent active projection mismatches retained at samples [0]",
+        "active_samples": 8,
+        "complete_original_restored": true,
+        "exe_sha256": "48689e02171953366d189755e9885f2f393793c406aa1f2eda96d0ca6ae9111d",
+        "supervisor_sha256": "f00e2ffcb656398c9cd89a813c6097c13d3b8915403b33510d0d6d76ca8a2a06"
+      }
+    ],
+    "comparison_contract": "BOOST_LOW and all other retained configured peers remain compared. Last two before samples, all eight active projections and strict final state including curve are required. No mismatch exclusions were added.",
+    "observer_limits": "27-second before and active acquisition windows are not firmware settling guarantees. First before sample retains the BOOST_LOW inactive to type3/vP-state-index0 request change. First active and first final curves differ by230 bytes, then match; immediate GUI restored curve is unequal.",
+    "operations_this_packaged_arc": {
+      "fixed_writes": 5,
+      "restore_writes": 5,
+      "includes": "Three retained attention cases and two independently qualified repeated cases",
+      "registry_writes": 0,
+      "GPU_restarts": 0,
+      "Windows_reboot": false,
+      "workload": false,
+      "physical_measurement": false
+    },
+    "latest_full_suite": {
+      "passed": 6890,
+      "seconds": 121.76
+    },
+    "focused_capture_tests": 15,
+    "CLI_tests": 33,
+    "lint": "New capture module/tests clean; druta.py retains the same 26 preexisting diagnostics",
+    "guard_cleanup_regression": "Offline old-code reproduction and independent tests verify restoration through the bound controller when the panel guard blocks cleanup; changed target/image/selected equation refuses fallback. The faulty first trial binary was never used for a hardware trial.",
+    "unresolved_BOOST_LOW_producer": "Conditional class8 driver path binds the native PERF-limits SET 2080E025 to the same backing object consumed by its getter. The NVAPI client wrapper copies caller-supplied fields. Neither trace establishes the actual producer of the observed startup request; no SET through this path was attempted.",
+    "research_sha256": {
+      "experiments/registry-overrides/boost-low-vfe-producer-20261029/findings.json": "5b7fe5c66ad5f188d2a8d7c4d6047dafc880c591adf0079e7b28edb3b297f1f6",
+      "experiments/registry-overrides/boost-low-vfe-producer-20261029/same-owner-binding.json": "c2cfb46897fa0c9ffba712567712a860a92abac431cc0d8cd2cc7729c075cbc5",
+      "experiments/registry-overrides/boost-low-client-20261029/findings.json": "c7b0a400d0f445a6892be84b5a1d931b2c452434b9193d8b7084f2e7da794813"
+    }
+  },
+  "BOOST_LOW_GET_investigation_20261029": {
+    "scope": "One captured RTX5080 configuration; root runs known GET-only and ordinary static-GUI controls; agents perform offline analysis/audits only",
+    "result": "A minimal DearPyGUI child reproduced the short-lived BOOST_LOW type3/index0 request without Druta or NVIDIA API code in that child. Single known V/F GET calls did not reproduce it in one separately sampled sequence. Exact driver writer and physical effect remain unknown",
+    "unchanged_product": "No runtime source or control admission changed; all strict comparison fields and prior negative records retained",
+    "source_code_commit": "c98de374cd8865e9ff05f6b356e6baf2bd4eb796",
+    "tag_meaning": "Established tagged RM-client request: type0 inactive, type3 with union0 requests vP-state index0; this is not evidence that it means public P0 or that it is harmless",
+    "isolated_known_GETs": {
+      "supervisor_session": 77872,
+      "exit_code": 0,
+      "timed_observer": "PERF limits INFO/CONTROL only; initial transport discovery precedes timed windows. Full broad/LPWR/client GETs are outside those windows",
+      "before": [
+        {
+          "exact": true,
+          "tag": 0,
+          "union_word": 0,
+          "started_seconds": 2.00001522898674e-06,
+          "ended_seconds": 0.0031877998262643814
+        },
+        {
+          "exact": true,
+          "tag": 0,
+          "union_word": 0,
+          "started_seconds": 3.000591999851167,
+          "ended_seconds": 3.003904700279236
+        },
+        {
+          "exact": true,
+          "tag": 0,
+          "union_word": 0,
+          "started_seconds": 6.000504199881107,
+          "ended_seconds": 6.003860500175506
+        },
+        {
+          "exact": true,
+          "tag": 0,
+          "union_word": 0,
+          "started_seconds": 9.000299999956042,
+          "ended_seconds": 9.003578200004995
+        },
+        {
+          "exact": true,
+          "tag": 0,
+          "union_word": 0,
+          "started_seconds": 12.000241999980062,
+          "ended_seconds": 12.003537000156939
+        },
+        {
+          "exact": true,
+          "tag": 0,
+          "union_word": 0,
+          "started_seconds": 15.000262800138444,
+          "ended_seconds": 15.00375790009275
+        },
+        {
+          "exact": true,
+          "tag": 0,
+          "union_word": 0,
+          "started_seconds": 18.00049880007282,
+          "ended_seconds": 18.00375010026619
+        },
+        {
+          "exact": true,
+          "tag": 0,
+          "union_word": 0,
+          "started_seconds": 21.00009959982708,
+          "ended_seconds": 21.003432699944824
+        }
+      ],
+      "arms": [
+        {
+          "name": "no_call_control",
+          "before": {
+            "info_sha256": "9d04851f55760ee2500aab16c47ba1e52a8c979462160bad62effc73041a4a21",
+            "control_sha256": "34dff98d0c81c2a7adb8e11a8c006cc011936ef8e743f16b3cae1dcb20306283",
+            "row_type": 6,
+            "tag": 0,
+            "union_word": 0
+          },
+          "samples": [
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 1.900363713502884e-06,
+              "ended_seconds": 0.0032280003651976585
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 3.000343299936503,
+              "ended_seconds": 3.0036520999856293
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 6.000974700320512,
+              "ended_seconds": 6.00628129998222
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 9.000508000142872,
+              "ended_seconds": 9.003891100175679
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 12.000433700159192,
+              "ended_seconds": 12.003714099992067
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 15.000845500268042,
+              "ended_seconds": 15.004371900111437
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 18.0004329001531,
+              "ended_seconds": 18.00380660034716
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 21.000250699929893,
+              "ended_seconds": 21.003680699970573
+            }
+          ]
+        },
+        {
+          "name": "VfpCurve",
+          "before": {
+            "info_sha256": "9d04851f55760ee2500aab16c47ba1e52a8c979462160bad62effc73041a4a21",
+            "control_sha256": "34dff98d0c81c2a7adb8e11a8c006cc011936ef8e743f16b3cae1dcb20306283",
+            "row_type": 6,
+            "tag": 0,
+            "union_word": 0
+          },
+          "samples": [
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 1.6996636986732483e-06,
+              "ended_seconds": 0.0031625996343791485
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 3.0003783996216953,
+              "ended_seconds": 3.0036822999827564
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 6.000110099557787,
+              "ended_seconds": 6.003595999907702
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 9.00011709984392,
+              "ended_seconds": 9.003452899865806
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 12.000420299824327,
+              "ended_seconds": 12.003800299949944
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 15.000450599938631,
+              "ended_seconds": 15.003924199845642
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 18.000101499725133,
+              "ended_seconds": 18.00349019980058
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 21.00049509992823,
+              "ended_seconds": 21.00381729984656
+            }
+          ],
+          "status": 0,
+          "request_sha256": "01f5140d729490a358b417e4a1c47bb5e15113c740b2fe45d5e4c1f38d54da90",
+          "response_sha256": "eef40e908869e3b115d9062392bff5aa0c238a78ead1edcd40413e5c7e98854c"
+        },
+        {
+          "name": "BoostTableGet",
+          "before": {
+            "info_sha256": "9d04851f55760ee2500aab16c47ba1e52a8c979462160bad62effc73041a4a21",
+            "control_sha256": "34dff98d0c81c2a7adb8e11a8c006cc011936ef8e743f16b3cae1dcb20306283",
+            "row_type": 6,
+            "tag": 0,
+            "union_word": 0
+          },
+          "samples": [
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 2.400018274784088e-06,
+              "ended_seconds": 0.0033979001455008984
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 3.000220900401473,
+              "ended_seconds": 3.003475600387901
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 6.0002252999693155,
+              "ended_seconds": 6.0036830003373325
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 9.000445200130343,
+              "ended_seconds": 9.003734400030226
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 12.00010640034452,
+              "ended_seconds": 12.003319500014186
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 15.000140300020576,
+              "ended_seconds": 15.004117800388485
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 18.00014950009063,
+              "ended_seconds": 18.00348550034687
+            },
+            {
+              "exact": true,
+              "tag": 0,
+              "union_word": 0,
+              "started_seconds": 21.000136299990118,
+              "ended_seconds": 21.003429800271988
+            }
+          ],
+          "status": 0,
+          "request_sha256": "67c31803e915b9e601c86a5c68468b6bf073b0a458839c1775f70e5c46c4164f",
+          "response_sha256": "6777653c2879d6dd94de056660f433186a6eb830da16578976e7099049cc21ac"
+        }
+      ],
+      "final_PERF_after_broad": [
+        {
+          "exact": true,
+          "tag": 0,
+          "union_word": 0,
+          "started_seconds": 4.600267857313156e-06,
+          "ended_seconds": 0.0033243000507354736
+        },
+        {
+          "exact": true,
+          "tag": 0,
+          "union_word": 0,
+          "started_seconds": 3.000351299997419,
+          "ended_seconds": 3.0037116003222764
+        },
+        {
+          "exact": true,
+          "tag": 0,
+          "union_word": 0,
+          "started_seconds": 6.0000786003656685,
+          "ended_seconds": 6.003596100024879
+        },
+        {
+          "exact": true,
+          "tag": 0,
+          "union_word": 0,
+          "started_seconds": 9.000045200344175,
+          "ended_seconds": 9.003487400244921
+        },
+        {
+          "exact": true,
+          "tag": 0,
+          "union_word": 0,
+          "started_seconds": 12.000359600409865,
+          "ended_seconds": 12.003707500174642
+        },
+        {
+          "exact": true,
+          "tag": 0,
+          "union_word": 0,
+          "started_seconds": 15.00025560008362,
+          "ended_seconds": 15.003792700357735
+        },
+        {
+          "exact": true,
+          "tag": 0,
+          "union_word": 0,
+          "started_seconds": 18.00023500015959,
+          "ended_seconds": 18.00375880021602
+        },
+        {
+          "exact": true,
+          "tag": 0,
+          "union_word": 0,
+          "started_seconds": 21.00041150022298,
+          "ended_seconds": 21.00377730000764
+        }
+      ],
+      "all_40_timed_full_INFO_CONTROL_exact": true,
+      "GET_request_masks": [
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295
+      ],
+      "mask_provenance": "Copied from an already accepted full curve capture, no mask/command sweep",
+      "final_full_broad_curve_LPWR_client_exact": true,
+      "limits": [
+        "Zero counters record what the script requested, not native internal semantics.",
+        "One call order and operating point; a change entirely inside a GET or between samples is not observed. No causal conclusion or general absence proof.",
+        "One no-call, VfpCurve, BoostTableGet order in a warmed process. After-return samples do not observe changes entirely inside a call; no cold-startup or global no-effect claim"
+      ]
+    },
+    "display_only_reproduction": {
+      "supervisor_session": 31137,
+      "exit_code": 0,
+      "child": {
+        "pid": 24928,
+        "start_utc": "2026-10-29T16:20:10.664433+00:00",
+        "end_utc": "2026-10-29T16:20:34.883731+00:00",
+        "frame_count": 714,
+        "normal_exit": true,
+        "error": null
+      },
+      "child_elapsed_utc_seconds": 24.219298,
+      "child_imports": [
+        "argparse",
+        "json",
+        "os",
+        "time",
+        "datetime",
+        "pathlib",
+        "dearpygui.dearpygui"
+      ],
+      "child_scope": "Static ordinary DearPyGUI rendering, no Druta/NVAPI/NVML imports or explicit configuration SET requested by child. This still uses the system graphics stack",
+      "observer": "Parent PERF limits INFO/CONTROL only before/during/after child process lifetime; no V/F getter inside these timed windows",
+      "sample_counts": {
+        "before": 8,
+        "during": 48,
+        "after": 8
+      },
+      "before_and_after_full_packets_exact": true,
+      "all_64_INFO_packets_exact": true,
+      "CONTROL_exact_count": 58,
+      "changed_samples": [
+        {
+          "index": 1,
+          "sample": "sample-009.json",
+          "relative_to_child_launch_seconds": 0.513422,
+          "exact": false,
+          "tag": 3,
+          "union_word": 0,
+          "control_changed_offsets": [
+            2424
+          ],
+          "info_sha256": "9d04851f55760ee2500aab16c47ba1e52a8c979462160bad62effc73041a4a21",
+          "control_sha256": "5b5a7f448b2a3fd45afbd9ca09a6e32ae92488ba0901b3e09c833587f2b5b6ff"
+        },
+        {
+          "index": 2,
+          "sample": "sample-010.json",
+          "relative_to_child_launch_seconds": 1.021889,
+          "exact": false,
+          "tag": 3,
+          "union_word": 0,
+          "control_changed_offsets": [
+            2424
+          ],
+          "info_sha256": "9d04851f55760ee2500aab16c47ba1e52a8c979462160bad62effc73041a4a21",
+          "control_sha256": "5b5a7f448b2a3fd45afbd9ca09a6e32ae92488ba0901b3e09c833587f2b5b6ff"
+        },
+        {
+          "index": 3,
+          "sample": "sample-011.json",
+          "relative_to_child_launch_seconds": 1.53047,
+          "exact": false,
+          "tag": 3,
+          "union_word": 0,
+          "control_changed_offsets": [
+            2424
+          ],
+          "info_sha256": "9d04851f55760ee2500aab16c47ba1e52a8c979462160bad62effc73041a4a21",
+          "control_sha256": "5b5a7f448b2a3fd45afbd9ca09a6e32ae92488ba0901b3e09c833587f2b5b6ff"
+        },
+        {
+          "index": 4,
+          "sample": "sample-012.json",
+          "relative_to_child_launch_seconds": 2.039056,
+          "exact": false,
+          "tag": 3,
+          "union_word": 0,
+          "control_changed_offsets": [
+            2424
+          ],
+          "info_sha256": "9d04851f55760ee2500aab16c47ba1e52a8c979462160bad62effc73041a4a21",
+          "control_sha256": "5b5a7f448b2a3fd45afbd9ca09a6e32ae92488ba0901b3e09c833587f2b5b6ff"
+        },
+        {
+          "index": 5,
+          "sample": "sample-013.json",
+          "relative_to_child_launch_seconds": 2.546562,
+          "exact": false,
+          "tag": 3,
+          "union_word": 0,
+          "control_changed_offsets": [
+            2424
+          ],
+          "info_sha256": "9d04851f55760ee2500aab16c47ba1e52a8c979462160bad62effc73041a4a21",
+          "control_sha256": "5b5a7f448b2a3fd45afbd9ca09a6e32ae92488ba0901b3e09c833587f2b5b6ff"
+        },
+        {
+          "index": 6,
+          "sample": "sample-014.json",
+          "relative_to_child_launch_seconds": 3.055001,
+          "exact": false,
+          "tag": 3,
+          "union_word": 0,
+          "control_changed_offsets": [
+            2424
+          ],
+          "info_sha256": "9d04851f55760ee2500aab16c47ba1e52a8c979462160bad62effc73041a4a21",
+          "control_sha256": "5b5a7f448b2a3fd45afbd9ca09a6e32ae92488ba0901b3e09c833587f2b5b6ff"
+        }
+      ],
+      "reverted_sample": {
+        "index": 7,
+        "sample": "sample-015.json",
+        "relative_to_child_launch_seconds": 3.56209,
+        "exact": true,
+        "tag": 0,
+        "union_word": 0,
+        "control_changed_offsets": [],
+        "info_sha256": "9d04851f55760ee2500aab16c47ba1e52a8c979462160bad62effc73041a4a21",
+        "control_sha256": "34dff98d0c81c2a7adb8e11a8c006cc011936ef8e743f16b3cae1dcb20306283"
+      },
+      "other_during_samples": "All42 other during-process CONTROL samples exact; all unselected bytes exact in every packet",
+      "raw_effect": "Only one byte changes at captured CONTROL packet offset2424: type6 BOOST_LOW tag0 to3, union DWORD stays0. Ordinal13 is decoded from this INFO label/type, not a product constant",
+      "final_full_broad_curve_LPWR_client_exact": true,
+      "limits": [
+        "During timestamps are sample-completion times relative to child launch, not a viewport-ready marker.",
+        "Static viewport uses the system graphics stack; child AST does not show an explicit Druta or NVIDIA import, not proof of no driver activity.",
+        "No screenshot, kernel-writer identity, causal exclusivity or proof that other GETs never cause transitions. Zero counters represent script-requested operations."
+      ]
+    },
+    "kernel_dispatch_trace": {
+      "driver_sha256": "3f8d33495cabeb2fa11ebdcf0b12705e9ccfb4e53005324bcd86e9dea8ba2ab4",
+      "descriptor": {
+        "command": "0x2080902B",
+        "id_RVA": "0xEBEC80",
+        "payload_size": "0x1810",
+        "handler_RVA": "0x495D80"
+      },
+      "same_constructed_group": "Handler follows GPU+23B8, then+1188 and+8538; selector0/1 returns group+880. Successful constructor495980 initializes that same interface. Preceding495930 is a distinct function",
+      "correction": "5BDCA0 is an initial +38 assignment, not the retained dispatch on both traced successful late-constructor branches",
+      "branches": [
+        {
+          "predicate": "GPU+2480 absent or byte+4D2 zero",
+          "binding": "495B92 calls 8ADD90; 8ADDF5..E07 installs group selector0 interface+38=8ADA60 and +28=8ADBA0.",
+          "execution": "8ADA60 obtains selector1 interface on clock object [GPU+23B8]+1188, not group+8538. If clock+8534 is zero it invokes that interface+108; then 8ADB55 directly calls 5BD660 with the incoming group interface and row-output packet. On success it writes output byte+24=0."
+        },
+        {
+          "predicate": "GPU+2480 present and byte+4D2 nonzero",
+          "binding": "495B5A calls 8AE000; 8AE07E..A6 installs same group interface+38=8ADE20, +118=8ADF60 and +120=8ADFB0; later 5BDF10 initializes its A8/C0 transfer descriptors. No +108/+110 overwrite on this bounded branch.",
+          "execution": "8ADE20 reselects same group+8538 via selector1, calls its +108 (initial 5BE610, subject to subsequent unrelated override not proven absent), then directly calls 5BD660 on incoming interface/output; on success sets output byte+24=1."
+        }
+      ],
+      "selected_row_factory": {
+        "type0": "495800 selects8AE1C0, which calls495200;8AE252 assigns interface+20=C18B00",
+        "type1": "495800 selects8AEB60;8AEBE2 assigns interface+20=C18B00",
+        "type4": "495800 selects495200;49536B assigns interface+20=495480",
+        "types6and7": "495800 selects8AEF70/8AF290; constructor chain includesC192E0,C191A0,495200; C19396 assigns interface+20=C193D0. C193D0 callsC192A0, which calls495480"
+      },
+      "next_finite_static_edge": "Conditional type0/1 path C18B00 thenC18C00: bind the constructed object selected from clock+1170 interface+38 and its+88 method invoked atC18C9C. Current live row type/subtype and retained receiver remain unknown",
+      "limits": "The actual live +4D2 predicate, row type/subtype and retained clock receiver are unobserved. These image RVAs/hashes identify evidence, never compatibility gates. No BOOST_LOW setter connection or GET causality proven"
+    },
+    "NVAPI_wrapper_boundary": {
+      "dll_sha256": "46586752524af6075736eb655bb3a1da4030dfa42e6b6872afab400d50f249e7",
+      "query": "0x21537AD4 main data pair ->RVA20AC10; separateF2930 pair not traced and no live selected-function address is bound here",
+      "request": "Main wrapper zeroes98240h transport bytes, writes handle/2080902B/header, no caller row payload in native24-byte row area before dispatch. Maps selected returned rows to current28-byte caller entries",
+      "additional_helpers": "Already-called209300 sends20809029;15EDF0 invokes700010B after a cached-block copy. Their driver-side semantics remain unassigned; no new direct calls were made to these commands",
+      "payload_geometry_limit": "Kernel1810h payload descriptor and wrapper98240h allocation are separately verified; nested payload pointer/length linkage remains unproven",
+      "SET_limit": "No explicit configuration SET identified in the bounded host path; this does not establish that all driver/transport helpers are side-effect-free"
+    },
+    "independent_review": "Terra audited terminal raw captures and constructor/base aliases; Luna audited the user-mode wrapper. Root reproduced both terminal experiment audits, initial/tail binding reports and wrapper machine facts exactly, and all15 supplied callback instruction windows",
+    "explicit_configuration_SETs_requested": 0,
+    "registry_writes": 0,
+    "GPU_restarts": 0,
+    "Windows_reboot": false,
+    "NVIDIA_App_installed": false,
+    "physical_measurement": false,
+    "synthetic_workload": false,
+    "normal_GUI_rendering": "One24-second static viewport control; no screenshot or viewport-ready event was captured",
+    "next": "Use the display-only reproduction to prioritize actual process/display-context startup request writers. Neither the V/F read hypothesis nor other causes are globally excluded. Keep strict readbacks and final-original requirements",
+    "private_evidence_sha256": {
+      "experiments/registry-overrides/boost-low-vfp-root-review-20261029/verify-initial-bindings.py": "6bc73e0fe2918e054b812ca75e708cf273e57ab6416a77215a536e9c074ab788",
+      "experiments/registry-overrides/boost-low-vfp-root-review-20261029/root-initial-bindings.json": "51118479555885031c52b44a1749b6850968c0502a083be83df233b137da22de",
+      "experiments/registry-overrides/boost-low-vfp-root-review-20261029/verify-tail-bindings.py": "995be83aab7f90ed094350c842dc8fe86063b56d0748157a68b10ea4ce8929d6",
+      "experiments/registry-overrides/boost-low-vfp-root-review-20261029/root-tail-bindings.json": "2ed0c115cfb852e4f838c5e3dec62a30fee7124983732e1291c570867a8e78bb",
+      "experiments/registry-overrides/boost-low-vfp-root-review-20261029/verify_callback_windows.py": "224b2791c2bd1520b68a77e45c9000c54eed02f953b15af299461de2d91df118",
+      "experiments/registry-overrides/boost-low-vfp-root-review-20261029/root-callback-windows.json": "3d131f1d6da3c7f32f26e21894b9740e7aa5aad01bf2201ed586e3faf7536ad3",
+      "experiments/registry-overrides/boost-low-vfp-root-review-20261029/isolated_get_trial.py": "90f561a467d9241a841901a3079a1bddcc2b6a33a28af6b2cc18c81564a4a05e",
+      "experiments/registry-overrides/boost-low-vfp-root-review-20261029/isolated-get-trial-1.json": "3e05689ec0e10eb04fcef7155862f749a258bcbb7297eb5719db49ed487cf03f",
+      "experiments/registry-overrides/boost-low-vfp-root-review-20261029/audit-isolated-get.py": "fcf0f02d3dcfdd8f95b85bd2fe953f3d23c80db524e6efb1e08390848cb910ac",
+      "experiments/registry-overrides/boost-low-vfp-root-review-20261029/root-isolated-get-audit.json": "5c96dfa264304ca5043e4054b00fb9f3cc169f6d42db2c061fcd1d0faa681a99",
+      "experiments/registry-overrides/boost-low-vfp-root-review-20261029/audit-viewport-control.py": "c11404575d0d82dcdc110b7a705c4fddf521284bd5bd3bf117e3f7805f9ba589",
+      "experiments/registry-overrides/boost-low-vfp-root-review-20261029/root-viewport-1-audit.json": "b4a22f19f786d349b59a1c8619e033139d496e3ab7f3d33d476a760736b8f1c2",
+      "experiments/registry-overrides/boost-low-vfp-client-boundary-20261029/findings.json": "322ad991aa149d477152e3cf50880fb1544b32a45f42f760f695ea3d7a39956b",
+      "experiments/registry-overrides/boost-low-vfp-client-boundary-20261029/trace_vfp_boundary.py": "6247898964976a23e2c510d0d382c6bbdf16158d1e1b00b82fb526a3327d3af6",
+      "experiments/registry-overrides/boost-low-vfp-client-boundary-20261029/root-machine-facts.json": "229c01ad05d021511f2155694393f957f549856ee3b90e0117a746a520413bbc",
+      "experiments/registry-overrides/boost-low-vfp-callbacks-20261029/findings.json": "e73593aa546f16e3029aec25552fb60ccfb68149144d848fc2f08a8d35cc355f",
+      "experiments/registry-overrides/boost-low-vfp-callbacks-20261029/instruction-windows.json": "02e31c4688b247946f437b314a4df0b5a61bd672eef2be8243f405d0caffda40",
+      "experiments/registry-overrides/boost-low-viewport-control-20261029/viewport_only.py": "21365cec9a38129fa9c84de7da2f9d62f07137cb32a522dc920d3b0ea57a8b99",
+      "experiments/registry-overrides/boost-low-viewport-control-20261029/supervise_viewport.py": "211403932f528ce85ace77b7ab352d06610c113b9e12832e06895496984dcc5b",
+      "experiments/registry-overrides/boost-low-viewport-control-20261029/viewport-1/supervisor.json": "84842fe0f2fd15edd79c15347c9ed28c85a08c63ed76e036270b5635226cee39",
+      "experiments/registry-overrides/boost-low-viewport-control-20261029/viewport-1/child-terminal.json": "85f915ab83ffea77a2630bc928212a6616deaeca96d795c0ba0de7133cb32d26"
+    }
+  }
+}

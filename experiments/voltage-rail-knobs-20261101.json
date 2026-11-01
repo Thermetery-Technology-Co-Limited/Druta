@@ -1,0 +1,1113 @@
+{
+  "schema": "legacy-rail-knobs-validation-v1",
+  "scope": "RTX 5080, captured configuration only. Small single-field request changes, not arbitrary-range or physical-voltage qualification.",
+  "results": [
+    {
+      "driver": "617.14",
+      "raw_file": "experiments/registry-overrides/driver-downgrade-rel-20261101/result-61714.json",
+      "raw_sha256": "6e016cd3445089515f51da514c1b6bbb86df9f040d22826da53648162b1bbf26",
+      "identity": {
+        "architecture": 10,
+        "device_id": 11266,
+        "slot": "0000:01:00.0",
+        "subsystem_id": 2313031747
+      },
+      "rail": "0",
+      "field": "reliability",
+      "delta_uv": -5000,
+      "before_six_uv": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "desired_six_uv": [
+        -5000,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "exact_request_readback": true,
+      "policy_before_uv": {
+        "alt_reliability": 1060000,
+        "effective": 1040000,
+        "overvoltage": 1200000,
+        "reliability": 1040000,
+        "vmin": 800000
+      },
+      "policy_after_uv": {
+        "alt_reliability": 1060000,
+        "effective": 1035000,
+        "overvoltage": 1200000,
+        "reliability": 1035000,
+        "vmin": 800000
+      },
+      "all_final_checks_passed": true
+    },
+    {
+      "driver": "617.14",
+      "raw_file": "experiments/registry-overrides/driver-downgrade-rel-20261101/rail0-alt_reliability-61714.json",
+      "raw_sha256": "5ad55d9770e3126bfd6443788fe4660984a1d3ec51c74ae83f9c652361768cb2",
+      "identity": {
+        "architecture": 10,
+        "device_id": 11266,
+        "slot": "0000:01:00.0",
+        "subsystem_id": 2313031747
+      },
+      "rail": "0",
+      "field": "alt_reliability",
+      "delta_uv": -5000,
+      "before_six_uv": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "desired_six_uv": [
+        0,
+        -5000,
+        0,
+        0,
+        0,
+        0
+      ],
+      "exact_request_readback": true,
+      "policy_before_uv": {
+        "alt_reliability": 1060000,
+        "effective": 1040000,
+        "overvoltage": 1200000,
+        "reliability": 1040000,
+        "vmin": 800000
+      },
+      "policy_after_uv": {
+        "alt_reliability": 1055000,
+        "effective": 1040000,
+        "overvoltage": 1200000,
+        "reliability": 1040000,
+        "vmin": 800000
+      },
+      "all_final_checks_passed": true
+    },
+    {
+      "driver": "617.14",
+      "raw_file": "experiments/registry-overrides/driver-downgrade-rel-20261101/rail0-overvoltage-61714.json",
+      "raw_sha256": "0f70ea8c2050c4603ede1dcf05764460d46659e3ac20f191a8901db5aa6b849a",
+      "identity": {
+        "architecture": 10,
+        "device_id": 11266,
+        "slot": "0000:01:00.0",
+        "subsystem_id": 2313031747
+      },
+      "rail": "0",
+      "field": "overvoltage",
+      "delta_uv": -5000,
+      "before_six_uv": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "desired_six_uv": [
+        0,
+        0,
+        -5000,
+        0,
+        0,
+        0
+      ],
+      "exact_request_readback": true,
+      "policy_before_uv": {
+        "alt_reliability": 1060000,
+        "effective": 1040000,
+        "overvoltage": 1200000,
+        "reliability": 1040000,
+        "vmin": 800000
+      },
+      "policy_after_uv": {
+        "alt_reliability": 1060000,
+        "effective": 1040000,
+        "overvoltage": 1195000,
+        "reliability": 1040000,
+        "vmin": 800000
+      },
+      "all_final_checks_passed": true
+    },
+    {
+      "driver": "617.14",
+      "raw_file": "experiments/registry-overrides/driver-downgrade-rel-20261101/rail0-vcrit-low-61714.json",
+      "raw_sha256": "03a37dd589b7366baea3a10c367d56c64c378bd69d8a5b1c1a8f9a16b8b49769",
+      "identity": {
+        "architecture": 10,
+        "device_id": 11266,
+        "slot": "0000:01:00.0",
+        "subsystem_id": 2313031747
+      },
+      "rail": "0",
+      "field": "vcrit_low",
+      "delta_uv": -5000,
+      "before_six_uv": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "desired_six_uv": [
+        0,
+        0,
+        0,
+        0,
+        -5000,
+        0
+      ],
+      "exact_request_readback": true,
+      "policy_before_uv": {
+        "alt_reliability": 1060000,
+        "effective": 1040000,
+        "overvoltage": 1200000,
+        "reliability": 1040000,
+        "vmin": 800000
+      },
+      "policy_after_uv": {
+        "alt_reliability": 1060000,
+        "effective": 1040000,
+        "overvoltage": 1200000,
+        "reliability": 1040000,
+        "vmin": 800000
+      },
+      "all_final_checks_passed": true
+    },
+    {
+      "driver": "617.14",
+      "raw_file": "experiments/registry-overrides/driver-downgrade-rel-20261101/rail0-vcrit_high-61714.json",
+      "raw_sha256": "52f8af7407ce2d810e991c0e915df5f4664550b878e849382ea43ac0ddca6f2f",
+      "identity": {
+        "architecture": 10,
+        "device_id": 11266,
+        "slot": "0000:01:00.0",
+        "subsystem_id": 2313031747
+      },
+      "rail": "0",
+      "field": "vcrit_high",
+      "delta_uv": -5000,
+      "before_six_uv": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "desired_six_uv": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        -5000
+      ],
+      "exact_request_readback": true,
+      "policy_before_uv": {
+        "alt_reliability": 1060000,
+        "effective": 1040000,
+        "overvoltage": 1200000,
+        "reliability": 1040000,
+        "vmin": 800000
+      },
+      "policy_after_uv": {
+        "alt_reliability": 1060000,
+        "effective": 1040000,
+        "overvoltage": 1200000,
+        "reliability": 1040000,
+        "vmin": 800000
+      },
+      "all_final_checks_passed": true
+    },
+    {
+      "driver": "617.14",
+      "raw_file": "experiments/registry-overrides/driver-downgrade-rel-20261101/rail0-vmin-61714.json",
+      "raw_sha256": "bcbf77f0414b21fa9c997b738ddb2aa82ebc0ce00fd48063d9eb4ff6dcec73aa",
+      "identity": {
+        "architecture": 10,
+        "device_id": 11266,
+        "slot": "0000:01:00.0",
+        "subsystem_id": 2313031747
+      },
+      "rail": "0",
+      "field": "vmin",
+      "delta_uv": 5000,
+      "before_six_uv": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "desired_six_uv": [
+        0,
+        0,
+        0,
+        5000,
+        0,
+        0
+      ],
+      "exact_request_readback": true,
+      "policy_before_uv": {
+        "alt_reliability": 1060000,
+        "effective": 1040000,
+        "overvoltage": 1200000,
+        "reliability": 1040000,
+        "vmin": 800000
+      },
+      "policy_after_uv": {
+        "alt_reliability": 1060000,
+        "effective": 1040000,
+        "overvoltage": 1200000,
+        "reliability": 1040000,
+        "vmin": 805000
+      },
+      "all_final_checks_passed": true
+    },
+    {
+      "driver": "617.14",
+      "raw_file": "experiments/registry-overrides/driver-downgrade-rel-20261101/rail1-alt_reliability-61714.json",
+      "raw_sha256": "d1beff0d2a941e10510918e47b984dad18143cb1cf1bded6eff294a2b1b1731f",
+      "identity": {
+        "architecture": 10,
+        "device_id": 11266,
+        "slot": "0000:01:00.0",
+        "subsystem_id": 2313031747
+      },
+      "rail": "1",
+      "field": "alt_reliability",
+      "delta_uv": -5000,
+      "before_six_uv": [
+        -50000,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "desired_six_uv": [
+        -50000,
+        -5000,
+        0,
+        0,
+        0,
+        0
+      ],
+      "exact_request_readback": true,
+      "policy_before_uv": {
+        "alt_reliability": 1060000,
+        "effective": 990000,
+        "overvoltage": 1200000,
+        "reliability": 990000,
+        "vmin": 800000
+      },
+      "policy_after_uv": {
+        "alt_reliability": 1055000,
+        "effective": 990000,
+        "overvoltage": 1200000,
+        "reliability": 990000,
+        "vmin": 800000
+      },
+      "all_final_checks_passed": true
+    },
+    {
+      "driver": "617.14",
+      "raw_file": "experiments/registry-overrides/driver-downgrade-rel-20261101/rail1-overvoltage-61714.json",
+      "raw_sha256": "5b9c0ae039ff7317011f4eadc987b3f7ad4342bad1e1e1aa8fae3f4f4f7c65b3",
+      "identity": {
+        "architecture": 10,
+        "device_id": 11266,
+        "slot": "0000:01:00.0",
+        "subsystem_id": 2313031747
+      },
+      "rail": "1",
+      "field": "overvoltage",
+      "delta_uv": -5000,
+      "before_six_uv": [
+        -50000,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "desired_six_uv": [
+        -50000,
+        0,
+        -5000,
+        0,
+        0,
+        0
+      ],
+      "exact_request_readback": true,
+      "policy_before_uv": {
+        "alt_reliability": 1060000,
+        "effective": 990000,
+        "overvoltage": 1200000,
+        "reliability": 990000,
+        "vmin": 800000
+      },
+      "policy_after_uv": {
+        "alt_reliability": 1060000,
+        "effective": 990000,
+        "overvoltage": 1195000,
+        "reliability": 990000,
+        "vmin": 800000
+      },
+      "all_final_checks_passed": true
+    },
+    {
+      "driver": "617.14",
+      "raw_file": "experiments/registry-overrides/driver-downgrade-rel-20261101/rail1-reliability-61714.json",
+      "raw_sha256": "9f2cbcfc05e1e5527c4ae4de03b2618749a4e7734a38610039f35ace3d606013",
+      "identity": {
+        "architecture": 10,
+        "device_id": 11266,
+        "slot": "0000:01:00.0",
+        "subsystem_id": 2313031747
+      },
+      "rail": "1",
+      "field": "reliability",
+      "delta_uv": -5000,
+      "before_six_uv": [
+        -50000,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "desired_six_uv": [
+        -55000,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "exact_request_readback": true,
+      "policy_before_uv": {
+        "alt_reliability": 1060000,
+        "effective": 990000,
+        "overvoltage": 1200000,
+        "reliability": 990000,
+        "vmin": 800000
+      },
+      "policy_after_uv": {
+        "alt_reliability": 1060000,
+        "effective": 985000,
+        "overvoltage": 1200000,
+        "reliability": 985000,
+        "vmin": 800000
+      },
+      "all_final_checks_passed": true
+    },
+    {
+      "driver": "617.14",
+      "raw_file": "experiments/registry-overrides/driver-downgrade-rel-20261101/rail1-vcrit_high-61714.json",
+      "raw_sha256": "6f856a141ce6236d62b477d47ea7b5a41acad20282c715a71b4c36c7a632f666",
+      "identity": {
+        "architecture": 10,
+        "device_id": 11266,
+        "slot": "0000:01:00.0",
+        "subsystem_id": 2313031747
+      },
+      "rail": "1",
+      "field": "vcrit_high",
+      "delta_uv": -5000,
+      "before_six_uv": [
+        -50000,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "desired_six_uv": [
+        -50000,
+        0,
+        0,
+        0,
+        0,
+        -5000
+      ],
+      "exact_request_readback": true,
+      "policy_before_uv": {
+        "alt_reliability": 1060000,
+        "effective": 990000,
+        "overvoltage": 1200000,
+        "reliability": 990000,
+        "vmin": 800000
+      },
+      "policy_after_uv": {
+        "alt_reliability": 1060000,
+        "effective": 990000,
+        "overvoltage": 1200000,
+        "reliability": 990000,
+        "vmin": 800000
+      },
+      "all_final_checks_passed": true
+    },
+    {
+      "driver": "617.14",
+      "raw_file": "experiments/registry-overrides/driver-downgrade-rel-20261101/rail1-vcrit_low-61714.json",
+      "raw_sha256": "a8402ba4748d8837ab5b171b35ff4c14c5a7f9e82ddc238a1f2ddaebefc72623",
+      "identity": {
+        "architecture": 10,
+        "device_id": 11266,
+        "slot": "0000:01:00.0",
+        "subsystem_id": 2313031747
+      },
+      "rail": "1",
+      "field": "vcrit_low",
+      "delta_uv": -5000,
+      "before_six_uv": [
+        -50000,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "desired_six_uv": [
+        -50000,
+        0,
+        0,
+        0,
+        -5000,
+        0
+      ],
+      "exact_request_readback": true,
+      "policy_before_uv": {
+        "alt_reliability": 1060000,
+        "effective": 990000,
+        "overvoltage": 1200000,
+        "reliability": 990000,
+        "vmin": 800000
+      },
+      "policy_after_uv": {
+        "alt_reliability": 1060000,
+        "effective": 990000,
+        "overvoltage": 1200000,
+        "reliability": 990000,
+        "vmin": 800000
+      },
+      "all_final_checks_passed": true
+    },
+    {
+      "driver": "617.14",
+      "raw_file": "experiments/registry-overrides/driver-downgrade-rel-20261101/rail1-vmin-61714.json",
+      "raw_sha256": "1c992d2ee483e32f26bf501c0201eb6fd24277575a0909aca02c49280d889d7e",
+      "identity": {
+        "architecture": 10,
+        "device_id": 11266,
+        "slot": "0000:01:00.0",
+        "subsystem_id": 2313031747
+      },
+      "rail": "1",
+      "field": "vmin",
+      "delta_uv": 5000,
+      "before_six_uv": [
+        -50000,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "desired_six_uv": [
+        -50000,
+        0,
+        0,
+        5000,
+        0,
+        0
+      ],
+      "exact_request_readback": true,
+      "policy_before_uv": {
+        "alt_reliability": 1060000,
+        "effective": 990000,
+        "overvoltage": 1200000,
+        "reliability": 990000,
+        "vmin": 800000
+      },
+      "policy_after_uv": {
+        "alt_reliability": 1060000,
+        "effective": 990000,
+        "overvoltage": 1200000,
+        "reliability": 990000,
+        "vmin": 805000
+      },
+      "all_final_checks_passed": true
+    },
+    {
+      "driver": "617.42",
+      "raw_file": "experiments/registry-overrides/driver-downgrade-rel-20261101/rail0-alt_reliability-61742.json",
+      "raw_sha256": "d5977197e92497842039876eb0389f3967f71fd49e3458ad615b08e534ab8407",
+      "identity": {
+        "architecture": 10,
+        "device_id": 11266,
+        "slot": "0000:01:00.0",
+        "subsystem_id": 2313031747
+      },
+      "rail": "0",
+      "field": "alt_reliability",
+      "delta_uv": -5000,
+      "before_six_uv": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "desired_six_uv": [
+        0,
+        -5000,
+        0,
+        0,
+        0,
+        0
+      ],
+      "exact_request_readback": true,
+      "policy_before_uv": {
+        "alt_reliability": 1060000,
+        "effective": 1040000,
+        "overvoltage": 1200000,
+        "reliability": 1040000,
+        "vmin": 800000
+      },
+      "policy_after_uv": {
+        "alt_reliability": 1055000,
+        "effective": 1040000,
+        "overvoltage": 1200000,
+        "reliability": 1040000,
+        "vmin": 800000
+      },
+      "all_final_checks_passed": true
+    },
+    {
+      "driver": "617.42",
+      "raw_file": "experiments/registry-overrides/driver-downgrade-rel-20261101/rail0-overvoltage-61742.json",
+      "raw_sha256": "91480e952f758f7ef4a431bd0d0c78305e0b83a917045e2ba1416fde76263330",
+      "identity": {
+        "architecture": 10,
+        "device_id": 11266,
+        "slot": "0000:01:00.0",
+        "subsystem_id": 2313031747
+      },
+      "rail": "0",
+      "field": "overvoltage",
+      "delta_uv": -5000,
+      "before_six_uv": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "desired_six_uv": [
+        0,
+        0,
+        -5000,
+        0,
+        0,
+        0
+      ],
+      "exact_request_readback": true,
+      "policy_before_uv": {
+        "alt_reliability": 1060000,
+        "effective": 1040000,
+        "overvoltage": 1200000,
+        "reliability": 1040000,
+        "vmin": 800000
+      },
+      "policy_after_uv": {
+        "alt_reliability": 1060000,
+        "effective": 1040000,
+        "overvoltage": 1195000,
+        "reliability": 1040000,
+        "vmin": 800000
+      },
+      "all_final_checks_passed": true
+    },
+    {
+      "driver": "617.42",
+      "raw_file": "experiments/registry-overrides/driver-downgrade-rel-20261101/rail0-reliability-61742.json",
+      "raw_sha256": "34ddaf06fbae5eb7ae14cc93a69ead29b2101a0ebce715de7a85f4a7e71e2694",
+      "identity": {
+        "architecture": 10,
+        "device_id": 11266,
+        "slot": "0000:01:00.0",
+        "subsystem_id": 2313031747
+      },
+      "rail": "0",
+      "field": "reliability",
+      "delta_uv": -5000,
+      "before_six_uv": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "desired_six_uv": [
+        -5000,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "exact_request_readback": true,
+      "policy_before_uv": {
+        "alt_reliability": 1060000,
+        "effective": 1040000,
+        "overvoltage": 1200000,
+        "reliability": 1040000,
+        "vmin": 800000
+      },
+      "policy_after_uv": {
+        "alt_reliability": 1060000,
+        "effective": 1035000,
+        "overvoltage": 1200000,
+        "reliability": 1035000,
+        "vmin": 800000
+      },
+      "all_final_checks_passed": true
+    },
+    {
+      "driver": "617.42",
+      "raw_file": "experiments/registry-overrides/driver-downgrade-rel-20261101/rail0-vcrit_high-61742.json",
+      "raw_sha256": "33b4d8a6f4fa249fdc3276253016a4ff96d8e6a0cc49edb6845c42218989edc0",
+      "identity": {
+        "architecture": 10,
+        "device_id": 11266,
+        "slot": "0000:01:00.0",
+        "subsystem_id": 2313031747
+      },
+      "rail": "0",
+      "field": "vcrit_high",
+      "delta_uv": -5000,
+      "before_six_uv": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "desired_six_uv": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        -5000
+      ],
+      "exact_request_readback": true,
+      "policy_before_uv": {
+        "alt_reliability": 1060000,
+        "effective": 1040000,
+        "overvoltage": 1200000,
+        "reliability": 1040000,
+        "vmin": 800000
+      },
+      "policy_after_uv": {
+        "alt_reliability": 1060000,
+        "effective": 1040000,
+        "overvoltage": 1200000,
+        "reliability": 1040000,
+        "vmin": 800000
+      },
+      "all_final_checks_passed": true
+    },
+    {
+      "driver": "617.42",
+      "raw_file": "experiments/registry-overrides/driver-downgrade-rel-20261101/rail0-vcrit_low-61742.json",
+      "raw_sha256": "8a3b64f79b9c9bebd894b166c8c38ef38cc43c644c95acd7828132d1323dd33d",
+      "identity": {
+        "architecture": 10,
+        "device_id": 11266,
+        "slot": "0000:01:00.0",
+        "subsystem_id": 2313031747
+      },
+      "rail": "0",
+      "field": "vcrit_low",
+      "delta_uv": -5000,
+      "before_six_uv": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "desired_six_uv": [
+        0,
+        0,
+        0,
+        0,
+        -5000,
+        0
+      ],
+      "exact_request_readback": true,
+      "policy_before_uv": {
+        "alt_reliability": 1060000,
+        "effective": 1040000,
+        "overvoltage": 1200000,
+        "reliability": 1040000,
+        "vmin": 800000
+      },
+      "policy_after_uv": {
+        "alt_reliability": 1060000,
+        "effective": 1040000,
+        "overvoltage": 1200000,
+        "reliability": 1040000,
+        "vmin": 800000
+      },
+      "all_final_checks_passed": true
+    },
+    {
+      "driver": "617.42",
+      "raw_file": "experiments/registry-overrides/driver-downgrade-rel-20261101/rail0-vmin-61742.json",
+      "raw_sha256": "5a3e9da36529c65a67ea345345c1fb1698d9c94ec5c35e29932fe6b60cc71c0e",
+      "identity": {
+        "architecture": 10,
+        "device_id": 11266,
+        "slot": "0000:01:00.0",
+        "subsystem_id": 2313031747
+      },
+      "rail": "0",
+      "field": "vmin",
+      "delta_uv": 5000,
+      "before_six_uv": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "desired_six_uv": [
+        0,
+        0,
+        0,
+        5000,
+        0,
+        0
+      ],
+      "exact_request_readback": true,
+      "policy_before_uv": {
+        "alt_reliability": 1060000,
+        "effective": 1040000,
+        "overvoltage": 1200000,
+        "reliability": 1040000,
+        "vmin": 800000
+      },
+      "policy_after_uv": {
+        "alt_reliability": 1060000,
+        "effective": 1040000,
+        "overvoltage": 1200000,
+        "reliability": 1040000,
+        "vmin": 805000
+      },
+      "all_final_checks_passed": true
+    },
+    {
+      "driver": "617.42",
+      "raw_file": "experiments/registry-overrides/driver-downgrade-rel-20261101/rail1-alt_reliability-61742.json",
+      "raw_sha256": "2ca170f98c1eb80d99c21e0dc816093d8a0713691132281ac484c98b979d3f98",
+      "identity": {
+        "architecture": 10,
+        "device_id": 11266,
+        "slot": "0000:01:00.0",
+        "subsystem_id": 2313031747
+      },
+      "rail": "1",
+      "field": "alt_reliability",
+      "delta_uv": -5000,
+      "before_six_uv": [
+        -50000,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "desired_six_uv": [
+        -50000,
+        -5000,
+        0,
+        0,
+        0,
+        0
+      ],
+      "exact_request_readback": true,
+      "policy_before_uv": {
+        "alt_reliability": 1060000,
+        "effective": 990000,
+        "overvoltage": 1200000,
+        "reliability": 990000,
+        "vmin": 800000
+      },
+      "policy_after_uv": {
+        "alt_reliability": 1055000,
+        "effective": 990000,
+        "overvoltage": 1200000,
+        "reliability": 990000,
+        "vmin": 800000
+      },
+      "all_final_checks_passed": true
+    },
+    {
+      "driver": "617.42",
+      "raw_file": "experiments/registry-overrides/driver-downgrade-rel-20261101/rail1-overvoltage-61742.json",
+      "raw_sha256": "c686e652ebbe018ed612cb10a6951ef6d9f37eeedff0729e1a7a10f58f21c779",
+      "identity": {
+        "architecture": 10,
+        "device_id": 11266,
+        "slot": "0000:01:00.0",
+        "subsystem_id": 2313031747
+      },
+      "rail": "1",
+      "field": "overvoltage",
+      "delta_uv": -5000,
+      "before_six_uv": [
+        -50000,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "desired_six_uv": [
+        -50000,
+        0,
+        -5000,
+        0,
+        0,
+        0
+      ],
+      "exact_request_readback": true,
+      "policy_before_uv": {
+        "alt_reliability": 1060000,
+        "effective": 990000,
+        "overvoltage": 1200000,
+        "reliability": 990000,
+        "vmin": 800000
+      },
+      "policy_after_uv": {
+        "alt_reliability": 1060000,
+        "effective": 990000,
+        "overvoltage": 1195000,
+        "reliability": 990000,
+        "vmin": 800000
+      },
+      "all_final_checks_passed": true
+    },
+    {
+      "driver": "617.42",
+      "raw_file": "experiments/registry-overrides/driver-downgrade-rel-20261101/rail1-reliability-61742.json",
+      "raw_sha256": "fb87342bf0016a3f9df5c65d272b229d3829f1dc53a03c2ad566638cbd8b0e2c",
+      "identity": {
+        "architecture": 10,
+        "device_id": 11266,
+        "slot": "0000:01:00.0",
+        "subsystem_id": 2313031747
+      },
+      "rail": "1",
+      "field": "reliability",
+      "delta_uv": -5000,
+      "before_six_uv": [
+        -50000,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "desired_six_uv": [
+        -55000,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "exact_request_readback": true,
+      "policy_before_uv": {
+        "alt_reliability": 1060000,
+        "effective": 990000,
+        "overvoltage": 1200000,
+        "reliability": 990000,
+        "vmin": 800000
+      },
+      "policy_after_uv": {
+        "alt_reliability": 1060000,
+        "effective": 985000,
+        "overvoltage": 1200000,
+        "reliability": 985000,
+        "vmin": 800000
+      },
+      "all_final_checks_passed": true
+    },
+    {
+      "driver": "617.42",
+      "raw_file": "experiments/registry-overrides/driver-downgrade-rel-20261101/rail1-vcrit_high-61742.json",
+      "raw_sha256": "bd158c5d5dcee6ad5affac9e07fe1c5cf40c5c1179cd78a698fdda459392e242",
+      "identity": {
+        "architecture": 10,
+        "device_id": 11266,
+        "slot": "0000:01:00.0",
+        "subsystem_id": 2313031747
+      },
+      "rail": "1",
+      "field": "vcrit_high",
+      "delta_uv": -5000,
+      "before_six_uv": [
+        -50000,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "desired_six_uv": [
+        -50000,
+        0,
+        0,
+        0,
+        0,
+        -5000
+      ],
+      "exact_request_readback": true,
+      "policy_before_uv": {
+        "alt_reliability": 1060000,
+        "effective": 990000,
+        "overvoltage": 1200000,
+        "reliability": 990000,
+        "vmin": 800000
+      },
+      "policy_after_uv": {
+        "alt_reliability": 1060000,
+        "effective": 990000,
+        "overvoltage": 1200000,
+        "reliability": 990000,
+        "vmin": 800000
+      },
+      "all_final_checks_passed": true
+    },
+    {
+      "driver": "617.42",
+      "raw_file": "experiments/registry-overrides/driver-downgrade-rel-20261101/rail1-vcrit_low-61742.json",
+      "raw_sha256": "3aff86494adc00f87013720cab06f3c6af47bfb4747eda4b316525908048a782",
+      "identity": {
+        "architecture": 10,
+        "device_id": 11266,
+        "slot": "0000:01:00.0",
+        "subsystem_id": 2313031747
+      },
+      "rail": "1",
+      "field": "vcrit_low",
+      "delta_uv": -5000,
+      "before_six_uv": [
+        -50000,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "desired_six_uv": [
+        -50000,
+        0,
+        0,
+        0,
+        -5000,
+        0
+      ],
+      "exact_request_readback": true,
+      "policy_before_uv": {
+        "alt_reliability": 1060000,
+        "effective": 990000,
+        "overvoltage": 1200000,
+        "reliability": 990000,
+        "vmin": 800000
+      },
+      "policy_after_uv": {
+        "alt_reliability": 1060000,
+        "effective": 990000,
+        "overvoltage": 1200000,
+        "reliability": 990000,
+        "vmin": 800000
+      },
+      "all_final_checks_passed": true
+    },
+    {
+      "driver": "617.42",
+      "raw_file": "experiments/registry-overrides/driver-downgrade-rel-20261101/rail1-vmin-61742.json",
+      "raw_sha256": "8e60b8427404840fdca0cdf9c1b112368189337d1fe14bf2c741df206c9ee821",
+      "identity": {
+        "architecture": 10,
+        "device_id": 11266,
+        "slot": "0000:01:00.0",
+        "subsystem_id": 2313031747
+      },
+      "rail": "1",
+      "field": "vmin",
+      "delta_uv": 5000,
+      "before_six_uv": [
+        -50000,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "desired_six_uv": [
+        -50000,
+        0,
+        0,
+        5000,
+        0,
+        0
+      ],
+      "exact_request_readback": true,
+      "policy_before_uv": {
+        "alt_reliability": 1060000,
+        "effective": 990000,
+        "overvoltage": 1200000,
+        "reliability": 990000,
+        "vmin": 800000
+      },
+      "policy_after_uv": {
+        "alt_reliability": 1060000,
+        "effective": 990000,
+        "overvoltage": 1200000,
+        "reliability": 990000,
+        "vmin": 805000
+      },
+      "all_final_checks_passed": true
+    }
+  ],
+  "vcrit": "Both named legacy offsets stored exactly on both rails. Effective VCRIT thresholds not exposed by current policy reader; physical effects not measured.",
+  "restoration": "Original requests/policy restored after every case; pre-existing MSVDD REL -50000 uV preserved. No registry writes, driver restarts or workloads.",
+  "driver_boundary": "Working live results on 617.14 and 617.42; suppressed NVVDD REL on 621.01. Owner confirms 617.42 directly precedes 621.01 in release order, identifying 621.01 as the first failing release in that sequence for this captured RTX 5080 configuration."
+}
