@@ -139,6 +139,52 @@ def test_schema4_apply_verifies_mapping_and_complete_state(monkeypatch, loss, fe
     assert snapshot["ms"] == after and registry.values == receipt["after"] and len(restarts) == 1
 
 
+def test_schema4_loss20_projects_feature_and_retains_roles(monkeypatch):
+    receipt, registry, snapshot, restarts, kwargs, before, after = configured(
+        monkeypatch, mapped=True, mapped_loss=0x20
+    )
+    contract = receipt["ms_contracts"]
+    assert contract["schema"] == 4
+    assert contract["after"]["main"]["features"]["4"]["value"] == 0x023970EF
+    assert contract["after"]["controllers"]["1"]["configured_pstate_mask"] == 0
+    assert contract["after"]["controllers"]["4"]["configured_pstate_mask"] == 0
+    assert contract["after"]["controllers"]["4"]["supported"] is True
+    assert contract["after"]["auxiliary"]["group"]["800:1"]["value"] == 1
+    assert contract["after"]["auxiliary"]["group"]["806:1"]["value"] == 0
+    assert contract["after"]["main"]["bit4_group"]["801:1"]["value"] == 1
+    assert contract["after"]["main"]["bit4_group"]["805:1"]["value"] == 0
+    assert after["mapping_hex"] == before["mapping_hex"]
+    wrong = copy.deepcopy(after)
+    wrong["core"]["controllers"]["4"] = fixtures.controller(False)
+    wrong["core"]["support_hex"] = fixtures._attribute_reply(
+        fixtures.lp.SUPPORT, fixtures.gr.CONTROLLERS, wrong["core"]["controllers"]
+    ).hex()
+    ids = tuple(i for i in fixtures.gr.CONTROLLERS if wrong["core"]["controllers"][str(i)]["supported"] is True)
+    wrong["core"]["states_hex"] = fixtures._attribute_reply(
+        fixtures.lp.STATES, ids, wrong["core"]["controllers"]
+    ).hex()
+    main = copy.deepcopy(wrong["core"]["main"])
+    main["features"]["4"] = {"available": False, "value": None}
+    wrong["core"]["main"] = fixtures._main_packets(wrong["core"]["controllers"], main)
+    with pytest.raises(ms.MsError):
+        ms.verify(wrong, contract)
+    result = ro.execute(receipt, **kwargs)
+    assert result["ok"] and result["state"] == "active", result["message"]
+    assert snapshot["ms"] == after and registry.values == receipt["after"] and len(restarts) == 1
+
+
+def test_schema4_loss20_keeps_existing_admission_boundaries(monkeypatch):
+    before = fixtures.partial_observation()
+    monkeypatch.setattr(ms, "read", lambda gpu, **options: (
+        {"core": before, "mapping_hex": fixtures.schema4_packet()}, None
+    ))
+    changes = {"lpwr.ms.0.enabled": False}
+    with pytest.raises(ms.MsError, match="selector coverage"):
+        ms.contracts(None, fixtures.schema4_image(selector=3, loss=0x20), changes)
+    with pytest.raises(ms.MsError, match="aggregate flags"):
+        ms.contracts(None, fixtures.schema4_image(loss=0x24), changes)
+
+
 def test_schema4_apply_requests_mapping_aware_native_reader(monkeypatch):
     from types import SimpleNamespace
 

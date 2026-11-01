@@ -4257,7 +4257,7 @@ evidence](experiments/ms-configured-qualified-20261029.json) retains the raw aud
 negative and all curve differences. Packaged schema3 callbacks, physical input, other
 layouts and physical effects remain unqualified.
 
-Schema4 covers raw04, raw08 and combined raw0C aggregate losses while a
+Schema4 covers raw04, raw08, combined raw0C and raw20 aggregate losses while a
 retained raw10 entry preserves mapped capability support. A801 type1/index1/808 reads the current
 postfilter role mask; group1 and role800 must independently report support
 and the mask must be positive. The loader maps row-byte8 selector bits
@@ -4305,6 +4305,20 @@ independently reproduced. Eight GPU-only restarts cover both cases and
 experimental cleanup, which restored the original state exactly. Physical
 input, a packaged-helper walkthrough and physical effects remain unqualified.
 [MS neighbor evidence](experiments/ms-mapping-neighbors-qualified-20261030.json).
+
+The raw0x20 case uses the same mapping and dependency witnesses. In the tested
+setup, an enabled duplicate retained raw0x10 and raw0x40, with selector 0x07
+covering the removed row, and an enabled DIFR contributor retained flags 0x31.
+Controllers 6 and 16 independently reported unsupported; controller 4 and its
+feature witness remained available. Clearing raw0x20 in the duplicate and then
+disabling the routed row lost exactly raw0x20. Normal panel Preview and Apply
+verified native4 feature 0x023971EF to 0x023970EF and native1/4 and type1/type7
+role1 masks 0x120 to zero; support and mapping mask 0xD remained. The active
+typed readback matched the projection, and final LPWR, mapping, client and broad
+checks matched the original. Each broad phase ended with two exact samples; early
+nonmatches are retained in the evidence. These are configured-state results, not
+physical residency or savings measurements.
+[MS loss0x20 evidence](experiments/ms-loss20-qualified-20261101.json).
 
 Other mixed feature loss, nondiscriminating changes, ambiguous routes,
 support6 cascades and other layouts remain pending. Capability/layout/readback checks govern

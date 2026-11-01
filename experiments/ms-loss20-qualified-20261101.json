@@ -1,0 +1,38 @@
+﻿{
+  "schema": 1,
+  "date": "2026-11-01",
+  "scope": "MS schema4 raw0x20 aggregate loss with retained raw0x10 selector coverage and positive mapping readback; configured support and eligibility only.",
+  "status": "Normal source RegistryPanel Preview and durable Apply passed with exact active typed projection.",
+  "admission": "Understood enabled-row disable; aggregate loss exactly 0x20; populated PERF and understood MS/index/DIFR tables; independently unsupported controllers6/16; supported controller4 with available states and positive feature0x100000; enabled DIFR witness flags & 0x31 == 0x31; positive type1 group/role/mapping readback and retained raw0x10 selector coverage. Existing schema4 loss04/08/0c and other schemas retain their projections. The tested survivor also retained raw0x40; raw0x40 presence is not a separate admission requirement.",
+  "tested_configuration": {"adapter": "GeForce RTX 5080 GB203", "driver": "621.01", "role": "Evidence identification only; no identity or driver version gate."},
+  "image_sha256": {
+    "original": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+    "setup": "fc406b8a55702adef18b8c01dbffdeafdb8a2dfb76ceae07c61b83f5ae842444",
+    "active": "e7464ae0e874828e6f0bb4379f990ea77b447ef40973bb315fded9e99b86b9d9"
+  },
+  "changes": {
+    "setup": {"offset": 253709, "before": "7d", "after": "5d", "meaning": "Clear raw0x20 on enabled duplicate row1; enabled-row union unchanged."},
+    "production": {"field": "lpwr.ms.0.enabled", "offset": 253693, "before": "7d", "after": "7c", "meaning": "Disable routed row0; enabled-row union 0xfffff77d to 0xfffff75d, loss 0x20."},
+    "retained": "Row1 retained raw0x10 and raw0x40, selector0x07 covering removed row0; DIFR flags included 0x31."
+  },
+  "active_readback": {
+    "controller1_and4_configured_masks": [288, 0],
+    "controller4_supported": [true, true],
+    "controllers6_and16": "independently available and unsupported",
+    "native4_feature_hex": ["023971ef", "023970ef"],
+    "type1_role1_806_and_type7_role1_805_masks": [288, 0],
+    "type1_and_type7_group_and_role1_support": [1, 1],
+    "mapping_group_role_mask": [1, 1, 13],
+    "complete_typed_projection_exact": true,
+    "production_result": "active; selected running BIOS and driver readbacks verified"
+  },
+  "broad_windows_exact": {"setup": [false, false, false, false, false, true, true], "active": [false, false, false, true, true], "final": [false, false, false, true, true]},
+  "final_checks": {"LPWR_exact": true, "mapping_exact": true, "client_exact": true, "broad_exact": true},
+  "limitations": ["The early broad samples did not match and no cause is inferred; each phase ended in two exact samples.", "Selected-slot alternatives that remove controller4 are rejected by exact projection; controller6/16 cascades, other losses and layouts remain pending.", "No Windows reboot, workload or physical residency/power measurement; no packaged-helper or physical-input qualification is claimed."],
+  "provenance": {
+    "frozen_trial_sha256": "0021383b38446e769e48b2d988518de2fc20eb22eb7d864e64a5e02a68e08267",
+    "trial_script_sha256": "72ad07da6b4889ee3d357d41656070b3e70380623e150f7470874fc4ebb6bd24",
+    "ms_runtime_sha256": "addecdf16e0f43a8e72e593ff46dc941ccf397049d5b86faf7b9859427c82729",
+    "mapping_reader_sha256": "5dfe8df4852c20fbc5adf5baa7ed4d7a62ae8448c08e958ee942ce1076317853"
+  }
+}

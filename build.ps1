@@ -92,6 +92,7 @@ function Get-SourceSnapshot {
         'experiments/ms-configured-qualified-20261029.json',
         'experiments/ms-mapping-loss04-qualified-20261030.json',
         'experiments/ms-mapping-neighbors-qualified-20261030.json',
+        'experiments/ms-loss20-qualified-20261101.json',
         'experiments/grpg-main-complete-qualified-20261030.json',
         'experiments/grpg-bit4-no-peer-qualified-20261029.json',
         'experiments/nvdec-configured-qualified-20261029.json',
