@@ -21,6 +21,12 @@ goal is production-ready. Do not design, implement, extend, or validate this
 deferred work before then. It is not a prerequisite for shipping otherwise
 production-ready small feature increments.
 
+New tuning controls must be session-only. A GPU driver restart is the user's
+panic/reset action: do not persist or automatically reapply tuning requests
+across it. Do not add restart-persistence validation as a functional objective.
+Releasing a live control's own request or freeing its owned API object is part
+of that control's lifecycle, not saved-profile restoration.
+
 # Agent collaboration
 
 The root agent supervises the work. Subagents are authorized for concrete,

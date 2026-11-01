@@ -6898,6 +6898,22 @@ class Druta:
             return
         self.sync_hold_headroom(replan=True)
 
+    def _close_gr_gating_requests(self, gpu=None):
+        """Free this window's profiler objects; never replay a saved setting."""
+        controllers = getattr(self, "_gr_gating_live_controllers", {})
+        complete = True
+        for key, controller in list(controllers.items()):
+            if gpu is not None and controller.gpu is not gpu:
+                continue
+            try:
+                controller.close()
+            except Exception as exc:                              # noqa: BLE001
+                complete = False
+                self.log(f"GR power-gating request cleanup failed: {exc}", False)
+            else:
+                controllers.pop(key, None)
+        return complete
+
     def release_on_exit(self):
         """Drop whichever lock THIS app is still holding, as the window closes.
         A lock is the one write here that outlives the process: it sits in the
@@ -6921,6 +6937,7 @@ class Druta:
 
         Printed as well as logged: no frame renders after the loop exits, so the
         log widget is written for consistency and never appears on screen."""
+        self._close_gr_gating_requests()
         # Headroom first, while any V/F lock still holds the point. If it cannot
         # be taken off, the V/F lock is KEPT: an idle card held in P0 costs
         # power, but an unpinned card under a raised ceiling can run above the
@@ -12500,6 +12517,8 @@ deliberately does not put behind a button."""
                 return False
         except Exception as exc:
             self.log(f"cannot switch to {slot}: {exc}", False)
+            return False
+        if not self._close_gr_gating_requests(self.gpu):
             return False
         # Synchronize invalidation with the telemetry worker's publication.
         # Driver reads stay outside this lock so switching remains responsive.

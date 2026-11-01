@@ -113,6 +113,11 @@ class RegistryPanel:
         self.difr_live_panel = DifrLivePanel(self.app)
         with dpg.collapsing_header(label="Live DIFR disable request", tag="reg_difr_live_header"):
             self.difr_live_panel.build()
+        from .gr_gating_live_panel import GrGatingLivePanel
+
+        self.gr_gating_live_panel = GrGatingLivePanel(self.app)
+        with dpg.collapsing_header(label="Live GR power gating", tag="reg_gr_gating_live_header"):
+            self.gr_gating_live_panel.build()
         with dpg.collapsing_header(label="Power/current arbitration"):
             dpg.add_text(
                 "Compare each request with host votes, firmware votes, and the effective limit. "

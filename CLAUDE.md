@@ -6,6 +6,12 @@
 Work on this repo alternates between those agents, so when either file gains a
 newer standing instruction, bring the other one up to date.
 
+## Session-only tuning
+
+Follow AGENTS.md's session-only requirement: GPU driver restart is the user's
+panic/reset action. Do not persist or automatically reapply new tuning requests
+across it, or add restart-persistence validation to the functional backlog.
+
 ## Driver versions
 
 - Never add a driver whitelist, allowlist or denylist, and never make a

@@ -2231,6 +2231,52 @@ Raw INFO bytes are retained diagnostically, while the activation contract uses
 the loaded routing fields and controller states; it does not turn evaluated
 clock data into universal frequency-equality requirements.
 
+### Session-only GR power-gating request
+
+The adjacent **Live GR power gating** panel provides Hold disabled and Release
+through `gr_gating_live.py`. It allocates a dedicated NVIDIA `0xB2CC` profiler
+object under the paired GPU subdevice. Public command `0xB0CC0301` requests GR
+engine-level power-gating disable using control mask `0x40`; `0xB0CC0302`
+releases that object's request using `0xC0`. The profiler's global status and
+selected two-bit feature status must both indicate success. A successful stub
+or unsupported feature response is not sufficient to verify a working control.
+See NVIDIA's [profiler power-control contract](https://github.com/NVIDIA/open-gpu-kernel-modules/blob/main/src/common/sdk/nvidia/inc/ctrl/ctrlb0cc/ctrlb0ccpower.h).
+
+Windows allocation/free envelopes were captured from ordinary NVAPI
+initialization and unload, then checked against the inspected driver handlers.
+The product preserves the paired client's routing fields and allocates/frees
+only its own profiler object. Allocation is lazy, on Hold. A repeated verified
+Hold adds no request. Explicit Release and normal app exit/GPU switch release
+and free the owned object. This path writes no registry value, saves no profile,
+and never automatically replays a request after a driver restart. Other existing
+registry-backed controls have separate activation behavior.
+
+Independent A801 type-3 attributes corroborate the operation. The controller
+discovers supported LPWR indices, requires stable support and reason-mask
+readbacks, and verifies at least one attribute `0x48` bit0 transition with all
+other reason bits and the complete `0x49` bank preserved. Release checks the
+inverse transition on the observed set. Attribute `0x37` is retained as a latest
+enabled-predicate observation, not a stable request field or physical residency
+measurement. A read-only qualification captured an unrelated controller's
+predicate changing between samples while its support and reason masks stayed
+identical; this must not suppress otherwise verifiable requests.
+
+The observed indices are a partial witness, not an exhaustive group map or an
+ownership getter. The Windows callback selects dynamic groups and other clients
+can already hold the same reason. A fulfilled request without a new independent
+transition remains unverified, with explicit Release available. No architecture,
+board identity or driver version is inferred from the local witness list.
+
+On the captured RTX 5080 / 617.42 configuration, Hold changed `0x48` bit0 on
+controllers 0, 1 and 12-15. Predicates for 0 and 12-15 changed from true to false;
+controller 1 was already false. Release restored the original request masks.
+The production API also verified duplicate Hold without another native write,
+and unchanged voltage requests and configured LPWR observations. These results
+qualify a live software request, not measured power savings, timing, or physical
+gating residency. No registry write, driver restart, workload or Windows reboot
+was used. Other profiler clock-gating/idle-slowdown controls remain unqualified.
+[Qualification evidence](experiments/live-gr-power-gating-20261101.json).
+
 The adjacent `grpg_runtime.py` contract covers disable-only GR PG entries. Its
 original schema retains shared capability contributions; scoped schemas2/3
 qualify removal of the final raw-bit3 or raw-bit1 contributor respectively,
