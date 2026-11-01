@@ -790,6 +790,8 @@ SLCG shows unavailable registers separately. Hold needs at least one readable
 register and a compatible zero baseline; it verifies the expected disable values
 and their return to zero on Release. Its register witness covers the traced HWPM
 table, not every GPU subunit.
+Ampere and Blackwell use separate source-derived SLCG layouts. The Ampere path
+has offline coverage; its hardware qualification remains pending.
 
 These four requests last only for the current session. Druta releases its own
 requests on normal exit or GPU switch and never reapplies them after a driver

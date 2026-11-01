@@ -18,6 +18,8 @@ def device(monkeypatch):
         "parent": 0x5678,
         "native": (0x1B0, 6, 0xB2, 0x1357),
         "values": dict.fromkeys(live._DISABLED_VALUES, 0),
+        "expected_values": dict(live._DISABLED_VALUES),
+        "read_addresses": [],
         "operation_statuses": {},
         "writes": [],
         "reads": 0,
@@ -63,7 +65,7 @@ def device(monkeypatch):
     monkeypatch.setattr(live.clock, "_binding", lambda reader: data["identity"])
 
     def apply(held):
-        for address, expected in live._DISABLED_VALUES.items():
+        for address, expected in data["expected_values"].items():
             value = data["values"][address]
             if not data["operation_statuses"].get(address) and value != 0xFFFFFFFF and value & 0xFFF00000 != 0xBAD00000:
                 data["values"][address] = expected if held else 0
@@ -105,9 +107,10 @@ def device(monkeypatch):
         if data["malformed"] == "rmstatus":
             raise PerfDiagnosticError("unsupported", "RM status 0x56", 0x56)
         a, b, c, d, e, count, pointer, route, pad, route_value = struct.unpack("<6IQIIQ", request)
-        assert (a, b, c, d, e, count, route, pad, route_value) == (0, 0, 0, 0, 0, 13, 0, 0, 0)
+        assert (a, b, c, d, e, count, route, pad, route_value) == (0, 0, 0, 0, 0, len(data["expected_values"]), 0, 0, 0)
         ops = (ctypes.c_ubyte * (32 * count)).from_address(pointer)
-        for index, address in enumerate(live._DISABLED_VALUES):
+        for index, address in enumerate(data["expected_values"]):
+            data["read_addresses"].append(address)
             at = index * 32
             assert struct.unpack_from("<BBBB7I", ops, at) == (0, 0, 0, 0, 0, 0, address, 0, 0, 0, 0)
             ops[at + 2] = data["operation_statuses"].get(address, 0)
@@ -414,3 +417,93 @@ def test_invalid_poison_contents_can_change_without_becoming_numeric_witness(dev
     state = controller.read()
     assert state["support"] and "0x2b6cfc" not in state["registers"]
     assert state["unavailable_registers"]["0x2b6cfc"]["raw_value"] == "0xbad00002"
+
+
+@pytest.fixture
+def alternate_layout(device):
+    # Use the independently source-qualified native170 layout, with all
+    # register reads and named profiler operations still simulated offline.
+    controller, data = device
+    source_values = dict(live._LAYOUT_VALUES["ga10x-slcg"])
+    data["native"] = (0x170, 4, 0x123, 0x456)
+    data["expected_values"] = source_values
+    data["values"] = dict.fromkeys(source_values, 0)
+    return controller, data
+
+
+def test_selected_layout_uses_only_its_source_offsets_and_disabled_values(alternate_layout):
+    controller, data = alternate_layout
+    held = controller.hold()
+    assert held["expected_disabled_values"] == {"0x248018": 3, "0x251a18": 3, "0x251818": 3}
+    assert held["registers"] == held["expected_disabled_values"]
+    assert held["observed_registers"] == list(held["registers"])
+    controller.hold()
+    assert commands(data) == [0x0500002A, 0xB0CC0301]
+    assert not any(controller.release()["registers"].values())
+    assert set(data["read_addresses"]) == {0x248018, 0x251A18, 0x251818}
+    assert not set(data["read_addresses"]) & set(live._DISABLED_VALUES)
+
+
+def test_selected_layout_partial_inventory_does_not_borrow_blackwell_offsets(alternate_layout):
+    controller, data = alternate_layout
+    data["operation_statuses"][0x248018] = 8
+    data["values"][0x251A18] = 0xBADF1002
+    held = controller.hold()
+    assert held["status"] == "partial"
+    assert held["registers"] == {"0x251818": 3}
+    assert held["observed_registers"] == ["0x251818"]
+    assert len(held["unavailable_registers"]) == 2
+    assert not controller.release()["owned_request"]
+    assert set(data["read_addresses"]) == {0x248018, 0x251A18, 0x251818}
+
+
+def test_selected_layout_source_value_mismatch_fails_without_guessing(alternate_layout, monkeypatch):
+    controller, data = alternate_layout
+    request = controller._profiler.request
+
+    def wrong_table_value():
+        request()
+        data["values"][0x248018] = 0x80000000
+
+    monkeypatch.setattr(controller._profiler, "request", wrong_table_value)
+    with pytest.raises(live.SecondLevelClockGatingError, match="source disabled"):
+        controller.hold()
+    controller.close()
+    assert controller._profiler.handle is None
+
+
+def test_unqualified_native_170_pairs_never_fall_back_to_blackwell_registers(device):
+    controller, data = device
+    data["native"] = (0x170, 31, 0x123, 0x456)
+    state = controller.read()
+    assert not state["support"] and state["expected_disabled_values"] == {}
+    with pytest.raises(live.SecondLevelClockGatingError, match="no valid register witness"):
+        controller.hold()
+    assert not data["read_addresses"] and not data["writes"]
+
+
+@pytest.mark.parametrize("implementation", [2, 3, 4, 6, 7])
+def test_source_qualified_ampere_pairs_use_three_registers_only(alternate_layout, implementation):
+    controller, data = alternate_layout
+    data["native"] = (0x170, implementation, 0x12345678, 0x87654321)
+    state = controller.read()
+    assert state["support"] and state["layout"] == "ga10x-slcg"
+    assert state["architecture"]["revision"] == 0x12345678
+    assert state["architecture"]["raw_auxiliary"] == 0x87654321
+    assert state["expected_disabled_values"] == {"0x248018": 3, "0x251a18": 3, "0x251818": 3}
+    assert controller.hold()["registers"] == state["expected_disabled_values"]
+    assert not any(controller.release()["registers"].values())
+    assert set(data["read_addresses"]) == {0x248018, 0x251A18, 0x251818}
+    assert not set(data["read_addresses"]) & set(live._DISABLED_VALUES)
+
+
+@pytest.mark.parametrize("implementation", [0, 0xF])
+def test_unqualified_ampere_implementations_never_read_a_fallback_layout(device, implementation):
+    controller, data = device
+    data["native"] = (0x170, implementation, 0x12345678, 0x87654321)
+    state = controller.read()
+    assert not state["support"] and state["status"] == "unsupported_layout"
+    assert state["expected_disabled_values"] == {}
+    with pytest.raises(live.SecondLevelClockGatingError, match="no valid register witness"):
+        controller.hold()
+    assert not data["read_addresses"] and not data["writes"]

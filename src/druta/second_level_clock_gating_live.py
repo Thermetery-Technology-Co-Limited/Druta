@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Session-only SLCG requests with partial source-bound register witnesses.
 
-Source route 260000 contains 14 rows, including one duplicate address. Its
-13 unique READ32s are discovered independently on the current GPU: invalid
-registers remain unavailable diagnostics. The known table writes zero on
+Each source-qualified native layout selects its own complete READ32 table.
+Invalid registers remain unavailable diagnostics; one family's offsets are
+never substituted for another family's unqualified layout. The known table writes zero on
 release, so this bounded lifecycle requires every valid initial value to be
 zero. Only the public named profiler request writes state; no raw register
 writes, saved requests, or reset replay occur here. Configuration readback
@@ -22,7 +22,9 @@ from .gr_gating_live import GrGatingController, GrGatingError, _ProfilerTranspor
 from .perf_diagnostics import PerfDiagnosticError, PerfDiagnosticsReader
 
 SecondLevelClockGatingError = GrGatingError
-_LAYOUTS = {(0x1B0, implementation): "gb20x-slcg" for implementation in (2, 3, 5, 6, 7)}
+_LAYOUTS = {(0x1B0, implementation): "gb20x-slcg" for implementation in (2, 3, 5, 6, 7)} | {
+    (0x170, implementation): "ga10x-slcg" for implementation in (2, 3, 4, 6, 7)
+}
 # Source selector1 values for the complete unique route table. Selector3
 # releases all entries to zero. These are source values, not local readbacks.
 _DISABLED_VALUES = {
@@ -40,6 +42,15 @@ _DISABLED_VALUES = {
     0x2B6CBC: 1,
     0x2B6CFC: 1,
 }
+# Native170 implementations2/3/4/6/7 map to chip HAL2B..2F, whose source
+# selector paths choose this same three-register table; LPWR+100 is a no-op.
+# This is a source layout contract only: Ampere hardware qualification remains
+# pending. Each current adapter still needs valid zero baseline reads and an
+# independently observed exact source-value transition; no effect is assumed.
+_LAYOUT_VALUES = {
+    "gb20x-slcg": _DISABLED_VALUES,
+    "ga10x-slcg": {0x248018: 3, 0x251A18: 3, 0x251818: 3},
+}
 
 
 def _status_classification(status):
@@ -52,14 +63,14 @@ def _status_classification(status):
     return "unknown_operation_status"
 
 
-def _read_registers(reader, identity):
-    storage, operations = clock._guarded(32 * len(_DISABLED_VALUES))
-    for index, address in enumerate(_DISABLED_VALUES):
+def _read_registers(reader, identity, disabled_values):
+    storage, operations = clock._guarded(32 * len(disabled_values))
+    for index, address in enumerate(disabled_values):
         # Public READ32=0, GLOBAL=0, status/quad/group/subgroup zero.
         struct.pack_into("<BBBBIII", operations, index * 32, 0, 0, 0, 0, 0, 0, address)
     before = bytes(operations)
     # The 16-byte route at +32 is TYPE_NONE=0, padding0, route0.
-    params = struct.pack("<6IQIIQ", 0, 0, 0, 0, 0, len(_DISABLED_VALUES), ctypes.addressof(operations), 0, 0, 0)
+    params = struct.pack("<6IQIIQ", 0, 0, 0, 0, 0, len(disabled_values), ctypes.addressof(operations), 0, 0, 0)
     try:
         returned = lpwr._get(reader, identity, 0x20800122, 48, params)
     finally:
@@ -68,7 +79,7 @@ def _read_registers(reader, identity):
         raise SecondLevelClockGatingError("SLCG register read changed routing or parameter geometry")
     after, values, unavailable = bytes(operations), {}, {}
     untouched = bytearray(after)
-    for index, address in enumerate(_DISABLED_VALUES):
+    for index, address in enumerate(disabled_values):
         at = index * 32
         status = after[at + 2]
         value = struct.unpack_from("<I", after, at + 20)[0]
@@ -139,7 +150,7 @@ class SecondLevelClockGatingController(GrGatingController):
                 "registers": {},
                 "unavailable_registers": {},
             }
-        registers, unavailable = _read_registers(self.reader, self.identity)
+        registers, unavailable = _read_registers(self.reader, self.identity, _LAYOUT_VALUES[layout])
         return {
             "support": bool(registers),
             "status": "partial" if registers and unavailable else "available" if registers else "unavailable",
@@ -166,7 +177,9 @@ class SecondLevelClockGatingController(GrGatingController):
     def _snapshot(self, state):
         return {
             **state,
-            "expected_disabled_values": {hex(address): value for address, value in _DISABLED_VALUES.items()},
+            "expected_disabled_values": {
+                hex(address): value for address, value in _LAYOUT_VALUES.get(state["layout"], {}).items()
+            },
             "observed_registers": list(self._observed),
             "owned_request": self._owned,
             "uncertain_outcome": self._uncertain,
@@ -182,7 +195,7 @@ class SecondLevelClockGatingController(GrGatingController):
             before = self._read_locked()
             if self._owned:
                 if _inventory(before) != self._request_inventory or any(
-                    before["registers"][key] != _DISABLED_VALUES[int(key, 16)] for key in self._observed
+                    before["registers"][key] != _LAYOUT_VALUES[before["layout"]][int(key, 16)] for key in self._observed
                 ):
                     raise SecondLevelClockGatingError("The owned SLCG request is no longer independently visible")
                 return self._snapshot(before)
@@ -198,7 +211,9 @@ class SecondLevelClockGatingController(GrGatingController):
                 self._owned = True
                 after = self._read_locked()
                 _same_inventory(before, after)
-                if any(value != _DISABLED_VALUES[int(key, 16)] for key, value in after["registers"].items()):
+                if any(
+                    value != _LAYOUT_VALUES[after["layout"]][int(key, 16)] for key, value in after["registers"].items()
+                ):
                     raise SecondLevelClockGatingError("SLCG request did not match the source disabled register values")
                 if before["registers"] == after["registers"]:
                     raise SecondLevelClockGatingError("SLCG request produced no independent register transition")

@@ -2390,6 +2390,26 @@ registers, masks, voltage requests and configured LPWR observations matched.
 The increment passed 785 targeted tests, including 47 new API cases and two
 panel tests. [SLCG evidence](experiments/live-second-level-clock-gating-20261101.json).
 
+The SLCG controller also has a separately derived GA10x layout: native
+architecture `0x170`, implementations `2/3/4/6/7`, map to HAL ordinals
+`0x2B..0x2F`. Their HWPM route selects four source rows with three unique
+addresses: `0x248018`, `0x251A18`, and `0x251818`. All three use disable value `3`
+and release value `0`; the additional LPWR callback is a no-op. These mappings
+come from the generated architecture selectors and source table, not the
+identity of the owner's RTX 3070 Ti. Other native pairs receive no fallback.
+
+Register reads and expected values now follow the selected layout. The existing
+zero-baseline, availability, exact transition and release checks still apply.
+Ampere coverage is source/offline qualification only until a live adapter result
+is captured; the Blackwell hardware results above do not establish Ampere
+behavior. [Source layout and qualification boundary](experiments/slcg-ampere-layout-20261101.json).
+The increment passed 805 targeted tests; the Blackwell four-controller source
+trial still passed. `experiments/slcg_live_validation.py` provides a read-only
+collector by default and an explicit `--trial` for one native170 hold/read/release.
+It records exact request packets and rejects unchanged/no-op outcomes as
+qualification. Its nine offline tests passed; the local read-only run issued
+no mutation. The remote Ampere result remains outstanding.
+
 The adjacent `grpg_runtime.py` contract covers disable-only GR PG entries. Its
 original schema retains shared capability contributions; scoped schemas2/3
 qualify removal of the final raw-bit3 or raw-bit1 contributor respectively,

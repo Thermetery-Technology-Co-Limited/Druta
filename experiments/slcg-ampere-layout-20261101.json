@@ -1,0 +1,93 @@
+{
+  "schema": 1,
+  "date": "2026-11-01",
+  "scope": "Source-derived GA10x SLCG register layout and offline controller support. Ampere hardware qualification pending.",
+  "driver_sha256": "db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b",
+  "native_architecture": "0x170",
+  "implementations": [
+    2,
+    3,
+    4,
+    6,
+    7
+  ],
+  "chip_hal_ordinals": [
+    "0x2b",
+    "0x2c",
+    "0x2d",
+    "0x2e",
+    "0x2f"
+  ],
+  "layout": "ga10x-slcg",
+  "unique_register_disabled_values": {
+    "0x248018": 3,
+    "0x251a18": 3,
+    "0x251818": 3
+  },
+  "released_value": 0,
+  "source_chain": {
+    "hwpm_route": "OBJHWPM+108 ->B30E40 ->route260000",
+    "table": "GPU+7A0 ->679B40 ->table11CC920 ->route entry11CCB18 ->11CC768 count4;248018 occurs twice",
+    "translation": "GPU+7B8 ->679FE0; route260000 uses direct table writer",
+    "additional_lpwr_callback": "LPWR+100 ->61B0 no-op for all five source-bound implementations",
+    "direction": "Named profiler field1 maps managerstate2 ->table selector1 (3); finalrelease state0 ->selector3 (0)"
+  },
+  "root_verified_source_windows": 21,
+  "runtime_contract": [
+    "Select only the current native architecture/implementation layout; no Blackwell fallback for unsupported pairs.",
+    "Require stable permitted READ32 results, at least one usable register and zero baseline on every usable register.",
+    "Require exact selected-table disable values and return to zero on Release; unknown/invalid fields remain unavailable.",
+    "Use named profiler requests only; no raw register writes, persistence, restart replay or physical effect claim."
+  ],
+  "hardware_qualification": {
+    "ampere": false,
+    "blackwell_regression": "Four-controller source production trial passed; all original compared states returned. This does not qualify Ampere hardware."
+  },
+  "artifacts": [
+    {
+      "path": "experiments/registry-overrides/functional-backlog-audit-terra-20261101/ampere-slcg-hal-61742.json",
+      "sha256": "f5b274653933c20f1d93ef6aafa231e6f70894c05a8ba827849144350afb1c97",
+      "bytes": 11177
+    },
+    {
+      "path": "experiments/registry-overrides/profiler-more-root-20261101/slcg-ga10x-source-blackwell.json",
+      "sha256": "ad8ba050e91289b29f329b227c31b2e8d956386a90dc4d92fc2713e2ea0538a9",
+      "bytes": 206955
+    }
+  ],
+  "blackwell_source_regression": {
+    "duplicate_subunit_hold_no_write": true,
+    "duplicate_block_hold_no_write": true,
+    "duplicate_engine_hold_no_write": true,
+    "independent_subunit_release_verified": true,
+    "independent_block_release_verified": true,
+    "independent_release_verified": true,
+    "voltage_unchanged": true,
+    "configured_lpwr_unchanged": true,
+    "engine_masks_restored": true,
+    "subunit_registers_restored": true,
+    "block_registers_restored": true,
+    "power_masks_restored": true,
+    "source_sha256": {
+      "second_level_clock_gating_live.py": "da3f4581f68bdbb607929c806cb49c1dd047a960c3b7e6f9aef23f0314dad1af",
+      "block_clock_gating_live.py": "06077c14f51fcd593e4823ba7388f7dc1d95df01f64a1d610a19f5dd2ad85b70",
+      "engine_clock_gating_live.py": "df79fc29150bb73c193762960ac102ca0cb0eda350bff58298060736f19b19eb",
+      "gr_gating_live.py": "e9d74cab684d29e6c3551ed1e82cd50e0d813de6b12eee5e701d8c4da4692aa6",
+      "nvbackend.py": "ac6995578ed751e34b691fc92a135b6881616e5bb8f2136af6aa238421182293"
+    }
+  },
+  "validation": {
+    "targeted_tests_passed": 805,
+    "slcg_api_cases": 58,
+    "collector_offline_tests": 9,
+    "local_blackwell_collector_read_passed": true,
+    "collector_default_mutation_count": 0,
+    "ampere_hardware_trial": false
+  },
+  "remote_validation": {
+    "script": "experiments/slcg_live_validation.py",
+    "read_only_command": "python experiments/slcg_live_validation.py --gpu 0000:01:00.0 --out experiments/slcg-read.json",
+    "trial_command": "python experiments/slcg_live_validation.py --gpu 0000:01:00.0 --out experiments/slcg-trial.json --trial",
+    "scope": "One named SLCG hold/read/release through the production API. Trial requires a source-supported native170 layout and zero valid baseline; no raw writes/restart/workload. Failed validation returns nonzero."
+  }
+}
