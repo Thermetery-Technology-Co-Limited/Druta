@@ -501,6 +501,59 @@ def test_schema4_neighbor_loss_preserves_peers_and_mapping(monkeypatch, loss, ex
         ms.verify({"core": actual_core, "mapping_hex": schema4_packet(5)}, saved)
 
 
+@pytest.mark.parametrize("loss,feature", [
+    (0x04, 0x020910CC), (0x08, 0x020950EE), (0x0C, 0x020910CC),
+    (0x20, 0x023970EF), (0x24, 0x020910CC), (0x28, 0x020950EE),
+    (0x2C, 0x020910CC), (0x40, 0x020971EF), (0x44, 0x020910CC),
+    (0x48, 0x020950EE), (0x4C, 0x020910CC), (0x60, 0x020970EF),
+    (0x64, 0x020910CC), (0x68, 0x020950EE), (0x6C, 0x020910CC),
+])
+def test_schema4_retained_mapping_loss_class(monkeypatch, loss, feature):
+    before = partial_observation()
+    packet = schema4_packet()
+    monkeypatch.setattr(ms, "read", lambda gpu, *, mapping=False: ({"core": before, "mapping_hex": packet}, None))
+    changes = {"lpwr.ms.0.enabled": False}
+    saved = ms.contracts(None, schema4_image(loss=loss), changes)
+    after = saved["after"]
+    assert saved["schema"] == 4
+    assert after["main"]["features"]["4"]["value"] == feature
+    assert after["controllers"]["1"]["configured_pstate_mask"] == 0
+    assert after["controllers"]["4"]["configured_pstate_mask"] == 0
+    assert after["controllers"]["4"]["supported"] is True
+    assert after["auxiliary"]["group"]["800:1"]["value"] == 1
+    assert after["main"]["bit4_group"]["801:1"]["value"] == 1
+    assert after["auxiliary"]["group"]["806:1"]["value"] == 0
+    assert after["main"]["bit4_group"]["805:1"]["value"] == 0
+    active = {"core": observed_main(dict(saved, schema=6, before=before)), "mapping_hex": packet}
+    assert ms.verify(active, saved) == list(changes)
+
+
+@pytest.mark.parametrize("loss", [0x40, 0x64])
+def test_schema4_retained_class_rejects_missing_mapping_or_feature(monkeypatch, loss):
+    before = partial_observation()
+    packet = schema4_packet()
+    changes = {"lpwr.ms.0.enabled": False}
+    monkeypatch.setattr(ms, "read", lambda gpu, *, mapping=False: ({"core": before, "mapping_hex": packet}, None))
+    saved = ms.contracts(None, schema4_image(loss=loss), changes)
+    active = {"core": observed_main(dict(saved, schema=6, before=before)), "mapping_hex": schema4_packet(0)}
+    with pytest.raises(ms.MsError, match="mapping witness"):
+        ms.verify(active, saved)
+    main = copy.deepcopy(before["main"])
+    main["features"]["4"]["value"] &= ~0x100000
+    before["main"] = _main_packets(before["controllers"], main)
+    with pytest.raises(ms.MsError, match="feature predicate"):
+        ms.contracts(None, schema4_image(loss=loss), changes)
+
+
+def test_schema4_retained_class_requires_independent_difr(monkeypatch):
+    before = partial_observation()
+    monkeypatch.setattr(ms, "read", lambda gpu, *, mapping=False: ({"core": before, "mapping_hex": schema4_packet()}, None))
+    img = bytearray(schema4_image(loss=0x64))
+    struct.pack_into("<I", img, 0x4B00 + 11, 0)
+    with pytest.raises(ms.MsError, match="DIFR witness"):
+        ms.contracts(None, bytes(img), {"lpwr.ms.0.enabled": False})
+
+
 def test_schema4_prior_loss04_serialized_receipt_remains_valid(monkeypatch):
     before = partial_observation()
     packet = schema4_packet()

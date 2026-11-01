@@ -206,6 +206,12 @@ def _any(rows):
     raise MsError("Remaining auxiliary support is unknown")
 
 
+def _mapped_loss(lost):
+    # Retained raw0x10 keeps the selector mapping; these four source bits
+    # have understood feature contributions and ordered native4 closure.
+    return bool(lost) and not lost & ~0x6C
+
+
 def _derive(changes, before, tables, schema=1):
     requested = selected(changes)
     data = _table_data(tables, schema)
@@ -252,7 +258,7 @@ def _derive(changes, before, tables, schema=1):
     if schema == 1 and not shutdown and lost:
         raise MsError("Partial MS disable changes unresolved aggregate flags")
     if schema in (2, 3, 4):
-        if shutdown or not lost or (schema == 4 and lost not in (0x04, 0x08, 0x0C, 0x20)) or (schema != 4 and (lost & ~0x37C or not lost & 0x10)):
+        if shutdown or not lost or (schema == 4 and not _mapped_loss(lost)) or (schema != 4 and (lost & ~0x37C or not lost & 0x10)):
             raise MsError("Partial MS aggregate loss is not understood")
         difr = data["difr"]
         difr_flags = [struct.unpack_from("<I", difr, 11 + i * 18)[0] for i in range(difr[3])]
@@ -423,7 +429,7 @@ def contracts(gpu, image, changes):
     schema = 2 if new_union and old_union != new_union else 1
     if schema == 2:
         lost = old_union & ~new_union
-        if lost in (0x04, 0x08, 0x0C, 0x20):
+        if _mapped_loss(lost):
             schema = 4
         elif lost & ~0x37C or not lost & 0x10:
             raise MsError("Partial MS aggregate flags are not understood")

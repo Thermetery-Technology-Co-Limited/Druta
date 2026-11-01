@@ -4257,8 +4257,9 @@ evidence](experiments/ms-configured-qualified-20261029.json) retains the raw aud
 negative and all curve differences. Packaged schema3 callbacks, physical input, other
 layouts and physical effects remain unqualified.
 
-Schema4 covers raw04, raw08, combined raw0C and raw20 aggregate losses while a
-retained raw10 entry preserves mapped capability support. A801 type1/index1/808 reads the current
+Schema4 covers nonzero aggregate losses composed of raw04, raw08, raw20 and
+raw40 while a retained raw10 entry preserves mapped capability support.
+A801 type1/index1/808 reads the current
 postfilter role mask; group1 and role800 must independently report support
 and the mask must be positive. The loader maps row-byte8 selector bits
 through the same per-adapter mapping. Retained eligible selector OR covering
@@ -4319,6 +4320,22 @@ checks matched the original. Each broad phase ended with two exact samples; earl
 nonmatches are retained in the evidence. These are configured-state results, not
 physical residency or savings measurements.
 [MS loss0x20 evidence](experiments/ms-loss20-qualified-20261101.json).
+
+The retained-mapping class follows the source-ordered native4 feature closure
+for all 15 nonzero combinations of those four flags. The enabled DIFR witness
+provides an independent type7 role1 contributor, including when the last MS
+raw20 and raw40 contributions disappear. A positive native4 feature0x100000
+witness binds the traced filter prerequisites; independent controller6/16,
+route and complete mapping witnesses remain required. Offline tests exercise
+the full class. In additional normal Preview/Apply cases, native4 features
+changed from 0x023971EF to 0x020971EF for loss0x40 and to 0x020910CC for
+loss0x64. Routed controller and role masks changed from 0x120 to zero, and
+both role support and mapping mask 0xD remained. Final LPWR, mapping, client
+and broad checks were exact; each broad phase ended with two exact samples
+after earlier nonmatches. Together with the previous 0x04, 0x08, 0x0C and
+0x20 cases, this tests six of the 15 combinations on the captured adapter.
+Packaged-helper, physical-input and physical-effect coverage
+is unchanged. [Retained-mapping class evidence](experiments/ms-retained-class-qualified-20261101.json).
 
 Other mixed feature loss, nondiscriminating changes, ambiguous routes,
 support6 cascades and other layouts remain pending. Capability/layout/readback checks govern

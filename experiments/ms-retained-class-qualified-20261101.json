@@ -1,0 +1,169 @@
+{
+  "schema": 1,
+  "date": "2026-11-01",
+  "scope": "MS schema4 nonzero subsets of raw0x6c (0x04, 0x08, 0x20, 0x40), with retained raw0x10 selector coverage and positive mapping; configured state only.",
+  "status": "Source-derived 15-member class and offline coverage; six members qualified in source Preview/Apply on the captured adapter.",
+  "source": "5F6421/6431/64E9/64FA clear feature02/01/100/100000 from MS slot words when raw04/08/20/40 is absent. On the populated PERF-v70 path 76D947 ORs enabled slots; 770DB0 intersects filters and 76DFDE applies ordered dependency closure. Loss40 clears feature100000 and then feature200000 under witnessed nonzero +26D. BED290 combines type7 MS contributors with an independent enabled DIFR feature100 contributor; DIFR flags0x31 preserve role1 even when both MS raw20 and raw40 disappear. Positive type1 mapping and selector coverage establish the retained raw10 postfilter; raw10 alone is not a mapping witness.",
+  "admission": "Only captured enabled rows disabled, with a nonzero loss subset of 0x6c and a survivor; understood MS/index/DIFR tables and populated PERF; independently unsupported controllers6/16, supported native4 with states and positive feature0x100000, enabled DIFR flags & 0x31 == 0x31, positive type1 group/role/mapping and retained selector coverage. Complete typed core and mapping observations must match the projection; selected-slot unsupported4 alternatives are rejected. Current data, not device or driver identities, determine capability.",
+  "offline_coverage": "All 15 nonzero combinations have expected native4 feature, role and mask tests; mapping, selector, native feature and DIFR witness failures, unsupported output, out-of-class loss and historical receipt compatibility are checked. Offline combinations are not hardware qualifications.",
+  "previous_hardware_cases_hex": [
+    "04",
+    "08",
+    "0c",
+    "20"
+  ],
+  "case_40": {
+    "adapter": "GeForce RTX 5080 GB203, driver 621.01; evidence identity only",
+    "setup": {
+      "offset": 253709,
+      "before": "7d",
+      "after": "3d",
+      "original_sha256": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+      "setup_sha256": "81e7df6d36a99944ed10e4343755767774c3de0f433e3183dddbc8a712e1cbb4"
+    },
+    "production": {
+      "field": "lpwr.ms.0.enabled",
+      "offset": 253693,
+      "before": "7d",
+      "after": "7c",
+      "active_sha256": "315bb68a7774b51cb6558648c6a8173013fee2d364aa5e398f6af98b5e2c0101",
+      "aggregate_loss_hex": "40"
+    },
+    "readback": {
+      "active_exact": true,
+      "native4_feature_hex": [
+        "023971ef",
+        "020971ef"
+      ],
+      "native1_native4_and_type1_type7_role_masks": [
+        288,
+        0
+      ],
+      "type1_type7_role_support": [
+        1,
+        1
+      ],
+      "mapping_group_role_mask": [
+        1,
+        1,
+        13
+      ]
+    },
+    "broad_windows_exact": {
+      "setup": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        true
+      ],
+      "active": [
+        false,
+        false,
+        false,
+        true,
+        true
+      ],
+      "final": [
+        false,
+        false,
+        false,
+        true,
+        true
+      ]
+    },
+    "final_checks": {
+      "LPWR_exact": true,
+      "mapping_exact": true,
+      "client_exact": true,
+      "broad_exact": true
+    },
+    "frozen_trial_gzip_sha256": "7692e7e17c924f37a1ab74e7d88b12056f00b394f4249ffae5ddc636793986c3"
+  },
+  "limitations": [
+    "The early broad samples did not match; each phase ended with two exact samples, and no cause is inferred.",
+    "A selected-slot branch can remove controller4; such an output is rejected, not accepted as an alternative. Other losses, supported6/16 cascades and layouts remain pending.",
+    "No physical residency or power saving measurement or packaged-helper/physical-input qualification is claimed."
+  ],
+  "source_hashes": {
+    "inspected_driver_sha256": "3f8d33495cabeb2fa11ebdcf0b12705e9ccfb4e53005324bcd86e9dea8ba2ab4",
+    "ms_runtime_sha256": "6b8f6d3120aa66c3660ddcc24d7027681deb0377378545387bac7e3b805c8b14",
+    "trial_script_sha256": "6a089a44f6be433cb16f2d8cd74e823b652fa5b684bba5f270e114d8f5ee88ac"
+  },
+  "references": [
+    "experiments/ms-mapping-loss04-qualified-20261030.json",
+    "experiments/ms-mapping-neighbors-qualified-20261030.json",
+    "experiments/ms-loss20-qualified-20261101.json"
+  ],
+  "case_64": {
+    "setup": {
+      "offset": 253709,
+      "before": "7d",
+      "after": "19",
+      "original_sha256": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+      "setup_sha256": "1a9508e58663791e1bc5ac8420c3c662c04c76bba7d73eaf38bf60eab7167408"
+    },
+    "production": {
+      "field": "lpwr.ms.0.enabled",
+      "offset": 253693,
+      "before": "7d",
+      "after": "7c",
+      "active_sha256": "738aef35c5e9368993fcd5e1b6fe690b6c309248eab02af1e1be745c204bc1e5",
+      "aggregate_loss_hex": "64"
+    },
+    "readback": {
+      "active_exact": true,
+      "native4_feature_hex": [
+        "023971ef",
+        "020910cc"
+      ],
+      "native1_native4_and_type1_type7_role_masks": [
+        288,
+        0
+      ],
+      "type1_type7_role_support": [
+        1,
+        1
+      ],
+      "mapping_group_role_mask": [
+        1,
+        1,
+        13
+      ]
+    },
+    "broad_windows_exact": {
+      "setup": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        true
+      ],
+      "active": [
+        false,
+        false,
+        false,
+        true,
+        true
+      ],
+      "final": [
+        false,
+        false,
+        false,
+        true,
+        true
+      ]
+    },
+    "final_checks": {
+      "LPWR_exact": true,
+      "mapping_exact": true,
+      "client_exact": true,
+      "broad_exact": true
+    },
+    "frozen_trial_gzip_sha256": "4c0d9acb1bce7caf586ee2d1591563b34fc5dd568504c37c14bdce6fc807a1bf"
+  }
+}

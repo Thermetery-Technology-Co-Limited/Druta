@@ -128,7 +128,10 @@ def test_ms_preview_isolated_from_other_control_changes():
         ro._ms_separate({"lpwr.ms.0.enabled": False}, pstate_changes={"all_pstates": True})
 
 
-@pytest.mark.parametrize("loss,feature", [(0x04, 0x020910CC), (0x08, 0x020950EE), (0x0C, 0x020910CC)])
+@pytest.mark.parametrize("loss,feature", [
+    (0x04, 0x020910CC), (0x08, 0x020950EE), (0x0C, 0x020910CC),
+    (0x40, 0x020971EF), (0x64, 0x020910CC),
+])
 def test_schema4_apply_verifies_mapping_and_complete_state(monkeypatch, loss, feature):
     receipt, registry, snapshot, restarts, kwargs, _, after = configured(monkeypatch, mapped=True, mapped_loss=loss)
     assert receipt["ms_contracts"]["schema"] == 4
@@ -182,7 +185,7 @@ def test_schema4_loss20_keeps_existing_admission_boundaries(monkeypatch):
     with pytest.raises(ms.MsError, match="selector coverage"):
         ms.contracts(None, fixtures.schema4_image(selector=3, loss=0x20), changes)
     with pytest.raises(ms.MsError, match="aggregate flags"):
-        ms.contracts(None, fixtures.schema4_image(loss=0x24), changes)
+        ms.contracts(None, fixtures.schema4_image(loss=0x100), changes)
 
 
 def test_schema4_apply_requests_mapping_aware_native_reader(monkeypatch):
