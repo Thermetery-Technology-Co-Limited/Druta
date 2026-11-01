@@ -1109,5 +1109,5 @@
   ],
   "vcrit": "Both named legacy offsets stored exactly on both rails. Effective VCRIT thresholds not exposed by current policy reader; physical effects not measured.",
   "restoration": "Original requests/policy restored after every case; pre-existing MSVDD REL -50000 uV preserved. No registry writes, driver restarts or workloads.",
-  "driver_boundary": "Working live results on 617.14 and 617.42. Prior 621.01 NVVDD REL test was success-but-unchanged. No direct 620 result in this record; exact first failing release not established."
+  "driver_boundary": "Working live results on 617.14 and 617.42; suppressed NVVDD REL on 621.01. Owner confirms 617.42 directly precedes 621.01 in release order, identifying 621.01 as the first failing release in that sequence for this captured RTX 5080 configuration."
 }

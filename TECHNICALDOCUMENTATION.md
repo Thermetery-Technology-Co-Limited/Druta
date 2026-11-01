@@ -3010,6 +3010,17 @@ registry write or workload was used. These observations do not qualify arbitrary
 ranges or physical voltage delivery. The compact evidence record is
 `experiments/voltage-rail-knobs-20261101.json`.
 
+A 617.42 follow-up applied +5000 uV REL separately to both rails. Reported REL
+and effective policy rose from 1040000 to 1045000 uV on NVVDD and from 990000
+to 995000 uV on MSVDD. Four separate -5000 uV VCRIT low/high trials retained
+exact request readback. Paired B212 INFO and B218 CONTROL GETs, repeated twice
+before, during and after all six trials, remained byte-identical. Thus this
+comparison found no responsive modern readback for VCRIT thresholds; it does
+not establish universal independence between the interfaces. All requests,
+reported policies, target binding, registry and VBIOS returned or remained
+exact. No modern SET, restart or workload was used. See
+`experiments/voltage-61742-unblocked-objectives-20261101.json`.
+
 **Observed suppression:** On the captured RTX 5080 with driver 621.01, the
 legacy rail-offset control did not apply the tested -5000 uV NVVDD REL request,
 despite reporting success. Changing any of its six signed request words is
@@ -3782,9 +3793,10 @@ not a compatibility rule or independent proof of the cause. Product capability
 checks remain independent of driver-version allowlists. The working independent
 REL/ALT/OV/VMIN equation-head controls retain their qualification. Legacy request
 storage is now demonstrated on 617.14 and 617.42, while VCRIT effective thresholds
-remain unresolved. The live results bracket a change between working 617.42 and
-suppressed 621.01; a direct 620 test is still needed to identify it as the first
-failing release. Recovery and profile-restoration work
+remain unresolved. The owner confirms 617.42 was the final release before
+621.01, correcting the earlier reference to an intervening 620 release. Combined
+with the live results, that identifies 621.01 as the first suppressed release in
+that sequence for the captured RTX 5080 configuration. Recovery and profile-restoration work
 remain deferred.
 
 ## Live client power requests
