@@ -2319,6 +2319,19 @@ established. Public `khwpmGetRequestCgStatusMask` merely translates a supplied
 request status and is not an independent GPU getter. These are bounded findings
 for the inspected paths, not driver-version or hardware denylists.
 
+The further BLCG trace binds the profiler action to a selected graphics object's
+virtual method, with three possible HAL implementations in the inspected driver.
+One implementation updates a separate, counted reason bitmap and programs values
+from GPU-dependent register tables. The adjacent virtual method initializes or
+changes state; it is not a getter. This establishes a concrete action path but
+does not establish which implementation the local adapter executed. No external
+getter for that reason bitmap or the corresponding hardware state was qualified.
+BLCG therefore remains **request accepted, effect unverified**, with no product
+toggle. The next prerequisite is a readable state tied to that action; repeating
+the same request against the ELCG or GR masks would not resolve it. Root checked
+all 15 saved instruction windows against the inspected driver bytes. This
+follow-up was entirely offline and added no hardware probe.
+
 All 697 targeted tests passed, including 29 new ELCG tests. The trials used no
 registry changes, driver restart, workload, physical measurement or Windows reboot.
 [Additional-control evidence](experiments/live-profiler-controls-20261101.json).

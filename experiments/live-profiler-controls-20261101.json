@@ -225,6 +225,25 @@
       "path": "experiments/registry-overrides/profiler-getters-sol-20261101/source-getter-assessment.json",
       "bytes": 6432,
       "sha256": "3bebe717d36c29f84094d78507dd408d74371675ca4f47eeb6b6aa88b3acabee"
+    },
+    {
+      "path": "experiments/registry-overrides/profiler-more-terra-20261101/blcg-receiver-61742.json",
+      "bytes": 8397,
+      "sha256": "10ba863146f32a9c634cc167867f13f422d5c20835c0aa2af96e1ef05edc6191"
+    },
+    {
+      "path": "experiments/registry-overrides/profiler-more-root-20261101/blcg-static-audit.json",
+      "bytes": 3229,
+      "sha256": "feda0fcc0d247ddbefae742ec0960e0c3b98c3ec98a1f01d3cc08bb14fa709a0"
     }
-  ]
+  ],
+  "blcg_followup": {
+    "scope": "Offline inspected-driver trace only; no new hardware calls or product feature",
+    "driver_sha256": "db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b",
+    "receiver": "Selected graphics object from GPU+2268 array; BLCG dispatch calls its +1030 method. HAL initializer assigns RVA381810, A31410 or A3F8C0. Active target not observed.",
+    "reason_state": "A3F8C0 conditionally reaches 73DBE0: per-entry record at group+DD8+280h*index, reason bitmap +4 and reason-zero count +C. Hardware programming uses table-supplied offsets and values.",
+    "getter_limit": "Adjacent +1038 methods perform actions or initialization. A801 type10 reads a separate ELCG reason state; delegated attrs803/804/809 have no qualified relationship to this BLCG state. No external BLCG getter established.",
+    "next_prerequisite": "Bind an externally readable state to the BLCG action before a further effect-verification trial or product toggle.",
+    "root_verified_windows": 15
+  }
 }
