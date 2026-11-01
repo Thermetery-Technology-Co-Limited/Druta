@@ -2309,7 +2309,7 @@ The other named requests were tested individually with explicit release/free:
 | Control | Local request response | Qualification |
 |---|---|---|
 | ELCG | Fulfilled | Independent eligible-engine transition and exact release verified; exposed in the panel. |
-| BLCG | Fulfilled | No independently qualified live BLCG getter. Static code reaches a hardware-specific action; unchanged ELCG/LPWR reads do not prove BLCG is inert. |
+| BLCG | Fulfilled | Follow-up register READ32 trial independently verifies a partial BLCG transition and exact release; exposed in the live block clock-gating panel for the understood GB20x layout. |
 | SLCG | Fulfilled | No independent effect established. The inspected leaf rejects feature19 when reached; filtered iteration can avoid that leaf. Success does not prove a clock-gating change. |
 | SM idle slowdown | Fulfilled | The inspected feature2 callback returns without a feature action. No independent effect established; no working control exposed. |
 
@@ -2319,18 +2319,41 @@ established. Public `khwpmGetRequestCgStatusMask` merely translates a supplied
 request status and is not an independent GPU getter. These are bounded findings
 for the inspected paths, not driver-version or hardware denylists.
 
-The further BLCG trace binds the profiler action to a selected graphics object's
-virtual method, with three possible HAL implementations in the inspected driver.
-One implementation updates a separate, counted reason bitmap and programs values
-from GPU-dependent register tables. The adjacent virtual method initializes or
-changes state; it is not a getter. This establishes a concrete action path but
-does not establish which implementation the local adapter executed. No external
-getter for that reason bitmap or the corresponding hardware state was qualified.
-BLCG therefore remains **request accepted, effect unverified**, with no product
-toggle. The next prerequisite is a readable state tied to that action; repeating
-the same request against the ELCG or GR masks would not resolve it. Root checked
-all 15 saved instruction windows against the inspected driver bytes. This
-follow-up was entirely offline and added no hardware probe.
+The BLCG follow-up binds the native architecture getter and generated HAL
+constructor to the same chipword. In the inspected source, native architecture
+`0x1B0` and implementations `2/3/5/6/7` select the same graphics method and
+feature-zero register table. This supplies the architectural layout contract;
+the implementation does not check a board ID or driver version. Other layouts
+remain unavailable. Root verified all 17 final family-trace byte windows.
+
+`block_clock_gating_live.py` uses public `GPU_EXEC_REG_OPS` (`0x20800122`), with
+a 48-byte header, external 32-byte operations and a 16-byte TYPE_NONE route.
+Every operation is READ32/GLOBAL. NVIDIA's ordinary offset and permission checks
+remain active; both overall RM and per-operation status must succeed. The code
+checks buffer guards, unchanged routing/opaque fields and rejects poison values.
+It does not install a helper driver or write registers directly.
+
+The four table addresses are `0x4041F0`, `0x409890`, `0x405BF0` and `0x407000`.
+Source-defined production/disable differences bound the bits that may clear;
+the observed starting values and changed bits are obtained from the current GPU.
+Hold requires a stable, cleared-only transition within those masks, with at least
+one observed change. Release checks the exact inverse of the observed bits while
+retaining other current bits. The witness covers these registers, not every BLCG
+group or a measured physical clock-gating outcome.
+
+On the captured RTX 5080 / 617.42, the values changed from
+`4046/007F/4044/4042` to `0006/003F/0004/0002` (hex) and returned exactly on Release.
+The production controllers also held BLCG, ELCG and GR simultaneously, released
+BLCG without changing the other two readbacks, then released ELCG and GR.
+Duplicate Hold added no native request. All compared register/mask values,
+voltage requests and configured LPWR state matched their starting values afterward.
+This validates the captured adapter; the other listed implementations have source
+layout coverage and offline tests, not new hardware qualification.
+
+The BLCG increment passed 737 targeted tests, including 39 API and two panel
+tests. [BLCG source and trial evidence](experiments/live-block-clock-gating-20261101.json)
+supersedes the earlier accepted-only BLCG result below. No workload, physical
+measurement, registry edit or driver restart was used.
 
 All 697 targeted tests passed, including 29 new ELCG tests. The trials used no
 registry changes, driver restart, workload, physical measurement or Windows reboot.

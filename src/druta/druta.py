@@ -6901,7 +6901,8 @@ class Druta:
     def _close_live_gating_requests(self, gpu=None):
         """Free this window's profiler objects; never replay a saved setting."""
         complete = True
-        for name in ("_gr_gating_live_controllers", "_engine_clock_gating_controllers"):
+        for name in ("_gr_gating_live_controllers", "_engine_clock_gating_controllers",
+                     "_block_clock_gating_controllers"):
             controllers = getattr(self, name, {})
             for key, controller in list(controllers.items()):
                 if gpu is not None and controller.gpu is not gpu:

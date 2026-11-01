@@ -278,9 +278,9 @@ def test_engine_bitmap_must_be_stable_before_control(device, monkeypatch):
     assert len(calls) == 2 and not data["writes"]
 
 
-@pytest.mark.parametrize("feature", ["BLCG", "SLCG", "IDLE", None])
+@pytest.mark.parametrize("feature", ["SLCG", "IDLE", None])
 def test_transport_accepts_only_explicitly_understood_named_features(feature):
-    with pytest.raises(ValueError, match="Only named ELPG and ELCG"):
+    with pytest.raises(ValueError, match="Only named ELPG, ELCG, and BLCG"):
         _ProfilerTransport(None, None, feature=feature)
 
 
