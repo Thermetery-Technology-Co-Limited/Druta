@@ -20,7 +20,7 @@ from .perf_diagnostics import PerfDiagnosticError, PerfDiagnosticsReader
 
 _CLASS = 0xB2CC
 _REQUEST, _RELEASE = 0xB0CC0301, 0xB0CC0302
-_ELPG_DISABLE, _ELPG_SELECTOR = 0x40, 0xC0
+_PROFILER_FEATURES = {"ELPG": (6, 0x40, 0xC0), "ELCG": (0, 1, 3)}
 _INDICES = tuple(range(22))
 
 
@@ -31,7 +31,11 @@ class GrGatingError(RuntimeError):
 class _ProfilerTransport:
     """Only allocate, control, and free our own B2CC object under this parent."""
 
-    def __init__(self, reader, identity):
+    def __init__(self, reader, identity, *, feature="ELPG"):
+        if feature not in _PROFILER_FEATURES:
+            raise ValueError("Only named ELPG and ELCG profiler requests are understood")
+        self.feature = feature
+        self._shift, self._disable, self._selector = _PROFILER_FEATURES[feature]
         self.reader, self.identity = reader, identity
         self.header, self.fields = self._capture()
         self.handle = None
@@ -108,19 +112,19 @@ class _ProfilerTransport:
 
     def request(self):
         if self.requested:
-            raise GrGatingError("One profiler object may own only one GR request")
+            raise GrGatingError("One profiler object may own only one gating request")
         self.check()
         self.requested = True  # A dispatched request can have a lost response.
-        result = self._control(_REQUEST, (0xFFFFFFFF, _ELPG_DISABLE, 0xFFFFFFFF), (17, 19))
+        result = self._control(_REQUEST, (0xFFFFFFFF, self._disable, 0xFFFFFFFF), (17, 19))
         if result[17] != 0:
             raise GrGatingError(f"GR gating request global status {result[17]}")
-        selected_status = (result[19] >> 6) & 3
+        selected_status = (result[19] >> self._shift) & 3
         if selected_status:
             label = {1: "rejected", 2: "unsupported", 3: "failed"}[selected_status]
-            raise GrGatingError(f"GR ELPG request {label}")
+            raise GrGatingError(f"{self.feature} request {label}")
 
     def release(self):
-        self._control(_RELEASE, (_ELPG_SELECTOR,))
+        self._control(_RELEASE, (self._selector,))
         self.requested = False
 
     def free(self):

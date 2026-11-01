@@ -2274,8 +2274,54 @@ The production API also verified duplicate Hold without another native write,
 and unchanged voltage requests and configured LPWR observations. These results
 qualify a live software request, not measured power savings, timing, or physical
 gating residency. No registry write, driver restart, workload or Windows reboot
-was used. Other profiler clock-gating/idle-slowdown controls remain unqualified.
+was used. ELCG was subsequently qualified below; other profiler clock-gating
+and idle-slowdown controls remain unqualified.
 [Qualification evidence](experiments/live-gr-power-gating-20261101.json).
+
+### Additional live profiler controls
+
+**Live engine clock gating** adds a separate session-owned ELCG Hold disabled /
+Release control. It uses the same B2CC object contract, with request mask `1`
+and release mask `3`. Each feature has its own object; a GR power-gating hold
+does not become an engine clock-gating hold or vice versa. Neither control
+saves or automatically reapplies settings after a driver restart.
+
+Independent A801 type10 attributes `1` and `0x801` return supported-engine and
+no-disable-reason bitmaps. Two 32-bit chunks form each 64-bit mask. The latter
+is a driver predicate, not physical clock-gating residency. The parser checks
+the exact four-row layout, availability and untouched fields, requires eligible
+bits to be a subset of supported bits, and retains missing metadata as unknown.
+Hold requires stable readbacks, unchanged support, and at least one eligible bit
+clearing without new eligible bits appearing. Release verifies the inverse on
+the observed bits while preserving the current peers. These bits provide a
+partial witness, not an exhaustive profiler-group mapping or ownership getter.
+
+On RTX 5080 / 617.42, support remained `0x0000000033204C0B`; the no-disable-reason
+bitmap changed `0x0000000033204C0B` to `0x0000000033000000` and returned exactly on
+Release. The observed engine indices were 0, 1, 3, 10, 11, 14 and 21; these are
+evidence values, not compatibility constants. A production-controller trial
+held ELCG and GR simultaneously, released ELCG without changing the GR masks,
+then released GR. Duplicate ELCG Hold added no native request. Both sets of masks,
+voltage requests and configured LPWR observations matched the original afterward.
+
+The other named requests were tested individually with explicit release/free:
+
+| Control | Local request response | Qualification |
+|---|---|---|
+| ELCG | Fulfilled | Independent eligible-engine transition and exact release verified; exposed in the panel. |
+| BLCG | Fulfilled | No independently qualified live BLCG getter. Static code reaches a hardware-specific action; unchanged ELCG/LPWR reads do not prove BLCG is inert. |
+| SLCG | Fulfilled | No independent effect established. The inspected leaf rejects feature19 when reached; filtered iteration can avoid that leaf. Success does not prove a clock-gating change. |
+| SM idle slowdown | Fulfilled | The inspected feature2 callback returns without a feature action. No independent effect established; no working control exposed. |
+
+Type10 attributes `0x803`, `0x804` and `0x809` delegate to GPU-specific handlers;
+they were not probed as BLCG getters because their relationship to BLCG was not
+established. Public `khwpmGetRequestCgStatusMask` merely translates a supplied
+request status and is not an independent GPU getter. These are bounded findings
+for the inspected paths, not driver-version or hardware denylists.
+
+All 697 targeted tests passed, including 29 new ELCG tests. The trials used no
+registry changes, driver restart, workload, physical measurement or Windows reboot.
+[Additional-control evidence](experiments/live-profiler-controls-20261101.json).
 
 The adjacent `grpg_runtime.py` contract covers disable-only GR PG entries. Its
 original schema retains shared capability contributions; scoped schemas2/3

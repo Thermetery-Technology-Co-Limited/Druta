@@ -118,6 +118,11 @@ class RegistryPanel:
         self.gr_gating_live_panel = GrGatingLivePanel(self.app)
         with dpg.collapsing_header(label="Live GR power gating", tag="reg_gr_gating_live_header"):
             self.gr_gating_live_panel.build()
+        from .engine_clock_gating_panel import EngineClockGatingPanel
+
+        self.engine_clock_gating_panel = EngineClockGatingPanel(self.app)
+        with dpg.collapsing_header(label="Live engine clock gating", tag="reg_engine_clock_gating_header"):
+            self.engine_clock_gating_panel.build()
         with dpg.collapsing_header(label="Power/current arbitration"):
             dpg.add_text(
                 "Compare each request with host votes, firmware votes, and the effective limit. "
