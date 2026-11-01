@@ -2989,6 +2989,18 @@ bound. The complete regression suite passed 5330 tests after integration.
 
 ## Voltage rail requests and explicit replay
 
+**Current limitation:** On the captured RTX 5080 with driver 621.01, the
+legacy rail-offset control did not apply the tested -5000 uV NVVDD REL request,
+despite reporting success. Changing any of its six signed request words is
+therefore not qualified on this configuration: REL, ALT_REL (ALT/OP), OV, VMIN,
+VCRIT_LOW and VCRIT_HIGH. The inspected setter can skip all six copies when its
+gate is set, but the live gate and the captured call's route were not observed;
+the test did not individually probe all six words. Separately, the VFE
+equation-head route has demonstrated REL, ALT_REL, OV and VMIN policy
+adjustments on both captured rails. A working VCRIT control remains unresolved.
+This limitation does not qualify a physical voltage change or extend to the
+separate boost and direct voltage-demand controls.
+
 `voltage_request_replay.py` captures native rail INFO (B201/0x98C), native
 CONTROL (B213/0x40C), independent V2 singleton NVAPI CONTROL packets, the small
 boost getter and reported voltage policy. Complete replay requires every active
