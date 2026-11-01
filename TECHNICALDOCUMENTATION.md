@@ -2323,8 +2323,9 @@ The BLCG follow-up binds the native architecture getter and generated HAL
 constructor to the same chipword. In the inspected source, native architecture
 `0x1B0` and implementations `2/3/5/6/7` select the same graphics method and
 feature-zero register table. This supplies the architectural layout contract;
-the implementation does not check a board ID or driver version. Other layouts
-remain unavailable. Root verified all 17 final family-trace byte windows.
+the implementation does not check a board ID or driver version. Root verified
+all 17 final family-trace byte windows. A separate GA10x layout is described below;
+other layouts remain unavailable.
 
 `block_clock_gating_live.py` uses public `GPU_EXEC_REG_OPS` (`0x20800122`), with
 a 48-byte header, external 32-byte operations and a 16-byte TYPE_NONE route.
@@ -2354,6 +2355,36 @@ The BLCG increment passed 737 targeted tests, including 39 API and two panel
 tests. [BLCG source and trial evidence](experiments/live-block-clock-gating-20261101.json)
 supersedes the earlier accepted-only BLCG result below. No workload, physical
 measurement, registry edit or driver restart was used.
+
+The GA10x extension selects native architecture `0x170`, implementations
+`2/3/4/6/7`. Its graphics table contains `0x4041F0`, `0x409890`, `0x4098B0`,
+`0x405BF0` and `0x407000`, with production values `C646/7F/7F/C444/4000C242`
+(hex). The driver writes whole zero words when disabling this group. Its release
+path chooses production values or zero according to native policy, so the
+Blackwell cleared-bit verification contract is not reused.
+
+The Graphics object creates an `IoAperture` at `0x400000`, backed by the same
+GPU's device-zero mapping. Its RegisterAperture write thunk adds the relative
+table offset to that base. The public GLOBAL READ32 paths reach that same
+mapping, including the alternate zero-base aperture used for graphics reads.
+These source joins establish the addresses; they do not establish an Ampere
+hardware transition.
+
+Ampere Hold rejects unknown baseline bits before allocating a request, requires
+at least one nonzero word, and verifies zero in every register. Duplicate Hold
+also checks every complete word. Release drops the named request and compares
+readback with the captured starting words; a policy mismatch is reported while
+freeing only the owned object. No raw register writes or automatic replay are
+added. The captured baseline may be a subset of the source production bits;
+it is not presented as a factory default.
+
+[Ampere BLCG source qualification](experiments/blcg-ampere-layout-20261101.json)
+records the native bindings and verification limits. Hardware qualification is
+pending. `experiments/blcg_live_validation.py` defaults to read-only; `--trial`
+performs one Ampere production-controller Hold/read/Release session and records
+the exact request packets. Run it on the target adapter with an explicit PCI
+slot and a new output path. Success requires a positive transition and exact
+release readback, not merely an accepted API status.
 
 All 697 targeted tests passed, including 29 new ELCG tests. The trials used no
 registry changes, driver restart, workload, physical measurement or Windows reboot.

@@ -26,18 +26,24 @@ BlockClockGatingError = GrGatingError
 # disable-zero values, not the observed deltas from the developer's adapter.
 _LAYOUTS = {(0x1B0, implementation): "gb20x-blcg" for implementation in (2, 3, 5, 6, 7)}
 _ALLOWED_CLEAR = {0x4041F0: 0xC646, 0x409890: 0x7F, 0x405BF0: 0xC044, 0x407000: 0x4000C042}
+# GA10x HAL 2B..2F selects a different graphics table. Its IoAperture
+# translates relative offsets back to these GLOBAL addresses. Disable writes
+# whole zero words; unlike GB20x, subset-clearing is insufficient verification.
+_LAYOUTS.update({(0x170, implementation): "ga10x-blcg" for implementation in (2, 3, 4, 6, 7)})
+_AMPERE_CLEAR = {0x4041F0: 0xC646, 0x409890: 0x7F, 0x4098B0: 0x7F, 0x405BF0: 0xC444, 0x407000: 0x4000C242}
+_MASKS = {"gb20x-blcg": _ALLOWED_CLEAR, "ga10x-blcg": _AMPERE_CLEAR}
 _READ32, _GLOBAL, _ROUTE_NONE = 0, 0, 0
 
 
-def _read_registers(reader, identity):
+def _read_registers(reader, identity, masks=_ALLOWED_CLEAR):
     # Keep both the guarded storage and its exported operation buffer alive
     # until the synchronous RM call returns and all outputs are validated.
-    storage, operations = clock._guarded(32 * len(_ALLOWED_CLEAR))
-    for index, address in enumerate(_ALLOWED_CLEAR):
+    storage, operations = clock._guarded(32 * len(masks))
+    for index, address in enumerate(masks):
         struct.pack_into("<BBBBIII", operations, index * 32, _READ32, _GLOBAL, 0, 0, 0, 0, address)
     before = bytes(operations)
     # 48-byte header includes the 16-byte TYPE_NONE route at offset 32.
-    params = struct.pack("<6IQIIQ", 0, 0, 0, 0, 0, len(_ALLOWED_CLEAR), ctypes.addressof(operations), _ROUTE_NONE, 0, 0)
+    params = struct.pack("<6IQIIQ", 0, 0, 0, 0, 0, len(masks), ctypes.addressof(operations), _ROUTE_NONE, 0, 0)
     try:
         returned = lpwr._get(reader, identity, 0x20800122, 48, params)
     finally:
@@ -46,7 +52,7 @@ def _read_registers(reader, identity):
         raise BlockClockGatingError("BLCG register read changed routing or parameter geometry")
     after, values = bytes(operations), {}
     untouched = bytearray(after)
-    for index, address in enumerate(_ALLOWED_CLEAR):
+    for index, address in enumerate(masks):
         at = index * 32
         if after[at + 2] != 0:
             raise BlockClockGatingError(f"BLCG READ32 0x{address:X} rejected (status {after[at + 2]})")
@@ -78,6 +84,7 @@ class BlockClockGatingController(GrGatingController):
         self._owned = False
         self._uncertain = False
         self._observed = {}
+        self._initial_state = None
         self._last_verification_error = None
 
     def _once(self):
@@ -99,7 +106,7 @@ class BlockClockGatingController(GrGatingController):
             "support": True,
             "architecture": native,
             "layout": layout,
-            "registers": _read_registers(self.reader, self.identity),
+            "registers": _read_registers(self.reader, self.identity, _MASKS[layout]),
         }
 
     def _read_locked(self):
@@ -117,7 +124,7 @@ class BlockClockGatingController(GrGatingController):
     def _snapshot(self, state):
         return {
             **state,
-            "allowed_clear_masks": {hex(address): mask for address, mask in _ALLOWED_CLEAR.items()},
+            "allowed_clear_masks": {hex(address): mask for address, mask in _MASKS.get(state["layout"], {}).items()},
             "observed_register_bits": dict(self._observed),
             "owned_request": self._owned,
             "uncertain_outcome": self._uncertain,
@@ -132,6 +139,11 @@ class BlockClockGatingController(GrGatingController):
                 raise BlockClockGatingError("BLCG outcome is uncertain; explicitly release this session")
             before = self._read_locked()
             if self._owned:
+                if self._initial_state and self._initial_state["layout"] == "ga10x-blcg":
+                    _same_layout(self._initial_state, before)
+                    if any(before["registers"].values()):
+                        raise BlockClockGatingError("The owned BLCG request is no longer independently visible")
+                    return self._snapshot(before)
                 if not before["support"] or any(
                     before["registers"][key] & bits for key, bits in self._observed.items()
                 ):
@@ -139,9 +151,15 @@ class BlockClockGatingController(GrGatingController):
                 return self._snapshot(before)
             if not before["support"]:
                 raise BlockClockGatingError("The native BLCG register layout is not understood")
-            if not any(before["registers"][hex(address)] & mask for address, mask in _ALLOWED_CLEAR.items()):
+            masks = _MASKS[before["layout"]]
+            if before["layout"] == "ga10x-blcg" and any(
+                before["registers"][hex(address)] & ~mask for address, mask in masks.items()
+            ):
+                raise BlockClockGatingError("BLCG baseline has bits outside the source-defined full-word values")
+            if not any(before["registers"][hex(address)] & mask for address, mask in masks.items()):
                 raise BlockClockGatingError("No source-defined BLCG bit remains to independently verify a request")
             try:
+                self._initial_state = before
                 self._profiler.allocate()
                 self._uncertain = True
                 self._profiler.request()
@@ -149,13 +167,15 @@ class BlockClockGatingController(GrGatingController):
                 after = self._read_locked()
                 _same_layout(before, after)
                 observed = {}
-                for address, allowed in _ALLOWED_CLEAR.items():
+                for address, allowed in masks.items():
                     key = hex(address)
                     old, new = before["registers"][key], after["registers"][key]
                     cleared = old & ~new
                     if new & ~old or cleared & ~allowed:
                         raise BlockClockGatingError("BLCG request changed bits outside the source-defined clear masks")
                     observed[key] = cleared
+                if before["layout"] == "ga10x-blcg" and any(after["registers"].values()):
+                    raise BlockClockGatingError("BLCG request did not clear every complete register word")
                 if not any(observed.values()):
                     raise BlockClockGatingError("BLCG request produced no independent register transition")
                 self._observed = observed
@@ -177,7 +197,11 @@ class BlockClockGatingController(GrGatingController):
                     self._owned = False
                 after = self._read_locked()
                 _same_layout(before, after)
-                expected = {key: value | self._observed.get(key, 0) for key, value in before["registers"].items()}
+                if self._initial_state and self._initial_state["layout"] == "ga10x-blcg":
+                    _same_layout(self._initial_state, after)
+                    expected = self._initial_state["registers"]
+                else:
+                    expected = {key: value | self._observed.get(key, 0) for key, value in before["registers"].items()}
                 if after["registers"] != expected:
                     raise BlockClockGatingError("BLCG release did not match the exact expected register values")
                 self._last_verification_error = None
@@ -188,5 +212,6 @@ class BlockClockGatingController(GrGatingController):
                 self._profiler.free()
                 self._owned = False
                 self._observed = {}
+                self._initial_state = None
                 self._uncertain = False
             return self._snapshot(after)

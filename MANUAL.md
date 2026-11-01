@@ -786,6 +786,12 @@ through NVIDIA's read-only register operations; an inaccessible or unknown layou
 does not enable Hold. The readbacks are partial configuration witnesses, not
 measurements of physical gating, residency or power savings.
 
+Ampere BLCG uses a separate five-register layout. Hold requires readable values
+containing only understood bits and at least one nonzero value, then checks that
+all five words become zero. Release checks their return to the captured starting
+values. A native policy mismatch is reported as a verification failure. This
+Ampere path has offline coverage; hardware qualification remains pending.
+
 SLCG shows unavailable registers separately. Hold needs at least one readable
 register and a compatible zero baseline; it verifies the expected disable values
 and their return to zero on Release. Its register witness covers the traced HWPM
