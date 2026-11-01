@@ -3456,5 +3456,28 @@
       "independent_e0b0_byte_and_source_audit": "86d6c5dfa77d6bf7f5afac8ccf1e2918b9a0031179fd3cf77aeef7d2d22924cb"
     },
     "remaining": "Effective arbitrary six-word/VCRIT replay and current VFE value encoding/evaluation remain unresolved. Factory-disabled DIFR activation still needs a distinguishable source-qualified operation on usable routed data. Existing qualified controls retain their scope; recovery/Undo and profile restoration/replay remain deferred."
+  },
+  "voltage_source_checkpoint_20261101": {
+    "scope": "Bounded offline source reconciliation of the pinned Windows image; historical captures and earlier observations remain intact.",
+    "initializer": "Conditional on the selected mode0 construction, retained registered root, successful casts and enumeration reaching its node without earlier abort, B983F0 and BC6DF0 dispatch the constructed same EA through virtual slot40 to C81C20/C81C30. This identifies a static same-instance initializer call path and supersedes earlier claims that its static caller was unidentified. It does not establish actual runtime selection or invocation.",
+    "optional_receiver": "The selected mode0 constructor zeroes EA+60; the bounded constructor audit establishes no population writer. C96AA0 returns status56 on a null EA+60 receiver, and C0D960 accepts that status as an early successful group return. This does not establish a useful initialized group or globally exclude a later writer. The independent root audit matched 14 raw windows to the pinned image; semantic conclusions remain bounded by the source audit.",
+    "limits": "The inspected modern F219 path has no supported mapping to legacy VCRIT_LOW/HIGH. No modern F219 SET, effective arbitrary six-word replay, actual runtime selection, numerical units or physical voltage effect is established. Do not infer numerical semantics from copied words or expand generic callback scans.",
+    "remote_ampere_inventory": "Received in PR39 commit4def73a. The 3070 Ti report contains two identical complete read rounds, single NVVDD rail public0/native2, six zero request offsets, zero boost and an enabled admission flag. Raw BIOS bytes, managed registry and target agree before/after. All eight recorded source hashes match42438bf after explicit LF-to-CRLF conversion. Read support is established for this capture; effective SET, numerical consumption and VCRIT writes are not. SSH remains unavailable; the bounded REL-only remote experiment in experiments/ampere-voltage-rel-probe-handoff-20261101.json is prepared and passed115 focused offline tests. It has not been run on hardware.",
+    "evidence_sha256": {
+      "experiments/registry-overrides/voltage-consumer-root-20261101/checkpoint-v3.json": "63105930ec9202b8a02310c2b0080e6f04a8b584ddbbc235ff83b9b7df820379",
+      "experiments/registry-overrides/voltage-consumer-root-20261101/lifecycle-join-v1.json": "255816eb68669372c2ac5fe0779a217a6fc5ab760576d6aa321fc00bde9d9315",
+      "experiments/registry-overrides/voltage-windows-chain-audit-luna-20261101/audit-v3.json": "1607092895940854950616adfd73f455713aa4f076aa07df6aa1526244196e57",
+      "experiments/registry-overrides/voltage-receiver-backing-sol-20261101/findings-v3.json": "81db24b18e6b1bc215390f4ac2e9ee4c489d3667bfa8d1047ccdb8cd08bd053d",
+      "experiments/registry-overrides/voltage-receiver-backing-sol-20261101/constructor-optional-receiver-v3.json": "31bcccd1bd85f45d15f011a0fe3aaa40a8e0ef756cc9479be7fc022427d33f9b",
+      "experiments/registry-overrides/voltage-consumer-root-20261101/optional-receiver-byte-audit-v1.json": "624da78fa8b0eee945a93cf67ea486c5a905ed1c6da93866fbb3809c7a5f64f2",
+      "experiments/registry-overrides/voltage-functional-path-sol-20261101/assessment-v1.json": "ba8ab3009c508a7eed57ee72c24587475157c9c5f4021a2abbe141150c13dbe4",
+      "experiments/registry-overrides/voltage-receiver-record-sol-20261101/byte-evidence-v1.json": "92cb18a16ec4945dfe6e4328c1d580ff40d1ed615b839f5bc4ede73b3233d4d5",
+      "experiments/registry-overrides/voltage-consumer-root-20261101/receiver-record-byte-audit-v2.json": "55e756fbde70b78f9a6959ddfd54ed21e4a97d2e0d6a0ca92d355fb70f4a8156",
+      "experiments/registry-overrides/voltage-receiver-record-sol-20261101/findings-v1.json": "a45bb9e899809733dac91bab018db7720746e2237fa61db037aaa9475fe1e2a0",
+      "experiments/ampere-voltage-inventory-20261101-181618.json": "a2afdce1c0d9a3702cce66be908619558899fa58419ffea00c21176c0c290cd2",
+      "experiments/registry-overrides/ampere-inventory-review-terra-20261101/review-v1.json": "1cd7f688ca21cdcec6879d85b21e057d39a2b5c98bb5004a5437430c40c14045"
+    },
+    "receiver_record_followup": "Scoped follow-up C98F10 -> C990C0 with transfer helper8D4DA0 binds callback orchestration, modular record selection and offset/length-based transfer. The DIV remainder is passed to the descriptor callback; this arithmetic is not a voltage conversion. Five raw windows, including both caller sites, matched the pinned driver independently. This lead supplies no numerical voltage contract, VCRIT mapping or effective writer; it does not justify further generic callback tracing.",
+    "remote_ampere_report": "experiments/ampere-voltage-inventory-20261101-181618.json"
   }
 }

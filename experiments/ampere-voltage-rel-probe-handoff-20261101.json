@@ -1,0 +1,20 @@
+{
+  "schema": "ampere-voltage-rel-probe-handoff-v1",
+  "machine": "WIN-S21NMM0KKIR",
+  "branch": "codex/registry-controls",
+  "inventory_commit": "4def73a2c60d22dd1dc0ee7a22e53597126e90ca",
+  "inventory_report": "experiments/ampere-voltage-inventory-20261101-181618.json",
+  "script": "experiments/ampere_voltage_rel_probe_20261101.py",
+  "command": "python experiments/ampere_voltage_rel_probe_20261101.py --gpu 0000:01:00.0 --rail 0 --out experiments/ampere-rel-probe-result-20261101.json",
+  "scope": "One live REL request decrement of 5000 microvolts relative to a fresh complete baseline, followed by one baseline restoration attempt. This is a write experiment, not the earlier read-only inventory. All other request words and boost are preserved. No VCRIT/F219 probe, gate change, registry write, restart, workload or product profile/recovery integration.",
+  "review": "Root and Terra independently verified the inventory's raw packets, BIOS bytes and source provenance. Root reviewed the helper and its selected-word projection against the actual production validator/projector. Nine helper tests and 106 existing request-engine tests passed offline; Ruff passed. No hardware execution or successful remote restoration is claimed.",
+  "execution_prompt": "On WIN-S21NMM0KKIR, preserve all local changes and read AGENTS.md/CLAUDE.md. Update the existing codex/registry-controls checkout by fast-forward only; stop on a conflict. Review the supplied helper and handoff. Using the Python environment that ran the inventory, run the exact command once, with a new output filename if the proposed file already exists. The helper itself checks the fresh paired Ampere target and writes its baseline and exact desired request before issuing a single trial. It attempts restoration in finally and checks final request, policy, gate, PCI identity, registry and VBIOS. Return the full JSON report and exit code even if the trial is ignored or verification fails. Do not repeat, substitute another setter, install anything, restart anything, run a workload, or change unrelated settings. If restoration or final checks fail, retain the report and stop for root review.",
+  "exit_codes": {
+    "0": "Trial and restoration calls succeeded and all final checks matched; inspect the separate policy response before interpreting effect.",
+    "2": "No trial was issued or initialization/preflight failed.",
+    "3": "Trial failed; inspect restoration and final checks separately.",
+    "4": "Restoration call failed; inspect the final captured state and stop.",
+    "5": "Final comparisons or report-stage checks failed; stop for review."
+  },
+  "interpretation": "Exact stored CONTROL readback is separate from a reported REL/effective-policy response. Neither establishes physical voltage, all six writable fields, VCRIT semantics or another adapter's capabilities. Driver and device identifiers are provenance, not allowlists."
+}
