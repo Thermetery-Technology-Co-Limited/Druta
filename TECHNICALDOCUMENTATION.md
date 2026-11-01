@@ -2989,7 +2989,28 @@ bound. The complete regression suite passed 5330 tests after integration.
 
 ## Voltage rail requests and explicit replay
 
-**Current limitation:** On the captured RTX 5080 with driver 621.01, the
+**Live rail controls:** The Controls page exposes the six legacy signed offset
+requests per captured rail: REL, ALT/OP, OV, VMIN, VCRIT low and VCRIT high.
+Values are entered in mV with whole-microvolt precision. Read the current
+requests, select a rail and field, then apply the offset for this driver session.
+Each write uses a fresh complete capture, preserves peer fields and boost, and
+requires exact independent request readback. Reading does not enable the request
+gate or write anything. VCRIT is labeled as a stored request with an unverified
+effective threshold; successful storage does not establish physical enforcement.
+There is no driver-version compatibility cutoff, automatic profile replay or
+new Undo mechanism.
+
+On the captured RTX 5080 with drivers 617.14 and 617.42, all six requests accepted
+individual small changes on both NVVDD and MSVDD. REL, ALT and OV used -5000 uV;
+VMIN used +5000 uV; both VCRIT words used -5000 uV. The first four changed their
+corresponding reported policies; REL also changed the effective ceiling. All
+requests read back exactly, and every trial restored the original full requests
+and policy, including the pre-existing MSVDD REL -50000 uV offset. No restart,
+registry write or workload was used. These observations do not qualify arbitrary
+ranges or physical voltage delivery. The compact evidence record is
+`experiments/voltage-rail-knobs-20261101.json`.
+
+**Observed suppression:** On the captured RTX 5080 with driver 621.01, the
 legacy rail-offset control did not apply the tested -5000 uV NVVDD REL request,
 despite reporting success. Changing any of its six signed request words is
 therefore not qualified on this configuration: REL, ALT_REL (ALT/OP), OV, VMIN,
@@ -2997,7 +3018,7 @@ VCRIT_LOW and VCRIT_HIGH. The inspected setter can skip all six copies when its
 gate is set, but the live gate and the captured call's route were not observed;
 the test did not individually probe all six words. Separately, the VFE
 equation-head route has demonstrated REL, ALT_REL, OV and VMIN policy
-adjustments on both captured rails. A working VCRIT control remains unresolved.
+adjustments on both captured rails. VCRIT effective-threshold behavior remains unresolved.
 This limitation does not qualify a physical voltage change or extend to the
 separate boost and direct voltage-demand controls.
 
@@ -3749,16 +3770,21 @@ traced. Root reproduced 28 source windows for the corrected comparison.
 
 This establishes constructor and setter behavior in the inspected code, not a
 live gate value, the current local/firmware dispatch route or physical voltage
-enforcement. Later gate changes and older runtime operation remain unverified;
-the older package was extracted for analysis and never installed. Candidate
+enforcement. Later gate changes remain unverified. The original comparison used
+an extracted older package; subsequent installed 617.14 and 617.42 live trials
+confirmed all six request words could be changed on both rails, as documented
+above. Candidate
 firmware comparisons retain separate layout and loaded-image limitations.
 
 The [mVolt+ public guide](https://github.com/b00nz/mVolt/blob/2a78e42fb7026dd3d068b03d9e017bb58368f0f4/docs/guide.md#driver-62101-and-later)
 reports this symptom for RTX 50 on 621.01 and later. That author claim is context,
 not a compatibility rule or independent proof of the cause. Product capability
 checks remain independent of driver-version allowlists. The working independent
-REL/ALT/OV/VMIN equation-head controls retain their qualification; arbitrary
-legacy/VCRIT replay is still unresolved. Recovery and profile-restoration work
+REL/ALT/OV/VMIN equation-head controls retain their qualification. Legacy request
+storage is now demonstrated on 617.14 and 617.42, while VCRIT effective thresholds
+remain unresolved. The live results bracket a change between working 617.42 and
+suppressed 621.01; a direct 620 test is still needed to identify it as the first
+failing release. Recovery and profile-restoration work
 remain deferred.
 
 ## Live client power requests
@@ -4906,6 +4932,8 @@ are observation opportunities, not firmware settling guarantees. Root reproduced
 the independent raw audits and visually reviewed all eight frames.
 
 These packaged tests cover programmatic callbacks on one configuration.
-Physical input, failure/recovery walkthroughs, other adapters/operating points
-and arbitrary six-word rail-offset replay remain pending.
+Physical input, failure/recovery walkthroughs and other adapters/operating points
+remain outside these equation-bound tests. Later legacy six-word request trials
+on 617.14 and 617.42 are documented under "Voltage rail requests and explicit
+replay"; VCRIT effective thresholds remain unverified.
 [Source trials and exact qualification](experiments/voltage-live-bounds-20261029.json).

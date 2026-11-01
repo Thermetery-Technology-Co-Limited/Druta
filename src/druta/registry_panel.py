@@ -180,6 +180,10 @@ class RegistryPanel:
 
         self.voltage_offsets_panel = VoltageOffsetsPanel(self.app)
         self.voltage_offsets_panel.build()
+        from .voltage_requests_panel import VoltageRequestsPanel
+
+        self.voltage_requests_panel = VoltageRequestsPanel(self.app)
+        self.voltage_requests_panel.build()
         with dpg.collapsing_header(label="Live REL equation bounds", tag="reg_rel_live_header"):
             dpg.add_text(
                 "Change the loaded REL equation bounds for this driver session without restarting the GPU. "

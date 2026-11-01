@@ -707,6 +707,14 @@ live voltage in two repeated cycles on each card. The former claim here that
 this cap could not be raised was disproved by that measurement. See
 [the per-rail findings](VOLTAGE-RAILS-TITAN.md) for exact conditions and scope.
 
+The Controls page also provides **Live voltage rail requests** for REL, ALT/OP,
+OV, VMIN, VCRIT low and VCRIT high. Read the current requests, choose the rail
+and field, and enter its offset in mV. Apply changes only that request and checks
+the stored result without restarting the GPU. VCRIT readback confirms the stored
+request; its effective threshold remains unverified. A driver that returns
+success without applying a changed request is reported as a readback failure.
+Availability is checked on the selected adapter, without a driver-version list.
+
 ## Contributing I2C controller support
 
 Start with the [I2C contribution workflow](i2c/CONTRIBUTING.md),
