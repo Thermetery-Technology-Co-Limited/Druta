@@ -113,11 +113,12 @@
   "static_findings": {
     "scope": "Offline static evidence for one Windows 617.42 binary; no general compatibility or observed hardware result implied",
     "callback": {
-      "leaf": "0x84dae0 implements feature5 and7; feature19 takes unsupported path 0x56 when reached; empty filtered iteration can return success",
+      "leaf": "0x84dae0 handles the feature5/7 branch; its unsupported behavior for other feature values does not describe the separate SLCG dispatch.",
       "concurrency": "Generic counted manager invokes callback at aggregate zero-to-nonzero and final release; successful requests can overlap without new physical or bitmap transition",
       "feature2": "jump case 0x42b90e returns zero without feature operation",
       "initializer": "0x42c1f0; callback 0x42b350",
-      "features_5_7_19": "jump case 0x42b43c builds engine bitset, filters through supported/resolved engine predicates, calls 0x84dae0 for each"
+      "features_5_7": "jump case0x42b43c builds and filters an engine bitset, then calls0x84dae0",
+      "feature19": "compressed jump index3 routes to0x42b6fc; OBJHWPM+108 supplies routing to675360, then LPWRgroup+100 is invoked. Internal action results are not propagated as full effect verification."
     },
     "elcg": {
       "request": "0x84dd8d ->0x755830 ->0x754910 sets reason bit2 at object+0x290+0x24*engine index and increments word counter +0x28c",
@@ -130,8 +131,8 @@
       "action": "0x84dc0c follows hardware-specific virtual method at object+0x1030; bookkeeping 0x350cc0"
     },
     "slcg": {
-      "readback": "No independently qualified live getter found; success may reflect no eligible engine.",
-      "action": "feature19 reaches 0x84dae0 unsupported branch if selected eligible engine exists"
+      "action": "compressed jump index3 routes to0x42b6fc; OBJHWPM+108 supplies routing to675360, then LPWRgroup+100 is invoked. Internal action results are not propagated as full effect verification.",
+      "readback": "Original ELCG/LPWR getter trial did not independently witness SLCG. This is not evidence that no register change occurred."
     },
     "idle": {
       "readback": "No independently qualified live getter found; do not infer effective operation from status.",
@@ -245,5 +246,10 @@
     "getter_limit": "Adjacent +1038 methods perform actions or initialization. A801 type10 reads a separate ELCG reason state; delegated attrs803/804/809 have no qualified relationship to this BLCG state. No external BLCG getter established.",
     "next_prerequisite": "Bind an externally readable state to the BLCG action before a further effect-verification trial or product toggle.",
     "root_verified_windows": 15
+  },
+  "slcg_dispatch_correction": "Feature19 uses compressed jump-table index3 ->42B6FC, not common5/7 branch42B43C. Earlier SLCG unsupported-leaf attribution was wrong. No prior trial results changed.",
+  "subsequent_qualification": {
+    "blcg": "live-block-clock-gating-20261101.json supersedes accepted-only BLCG observations and earlier getter blocker.",
+    "slcg": "live-second-level-clock-gating-20261101.json corrects the dispatch attribution and adds independently observed partial register transitions. Original trial observations retained."
   }
 }

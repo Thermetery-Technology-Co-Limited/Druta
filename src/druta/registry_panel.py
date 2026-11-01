@@ -128,6 +128,11 @@ class RegistryPanel:
         self.block_clock_gating_panel = BlockClockGatingPanel(self.app)
         with dpg.collapsing_header(label="Live block clock gating", tag="reg_block_clock_gating_header"):
             self.block_clock_gating_panel.build()
+        from .second_level_clock_gating_panel import SecondLevelClockGatingPanel
+
+        self.second_level_clock_gating_panel = SecondLevelClockGatingPanel(self.app)
+        with dpg.collapsing_header(label="Live second-level clock gating (SLCG)", tag="reg_second_level_clock_gating_header"):
+            self.second_level_clock_gating_panel.build()
         with dpg.collapsing_header(label="Power/current arbitration"):
             dpg.add_text(
                 "Compare each request with host votes, firmware votes, and the effective limit. "

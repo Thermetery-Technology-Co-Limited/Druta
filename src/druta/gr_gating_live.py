@@ -20,7 +20,7 @@ from .perf_diagnostics import PerfDiagnosticError, PerfDiagnosticsReader
 
 _CLASS = 0xB2CC
 _REQUEST, _RELEASE = 0xB0CC0301, 0xB0CC0302
-_PROFILER_FEATURES = {"ELPG": (6, 0x40, 0xC0), "ELCG": (0, 1, 3), "BLCG": (2, 4, 12)}
+_PROFILER_FEATURES = {"ELPG": (6, 0x40, 0xC0), "ELCG": (0, 1, 3), "BLCG": (2, 4, 12), "SLCG": (4, 16, 48)}
 _INDICES = tuple(range(22))
 
 
@@ -33,7 +33,7 @@ class _ProfilerTransport:
 
     def __init__(self, reader, identity, *, feature="ELPG"):
         if feature not in _PROFILER_FEATURES:
-            raise ValueError("Only named ELPG, ELCG, and BLCG profiler requests are understood")
+            raise ValueError("Only named ELPG, ELCG, BLCG, and SLCG profiler requests are understood")
         self.feature = feature
         self._shift, self._disable, self._selector = _PROFILER_FEATURES[feature]
         self.reader, self.identity = reader, identity

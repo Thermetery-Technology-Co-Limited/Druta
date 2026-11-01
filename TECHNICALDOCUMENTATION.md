@@ -2310,7 +2310,7 @@ The other named requests were tested individually with explicit release/free:
 |---|---|---|
 | ELCG | Fulfilled | Independent eligible-engine transition and exact release verified; exposed in the panel. |
 | BLCG | Fulfilled | Follow-up register READ32 trial independently verifies a partial BLCG transition and exact release; exposed in the live block clock-gating panel for the understood GB20x layout. |
-| SLCG | Fulfilled | No independent effect established. The inspected leaf rejects feature19 when reached; filtered iteration can avoid that leaf. Success does not prove a clock-gating change. |
+| SLCG | Fulfilled | Follow-up typed register reads verify nine disable transitions and exact release on the captured configuration; four other registers return invalid-read markers and remain unverified. See the SLCG qualification below. |
 | SM idle slowdown | Fulfilled | The inspected feature2 callback returns without a feature action. No independent effect established; no working control exposed. |
 
 Type10 attributes `0x803`, `0x804` and `0x809` delegate to GPU-specific handlers;
@@ -2358,6 +2358,37 @@ measurement, registry edit or driver restart was used.
 All 697 targeted tests passed, including 29 new ELCG tests. The trials used no
 registry changes, driver restart, workload, physical measurement or Windows reboot.
 [Additional-control evidence](experiments/live-profiler-controls-20261101.json).
+
+**Live second-level clock gating (SLCG)** uses its own session-owned profiler request,
+mask `0x10`, and release mask `0x30`. Corrected decoding of the compressed dispatch
+table routes feature19 to `42B6FC`, not the feature5/7 unsupported leaf previously
+attributed to SLCG. For the understood GB20x family, OBJHWPM supplies route
+`0x260000`; its table contains fourteen rows and thirteen distinct addresses.
+The graphics-instance translation predicate is false for this route. This is an
+HWPM table witness, not proof that every subunit on the GPU changes gating.
+
+The public disable request maps to manager state2, which selects the nonzero
+table values. Final release selects the zero table. Release relinquishes the
+request; it does not replay an arbitrary previous register state. Consequently
+Hold requires the readable registers to match the source-defined zero baseline.
+Stable current-adapter reads determine which registers are usable. Invalid-read
+markers and rejected operations remain explicitly unavailable, never valid zero
+values. At least one usable register must change to its exact source-defined
+disable value; the valid inventory must remain stable and Release must return
+those registers to zero. Only the named profiler API writes state.
+
+On RTX 5080 / 617.42, eight registers changed `0 -> 0x80000000` and one changed
+`0 -> 1`; all nine returned exactly to zero. Four other table registers returned
+`0xBADF1002` despite per-operation success and remain unverified. These results
+establish a partial software configuration transition, not physical gating,
+residency or power savings. Voltage requests and configured LPWR observations
+matched before and after. The control does not persist or reapply settings after
+a driver restart. The production trial held SLCG, BLCG, ELCG and GR together,
+released SLCG without changing the other three readbacks, then released the
+others. Duplicate SLCG Hold issued no extra request. All compared original
+registers, masks, voltage requests and configured LPWR observations matched.
+The increment passed 785 targeted tests, including 47 new API cases and two
+panel tests. [SLCG evidence](experiments/live-second-level-clock-gating-20261101.json).
 
 The adjacent `grpg_runtime.py` contract covers disable-only GR PG entries. Its
 original schema retains shared capability contributions; scoped schemas2/3

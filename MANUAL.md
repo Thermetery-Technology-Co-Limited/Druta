@@ -776,8 +776,9 @@ this instance. This control does not enable originally disabled entries and
 does not require a GPU restart. Release the request before switching GPUs or
 closing Druta; it is not released automatically.
 
-**Live GR power gating**, **Live engine clock gating (ELCG)** and **Live block
-clock gating (BLCG)** provide separate **Refresh**, **Hold disabled** and
+**Live GR power gating**, **Live engine clock gating (ELCG)**, **Live block
+clock gating (BLCG)** and **Live second-level clock gating (SLCG)** provide
+separate **Refresh**, **Hold disabled** and
 **Release** controls. Hold adds this application's request to disable the named
 mechanism; Release drops that request. Each requires an independent readback
 change before reporting a verified hold. BLCG checks a supported register layout
@@ -785,7 +786,12 @@ through NVIDIA's read-only register operations; an inaccessible or unknown layou
 does not enable Hold. The readbacks are partial configuration witnesses, not
 measurements of physical gating, residency or power savings.
 
-These three requests last only for the current session. Druta releases its own
+SLCG shows unavailable registers separately. Hold needs at least one readable
+register and a compatible zero baseline; it verifies the expected disable values
+and their return to zero on Release. Its register witness covers the traced HWPM
+table, not every GPU subunit.
+
+These four requests last only for the current session. Druta releases its own
 requests on normal exit or GPU switch and never reapplies them after a driver
 restart. They can be held independently; releasing one does not release the
 others. No registry change or GPU restart is needed to use them.
