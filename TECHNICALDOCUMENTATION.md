@@ -2414,6 +2414,25 @@ hardware trial or control is qualified by that path. This finding is scoped to
 the traced handler, not a version-based feature gate or a claim about every
 implementation; the public header does not expand the name VAT.
 
+A separate live numeric candidate is now source-bound: descriptor `0x2080E802`
+(size `0x404`) dispatches type3 attributes `0x3A`, `0x3B` and `0x4C`. It is not
+an `A802` command. For `3A`/`3B`, the host converts nonzero input `x` using
+`floor(x * factor / 1000)`, takes the low32 bits, and substitutes1 if that word
+is zero; a usable contract must exclude overflow. An all-zero pair is rejected.
+The selected value and a zero-valued peer enter a 16-byte parameter block in
+firmware request `02/03/04`. Host code does not establish whether firmware
+preserves or overwrites that zero peer, and no matching receiver was identified.
+
+A801 `3A`/`3B` return `floor(raw * 1000 / factor)` from two hardware-register
+values; `4C` returns the first raw word. The scaled helper ignores its provider's
+error, while `4C` propagates it. On the captured RTX5080/617.42, two stable valid
+controller0 reads returned `3A=100`, `3B=1000000`, `4C=10800`. The first pair bounds
+the integer factor to106931..108000, so it does not identify an exact factor.
+The provider uses a separate current hardware ID; controller index0 does not
+license a guessed register-ID0 read for the second word. Units, exact conversion
+and firmware peer semantics remain unqualified. No SET was issued, and no
+write-suppression conclusion follows from this read-only qualification.
+
 [Bounded byte evidence and exact gaps](experiments/additional-lowpower-functional-gaps-20261102.json)
 records these findings; they do not add recovery or profile work.
 
