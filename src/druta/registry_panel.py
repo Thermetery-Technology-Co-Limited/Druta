@@ -169,7 +169,7 @@ class RegistryPanel:
             )
             dpg.add_button(label="Read arbitration", callback=self.refresh_arbitration)
             dpg.add_input_text(tag="reg_arbitration", readonly=True, multiline=True, width=-1, height=self.app.s(260))
-        with dpg.collapsing_header(label="Runtime voltage-request control"):
+        with dpg.collapsing_header(label="Runtime voltage-request control", tag="reg_voltage_gate_header"):
             dpg.add_text(
                 "Allow or suppress the driver's voltage-request processing. Changes take effect immediately. "
                 "This switch does not set a voltage or raise a voltage ceiling.",

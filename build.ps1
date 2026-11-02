@@ -32,13 +32,20 @@
 #>
 
 [CmdletBinding()]
-param()
+param(
+    # Build beside an existing running bundle when reviewing local changes.
+    [string]$DistDirectory = 'dist'
+)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $root      = $PSScriptRoot
-$distDir   = Join-Path $root 'dist'
+$distDir   = if ([IO.Path]::IsPathRooted($DistDirectory)) {
+    [IO.Path]::GetFullPath($DistDirectory)
+} else {
+    [IO.Path]::GetFullPath((Join-Path $root $DistDirectory))
+}
 $bundleDir = Join-Path $distDir 'Druta'
 $exePath   = Join-Path $bundleDir 'Druta.exe'
 $specPath  = Join-Path $root 'Druta.spec'
@@ -87,6 +94,7 @@ function Get-SourceSnapshot {
         'experiments/grpg-bit4-qualified-20261029.json',
         'experiments/grpg-bit4-combined-qualified-20261029.json',
         'experiments/ui-render-capture-20261028.json',
+        'experiments/ui-current-controls-capture-20261102.json',
         'experiments/ui-live-panels-capture-20261028.json',
         'experiments/ui-registry-power-qualified-20261029.json',
         'experiments/ms-configured-qualified-20261029.json',
@@ -239,7 +247,7 @@ Write-Host "==> [1/5] python -m PyInstaller --noconfirm Druta.spec"
 
 Push-Location $root
 try {
-    python -m PyInstaller --noconfirm $specPath
+    python -m PyInstaller --noconfirm --distpath $distDir $specPath
     if ($LASTEXITCODE -ne 0) {
         throw "PyInstaller exited with code $LASTEXITCODE"
     }

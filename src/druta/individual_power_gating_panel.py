@@ -32,7 +32,7 @@ class IndividualPowerGatingPanel:
             tag="individual_power_gating_explainer", wrap=self.app.s(900),
         )
         for index, name in _CONTROLLERS:
-            dpg.add_text(name)
+            dpg.add_text(name, tag=self._tag(index, "heading"))
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Refresh", tag=self._tag(index, "read"), callback=self.read, user_data=index)
                 dpg.add_button(label="Hold disabled", tag=self._tag(index, "hold"), callback=self.hold,

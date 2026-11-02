@@ -2315,8 +2315,16 @@ Configured BIOS and registry controls are separate from these live requests.
 | Adaptive power policy | Shared Allow/Disable request and aggregate-state readback. GR and four media roles were present locally; MS was independently unavailable. Other reasons can mask a request, and a request may also change idle thresholds. | [Adaptive evidence](experiments/live-adaptive-power-policy-20261102.json); [tests](tests/test_adaptive_power_live.py) |
 
 Production callback trials are recorded in the linked evidence where performed.
-Current GUI pixel review remains unverified because the capture was unavailable;
-that is distinct from the recorded callback trials.
+The app-owned framebuffer walkthrough now covers these controls, including all
+eight individual inhibit rows. Its source-run review on RTX 5080 / 617.42
+produced 32 frames at 1528 x 1261 with no skipped stages or capture errors.
+The new stages refresh readbacks without applying tuning requests; the existing
+synthetic power-range and invalid-input stages remain display/parser checks.
+Selected headings, action buttons and readback qualifications were reviewed,
+including the explicit unverified-effective-threshold label for VCRIT.
+This establishes the reviewed baseline layout, not physical effects, every
+request state or other viewport/DPI layouts. See the
+[capture review](experiments/ui-current-controls-capture-20261102.json).
 
 ### Additional live profiler controls
 

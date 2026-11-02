@@ -9,6 +9,21 @@ import struct
 from pathlib import Path
 
 
+# Only read callbacks are used by these display stages.
+_CURRENT_CONTROLS = (
+    ("rail-requests", "voltage_requests_header", "voltage_requests_panel", "refresh", "voltage_requests_status", "voltage_requests_inventory"),
+    ("request-gate", "reg_voltage_gate_header", None, "refresh_voltage_gate", "reg_voltage_gate_status", "reg_voltage_gate_value"),
+    ("elpg", "reg_gr_gating_live_header", "gr_gating_live_panel", "read", "gr_gating_live_status", "gr_gating_live_readback"),
+    ("difr", "reg_difr_live_header", "difr_live_panel", "read", "difr_live_status", "difr_live_readback"),
+    ("elcg", "reg_engine_clock_gating_header", "engine_clock_gating_panel", "read", "engine_clock_gating_status", "engine_clock_gating_readback"),
+    ("blcg", "reg_block_clock_gating_header", "block_clock_gating_panel", "read", "block_clock_gating_status", "block_clock_gating_readback"),
+    ("slcg", "reg_second_level_clock_gating_header", "second_level_clock_gating_panel", "read", "second_level_clock_gating_status", "second_level_clock_gating_readback"),
+    ("individual", "reg_individual_power_gating_header", "individual_power_gating_panel", "read", "individual_power_gating_0_status", "individual_power_gating_0_readback"),
+    ("idle-thresholds", "reg_gr_idle_threshold_header", "gr_idle_threshold_panel", "read", "gr_idle_threshold_status", "gr_idle_threshold_readback"),
+    ("adaptive-policy", "reg_adaptive_power_header", "adaptive_power_panel", "read", "adaptive_power_status", "adaptive_power_readback"),
+)
+
+
 class UiCapture:
     """Run on the DPG thread; invalid Apply inputs stop at the parser before any writer."""
 
@@ -62,6 +77,34 @@ class UiCapture:
                 self.manifest["read_cache_note"] = "Live reads retain their normal panel caches and initial values."
             else:
                 self.manifest["skipped"].append("Live panels: registry panel or headers unavailable.")
+            self.current_cases = {}
+            if self.panel:
+                for name, header, attr, method, status, readback in _CURRENT_CONTROLS:
+                    if not dpg.does_item_exist(status) or not dpg.does_item_exist(readback):
+                        self.manifest["skipped"].append(name + ": panel unavailable.")
+                        continue
+                    target = getattr(self.panel, attr, None) if attr else self.panel
+                    if not header or not dpg.does_item_exist(header) or not callable(getattr(target, method, None)):
+                        self.manifest["skipped"].append(name + ": header or read callback unavailable.")
+                        continue
+                    self.snapshot["headers"].setdefault(header, dpg.get_value(header))
+                    if name == "individual":
+                        for index in (0, 4, 10, 11, 12, 13, 14, 15):
+                            row_status = f"individual_power_gating_{index}_status"
+                            row_readback = f"individual_power_gating_{index}_readback"
+                            row_heading = f"individual_power_gating_{index}_heading"
+                            if all(dpg.does_item_exist(tag) for tag in (row_heading, row_status, row_readback)):
+                                self.current_cases[f"current-individual-{index}"] = (
+                                    header, target, method, row_status, row_readback, index)
+                            else:
+                                self.manifest["skipped"].append(f"individual {index}: panel row unavailable.")
+                    else:
+                        self.current_cases["current-" + name] = (header, target, method, status, readback, None)
+                for tag in ("voltage_requests_select", "gr_idle_threshold_value", "reg_voltage_gate_value",
+                            *(f"voltage_requests_{index}_value" for index in range(6))):
+                    if dpg.does_item_exist(tag):
+                        self.snapshot.setdefault("current_values", {})[tag] = dpg.get_value(tag)
+                self.stages.extend(self.current_cases)
             self.stages.append("restored-display")
             self.stage = 0
             self._save()
@@ -83,6 +126,13 @@ class UiCapture:
                     selected = self.live_original.get(kind)
                     dpg.set_value("reg_" + kind + "_live_select", selected if selected in choices else next(iter(choices)))
                     getattr(self.panel, "select_" + kind + "_live")()
+            for tag, value in saved.get("current_values", {}).items():
+                if tag == "voltage_requests_select":
+                    choices = self.panel.voltage_requests_panel.choices
+                    value = value if value in choices else next(iter(choices), "")
+                dpg.set_value(tag, value)
+                if tag == "voltage_requests_select":
+                    self.panel.voltage_requests_panel.select()
             for tag, value in saved.get("headers", {}).items():
                 dpg.set_value(tag, value)
         self._restore_power()
@@ -150,12 +200,32 @@ class UiCapture:
         dpg.set_value("ctl_clocks", "Developer capture: " + name)
         self.live_scroll = "reg_" + kind + "_live_header"
 
+    def _stage_current(self, name):
+        header, target, method, status, _, index = self.current_cases[name]
+        dpg = self.dpg
+        for tag in self.snapshot["headers"]:
+            if tag != "registry_header":
+                dpg.set_value(tag, tag == header)
+        dpg.set_value("registry_header", True)
+        try:
+            if index is not None:
+                getattr(target, method)(user_data=index)
+            else:
+                getattr(target, method)()
+        except Exception as exc:
+            self.manifest["skipped"].append(name + " read failed: " + str(exc))
+        self.live_scroll = f"individual_power_gating_{index}_heading" if index is not None else header
+        dpg.set_value("ctl_clocks", "Developer capture: " + name)
+
     def _stage(self, name):
         dpg = self.dpg
         if name == "live-prepare":
             if not self._prepare_live():
                 return self._stage(self.stages[self.stage])
             name = self.stages[self.stage]
+        if name.startswith("current-"):
+            self._stage_current(name)
+            return True
         if name.startswith("live-"):
             self._stage_live(name)
             return True
@@ -217,6 +287,13 @@ class UiCapture:
                         prefix = "reg_" + kind + "_live_"
                         item["live"] = {key: self.dpg.get_value(prefix + tag) for key, tag in
                                         (("selected", "select"), ("value", "value"), ("status", "status"))}
+                    if name in self.current_cases:
+                        _, _, _, status, readback, _ = self.current_cases[name]
+                        item["current"] = {"status": self.dpg.get_value(status),
+                                           "readback": self.dpg.get_value(readback)}
+                        message = str(item["current"]["status"])
+                        if any(word in message.lower() for word in ("unavailable", "failed", "could not")):
+                            self.manifest["skipped"].append(name + ": " + message)
                     if "slider" in self.snapshot:
                         cfg = self.dpg.get_item_configuration("sl_pl")
                         item["widget"] = {"slider": self.dpg.get_value("sl_pl"), "input": self.dpg.get_value("in_pl"),
