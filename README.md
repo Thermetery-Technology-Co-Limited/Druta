@@ -1,8 +1,18 @@
 # Druta
 
-**Version 1.9.05 prerelease** — [release notes](RELEASE-NOTES-1.9.05.md).
-Supersedes published 1.9.03 and includes the Turing power-control work from the
-unpublished 1.9.04 build. Clock offsets can use the validated Pstates20 fallback
+**Version 1.9.06 prerelease** — [release notes](RELEASE-NOTES-1.9.06.md).
+Supersedes 1.9.05 and carries its Turing work forward. The XOC power-limit
+slider now extends on Pascal: a captured power-GET transport is no longer
+withheld because the driver's current-policy record layout is unrecognized,
+and Pascal may take the smaller client-power group. A Gigabyte GTX 1060 6GB on
+576.80 accepted idle 201 W and 250 W requests above its 200 W reported maximum
+with exact readback and full restoration; its current (A) sliders and native
+effective limit stay unavailable on that driver. Physical enforcement is
+unmeasured. See the
+[Pascal evidence](experiments/pascal-gp106-live-power-20261102.md).
+
+Carried forward from 1.9.05: clock offsets can use the validated Pstates20
+fallback
 when an exported NVML setter reports that the capability is unsupported.
 Rejected or unmatched power requests return the slider to configured readback;
 unavailable readback stays explicitly unverified. The control view distinguishes
@@ -125,7 +135,7 @@ python -m pip install -r requirements.txt
 ```
 
 The local build produces `dist\Druta\Druta.exe` and
-`dist\Druta-1.9.05-win64.zip`. Distribute the
+`dist\Druta-1.9.06-win64.zip`. Distribute the
 whole `Druta` folder or ZIP: the EXE needs its adjacent `_internal` folder.
 
 `dist\Druta\source\` contains the matching working-tree source, including

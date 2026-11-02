@@ -1,0 +1,1005 @@
+{
+  "date": "2026-11-02",
+  "identity": {
+    "name": "NVIDIA GeForce GTX 1060 6GB",
+    "driver": "576.80",
+    "vbios": "86.06.4b.00.32",
+    "slot": "0000:01:00.0"
+  },
+  "pci_identity": {
+    "slot": "0000:01:00.0",
+    "architecture": 4,
+    "device_id": 7171,
+    "subsystem_id": 927601752
+  },
+  "captured_power_transport": {
+    "command": "0x2080A612",
+    "packet_bytes": 11740,
+    "parameter_bytes": 11672
+  },
+  "current_policy_record_layout": {
+    "available": false,
+    "error": "unvalidated current-policy transport geometry",
+    "read_error": ""
+  },
+  "native_effective_mw": null,
+  "native_effective_error": "unvalidated current-policy transport geometry",
+  "normal_bounds_mw": [
+    90000,
+    200000
+  ],
+  "slider_bounds_mw": {
+    "xoc_off": [
+      90000,
+      200000
+    ],
+    "xoc_on": [
+      1,
+      1999000
+    ]
+  },
+  "baseline": {
+    "binding": {
+      "client_index": 0,
+      "native_index": 2,
+      "semantic_role": 1,
+      "client": 254,
+      "units": "mW",
+      "minimum_mw": 90000,
+      "rated_mw": 180000,
+      "maximum_mw": 200000,
+      "layout": "legacy32",
+      "native_layout": "policy124"
+    },
+    "requested_mw": 180000,
+    "policies": [
+      {
+        "index": 0,
+        "type": 11,
+        "channel": 1,
+        "unit": 0,
+        "requested": 5001000,
+        "minimum": 1,
+        "rated": 5001000,
+        "maximum": 5001000
+      },
+      {
+        "index": 1,
+        "type": 3,
+        "channel": 7,
+        "unit": 0,
+        "requested": 1001000,
+        "minimum": 1,
+        "rated": 1001000,
+        "maximum": 1001000
+      },
+      {
+        "index": 2,
+        "type": 0,
+        "channel": 0,
+        "unit": 0,
+        "requested": 180000,
+        "minimum": 90000,
+        "rated": 180000,
+        "maximum": 200000
+      },
+      {
+        "index": 3,
+        "type": 3,
+        "channel": 3,
+        "unit": 0,
+        "requested": 66000,
+        "minimum": 1000,
+        "rated": 66000,
+        "maximum": 78000
+      },
+      {
+        "index": 4,
+        "type": 3,
+        "channel": 4,
+        "unit": 0,
+        "requested": 162000,
+        "minimum": 1000,
+        "rated": 162000,
+        "maximum": 175000
+      },
+      {
+        "index": 7,
+        "type": 4,
+        "channel": 4,
+        "unit": 1,
+        "requested": 27000,
+        "minimum": 1000,
+        "rated": 27000,
+        "maximum": 34000
+      },
+      {
+        "index": 10,
+        "type": 4,
+        "channel": 3,
+        "unit": 1,
+        "requested": 10000,
+        "minimum": 1000,
+        "rated": 10000,
+        "maximum": 13000
+      },
+      {
+        "index": 13,
+        "type": 11,
+        "channel": 11,
+        "unit": 1,
+        "requested": 86800,
+        "minimum": 1000,
+        "rated": 86800,
+        "maximum": 95000
+      },
+      {
+        "index": 14,
+        "type": 11,
+        "channel": 1,
+        "unit": 0,
+        "requested": 5001000,
+        "minimum": 1,
+        "rated": 5001000,
+        "maximum": 5001000
+      },
+      {
+        "index": 15,
+        "type": 11,
+        "channel": 1,
+        "unit": 0,
+        "requested": 5001000,
+        "minimum": 1,
+        "rated": 5001000,
+        "maximum": 5001000
+      }
+    ],
+    "buffers": {
+      "info_hex": {
+        "bytes": 1160,
+        "sha256": "5040da6c84f22c69f2a6d5c043e22c34f2069329acfb8856f1c73c41f1782b53"
+      },
+      "role_info_hex": {
+        "bytes": 232,
+        "sha256": "93c5954a71a531c2f075a5b4e7c1d57ae2ff2db61e6dab3bbf400573c383953f"
+      },
+      "native_info_hex": {
+        "bytes": 8620,
+        "sha256": "47c7366363cefb218ba0e06c962b317e263bba25566da17255313647bfac4b55"
+      },
+      "control_hex": {
+        "bytes": 392,
+        "sha256": "20071b425ef2830de0d34570ba4ff07e25678983b95fb29bc889cb5f2a000ea1"
+      },
+      "native_control_hex": {
+        "bytes": 4432,
+        "sha256": "9f1dfb3443eaf9a782e18a8728f8d5f5e205231ef3247866ec92b25726d7e4d3"
+      }
+    }
+  },
+  "trials": [
+    {
+      "label": "client_in_range",
+      "target_mw": 190000,
+      "idle_before": {
+        "pstate": 8,
+        "util_gpu": 1,
+        "power_w": 7.954,
+        "temp_edge": 31,
+        "pl_requested_mw": 180000,
+        "pl_now_mw": 180000
+      },
+      "xoc_required": false,
+      "production_message": "power limit configured to 190 W",
+      "after": {
+        "binding": {
+          "client_index": 0,
+          "native_index": 2,
+          "semantic_role": 1,
+          "client": 254,
+          "units": "mW",
+          "minimum_mw": 90000,
+          "rated_mw": 180000,
+          "maximum_mw": 200000,
+          "layout": "legacy32",
+          "native_layout": "policy124"
+        },
+        "requested_mw": 190000,
+        "policies": [
+          {
+            "index": 0,
+            "type": 11,
+            "channel": 1,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          },
+          {
+            "index": 1,
+            "type": 3,
+            "channel": 7,
+            "unit": 0,
+            "requested": 1001000,
+            "minimum": 1,
+            "rated": 1001000,
+            "maximum": 1001000
+          },
+          {
+            "index": 2,
+            "type": 0,
+            "channel": 0,
+            "unit": 0,
+            "requested": 190000,
+            "minimum": 90000,
+            "rated": 180000,
+            "maximum": 200000
+          },
+          {
+            "index": 3,
+            "type": 3,
+            "channel": 3,
+            "unit": 0,
+            "requested": 72000,
+            "minimum": 1000,
+            "rated": 66000,
+            "maximum": 78000
+          },
+          {
+            "index": 4,
+            "type": 3,
+            "channel": 4,
+            "unit": 0,
+            "requested": 168500,
+            "minimum": 1000,
+            "rated": 162000,
+            "maximum": 175000
+          },
+          {
+            "index": 7,
+            "type": 4,
+            "channel": 4,
+            "unit": 1,
+            "requested": 30500,
+            "minimum": 1000,
+            "rated": 27000,
+            "maximum": 34000
+          },
+          {
+            "index": 10,
+            "type": 4,
+            "channel": 3,
+            "unit": 1,
+            "requested": 10000,
+            "minimum": 1000,
+            "rated": 10000,
+            "maximum": 13000
+          },
+          {
+            "index": 13,
+            "type": 11,
+            "channel": 11,
+            "unit": 1,
+            "requested": 90900,
+            "minimum": 1000,
+            "rated": 86800,
+            "maximum": 95000
+          },
+          {
+            "index": 14,
+            "type": 11,
+            "channel": 1,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          },
+          {
+            "index": 15,
+            "type": 11,
+            "channel": 1,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          }
+        ],
+        "buffers": {
+          "info_hex": {
+            "bytes": 1160,
+            "sha256": "5040da6c84f22c69f2a6d5c043e22c34f2069329acfb8856f1c73c41f1782b53"
+          },
+          "role_info_hex": {
+            "bytes": 232,
+            "sha256": "93c5954a71a531c2f075a5b4e7c1d57ae2ff2db61e6dab3bbf400573c383953f"
+          },
+          "native_info_hex": {
+            "bytes": 8620,
+            "sha256": "47c7366363cefb218ba0e06c962b317e263bba25566da17255313647bfac4b55"
+          },
+          "control_hex": {
+            "bytes": 392,
+            "sha256": "559bec225d7ca392621283081cfe5a4e718bea532e27c5d1fac3f6ab57ba3376"
+          },
+          "native_control_hex": {
+            "bytes": 4432,
+            "sha256": "aaa8500aad755b620e4231dfba74fb40618ae7038b4f3631329420ad0539dd3c"
+          }
+        }
+      },
+      "exact_request_readback": true,
+      "samples": [
+        {
+          "at": 1793645338.0291038,
+          "configured_mw": 190000,
+          "native_effective_mw": null,
+          "native_effective_error": "unvalidated current-policy transport geometry",
+          "idle": {
+            "pstate": 8,
+            "util_gpu": 1,
+            "power_w": 7.954,
+            "temp_edge": 31,
+            "pl_requested_mw": 190000,
+            "pl_now_mw": 190000
+          }
+        },
+        {
+          "at": 1793645338.2907798,
+          "configured_mw": 190000,
+          "native_effective_mw": null,
+          "native_effective_error": "unvalidated current-policy transport geometry",
+          "idle": {
+            "pstate": 8,
+            "util_gpu": 2,
+            "power_w": 7.664,
+            "temp_edge": 31,
+            "pl_requested_mw": 190000,
+            "pl_now_mw": 190000
+          }
+        },
+        {
+          "at": 1793645338.552925,
+          "configured_mw": 190000,
+          "native_effective_mw": null,
+          "native_effective_error": "unvalidated current-policy transport geometry",
+          "idle": {
+            "pstate": 8,
+            "util_gpu": 1,
+            "power_w": 7.855,
+            "temp_edge": 31,
+            "pl_requested_mw": 190000,
+            "pl_now_mw": 190000
+          }
+        },
+        {
+          "at": 1793645338.814404,
+          "configured_mw": 190000,
+          "native_effective_mw": null,
+          "native_effective_error": "unvalidated current-policy transport geometry",
+          "idle": {
+            "pstate": 8,
+            "util_gpu": 2,
+            "power_w": 8.434,
+            "temp_edge": 31,
+            "pl_requested_mw": 190000,
+            "pl_now_mw": 190000
+          }
+        }
+      ],
+      "slider_bounds_during_request": {
+        "xoc_off": [
+          90000,
+          200000
+        ],
+        "xoc_on": [
+          1,
+          1999000
+        ]
+      },
+      "restoration": {
+        "attempted": true,
+        "verified": true,
+        "error": null
+      }
+    },
+    {
+      "label": "client_above_maximum",
+      "target_mw": 201000,
+      "idle_before": {
+        "pstate": 8,
+        "util_gpu": 5,
+        "power_w": 7.76,
+        "temp_edge": 31,
+        "pl_requested_mw": 180000,
+        "pl_now_mw": 180000
+      },
+      "xoc_required": true,
+      "production_message": "power request configured to 201 W; the driver may recalculate other policies; downstream power/current limits can be lower",
+      "after": {
+        "binding": {
+          "client_index": 0,
+          "native_index": 2,
+          "semantic_role": 1,
+          "client": 254,
+          "units": "mW",
+          "minimum_mw": 90000,
+          "rated_mw": 180000,
+          "maximum_mw": 200000,
+          "layout": "legacy32",
+          "native_layout": "policy124"
+        },
+        "requested_mw": 201000,
+        "policies": [
+          {
+            "index": 0,
+            "type": 11,
+            "channel": 1,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          },
+          {
+            "index": 1,
+            "type": 3,
+            "channel": 7,
+            "unit": 0,
+            "requested": 1001000,
+            "minimum": 1,
+            "rated": 1001000,
+            "maximum": 1001000
+          },
+          {
+            "index": 2,
+            "type": 0,
+            "channel": 0,
+            "unit": 0,
+            "requested": 201000,
+            "minimum": 90000,
+            "rated": 180000,
+            "maximum": 200000
+          },
+          {
+            "index": 3,
+            "type": 3,
+            "channel": 3,
+            "unit": 0,
+            "requested": 78601,
+            "minimum": 1000,
+            "rated": 66000,
+            "maximum": 78000
+          },
+          {
+            "index": 4,
+            "type": 3,
+            "channel": 4,
+            "unit": 0,
+            "requested": 175651,
+            "minimum": 1000,
+            "rated": 162000,
+            "maximum": 175000
+          },
+          {
+            "index": 7,
+            "type": 4,
+            "channel": 4,
+            "unit": 1,
+            "requested": 34350,
+            "minimum": 1000,
+            "rated": 27000,
+            "maximum": 34000
+          },
+          {
+            "index": 10,
+            "type": 4,
+            "channel": 3,
+            "unit": 1,
+            "requested": 10000,
+            "minimum": 1000,
+            "rated": 10000,
+            "maximum": 13000
+          },
+          {
+            "index": 13,
+            "type": 11,
+            "channel": 11,
+            "unit": 1,
+            "requested": 95410,
+            "minimum": 1000,
+            "rated": 86800,
+            "maximum": 95000
+          },
+          {
+            "index": 14,
+            "type": 11,
+            "channel": 1,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          },
+          {
+            "index": 15,
+            "type": 11,
+            "channel": 1,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          }
+        ],
+        "buffers": {
+          "info_hex": {
+            "bytes": 1160,
+            "sha256": "5040da6c84f22c69f2a6d5c043e22c34f2069329acfb8856f1c73c41f1782b53"
+          },
+          "role_info_hex": {
+            "bytes": 232,
+            "sha256": "93c5954a71a531c2f075a5b4e7c1d57ae2ff2db61e6dab3bbf400573c383953f"
+          },
+          "native_info_hex": {
+            "bytes": 8620,
+            "sha256": "47c7366363cefb218ba0e06c962b317e263bba25566da17255313647bfac4b55"
+          },
+          "control_hex": {
+            "bytes": 392,
+            "sha256": "17a62c5d86fab3f8f9f43dbef3c4d23bd8b01497ad81712ada0008b459c4bfe4"
+          },
+          "native_control_hex": {
+            "bytes": 4432,
+            "sha256": "41d517a5788f230b89083b3b2ac0a69bde5043043c7e2a3ff63d4a2166ea7dfc"
+          }
+        }
+      },
+      "exact_request_readback": true,
+      "samples": [
+        {
+          "at": 1793645339.2747254,
+          "configured_mw": 201000,
+          "native_effective_mw": null,
+          "native_effective_error": "unvalidated current-policy transport geometry",
+          "idle": {
+            "pstate": 8,
+            "util_gpu": 5,
+            "power_w": 8.543,
+            "temp_edge": 31,
+            "pl_requested_mw": 201000,
+            "pl_now_mw": 201000
+          }
+        },
+        {
+          "at": 1793645339.5366092,
+          "configured_mw": 201000,
+          "native_effective_mw": null,
+          "native_effective_error": "unvalidated current-policy transport geometry",
+          "idle": {
+            "pstate": 8,
+            "util_gpu": 8,
+            "power_w": 7.955,
+            "temp_edge": 31,
+            "pl_requested_mw": 201000,
+            "pl_now_mw": 201000
+          }
+        },
+        {
+          "at": 1793645339.7991579,
+          "configured_mw": 201000,
+          "native_effective_mw": null,
+          "native_effective_error": "unvalidated current-policy transport geometry",
+          "idle": {
+            "pstate": 8,
+            "util_gpu": 0,
+            "power_w": 8.144,
+            "temp_edge": 31,
+            "pl_requested_mw": 201000,
+            "pl_now_mw": 201000
+          }
+        },
+        {
+          "at": 1793645340.0613277,
+          "configured_mw": 201000,
+          "native_effective_mw": null,
+          "native_effective_error": "unvalidated current-policy transport geometry",
+          "idle": {
+            "pstate": 8,
+            "util_gpu": 0,
+            "power_w": 7.664,
+            "temp_edge": 31,
+            "pl_requested_mw": 201000,
+            "pl_now_mw": 201000
+          }
+        }
+      ],
+      "slider_bounds_during_request": {
+        "xoc_off": [
+          90000,
+          201000
+        ],
+        "xoc_on": [
+          1,
+          1999000
+        ]
+      },
+      "restoration": {
+        "attempted": true,
+        "verified": true,
+        "error": null
+      }
+    },
+    {
+      "label": "client_extended",
+      "target_mw": 250000,
+      "idle_before": {
+        "pstate": 8,
+        "util_gpu": 1,
+        "power_w": 8.239,
+        "temp_edge": 31,
+        "pl_requested_mw": 180000,
+        "pl_now_mw": 180000
+      },
+      "xoc_required": true,
+      "production_message": "power request configured to 250 W; the driver may recalculate other policies; downstream power/current limits can be lower",
+      "after": {
+        "binding": {
+          "client_index": 0,
+          "native_index": 2,
+          "semantic_role": 1,
+          "client": 254,
+          "units": "mW",
+          "minimum_mw": 90000,
+          "rated_mw": 180000,
+          "maximum_mw": 200000,
+          "layout": "legacy32",
+          "native_layout": "policy124"
+        },
+        "requested_mw": 250000,
+        "policies": [
+          {
+            "index": 0,
+            "type": 11,
+            "channel": 1,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          },
+          {
+            "index": 1,
+            "type": 3,
+            "channel": 7,
+            "unit": 0,
+            "requested": 1001000,
+            "minimum": 1,
+            "rated": 1001000,
+            "maximum": 1001000
+          },
+          {
+            "index": 2,
+            "type": 0,
+            "channel": 0,
+            "unit": 0,
+            "requested": 250000,
+            "minimum": 90000,
+            "rated": 180000,
+            "maximum": 200000
+          },
+          {
+            "index": 3,
+            "type": 3,
+            "channel": 3,
+            "unit": 0,
+            "requested": 108000,
+            "minimum": 1000,
+            "rated": 66000,
+            "maximum": 78000
+          },
+          {
+            "index": 4,
+            "type": 3,
+            "channel": 4,
+            "unit": 0,
+            "requested": 207500,
+            "minimum": 1000,
+            "rated": 162000,
+            "maximum": 175000
+          },
+          {
+            "index": 7,
+            "type": 4,
+            "channel": 4,
+            "unit": 1,
+            "requested": 51500,
+            "minimum": 1000,
+            "rated": 27000,
+            "maximum": 34000
+          },
+          {
+            "index": 10,
+            "type": 4,
+            "channel": 3,
+            "unit": 1,
+            "requested": 10000,
+            "minimum": 1000,
+            "rated": 10000,
+            "maximum": 13000
+          },
+          {
+            "index": 13,
+            "type": 11,
+            "channel": 11,
+            "unit": 1,
+            "requested": 115500,
+            "minimum": 1000,
+            "rated": 86800,
+            "maximum": 95000
+          },
+          {
+            "index": 14,
+            "type": 11,
+            "channel": 1,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          },
+          {
+            "index": 15,
+            "type": 11,
+            "channel": 1,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          }
+        ],
+        "buffers": {
+          "info_hex": {
+            "bytes": 1160,
+            "sha256": "5040da6c84f22c69f2a6d5c043e22c34f2069329acfb8856f1c73c41f1782b53"
+          },
+          "role_info_hex": {
+            "bytes": 232,
+            "sha256": "93c5954a71a531c2f075a5b4e7c1d57ae2ff2db61e6dab3bbf400573c383953f"
+          },
+          "native_info_hex": {
+            "bytes": 8620,
+            "sha256": "47c7366363cefb218ba0e06c962b317e263bba25566da17255313647bfac4b55"
+          },
+          "control_hex": {
+            "bytes": 392,
+            "sha256": "8b3f6bc110215a4992882e487de192a1ec7fdda8da38c11248acbcf9cfa58606"
+          },
+          "native_control_hex": {
+            "bytes": 4432,
+            "sha256": "b71c222b8319ca1706a2d0869a7f11abf2ed6c07745f1fcb434b610536ff5436"
+          }
+        }
+      },
+      "exact_request_readback": true,
+      "samples": [
+        {
+          "at": 1793645340.4937987,
+          "configured_mw": 250000,
+          "native_effective_mw": null,
+          "native_effective_error": "unvalidated current-policy transport geometry",
+          "idle": {
+            "pstate": 8,
+            "util_gpu": 1,
+            "power_w": 9.105,
+            "temp_edge": 31,
+            "pl_requested_mw": 250000,
+            "pl_now_mw": 250000
+          }
+        },
+        {
+          "at": 1793645340.7546349,
+          "configured_mw": 250000,
+          "native_effective_mw": null,
+          "native_effective_error": "unvalidated current-policy transport geometry",
+          "idle": {
+            "pstate": 8,
+            "util_gpu": 1,
+            "power_w": 8.049,
+            "temp_edge": 31,
+            "pl_requested_mw": 250000,
+            "pl_now_mw": 250000
+          }
+        },
+        {
+          "at": 1793645341.0161555,
+          "configured_mw": 250000,
+          "native_effective_mw": null,
+          "native_effective_error": "unvalidated current-policy transport geometry",
+          "idle": {
+            "pstate": 8,
+            "util_gpu": 1,
+            "power_w": 8.144,
+            "temp_edge": 31,
+            "pl_requested_mw": 250000,
+            "pl_now_mw": 250000
+          }
+        },
+        {
+          "at": 1793645341.2774053,
+          "configured_mw": 250000,
+          "native_effective_mw": null,
+          "native_effective_error": "unvalidated current-policy transport geometry",
+          "idle": {
+            "pstate": 8,
+            "util_gpu": 0,
+            "power_w": 7.952,
+            "temp_edge": 31,
+            "pl_requested_mw": 250000,
+            "pl_now_mw": 250000
+          }
+        }
+      ],
+      "slider_bounds_during_request": {
+        "xoc_off": [
+          90000,
+          250000
+        ],
+        "xoc_on": [
+          1,
+          1999000
+        ]
+      },
+      "restoration": {
+        "attempted": true,
+        "verified": true,
+        "error": null
+      }
+    }
+  ],
+  "scope": "Idle software request acceptance, exact readback and restoration on one Pascal adapter and driver. Physical enforcement is unmeasured, and the native effective limit is unavailable on this driver's record layout.",
+  "final": {
+    "binding": {
+      "client_index": 0,
+      "native_index": 2,
+      "semantic_role": 1,
+      "client": 254,
+      "units": "mW",
+      "minimum_mw": 90000,
+      "rated_mw": 180000,
+      "maximum_mw": 200000,
+      "layout": "legacy32",
+      "native_layout": "policy124"
+    },
+    "requested_mw": 180000,
+    "policies": [
+      {
+        "index": 0,
+        "type": 11,
+        "channel": 1,
+        "unit": 0,
+        "requested": 5001000,
+        "minimum": 1,
+        "rated": 5001000,
+        "maximum": 5001000
+      },
+      {
+        "index": 1,
+        "type": 3,
+        "channel": 7,
+        "unit": 0,
+        "requested": 1001000,
+        "minimum": 1,
+        "rated": 1001000,
+        "maximum": 1001000
+      },
+      {
+        "index": 2,
+        "type": 0,
+        "channel": 0,
+        "unit": 0,
+        "requested": 180000,
+        "minimum": 90000,
+        "rated": 180000,
+        "maximum": 200000
+      },
+      {
+        "index": 3,
+        "type": 3,
+        "channel": 3,
+        "unit": 0,
+        "requested": 66000,
+        "minimum": 1000,
+        "rated": 66000,
+        "maximum": 78000
+      },
+      {
+        "index": 4,
+        "type": 3,
+        "channel": 4,
+        "unit": 0,
+        "requested": 162000,
+        "minimum": 1000,
+        "rated": 162000,
+        "maximum": 175000
+      },
+      {
+        "index": 7,
+        "type": 4,
+        "channel": 4,
+        "unit": 1,
+        "requested": 27000,
+        "minimum": 1000,
+        "rated": 27000,
+        "maximum": 34000
+      },
+      {
+        "index": 10,
+        "type": 4,
+        "channel": 3,
+        "unit": 1,
+        "requested": 10000,
+        "minimum": 1000,
+        "rated": 10000,
+        "maximum": 13000
+      },
+      {
+        "index": 13,
+        "type": 11,
+        "channel": 11,
+        "unit": 1,
+        "requested": 86800,
+        "minimum": 1000,
+        "rated": 86800,
+        "maximum": 95000
+      },
+      {
+        "index": 14,
+        "type": 11,
+        "channel": 1,
+        "unit": 0,
+        "requested": 5001000,
+        "minimum": 1,
+        "rated": 5001000,
+        "maximum": 5001000
+      },
+      {
+        "index": 15,
+        "type": 11,
+        "channel": 1,
+        "unit": 0,
+        "requested": 5001000,
+        "minimum": 1,
+        "rated": 5001000,
+        "maximum": 5001000
+      }
+    ],
+    "buffers": {
+      "info_hex": {
+        "bytes": 1160,
+        "sha256": "5040da6c84f22c69f2a6d5c043e22c34f2069329acfb8856f1c73c41f1782b53"
+      },
+      "role_info_hex": {
+        "bytes": 232,
+        "sha256": "93c5954a71a531c2f075a5b4e7c1d57ae2ff2db61e6dab3bbf400573c383953f"
+      },
+      "native_info_hex": {
+        "bytes": 8620,
+        "sha256": "47c7366363cefb218ba0e06c962b317e263bba25566da17255313647bfac4b55"
+      },
+      "control_hex": {
+        "bytes": 392,
+        "sha256": "20071b425ef2830de0d34570ba4ff07e25678983b95fb29bc889cb5f2a000ea1"
+      },
+      "native_control_hex": {
+        "bytes": 4432,
+        "sha256": "9f1dfb3443eaf9a782e18a8728f8d5f5e205231ef3247866ec92b25726d7e4d3"
+      }
+    }
+  },
+  "final_configured_mw": 180000,
+  "full_baseline_restored": true
+}

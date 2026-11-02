@@ -2779,14 +2779,56 @@ not infer the active registry selection from a voltage number.
 
 ## Live client power requests
 
-When the modern INFO packet is rejected with INVALID_ARGUMENT, an Ampere or
-Turing adapter may expose a smaller 32-row client layout. Druta tries that known
+When the modern INFO packet is rejected with INVALID_ARGUMENT, a Pascal,
+Turing or Ampere adapter may expose a smaller 32-row client layout. Druta tries
+that known
 read-only layout and requires an exact semantic-role/native-INFO binding, a
 stable restorable FE request, matching native CONTROL, and PCI pairing before
 enabling a SET. Packet sizes are capability checks, not driver-version or
 device-ID allowlists. Ada's smaller INFO packet has an independent trace, but
 the 184-byte native CONTROL rows and SET have been validated here on the
 RTX 3070 Ti; packet rejection remains an independent unsupported result.
+
+`LEGACY_GROUP_ARCHITECTURES` lists the generations whose client power-policy
+semantics have been validated against a live adapter and may therefore take
+this fallback. Generation decides whether the semantics are understood at all;
+*which* group a card speaks is still decided by read-only INFO acceptance and
+exact readback. Widening that list is a hardware-validation result, never
+something a refused modern INFO infers on its own.
+
+### The captured transport and the current-policy record layout are separate
+
+Druta borrows a paired RM transport from an unmodified power getter and reuses
+its handles. `_CURRENT_LIMIT_LAYOUTS` separately maps that getter's packet and
+parameter sizes to a *current-policy record* layout — the A618/A619/A61A/E61B
+sizes, bases and strides behind the current (A) sliders.
+
+`GPU._rm_power_transport` answers only the first question. It validates the
+envelope it has to reuse: a 17-word header of a known command family whose
+packet length is its parameter length plus the 68-byte prologue.
+`GPU._current_limit_transport_layouts` then selects the record layout on top
+of it, and a parameter size no entry describes raises
+`CurrentLimitUnsupported` without discarding the captured transport.
+
+The client-power group does not consult that table at all, because it selects
+its own packet sizes by read-only INFO acceptance. So a driver whose
+current-policy records are unknown loses the current (A) sliders and keeps
+live power (W). The loss is reported as an unsupported interface rather than a
+failed read, so profiles stay complete and "Reset all to stock" does not fail.
+PERF diagnostics keep their own independent transport restrictions.
+
+A Gigabyte GTX 1060 6GB (GP106) on driver 576.80 presents an A612 transport of
+11740/11672 bytes, which no recorded layout describes, and reaches the same
+1160-byte client group and 124-byte native controls as Turing 581.42. Role 1
+uniquely bound client row 0 to native policy 2 with 90/180/200 W bounds. Idle
+190/201/250 W requests, the latter two above the reported maximum and behind
+XOC, passed exact readback and full restoration of the captured 180 W state.
+Native STATUS is not read for this layout, so the native effective limit,
+arbitration detail and original-BIOS coloring stay explicitly unavailable
+without disabling the ordinary slider. See the
+[Pascal evidence](experiments/pascal-gp106-live-power-20261102.md) and its
+sanitized report. These are idle software observations on one adapter and one
+driver; they do not establish physical enforcement under load.
 
 Turing is also eligible to probe the smaller client layout. After explicit
 RM INVALID_ARGUMENT rejection of the 8632-byte native INFO, the controller

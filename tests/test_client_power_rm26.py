@@ -125,6 +125,10 @@ class Rm26Gpu:
             fault(self)
         return ({},)
 
+    def _rm_power_transport(self):
+        self._current_limit_transport_layouts()
+        return self._current_limit_transport
+
     def _legacy_clk_escape(self, packet, fields):
         assert self._lock.held
         command, size = int(packet[14]), int(packet[15])
