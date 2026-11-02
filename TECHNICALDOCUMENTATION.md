@@ -2433,6 +2433,25 @@ license a guessed register-ID0 read for the second word. Units, exact conversion
 and firmware peer semantics remain unqualified. No SET was issued, and no
 write-suppression conclusion follows from this read-only qualification.
 
+A further host-source audit binds the IdleThresholdUs registry literals to
+per-controller group rows, while the default-pair generator reads different
+fields in the parent LPWR object. No value flow joins those rows to live 3A/3B,
+so the registry suffix does not establish their units. Another real caller,
+command 20801707, accepts 12-byte selector/controller/value entries. Its 303/304
+selectors still call the conversion separately with a zero peer; they do not
+provide a simultaneous two-value update. The PMU scale is traced to a
+ClockManager query and an alternate PMU branch, but the queried domain units
+and current scale-mode selection remain unbound.
+
+Published NVIDIA-authored GA10B host code has a four-word threshold structure
+and explicitly fills both idle and post-power-up values. Its PG RPC uses
+function 6 and a different unjoined header, so it cannot establish the Windows
+02/03/04 receiver or zero-peer behavior. The current packaged firmware hashes
+and 1293-entry archive differ from the older 1223-entry extraction context; old
+row numbers must not be reused as current firmware identities. Root verified
+39 additional host-source windows, five immutable public source receipts and
+the current firmware-package hashes. No numeric threshold SET was attempted.
+
 The follow-up excludes an arbitrary-pair shortcut through this type3 dispatcher.
 SET `4C` reads only entry+8 and supplies zero as the second threshold; SET `43`
 sends a pair generated from controller defaults, ignoring caller value fields.
@@ -2473,6 +2492,12 @@ No SET or product control was added for these cases.
 
 [Bounded byte evidence and exact gaps](experiments/additional-lowpower-functional-gaps-20261102.json)
 records these findings; they do not add recovery or profile work.
+
+The remaining supported controller 1 has MS-related configured routing but no
+qualified individual function name. Controller 5 belongs to group 2 and is tied
+to the RMLpwrEiIdleThresholdUs literal, unlike grouped profiler ELPG which targets
+groups 0/1 and 3. The EI abbreviation does not establish a useful action or
+physical effect. Neither unnamed controller was added as a product control.
 
 ### Individual live engine power-gating inhibits
 
@@ -2568,6 +2593,21 @@ Another client's reference may keep reason0 active after our one release, which
 is reported as the current readback. There is no profile or driver-restart replay.
 [Media request evidence](experiments/live-media-power-gating-20261102.json)
 records the source and bounded hardware qualification.
+
+The portable `experiments/individual_power_gating_validation.py` collector
+defaults to read-only inventory. `--trial` requires an explicit PCI slot, a new
+output path and one selected controller from 0/4/10/11/12/13/14/15. It uses the
+production controller, records exact E802 request/response bytes, verifies the
+selected transition/release, and compares independently readable peer masks
+including controller 9. An unreadable peer is reported as unverified coverage;
+it cannot hide a change on another readable peer. A failed selected read or
+trial returns nonzero. Qualification is scoped to the selected request; inspect
+peer_check separately. It performs no restart, registry change or workload.
+Root verified a zero-write inventory and one balanced controller 10 trial on
+RTX5080/617.42. The 3070 Ti peer was online but SSH timed out, so this collector
+has not yet established Ampere hardware results. The 82 focused collector/backend/
+panel tests passed; [collector qualification](experiments/individual-power-gating-validation-20261102.json)
+records the exact local request/response and unchanged final comparison state.
 
 The BLCG follow-up binds the native architecture getter and generated HAL
 constructor to the same chipword. In the inspected source, native architecture

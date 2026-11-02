@@ -850,6 +850,20 @@ own requests on normal exit or GPU switch and does not save or reapply them
 after a driver restart. Readback confirms the driver's request state, not
 physical gating, residency or power savings.
 
+To validate an individual control on another adapter from a source checkout,
+use `experiments/individual_power_gating_validation.py`. Read-only inventory is
+the default; substitute the intended adapter's PCI slot in these commands:
+
+```powershell
+python experiments/individual_power_gating_validation.py --gpu <PCI-slot> --out individual-read.json
+python experiments/individual_power_gating_validation.py --gpu <PCI-slot> --controller 4 --trial --out ms-trial.json
+```
+
+The trial selects one controller: 0 Graphics, 4 MS, 10 SW-ASR, 11 DIFR CG,
+12 NVDEC, 13 NVENC, 14 OFA or 15 NVJPG. Each output must be a new file. The
+JSON separates the selected request result from peer coverage; unreadable peers
+remain unverified. No workload, registry change or restart is performed.
+
 **Runtime VF policy control** reads the active monotonicity and smoothing checks.
 After **Read VF policies**, use **Apply policies now** to change either check
 without restarting the GPU. **Restore initial policies** restores the values
