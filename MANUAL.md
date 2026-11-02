@@ -908,6 +908,11 @@ threshold** for current values. Allow does not clear the separate reason that
 manual idle-threshold requests may set. These controls use no registry changes
 and are not saved or reapplied after a driver restart.
 
+When a change in either of these two panels can affect the other panel's
+selected controller, Druta marks that readback stale and requires **Refresh**
+before another change there. Any typed idle-threshold value is preserved.
+This does not issue another tuning request or restore an earlier setting.
+
 **Runtime VF policy control** reads the active monotonicity and smoothing checks.
 After **Read VF policies**, use **Apply policies now** to change either check
 without restarting the GPU. **Restore initial policies** restores the values

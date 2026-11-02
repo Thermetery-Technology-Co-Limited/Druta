@@ -12,8 +12,9 @@ _CONTROLLERS = {"Graphics (GR)": 0, "Memory subsystem (MS)": 4,
 class GrIdleThresholdPanel:
     """Show the selected adapter's driver request and verified readback."""
 
-    def __init__(self, app):
+    def __init__(self, app, on_request=None):
         self.app = app
+        self.on_request = on_request
         self.snapshot = None
         self.snapshot_gpu = None
         self.stale = True
@@ -55,6 +56,13 @@ class GrIdleThresholdPanel:
 
     def _selection_changed(self, sender=None, app_data=None, user_data=None):
         self.reset_view()
+
+    def invalidate_related(self, gpu, index):
+        if self.snapshot_gpu is gpu and self._selected() == index:
+            self.stale = True
+            dpg.set_value("gr_idle_threshold_readback", "Readback may have changed; refresh required.")
+            dpg.set_value("gr_idle_threshold_status", "Refresh status before applying.")
+            self._configure_actions()
 
     @staticmethod
     def _selected():
@@ -149,7 +157,13 @@ class GrIdleThresholdPanel:
         index = self._selected()
         value = self._value()
         try:
-            snapshot = self._controller(index).apply(value)
+            controller = self._controller(index)
+            snapshot = None
+            try:
+                snapshot = controller.apply(value)
+            finally:
+                if self.on_request and (snapshot is None or snapshot.get("changed") is not False):
+                    self.on_request(gpu, index)
             if snapshot.get("index") != index:
                 raise ValueError("readback controller does not match selection")
             if not snapshot.get("available"):

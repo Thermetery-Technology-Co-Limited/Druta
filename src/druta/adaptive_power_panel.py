@@ -11,8 +11,9 @@ _CONTROLLERS = {"Graphics (GR)": 0, "Memory subsystem (MS)": 2,
 class AdaptivePowerPanel:
     """Present the selected controller's aggregate policy state."""
 
-    def __init__(self, app):
+    def __init__(self, app, on_request=None):
         self.app = app
+        self.on_request = on_request
         self.snapshot = None
         self.snapshot_gpu = None
         self.stale = True
@@ -70,6 +71,13 @@ class AdaptivePowerPanel:
     def _selection_changed(self, sender=None, app_data=None, user_data=None):
         self.reset_view()
 
+    def invalidate_related(self, gpu, index):
+        if self.snapshot_gpu is gpu and self._selected() == index:
+            self.stale = True
+            dpg.set_value("adaptive_power_readback", "Readback may have changed; refresh required.")
+            dpg.set_value("adaptive_power_status", "Refresh status before requesting a change.")
+            self._configure_actions()
+
     @staticmethod
     def _format(snapshot):
         if snapshot.get("available") is not True:
@@ -117,7 +125,13 @@ class AdaptivePowerPanel:
             return
         gpu, index = self.app.gpu, self._selected()
         try:
-            snapshot = self._controller(index).set_allowed(allowed)
+            controller = self._controller(index)
+            snapshot = None
+            try:
+                snapshot = controller.set_allowed(allowed)
+            finally:
+                if self.on_request and (snapshot is None or snapshot.get("verification") != "already_allowed"):
+                    self.on_request(gpu, index)
             if snapshot.get("index") != index or snapshot.get("requested_allowed") is not allowed:
                 raise ValueError("request result does not match selection")
             verification = snapshot.get("verification")

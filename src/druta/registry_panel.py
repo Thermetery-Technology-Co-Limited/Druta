@@ -17,6 +17,7 @@ _VF_LIVE_FIELDS = (
     ("clock_vf.smoothening", "vf_smoothening_enforced", "reg_vf_live_smoothening"),
 )
 _DIFR_LABELS = {"9": "DFPR", "10": "MS DIFR SW-ASR", "11": "MS DIFR CG"}
+_THRESHOLD_TO_ADAPTIVE = {0: 0, 4: 2, 12: 4, 13: 5, 15: 6, 14: 7}
 
 
 def _type4_queries_become_unavailable(contract):
@@ -66,6 +67,17 @@ class RegistryPanel:
             app._clock_vf_initial_states = {}
         if not hasattr(app, "_voltage_device_initial_states"):
             app._voltage_device_initial_states = {}
+
+    def _threshold_requested(self, gpu, index):
+        adaptive = _THRESHOLD_TO_ADAPTIVE.get(index)
+        if adaptive is not None:
+            self.adaptive_power_panel.invalidate_related(gpu, adaptive)
+
+    def _adaptive_requested(self, gpu, index):
+        for threshold, adaptive in _THRESHOLD_TO_ADAPTIVE.items():
+            if adaptive == index:
+                self.gr_idle_threshold_panel.invalidate_related(gpu, threshold)
+                break
 
     def build(self):
         dpg.add_text(
@@ -125,12 +137,12 @@ class RegistryPanel:
             self.individual_power_gating_panel.build()
         from .gr_idle_threshold_panel import GrIdleThresholdPanel
 
-        self.gr_idle_threshold_panel = GrIdleThresholdPanel(self.app)
+        self.gr_idle_threshold_panel = GrIdleThresholdPanel(self.app, self._threshold_requested)
         with dpg.collapsing_header(label="Live idle thresholds", tag="reg_gr_idle_threshold_header"):
             self.gr_idle_threshold_panel.build()
         from .adaptive_power_panel import AdaptivePowerPanel
 
-        self.adaptive_power_panel = AdaptivePowerPanel(self.app)
+        self.adaptive_power_panel = AdaptivePowerPanel(self.app, self._adaptive_requested)
         with dpg.collapsing_header(label="Live adaptive power policy", tag="reg_adaptive_power_header"):
             self.adaptive_power_panel.build()
         from .engine_clock_gating_panel import EngineClockGatingPanel
