@@ -110,18 +110,34 @@ class _ProfilerTransport:
         words[14], words[15], words[16] = command, 4 * len(payload), 0xFFFFFFFF
         return self._send(words, 16, mutable)
 
-    def request(self):
+    def _request(self, mask):
         if self.requested:
             raise GrGatingError("One profiler object may own only one gating request")
         self.check()
         self.requested = True  # A dispatched request can have a lost response.
-        result = self._control(_REQUEST, (0xFFFFFFFF, self._disable, 0xFFFFFFFF), (17, 19))
+        return self._control(_REQUEST, (0xFFFFFFFF, mask, 0xFFFFFFFF), (17, 19))
+
+    def request(self, *, enabled=False):
+        """DISABLE by default; the named ENABLE selector is qualified for SLCG only."""
+        if type(enabled) is not bool or enabled and self.feature != "SLCG":
+            raise GrGatingError("ENABLE requests are qualified for SLCG only")
+        result = self._request(0x20 if enabled else self._disable)
         if result[17] != 0:
             raise GrGatingError(f"GR gating request global status {result[17]}")
         selected_status = (result[19] >> self._shift) & 3
         if selected_status:
             label = {1: "rejected", 2: "unsupported", 3: "failed"}[selected_status]
             raise GrGatingError(f"{self.feature} request {label}")
+
+    def probe_disable_conflict(self):
+        """Require the source-defined SLCG opposing-request rejection, not a stub."""
+        if self.feature != "SLCG":
+            raise GrGatingError("ENABLE arbitration is qualified for SLCG only")
+        result = self._request(self._disable)
+        if result[17] != 0x63 or (result[19] >> self._shift) & 3 != 1:
+            raise GrGatingError(
+                "SLCG opposing DISABLE did not return exact arbitration rejection (global 99, selected 1)"
+            )
 
     def release(self):
         self._control(_RELEASE, (self._selector,))

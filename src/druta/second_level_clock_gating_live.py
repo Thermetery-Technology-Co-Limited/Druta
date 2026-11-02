@@ -153,6 +153,9 @@ class SecondLevelClockGatingController(GrGatingController):
         self._observed = ()
         self._request_inventory = None
         self._last_verification_error = None
+        self._owned_mode = None
+        self._arbitration_verified = False
+        self._arbitration_probe = None
 
     def _once(self):
         self._profiler.check()
@@ -213,6 +216,9 @@ class SecondLevelClockGatingController(GrGatingController):
             "expected_release_values": {
                 hex(address): value for address, value in _LAYOUT_RELEASE_VALUES.get(state["layout"], {}).items()
             },
+            "expected_enabled_values": {
+                hex(address): value for address, value in _LAYOUT_RELEASE_VALUES.get(state["layout"], {}).items()
+            },
             "unverified_source_peers": [hex(address) for address in _TURING_UNVERIFIED_PEERS]
             if state["layout"] == "tu10x-slcg"
             else [],
@@ -223,61 +229,117 @@ class SecondLevelClockGatingController(GrGatingController):
             ),
             "observed_registers": list(self._observed),
             "owned_request": self._owned,
+            "owned_mode": self._owned_mode,
+            "arbitration_verified": self._arbitration_verified,
             "uncertain_outcome": self._uncertain,
             "state": "uncertain" if self._uncertain else "held" if self._owned else "idle",
-            "verification_scope": "partial independent source-bound SLCG register witness",
+            "verification_scope": (
+                "partial source enabled values and conflicting profiler request rejection; not unique ownership"
+                if self._owned_mode == "enabled"
+                else "partial independent source-bound SLCG register witness"
+            ),
             "last_verification_error": self._last_verification_error,
         }
 
     def hold(self):
+        """Own the default DISABLE request, requiring a positive register transition."""
+        return self._hold("disabled")
+
+    def hold_enabled(self):
+        """Own ENABLE with source values and a separately rejected opposing request.
+
+        Arbitration witnesses a conflicting profiler request; it cannot establish
+        unique ownership or attribute existing ENABLE requests to this object.
+        """
+        return self._hold("enabled")
+
+    def _verify_enable_arbitration(self, enabled):
+        self._arbitration_probe = _ProfilerTransport(self.reader, self.identity, feature="SLCG")
+        try:
+            self._arbitration_probe.allocate()
+            self._arbitration_probe.probe_disable_conflict()
+        finally:
+            self._arbitration_probe.free()
+            self._arbitration_probe = None
+        after = self._read_locked()
+        _same_inventory(enabled, after)
+        if enabled["registers"] != after["registers"]:
+            raise SecondLevelClockGatingError("SLCG enabled values changed during the arbitration probe")
+        self._arbitration_verified = True
+
+    def _hold(self, mode):
         with self.gpu._lock:
             if self._uncertain:
                 raise SecondLevelClockGatingError("SLCG outcome is uncertain; explicitly release this session")
             before = self._read_locked()
+            values = _LAYOUT_RELEASE_VALUES if mode == "enabled" else _LAYOUT_VALUES
             if self._owned:
+                if self._owned_mode != mode:
+                    raise SecondLevelClockGatingError("Release the owned SLCG request before changing mode")
                 if _inventory(before) != self._request_inventory or any(
-                    before["registers"][key] != _LAYOUT_VALUES[before["layout"]][int(key, 16)] for key in self._observed
+                    value != values[before["layout"]][int(key, 16)] for key, value in before["registers"].items()
                 ):
                     raise SecondLevelClockGatingError("The owned SLCG request is no longer independently visible")
                 return self._snapshot(before)
             if not before["support"]:
                 raise SecondLevelClockGatingError("SLCG has no valid register witness on an understood native layout")
-            if any(
+            if mode == "disabled" and any(
                 value != _LAYOUT_RELEASE_VALUES[before["layout"]][int(key, 16)]
                 for key, value in before["registers"].items()
             ):
                 raise SecondLevelClockGatingError(
                     "SLCG requires an exact source release baseline (exact zero baseline where applicable) on every valid register"
                 )
+            if mode == "enabled" and any(
+                value
+                not in (
+                    _LAYOUT_RELEASE_VALUES[before["layout"]][int(key, 16)],
+                    _LAYOUT_VALUES[before["layout"]][int(key, 16)],
+                )
+                for key, value in before["registers"].items()
+            ):
+                raise SecondLevelClockGatingError(
+                    "SLCG ENABLE requires known source enabled or disabled baseline values"
+                )
             self._request_inventory = _inventory(before)
             try:
                 self._profiler.allocate()
                 self._uncertain = True
-                self._profiler.request()
+                self._owned_mode = mode
+                if mode == "enabled":
+                    self._profiler.request(enabled=True)
+                else:
+                    self._profiler.request()
                 self._owned = True
                 after = self._read_locked()
                 _same_inventory(before, after)
-                if any(
-                    value != _LAYOUT_VALUES[after["layout"]][int(key, 16)] for key, value in after["registers"].items()
-                ):
-                    raise SecondLevelClockGatingError("SLCG request did not match the source disabled register values")
-                if before["registers"] == after["registers"]:
+                if any(value != values[after["layout"]][int(key, 16)] for key, value in after["registers"].items()):
+                    raise SecondLevelClockGatingError(f"SLCG request did not match the source {mode} register values")
+                self._observed = tuple(
+                    key for key, value in after["registers"].items() if before["registers"][key] != value
+                )
+                if mode == "disabled" and not self._observed:
                     raise SecondLevelClockGatingError("SLCG request produced no independent register transition")
-                self._observed = tuple(after["registers"])
+                if mode == "enabled":
+                    self._verify_enable_arbitration(after)
                 self._uncertain = False
                 return self._snapshot(after)
             except Exception:
-                self._uncertain = self._profiler.handle is not None
+                self._arbitration_verified = False
+                self._uncertain = self._profiler.handle is not None or self._arbitration_probe is not None
                 raise
 
     def release(self):
         with self.gpu._lock:
-            if self._profiler.handle is None:
+            if self._profiler.handle is None and self._arbitration_probe is None:
                 return self._snapshot(self._read_locked())
             self._uncertain = True
             try:
+                if self._arbitration_probe is not None:
+                    self._arbitration_probe.free()
+                    self._arbitration_probe = None
                 before = self._read_locked()
-                if self._profiler.requested:
+                if self._profiler.handle is not None and self._profiler.requested:
                     self._profiler.release()
                     self._owned = False
                 after = self._read_locked()
@@ -294,9 +356,21 @@ class SecondLevelClockGatingController(GrGatingController):
                 self._last_verification_error = str(exc)
                 raise
             finally:
-                self._profiler.free()
-                self._owned = False
-                self._observed = ()
-                self._request_inventory = None
-                self._uncertain = False
+                try:
+                    self._profiler.free()
+                finally:
+                    self._owned = self._owned and self._profiler.handle is not None
+                    self._uncertain = self._profiler.handle is not None or self._arbitration_probe is not None
+                    if not self._uncertain:
+                        self._observed = ()
+                        self._request_inventory = None
+                        self._owned_mode = None
+                        self._arbitration_verified = False
             return self._snapshot(after)
+
+    def close(self):
+        """Explicitly release/free only this controller's request and probe objects."""
+        with self.gpu._lock:
+            if self._profiler.handle is None and self._arbitration_probe is None:
+                return None
+            return self.release()

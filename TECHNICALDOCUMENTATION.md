@@ -2489,6 +2489,31 @@ registers, masks, voltage requests and configured LPWR observations matched.
 The increment passed 785 targeted tests, including 47 new API cases and two
 panel tests. [SLCG evidence](experiments/live-second-level-clock-gating-20261101.json).
 
+SLCG additionally supports an owned ENABLE request (`0x20`), distinct from
+releasing a DISABLE request. The inspected manager maps ENABLE to state1,
+DISABLE to state2 and release to state0; ENABLE and release both select the
+source table's enabled values. State conflicts are reference-counted between
+profiler objects, and a separate policy gate can also reject ENABLE. Other RM
+mechanisms are outside this arbitration guarantee.
+
+A new enabled hold requires stable known source values, an accepted named
+request, exact enabled-value readbacks, and exact rejection of a DISABLE probe
+on a separate owned object (global status `0x63`, selected status1). The probe
+is then freed and enabled values must remain exact. This demonstrates observed
+conflict arbitration; it is not exclusive ownership, a physical gating measure,
+or proof that this object is the only enabled requester. No preflight disable
+cycling or post-release mutation probe is added to the product. Duplicate holds
+verify the same mode without another request; switching modes requires Release.
+An enabled hold can have zero register transitions, reported separately from
+its arbitration witness. Turing's fifteen unverified source peers remain so.
+
+The bounded root qualification on RTX5080/617.42 used ENABLE, observed the
+separate DISABLE rejection, released ENABLE, then positively verified DISABLE
+and its release. Registers, complete voltage requests and configured LPWR
+readbacks matched the baseline afterward. It used no registry write, restart
+or workload. [ENABLE ownership and source evidence](experiments/slcg-enable-qualified-20261102.json)
+records the protocol and its partial scope.
+
 The SLCG controller also has a separately derived GA10x layout: native
 architecture `0x170`, implementations `2/3/4/6/7`, map to HAL ordinals
 `0x2B..0x2F`. Their HWPM route selects four source rows with three unique

@@ -30,6 +30,9 @@ def device(monkeypatch):
         "stub": False,
         "global": 0,
         "status": 0,
+        "requests": {},
+        "conflict_global": 0x63,
+        "conflict_status": 1,
     }
     header = (
         0x4E564441,
@@ -79,16 +82,24 @@ def device(monkeypatch):
             packet[19] = 0
         elif packet[4] == 0x0500000C:
             packet[15] = 0
+            data["requests"].pop(packet[14], None)
+            if not data["stub"]:
+                apply("disabled" in data["requests"].values() and "enabled" not in data["requests"].values())
         else:
             packet[16] = 0
             if packet[14] == 0xB0CC0301:
-                assert packet[18] == 16
-                packet[17] = data["global"]
-                packet[19] = 0xFFFFFFCF | (data["status"] << 4)
-                if not data["stub"] and not data["global"] and not data["status"]:
-                    apply(True)
+                assert packet[18] in (16, 32)
+                conflict = packet[18] == 16 and "enabled" in data["requests"].values()
+                global_status = data["conflict_global"] if conflict else data["global"]
+                selected_status = data["conflict_status"] if conflict else data["status"]
+                packet[17] = global_status
+                packet[19] = 0xFFFFFFCF | (selected_status << 4)
+                if not data["stub"] and not global_status and not selected_status:
+                    data["requests"][packet[13]] = "enabled" if packet[18] == 32 else "disabled"
+                    apply(packet[18] == 16)
             elif packet[14] == 0xB0CC0302:
                 assert packet[17] == 48
+                data["requests"].pop(packet[13], None)
                 if not data["stub"]:
                     apply(False)
         return 0
@@ -647,3 +658,159 @@ def test_turing_duplicate_hold_and_release_require_exact_values(turing_layout):
     data["stub"] = True
     with pytest.raises(live.SecondLevelClockGatingError, match="source release values"):
         controller.release()
+
+
+def test_enabled_baseline_uses_owned_enable_and_exact_separate_conflict_probe(device):
+    controller, data = device
+    before = controller.read()
+    held = controller.hold_enabled()
+    assert held["owned_request"] and held["owned_mode"] == "enabled"
+    assert held["arbitration_verified"] and held["observed_registers"] == []
+    assert held["registers"] == held["expected_enabled_values"] == before["registers"]
+    assert commands(data) == [0x0500002A, 0xB0CC0301, 0x0500002A, 0xB0CC0301, 0x0500000C]
+    main_allocate, enable, probe_allocate, opposing, probe_free = data["writes"]
+    assert enable[18] == 0x20 and opposing[18] == 0x10
+    assert main_allocate[14] == enable[13] == controller._profiler.handle
+    assert probe_allocate[14] == opposing[13] == probe_free[14]
+    assert main_allocate[14] != probe_allocate[14]
+    assert probe_free[14] not in (main_allocate[12], main_allocate[13])
+    released = controller.release()
+    assert released["registers"] == before["registers"]
+    assert released["owned_mode"] is None and not released["arbitration_verified"]
+    assert data["writes"][-2][17] == 0x30
+    assert data["writes"][-1][14] == main_allocate[14]
+
+
+def test_enable_records_only_actual_deltas_from_mixed_known_source_values(device):
+    controller, data = device
+    changed = (0x2B409C, 0x2B6CFC)
+    for address in changed:
+        data["values"][address] = data["expected_values"][address]
+    held = controller.hold_enabled()
+    assert set(held["observed_registers"]) == {hex(address) for address in changed}
+    assert held["registers"] == held["expected_enabled_values"]
+    controller.release()
+
+
+@pytest.mark.parametrize("initial", [0, 1])
+def test_enable_turing_source_polarity_and_arbitration(turing_layout, initial):
+    controller, data = turing_layout
+    data["values"][0x24A124] = initial
+    held = controller.hold_enabled()
+    assert held["registers"] == {"0x24a124": 1}
+    assert held["arbitration_verified"]
+    assert held["observed_registers"] == (["0x24a124"] if initial == 0 else [])
+    assert controller.release()["registers"] == {"0x24a124": 1}
+
+
+@pytest.mark.parametrize("value", [2, 3, 0x80])
+def test_enable_unknown_baseline_refused_before_allocation(turing_layout, value):
+    controller, data = turing_layout
+    data["values"][0x24A124] = value
+    with pytest.raises(live.SecondLevelClockGatingError, match="known source"):
+        controller.hold_enabled()
+    assert not data["writes"]
+
+
+@pytest.mark.parametrize("global_status,selected_status", [(0, 0), (0, 1), (99, 0), (1, 1), (99, 2), (99, 3)])
+def test_enable_arbitration_requires_exact_conflict_rejection(device, global_status, selected_status):
+    controller, data = device
+    baseline = dict(data["values"])
+    data.update(conflict_global=global_status, conflict_status=selected_status)
+    with pytest.raises(live.SecondLevelClockGatingError, match="exact arbitration rejection"):
+        controller.hold_enabled()
+    assert controller.read()["uncertain_outcome"]
+    assert not controller.read()["arbitration_verified"]
+    assert controller._arbitration_probe is None
+    controller.close()
+    assert data["values"] == baseline and not data["requests"]
+
+
+def test_successful_enable_stub_never_qualifies_by_readback_alone(device):
+    controller, data = device
+    data["stub"] = True
+    with pytest.raises(live.SecondLevelClockGatingError, match="exact arbitration rejection"):
+        controller.hold_enabled()
+    assert not controller.read()["arbitration_verified"]
+    controller.close()
+
+
+@pytest.mark.parametrize(
+    "global_status,status,message", [(1, 0, "global status"), (0, 1, "rejected"), (0, 2, "unsupported")]
+)
+def test_enable_policy_rejection_never_starts_conflict_probe(device, global_status, status, message):
+    controller, data = device
+    data.update({"global": global_status, "status": status})
+    with pytest.raises(live.SecondLevelClockGatingError, match=message):
+        controller.hold_enabled()
+    assert commands(data) == [0x0500002A, 0xB0CC0301]
+    assert controller._arbitration_probe is None
+    controller.close()
+
+
+def test_duplicate_mode_only_rereads_and_opposite_mode_requires_release(device):
+    controller, data = device
+    controller.hold_enabled()
+    count = len(data["writes"])
+    assert controller.hold_enabled()["arbitration_verified"]
+    assert len(data["writes"]) == count
+    with pytest.raises(live.SecondLevelClockGatingError, match="Release"):
+        controller.hold()
+    assert len(data["writes"]) == count
+    controller.release()
+    controller.hold()
+    assert controller.read()["owned_mode"] == "disabled"
+    with pytest.raises(live.SecondLevelClockGatingError, match="Release"):
+        controller.hold_enabled()
+    controller.release()
+
+
+def test_duplicate_enable_rechecks_all_values_even_without_initial_delta(device):
+    controller, data = device
+    controller.hold_enabled()
+    data["values"][0x2B6CFC] = 1
+    with pytest.raises(live.SecondLevelClockGatingError, match="no longer independently visible"):
+        controller.hold_enabled()
+    controller.close()
+
+
+def test_enabled_values_must_survive_probe_free(device, monkeypatch):
+    controller, data = device
+    original_free = live._ProfilerTransport.free
+
+    def changed_free(transport):
+        original_free(transport)
+        if transport is not controller._profiler:
+            data["values"][0x2B6CFC] = 1
+
+    monkeypatch.setattr(live._ProfilerTransport, "free", changed_free)
+    with pytest.raises(live.SecondLevelClockGatingError, match="changed during the arbitration"):
+        controller.hold_enabled()
+    assert not controller.read()["arbitration_verified"]
+    controller.close()
+
+
+def test_probe_handle_stays_reachable_until_explicit_close_can_free_it(device, monkeypatch):
+    controller, data = device
+    original_free = live._ProfilerTransport.free
+    failures = 2
+
+    def failed_probe_free(transport):
+        nonlocal failures
+        if transport is not controller._profiler and failures:
+            failures -= 1
+            raise live.SecondLevelClockGatingError("probe free failed")
+        original_free(transport)
+
+    monkeypatch.setattr(live._ProfilerTransport, "free", failed_probe_free)
+    with pytest.raises(live.SecondLevelClockGatingError, match="probe free failed"):
+        controller.hold_enabled()
+    probe = controller._arbitration_probe
+    assert probe.handle is not None
+    with pytest.raises(live.SecondLevelClockGatingError, match="probe free failed"):
+        controller.close()
+    assert controller._profiler.handle is None and probe.handle is not None
+    assert controller.read()["uncertain_outcome"]
+    controller.close()
+    assert controller._arbitration_probe is None and probe.handle is None
+    assert not controller.read()["uncertain_outcome"] and not data["requests"]

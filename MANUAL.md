@@ -780,8 +780,8 @@ closing Druta; it is not released automatically.
 clock gating (BLCG)** and **Live second-level clock gating (SLCG)** provide
 separate **Refresh**, **Hold disabled** and
 **Release** controls. Hold adds this application's request to disable the named
-mechanism; Release drops that request. Each requires an independent readback
-change before reporting a verified hold. BLCG checks a supported register layout
+mechanism; Release drops that request. Each requires independent evidence
+before reporting a verified hold. BLCG checks a supported register layout
 through NVIDIA's read-only register operations; an inaccessible or unknown layout
 does not enable Hold. The readbacks are partial configuration witnesses, not
 measurements of physical gating, residency or power savings.
@@ -804,6 +804,13 @@ request also changes 15 other source-table registers whose prior values and
 transitions remain unverified; the panel identifies this limitation. These are
 partial witnesses, not checks of every GPU subunit. Turing, Ampere and Ada have
 offline coverage; their hardware qualification remains pending.
+
+SLCG also provides **Hold enabled**. It checks the source-defined enabled values
+and verifies rejection of a conflicting request on a separate temporary profiler
+object. Enabled values may already match before the request; the UI reports this
+arbitration check separately from actual register changes. Release before
+switching between enabled and disabled holds. Other driver mechanisms can still
+interfere, and this does not prove physical gating or residency.
 
 These four requests last only for the current session. Druta releases its own
 requests on normal exit or GPU switch and never reapplies them after a driver

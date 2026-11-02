@@ -1,6 +1,6 @@
 ﻿# Copyright (C) 2026 Thermetery Technology Co Limited
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Session-only controls for a second-level clock-gating disable request."""
+"""Session-only controls for second-level clock-gating requests."""
 
 import dearpygui.dearpygui as dpg
 
@@ -16,8 +16,9 @@ class SecondLevelClockGatingPanel:
 
     def build(self):
         dpg.add_text(
-            "Hold requests that the driver disable second-level clock gating. "
-            "Independent register readback is a partial check, not physical gating or residency. "
+            "Hold enabled or disabled requests that state for second-level clock gating in this session. "
+            "An enabled request rejects conflicting profiler requests; other driver mechanisms can still interfere. "
+            "Register readback is partial and does not guarantee physical gating or residency. "
             "The request is not automatically reapplied after a driver restart.",
             tag="second_level_clock_gating_explainer", wrap=self.app.s(900),
         )
@@ -25,6 +26,8 @@ class SecondLevelClockGatingPanel:
             dpg.add_button(label="Refresh", tag="second_level_clock_gating_read", callback=self.read)
             dpg.add_button(label="Hold disabled", tag="second_level_clock_gating_hold",
                            callback=self.hold, enabled=False)
+            dpg.add_button(label="Hold enabled", tag="second_level_clock_gating_hold_enabled",
+                           callback=self.hold_enabled, enabled=False)
             dpg.add_button(label="Release", tag="second_level_clock_gating_release",
                            callback=self.release, enabled=False)
         dpg.add_text("Refresh status before requesting a change.", tag="second_level_clock_gating_status",
@@ -57,11 +60,21 @@ class SecondLevelClockGatingPanel:
         self._configure_actions()
 
     @staticmethod
-    def _baseline_matches(snapshot):
+    def _baseline_matches(snapshot, expected_key="expected_release_values"):
         registers = snapshot.get("registers", {})
-        expected = snapshot.get("expected_release_values", {})
+        expected = snapshot.get(expected_key, {})
         return bool(registers) and all(key in expected and value == expected[key]
                                        for key, value in registers.items())
+
+    @staticmethod
+    def _enable_baseline_matches(snapshot):
+        registers = snapshot.get("registers", {})
+        enabled = snapshot.get("expected_release_values", {})
+        disabled = snapshot.get("expected_disabled_values", {})
+        return bool(registers) and all(
+            key in enabled and key in disabled and value in (enabled[key], disabled[key])
+            for key, value in registers.items()
+        )
 
     @staticmethod
     def _format(snapshot):
@@ -71,8 +84,11 @@ class SecondLevelClockGatingPanel:
         if snapshot.get("uncertain_outcome", False):
             lines.append("This instance's request outcome is uncertain; use Release.")
         else:
-            lines.append("This instance's disable request: "
-                         + ("held" if snapshot["owned_request"] else "not held"))
+            mode = snapshot.get("owned_mode")
+            state = f"held {mode}" if snapshot["owned_request"] and mode in ("enabled", "disabled") else (
+                "held (mode unknown)" if snapshot["owned_request"] else "not held"
+            )
+            lines.append("This instance's request: " + state)
         for address, value in snapshot.get("registers", {}).items():
             lines.append(f"Register {address}: 0x{value:08X}")
         for address in snapshot.get("unavailable_registers", {}):
@@ -82,12 +98,18 @@ class SecondLevelClockGatingPanel:
             lines.append(f"Other source-table registers: {len(peers)} unverified.")
             lines.append("The named request also changes those registers; their prior values are not verified.")
         if (snapshot["support"] and not snapshot["owned_request"]
+                and not SecondLevelClockGatingPanel._enable_baseline_matches(snapshot)
                 and not SecondLevelClockGatingPanel._baseline_matches(snapshot)):
             lines.append("Readbacks do not match the required starting values; a new request cannot be verified.")
+        elif (snapshot["support"] and not snapshot["owned_request"]
+              and not SecondLevelClockGatingPanel._baseline_matches(snapshot)):
+            lines.append("Disabled hold needs the source release baseline; enabled hold may be available.")
         observed = snapshot.get("observed_registers", {})
         observed_count = len(observed)
         if observed_count:
             lines.append(f"Registers with observed changes: {observed_count} (partial readback)")
+        if snapshot.get("arbitration_verified", False):
+            lines.append("Conflicting request rejection verified for this enabled hold.")
         if snapshot.get("last_verification_error"):
             lines.append("Last verification error: " + str(snapshot["last_verification_error"]))
         return "\n".join(lines)
@@ -96,9 +118,13 @@ class SecondLevelClockGatingPanel:
         snapshot = self.snapshot
         safe = snapshot is not None and not snapshot.get("uncertain_outcome", False)
         owned = safe and snapshot["owned_request"]
-        eligible = snapshot is not None and self._baseline_matches(snapshot)
+        enable_eligible = snapshot is not None and self._enable_baseline_matches(snapshot)
+        eligible = snapshot is not None and enable_eligible and self._baseline_matches(snapshot)
+        mode = snapshot.get("owned_mode") if snapshot else None
         dpg.configure_item("second_level_clock_gating_hold", enabled=bool(
-            safe and not self.stale and (owned or (snapshot["support"] and eligible))))
+            safe and not self.stale and ((owned and mode == "disabled") or (not owned and snapshot["support"] and eligible))))
+        dpg.configure_item("second_level_clock_gating_hold_enabled", enabled=bool(
+            safe and not self.stale and ((owned and mode == "enabled") or (not owned and snapshot["support"] and enable_eligible))))
         dpg.configure_item("second_level_clock_gating_release", enabled=bool(
             owned or self.release_pending or (snapshot and snapshot.get("uncertain_outcome", False))))
 
@@ -136,9 +162,17 @@ class SecondLevelClockGatingPanel:
         except Exception as exc:  # noqa: BLE001
             self._failed("hold", exc)
 
+    def hold_enabled(self, *unused):
+        if not self.app.guard():
+            return
+        try:
+            self._show(self._controller().hold_enabled(), "Enable request held by this instance.")
+        except Exception as exc:  # noqa: BLE001
+            self._failed("hold enabled", exc)
+
     def release(self, *unused):
         try:
-            self._show(self._controller().release(), "This instance's disable request was released.")
+            self._show(self._controller().release(), "This instance's request was released.")
         except Exception as exc:  # noqa: BLE001
             self._failed("release", exc)
 

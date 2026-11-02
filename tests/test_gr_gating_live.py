@@ -117,6 +117,17 @@ def commands(data):
     return [words[14] if words[4] == 0x0500002B else words[4] for words in data["writes"]]
 
 
+@pytest.mark.parametrize("feature", ["ELPG", "ELCG", "BLCG"])
+def test_enable_and_enable_arbitration_are_slcg_only_before_any_write(device, feature):
+    controller, data = device
+    transport = live._ProfilerTransport(controller.reader, controller.identity, feature=feature)
+    with pytest.raises(live.GrGatingError, match="SLCG only"):
+        transport.request(enabled=True)
+    with pytest.raises(live.GrGatingError, match="SLCG only"):
+        transport.probe_disable_conflict()
+    assert not transport.requested and not data["writes"]
+
+
 @pytest.mark.parametrize("changed", [12, 17])
 def test_media_witness_does_not_imply_other_controller_or_require_gr0(device, changed):
     controller, data = device
@@ -128,7 +139,8 @@ def test_media_witness_does_not_imply_other_controller_or_require_gr0(device, ch
     assert held["observed_controllers"] == [str(changed)]
     unchanged = 17 if changed == 12 else 12
     assert held["controllers"][str(unchanged)]["reason_masks"] == {
-        0x48: data["masks"][unchanged][0], 0x49: data["masks"][unchanged][1],
+        0x48: data["masks"][unchanged][0],
+        0x49: data["masks"][unchanged][1],
     }
     assert not controller.release()["owned_request"]
 
