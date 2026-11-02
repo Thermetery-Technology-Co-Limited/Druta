@@ -17,13 +17,20 @@
     "packet_bytes": 11740,
     "parameter_bytes": 11672
   },
+  "status_size_discrimination": {
+    "171048": "accepted",
+    "172080": "refused (NTSTATUS 0, RM 0x1f)",
+    "190272": "refused (NTSTATUS 0, RM 0x1f)",
+    "396024": "refused (NTSTATUS 0, RM 0x1f)",
+    "397048": "refused (NTSTATUS 0, RM 0x1f)"
+  },
   "current_policy_record_layout": {
-    "available": false,
-    "error": "unvalidated current-policy transport geometry",
+    "available": true,
+    "error": "",
     "read_error": ""
   },
-  "native_effective_mw": null,
-  "native_effective_error": "unvalidated current-policy transport geometry",
+  "native_effective_mw": 185625,
+  "native_effective_error": null,
   "normal_bounds_mw": [
     90000,
     200000
@@ -183,9 +190,9 @@
       "target_mw": 190000,
       "idle_before": {
         "pstate": 8,
-        "util_gpu": 1,
-        "power_w": 7.954,
-        "temp_edge": 31,
+        "util_gpu": 0,
+        "power_w": 13.046,
+        "temp_edge": 25,
         "pl_requested_mw": 180000,
         "pl_now_mw": 180000
       },
@@ -333,57 +340,57 @@
       "exact_request_readback": true,
       "samples": [
         {
-          "at": 1793645338.0291038,
+          "at": 1793647071.1475868,
           "configured_mw": 190000,
-          "native_effective_mw": null,
-          "native_effective_error": "unvalidated current-policy transport geometry",
+          "native_effective_mw": 190000,
+          "native_effective_error": null,
           "idle": {
             "pstate": 8,
-            "util_gpu": 1,
-            "power_w": 7.954,
-            "temp_edge": 31,
+            "util_gpu": 0,
+            "power_w": 13.907,
+            "temp_edge": 25,
             "pl_requested_mw": 190000,
             "pl_now_mw": 190000
           }
         },
         {
-          "at": 1793645338.2907798,
+          "at": 1793647071.4142313,
           "configured_mw": 190000,
-          "native_effective_mw": null,
-          "native_effective_error": "unvalidated current-policy transport geometry",
+          "native_effective_mw": 195938,
+          "native_effective_error": null,
           "idle": {
             "pstate": 8,
-            "util_gpu": 2,
-            "power_w": 7.664,
-            "temp_edge": 31,
+            "util_gpu": 0,
+            "power_w": 13.343,
+            "temp_edge": 25,
             "pl_requested_mw": 190000,
             "pl_now_mw": 190000
           }
         },
         {
-          "at": 1793645338.552925,
+          "at": 1793647071.6811285,
           "configured_mw": 190000,
-          "native_effective_mw": null,
-          "native_effective_error": "unvalidated current-policy transport geometry",
+          "native_effective_mw": 195938,
+          "native_effective_error": null,
           "idle": {
             "pstate": 8,
-            "util_gpu": 1,
-            "power_w": 7.855,
-            "temp_edge": 31,
+            "util_gpu": 0,
+            "power_w": 13.343,
+            "temp_edge": 25,
             "pl_requested_mw": 190000,
             "pl_now_mw": 190000
           }
         },
         {
-          "at": 1793645338.814404,
+          "at": 1793647071.949003,
           "configured_mw": 190000,
-          "native_effective_mw": null,
-          "native_effective_error": "unvalidated current-policy transport geometry",
+          "native_effective_mw": 195938,
+          "native_effective_error": null,
           "idle": {
             "pstate": 8,
-            "util_gpu": 2,
-            "power_w": 8.434,
-            "temp_edge": 31,
+            "util_gpu": 0,
+            "power_w": 13.142,
+            "temp_edge": 25,
             "pl_requested_mw": 190000,
             "pl_now_mw": 190000
           }
@@ -410,9 +417,9 @@
       "target_mw": 201000,
       "idle_before": {
         "pstate": 8,
-        "util_gpu": 5,
-        "power_w": 7.76,
-        "temp_edge": 31,
+        "util_gpu": 0,
+        "power_w": 13.144,
+        "temp_edge": 25,
         "pl_requested_mw": 180000,
         "pl_now_mw": 180000
       },
@@ -560,57 +567,57 @@
       "exact_request_readback": true,
       "samples": [
         {
-          "at": 1793645339.2747254,
+          "at": 1793647072.3705611,
           "configured_mw": 201000,
-          "native_effective_mw": null,
-          "native_effective_error": "unvalidated current-policy transport geometry",
-          "idle": {
-            "pstate": 8,
-            "util_gpu": 5,
-            "power_w": 8.543,
-            "temp_edge": 31,
-            "pl_requested_mw": 201000,
-            "pl_now_mw": 201000
-          }
-        },
-        {
-          "at": 1793645339.5366092,
-          "configured_mw": 201000,
-          "native_effective_mw": null,
-          "native_effective_error": "unvalidated current-policy transport geometry",
-          "idle": {
-            "pstate": 8,
-            "util_gpu": 8,
-            "power_w": 7.955,
-            "temp_edge": 31,
-            "pl_requested_mw": 201000,
-            "pl_now_mw": 201000
-          }
-        },
-        {
-          "at": 1793645339.7991579,
-          "configured_mw": 201000,
-          "native_effective_mw": null,
-          "native_effective_error": "unvalidated current-policy transport geometry",
+          "native_effective_mw": 201000,
+          "native_effective_error": null,
           "idle": {
             "pstate": 8,
             "util_gpu": 0,
-            "power_w": 8.144,
-            "temp_edge": 31,
+            "power_w": 14.049,
+            "temp_edge": 25,
             "pl_requested_mw": 201000,
             "pl_now_mw": 201000
           }
         },
         {
-          "at": 1793645340.0613277,
+          "at": 1793647072.637569,
           "configured_mw": 201000,
-          "native_effective_mw": null,
-          "native_effective_error": "unvalidated current-policy transport geometry",
+          "native_effective_mw": 201000,
+          "native_effective_error": null,
           "idle": {
             "pstate": 8,
             "util_gpu": 0,
-            "power_w": 7.664,
-            "temp_edge": 31,
+            "power_w": 13.343,
+            "temp_edge": 25,
+            "pl_requested_mw": 201000,
+            "pl_now_mw": 201000
+          }
+        },
+        {
+          "at": 1793647072.9045246,
+          "configured_mw": 201000,
+          "native_effective_mw": 201000,
+          "native_effective_error": null,
+          "idle": {
+            "pstate": 8,
+            "util_gpu": 0,
+            "power_w": 13.438,
+            "temp_edge": 25,
+            "pl_requested_mw": 201000,
+            "pl_now_mw": 201000
+          }
+        },
+        {
+          "at": 1793647073.1710753,
+          "configured_mw": 201000,
+          "native_effective_mw": 201000,
+          "native_effective_error": null,
+          "idle": {
+            "pstate": 8,
+            "util_gpu": 0,
+            "power_w": 13.245,
+            "temp_edge": 25,
             "pl_requested_mw": 201000,
             "pl_now_mw": 201000
           }
@@ -637,9 +644,9 @@
       "target_mw": 250000,
       "idle_before": {
         "pstate": 8,
-        "util_gpu": 1,
-        "power_w": 8.239,
-        "temp_edge": 31,
+        "util_gpu": 0,
+        "power_w": 12.86,
+        "temp_edge": 25,
         "pl_requested_mw": 180000,
         "pl_now_mw": 180000
       },
@@ -787,57 +794,57 @@
       "exact_request_readback": true,
       "samples": [
         {
-          "at": 1793645340.4937987,
+          "at": 1793647073.5786443,
           "configured_mw": 250000,
-          "native_effective_mw": null,
-          "native_effective_error": "unvalidated current-policy transport geometry",
-          "idle": {
-            "pstate": 8,
-            "util_gpu": 1,
-            "power_w": 9.105,
-            "temp_edge": 31,
-            "pl_requested_mw": 250000,
-            "pl_now_mw": 250000
-          }
-        },
-        {
-          "at": 1793645340.7546349,
-          "configured_mw": 250000,
-          "native_effective_mw": null,
-          "native_effective_error": "unvalidated current-policy transport geometry",
-          "idle": {
-            "pstate": 8,
-            "util_gpu": 1,
-            "power_w": 8.049,
-            "temp_edge": 31,
-            "pl_requested_mw": 250000,
-            "pl_now_mw": 250000
-          }
-        },
-        {
-          "at": 1793645341.0161555,
-          "configured_mw": 250000,
-          "native_effective_mw": null,
-          "native_effective_error": "unvalidated current-policy transport geometry",
-          "idle": {
-            "pstate": 8,
-            "util_gpu": 1,
-            "power_w": 8.144,
-            "temp_edge": 31,
-            "pl_requested_mw": 250000,
-            "pl_now_mw": 250000
-          }
-        },
-        {
-          "at": 1793645341.2774053,
-          "configured_mw": 250000,
-          "native_effective_mw": null,
-          "native_effective_error": "unvalidated current-policy transport geometry",
+          "native_effective_mw": 250000,
+          "native_effective_error": null,
           "idle": {
             "pstate": 8,
             "util_gpu": 0,
-            "power_w": 7.952,
-            "temp_edge": 31,
+            "power_w": 13.581,
+            "temp_edge": 25,
+            "pl_requested_mw": 250000,
+            "pl_now_mw": 250000
+          }
+        },
+        {
+          "at": 1793647073.8451047,
+          "configured_mw": 250000,
+          "native_effective_mw": 250000,
+          "native_effective_error": null,
+          "idle": {
+            "pstate": 8,
+            "util_gpu": 0,
+            "power_w": 13.003,
+            "temp_edge": 25,
+            "pl_requested_mw": 250000,
+            "pl_now_mw": 250000
+          }
+        },
+        {
+          "at": 1793647074.1119964,
+          "configured_mw": 250000,
+          "native_effective_mw": 250000,
+          "native_effective_error": null,
+          "idle": {
+            "pstate": 8,
+            "util_gpu": 0,
+            "power_w": 13.245,
+            "temp_edge": 25,
+            "pl_requested_mw": 250000,
+            "pl_now_mw": 250000
+          }
+        },
+        {
+          "at": 1793647074.3782144,
+          "configured_mw": 250000,
+          "native_effective_mw": 200000,
+          "native_effective_error": null,
+          "idle": {
+            "pstate": 8,
+            "util_gpu": 0,
+            "power_w": 12.812,
+            "temp_edge": 25,
             "pl_requested_mw": 250000,
             "pl_now_mw": 250000
           }
@@ -861,6 +868,66 @@
     }
   ],
   "scope": "Idle software request acceptance, exact readback and restoration on one Pascal adapter and driver. Physical enforcement is unmeasured, and the native effective limit is unavailable on this driver's record layout.",
+  "current_limits": {
+    "rows": [
+      {
+        "policy": 13,
+        "label": "Core current",
+        "channel": 11,
+        "minimum_ma": 1000,
+        "maximum_ma": 95000,
+        "normal_maximum_ma": 95000,
+        "default_ma": 86800,
+        "limit_ma": 86800,
+        "requested_ma": 86800,
+        "value_ma": 7
+      }
+    ],
+    "error": "",
+    "read_error": "",
+    "selected_layout": {
+      "status_bytes": 171048,
+      "info": [
+        88,
+        228
+      ],
+      "status": [
+        104,
+        5172
+      ],
+      "control": [
+        20,
+        124
+      ]
+    },
+    "trials": [
+      {
+        "policy": 13,
+        "baseline_ma": 86800,
+        "target_ma": 86000,
+        "set": {
+          "ok": true,
+          "message": "Core current set to 86 A; effective limit verified"
+        },
+        "after": {
+          "requested_ma": 86000,
+          "limit_ma": 86000,
+          "value_ma": 7
+        },
+        "exact_readback": true,
+        "above_maximum_refused": {
+          "ok": false,
+          "message": "Core current must be between 1 and 95 A in the current mode"
+        },
+        "restoration": {
+          "ok": true,
+          "message": "Core current set to 86.8 A; effective limit verified",
+          "restored": true,
+          "effective_ma": 86800
+        }
+      }
+    ]
+  },
   "final": {
     "binding": {
       "client_index": 0,

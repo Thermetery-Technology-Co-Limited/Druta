@@ -235,12 +235,15 @@ class TransportOutlivesAnUnknownRecordLayoutTests(unittest.TestCase):
 
     Live power (W) rides on it with packet sizes the client group negotiates
     for itself, so it must not disappear because this driver's current (A)
-    record layout is absent from _CURRENT_LIMIT_LAYOUTS. 11740/11672 is the
-    geometry a GP106 on 576.80 presents, which no entry describes.
+    record layout is absent from _CURRENT_LIMIT_LAYOUTS. The geometry below is
+    deliberately one no entry describes, so that adding a real entry later
+    cannot quietly turn these tests into assertions about a supported driver.
     """
 
-    def unknown_geometry(self, arch=n.GPU.ARCH_PASCAL, packet=11740, param=11672,
+    def unknown_geometry(self, arch=n.GPU.ARCH_PASCAL, packet=30000, param=29932,
                          command=0x2080A612):
+        self.assertNotIn((packet, param), n.GPU._CURRENT_LIMIT_LAYOUTS,
+                         "this case needs a geometry Druta does not describe")
         gpu, _ = fixture(arch)
         header, fields = gpu._capture_current_limit_transport.return_value
         header[2], header[14], header[15] = packet, command, param

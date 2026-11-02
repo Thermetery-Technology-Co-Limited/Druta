@@ -12,7 +12,7 @@ from druta import nvbackend as n
 from tests.fixture_current_47212 import TITAN_INFO
 
 
-def fixture(arch=10, newer=False, legacy=False, ampere_layout=False):
+def fixture(arch=10, newer=False, legacy=False, ampere_layout=False, short_status=False):
     g = n.GPU.__new__(n.GPU)
     g._lock = threading.RLock()
     g.static = {"driver": "580.97", "vbios": "98.03.3b.c0.6f"}
@@ -42,6 +42,14 @@ def fixture(arch=10, newer=False, legacy=False, ampere_layout=False):
         info_base, info_stride = 0x58, 0xE4
         status_base, status_stride = 0x80, 0x168C
         control_base, control_stride = 0x14, 0xB8
+    if short_status:
+        # Same info and control blocks as the 11748/11680 transport, but a
+        # shorter status block with its own header and record geometry: the
+        # measured GP106 / 576.80 interface. Sharing two blocks is exactly
+        # what makes carrying the third one over tempting and wrong.
+        packet_bytes, param_bytes = 11740, 11672
+        status_bytes = 171048
+        status_base, status_stride = 0x68, 0x1434
     status_mask_word = 0 if legacy else 1
     wire = {c: c for c in (0x2080A618, 0x2080A619, 0x2080A61A, 0x2080E61B)}
     if legacy:
