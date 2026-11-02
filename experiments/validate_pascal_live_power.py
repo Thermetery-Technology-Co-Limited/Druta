@@ -95,10 +95,23 @@ def status_size_discrimination(gpu):
     from druta.nvbackend import u32
 
     header, fields = gpu._rm_power_transport()
-    results = {}
-    for size in (171048, 172080, 190272, 396024, 397048):
+    # The RM26 families remap every command, so probing with the A6xx id
+    # would report a command error for every size and prove nothing. Use the
+    # wire command this transport's own layout selects.
+    try:
+        layout = gpu._current_limit_abi()
+    except Exception:                                                   # noqa: BLE001
+        layout = {}
+    command = layout.get("commands", {}).get(0x2080A619, 0x2080A619)
+    candidates = {171048, 172080, 190272, 396024, 397048, 14148, 69148}
+    known = layout.get("sizes", {}).get(0x2080A619)
+    if known:
+        candidates.add(known)
+    results = {"wire_command": f"0x{command:08X}"}
+    for size in sorted(candidates):
         packet = (u32 * (17 + size // 4))(*header, *([0] * (size // 4)))
-        packet[2], packet[14], packet[15], packet[16] = ctypes.sizeof(packet), 0x2080A619, size, 0
+        packet[2], packet[14], packet[15], packet[16] = ctypes.sizeof(packet), command, size, 0
+        packet[17 + layout.get("status_mask_word", 1)] = 0
         nt = gpu._legacy_clk_escape(packet, fields)
         results[str(size)] = ("accepted" if nt == 0 and packet[16] == 0
                               else f"refused (NTSTATUS {nt}, RM {packet[16]:#x})")

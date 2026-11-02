@@ -59,6 +59,26 @@ descriptors rather than copied from the neighbouring entry, even where the
 answer came back the same — the 1.9.06 notes explain why that distinction
 matters.
 
+## A known RM26 ABI is no longer gated to Turing
+
+Driver **472.12** on the same board presented the `20802612` RM26 transport at
+3548/3480 bytes — an interface Druta already described in full. Every block
+matched the existing table on the first try, and sweeps confirmed each is the
+only accepted size. The sole blocker was a generation gate reading
+"This client-power RM26 ABI requires Turing", an incremental record of what
+had been qualified rather than a property of the interface.
+
+It becomes `RM26_ARCHITECTURES`, now `(4, 6)`. It is kept **separate** from
+`LEGACY_GROUP_ARCHITECTURES`, which is `(4, 6, 7)`: merging them would claim
+Ampere on the RM26 family, which nothing has tested. A generation qualified
+against one packet family is not thereby qualified against the other, and the
+test suite asserts the two lists stay distinct.
+
+Observed and recorded but not acted on: the RM26 families reject a wrong
+parameter size with RM `0x3A`, where the A6xx families return RM `0x1F`. No
+code path changed on the strength of that — the RM26 layouts are selected by
+transport key with a single candidate each, so none of them probes sizes.
+
 ## Qualification
 
 Reversible idle trials on the GP106 under 572.83, each restored and verified
@@ -78,21 +98,30 @@ With XOC the slider range becomes 0.001..1999 W. Core current policy 13 reads
 configured 200 W. Sweeps accepted exactly one size per block on this adapter;
 every other size tried returned RM `0x1F`.
 
-These are idle software observations on one adapter and two drivers. They do
-not establish physical enforcement under load, behavior on other Pascal boards
-or other drivers, or any change in actual power draw — nothing was measured
-with a power meter. The 1999 W XOC range remains a software request envelope.
+The same trials passed on **472.12** against its captured 180 W baseline:
+190/201/250 W and a core current move of 86.8 → 86 A, each with exact
+readback and verified restoration, and 95.001 A refused against the reported
+maximum. Its native effective power limit reads 185625 mW.
 
-Evidence: [572.83 report](experiments/pascal-gp106-driver57283-20261102.md)
-and [sanitized data](experiments/pascal-gp106-driver57283-20261102.json),
-alongside the [576.80 qualification](experiments/pascal-gp106-live-power-20261102.md).
+These are idle software observations on one adapter across three drivers.
+They do not establish physical enforcement under load, behavior on other
+Pascal boards or other drivers, or any change in actual power draw — nothing
+was measured with a power meter. The 1999 W XOC range remains a software
+request envelope.
+
+Evidence: [572.83](experiments/pascal-gp106-driver57283-20261102.md) and
+[472.12](experiments/pascal-gp106-driver47212-20261102.md) reports with their
+sanitized data, alongside the
+[576.80 qualification](experiments/pascal-gp106-live-power-20261102.md).
 
 ## Unchanged
 
 The five earlier current-policy record layouts are untouched; this adds a
-sixth key. No role, client or native size is selected by a driver version,
-board identity or device ID — each is chosen by read-only acceptance and
-validated by exact binding and readback. The unresolved blank-viewport
+sixth key, and the RM26 layouts are reached without changing any of their
+sizes. No role, client or native size is selected by a driver version, board
+identity or device ID — each is chosen by read-only acceptance and validated
+by exact binding and readback. Generation still decides only whether a
+packet family's policy semantics are understood at all. The unresolved blank-viewport
 presentation issue recorded in 1.9.05 is unchanged.
 
 `Druta-1.9.07-win64.zip` includes the application, adjacent I2C profiles,
@@ -100,6 +129,8 @@ licenses, matching source, tests and public validation material. Extract the
 complete folder and run `Druta.exe`. As in 1.9.06, the build uses CPython
 3.14.4 with the existing pinned dependencies; 1.9.05 and earlier used 3.13.8.
 
-Validation: the complete hardware-free suite passed **6695 tests**, the 6688
-of 1.9.06 plus seven covering the 216-byte record, the derived stride, and
-the transient-versus-size distinction on the role GET.
+Validation: the complete hardware-free suite passed **6704 tests**, the 6688
+of 1.9.06 plus sixteen covering the 216-byte record, the derived stride, the
+transient-versus-size distinction on the role GET, every qualified generation
+on both RM26 geometries, and an assertion that the two generation lists stay
+separate.

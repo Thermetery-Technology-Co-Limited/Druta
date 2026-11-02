@@ -93,6 +93,8 @@ function Get-SourceSnapshot {
         'experiments/validate_pascal_live_power.py',
         'experiments/pascal-gp106-driver57283-20261102.md',
         'experiments/pascal-gp106-driver57283-20261102.json',
+        'experiments/pascal-gp106-driver47212-20261102.md',
+        'experiments/pascal-gp106-driver47212-20261102.json',
         'experiments/turing-driver-abi-review-20261028.md',
         'experiments/turing-driver-abi-review-20261028.json',
         'experiments/turing-43160-static-layout-20261028.md',
