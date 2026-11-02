@@ -100,6 +100,8 @@ def device(monkeypatch):
             at = 4 + 16 * number
             _, index, attr = struct.unpack_from("<HHH", request, at)
             if attr == 0x39:
+                if index in data.get("unavailable", ()):
+                    continue
                 value = int(index in data["masks"])
             else:
                 assert index in data["masks"]
@@ -113,6 +115,22 @@ def device(monkeypatch):
 
 def commands(data):
     return [words[14] if words[4] == 0x0500002B else words[4] for words in data["writes"]]
+
+
+@pytest.mark.parametrize("changed", [12, 17])
+def test_media_witness_does_not_imply_other_controller_or_require_gr0(device, changed):
+    controller, data = device
+    data["masks"] = {12: [0x20, 0x80], 17: [0x40, 0x100]}
+    data["selected"] = (changed,)
+    data["unavailable"] = {0}
+    held = controller.hold()
+    assert not held["controllers"]["0"]["available"]
+    assert held["observed_controllers"] == [str(changed)]
+    unchanged = 17 if changed == 12 else 12
+    assert held["controllers"][str(unchanged)]["reason_masks"] == {
+        0x48: data["masks"][unchanged][0], 0x49: data["masks"][unchanged][1],
+    }
+    assert not controller.release()["owned_request"]
 
 
 def test_balanced_session_transport_preserves_peers_and_alternate_identities(device):

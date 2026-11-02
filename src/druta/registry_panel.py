@@ -116,7 +116,7 @@ class RegistryPanel:
         from .gr_gating_live_panel import GrGatingLivePanel
 
         self.gr_gating_live_panel = GrGatingLivePanel(self.app)
-        with dpg.collapsing_header(label="Live GR power gating", tag="reg_gr_gating_live_header"):
+        with dpg.collapsing_header(label="Live engine-level power gating (ELPG)", tag="reg_gr_gating_live_header"):
             self.gr_gating_live_panel.build()
         from .engine_clock_gating_panel import EngineClockGatingPanel
 

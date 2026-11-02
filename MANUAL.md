@@ -776,7 +776,7 @@ this instance. This control does not enable originally disabled entries and
 does not require a GPU restart. Release the request before switching GPUs or
 closing Druta; it is not released automatically.
 
-**Live GR power gating**, **Live engine clock gating (ELCG)**, **Live block
+**Live engine-level power gating (ELPG)**, **Live engine clock gating (ELCG)**, **Live block
 clock gating (BLCG)** and **Live second-level clock gating (SLCG)** provide
 separate **Refresh**, **Hold disabled** and
 **Release** controls. Hold adds this application's request to disable the named
@@ -785,6 +785,10 @@ change before reporting a verified hold. BLCG checks a supported register layout
 through NVIDIA's read-only register operations; an inaccessible or unknown layout
 does not enable Hold. The readbacks are partial configuration witnesses, not
 measurements of physical gating, residency or power savings.
+The ELPG request applies to a group chosen by the driver, which can include
+graphics and media controllers. Individual engines cannot be selected. While
+held, each supported controller reports whether a new request transition was
+observed; an overall verified hold does not prove every controller changed.
 
 Turing, Ampere and Ada BLCG use separate five-register layouts. Hold requires readable values
 containing only understood bits and at least one nonzero value, then checks that

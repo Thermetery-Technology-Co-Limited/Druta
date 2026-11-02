@@ -2231,9 +2231,9 @@ Raw INFO bytes are retained diagnostically, while the activation contract uses
 the loaded routing fields and controller states; it does not turn evaluated
 clock data into universal frequency-equality requirements.
 
-### Session-only GR power-gating request
+### Session-only engine-level power-gating request
 
-The adjacent **Live GR power gating** panel provides Hold disabled and Release
+The adjacent **Live engine-level power gating (ELPG)** panel provides Hold disabled and Release
 through `gr_gating_live.py`. It allocates a dedicated NVIDIA `0xB2CC` profiler
 object under the paired GPU subdevice. Public command `0xB0CC0301` requests GR
 engine-level power-gating disable using control mask `0x40`; `0xB0CC0302`
@@ -2261,6 +2261,20 @@ measurement. A read-only qualification captured an unrelated controller's
 predicate changing between samples while its support and reason masks stayed
 identical; this must not suppress otherwise verifiable requests.
 
+The panel describes this as a grouped ELPG request rather than GR-only control.
+The public GR feature selects group0 when present, otherwise group1, and
+independently selects nonempty group3. In the inspected617.42 constructor,
+controller12 and17 register in group3 when their support bits are set. A later
+removal path can change membership, so a supported controller is not guaranteed
+to participate. Existing live evidence includes controller12, an NVDEC contributor,
+and media controllers13..15. Controller17 has no live qualification on this adapter.
+This is existing session-only control, not a new selective NVDEC switch or an
+extension of registry-backed controller17 configuration. While held, the panel
+separately marks observed transitions and no new observed transition; neither a
+latest disabled predicate nor another controller's transition proves a requested
+effect on an unobserved controller.
+[Group routing and scoped evidence](experiments/elpg-group-coverage-20261102.json).
+
 The observed indices are a partial witness, not an exhaustive group map or an
 ownership getter. The Windows callback selects dynamic groups and other clients
 can already hold the same reason. A fulfilled request without a new independent
@@ -2274,8 +2288,8 @@ The production API also verified duplicate Hold without another native write,
 and unchanged voltage requests and configured LPWR observations. These results
 qualify a live software request, not measured power savings, timing, or physical
 gating residency. No registry write, driver restart, workload or Windows reboot
-was used. ELCG was subsequently qualified below; other profiler clock-gating
-and idle-slowdown controls remain unqualified.
+was used. ELCG, BLCG and SLCG were subsequently qualified below; the examined
+idle-slowdown path remains unqualified.
 [Qualification evidence](experiments/live-gr-power-gating-20261101.json).
 
 ### Additional live profiler controls

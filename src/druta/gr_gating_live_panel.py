@@ -1,6 +1,6 @@
 ﻿# Copyright (C) 2026 Thermetery Technology Co Limited
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Session-only controls for a GR power-gating disable request."""
+"""Session-only controls for an engine-level power-gating request."""
 
 import dearpygui.dearpygui as dpg
 
@@ -16,8 +16,9 @@ class GrGatingLivePanel:
 
     def build(self):
         dpg.add_text(
-            "Hold requests that the driver disable GR power gating for this session. "
-            "Driver readback is a partial check, not physical residency. "
+            "Hold requests that the driver disable engine-level power gating (ELPG) for this session. "
+            "The driver selects associated controllers, which can include graphics and media engines. "
+            "Individual engines cannot be selected. Driver readback is a partial check, not physical residency. "
             "The request is not automatically reapplied after a driver restart.",
             tag="gr_gating_live_explainer", wrap=self.app.s(900),
         )
@@ -64,18 +65,26 @@ class GrGatingLivePanel:
         else:
             lines.append("This instance's disable request: "
                          + ("held" if snapshot["owned_request"] else "not held"))
-        observed = snapshot.get("observed_controllers", [])
+        observed = {str(index) for index in snapshot.get("observed_controllers", [])}
         if observed:
             lines.append("Observed request changes on LPWR controllers: "
-                         + ", ".join(map(str, observed)) + " (partial readback)")
+                         + ", ".join(map(str, snapshot["observed_controllers"])) + " (partial readback)")
         if snapshot.get("last_verification_error"):
             lines.append("Last verification error: " + str(snapshot["last_verification_error"]))
         for index, controller in snapshot["controllers"].items():
+            if not controller.get("available"):
+                lines.append(f"LPWR controller {index}: support readback unavailable")
+                continue
             if not controller.get("supported"):
+                lines.append(f"LPWR controller {index}: unsupported")
                 continue
             enabled = controller.get("enabled_predicate")
             state = "unknown" if enabled is None else ("enabled" if enabled else "disabled")
-            lines.append(f"LPWR controller {index}, latest driver observation: {state}")
+            line = f"LPWR controller {index}, latest enabled predicate: {state}"
+            if snapshot["owned_request"] and not snapshot.get("uncertain_outcome", False):
+                transition = "request transition observed" if str(index) in observed else "no new request transition observed"
+                line += f"; {transition}"
+            lines.append(line)
         return "\n".join(lines)
 
     def _configure_actions(self):
@@ -96,7 +105,7 @@ class GrGatingLivePanel:
         self.stale = True
         self._configure_actions()
         action = "Refresh status." if operation == "refresh" else "Use Release or refresh status."
-        message = f"GR power gating {operation} failed: {exc}. {action}"
+        message = f"Engine-level power gating (ELPG) {operation} failed: {exc}. {action}"
         dpg.set_value("gr_gating_live_status", message)
         self.app.log(message, False)
 
@@ -110,7 +119,7 @@ class GrGatingLivePanel:
 
     def read(self, *unused):
         try:
-            self._show(self._controller().read(), "GR power-gating status refreshed.")
+            self._show(self._controller().read(), "Engine-level power-gating (ELPG) status refreshed.")
         except Exception as exc:  # noqa: BLE001
             self._failed("refresh", exc)
 
