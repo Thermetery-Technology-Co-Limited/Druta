@@ -40,6 +40,16 @@ TURING_SIZES = {
     **LEGACY_SIZES,
     NATIVE_INFO: 8620, NATIVE_CONTROL: 4432, NATIVE_STATUS: 172080,
 }
+# A third native ABI behind the same 1160-byte client group, whose policy
+# INFO record is 216 bytes rather than 228. Its role INFO shrinks with the
+# record (see _definition_stride), which is how it is detected: the role GET
+# is refused for its size before the native INFO GET is ever reached.
+# Selected by read-only acceptance, never by a device or driver version.
+INFO216_SIZES = {
+    **LEGACY_SIZES,
+    ROLE_INFO: 220,
+    NATIVE_INFO: 8236, NATIVE_CONTROL: 4432, NATIVE_STATUS: 171048,
+}
 # Generations whose client power-policy semantics have been validated against
 # a live adapter, and so may fall back from the modern client group to the
 # smaller one. Generation decides whether the semantics are understood at all;
@@ -125,16 +135,37 @@ def _small_native_geometry(binding):
     return LEGACY_SIZES[NATIVE_CONTROL], 184
 
 
+def _definition_stride(role_info_size):
+    """The native policy INFO record stride this role GET implies.
+
+    The role parameter is a 4-byte semantic selector followed by exactly one
+    native policy INFO record, so its accepted size fixes that record's
+    stride. This holds for every ABI measured so far - 264/260, 232/228,
+    220/216, 136/132 and 120/116 - which is why the stride is derived from
+    the accepted role size rather than carried as a per-table constant. The
+    derived value is not trusted blindly: it has to bind the role definition
+    to exactly one occupied native policy before anything uses it.
+    """
+    return role_info_size - 4
+
+
 def _native_geometry(binding):
-    """INFO base/stride and CONTROL base/stride/size for a captured binding."""
+    """INFO base/stride and CONTROL base/stride/size for a captured binding.
+
+    native_info_stride is recorded only when it differs from the layout's
+    usual record size, so a binding captured before this existed still reads
+    back with the geometry it was captured under.
+    """
+    stride = binding.get("native_info_stride")
     if binding.get("layout") == "rm26":
         if binding.get("native_layout") == "rm26_extended":
-            return 60, 132, 20, 52, RM26_EXTENDED_SIZES[NATIVE_CONTROL]
-        return 52, 116, 4, 52, RM26_SIZES[NATIVE_CONTROL]
+            return 60, stride or 132, 20, 52, RM26_EXTENDED_SIZES[NATIVE_CONTROL]
+        return 52, stride or 116, 4, 52, RM26_SIZES[NATIVE_CONTROL]
     if binding.get("layout") == "legacy32":
-        size, stride = _small_native_geometry(binding)
-        return 88, 228, 20, stride, size
-    return NATIVE_INFO_BASE, NATIVE_INFO_STRIDE, NATIVE_CONTROL_BASE, NATIVE_CONTROL_STRIDE, SIZES[NATIVE_CONTROL]
+        size, control_stride = _small_native_geometry(binding)
+        return 88, stride or 228, 20, control_stride, size
+    return (NATIVE_INFO_BASE, stride or NATIVE_INFO_STRIDE,
+            NATIVE_CONTROL_BASE, NATIVE_CONTROL_STRIDE, SIZES[NATIVE_CONTROL])
 
 
 def _coupled_requests(observation):
@@ -199,6 +230,7 @@ class ClientPowerController:
         self.sizes = SIZES
         self._legacy = False
         self._native_policy124 = False
+        self._role_info216 = False
         self._rm26 = False
         self._rm26_extended = False
         self._transport_key = None
@@ -324,7 +356,7 @@ class ClientPowerController:
             self.sizes, self._legacy = LEGACY_SIZES, True
             info = self._exchange(INFO, bytes(self.sizes[INFO]))
         base, info_stride, capacity = (4, 28 if self._rm26_extended else 20, 32) if self._rm26 else (8, INFO_STRIDE, 32) if self._legacy else (INFO_BASE, INFO_STRIDE, CAPACITY)
-        native_base, native_stride = (60, 132) if self._rm26_extended else (52, 116) if self._rm26 else (88, 228) if self._legacy else (NATIVE_INFO_BASE, NATIVE_INFO_STRIDE)
+        native_base, default_stride = (60, 132) if self._rm26_extended else (52, 116) if self._rm26 else (88, 228) if self._legacy else (NATIVE_INFO_BASE, NATIVE_INFO_STRIDE)
         mask = int.from_bytes(info[:4] if self._rm26 else info[4:base], "little")
         if mask >> capacity:
             raise ClientPowerError("malformed", "Client-power inventory exceeds the understood row capacity")
@@ -342,13 +374,29 @@ class ClientPowerController:
         if not limits[0] <= limits[1] <= limits[2]:
             raise ClientPowerError("malformed", "Client-power ordinary limits are inconsistent")
         role_request = bytes([ROLE]) + bytes(self.sizes[ROLE_INFO] - 1)
-        role = self._exchange(ROLE_INFO, role_request)
+        try:
+            role = self._exchange(ROLE_INFO, role_request)
+        except ClientPowerError as exc:
+            # A role GET refused for its SIZE means this driver's native policy
+            # INFO record is not the one this table describes. That is a
+            # definite capability answer, so try the one other understood
+            # small-group record size; a transient error selects nothing.
+            if not self._legacy or self._role_info216 or exc.rm_status != 0x1F:
+                raise
+            self.sizes, self._role_info216 = INFO216_SIZES, True
+            role_request = bytes([ROLE]) + bytes(self.sizes[ROLE_INFO] - 1)
+            role = self._exchange(ROLE_INFO, role_request)
         if role[:4] != role_request[:4]:
             raise ClientPowerError("malformed", "Power-role INFO changed its semantic selector")
+        native_stride = _definition_stride(len(role))
+        if native_stride <= 0 or native_stride % 4 or native_stride < 20:
+            raise ClientPowerError("malformed", "Power-role INFO carries no usable policy definition")
+        definition = role[4:]
         try:
             native_info = self._exchange(NATIVE_INFO, bytes(self.sizes[NATIVE_INFO]))
         except ClientPowerError as exc:
-            if not self._legacy or self._native_policy124 or exc.rm_status != 0x1F:
+            if (not self._legacy or self._native_policy124 or self._role_info216
+                    or exc.rm_status != 0x1F):
                 raise
             self.sizes, self._native_policy124 = TURING_SIZES, True
             native_info = self._exchange(NATIVE_INFO, bytes(self.sizes[NATIVE_INFO]))
@@ -358,12 +406,12 @@ class ClientPowerController:
             for i in range(NATIVE_CAPACITY)
             if native_mask >> i & 1
             and native_info[native_base + i * native_stride : native_base + (i + 1) * native_stride]
-            == role[4:]
+            == definition
         ]
         if len(matches) != 1:
             raise ClientPowerError("malformed", "Role1 INFO does not uniquely bind a current native policy")
         native_index = matches[0]
-        source = role[4:]
+        source = definition
         # This byte describes the firmware policy table, not the RM packet
         # capacity. A larger native packet can carry a v30 policy unchanged.
         table_versions = (0x30,) if self._legacy or self._rm26 else (0x30, 0x40)
@@ -387,7 +435,13 @@ class ClientPowerController:
                 **({"layout": "legacy32"} if self._legacy else {}),
                 **({"layout": "rm26"} if self._rm26 else {}),
                 **({"native_layout": "rm26_extended"} if self._rm26_extended else {}),
-                **({"native_layout": "policy124"} if self._native_policy124 else {}),
+                **({"native_layout": "policy124"}
+                   if self._native_policy124 or self._role_info216 else {}),
+                # Recorded only when the derived record stride differs from
+                # this layout's usual one, so bindings captured on every
+                # previously supported ABI stay byte-identical.
+                **({"native_info_stride": native_stride}
+                   if native_stride != default_stride else {}),
             },
             "info_hex": info.hex(),
             "role_info_hex": role.hex(),

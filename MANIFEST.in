@@ -11,6 +11,7 @@ include RELEASE-NOTES-1.9.03.md
 include RELEASE-NOTES-1.9.04.md
 include RELEASE-NOTES-1.9.05.md
 include RELEASE-NOTES-1.9.06.md
+include RELEASE-NOTES-1.9.07.md
 include MAXWELL-PASCAL-VALIDATION.md
 include BLACKWELL-VALIDATION.md
 include ADA-VALIDATION.md
@@ -62,6 +63,8 @@ include experiments/validate_turing_live_power.py
 include experiments/pascal-gp106-live-power-20261102.md
 include experiments/pascal-gp106-live-power-20261102.json
 include experiments/validate_pascal_live_power.py
+include experiments/pascal-gp106-driver57283-20261102.md
+include experiments/pascal-gp106-driver57283-20261102.json
 include experiments/turing-driver-abi-review-20261028.md
 include experiments/turing-driver-abi-review-20261028.json
 include experiments/turing-43160-static-layout-20261028.md

@@ -4885,6 +4885,18 @@ class GPU:
             "info": (0x58, 0xE4), "status": (0x68, 0x1434),
             "control": (0x14, 0x7C),
         },
+        # The same status and control blocks as the entry above, with a
+        # 216-byte policy INFO record instead of 228 in an 8236-byte block.
+        # Measured on the same GP106 under a different driver, where the
+        # 8620- and 8632-byte info GETs are both refused (RM 0x1F). The info
+        # base and the status/control geometry were each re-solved against
+        # live descriptors rather than assumed from the neighbouring entry.
+        (3676, 3608): {
+            "sizes": {0x2080A618: 8236, 0x2080A619: 171048,
+                      0x2080A61A: 4432, 0x2080E61B: 4432},
+            "info": (0x58, 0xD8), "status": (0x68, 0x1434),
+            "control": (0x14, 0x7C),
+        },
         (54420, 54352): {
             "sizes": {0x2080A618: 20000, 0x2080A619: 396024,
                       0x2080A61A: 13840, 0x2080E61B: 13840},

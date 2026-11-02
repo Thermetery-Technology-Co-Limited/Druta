@@ -1,7 +1,15 @@
 # Druta
 
-**Version 1.9.06 prerelease** — [release notes](RELEASE-NOTES-1.9.06.md).
-Supersedes 1.9.05 and carries its Turing work forward. The XOC power-limit
+**Version 1.9.07 prerelease** — [release notes](RELEASE-NOTES-1.9.07.md).
+Supersedes 1.9.06. A role INFO GET refused for its size no longer removes
+live power and the current sliders: that GET now negotiates its size, and the
+native policy record stride is derived from the size it accepts rather than
+carried as a constant. Qualified on the same GTX 1060 under driver 572.83,
+whose policy record is 216 bytes rather than 228. See the
+[572.83 evidence](experiments/pascal-gp106-driver57283-20261102.md).
+
+1.9.06 — [release notes](RELEASE-NOTES-1.9.06.md).
+Superseded 1.9.05 and carried its Turing work forward. The XOC power-limit
 slider now extends on Pascal, and core current limits work there too: a
 captured power-GET transport is no longer withheld because the driver's
 current-policy record layout is unrecognized, Pascal may take the smaller
@@ -136,7 +144,7 @@ python -m pip install -r requirements.txt
 ```
 
 The local build produces `dist\Druta\Druta.exe` and
-`dist\Druta-1.9.06-win64.zip`. Distribute the
+`dist\Druta-1.9.07-win64.zip`. Distribute the
 whole `Druta` folder or ZIP: the EXE needs its adjacent `_internal` folder.
 
 `dist\Druta\source\` contains the matching working-tree source, including
