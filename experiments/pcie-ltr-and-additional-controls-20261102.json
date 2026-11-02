@@ -600,5 +600,587 @@
   },
   "attribute45": "Initialization can populate cached byte from firmware reply00/06/13, byte+5D to row+168. SET00/03/08 overwrites the cache with the requested byte on success. The source does not identify its meaning, permitted values or independent post-SET effect. No SET issued.",
   "aspm": "True ORs bits0/1 into a read16 value, but the helper sends a zero-extended four-byte config write and ignores write status. Handler performs additional bus callbacks. A typed same-handle getter exists only under unresolved current predicates. Endpoint scope and effects remain unqualified. No SET issued.",
-  "non_goals": "No remote adapter work, workload/physical measurements, recovery mechanism, saved profile or restart replay. Existing working controls are unchanged."
+  "non_goals": "No remote adapter work, workload/physical measurements, recovery mechanism, saved profile or restart replay. Existing working controls are unchanged.",
+  "source_followup": {
+    "scope": "Offline follow-up only; no new GPU/registry changes or product controls.",
+    "verified_windows": 50,
+    "verification": "Root independently compared 49 additional binary windows and the packet-header window against the installed image. Public header conclusions are scoped to the specified source versions.",
+    "source_records": [
+      {
+        "path": "experiments/registry-overrides/ltr-followup-terra-20261102/ltr-interception-predicates-61742.json",
+        "sha256": "355f1ade2c5b2f55cc73eea6735a40ec909216997aeec8937907f818804fd8e1",
+        "findings": [
+          "For selected GB family, 975800 invokes read and write on RegisterAccess GPU+4410, device0/instance0, address base8A000+254. The normal 20800122 GLOBAL READ32 fallback invokes the same 126650 helper and same GPU+4410/device0/instance0 and original offset. 3042C0 uses cached device0 mapping at GPU+2030 or initializes it from GPU+EE8; virtualization and hooks are separate conditional routes. This is a source route identity, not proof that every runtime path takes the same hook.",
+          "At 1270F3, 126F40 calls 1253F0 and skips the base write if return is nonzero. In the traced helper, any of GPU+9A0/+9A1/+9A2/+9B2 set returns 0x10; otherwise GPU+99D clear returns 0x0F. With +99D set, a nonzero GPU+308 virtual result is returned; other branches involving GPU+584C, +9EF, +9D3, +994, object GPU+2700 byte+108 and helpers 11DAD0/1242B0 can return 0x11. These offsets are not assigned authoritative property names from this bounded source and their current runtime values are not known.",
+          "After sanity passes, 126F40 calls 304A20 only if the mapping has a filter list. 304A20 iterates valid entries, matches device index and instance plus inclusive address range, invokes any matching callback, and ORs matching flags into an output. If output bit1 is set, 126F40 skips base EB460 write. Official NVIDIA generated g_gpu_access_nvoc.h names bit1 REGISTER_FILTER_FLAGS_WRITE and describes the callback as expected to perform the write; bit2 marks an invalid filter. Thus skipping the base write does not by itself prove the callback omitted it.",
+          "The selected LTR SET can still return status0 if the write was skipped or redirected and the following read sees trigger0; however neither actual sanity status nor a matching filter/callback was observed in the reported trial. A source-qualified public query for current sanity result, filter list or callback effect was not identified. The exact local cause remains unknown; no new hardware probing is proposed."
+        ],
+        "windows": [
+          {
+            "label": "set_virtual_dispatch",
+            "rva": "0x48ee40",
+            "length": 91,
+            "bytes_hex": "4883ec48488b81600100004c8bc2488b88e8000000488b91202100004885d2750ab8560000004883c448c3450fb65006450fb75804450fb64802450fb700488b824006000044885424286644895c2420ff15123c97004883c448c3",
+            "sha256": "79b6a482958c36c6bd311c444cac37b853de2d1d5bbb6d9e072fefc07aa4a202"
+          },
+          {
+            "label": "ltr_write_and_poll",
+            "rva": "0x975859",
+            "length": 331,
+            "bytes_hex": "488b81c805000048896c245848897c2450ff1538d248004533c04c8964242033d2488d8e10440000448d8854020000e8c30d7bff8b9424b80000008bf88b8c24b000000083e207488b86c805000081e1ff030000c1e20a81e7014000f00bd14183e607c1e2044181e7ff030000410bd6488bcec1e20a410bd703d20bfa81cf01400010ff15c6d148004c89642428488d8e104400004533c0897c242033d2448d8854020000e83d167bff4533c9488d5424304533c0488d8ea0200000e856f579ff488b86c8050000488bceff157ed148004533c04c8964242033d2488d8e10440000448d8854020000e8090d7bffa80174540f1f44000041b819010000488d542430488d8ea0200000e8d9ed79ff8bd883f8657457488b86c8050000488bceff152ad148004533c04c8964242033d2488d8e10440000448d8854020000e8b50c7bffa80175b18bc3488b6c",
+            "sha256": "a853f5d81832e217483b97f9e4346bd87bfce43ce484490e17e49f5af1a8edf3"
+          },
+          {
+            "label": "global_read_fallback",
+            "rva": "0x4d24d8",
+            "length": 32,
+            "bytes_hex": "448bca48c744242000000000498db5104400004533c0488bce33d2e85841c5ff",
+            "sha256": "4690878cd6b4473be90fe18fe35b8d500aa03566913b7f31c169ae6a2c9e2ea0"
+          },
+          {
+            "label": "common_register_read",
+            "rva": "0x126650",
+            "length": 357,
+            "bytes_hex": "405657415641574883ec68488b051e3307014833c448894424484c8bbc24b0000000418bf1458bf08bfa4885c9750ab83d000000e98301000048895c2460488b1980bbab090000007430488b83f02100004885c07424488b90880200004885d27418488b4a588bd6488b01488b4028ff15e3c3cd00e93d010000ff411833c0488bcb894424448bd78944244048896c2458e8dadb1d00488be84885c0753d448bcf4489742420448bc6ba10119302b9e871600ee888a5fbffba00009402b9e871600ee879a5fbffb994020000e89f99fdffbfd0d0d0d0e9d500000080bbb309000000488bcb7412448bc6488bd5e88e4cfcff8bf8e9b70000004c8d4424408bd6e89becffff85c074098b7c2440e99e00000048837d28007430c644243800488d4424444c897c2430448bce4889442428458bc68bd7c744242020000000488bcbe8ebe01d008bf8eb048b7c2440f6442444017510448bc6488bd5488bcbe81e4cfcff8bf883",
+            "sha256": "8e89d387fe0068b3a270f929f107fc1359eabd391dd4a02e3142ffdd02f82324"
+          },
+          {
+            "label": "register_mapping_device0",
+            "rva": "0x3042c0",
+            "length": 149,
+            "bytes_hex": "4883ec2883fa0d7d644585c0755f48895c24200faee84863c2488d1cc1488b83302000004885c0753a85d27518488d81e80e000048898330200000488b5c24204883c428c30faee8448bc2b933d58e0eba00104a00e876c9ddff33c048898330200000488b5c24204883c428c385d2750c488d81e80e00004883c428c3448bc2b933d58e0eba00104a00e841c9ddff33c04883c428",
+            "sha256": "584469fb6c4aa716844c0d6a76a673e8aef8cf9b58188dd236e0eeb3324fc809"
+          },
+          {
+            "label": "write_mode_and_mapping",
+            "rva": "0x126f40",
+            "length": 427,
+            "bytes_hex": "405355565741544155415641574883ec78488b05282a07014833c44889442468488b19418be9488b8424e8000000458be8448be248894424584c8bf348895c24508bbb440d0000c74424640000000083ff200f859400000033f6488d059fecbd0041b1014533c0488944242033d2488bcbe8da3402004532ff448bb424e000000085f67418488bcbe8036bffff84c0750c3883940900000f8474010000488bbb1044000080bfab090000000f84a1000000488b87f02100004885c00f8491000000488b88880200004885c90f8481000000488b4958458bc68bd5488b01488b4040ff1581bacd00e9250100008bcfe85d0ffeff488bcb8bf0e81327feff8b88340d00000fb3ce488bcbe8c20b020084c00f8444ffffff41b701488d05e0ebbd00450fb6cf4889442420410fb6d74533c0488bcbe818340200488bcbe8d026feff33d2498bce488bd8e813360200e927ffffffff832c440000458bc5418bd4c744246000000000488bcfe812d21d00488bd84885c07535458bcc44896c2420448bc5ba1011c800b9e871600ee8c09bfbffba0000c900b9e871600ee8b19bfbffb9c9000000e8d78ffdffeb66",
+            "sha256": "e51a1985a4ff582d469343fd780589b9d466d9929884553960d9c5bbb9742aff"
+          },
+          {
+            "label": "write_sanity_and_filter",
+            "rva": "0x1270eb",
+            "length": 102,
+            "bytes_hex": "4533c08bd5488bcfe8f8e2ffff85c0755548837b2800743688442440448bcd488b442458458bc54889442438418bd4488d442460488bcf4889442430c7442428200000004489742420e8e7d81d00f6442460027511458bce448bc5488bd3488bcfe80f43fcff",
+            "sha256": "98d35d2ad79cf1c6223c804bf83babe2c8d724ca50d78fde9c28f6cda965e9a4"
+          },
+          {
+            "label": "register_access_sanity",
+            "rva": "0x1253f0",
+            "length": 309,
+            "bytes_hex": "48895c240848896c2410488974241857415641574883ec20488b81002700004032ed498bf0448bf2488bd941bfffffffff4885c074070fb6a80801000080b9a0090000000f85c300000080b9a1090000000f85b600000080b9a2090000000f85a900000080b9b2090000000f859c00000080b99d090000000f8488000000488b8108030000ff152dd6cd008bf885c0741c458bc6ba0010a704b9e871600ee8fdb7fbffe8180deeff4533ffeb65488bcbe82b86ffff84c075618b834c58000083f801745683f803750c488bcbe8efedffff84c0754580bbef09000000753c80bbd30900000075334084ed752e4038ab940900007525b9d3040000e811bafeffbf11000000eb0cbf0f000000eb05bf100000004885f6740344893e488b5c24408bc7488b6c2448488b7424504883c420415f415e5fc3",
+            "sha256": "5defe5c0857dcd754ddd1f93ca0e6c29616e74484162a543f291d128e1f76fed"
+          },
+          {
+            "label": "write_filter_walk",
+            "rva": "0x304a20",
+            "length": 380,
+            "bytes_hex": "40555657415441574883ec70488b054d4fe9004833c44889442448488b8424d8000000418bf94c8bbc24d0000000418be848894424408bf24c8be1e860f8ffff4885c0751eba00009201b95af5fb0ee81cc2ddffb992010000e842b6dfffe91c01000048837828004c897424584c8d70280f840301000080bc24e0000000007417488b4424404885c07517498bd4488d4c2440e8684ce2ff488b4424404885c0740b8b4048a8080f85cd000000498b4e1048895c2468e885b4dfff498b4e1041ff4618e878b5dfff498b1e4885db74784c896c2460448bac24c80000000f1f008b4308a80475143b730c750f3b6b10750a3b7b1472053b7b187608488b1b4885db75dd4885db743b488b43204885c07424418b0f448bc7448b8c24c0000000488b5330894c2428498bcc44896c2420ff1553dfaf008b4308410907488b1b4885db759d4c8b6c2460498b4e10e8efb3dfff41836e1801488b5c2468751441807e1c00740d498bcee8a4fcffff41c6461c00498b4e10e8c6b4dfff4c8b",
+            "sha256": "d4212dc55ecce7d08155d62d0edf41ed3f7eea2bc78ed205d07a80d6b85bb40c"
+          }
+        ],
+        "primary_sources": [
+          {
+            "url": "https://github.com/NVIDIA/open-gpu-kernel-modules/blob/ca2d03e6fafd4d4b56b383497d931c25b283bfcf/src/nvidia/generated/g_gpu_access_nvoc.h#L80",
+            "description": "REGISTER_FILTER fields, WRITE and INVALID flag meanings."
+          },
+          {
+            "url": "https://github.com/NVIDIA/open-gpu-kernel-modules/blob/ca2d03e6fafd4d4b56b383497d931c25b283bfcf/src/nvidia/src/kernel/gpu/gpu_access.c#L150",
+            "description": "Public register-write sanity and filter dispatch semantics; structural comparison to current pinned driver."
+          }
+        ]
+      },
+      {
+        "path": "experiments/registry-overrides/aspm-enable-terra-20261102/aspm-blackwell-callbacks-61742.json",
+        "sha256": "2271f09b0d0d438985fad0b4f465a7c19d47ee7eca35741de7349523b19a990c",
+        "findings": [
+          "GPU+2120 is class D1C956; factory/constructor invokes 175C9E0. For ChipHal 0x41..0x45 (decimal 65..69) +6D0 selects 974840; +6D8 selects 61B0 bare return and +6E0/+6E8 select 6190 zero return. Thus only +6D0 has substantive effect among these four on this layout; branch flags still govern whether the latter three are invoked.",
+          "974840 reads selected GPU config logical offset 70 via GPU+270, ORs 3 for true or clears bits 0..1 for false while preserving other read DWORD bits, then writes through GPU+278. OBJGPU constructor invokes 1717810; Blackwell ChipHal 0x41..0x45 (decimal 65..69) select GPU+270=2B33C0 and +278=2B35E0. These use GPU+E28 identity and cached GPU config handle +A88 to call F8DD0 and F91E0. The latter write result is not independently established by return status.",
+          "GET_INFO_V2 selector7 calls 130BF0 with GPU+2128 class DBE523. Its constructor 1762AB0 invokes 1760FB0; on ChipHal 0x41..0x45 (decimal 65..69) its +248=97F980, which maps selector1 to config offset70. 130BF0 calls GPU+238=177010 which delegates to GPU+270=2B33C0. Consequently selector7 reads the GPU configuration word changed by +6D0, subject to successful valid transport.",
+          "The first helper 1945C0 also changes a distinct GPU+2740 PCI handle and capability+10; false writes a zero control word. Its 4-byte low-level write and ignored outcome are documented in aspm-enable-source-61742.json. Getter selectors9/23 can read that same copied handle only in the 12F5D0 true mode and with copied descriptor valid; current mode and exact selected topology endpoint are not source-qualified here. No command SET is qualified solely by GPU selector7."
+        ],
+        "windows": [
+          {
+            "name": "gpu_bif_and_reader_classes",
+            "rva": "0x1197b0",
+            "length": 71,
+            "bytes": "4c8d8b202100004c8bc6ba56c9d100488bcbe83912000085c00f851712000048ffc64883fe0172d8488bf70f1f4400004c8d8b282100004c8bc6ba23e5db00488bcbe809120000",
+            "sha256": "cf33a21ed77d9390e8688c87b90b7fd6e26131038f48e2d24bcc85b9c0bd6bb7"
+          },
+          {
+            "name": "bif_descriptor",
+            "rva": "0xed89f8",
+            "length": 48,
+            "bytes": "b817000056c9d1005018e540010000006092754101000000308aed4001000000688aed40010000000100000000000000",
+            "sha256": "d3baa20dc8a12f3a26d7b4e87ad35dee22e814fc1ce3dc3bf67cf849f585a661"
+          },
+          {
+            "name": "bif_constructor_hals",
+            "rva": "0x1760d15",
+            "length": 50,
+            "bytes": "498bd6488d05617d77ff488bcf488907e8968bffff4c8bc5498bd6488bcfe8a8bcffff4c8bc5498bd6488bcfe80ae4ffff48",
+            "sha256": "ae730a55cf3f663903619b351376f8b54eb4b0285b6b8b6b25e822d2fe8c2c18"
+          },
+          {
+            "name": "bif_callback_assignments",
+            "rva": "0x175e582",
+            "length": 341,
+            "bytes": "418bc083e0e083f840751d418bc083e01fffc883f804774a488d059f6221ff498981d0060000eb60418bc083e0e083f820752f418bc88bc2d3e0a9e0fff8037421488d05064121ff498981d0060000488d05884021ff498981d8060000e9b9000000488d05c57b8afe498981d0060000418bc083e0e083f840418bc0755a83e01fffc883f8047776488d059f7b8afe498981d8060000488d05717b8afe498981e0060000418bc083e0e083f8200f8598000000418bc083e01f83c0fb83f8040f8786000000488d0552a120ff498981e8060000e98c00000083e0e083f820751e418bc88bc2d3e0a9e0fff8037410488d05e93f21ff498981d8060000eb1d488d05297b8afe498981d8060000418bc083e0e083f8200f857bffffff418bc083e01f83c0fb83f8040f8769ffffff488d059aa120ff498981e0060000488d05dca020ff498981e8060000eb19488d05bc7a8afe498981",
+            "sha256": "4274a2d5ddc4415df61baa967c1f54ce1d55aebcb0d9e0a5742ce99ef2b2b8d9"
+          },
+          {
+            "name": "bif_gpu_link_rmw",
+            "rva": "0x974840",
+            "length": 144,
+            "bytes": "48895c2410574883ec30488b052f5182004833c44889442428488b8170020000410fb6f84c8d442420c744242000000000ba70000000488bd9ff1529e2480085c07407ba00001704eb39448b442420ba70000000418bc0488bcb83c8034183e0fc4084ff440f45c0488b83780200004489442420ff15eee1480085c0740fba00002804b9b3d6710ee8c3c376ff488b4c",
+            "sha256": "cc11386e83cf4579aa3cdd98a744d8b8cb265bd649a4f0a0bce80f2430a48b12"
+          },
+          {
+            "name": "gpu_constructor_hals",
+            "rva": "0x171f5bb",
+            "length": 39,
+            "bytes": "488d05fed276ff488907e84682ffff488bcfe82ea6ffff488bcfe866c7ffff488bcfe8deecffff",
+            "sha256": "b0c62094cfadbca6e2f3e855612340246beb00fd48743be60993b98fc3691f7f"
+          },
+          {
+            "name": "gpu_config_assignments_primary",
+            "rva": "0x1718c55",
+            "length": 96,
+            "bytes": "418bc083e0e083f8200f85e0000000418bc8418bc3d3e0a9000000980f85ef000000488d0542a7b9fe48898270020000418bc083e0e083f8200f85de000000418bc8418bc3d3e0a9000000980f85ed000000488d0532a9b9fe48898278020000",
+            "sha256": "a590c44e1bbae4db22ce9e677c5dfeb76d63fd1677d961f44ad566b65be5762f"
+          },
+          {
+            "name": "gpu_config_assignments_alternative",
+            "rva": "0x1718d44",
+            "length": 88,
+            "bytes": "418bc083e0e083f8400f8524ffffff418bc8418bc3d3e0a9013000000f8411ffffff488d051323b6fee90cffffff418bc083e0e083f8400f8526ffffff418bc8418bc3d3e0a9013000000f8413ffffff488d059525b6fee9",
+            "sha256": "11b69f02ccde17b246c57e107c9934d6f105aa55cde229a7e7983a41d0480e45"
+          },
+          {
+            "name": "gpu_read_config",
+            "rva": "0x2b33c0",
+            "length": 201,
+            "bytes": "48895c240848896c2410488974241857415641574883ec30488ba9280e0000498bf8488b81680200004c8bf54c8bfd49c1ee2049c1ef088bf2488bd9ff15a6f6b40085c0756a488bcbe8e2a5e6ff80bb4a53000000741b84c07517488b83600200004c8bc78bd6488bcbff1578f6b400eb3c488b83880a00004885c0752448894424284533c9440fb6c54889442420410fb6d7418bcee8f554e4ff488983880a00008bd6488bc8e86459e4ff890733c0488b5c2450488b6c2458488b7424604883c430415f415e5fc3",
+            "sha256": "35a6df5ab162b087d4e988313339caa1203190951a8fb25172ef2e9778802317"
+          },
+          {
+            "name": "gpu_write_config",
+            "rva": "0x2b35e0",
+            "length": 144,
+            "bytes": "48895c240848896c24104889742418574883ec30488b8168020000418bf0488bb9280e00008bea488bd9ff1598f4b40085c07546488b83880a00004885c0752b4889442428488bd7488bcf48c1ea0848c1e9204533c9440fb6c74889442420e80c53e4ff488983880a0000448bc68bd5488bc8e8885be4ff33c0488b5c2440488b6c2448488b7424504883c4305fc3cc",
+            "sha256": "d7d465a1ea56ab550c8aa91d7d196b54fb45b7d416dd2c0550114d336257f6b0"
+          },
+          {
+            "name": "gpu238_selected_default",
+            "rva": "0x1718a76",
+            "length": 14,
+            "bytes": "488d0593e5a5fe48898238020000",
+            "sha256": "68201e04bcf6de59174bd3c9657c3ee5ff501ad57bca1a5ccf0d8dec787ceaea"
+          },
+          {
+            "name": "gpu238_thunk",
+            "rva": "0x177010",
+            "length": 14,
+            "bytes": "488b817002000048ff258abac800",
+            "sha256": "22c5426206020447670b33ff646593c6597934d1e3228814c13ff8c7c7d1107d"
+          },
+          {
+            "name": "reader_class_descriptor",
+            "rva": "0xed8d40",
+            "length": 48,
+            "bytes": "a824000023e5db005018e54001000000100e764101000000a08ded4001000000c08ded40010000000000000000000000",
+            "sha256": "ed31fdcaa56ca93f0c22d2c8c707a8ac5920eeb3f696ee9e90745003613c4015"
+          },
+          {
+            "name": "reader_factory",
+            "rva": "0x1760e10",
+            "length": 5,
+            "bytes": "e99b1c0000",
+            "sha256": "c0f3507b2ebe941162fca174cf5a6e9af756205572068bdfe17e92d8ab32b150"
+          },
+          {
+            "name": "reader_constructor_hals",
+            "rva": "0x1762d60",
+            "length": 24,
+            "bytes": "ce488907488d05656077ff488906e83de2ffff488bcfe885",
+            "sha256": "af45a726b5787c3eb91374ba7a5a6f7e4ae6c6be48c1a3f7a89cb274135918ff"
+          },
+          {
+            "name": "reader_248_assignment_pre",
+            "rva": "0x1761f91",
+            "length": 67,
+            "bytes": "418bc183e0e083f820757a418bc98bc2d3e0a9e0fff8037410488d059f3aeafe49898248020000eb248bc2d3e0a900000098756a488d05b4d921ff4989824802000041",
+            "sha256": "02a413377b94c4042cf47e1ba59e444a194fb60ffd3ac7e5906c5cf781a3d2f8"
+          },
+          {
+            "name": "reader_248_assignment_gb_branch",
+            "rva": "0x1762016",
+            "length": 34,
+            "bytes": "418bc183e0e083f84075a4418bc98bc2d3e0a9013000007496488d058abb21ffeb94",
+            "sha256": "f7b79668355d91b297b70ed797165c3ba899e848178bf3f61d40184b3dc905ac"
+          },
+          {
+            "name": "read_offset_selector",
+            "rva": "0x97f980",
+            "length": 127,
+            "bytes": "4883ec28418bc84585c0746583e901745283e901743f83e901742c83f9017419ba0010e802b98506ed0ee8e11276ffb8ffff00004883c428c341c7019802000033c04883c428c341c7018800000033c04883c428c341c7016c00000033c04883c428c341c7017000000033c04883c428c341c7016800000033c04883c428c3",
+            "sha256": "a9731dac3ff54fff344647708c9ae1fdbb02797c6e614566801be202f76167d0"
+          },
+          {
+            "name": "selector7_read_helper",
+            "rva": "0x130bf0",
+            "length": 136,
+            "bytes": "40534883ec40488b05838d06014833c4488944243833c04c8d4c24308944243041b80100000089442434488bd9488b8248020000ff157e1ecd0085c07534488b83380200004c8d4424348b542430488bcbff15611ecd0085c075178b442434488b4c24384833cce804d0bb004883c4405bc333c0488b4c24384833cce8efcfbb004883c4405bc3cc",
+            "sha256": "86eafe0d92ce4853dbdd058479c7ed04999389b5b653e03c9746abf98d824be7"
+          },
+          {
+            "name": "selector7_switch",
+            "rva": "0x130347",
+            "length": 18,
+            "bytes": "498bd6488bcfe89e0800008bd8e9b6020000",
+            "sha256": "dc2dd980a31121e7f0a629df1cfae957b90a09a7dd4704ee26cd0e4dd05ecf61"
+          },
+          {
+            "name": "bare_ret_stub",
+            "rva": "0x61b0",
+            "length": 3,
+            "bytes": "c20000",
+            "sha256": "b6cbececf1b07e74f37d57710c68c31f0b92cb08d51093252b321b07542e177b"
+          },
+          {
+            "name": "zero_return_stub",
+            "rva": "0x6190",
+            "length": 3,
+            "bytes": "33c0c3",
+            "sha256": "4bc724f3b1d0caf4fe369c18cba3102e6c4ea057f63fe1587e3973134a7f755e"
+          }
+        ],
+        "references": [
+          "experiments/registry-overrides/aspm-enable-terra-20261102/aspm-enable-source-61742.json",
+          "experiments/registry-overrides/profiler-more-terra-20261101/pcie-ltr-static-61742.json"
+        ]
+      },
+      {
+        "path": "experiments/registry-overrides/elcg-threshold-terra-20261102/elcg-threshold-static-61742.json",
+        "sha256": "3c4bcc263157c648d1fca8928e00a0e0c91323c515467230c560e63556e0ed7b",
+        "findings": [
+          "Registry DWORD is unpacked into per-engine record +14 low8, +18 bits11:8, +1C bits15:12; record object+280+index*36; override byte record+20. Units and downstream threshold hardware writer not established.",
+          "Type10 A801 attributes 803/804/809 use +230; E802 805/806 use +238. GB chip HAL ordinals 0x41..0x45 select +230 C398C0 and +238 C39880 via mask 0x30FE.",
+          "C39880 passes mapped engine ID and boolean(attr==805), not payload threshold, to BEDCE0 firmware packet 0x071D. C398C0 passes mapped engine ID to B96820, which chooses firmware query or ratio from object metadata; no proven threshold getter.",
+          "No claim other methods or architectures lack a threshold control.",
+          "755CE0 calls 951610 only if object+263 is nonzero. 951610 checks engine records via 7558B0, copies +14/+18/+1C into firmware packet indexed by record+4, clears record+20 before sending command bytes 03 11, then on successful return copies the three packet DWORDs back to the records. The firmware-side encoding, target register and clock units remain unbound; return-copy does not independently establish hardware application.",
+          "The current known type10 A801/E802 methods do not expose these three fields. No session-only setter or authoritative public threshold readback has been established."
+        ],
+        "windows": [
+          {
+            "rva": "0xd17f30",
+            "length": 192,
+            "bytes": "524d4c7077724772456c63675468726573686f6c6400cccccccccccccccccccc524d4c7077724365456c63675468726573686f6c6400cccccccccccccccccccc524d4c7077724e76646563456c63675468726573686f6c6400cccccccccccccc524d4c7077724e76656e63456c63675468726573686f6c6400cccccccccccccc524d4c7077724e766a7067456c63675468726573686f6c6400cccccccccccccc524d4c7077724f6661456c63675468726573686f6c6400cccccccccccccccccc",
+            "sha256": "5b1be40c5cc6f2264f3beb192651f88a8662fe74bd6a4649b01ba9233a0b17ab"
+          },
+          {
+            "rva": "0x755584",
+            "length": 32,
+            "bytes": "498d7614498d34f6498d34b4c64608018b45e4894604c74610010000004180bc",
+            "sha256": "8d5a8c05cdbba4404b0f629fa09c64b6849c40daa2c04b51799f0b45ae069f9c"
+          },
+          {
+            "rva": "0x7555d2",
+            "length": 378,
+            "bytes": "448bfbb800543a2b41c1ef084181ffdf34d3007507bf00df34d3eb4c4181ffeb3c79007507bf00eb3c79eb3c4181ff6c7be9007507bf006c7be9eb2c4181ffe1998f007507bf00e1998feb1c4181ffab7bdd007507bf00ab7bddeb0c4181ff543a2b008bfb0f44f8448bc7ba05000000498bcde8b6a7bfff83f8017517453bb424800200000f83eb000000c6460800e9e20000004180bc2463020000000f84d300000033db48895dd0453bb42480020000721f0faee8458bc6ba00100305b92b457d0ee8f6b598ffb904050000e85cb89bff81ff00df34d3773e743381ff00543a2b742281ff00eb3c79741181ff00e1998f757f488d15a3285c00eb3b488d157a285c00eb32488d15d1285c00eb29488d1548285c00eb2081ff00ab7bdd741181ff006c7be9754b488d158f285c00eb07488d15c6285c004c8d45e0498bcde8ba53a1ff85c0751a8b5de00fb6c38945d08bc3c1e80883e00fc1eb0c83e30f8945d4f20f1045d0f20f114614895e1cc64620018b5dc84180bc24",
+            "sha256": "6c67f3100065007d27fcd162ba30c3e13a552751294f16ba391cf7ecaf2f5325"
+          },
+          {
+            "rva": "0x4f442b",
+            "length": 34,
+            "bytes": "488b95d81200004c8bc3498bcfe8a31626008bf885c00f85e600000066834b0601e9",
+            "sha256": "630e1e4af4b7cec2e9d8518c7e1cec33860262cd2f3809fd2bb1da4486de3671"
+          },
+          {
+            "rva": "0x4f3ed6",
+            "length": 26,
+            "bytes": "498b96d81200004c8bc3488bcfe8f8192600448bf8e955feffff",
+            "sha256": "1aa7fcf83bc70439aa361de4ba9e92ca9e1952a715cfc647c6b79292c016295e"
+          },
+          {
+            "rva": "0x755a38",
+            "length": 116,
+            "bytes": "418bc881e902080000747a83e901744d83e901744883e903742e83f902743eba00107102b92b457d0ee82ab298ffb972020000e890b49bffb81f000000488b5c24304883c4205fc3448b87a40200004c8d4b08498bcbe81d0d4400eb16498b81300200004c8bc3498bd1498bcbff15fdcf6a0044",
+            "sha256": "5f877454ac92f9b204d7ff49cf6a9761cc53abe8a655e19d987a4645c723bafc"
+          },
+          {
+            "rva": "0x755ae0",
+            "length": 209,
+            "bytes": "40534883ec20498bd84533d2450fb740044c8bd9458bc84181e9020800000f84820000004183e90374444183e901743e4183f9017424ba0010bf02b92b457d0ee86bb198ffb9c0020000e8d1b39bffb81f0000004883c4205bc3440fb74308488b8240020000ff155ccf6a00eb570fb743024438926102000074513b82800200007349488d0cc04438948a88020000743b488b82380200004c8bc3498bcbff1524cf6a00eb1f41b9020000000fb74302448bc0443953087407e872eeffffeb05e86bedffff448bd085c0750566834b0601",
+            "sha256": "90d5be860b1c90daae41247536a3fe1a821179cd5b26027c3a1007013181428e"
+          },
+          {
+            "rva": "0x17f49c4",
+            "length": 48,
+            "bytes": "ba71bc7400488bcde85f9691fe4885c0740fba71bc7400488bcde84d9691feeb03498bc5488d15094a6bff488bc8e869",
+            "sha256": "faf849063893fc7ad05c64df3df1ea4cd5c663801b8a07df9fd3f87c70cec02e"
+          },
+          {
+            "rva": "0x17f4a69",
+            "length": 32,
+            "bytes": "488d0578d37dff488bd6488903488bcf488d0550d37dff488907e848e1ffff48",
+            "sha256": "10465f9e221e7a98c482d394c010d8824c0cb12e48baef41633687a0165bac9a"
+          },
+          {
+            "rva": "0x17f2bd0",
+            "length": 32,
+            "bytes": "4883ec08440fb742104c8bc9440fb75a12458bd0418bc841c1ea0583e11f4889",
+            "sha256": "e324a2878d5391e6233bc0f78edecc75559bb1cc277a854c714e01d71ed19e43"
+          },
+          {
+            "rva": "0x17f4623",
+            "length": 54,
+            "bytes": "418bc083e0e083f8407538418bc88bc3d3e0a9fe3000007421488d057d5244ff49898130020000488d052f5244ff49898138020000e9",
+            "sha256": "a46e2aa797bc2785dbfddfb3db8bf72ac9fd4a69d8de3c5382d8aacc1bda4b9d"
+          },
+          {
+            "rva": "0xc39880",
+            "length": 115,
+            "bytes": "488b81502500004c8bd24885c07409488b90f8120000eb0233d2b8050800006641394004410fb74002410f94c14c8d04c0478b8482a4020000e92244fbffcccc488b81502500004d8bc84c8bd24885c07409488b90f8120000eb0233d2410fb740024c8d04c0478b8482a4020000e92dcff5ff",
+            "sha256": "602e7de62dfca12b091019da9cf2d77f8eede2c050a0bad57d249392e2d6aef2"
+          },
+          {
+            "rva": "0xbedce0",
+            "length": 222,
+            "bytes": "48895c24105556574883ec70488b058dbc5a004833c44889442460488bb150250000418bd8488be941b81c000000488d4c244033d2410fb6f9e8d21c4fff33d2895c245041b81000000040887c2454488d4c2440e8b71c4fff488b95b02300004c8d44244033c966c74424411d07c64424400041b9180000000fb68629130000488b92381000008844243048894c242866894c2420488bcde8636176ff8bd885c0741e448bc0ba00104100b939ccb10ee8fb2e4fffb942000000e8613152ff8bc3488b4c24604833cce8b2fe0f00488b9c24980000004883c4705f5e5dc3",
+            "sha256": "326f9715413bf3e460cef6568b8bb1a16abced6102f236fd5be9f9cd93708bc5"
+          },
+          {
+            "rva": "0xb96820",
+            "length": 304,
+            "bytes": "40534883ec50488b05533160004833c44889442440498bd94885d20f84d5000000488b42684885c00f84c8000000458bc84a8d04884c03c833c08944243089442434894424384d85c90f84b5000000413801747b450fb651034584d275284c8d4c2438e8387505008bc88b4424388943088bc1488b4c24404833cce8c07315004883c4505bc34180fa010f8588000000488d4424344c8d4c24304889442420e8cc7605008bc88b44243085c074c36bc06433d2f77424348943088bc1488b4c24404833cce8777315004883c4505bc3ba0010b000b9fc84a50ee892a354ffb856000000488b4c24404833cce8507315004883c4505bc333c0894424308944243489442438ba0000b600b9fc84a50ee85da354ffb8ffff0000488b4c24404833cce81b7315004883c4505bc3cccccccccc",
+            "sha256": "fcb9d034114dfc26213d9b41a41e5e5147ccbfc7c29488ecf856890932119239"
+          },
+          {
+            "rva": "0x755ce0",
+            "length": 90,
+            "bytes": "48895c241048896c2418574883ec2080ba6302000000488bfa488be9743be80db91f008bd885c07430448bc0ba0010f101b92b457d0ee875af98ffbaf10100008bcbe8a9a39aff8bc3488b5c2438488b6c24404883c4205fc38b",
+            "sha256": "868d9103726683ff5646be6526f7d7b81c0b9a747167cf293f02ca7545b386d6"
+          },
+          {
+            "rva": "0x951610",
+            "length": 275,
+            "bytes": "4c8bdc5355564154415541574881ec38040000488b05568384004833c448898424200400004c8ba95025000033db488bf14532ff488b89b0230000488bea448be34885c90f84fd010000488b89c80b0000488b415838985b0400000f84e60100003859500f85dd010000488b4250488bce49897b184d8973c8ff1519144b0033d2488d4c244041b8d4030000448bf0e84ce378ff8bfb399d800200000f869d010000448bc7488bd5488bcee8f041e0ff84c074468bc74c8d8d84020000488d0cc0453934894d8d0c890f83ba0000004138591c74250faee8418b0141b701f2410f1041104188591c488d0c40418b4118f20f11448c5089448c58ffc73bbd80020000729e4584ff0f843201000033d2488d4c24",
+            "sha256": "30ee7985e00d7c9058cabac439dd27279610ad0261387fd1c3f6d8efa698cf76"
+          },
+          {
+            "rva": "0x951723",
+            "length": 96,
+            "bytes": "4041b810000000e8c1e278ff488b96b02300004c8d44244066c7442441031141b9d0030000885c2440488bce410fb68529130000488b92381000008844243048895c242866895c2420e86f27a0ff448be085c0747e448bc0ba0010df00b9e1af",
+            "sha256": "ea00f32737b31f4f874c9071347ffada917d92f3a4adce761ea040bd1b789abb"
+          },
+          {
+            "rva": "0x9517f6",
+            "length": 89,
+            "bytes": "399d8002000076516690448bc3488bd5488bcee8a240e0ff84c074338bc3488d0cc0488d148d000000008b842a84020000488d0c40f20f10448c508b448c58f20f11842a9402000089842a9c020000ffc33b9d8002000072b1",
+            "sha256": "02a69c5db5392c0281986ebb329ede6b6c24a6b1ad98528ed77725db04c022b3"
+          }
+        ]
+      }
+    ],
+    "public_encoding_check": {
+      "path": "experiments/registry-overrides/elcg-threshold-terra-20261102/published-therm-encoding-check.json",
+      "sha256": "475c34f423e5ebc0e66780e74d8c427260347f64cf9cd9b21fb31ffa366487b8",
+      "scope": "Bounded public primary register-encoding and firmware-unit comparison; no GPU calls or product edits.",
+      "findings": [
+        "NVIDIA-authored TU104 and GA100 therm headers define gate control at 0x20200+4*engine: engine idle filter exponent bits12:8, mantissa bits15:13, delay-before bits19:16 and delay-after bits23:20. GA10B has identical masks and includes production constants.",
+        "Older NVIDIA GK20A gr_gk20a.c:3943-3949 writes exponent9 and mantissa2 and comments that the value is 1024 clocks. This is direct historical evidence for mantissa times 2**exponent in that example; no general exponent edge cases or clock frequency are specified here.",
+        "The supplied Windows registry extraction [7:0],[11:8],[15:12] has the same bit widths as the historical contiguous register field [23:8]. This is structural correspondence only. Current 951610 copies three DWORDs into request header 00/03/11; there is no source-bound receiver or proof it maps those words to GATE_CTRL in this evidence.",
+        "NVIDIA published GB100 and GB202 therm headers and addenda contain no gate_ctrl, idle_filt, delay_before, delay_after or 0x00020200 definitions. No current Blackwell field layout or value-to-clock conversion is established from this finite search.",
+        "Correction: 95173B stores word 0x1103 at packet+1 in little-endian order, and packet+0 is zero: request header bytes are 00/03/11, not 00/11/03. The previous PERFMON unit inference was wrong and is withdrawn.",
+        "NVIDIA-authored GA10B public pmuif assigns PG unit 0x03; its PG RPC function list has 04,05,06,07,09,0E,0F,10 but no 11. Fifteen finite public PG interface/host source files were also retrieved and searched for RPC_ID_PG plus function 0x11 or ELCG/gating name; none matched. No matching current receiver schema follows from this bounded search."
+      ],
+      "sources": [
+        {
+          "url": "https://raw.githubusercontent.com/OE4T/linux-nvgpu/8a0a5345705e069e398a79dbcba96c5db54a37f1/drivers/gpu/nvgpu/include/nvgpu/hw/ga100/hw_therm_ga100.h",
+          "length": 6571,
+          "sha256": "bbb9ca9f505a60ee5ae2d0c482fc31fa0dcb82b64d6a12bf928094c691cf8d50"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/OE4T/linux-nvgpu/8a0a5345705e069e398a79dbcba96c5db54a37f1/drivers/gpu/nvgpu/include/nvgpu/hw/ga10b/hw_therm_ga10b.h",
+          "length": 7956,
+          "sha256": "7a4399c7bb477a20672b1b60c1c0429f26271fc94c393001178b2e705709bb6b"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/OE4T/linux-nvgpu/8a0a5345705e069e398a79dbcba96c5db54a37f1/drivers/gpu/nvgpu/include/nvgpu/hw/tu104/hw_therm_tu104.h",
+          "length": 7867,
+          "sha256": "3237876f92fd1f7d88d499bdb067ea0007cbd1c65b931147cbe892ac6f670c4b"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/OE4T/linux-nvgpu/8a0a5345705e069e398a79dbcba96c5db54a37f1/drivers/gpu/nvgpu/include/nvgpu/pmu/pmuif/nvgpu_cmdif.h",
+          "length": 3748,
+          "sha256": "e07adc8c36c313e99c9fbe7111eac910083b79ef882505530991a8a0737c20e8"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/NVIDIA/open-gpu-kernel-modules/ca2d03e6fafd4d4b56b383497d931c25b283bfcf/src/common/inc/swref/published/blackwell/gb100/dev_therm.h",
+          "length": 1593,
+          "sha256": "b42a4c783d0d3e05f7e3717938d9d05f1869df565017c6a541003a2472ff9c7e",
+          "searched_terms": [
+            "gate_ctrl",
+            "idle_filt",
+            "delay_before",
+            "delay_after",
+            "0x00020200"
+          ],
+          "matched": false
+        },
+        {
+          "url": "https://raw.githubusercontent.com/NVIDIA/open-gpu-kernel-modules/ca2d03e6fafd4d4b56b383497d931c25b283bfcf/src/common/inc/swref/published/blackwell/gb100/dev_therm_addendum.h",
+          "length": 1730,
+          "sha256": "c42bc18d5eb88e6787fbe0b0f56757b50e36bfe8235b5121ccce6b4b08ae60dd",
+          "searched_terms": [
+            "gate_ctrl",
+            "idle_filt",
+            "delay_before",
+            "delay_after",
+            "0x00020200"
+          ],
+          "matched": false
+        },
+        {
+          "url": "https://raw.githubusercontent.com/NVIDIA/open-gpu-kernel-modules/ca2d03e6fafd4d4b56b383497d931c25b283bfcf/src/common/inc/swref/published/blackwell/gb202/dev_therm.h",
+          "length": 1594,
+          "sha256": "39ab81dc68a69caebe9d220350fd3dad85daf174942717ba30979b73450d64b4",
+          "searched_terms": [
+            "gate_ctrl",
+            "idle_filt",
+            "delay_before",
+            "delay_after",
+            "0x00020200"
+          ],
+          "matched": false
+        },
+        {
+          "url": "https://raw.githubusercontent.com/NVIDIA/open-gpu-kernel-modules/ca2d03e6fafd4d4b56b383497d931c25b283bfcf/src/common/inc/swref/published/blackwell/gb202/dev_therm_addendum.h",
+          "length": 1731,
+          "sha256": "6078e834e1b20470187fe542f18b7c8d6d4e5bc2d0e503ce10d1b51e87e6f1ae",
+          "searched_terms": [
+            "gate_ctrl",
+            "idle_filt",
+            "delay_before",
+            "delay_after",
+            "0x00020200"
+          ],
+          "matched": false
+        },
+        {
+          "url": "https://raw.githubusercontent.com/OE4T/linux-nvgpu/8a0a5345705e069e398a79dbcba96c5db54a37f1/drivers/gpu/nvgpu/include/nvgpu/pmu/pmuif/pg.h",
+          "length": 13005,
+          "sha256": "9c0751ed089d0543fc2c7b3a625ba52dcebcfd508df5ea61d024afb3a0efda44"
+        }
+      ],
+      "local_sources": [
+        {
+          "path": "experiments\\registry-overrides\\luna-grpg-group-witness-20261027\\nvoc-voltage-init\\mailbox-identity\\public-nvgpu\\gk20a\\hw_therm_gk20a.h",
+          "sha256": "be39037c42e000cf4377ecf741098bb66041833bc3450d9c1c7cb5c7bf567935"
+        },
+        {
+          "path": "experiments\\registry-overrides\\luna-grpg-group-witness-20261027\\nvoc-voltage-init\\mailbox-identity\\public-nvgpu\\gk20a\\gr_gk20a.c",
+          "sha256": "7225d035eb955b65dfd9908629dde0359ebc05a69f217bf47c6bad3010b459ce"
+        }
+      ],
+      "next_join": "Identify current PG function0x11 receiver or a typed readback binding the three words to named fields; public GA10B PG function list does not define it.",
+      "packet_header_window": {
+        "driver_sha256": "db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b",
+        "rva": "0x951714",
+        "length": 93,
+        "bytes": "4584ff0f843201000033d2488d4c244041b810000000e8c1e278ff488b96b02300004c8d44244066c7442441031141b9d0030000885c2440488bce410fb68529130000488b92381000008844243048895c242866895c2420e86f27a0ff",
+        "sha256": "31b57336ab73940c9935a46cca3e4d1cff60f922c6c1e29167f75ef83af7c238"
+      }
+    },
+    "public_pg_schema_search": {
+      "commit": "8a0a5345705e069e398a79dbcba96c5db54a37f1",
+      "tree_truncated": false,
+      "scope": "Public PG interface and host source files; search RPC_ID_PG plus 0x11, ELCG or GAT",
+      "results": [
+        {
+          "url": "https://raw.githubusercontent.com/OE4T/linux-nvgpu/8a0a5345705e069e398a79dbcba96c5db54a37f1/drivers/gpu/nvgpu/common/pmu/pg/pg_sw_ga10b.c",
+          "sha256": "d8d101b8b4d3882b69d0c56939709ecc00f930a1f568a24b1ec8a1ec190e406f",
+          "hits": []
+        },
+        {
+          "url": "https://raw.githubusercontent.com/OE4T/linux-nvgpu/8a0a5345705e069e398a79dbcba96c5db54a37f1/drivers/gpu/nvgpu/common/pmu/pg/pg_sw_ga10b.h",
+          "sha256": "6f1767978ba63281f9070e571504e86af29bab790a06dea9d7d5ff6870a2ebe3",
+          "hits": []
+        },
+        {
+          "url": "https://raw.githubusercontent.com/OE4T/linux-nvgpu/8a0a5345705e069e398a79dbcba96c5db54a37f1/drivers/gpu/nvgpu/common/pmu/pg/pg_sw_gm20b.c",
+          "sha256": "429ea9961b90242f8dd8d402091c310b2b7153865fae003a7d75b6c7495e9ed5",
+          "hits": []
+        },
+        {
+          "url": "https://raw.githubusercontent.com/OE4T/linux-nvgpu/8a0a5345705e069e398a79dbcba96c5db54a37f1/drivers/gpu/nvgpu/common/pmu/pg/pg_sw_gm20b.h",
+          "sha256": "7726c8d906311548e8d96c3e454c880f34fe7a8eaa9eda594fa4b9bf9335fd56",
+          "hits": []
+        },
+        {
+          "url": "https://raw.githubusercontent.com/OE4T/linux-nvgpu/8a0a5345705e069e398a79dbcba96c5db54a37f1/drivers/gpu/nvgpu/common/pmu/pg/pg_sw_gp106.c",
+          "sha256": "597fe4555b2d4ddfbfc4b80f6c16a10d685058c70e30b0d1957d452e5892d6f1",
+          "hits": []
+        },
+        {
+          "url": "https://raw.githubusercontent.com/OE4T/linux-nvgpu/8a0a5345705e069e398a79dbcba96c5db54a37f1/drivers/gpu/nvgpu/common/pmu/pg/pg_sw_gp106.h",
+          "sha256": "37aa0db236283b38781cbba0ee5d57e70917dc596730a692102a284c3b1e7bec",
+          "hits": []
+        },
+        {
+          "url": "https://raw.githubusercontent.com/OE4T/linux-nvgpu/8a0a5345705e069e398a79dbcba96c5db54a37f1/drivers/gpu/nvgpu/common/pmu/pg/pg_sw_gp10b.c",
+          "sha256": "1de2163c322e1a39fb1a97bf0f292ca961fb99b9f4bbcd0371fd5c99a82e9777",
+          "hits": []
+        },
+        {
+          "url": "https://raw.githubusercontent.com/OE4T/linux-nvgpu/8a0a5345705e069e398a79dbcba96c5db54a37f1/drivers/gpu/nvgpu/common/pmu/pg/pg_sw_gp10b.h",
+          "sha256": "5f9d020ccd7ec14cfcf4dc3f8994449f2ffd684d4c7da1069ca327b0efff5aa8",
+          "hits": []
+        },
+        {
+          "url": "https://raw.githubusercontent.com/OE4T/linux-nvgpu/8a0a5345705e069e398a79dbcba96c5db54a37f1/drivers/gpu/nvgpu/common/pmu/pg/pg_sw_gv11b.c",
+          "sha256": "e334d9634edf45e2bd07a7879ad05363531afa9a21bd0a9b422ae45fac54967e",
+          "hits": []
+        },
+        {
+          "url": "https://raw.githubusercontent.com/OE4T/linux-nvgpu/8a0a5345705e069e398a79dbcba96c5db54a37f1/drivers/gpu/nvgpu/common/pmu/pg/pg_sw_gv11b.h",
+          "sha256": "3fd51cdf750fbeadf32439404ef09bf0ed79ab4524e718a4b33dfb25bcc588e1",
+          "hits": []
+        },
+        {
+          "url": "https://raw.githubusercontent.com/OE4T/linux-nvgpu/8a0a5345705e069e398a79dbcba96c5db54a37f1/drivers/gpu/nvgpu/common/pmu/pg/pmu_aelpg.c",
+          "sha256": "9d74c833baff0ff0a16355503d71b24afceadf391e7562dbb1bea587900241d9",
+          "hits": []
+        },
+        {
+          "url": "https://raw.githubusercontent.com/OE4T/linux-nvgpu/8a0a5345705e069e398a79dbcba96c5db54a37f1/drivers/gpu/nvgpu/common/pmu/pg/pmu_pg.c",
+          "sha256": "439fe80deba7a264c539cdd5d9f0c7651c1f9194e1ee19d3e450aac294ab0a68",
+          "hits": []
+        },
+        {
+          "url": "https://raw.githubusercontent.com/OE4T/linux-nvgpu/8a0a5345705e069e398a79dbcba96c5db54a37f1/drivers/gpu/nvgpu/common/pmu/pg/pmu_pg.h",
+          "sha256": "1c4ef0e312590079b297479a1be9c2e72111a9bca2c51a2b4125139ec76626dc",
+          "hits": []
+        },
+        {
+          "url": "https://raw.githubusercontent.com/OE4T/linux-nvgpu/8a0a5345705e069e398a79dbcba96c5db54a37f1/drivers/gpu/nvgpu/include/nvgpu/pmu/pmuif/pg.h",
+          "sha256": "9c0751ed089d0543fc2c7b3a625ba52dcebcfd508df5ea61d024afb3a0efda44",
+          "hits": []
+        },
+        {
+          "url": "https://raw.githubusercontent.com/OE4T/linux-nvgpu/8a0a5345705e069e398a79dbcba96c5db54a37f1/drivers/gpu/nvgpu/include/nvgpu/pmu/pmuif/pg_rppg.h",
+          "sha256": "faf36a1377a72ff34ef9c8580c30deea12aca093010cbe626e44f4abeedc93a5",
+          "hits": []
+        }
+      ]
+    },
+    "conclusions": {
+      "ltr": "A matching WRITE filter expects its callback to perform the write, so skipping base MMIO does not prove suppression. The runtime sanity result and filter/callback are not available from an identified query; the observed no-effect cause remains unresolved.",
+      "aspm": "On source-qualified Blackwell HAL0x41..0x45 (decimal65..69), one extra callback modifies the selected GPU config DWORD0x70; the other three are stubs. Typed selector7 reads the GPU-side target. The initial PCI helper still touches a distinct topology-selected handle whose matching getter depends on unbound runtime mode. Complete command scope remains unqualified.",
+      "elcg_thresholds": "Named registry thresholds unpack8/4/4 bits into three per-engine words sent in PG packet00/03/11 and copied back on success. Historical NVIDIA thermal fields have matching widths, but current firmware encoding/units/register target and a session-only setter/readback are unbound. Type10 attrs805/806 are a different boolean request, not a threshold setter.",
+      "corrections": "Reviewed final evidence uses hexadecimal HAL ordinals0x41..0x45, not decimal41..45, and byte header00/03/11, not transposed00/11/03. Earlier tentative negative HAL/PMU-unit conclusions were withdrawn before publication."
+    }
+  }
 }

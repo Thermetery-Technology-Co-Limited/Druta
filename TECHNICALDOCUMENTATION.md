@@ -2412,12 +2412,33 @@ trigger lets the caller return success. That is a possible explanation, not a
 proven local cause. No functioning LTR control is claimed. A GPU-only reset
 completed afterward; sampled fields matched baseline, without reboot or replay.
 
-The public ASPM path remains unqualified. Its helper reads a 16-bit control
-word, but sends a zero-extended four-byte configuration write and ignores the
-write result. The handler also invokes additional bus callbacks. A typed
-getter can use the same copied handle/capability only under predicates whose
-current state is unbound. No ASPM SET was issued. This corrects the earlier
-16-bit-write assumption; it does not establish the upper status bits' effect.
+The register-write follow-up identifies a GPU-state sanity gate and a matching
+filter-list path. NVIDIA's [register-filter contract](https://github.com/NVIDIA/open-gpu-kernel-modules/blob/ca2d03e6fafd4d4b56b383497d931c25b283bfcf/src/nvidia/generated/g_gpu_access_nvoc.h#L72)
+expects a WRITE filter callback to perform the write itself. Skipping the base
+MMIO write therefore does not establish suppression or callback failure. No
+identified query exposes the current sanity result or matching filter state;
+the LTR trial's exact cause remains unknown.
+
+The public ASPM helper reads a 16-bit control word, sends a zero-extended
+four-byte configuration write and ignores its result. On the source-qualified
+Blackwell HAL ordinals `0x41..0x45` (decimal 65..69), only one additional bus
+callback is substantive: it changes the GPU's own config DWORD at `0x70`.
+Typed getter selector 7 reads that same GPU-side word; the other three callbacks
+are stubs. The first helper still touches a separate topology-selected handle,
+whose same-target getter depends on an unbound runtime mode. No ASPM SET is
+qualified by the GPU-side readback alone. This trace does not establish the
+upper status bits' write effect.
+
+Named `RMLpwr*ElcgThreshold` inputs unpack 8/4/4 bits into three per-engine
+words. The driver sends them in firmware header bytes `00/03/11` and copies
+returned values back after success. NVIDIA's older thermal definitions have
+matching idle-filter and before/after-delay field widths, but that structural
+match does not bind the current Blackwell receiver, register encoding or clock
+units. A session-only threshold setter and independent readback remain unbound.
+The understood type10 attributes `0x805/0x806` send a different Boolean request;
+they do not pass a numeric threshold. No speculative threshold writes were
+performed. This limitation is separate from the shipped ELCG hold controls
+and the eight implemented power-gating idle thresholds.
 
 Unnamed type3 attribute `0x45` can initially receive its cached byte from a
 firmware initialization reply. After SET, its getter echoes the requested byte
