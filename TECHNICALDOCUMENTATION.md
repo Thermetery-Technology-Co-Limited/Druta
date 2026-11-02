@@ -2292,6 +2292,32 @@ was used. ELCG, BLCG and SLCG were subsequently qualified below; the examined
 idle-slowdown path remains unqualified.
 [Qualification evidence](experiments/live-gr-power-gating-20261101.json).
 
+### Tested live-interface matrix
+
+The following consolidates local RTX 5080 / 617.42 observations documented
+below, plus the explicitly identified earlier gate trial. These results qualify
+the tested requests and readbacks on their captured configurations,
+not physical voltage, latency, gating residency or power savings. Availability
+is checked on the selected adapter; the captured device is not an allowlist.
+Configured BIOS and registry controls are separate from these live requests.
+
+| Live control | Request and independent observation | Evidence and focused tests |
+| --- | --- | --- |
+| Voltage rail REL, ALT/OP, OV, VMIN, VCRIT low and high | All six stored offset requests read back on both rails; REL, ALT, OV and VMIN also changed reported policies. The two VCRIT effective thresholds remain unverified. | [Rail trials](experiments/voltage-rail-knobs-20261101.json); [tests](tests/test_voltage_requests_live.py) |
+| Voltage-request gate | Boolean admission SET and independent GET; this is not a voltage or ceiling request. The earlier local gate trial did not record a driver version, so it is not presented as a 617.42 trial. | [Gate trial description](#registry-override-transactions); [tests](tests/test_voltage_request_gate.py) |
+| Grouped ELPG disable | Owned profiler request; selected reason-mask transition and release readback. | [ELPG evidence](experiments/live-gr-power-gating-20261101.json); [tests](tests/test_gr_gating_live.py) |
+| Live DIFR inhibit | Counted controller9 request with independently read reason-mask banks; distinct from the individual controller10/11 requests. Coexistence and separate release were checked. | [DIFR coexistence](experiments/live-ms-difr-components-20261102.json); [tests](tests/test_difr_live_control.py) |
+| ELCG disable and enable | Disable has an eligibility-bitmap witness; enable has a separate opposing-request arbitration witness. | [Disable](experiments/live-profiler-controls-20261101.json), [enable](experiments/elcg-enable-qualified-20261102.json); [tests](tests/test_engine_clock_gating_live.py) |
+| BLCG disable | Owned request with a partial register-configuration witness; this does not cover every BLCG domain. | [BLCG evidence](experiments/live-block-clock-gating-20261101.json); [tests](tests/test_block_clock_gating_live.py) |
+| SLCG disable and enable | Partial HWPM register witness; enable also checks rejection of a separate opposing request. | [Disable](experiments/live-second-level-clock-gating-20261101.json), [enable](experiments/slcg-enable-qualified-20261102.json); [tests](tests/test_second_level_clock_gating_live.py) |
+| Individual inhibits | Eight balanced requests: GR, MS, MS DIFR SW-ASR, MS DIFR CG, NVDEC, NVENC, OFA and NVJPG. Selected reason-bit and peer readbacks qualify the software requests. | [GR](experiments/live-individual-power-gating-20261102.json), [MS/DIFR](experiments/live-ms-difr-components-20261102.json), [media](experiments/live-media-power-gating-20261102.json); [tests](tests/test_individual_power_gating_live.py) |
+| First idle thresholds | The same eight controllers have independently selected first-field requests and raw-pair readbacks. Requested microseconds follow source naming and conversion; the second threshold field is not qualified. | [GR](experiments/live-gr-idle-threshold-20261102.json), [MS/media](experiments/live-additional-idle-thresholds-20261102.json), [DIFR](experiments/live-difr-idle-thresholds-20261102.json); [tests](tests/test_gr_idle_threshold_live.py) |
+| Adaptive power policy | Shared Allow/Disable request and aggregate-state readback. GR and four media roles were present locally; MS was independently unavailable. Other reasons can mask a request, and a request may also change idle thresholds. | [Adaptive evidence](experiments/live-adaptive-power-policy-20261102.json); [tests](tests/test_adaptive_power_live.py) |
+
+Production callback trials are recorded in the linked evidence where performed.
+Current GUI pixel review remains unverified because the capture was unavailable;
+that is distinct from the recorded callback trials.
+
 ### Additional live profiler controls
 
 **Live engine clock gating** adds a separate session-owned ELCG Hold disabled /
