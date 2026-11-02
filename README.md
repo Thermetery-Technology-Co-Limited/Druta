@@ -7,9 +7,21 @@ native policy record stride is derived from the size it accepts rather than
 carried as a constant. Qualified on the same GTX 1060 under driver 572.83,
 whose policy record is 216 bytes rather than 228. The RM26 packet families
 are also no longer gated to Turing, which is all that stood between the same
-card on 472.12 and an interface Druta already described in full. See the
-[572.83](experiments/pascal-gp106-driver57283-20261102.md) and
-[472.12](experiments/pascal-gp106-driver47212-20261102.md) evidence.
+card on 472.12 and an interface Druta already described in full. A transport
+is now identified by its command as well as its packet sizes, because the
+same geometry means different records under different families, and a wrong
+size is recognised whether the driver refuses it with RM `0x1F` or `0x3A`.
+With XOC ticked, Max All asks for the extended envelope rather than the
+nominal maximum. Qualified on four drivers on one GTX 1060:
+[576.80](experiments/pascal-gp106-live-power-20261102.md),
+[572.83](experiments/pascal-gp106-driver57283-20261102.md),
+[472.12](experiments/pascal-gp106-driver47212-20261102.md) and
+[516.94](experiments/pascal-gp106-driver51694-20261102.md).
+
+Under load on 472.12, the binding constraint on that board was **core
+current** at its 95 A ceiling, not board power — raising the power request
+does not move it, because effective limits settle at the firmware maximum
+whatever is requested.
 
 1.9.06 — [release notes](RELEASE-NOTES-1.9.06.md).
 Superseded 1.9.05 and carried its Turing work forward. The XOC power-limit

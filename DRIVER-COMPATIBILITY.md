@@ -42,10 +42,29 @@ group's `(4, 6, 7)`, because a generation qualified against one packet family
 is not thereby qualified against the other.
 
 The same idle trials passed against its captured 180 W baseline, with core
-current moving 86.8 → 86 A and back. Recorded but not acted on: this family
-rejects a wrong parameter size with RM `0x3A` rather than the RM `0x1F` the
-A6xx families return. See the
+current moving 86.8 → 86 A and back. See the
 [472.12 evidence](experiments/pascal-gp106-driver47212-20261102.md).
+
+Driver **516.94** then showed that the same packet geometry can mean two
+different layouts. It presents 3548/3480 under the **A612** command family,
+answering `2080A6xx` while using the compact record shape, and its records
+differ from the 26xx entry of identical size:
+
+| Transport | Commands | Role | Native INFO (record) | Native STATUS (record) |
+| --- | --- | ---: | ---: | --- |
+| `20802612` 3548/3480 | `2080_26xx` | 136 | 5520 (132) | 69148, `0x64`/`0x828` |
+| `2080A612` 3548/3480 | `2080_A6xx` | 132 | 5392 (128) | 70684, `0x64`/`0x858` |
+
+The layout table is therefore keyed on the transport's command as well as its
+sizes. 69148 is refused outright on 516.94, so the two are not
+interchangeable.
+
+**Correction.** The 472.12 entry above originally attributed RM `0x3A` to the
+RM26 families, contrasted with `0x1F` on the A6xx families. 516.94 returns
+`0x3A` on the A612 family, so the refusal code belongs to the driver, not the
+family. Both are now treated as the definite wrong-size answer — which is what
+516.94's detection required. See the
+[516.94 evidence](experiments/pascal-gp106-driver51694-20261102.md).
 
 ## 1.9.06 Pascal live power and the transport/record-layout split
 

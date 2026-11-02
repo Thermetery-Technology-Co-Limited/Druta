@@ -1,0 +1,1082 @@
+{
+  "date": "2026-11-02",
+  "identity": {
+    "name": "NVIDIA GeForce GTX 1060 6GB",
+    "driver": "516.94",
+    "vbios": "86.06.4b.00.32",
+    "slot": "0000:01:00.0"
+  },
+  "pci_identity": {
+    "slot": "0000:01:00.0",
+    "architecture": 4,
+    "device_id": 7171,
+    "subsystem_id": 927601752
+  },
+  "captured_power_transport": {
+    "command": "0x2080A612",
+    "command_id": 545302034,
+    "packet_bytes": 3548,
+    "parameter_bytes": 3480
+  },
+  "status_size_discrimination": {
+    "wire_command": "0x2080A619",
+    "14148": "refused (NTSTATUS 0, RM 0x3a)",
+    "69148": "refused (NTSTATUS 0, RM 0x3a)",
+    "70684": "accepted",
+    "171048": "refused (NTSTATUS 0, RM 0x3a)",
+    "172080": "refused (NTSTATUS 0, RM 0x3a)",
+    "190272": "refused (NTSTATUS 0, RM 0x3a)",
+    "396024": "refused (NTSTATUS 0, RM 0x3a)",
+    "397048": "refused (NTSTATUS 0, RM 0x3a)"
+  },
+  "current_policy_record_layout": {
+    "available": true,
+    "error": "",
+    "read_error": ""
+  },
+  "native_effective_mw": 185625,
+  "native_effective_error": null,
+  "normal_bounds_mw": [
+    90000,
+    200000
+  ],
+  "slider_bounds_mw": {
+    "xoc_off": [
+      90000,
+      200000
+    ],
+    "xoc_on": [
+      1,
+      1999000
+    ]
+  },
+  "baseline": {
+    "binding": {
+      "client_index": 0,
+      "native_index": 2,
+      "semantic_role": 1,
+      "client": 254,
+      "units": "mW",
+      "minimum_mw": 90000,
+      "rated_mw": 180000,
+      "maximum_mw": 200000,
+      "layout": "rm26",
+      "native_layout": "rm26_extended",
+      "native_info_stride": 128
+    },
+    "requested_mw": 180000,
+    "policies": [
+      {
+        "index": 0,
+        "type": 11,
+        "channel": 1,
+        "unit": 0,
+        "requested": 5001000,
+        "minimum": 1,
+        "rated": 5001000,
+        "maximum": 5001000
+      },
+      {
+        "index": 1,
+        "type": 3,
+        "channel": 7,
+        "unit": 0,
+        "requested": 1001000,
+        "minimum": 1,
+        "rated": 1001000,
+        "maximum": 1001000
+      },
+      {
+        "index": 2,
+        "type": 0,
+        "channel": 0,
+        "unit": 0,
+        "requested": 180000,
+        "minimum": 90000,
+        "rated": 180000,
+        "maximum": 200000
+      },
+      {
+        "index": 3,
+        "type": 3,
+        "channel": 3,
+        "unit": 0,
+        "requested": 66000,
+        "minimum": 1000,
+        "rated": 66000,
+        "maximum": 78000
+      },
+      {
+        "index": 4,
+        "type": 3,
+        "channel": 4,
+        "unit": 0,
+        "requested": 162000,
+        "minimum": 1000,
+        "rated": 162000,
+        "maximum": 175000
+      },
+      {
+        "index": 7,
+        "type": 4,
+        "channel": 4,
+        "unit": 1,
+        "requested": 27000,
+        "minimum": 1000,
+        "rated": 27000,
+        "maximum": 34000
+      },
+      {
+        "index": 10,
+        "type": 4,
+        "channel": 3,
+        "unit": 1,
+        "requested": 10000,
+        "minimum": 1000,
+        "rated": 10000,
+        "maximum": 13000
+      },
+      {
+        "index": 13,
+        "type": 11,
+        "channel": 11,
+        "unit": 1,
+        "requested": 86800,
+        "minimum": 1000,
+        "rated": 86800,
+        "maximum": 95000
+      },
+      {
+        "index": 14,
+        "type": 11,
+        "channel": 1,
+        "unit": 0,
+        "requested": 5001000,
+        "minimum": 1,
+        "rated": 5001000,
+        "maximum": 5001000
+      },
+      {
+        "index": 15,
+        "type": 11,
+        "channel": 1,
+        "unit": 0,
+        "requested": 5001000,
+        "minimum": 1,
+        "rated": 5001000,
+        "maximum": 5001000
+      }
+    ],
+    "buffers": {
+      "info_hex": {
+        "bytes": 900,
+        "sha256": "c1f9374c014830842fa0941e7c91aed1ad4d272a72024ff127abd14383e6fc46"
+      },
+      "role_info_hex": {
+        "bytes": 132,
+        "sha256": "e90f19e19e3f87a2c0de559905e4aa06f2564058ca6179fb18331a30728b724b"
+      },
+      "native_info_hex": {
+        "bytes": 5392,
+        "sha256": "9837e3356e1b1b49d14e7e3250a35f469de3411e6c396308e0a02e01d554c8f3"
+      },
+      "control_hex": {
+        "bytes": 388,
+        "sha256": "9135fe649cc99ee0e5e483b680fdb532c41de0bfc66b72fb92aa0b73b7a1320a"
+      },
+      "native_control_hex": {
+        "bytes": 2124,
+        "sha256": "da2d8549c19b8f909b9f136568441519075bbecd71b2d0a96a27b8b0c9538295"
+      }
+    }
+  },
+  "trials": [
+    {
+      "label": "client_in_range",
+      "target_mw": 190000,
+      "idle_before": {
+        "pstate": 8,
+        "util_gpu": 1,
+        "power_w": 8.337,
+        "temp_edge": 30,
+        "pl_requested_mw": 180000,
+        "pl_now_mw": 180000
+      },
+      "xoc_required": false,
+      "production_message": "power limit configured to 190 W",
+      "after": {
+        "binding": {
+          "client_index": 0,
+          "native_index": 2,
+          "semantic_role": 1,
+          "client": 254,
+          "units": "mW",
+          "minimum_mw": 90000,
+          "rated_mw": 180000,
+          "maximum_mw": 200000,
+          "layout": "rm26",
+          "native_layout": "rm26_extended",
+          "native_info_stride": 128
+        },
+        "requested_mw": 190000,
+        "policies": [
+          {
+            "index": 0,
+            "type": 11,
+            "channel": 1,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          },
+          {
+            "index": 1,
+            "type": 3,
+            "channel": 7,
+            "unit": 0,
+            "requested": 1001000,
+            "minimum": 1,
+            "rated": 1001000,
+            "maximum": 1001000
+          },
+          {
+            "index": 2,
+            "type": 0,
+            "channel": 0,
+            "unit": 0,
+            "requested": 190000,
+            "minimum": 90000,
+            "rated": 180000,
+            "maximum": 200000
+          },
+          {
+            "index": 3,
+            "type": 3,
+            "channel": 3,
+            "unit": 0,
+            "requested": 72000,
+            "minimum": 1000,
+            "rated": 66000,
+            "maximum": 78000
+          },
+          {
+            "index": 4,
+            "type": 3,
+            "channel": 4,
+            "unit": 0,
+            "requested": 168500,
+            "minimum": 1000,
+            "rated": 162000,
+            "maximum": 175000
+          },
+          {
+            "index": 7,
+            "type": 4,
+            "channel": 4,
+            "unit": 1,
+            "requested": 30500,
+            "minimum": 1000,
+            "rated": 27000,
+            "maximum": 34000
+          },
+          {
+            "index": 10,
+            "type": 4,
+            "channel": 3,
+            "unit": 1,
+            "requested": 10000,
+            "minimum": 1000,
+            "rated": 10000,
+            "maximum": 13000
+          },
+          {
+            "index": 13,
+            "type": 11,
+            "channel": 11,
+            "unit": 1,
+            "requested": 90900,
+            "minimum": 1000,
+            "rated": 86800,
+            "maximum": 95000
+          },
+          {
+            "index": 14,
+            "type": 11,
+            "channel": 1,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          },
+          {
+            "index": 15,
+            "type": 11,
+            "channel": 1,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          }
+        ],
+        "buffers": {
+          "info_hex": {
+            "bytes": 900,
+            "sha256": "c1f9374c014830842fa0941e7c91aed1ad4d272a72024ff127abd14383e6fc46"
+          },
+          "role_info_hex": {
+            "bytes": 132,
+            "sha256": "e90f19e19e3f87a2c0de559905e4aa06f2564058ca6179fb18331a30728b724b"
+          },
+          "native_info_hex": {
+            "bytes": 5392,
+            "sha256": "9837e3356e1b1b49d14e7e3250a35f469de3411e6c396308e0a02e01d554c8f3"
+          },
+          "control_hex": {
+            "bytes": 388,
+            "sha256": "590d5c5b8780b54e900b43ac45caa79aad942b618e858fd4049eaa009d25fb0e"
+          },
+          "native_control_hex": {
+            "bytes": 2124,
+            "sha256": "003370980469f4c628263cc45fb81fbc4d44b478c83c2f5b06360a241c637fbc"
+          }
+        }
+      },
+      "exact_request_readback": true,
+      "samples": [
+        {
+          "at": 1793657298.989473,
+          "configured_mw": 190000,
+          "native_effective_mw": 190000,
+          "native_effective_error": null,
+          "idle": {
+            "pstate": 8,
+            "util_gpu": 1,
+            "power_w": 8.337,
+            "temp_edge": 30,
+            "pl_requested_mw": 190000,
+            "pl_now_mw": 190000
+          }
+        },
+        {
+          "at": 1793657299.2736886,
+          "configured_mw": 190000,
+          "native_effective_mw": 195938,
+          "native_effective_error": null,
+          "idle": {
+            "pstate": 8,
+            "util_gpu": 0,
+            "power_w": 10.068,
+            "temp_edge": 29,
+            "pl_requested_mw": 190000,
+            "pl_now_mw": 190000
+          }
+        },
+        {
+          "at": 1793657299.538529,
+          "configured_mw": 190000,
+          "native_effective_mw": 195938,
+          "native_effective_error": null,
+          "idle": {
+            "pstate": 8,
+            "util_gpu": 1,
+            "power_w": 8.243,
+            "temp_edge": 29,
+            "pl_requested_mw": 190000,
+            "pl_now_mw": 190000
+          }
+        },
+        {
+          "at": 1793657299.805755,
+          "configured_mw": 190000,
+          "native_effective_mw": 195938,
+          "native_effective_error": null,
+          "idle": {
+            "pstate": 8,
+            "util_gpu": 0,
+            "power_w": 8.148,
+            "temp_edge": 29,
+            "pl_requested_mw": 190000,
+            "pl_now_mw": 190000
+          }
+        }
+      ],
+      "slider_bounds_during_request": {
+        "xoc_off": [
+          90000,
+          200000
+        ],
+        "xoc_on": [
+          1,
+          1999000
+        ]
+      },
+      "restoration": {
+        "attempted": true,
+        "verified": true,
+        "error": null
+      }
+    },
+    {
+      "label": "client_above_maximum",
+      "target_mw": 201000,
+      "idle_before": {
+        "pstate": 8,
+        "util_gpu": 1,
+        "power_w": 7.763,
+        "temp_edge": 29,
+        "pl_requested_mw": 180000,
+        "pl_now_mw": 180000
+      },
+      "xoc_required": true,
+      "production_message": "power request configured to 201 W; the driver may recalculate other policies; downstream power/current limits can be lower",
+      "after": {
+        "binding": {
+          "client_index": 0,
+          "native_index": 2,
+          "semantic_role": 1,
+          "client": 254,
+          "units": "mW",
+          "minimum_mw": 90000,
+          "rated_mw": 180000,
+          "maximum_mw": 200000,
+          "layout": "rm26",
+          "native_layout": "rm26_extended",
+          "native_info_stride": 128
+        },
+        "requested_mw": 201000,
+        "policies": [
+          {
+            "index": 0,
+            "type": 11,
+            "channel": 1,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          },
+          {
+            "index": 1,
+            "type": 3,
+            "channel": 7,
+            "unit": 0,
+            "requested": 1001000,
+            "minimum": 1,
+            "rated": 1001000,
+            "maximum": 1001000
+          },
+          {
+            "index": 2,
+            "type": 0,
+            "channel": 0,
+            "unit": 0,
+            "requested": 201000,
+            "minimum": 90000,
+            "rated": 180000,
+            "maximum": 200000
+          },
+          {
+            "index": 3,
+            "type": 3,
+            "channel": 3,
+            "unit": 0,
+            "requested": 78601,
+            "minimum": 1000,
+            "rated": 66000,
+            "maximum": 78000
+          },
+          {
+            "index": 4,
+            "type": 3,
+            "channel": 4,
+            "unit": 0,
+            "requested": 175651,
+            "minimum": 1000,
+            "rated": 162000,
+            "maximum": 175000
+          },
+          {
+            "index": 7,
+            "type": 4,
+            "channel": 4,
+            "unit": 1,
+            "requested": 34350,
+            "minimum": 1000,
+            "rated": 27000,
+            "maximum": 34000
+          },
+          {
+            "index": 10,
+            "type": 4,
+            "channel": 3,
+            "unit": 1,
+            "requested": 10000,
+            "minimum": 1000,
+            "rated": 10000,
+            "maximum": 13000
+          },
+          {
+            "index": 13,
+            "type": 11,
+            "channel": 11,
+            "unit": 1,
+            "requested": 95410,
+            "minimum": 1000,
+            "rated": 86800,
+            "maximum": 95000
+          },
+          {
+            "index": 14,
+            "type": 11,
+            "channel": 1,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          },
+          {
+            "index": 15,
+            "type": 11,
+            "channel": 1,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          }
+        ],
+        "buffers": {
+          "info_hex": {
+            "bytes": 900,
+            "sha256": "c1f9374c014830842fa0941e7c91aed1ad4d272a72024ff127abd14383e6fc46"
+          },
+          "role_info_hex": {
+            "bytes": 132,
+            "sha256": "e90f19e19e3f87a2c0de559905e4aa06f2564058ca6179fb18331a30728b724b"
+          },
+          "native_info_hex": {
+            "bytes": 5392,
+            "sha256": "9837e3356e1b1b49d14e7e3250a35f469de3411e6c396308e0a02e01d554c8f3"
+          },
+          "control_hex": {
+            "bytes": 388,
+            "sha256": "8f9b892e61291b3d1c16ba2a65d62cfc42ed729061501c68c879b65b4f0e1a14"
+          },
+          "native_control_hex": {
+            "bytes": 2124,
+            "sha256": "7cf78d3c4ca143086378d4317f13a0a7d2f4e908c72b5de98f231bec5e360795"
+          }
+        }
+      },
+      "exact_request_readback": true,
+      "samples": [
+        {
+          "at": 1793657300.2133527,
+          "configured_mw": 201000,
+          "native_effective_mw": 200000,
+          "native_effective_error": null,
+          "idle": {
+            "pstate": 8,
+            "util_gpu": 0,
+            "power_w": 8.529,
+            "temp_edge": 29,
+            "pl_requested_mw": 201000,
+            "pl_now_mw": 201000
+          }
+        },
+        {
+          "at": 1793657300.4777348,
+          "configured_mw": 201000,
+          "native_effective_mw": 200000,
+          "native_effective_error": null,
+          "idle": {
+            "pstate": 8,
+            "util_gpu": 1,
+            "power_w": 7.952,
+            "temp_edge": 29,
+            "pl_requested_mw": 201000,
+            "pl_now_mw": 201000
+          }
+        },
+        {
+          "at": 1793657300.7418685,
+          "configured_mw": 201000,
+          "native_effective_mw": 200000,
+          "native_effective_error": null,
+          "idle": {
+            "pstate": 8,
+            "util_gpu": 1,
+            "power_w": 8.244,
+            "temp_edge": 29,
+            "pl_requested_mw": 201000,
+            "pl_now_mw": 201000
+          }
+        },
+        {
+          "at": 1793657301.0061011,
+          "configured_mw": 201000,
+          "native_effective_mw": 200000,
+          "native_effective_error": null,
+          "idle": {
+            "pstate": 8,
+            "util_gpu": 0,
+            "power_w": 8.626,
+            "temp_edge": 29,
+            "pl_requested_mw": 201000,
+            "pl_now_mw": 201000
+          }
+        }
+      ],
+      "slider_bounds_during_request": {
+        "xoc_off": [
+          90000,
+          201000
+        ],
+        "xoc_on": [
+          1,
+          1999000
+        ]
+      },
+      "restoration": {
+        "attempted": true,
+        "verified": true,
+        "error": null
+      }
+    },
+    {
+      "label": "client_extended",
+      "target_mw": 250000,
+      "idle_before": {
+        "pstate": 8,
+        "util_gpu": 1,
+        "power_w": 7.666,
+        "temp_edge": 29,
+        "pl_requested_mw": 180000,
+        "pl_now_mw": 180000
+      },
+      "xoc_required": true,
+      "production_message": "power request configured to 250 W; the driver may recalculate other policies; downstream power/current limits can be lower",
+      "after": {
+        "binding": {
+          "client_index": 0,
+          "native_index": 2,
+          "semantic_role": 1,
+          "client": 254,
+          "units": "mW",
+          "minimum_mw": 90000,
+          "rated_mw": 180000,
+          "maximum_mw": 200000,
+          "layout": "rm26",
+          "native_layout": "rm26_extended",
+          "native_info_stride": 128
+        },
+        "requested_mw": 250000,
+        "policies": [
+          {
+            "index": 0,
+            "type": 11,
+            "channel": 1,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          },
+          {
+            "index": 1,
+            "type": 3,
+            "channel": 7,
+            "unit": 0,
+            "requested": 1001000,
+            "minimum": 1,
+            "rated": 1001000,
+            "maximum": 1001000
+          },
+          {
+            "index": 2,
+            "type": 0,
+            "channel": 0,
+            "unit": 0,
+            "requested": 250000,
+            "minimum": 90000,
+            "rated": 180000,
+            "maximum": 200000
+          },
+          {
+            "index": 3,
+            "type": 3,
+            "channel": 3,
+            "unit": 0,
+            "requested": 108000,
+            "minimum": 1000,
+            "rated": 66000,
+            "maximum": 78000
+          },
+          {
+            "index": 4,
+            "type": 3,
+            "channel": 4,
+            "unit": 0,
+            "requested": 207500,
+            "minimum": 1000,
+            "rated": 162000,
+            "maximum": 175000
+          },
+          {
+            "index": 7,
+            "type": 4,
+            "channel": 4,
+            "unit": 1,
+            "requested": 51500,
+            "minimum": 1000,
+            "rated": 27000,
+            "maximum": 34000
+          },
+          {
+            "index": 10,
+            "type": 4,
+            "channel": 3,
+            "unit": 1,
+            "requested": 10000,
+            "minimum": 1000,
+            "rated": 10000,
+            "maximum": 13000
+          },
+          {
+            "index": 13,
+            "type": 11,
+            "channel": 11,
+            "unit": 1,
+            "requested": 115500,
+            "minimum": 1000,
+            "rated": 86800,
+            "maximum": 95000
+          },
+          {
+            "index": 14,
+            "type": 11,
+            "channel": 1,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          },
+          {
+            "index": 15,
+            "type": 11,
+            "channel": 1,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          }
+        ],
+        "buffers": {
+          "info_hex": {
+            "bytes": 900,
+            "sha256": "c1f9374c014830842fa0941e7c91aed1ad4d272a72024ff127abd14383e6fc46"
+          },
+          "role_info_hex": {
+            "bytes": 132,
+            "sha256": "e90f19e19e3f87a2c0de559905e4aa06f2564058ca6179fb18331a30728b724b"
+          },
+          "native_info_hex": {
+            "bytes": 5392,
+            "sha256": "9837e3356e1b1b49d14e7e3250a35f469de3411e6c396308e0a02e01d554c8f3"
+          },
+          "control_hex": {
+            "bytes": 388,
+            "sha256": "0b574f02a80ba9acc6882b014861eaf329b01402e06938ed81a7836adb0ff1b3"
+          },
+          "native_control_hex": {
+            "bytes": 2124,
+            "sha256": "8677248700577a1ae8bd39ec2cf39cde3bc3d4d29482e6769d46fe07ab2be493"
+          }
+        }
+      },
+      "exact_request_readback": true,
+      "samples": [
+        {
+          "at": 1793657301.4284084,
+          "configured_mw": 250000,
+          "native_effective_mw": 200000,
+          "native_effective_error": null,
+          "idle": {
+            "pstate": 8,
+            "util_gpu": 1,
+            "power_w": 8.576,
+            "temp_edge": 30,
+            "pl_requested_mw": 250000,
+            "pl_now_mw": 250000
+          }
+        },
+        {
+          "at": 1793657301.6931057,
+          "configured_mw": 250000,
+          "native_effective_mw": 200000,
+          "native_effective_error": null,
+          "idle": {
+            "pstate": 8,
+            "util_gpu": 0,
+            "power_w": 8.243,
+            "temp_edge": 29,
+            "pl_requested_mw": 250000,
+            "pl_now_mw": 250000
+          }
+        },
+        {
+          "at": 1793657301.957776,
+          "configured_mw": 250000,
+          "native_effective_mw": 200000,
+          "native_effective_error": null,
+          "idle": {
+            "pstate": 8,
+            "util_gpu": 0,
+            "power_w": 8.243,
+            "temp_edge": 29,
+            "pl_requested_mw": 250000,
+            "pl_now_mw": 250000
+          }
+        },
+        {
+          "at": 1793657302.2221084,
+          "configured_mw": 250000,
+          "native_effective_mw": 200000,
+          "native_effective_error": null,
+          "idle": {
+            "pstate": 8,
+            "util_gpu": 1,
+            "power_w": 8.242,
+            "temp_edge": 30,
+            "pl_requested_mw": 250000,
+            "pl_now_mw": 250000
+          }
+        }
+      ],
+      "slider_bounds_during_request": {
+        "xoc_off": [
+          90000,
+          250000
+        ],
+        "xoc_on": [
+          1,
+          1999000
+        ]
+      },
+      "restoration": {
+        "attempted": true,
+        "verified": true,
+        "error": null
+      }
+    }
+  ],
+  "scope": "Idle software request acceptance, exact readback and restoration on one Pascal adapter and driver. Physical enforcement is unmeasured, and the native effective limit is unavailable on this driver's record layout.",
+  "current_limits": {
+    "rows": [
+      {
+        "policy": 13,
+        "label": "Core current",
+        "channel": 11,
+        "minimum_ma": 1000,
+        "maximum_ma": 95000,
+        "normal_maximum_ma": 95000,
+        "default_ma": 86800,
+        "limit_ma": 86800,
+        "requested_ma": 86800,
+        "value_ma": 3
+      }
+    ],
+    "error": "",
+    "read_error": "",
+    "selected_layout": {
+      "status_bytes": 70684,
+      "info": [
+        60,
+        128
+      ],
+      "status": [
+        100,
+        2136
+      ],
+      "control": [
+        20,
+        52
+      ]
+    },
+    "trials": [
+      {
+        "policy": 13,
+        "baseline_ma": 86800,
+        "target_ma": 86000,
+        "set": {
+          "ok": true,
+          "message": "Core current set to 86 A; effective limit verified"
+        },
+        "after": {
+          "requested_ma": 86000,
+          "limit_ma": 86000,
+          "value_ma": 3
+        },
+        "exact_readback": true,
+        "above_maximum_refused": {
+          "ok": false,
+          "message": "Core current must be between 1 and 95 A in the current mode"
+        },
+        "restoration": {
+          "ok": true,
+          "message": "Core current set to 86.8 A; effective limit verified",
+          "restored": true,
+          "effective_ma": 86800
+        }
+      }
+    ]
+  },
+  "final": {
+    "binding": {
+      "client_index": 0,
+      "native_index": 2,
+      "semantic_role": 1,
+      "client": 254,
+      "units": "mW",
+      "minimum_mw": 90000,
+      "rated_mw": 180000,
+      "maximum_mw": 200000,
+      "layout": "rm26",
+      "native_layout": "rm26_extended",
+      "native_info_stride": 128
+    },
+    "requested_mw": 180000,
+    "policies": [
+      {
+        "index": 0,
+        "type": 11,
+        "channel": 1,
+        "unit": 0,
+        "requested": 5001000,
+        "minimum": 1,
+        "rated": 5001000,
+        "maximum": 5001000
+      },
+      {
+        "index": 1,
+        "type": 3,
+        "channel": 7,
+        "unit": 0,
+        "requested": 1001000,
+        "minimum": 1,
+        "rated": 1001000,
+        "maximum": 1001000
+      },
+      {
+        "index": 2,
+        "type": 0,
+        "channel": 0,
+        "unit": 0,
+        "requested": 180000,
+        "minimum": 90000,
+        "rated": 180000,
+        "maximum": 200000
+      },
+      {
+        "index": 3,
+        "type": 3,
+        "channel": 3,
+        "unit": 0,
+        "requested": 66000,
+        "minimum": 1000,
+        "rated": 66000,
+        "maximum": 78000
+      },
+      {
+        "index": 4,
+        "type": 3,
+        "channel": 4,
+        "unit": 0,
+        "requested": 162000,
+        "minimum": 1000,
+        "rated": 162000,
+        "maximum": 175000
+      },
+      {
+        "index": 7,
+        "type": 4,
+        "channel": 4,
+        "unit": 1,
+        "requested": 27000,
+        "minimum": 1000,
+        "rated": 27000,
+        "maximum": 34000
+      },
+      {
+        "index": 10,
+        "type": 4,
+        "channel": 3,
+        "unit": 1,
+        "requested": 10000,
+        "minimum": 1000,
+        "rated": 10000,
+        "maximum": 13000
+      },
+      {
+        "index": 13,
+        "type": 11,
+        "channel": 11,
+        "unit": 1,
+        "requested": 86800,
+        "minimum": 1000,
+        "rated": 86800,
+        "maximum": 95000
+      },
+      {
+        "index": 14,
+        "type": 11,
+        "channel": 1,
+        "unit": 0,
+        "requested": 5001000,
+        "minimum": 1,
+        "rated": 5001000,
+        "maximum": 5001000
+      },
+      {
+        "index": 15,
+        "type": 11,
+        "channel": 1,
+        "unit": 0,
+        "requested": 5001000,
+        "minimum": 1,
+        "rated": 5001000,
+        "maximum": 5001000
+      }
+    ],
+    "buffers": {
+      "info_hex": {
+        "bytes": 900,
+        "sha256": "c1f9374c014830842fa0941e7c91aed1ad4d272a72024ff127abd14383e6fc46"
+      },
+      "role_info_hex": {
+        "bytes": 132,
+        "sha256": "e90f19e19e3f87a2c0de559905e4aa06f2564058ca6179fb18331a30728b724b"
+      },
+      "native_info_hex": {
+        "bytes": 5392,
+        "sha256": "9837e3356e1b1b49d14e7e3250a35f469de3411e6c396308e0a02e01d554c8f3"
+      },
+      "control_hex": {
+        "bytes": 388,
+        "sha256": "9135fe649cc99ee0e5e483b680fdb532c41de0bfc66b72fb92aa0b73b7a1320a"
+      },
+      "native_control_hex": {
+        "bytes": 2124,
+        "sha256": "da2d8549c19b8f909b9f136568441519075bbecd71b2d0a96a27b8b0c9538295"
+      }
+    }
+  },
+  "final_configured_mw": 180000,
+  "full_baseline_restored": true
+}

@@ -13,8 +13,8 @@ from tests.test_current_limits import fixture
 
 A618, A619, A61A, E61B = 0x2080A618, 0x2080A619, 0x2080A61A, 0x2080E61B
 
-PASCAL = (11740, 11672)
-TURING = (11748, 11680)
+PASCAL = (0x2080A612, 11740, 11672)
+TURING = (0x2080A612, 11748, 11680)
 
 
 def test_the_two_short_transports_are_separate_entries():

@@ -178,9 +178,17 @@ class CurrentLimitTests(unittest.TestCase):
         self.assertFalse(g.set_current_limit_ma(13, 349780)[0])
         self.assertEqual(state.writes, [])
         g, state = fixture(n.GPU.ARCH_TURING, legacy=True)
-        g._capture_current_limit_transport.return_value[0][14] = 0x2080A612
+        g._capture_current_limit_transport.return_value[0][14] = 0x2080A613
         self.assertEqual(g.get_current_limits(), [])
         g._legacy_clk_escape.assert_not_called()
+        # 3548/3480 exists under BOTH command families and they are different
+        # record layouts, which is why the command is part of the key rather
+        # than a check beside it.
+        short = [n.GPU._CURRENT_LIMIT_LAYOUTS[(command, 3548, 3480)]
+                 for command in (0x20802612, 0x2080A612)]
+        self.assertNotEqual(short[0]["sizes"], short[1]["sizes"])
+        self.assertNotEqual(short[0]["info"], short[1]["info"])
+        self.assertNotEqual(short[0]["status"], short[1]["status"])
 
     def test_ampere_large_transport_uses_the_accepted_info_layout(self):
         g, state = fixture(ampere_layout=True)
