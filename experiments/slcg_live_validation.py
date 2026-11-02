@@ -1,6 +1,6 @@
 # Copyright (C) 2026 Thermetery Technology Co Limited
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Read SLCG witnesses; --trial performs one Ampere or Ada hold/read/release session.
+"""Read SLCG witnesses; --trial performs one Turing, Ampere or Ada session.
 
 Uses the production controller only. Observed configuration registers are a
 partial source-bound witness, not full driver state or physical gating effect.
@@ -68,7 +68,14 @@ def _event_kind(words):
 
 
 def _inventory(state):
-    return (state["architecture"], state["layout"], state["registers"].keys(), state["unavailable_registers"])
+    return (
+        state["architecture"],
+        state["layout"],
+        state["registers"].keys(),
+        state["unavailable_registers"],
+        state["expected_disabled_values"],
+        state["expected_release_values"],
+    )
 
 
 def collect(gpu, slot, *, trial, controller_factory, checkpoint, source):
@@ -134,13 +141,27 @@ def collect(gpu, slot, *, trial, controller_factory, checkpoint, source):
             _require(
                 before["support"]
                 and (before["architecture"]["architecture"], before["layout"])
-                in ((0x170, "ga10x-slcg"), (0x190, "ad10x-slcg")),
-                "--trial requires a source-supported Ampere native170/ga10x-slcg or Ada native190/ad10x-slcg pair",
+                in ((0x160, "tu10x-slcg"), (0x170, "ga10x-slcg"), (0x190, "ad10x-slcg")),
+                "--trial requires a source-supported Turing native160/tu10x-slcg, Ampere native170/ga10x-slcg or Ada native190/ad10x-slcg pair",
             )
             _require(
-                before["registers"] and all(value == 0 for value in before["registers"].values()),
-                "--trial requires exact zero baseline on every valid register",
+                before["registers"]
+                and all(
+                    value == before["expected_release_values"].get(key) for key, value in before["registers"].items()
+                ),
+                "--trial requires the exact source release baseline on every valid register",
             )
+            _require(
+                all(key in before["expected_disabled_values"] for key in before["registers"]),
+                "--trial requires source disabled values for every valid register",
+            )
+            if before["layout"] == "tu10x-slcg":
+                _require(
+                    before["registers"] == {"0x24a124": 1}
+                    and before["expected_disabled_values"] == {"0x24a124": 0}
+                    and before["expected_release_values"] == {"0x24a124": 1},
+                    "--trial requires the valid Turing 0x24a124 source anchor; other source peers remain unverified",
+                )
             _require(not before["owned_request"] and not before["uncertain_outcome"], "Controller is not idle")
             checkpoint(report)
             report["phase"] = "hold"
@@ -186,6 +207,9 @@ def collect(gpu, slot, *, trial, controller_factory, checkpoint, source):
                 and all(value == expected.get(key) for key, value in held["registers"].items()),
                 "positive_transition": before["registers"] != held["registers"],
                 "release_to_baseline": after["registers"] == before["registers"],
+                "source_release_values_observed": all(
+                    value == before["expected_release_values"].get(key) for key, value in after["registers"].items()
+                ),
                 "stable_read_inventory": _inventory(before) == _inventory(held) == _inventory(after),
                 "held_ownership_reported": held["owned_request"] is True and held["uncertain_outcome"] is False,
                 "released_idle": after["owned_request"] is False and after["uncertain_outcome"] is False,
@@ -202,6 +226,12 @@ def collect(gpu, slot, *, trial, controller_factory, checkpoint, source):
                 ),
             }
         )
+        if before["layout"] == "tu10x-slcg":
+            report["checks"]["turing_anchor_transition"] = (
+                before["registers"] == {"0x24a124": 1}
+                and held["registers"] == {"0x24a124": 0}
+                and after["registers"] == {"0x24a124": 1}
+            )
         report["qualified"] = all(report["checks"].values())
     else:
         report["checks"]["read_only_no_mutation_events"] = not events if not trial else None
@@ -213,7 +243,7 @@ def _parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--gpu", required=True, help="Explicit PCI slot, e.g. 0000:01:00.0")
     parser.add_argument("--out", required=True, help="New JSON output in an existing directory")
-    parser.add_argument("--trial", action="store_true", help="One Ampere or Ada hold/read/release trial")
+    parser.add_argument("--trial", action="store_true", help="One Turing, Ampere or Ada hold/read/release trial")
     args = parser.parse_args(argv)
     try:
         args.gpu = _slot(args.gpu.strip())

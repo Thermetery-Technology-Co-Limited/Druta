@@ -57,6 +57,13 @@ class SecondLevelClockGatingPanel:
         self._configure_actions()
 
     @staticmethod
+    def _baseline_matches(snapshot):
+        registers = snapshot.get("registers", {})
+        expected = snapshot.get("expected_release_values", {})
+        return bool(registers) and all(key in expected and value == expected[key]
+                                       for key, value in registers.items())
+
+    @staticmethod
     def _format(snapshot):
         availability = ("partial" if snapshot.get("status") == "partial" else
                         "available" if snapshot["support"] else "unavailable")
@@ -70,9 +77,13 @@ class SecondLevelClockGatingPanel:
             lines.append(f"Register {address}: 0x{value:08X}")
         for address in snapshot.get("unavailable_registers", {}):
             lines.append(f"Register {address}: unavailable")
-        registers = snapshot.get("registers", {})
-        if snapshot["support"] and not snapshot["owned_request"] and any(registers.values()):
-            lines.append("A register is already nonzero; a new request cannot be verified.")
+        peers = snapshot.get("unverified_source_peers", [])
+        if peers:
+            lines.append(f"Other source-table registers: {len(peers)} unverified.")
+            lines.append("The named request also changes those registers; their prior values are not verified.")
+        if (snapshot["support"] and not snapshot["owned_request"]
+                and not SecondLevelClockGatingPanel._baseline_matches(snapshot)):
+            lines.append("Readbacks do not match the required starting values; a new request cannot be verified.")
         observed = snapshot.get("observed_registers", {})
         observed_count = len(observed)
         if observed_count:
@@ -85,8 +96,7 @@ class SecondLevelClockGatingPanel:
         snapshot = self.snapshot
         safe = snapshot is not None and not snapshot.get("uncertain_outcome", False)
         owned = safe and snapshot["owned_request"]
-        registers = snapshot.get("registers", {}) if snapshot else {}
-        eligible = bool(registers) and not any(registers.values())
+        eligible = snapshot is not None and self._baseline_matches(snapshot)
         dpg.configure_item("second_level_clock_gating_hold", enabled=bool(
             safe and not self.stale and (owned or (snapshot["support"] and eligible))))
         dpg.configure_item("second_level_clock_gating_release", enabled=bool(

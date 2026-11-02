@@ -103,7 +103,7 @@ def run(monkeypatch):
     def execute(*, trial=False, failure=None, baseline=None, native=0x170, layout="ga10x-blcg"):
         gpu = FakeGPU()
         controller = FakeController(gpu, failure=failure)
-        controller.identity["architecture"] = 8 if native == 0x190 else 7
+        controller.identity["architecture"] = {0x160: 6, 0x170: 7, 0x190: 8}.get(native, 7)
         if baseline is not None:
             controller.baseline = dict(baseline)
             controller.registers = dict(baseline)
@@ -141,7 +141,7 @@ def test_default_read_only_has_no_mutation_packets(run):
     assert report["before"]["registers"] == MASKS
 
 
-@pytest.mark.parametrize("native,layout", [(0x170, "ga10x-blcg"), (0x190, "ad10x-blcg")])
+@pytest.mark.parametrize("native,layout", [(0x160, "tu10x-blcg"), (0x170, "ga10x-blcg"), (0x190, "ad10x-blcg")])
 def test_one_trial_records_exact_packets_and_positive_transition(run, native, layout):
     report, controller, gpu, checkpoints = run(trial=True, native=native, layout=layout)
     assert report["qualified"] is True
@@ -183,6 +183,8 @@ def test_noop_never_qualifies(run):
         {"native": 0x190, "layout": "ga10x-blcg"},
         {"native": 0x1F0, "layout": "ga10x-blcg"},
         {"native": 0x190, "layout": "unknown-blcg"},
+        {"native": 0x160, "layout": "ga10x-blcg"},
+        {"native": 0x170, "layout": "tu10x-blcg"},
     ],
 )
 def test_trial_requires_source_complete_nonzero_baseline_and_qualified_pair(run, kwargs):

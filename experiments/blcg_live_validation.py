@@ -1,6 +1,6 @@
 # Copyright (C) 2026 Thermetery Technology Co Limited
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Read BLCG witnesses; --trial performs one Ampere or Ada hold/read/release session.
+"""Read BLCG witnesses; --trial performs one Turing, Ampere or Ada session.
 
 Uses the production controller only. Observed configuration registers are a
 partial source-bound witness, not full driver state or physical gating effect.
@@ -134,8 +134,8 @@ def collect(gpu, slot, *, trial, controller_factory, checkpoint, source):
             _require(
                 before["support"]
                 and (before["architecture"]["architecture"], before["layout"])
-                in ((0x170, "ga10x-blcg"), (0x190, "ad10x-blcg")),
-                "--trial requires a source-supported Ampere native170/ga10x-blcg or Ada native190/ad10x-blcg pair",
+                in ((0x160, "tu10x-blcg"), (0x170, "ga10x-blcg"), (0x190, "ad10x-blcg")),
+                "--trial requires a source-supported Turing native160/tu10x-blcg, Ampere native170/ga10x-blcg or Ada native190/ad10x-blcg pair",
             )
             masks = before["allowed_clear_masks"]
             _require(
@@ -221,7 +221,7 @@ def _parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--gpu", required=True, help="Explicit PCI slot, e.g. 0000:01:00.0")
     parser.add_argument("--out", required=True, help="New JSON output in an existing directory")
-    parser.add_argument("--trial", action="store_true", help="One Ampere or Ada hold/read/release trial")
+    parser.add_argument("--trial", action="store_true", help="One Turing, Ampere or Ada hold/read/release trial")
     args = parser.parse_args(argv)
     try:
         args.gpu = _slot(args.gpu.strip())

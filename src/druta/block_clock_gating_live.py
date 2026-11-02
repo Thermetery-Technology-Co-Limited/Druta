@@ -33,7 +33,9 @@ _LAYOUTS.update({(0x170, implementation): "ga10x-blcg" for implementation in (2,
 _AMPERE_CLEAR = {0x4041F0: 0xC646, 0x409890: 0x7F, 0x4098B0: 0x7F, 0x405BF0: 0xC444, 0x407000: 0x4000C242}
 # AD10x HAL 34..38 uses a distinct table whose five source rows match GA10x.
 _LAYOUTS.update({(0x190, implementation): "ad10x-blcg" for implementation in (2, 3, 4, 6, 7)})
-_FULL_WORD_LAYOUTS = frozenset(("ga10x-blcg", "ad10x-blcg"))
+# TU10x HAL 25..29 has two tables with the same source address/value pairs.
+_LAYOUTS.update({(0x160, implementation): "tu10x-blcg" for implementation in (2, 4, 6, 8, 7)})
+_FULL_WORD_LAYOUTS = frozenset(("ga10x-blcg", "ad10x-blcg", "tu10x-blcg"))
 _MASKS = {"gb20x-blcg": _ALLOWED_CLEAR, **dict.fromkeys(_FULL_WORD_LAYOUTS, _AMPERE_CLEAR)}
 _READ32, _GLOBAL, _ROUTE_NONE = 0, 0, 0
 

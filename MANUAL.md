@@ -786,18 +786,20 @@ through NVIDIA's read-only register operations; an inaccessible or unknown layou
 does not enable Hold. The readbacks are partial configuration witnesses, not
 measurements of physical gating, residency or power savings.
 
-Ampere and Ada BLCG use separate five-register layouts. Hold requires readable values
+Turing, Ampere and Ada BLCG use separate five-register layouts. Hold requires readable values
 containing only understood bits and at least one nonzero value, then checks that
 all five words become zero. Release checks their return to the captured starting
 values. A native policy mismatch is reported as a verification failure. The
-Ampere and Ada paths have offline coverage; their hardware qualification remains pending.
+Turing, Ampere and Ada paths have offline coverage; hardware qualification remains pending.
 
-SLCG shows unavailable registers separately. Hold needs at least one readable
-register and a compatible zero baseline; it verifies the expected disable values
-and their return to zero on Release. Its register witness covers the traced HWPM
-table, not every GPU subunit.
-Ampere, Ada and Blackwell use separate source-derived SLCG layouts. Ampere and
-Ada have offline coverage; their hardware qualification remains pending.
+SLCG shows unavailable registers separately. Ampere, Ada and Blackwell Hold
+needs at least one readable register and a compatible zero baseline; it verifies
+the expected disable values and their return to zero on Release. Turing uses a
+single source-bound register with a required 1 -> 0 -> 1 transition. Its named
+request also changes 15 other source-table registers whose prior values and
+transitions remain unverified; the panel identifies this limitation. These are
+partial witnesses, not checks of every GPU subunit. Turing, Ampere and Ada have
+offline coverage; their hardware qualification remains pending.
 
 These four requests last only for the current session. Druta releases its own
 requests on normal exit or GPU switch and never reapplies them after a driver

@@ -2381,7 +2381,7 @@ it is not presented as a factory default.
 [Ampere BLCG source qualification](experiments/blcg-ampere-layout-20261101.json)
 records the native bindings and verification limits. Hardware qualification is
 pending. `experiments/blcg_live_validation.py` defaults to read-only; `--trial`
-performs one Ampere or Ada production-controller Hold/read/Release session and records
+performs one Turing, Ampere or Ada production-controller Hold/read/Release session and records
 the exact request packets. Run it on the target adapter with an explicit PCI
 slot and a new output path. Success requires a positive transition and exact
 release readback, not merely an accepted API status.
@@ -2400,9 +2400,30 @@ unknown implementations never borrow another family's layout.
 
 [Ada gating source qualification](experiments/ada-gating-layouts-20261102.json)
 records the branches and limits. Both remote collectors accept only matching
-Ampere or Ada native/layout pairs for `--trial`. Ada hardware qualification is
+Turing, Ampere or Ada native/layout pairs for `--trial`. Ada hardware qualification is
 pending; source equivalence and offline tests do not establish an actual gating
 transition or physical effect.
+
+The Turing extension uses distinct `tu10x-blcg` and `tu10x-slcg` layouts for
+native architecture `0x160`, implementations `2/4/6/8/7` (HAL `25..29`). BLCG
+selects two source providers with identical five-register values, matching the
+Ampere/Ada values in a different row order. Its direct `381810` callback and
+`7D5E10` Graphics aperture initializer bind the same full-word zero Hold and
+captured-initial-value Release checks.
+
+Turing SLCG selects HWPM route `0x240000`, two identical 16-row tables, the
+direct writer, and a no-op LPWR callback. Fifteen rows release to `0xFFFFFFFF`,
+which is ambiguous with an unusable READ32 response. They are explicitly
+unverified source peers and are not used as evidence. The remaining address,
+`0x24A124`, provides a partial witness: baseline `1`, Hold `0`, Release `1`.
+A missing, invalid, unexpected or unchanged witness cannot verify the request.
+The panel and collector use the per-layout release map rather than assuming
+all released values are zero. The native request still writes the other 15
+registers: their prior values and transitions are not established, and Release
+is not claimed to restore their prior contents. No raw register writes are added.
+[Turing gating source qualification](experiments/turing-gating-layouts-20261102.json)
+records the source joins and limits. Turing hardware qualification remains pending;
+source evidence and offline tests do not prove a physical gating or power effect.
 
 **Live second-level clock gating (SLCG)** uses its own session-owned profiler request,
 mask `0x10`, and release mask `0x30`. Corrected decoding of the compressed dispatch

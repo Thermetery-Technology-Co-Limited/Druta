@@ -102,7 +102,7 @@ def device(monkeypatch):
         if data["malformed"] == "rmstatus":
             raise PerfDiagnosticError("unsupported", "RM status 0x56", 0x56)
         a, b, c, d, e, count, pointer, route, pad, route_value = struct.unpack("<6IQIIQ", request)
-        masks = live._AMPERE_CLEAR if data["native"][0] in (0x170, 0x190) else live._ALLOWED_CLEAR
+        masks = live._AMPERE_CLEAR if data["native"][0] in (0x160, 0x170, 0x190) else live._ALLOWED_CLEAR
         assert (a, b, c, d, e, count, route, pad, route_value) == (0, 0, 0, 0, 0, len(masks), 0, 0, 0)
         assert pointer
         ops = (ctypes.c_ubyte * (32 * count)).from_address(pointer)
@@ -142,8 +142,14 @@ def ampere(data, implementation=4, architecture=0x170):
     data["selected"] = dict(data["values"])
 
 
-@pytest.mark.parametrize("implementation", [2, 3, 4, 6, 7])
-@pytest.mark.parametrize(("architecture", "layout"), [(0x170, "ga10x-blcg"), (0x190, "ad10x-blcg")])
+@pytest.mark.parametrize(
+    ("architecture", "layout", "implementation"),
+    [(arch, layout, impl) for arch, layout, implementations in (
+        (0x160, "tu10x-blcg", (2, 4, 6, 8, 7)),
+        (0x170, "ga10x-blcg", (2, 3, 4, 6, 7)),
+        (0x190, "ad10x-blcg", (2, 3, 4, 6, 7)),
+    ) for impl in implementations],
+)
 def test_full_word_hold_and_exact_initial_release(device, implementation, architecture, layout):
     controller, data = device
     ampere(data, implementation, architecture)
@@ -158,7 +164,7 @@ def test_full_word_hold_and_exact_initial_release(device, implementation, archit
     assert controller.release()["registers"] == {hex(k): v for k, v in baseline.items()}
 
 
-@pytest.mark.parametrize("architecture", [0x170, 0x190])
+@pytest.mark.parametrize("architecture", [0x160, 0x170, 0x190])
 def test_full_word_unknown_baseline_bits_and_empty_baseline_refused_before_allocation(device, architecture):
     controller, data = device
     ampere(data, architecture=architecture)
@@ -172,7 +178,7 @@ def test_full_word_unknown_baseline_bits_and_empty_baseline_refused_before_alloc
     assert not data["writes"]
 
 
-@pytest.mark.parametrize("architecture", [0x170, 0x190])
+@pytest.mark.parametrize("architecture", [0x160, 0x170, 0x190])
 def test_full_word_partial_clear_and_duplicate_hold_require_full_zero(device, monkeypatch, architecture):
     controller, data = device
     ampere(data, architecture=architecture)
@@ -197,7 +203,7 @@ def test_full_word_partial_clear_and_duplicate_hold_require_full_zero(device, mo
     controller.release()
 
 
-@pytest.mark.parametrize("architecture", [0x170, 0x190])
+@pytest.mark.parametrize("architecture", [0x160, 0x170, 0x190])
 def test_full_word_release_policy_zero_is_reported_as_mismatch(device, architecture):
     controller, data = device
     ampere(data, architecture=architecture)
@@ -217,6 +223,15 @@ def test_ampere_unknown_implementation_has_no_register_inventory(device):
 def test_ada_implementation_f_refuses_before_register_reads_or_allocation(device):
     controller, data = device
     data["native"] = (0x190, 0xF, 0, 0)
+    assert not controller.read()["support"]
+    with pytest.raises(live.BlockClockGatingError, match="layout is not understood"):
+        controller.hold()
+    assert not data["reads"] and not data["writes"]
+
+
+def test_turing_unknown_implementation_refuses_before_register_reads_or_allocation(device):
+    controller, data = device
+    data["native"] = (0x160, 3, 0, 0)
     assert not controller.read()["support"]
     with pytest.raises(live.BlockClockGatingError, match="layout is not understood"):
         controller.hold()

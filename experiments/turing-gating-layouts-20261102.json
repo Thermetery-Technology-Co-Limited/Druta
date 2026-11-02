@@ -1,0 +1,114 @@
+{
+  "schema": 1,
+  "date_utc": "2026-11-02",
+  "scope": "Source-qualified Turing BLCG and partial SLCG layouts. Turing hardware qualification remains pending; local regression applies only to the captured RTX 5080 on 617.42.",
+  "driver_sha256": "db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b",
+  "native_architecture": "0x160",
+  "implementations": [
+    2,
+    4,
+    6,
+    8,
+    7
+  ],
+  "chip_hal_ordinals": [
+    "0x25",
+    "0x26",
+    "0x27",
+    "0x28",
+    "0x29"
+  ],
+  "blcg": {
+    "layout": "tu10x-blcg",
+    "source_production_values": {
+      "0x4041f0": 50758,
+      "0x409890": 127,
+      "0x4098b0": 127,
+      "0x407000": 1073791554,
+      "0x405bf0": 50244
+    },
+    "disable_value": 0,
+    "provider": "HAL25..27 GPU+798=679900 table11BC590 base entry11BC650 rows11BC4C0; HAL28..29=6798C0 table11BBBF0 entry11BBCB0 rows11BBB20. Both40-byte row sequences identical.",
+    "aperture": "Graphics+1030=381810; Graphics+7C0=7D5E10 sets400000 base,200000 size; GPU+7B8=67A140. Shared independently audited IoAperture writer/GLOBAL read joins.",
+    "contract": "Require source-only baseline bits and a positive nonzero witness. All five words must become zero after Hold. Release compares captured initial values; native policy may choose production values or zero, and a mismatch is reported."
+  },
+  "slcg": {
+    "layout": "tu10x-slcg",
+    "route": "0x240000",
+    "provider": "OBJHWPM+108=84F820. HAL25..27 GPU+7A0=679B20, table11CBF00, route entry11CC110, rows11CBCA0. HAL28..29 GPU+7A0=679AE0, table11CA7C0, entry11CA9D0, rows11CA560. Both 192-byte row sequences are identical.",
+    "translation": "GPU+7B8=67A140 returns false for route240000, selecting direct writer67551C. LPWR+100=61B0 is a no-op.",
+    "witness": {
+      "address": "0x24a124",
+      "baseline": 1,
+      "held": 0,
+      "released": 1
+    },
+    "unverified_source_peers": [
+      "0x248018",
+      "0x246018",
+      "0x246218",
+      "0x246418",
+      "0x246618",
+      "0x246818",
+      "0x246a18",
+      "0x246c18",
+      "0x246e18",
+      "0x244018",
+      "0x244218",
+      "0x244418",
+      "0x244618",
+      "0x244818",
+      "0x244a18"
+    ],
+    "unverified_peers_disable_value": 0,
+    "unverified_peers_release_value": "0xffffffff",
+    "contract": "Only 24A124 is read as a partial witness. Require stable valid baseline1, exact held0 and exact released1. The named request also changes 15 other registers; their prior values and transitions remain unverified. Release is not claimed to restore their prior contents. The UI and collector retain this limitation."
+  },
+  "limits": [
+    "Native pairs outside the qualified mapping remain unsupported. Source proof does not establish runtime capability, physical gating or power effects.",
+    "No driver-version or board-ID compatibility gates; runtime identity, capability, packet geometry and independent readback checks remain.",
+    "Requests are session-only: no restart replay, registry changes or raw register writes.",
+    "Turing, Ampere and Ada hardware trials remain pending. No workload or physical measurement was run."
+  ],
+  "source_artifacts": [
+    {
+      "path": "experiments/registry-overrides/functional-backlog-audit-terra-20261101/turing-blcg-hal-61742.json",
+      "sha256": "784b8e612fd1d071422c4ab5c532329024644f7bbf9406a015dbaa8f0a04363e",
+      "root_verified_source_windows": 19
+    },
+    {
+      "path": "experiments/registry-overrides/profiler-more-terra-20261101/turing-slcg-hal-61742.json",
+      "sha256": "806661a3d253416c2730f765054946ee1f52d3e6f95b1bf873e228fba49d4c94",
+      "root_verified_source_windows": 19
+    }
+  ],
+  "blackwell_regression": {
+    "path": "experiments/registry-overrides/profiler-more-root-20261101/turing-gating-source-blackwell-20261102.json",
+    "sha256": "095235bc69a54bbefd429364520249cfa2646add825008e4ce0c19d9d1b05337",
+    "checks": {
+      "duplicate_subunit_hold_no_write": true,
+      "duplicate_block_hold_no_write": true,
+      "duplicate_engine_hold_no_write": true,
+      "independent_subunit_release_verified": true,
+      "independent_block_release_verified": true,
+      "independent_release_verified": true,
+      "voltage_unchanged": true,
+      "configured_lpwr_unchanged": true,
+      "engine_masks_restored": true,
+      "subunit_registers_restored": true,
+      "block_registers_restored": true,
+      "power_masks_restored": true
+    },
+    "owned_lifecycle_mutations": 16,
+    "close_errors": []
+  },
+  "validation": {
+    "targeted_tests_passed": 895,
+    "blcg_api_tests": 66,
+    "slcg_api_tests": 84,
+    "slcg_panel_tests": 5,
+    "blcg_collector_tests": 21,
+    "slcg_collector_tests": 22,
+    "ruff_passed": true
+  }
+}

@@ -2,11 +2,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Session-only SLCG requests with partial source-bound register witnesses.
 
-Each source-qualified native layout selects its own complete READ32 table.
+Each source-qualified native layout selects its own READ32 witnesses.
 Invalid registers remain unavailable diagnostics; one family's offsets are
-never substituted for another family's unqualified layout. The known table writes zero on
-release, so this bounded lifecycle requires every valid initial value to be
-zero. Only the public named profiler request writes state; no raw register
+never substituted for another family's unqualified layout. Valid initial and
+released values must match the selected source table. Only the public named profiler request writes state; no raw register
 writes, saved requests, or reset replay occur here. Configuration readback
 does not measure physical clock gating, power, or residency.
 """
@@ -22,11 +21,12 @@ from .gr_gating_live import GrGatingController, GrGatingError, _ProfilerTranspor
 from .perf_diagnostics import PerfDiagnosticError, PerfDiagnosticsReader
 
 SecondLevelClockGatingError = GrGatingError
-_LAYOUTS = {(0x1B0, implementation): "gb20x-slcg" for implementation in (2, 3, 5, 6, 7)} | {
-    (0x170, implementation): "ga10x-slcg" for implementation in (2, 3, 4, 6, 7)
-} | {
-    (0x190, implementation): "ad10x-slcg" for implementation in (2, 3, 4, 6, 7)
-}
+_LAYOUTS = (
+    {(0x1B0, implementation): "gb20x-slcg" for implementation in (2, 3, 5, 6, 7)}
+    | {(0x170, implementation): "ga10x-slcg" for implementation in (2, 3, 4, 6, 7)}
+    | {(0x190, implementation): "ad10x-slcg" for implementation in (2, 3, 4, 6, 7)}
+    | {(0x160, implementation): "tu10x-slcg" for implementation in (2, 4, 6, 8, 7)}
+)
 # Source selector1 values for the complete unique route table. Selector3
 # releases all entries to zero. These are source values, not local readbacks.
 _DISABLED_VALUES = {
@@ -52,7 +52,31 @@ _LAYOUT_VALUES = {
     "gb20x-slcg": _DISABLED_VALUES,
     "ga10x-slcg": _GA_AD_DISABLED_VALUES,
     "ad10x-slcg": _GA_AD_DISABLED_VALUES,
+    "tu10x-slcg": {0x24A124: 0},
 }
+_LAYOUT_RELEASE_VALUES = {
+    layout: dict.fromkeys(values, 0) for layout, values in _LAYOUT_VALUES.items() if layout != "tu10x-slcg"
+} | {"tu10x-slcg": {0x24A124: 1}}
+# The named Turing request also writes these full registers. Their release
+# value is 0xffffffff, indistinguishable from a READ32 poison sentinel; their
+# prior values and transitions are therefore not verified by this witness.
+_TURING_UNVERIFIED_PEERS = (
+    0x248018,
+    0x246018,
+    0x246218,
+    0x246418,
+    0x246618,
+    0x246818,
+    0x246A18,
+    0x246C18,
+    0x246E18,
+    0x244018,
+    0x244218,
+    0x244418,
+    0x244618,
+    0x244818,
+    0x244A18,
+)
 
 
 def _status_classification(status):
@@ -155,7 +179,11 @@ class SecondLevelClockGatingController(GrGatingController):
         registers, unavailable = _read_registers(self.reader, self.identity, _LAYOUT_VALUES[layout])
         return {
             "support": bool(registers),
-            "status": "partial" if registers and unavailable else "available" if registers else "unavailable",
+            "status": "partial"
+            if registers and (unavailable or layout == "tu10x-slcg")
+            else "available"
+            if registers
+            else "unavailable",
             "architecture": native,
             "layout": layout,
             "registers": registers,
@@ -182,6 +210,17 @@ class SecondLevelClockGatingController(GrGatingController):
             "expected_disabled_values": {
                 hex(address): value for address, value in _LAYOUT_VALUES.get(state["layout"], {}).items()
             },
+            "expected_release_values": {
+                hex(address): value for address, value in _LAYOUT_RELEASE_VALUES.get(state["layout"], {}).items()
+            },
+            "unverified_source_peers": [hex(address) for address in _TURING_UNVERIFIED_PEERS]
+            if state["layout"] == "tu10x-slcg"
+            else [],
+            "unverified_source_peers_scope": (
+                "Named request writes these full registers; prior values and transitions are not verified."
+                if state["layout"] == "tu10x-slcg"
+                else None
+            ),
             "observed_registers": list(self._observed),
             "owned_request": self._owned,
             "uncertain_outcome": self._uncertain,
@@ -203,8 +242,13 @@ class SecondLevelClockGatingController(GrGatingController):
                 return self._snapshot(before)
             if not before["support"]:
                 raise SecondLevelClockGatingError("SLCG has no valid register witness on an understood native layout")
-            if any(before["registers"].values()):
-                raise SecondLevelClockGatingError("SLCG requires an exact zero baseline on every valid register")
+            if any(
+                value != _LAYOUT_RELEASE_VALUES[before["layout"]][int(key, 16)]
+                for key, value in before["registers"].items()
+            ):
+                raise SecondLevelClockGatingError(
+                    "SLCG requires an exact source release baseline (exact zero baseline where applicable) on every valid register"
+                )
             self._request_inventory = _inventory(before)
             try:
                 self._profiler.allocate()
@@ -238,9 +282,12 @@ class SecondLevelClockGatingController(GrGatingController):
                     self._owned = False
                 after = self._read_locked()
                 _same_inventory(before, after)
-                if _inventory(after) != self._request_inventory or any(after["registers"].values()):
+                if _inventory(after) != self._request_inventory or any(
+                    value != _LAYOUT_RELEASE_VALUES[after["layout"]][int(key, 16)]
+                    for key, value in after["registers"].items()
+                ):
                     raise SecondLevelClockGatingError(
-                        "SLCG release did not match zero values and the original register inventory"
+                        "SLCG release did not match source release values (zero values where applicable) and the original register inventory"
                     )
                 self._last_verification_error = None
             except Exception as exc:

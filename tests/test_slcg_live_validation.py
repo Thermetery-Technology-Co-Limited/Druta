@@ -32,6 +32,11 @@ class FakeController:
         self.owned = False
         self.opened = False
         self.value = 0
+        self.key = "0x248018"
+        self.disabled_value = 3
+        self.release_value = 0
+        self.disabled_values = {"0x248018": 3, "0x251a18": 3}
+        self.release_values = {"0x248018": 0, "0x251a18": 0}
         self.close_calls = 0
         self.read_calls = 0
 
@@ -41,9 +46,10 @@ class FakeController:
             "support": True,
             "architecture": {"architecture": 0x170, "implementation": 4},
             "layout": "ga10x-slcg",
-            "registers": {"0x248018": self.value},
+            "registers": {self.key: self.value},
             "unavailable_registers": {"0x251a18": {"classification": "access_denied", "operation_status": 32}},
-            "expected_disabled_values": {"0x248018": 3, "0x251a18": 3},
+            "expected_disabled_values": dict(self.disabled_values),
+            "expected_release_values": dict(self.release_values),
             "owned_request": self.owned,
             "uncertain_outcome": False,
         }
@@ -68,13 +74,14 @@ class FakeController:
         self.owned = True
         if self.failure == "hold":
             raise RuntimeError("lost request response")
-        self.value = 0 if self.failure == "noop" else 3
+        if self.failure != "noop":
+            self.value = self.disabled_value
         return self.read()
 
     def release(self):
         self._send("release")
         self.owned = False
-        self.value = 0
+        self.value = self.release_value if self.failure != "release" else 2
         self._send("free")
         self.opened = False
         return self.read()
@@ -94,17 +101,41 @@ def run(monkeypatch):
         lambda gpu: {"requested_slot": SLOT, "selected_slot": SLOT, "pairing_error": ""},
     )
 
-    def execute(*, trial=False, failure=None, before_value=0, native=0x170, layout="ga10x-slcg"):
+    def execute(
+        *,
+        trial=False,
+        failure=None,
+        before_value=None,
+        native=0x170,
+        layout="ga10x-slcg",
+        missing_anchor=False,
+        missing_release_values=False,
+    ):
         gpu = FakeGPU()
         controller = FakeController(gpu, failure=failure)
-        controller.identity["architecture"] = 8 if native == 0x190 else 7
-        controller.value = before_value
+        controller.identity["architecture"] = {0x160: 6, 0x170: 7, 0x190: 8}.get(native, 7)
+        if layout == "tu10x-slcg":
+            controller.key = "0x24a124"
+            controller.disabled_value = 0
+            controller.release_value = 1
+            controller.disabled_values = {"0x24a124": 0}
+            controller.release_values = {"0x24a124": 1}
+        controller.value = controller.release_value if before_value is None else before_value
         read = controller.read
 
         def snapshot():
             state = read()
             state["architecture"]["architecture"] = native
             state["layout"] = layout
+            if layout == "tu10x-slcg":
+                state["unavailable_registers"] = {}
+                state["status"] = "partial"
+                state["unverified_source_peers"] = [hex(0x100000 + i * 4) for i in range(15)]
+                state["unverified_source_peers_scope"] = "Other source peers remain unverified diagnostics"
+            if missing_anchor:
+                state["registers"] = {}
+            if missing_release_values:
+                state.pop("expected_release_values")
             return state
 
         controller.read = snapshot
@@ -133,7 +164,7 @@ def test_default_read_only_has_no_mutation_packets(run):
     assert report["before"]["unavailable_registers"]
 
 
-@pytest.mark.parametrize("native,layout", [(0x170, "ga10x-slcg"), (0x190, "ad10x-slcg")])
+@pytest.mark.parametrize("native,layout", [(0x160, "tu10x-slcg"), (0x170, "ga10x-slcg"), (0x190, "ad10x-slcg")])
 def test_one_trial_records_exact_packets_and_positive_transition(run, native, layout):
     report, controller, gpu, checkpoints = run(trial=True, native=native, layout=layout)
     assert report["qualified"] is True
@@ -141,8 +172,14 @@ def test_one_trial_records_exact_packets_and_positive_transition(run, native, la
     assert report["event_counts"] == {"allocate": 1, "request": 1, "release": 1, "free": 1}
     assert report["events"][1]["packet_before"][18] == 16
     assert report["events"][1]["packet_after"][11] == 1
-    assert report["held"]["registers"] == {"0x248018": 3}
-    assert report["after_cleanup"]["value"]["registers"] == {"0x248018": 0}
+    assert report["held"]["registers"] == {controller.key: controller.disabled_value}
+    assert report["after_cleanup"]["value"]["registers"] == {controller.key: controller.release_value}
+    assert report["checks"]["source_release_values_observed"] is True
+    if native == 0x160:
+        assert report["checks"]["turing_anchor_transition"] is True
+        assert len(report["held"]["unverified_source_peers"]) == 15
+        assert len(report["held"]["registers"]) == 1
+        assert report["held"]["status"] == "partial"
     assert controller.close_calls == 1
     assert checkpoints[0]["events"] == []
 
@@ -157,8 +194,9 @@ def test_hold_failure_always_closes_own_request_and_reads_cleanup(run):
     assert report["after_cleanup"]["ok"] is True
 
 
-def test_noop_never_qualifies(run):
-    report, _, _, _ = run(trial=True, failure="noop")
+@pytest.mark.parametrize("native,layout", [(0x160, "tu10x-slcg"), (0x170, "ga10x-slcg")])
+def test_noop_never_qualifies(run, native, layout):
+    report, _, _, _ = run(trial=True, failure="noop", native=native, layout=layout)
     assert report["qualified"] is False
     assert report["checks"]["positive_transition"] is False
 
@@ -172,13 +210,25 @@ def test_noop_never_qualifies(run):
         {"native": 0x190, "layout": "ga10x-slcg"},
         {"native": 0x1F0, "layout": "ga10x-slcg"},
         {"native": 0x190, "layout": "unknown-slcg"},
+        {"native": 0x160, "layout": "ga10x-slcg"},
+        {"native": 0x170, "layout": "tu10x-slcg"},
+        {"native": 0x160, "layout": "tu10x-slcg", "before_value": 0},
+        {"native": 0x160, "layout": "tu10x-slcg", "missing_anchor": True},
+        {"missing_release_values": True},
     ],
 )
-def test_trial_requires_zero_baseline_and_qualified_pair(run, kwargs):
+def test_trial_requires_source_release_baseline_and_qualified_pair(run, kwargs):
     report, controller, gpu, _ = run(trial=True, **kwargs)
     assert report["qualified"] is False
     assert not gpu.calls
     assert controller.close_calls == 1
+
+
+def test_turing_inexact_release_does_not_qualify(run):
+    report, _, _, _ = run(trial=True, native=0x160, layout="tu10x-slcg", failure="release")
+    assert report["qualified"] is False
+    assert report["checks"]["source_release_values_observed"] is False
+    assert report["checks"]["turing_anchor_transition"] is False
 
 
 def test_cleanup_error_is_recorded_with_independent_cleanup_read(run):

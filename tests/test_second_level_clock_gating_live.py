@@ -19,6 +19,7 @@ def device(monkeypatch):
         "native": (0x1B0, 6, 0xB2, 0x1357),
         "values": dict.fromkeys(live._DISABLED_VALUES, 0),
         "expected_values": dict(live._DISABLED_VALUES),
+        "release_values": dict.fromkeys(live._DISABLED_VALUES, 0),
         "read_addresses": [],
         "operation_statuses": {},
         "writes": [],
@@ -68,7 +69,7 @@ def device(monkeypatch):
         for address, expected in data["expected_values"].items():
             value = data["values"][address]
             if not data["operation_statuses"].get(address) and value != 0xFFFFFFFF and value & 0xFFF00000 != 0xBAD00000:
-                data["values"][address] = expected if held else 0
+                data["values"][address] = expected if held else data["release_values"][address]
 
     def escape(packet, actual_fields):
         assert actual_fields == fields
@@ -427,6 +428,7 @@ def alternate_layout(device):
     source_values = dict(live._LAYOUT_VALUES["ga10x-slcg"])
     data["native"] = (0x170, 4, 0x123, 0x456)
     data["expected_values"] = source_values
+    data["release_values"] = dict.fromkeys(source_values, 0)
     data["values"] = dict.fromkeys(source_values, 0)
     return controller, data
 
@@ -514,6 +516,7 @@ def ada_layout(device):
     controller, data = device
     data["native"] = (0x190, 2, 0x123, 0x456)
     data["expected_values"] = dict(live._LAYOUT_VALUES["ad10x-slcg"])
+    data["release_values"] = dict.fromkeys(data["expected_values"], 0)
     data["values"] = dict.fromkeys(data["expected_values"], 0)
     return controller, data
 
@@ -573,3 +576,74 @@ def test_ada_partial_witness_retains_unavailable_peers(ada_layout):
     released = controller.release()
     assert released["registers"] == {"0x251818": 0}
     assert set(released["unavailable_registers"]) == {"0x248018", "0x251a18"}
+
+
+@pytest.fixture
+def turing_layout(device):
+    controller, data = device
+    data["native"] = (0x160, 2, 0x123, 0x456)
+    data["expected_values"] = {0x24A124: 0}
+    data["release_values"] = {0x24A124: 1}
+    data["values"] = {0x24A124: 1}
+    return controller, data
+
+
+@pytest.mark.parametrize("implementation", [2, 4, 6, 8, 7])
+def test_turing_source_witness_lifecycle(turing_layout, implementation):
+    controller, data = turing_layout
+    data["native"] = (0x160, implementation, 0x123, 0x456)
+    before = controller.read()
+    assert before["layout"] == "tu10x-slcg" and before["status"] == "partial"
+    assert before["registers"] == {"0x24a124": 1}
+    assert before["expected_disabled_values"] == {"0x24a124": 0}
+    assert before["expected_release_values"] == {"0x24a124": 1}
+    assert set(before["unverified_source_peers"]) == {hex(a) for a in live._TURING_UNVERIFIED_PEERS}
+    assert len(before["unverified_source_peers"]) == 15 and before["unverified_source_peers_scope"]
+    held = controller.hold()
+    assert held["registers"] == {"0x24a124": 0} and held["observed_registers"] == ["0x24a124"]
+    assert controller.hold()["registers"] == {"0x24a124": 0}
+    assert commands(data) == [0x0500002A, 0xB0CC0301]
+    released = controller.release()
+    assert released["registers"] == {"0x24a124": 1}
+    assert released["unverified_source_peers"] == before["unverified_source_peers"]
+    assert set(data["read_addresses"]) == {0x24A124}
+
+
+@pytest.mark.parametrize("implementation", [0, 3, 0xF])
+def test_turing_unknown_identity_never_reads_registers(device, implementation):
+    controller, data = device
+    data["native"] = (0x160, implementation, 0, 0)
+    assert controller.read()["status"] == "unsupported_layout"
+    with pytest.raises(live.SecondLevelClockGatingError, match="no valid register witness"):
+        controller.hold()
+    assert not data["read_addresses"] and not data["writes"]
+
+
+@pytest.mark.parametrize("value,status", [(0, 0), (2, 0), (0xFFFFFFFF, 0), (0xBADF1002, 0), (1, 8)])
+def test_turing_requires_valid_source_release_baseline(turing_layout, value, status):
+    controller, data = turing_layout
+    data["values"][0x24A124] = value
+    data["operation_statuses"][0x24A124] = status
+    with pytest.raises(live.SecondLevelClockGatingError, match="baseline|no valid register witness"):
+        controller.hold()
+    assert not data["writes"]
+
+
+def test_turing_noop_does_not_verify_hold(turing_layout):
+    controller, data = turing_layout
+    data["stub"] = True
+    with pytest.raises(live.SecondLevelClockGatingError, match="source disabled"):
+        controller.hold()
+    controller.close()
+
+
+def test_turing_duplicate_hold_and_release_require_exact_values(turing_layout):
+    controller, data = turing_layout
+    controller.hold()
+    data["values"][0x24A124] = 1
+    with pytest.raises(live.SecondLevelClockGatingError, match="no longer independently visible"):
+        controller.hold()
+    data["values"][0x24A124] = 0
+    data["stub"] = True
+    with pytest.raises(live.SecondLevelClockGatingError, match="source release values"):
+        controller.release()

@@ -25,6 +25,7 @@ class FakeController:
         return {
             "support": True,
             "registers": self.registers.copy(),
+            "expected_release_values": {"0x1234": 0},
             "unavailable_registers": {"0x5678": "unavailable"},
             "observed_registers": {},
             "owned_request": self.owned,
@@ -92,3 +93,18 @@ def test_uncertain_hold_retains_release_through_failed_refresh(panel):
     assert "readback mismatch" in dpg.get_value("second_level_clock_gating_readback")
     panel.reset_view()
     assert not enabled("hold")
+
+
+@pytest.mark.parametrize("value,eligible", [(1, True), (0, False), (2, False)])
+def test_turing_panel_uses_nonzero_baseline_and_discloses_unverified_peers(panel, value, eligible):
+    snapshot = panel._controller().read()
+    snapshot.update(
+        status="partial", registers={"0x24a124": value},
+        expected_release_values={"0x24a124": 1},
+        unverified_source_peers=[hex(0x246018 + i * 0x200) for i in range(15)],
+    )
+    panel._show(snapshot, "Refreshed")
+    assert enabled("hold") is eligible
+    text = dpg.get_value("second_level_clock_gating_readback")
+    assert "15 unverified" in text and "prior values are not verified" in text
+    assert ("required starting values" in text) is not eligible
