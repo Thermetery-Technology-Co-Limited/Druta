@@ -83,6 +83,73 @@ def targets(binding):
             ("client_extended", maximum + 50_000))
 
 
+def status_size_discrimination(gpu):
+    """Read-only: record which A619 STATUS sizes this adapter accepts.
+
+    The point is that sharing the 8620-byte info and 4432-byte control blocks
+    with another transport does NOT imply sharing its status block, so a
+    layout copied across geometries is refused rather than silently wrong.
+    """
+    import ctypes
+
+    from druta.nvbackend import u32
+
+    header, fields = gpu._rm_power_transport()
+    results = {}
+    for size in (171048, 172080, 190272, 396024, 397048):
+        packet = (u32 * (17 + size // 4))(*header, *([0] * (size // 4)))
+        packet[2], packet[14], packet[15], packet[16] = ctypes.sizeof(packet), 0x2080A619, size, 0
+        nt = gpu._legacy_clk_escape(packet, fields)
+        results[str(size)] = ("accepted" if nt == 0 and packet[16] == 0
+                              else f"refused (NTSTATUS {nt}, RM {packet[16]:#x})")
+    return results
+
+
+def current_limit_trial(gpu, report):
+    """One reversible core-current request, restored and verified."""
+    rows = gpu.get_current_limits()
+    report["current_limits"] = {
+        "rows": rows,
+        "error": getattr(gpu, "_current_limit_error", ""),
+        "read_error": getattr(gpu, "_current_limit_read_error", ""),
+        "selected_layout": {
+            "status_bytes": (gpu._current_limit_layout_choice or {}).get("sizes", {}).get(0x2080A619),
+            "info": (gpu._current_limit_layout_choice or {}).get("info"),
+            "status": (gpu._current_limit_layout_choice or {}).get("status"),
+            "control": (gpu._current_limit_layout_choice or {}).get("control"),
+        },
+        "trials": [],
+    }
+    row = next((r for r in rows if r["policy"] == 13), None)
+    if row is None:
+        return
+    baseline = row["requested_ma"]
+    target = max(row["minimum_ma"], baseline - 800)
+    trial = {"policy": 13, "baseline_ma": baseline, "target_ma": target}
+    report["current_limits"]["trials"].append(trial)
+    try:
+        ok, message = gpu.set_current_limit_ma(13, target, pin=False)
+        trial["set"] = {"ok": ok, "message": message}
+        assert ok, message
+        after = next(r for r in gpu.get_current_limits() if r["policy"] == 13)
+        trial["after"] = {k: after[k] for k in ("requested_ma", "limit_ma", "value_ma")}
+        trial["exact_readback"] = after["requested_ma"] == target
+        assert trial["exact_readback"]
+        refused_ok, refused_message = gpu.set_current_limit_ma(
+            13, row["maximum_ma"] + 1, pin=False)
+        trial["above_maximum_refused"] = {"ok": refused_ok, "message": refused_message}
+        assert not refused_ok
+    finally:
+        ok, message = gpu.set_current_limit_ma(13, baseline, pin=False)
+        final = next((r for r in gpu.get_current_limits() if r["policy"] == 13), None)
+        trial["restoration"] = {
+            "ok": ok, "message": message,
+            "restored": bool(final and final["requested_ma"] == baseline),
+            "effective_ma": final and final["limit_ma"],
+        }
+        assert trial["restoration"]["restored"], trial["restoration"]
+
+
 def restore_baseline(controller, state):
     # A new watchdog must establish the live ABI and target before replaying
     # saved bytes. Never treat a captured PCI slot as a permanent identity.
@@ -135,6 +202,7 @@ def main():
         "identity": {k: gpu.static.get(k) for k in ("name", "driver", "vbios", "slot")},
         "pci_identity": before["identity"],
         "captured_power_transport": transport,
+        "status_size_discrimination": status_size_discrimination(gpu),
         "current_policy_record_layout": {
             "available": bool(gpu.get_current_limits()),
             "error": getattr(gpu, "_current_limit_error", ""),
@@ -202,6 +270,7 @@ def main():
                 child.wait(timeout=5)
             assert restored["verified"], restored["error"]
             gpu.voltage_xoc_enabled = False
+    current_limit_trial(gpu, report)
     report["final"] = summary(controller.read())
     report["final_configured_mw"] = gpu.read_power_limit_mw()
     report["full_baseline_restored"] = cp._state(controller.read()) == cp._state(before)

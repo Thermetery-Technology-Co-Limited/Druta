@@ -2818,17 +2818,37 @@ failed read, so profiles stay complete and "Reset all to stock" does not fail.
 PERF diagnostics keep their own independent transport restrictions.
 
 A Gigabyte GTX 1060 6GB (GP106) on driver 576.80 presents an A612 transport of
-11740/11672 bytes, which no recorded layout describes, and reaches the same
+11740/11672 bytes, which no earlier entry described, and reaches the same
 1160-byte client group and 124-byte native controls as Turing 581.42. Role 1
 uniquely bound client row 0 to native policy 2 with 90/180/200 W bounds. Idle
 190/201/250 W requests, the latter two above the reported maximum and behind
 XOC, passed exact readback and full restoration of the captured 180 W state.
-Native STATUS is not read for this layout, so the native effective limit,
-arbitration detail and original-BIOS coloring stay explicitly unavailable
-without disabling the ordinary slider. See the
-[Pascal evidence](experiments/pascal-gp106-live-power-20261102.md) and its
-sanitized report. These are idle software observations on one adapter and one
-driver; they do not establish physical enforcement under load.
+See the [Pascal evidence](experiments/pascal-gp106-live-power-20261102.md) and
+its sanitized report. These are idle software observations on one adapter and
+one driver; they do not establish physical enforcement under load.
+
+### A shared info and control block does not imply a shared status block
+
+The 11740/11672 entry added for that adapter shares the 8620-byte info and
+4432-byte control blocks, and their headers and strides, with the 11748/11680
+entry. It does not share the status block. This driver refuses the 172080-byte
+status GET with RM `0x1F`; 171048 is the only size it accepts across a
+140000..210000 sweep at 4-byte steps.
+
+The record geometry was solved from live data rather than carried over. With
+the mask at word 1 the driver populates the block; across every `(base,
+stride)` with base 0..2048 and stride up to 12000 at 4-byte steps, exactly one
+pair makes all ten occupied policies' status type bytes equal their info type
+bytes and puts every effective value inside that policy's own info bounds:
+base `0x68`, stride `0x1434`, against Turing's `0x70` and `0x1454`.
+
+This matters because `_current_limit_state` reads the status record for three
+things a wrong stride would silently corrupt: the type cross-check, the
+effective limit, and the live value. `set_current_limit_ma` then gates on the
+effective limit before writing and verifies it after, so the status block is
+load-bearing for writes and not merely telemetry. `tests/
+test_current_limits_pascal_status.py` asserts one case per status field that
+carrying the Turing value over breaks the read.
 
 Turing is also eligible to probe the smaller client layout. After explicit
 RM INVALID_ARGUMENT rejection of the 8632-byte native INFO, the controller

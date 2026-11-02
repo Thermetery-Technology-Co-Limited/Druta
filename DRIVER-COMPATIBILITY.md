@@ -11,29 +11,39 @@ sliders, reported as an unsupported interface rather than a failed read. Live
 power (W) rides on the transport with packet sizes the client group negotiates
 for itself.
 
+A fifth record layout is added for the geometry below. It shares the 8620-byte
+info and 4432-byte control blocks with the 11748/11680 entry but **not** its
+status block, which this driver refuses: 172080 returns RM `0x1F` and 171048
+is the only size accepted across a 140000..210000 sweep. Its header and record
+stride were solved from live data rather than carried over. Two blocks
+agreeing is not evidence that the third does.
+
 Pascal is also now eligible for the fallback from the modern client group to
 the smaller one, which previously admitted only Turing and Ampere. Acceptance
 still selects the group; generation only decides whether the semantics are
 understood.
 
 A Gigabyte GTX 1060 6GB (GP106, VBIOS `86.06.4b.00.32`) on driver 576.80
-qualified at idle. Its A612 transport was `2080A612`, 11740/11672 bytes, which
-no recorded current-policy layout describes.
+qualified at idle.
 
-| Tested driver | Captured power transport, packet/parameters | Client INFO / CONTROL / role bytes | Native INFO / CONTROL bytes | Ordinary range |
-| --- | --- | --- | --- | --- |
-| 576.80 | `2080A612`, 11740/11672 | 1160 / 392 / 232 | 8620 / 4432 | 90/180/200 W |
+| Tested driver | Captured power transport, packet/parameters | Client INFO / CONTROL / role bytes | Native INFO / CONTROL / STATUS bytes | Status header / stride | Ordinary range |
+| --- | --- | --- | --- | --- | --- |
+| 576.80 | `2080A612`, 11740/11672 | 1160 / 392 / 232 | 8620 / 4432 / 171048 | `0x68` / `0x1434` | 90/180/200 W |
 
 Role 1 uniquely bound existing FE client row 0 to native policy 2. Requests of
 190 W (inside the range), 201 W and 250 W (above the reported maximum, behind
 XOC) each passed exact request readback and complete client/native restoration
 to the captured 180 W baseline. Test points were derived from the adapter's
-reported bounds, not fixed. The native effective limit, arbitration detail and
-original-BIOS slider coloring are unavailable on this record layout and are
-reported as such without disabling the ordinary slider. No current (A) slider
-is offered on this driver. These are idle software observations on one adapter
-and one driver; physical enforcement under load is unmeasured, and the 1999 W
-XOC range remains a software request envelope. See the
+reported bounds, not fixed.
+
+Core current policy 13 reads at 1/86.8/95 A, type `0x0B` channel 11. A
+reversible trial set 86 A with the effective limit verified, refused 95.001 A
+against the reported maximum without changing state, and restored 86.8 A. The
+native effective power limit reads 185.625 W against a configured 180 W.
+
+These are idle software observations on one adapter and one driver; physical
+enforcement under load is unmeasured, and the 1999 W XOC range remains a
+software request envelope. See the
 [Pascal evidence](experiments/pascal-gp106-live-power-20261102.md).
 
 ## 1.9.05 Turing compatibility and power readback

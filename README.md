@@ -2,13 +2,14 @@
 
 **Version 1.9.06 prerelease** — [release notes](RELEASE-NOTES-1.9.06.md).
 Supersedes 1.9.05 and carries its Turing work forward. The XOC power-limit
-slider now extends on Pascal: a captured power-GET transport is no longer
-withheld because the driver's current-policy record layout is unrecognized,
-and Pascal may take the smaller client-power group. A Gigabyte GTX 1060 6GB on
-576.80 accepted idle 201 W and 250 W requests above its 200 W reported maximum
-with exact readback and full restoration; its current (A) sliders and native
-effective limit stay unavailable on that driver. Physical enforcement is
-unmeasured. See the
+slider now extends on Pascal, and core current limits work there too: a
+captured power-GET transport is no longer withheld because the driver's
+current-policy record layout is unrecognized, Pascal may take the smaller
+client-power group, and that driver's measured current-policy layout is now
+described. A Gigabyte GTX 1060 6GB on 576.80 accepted idle 201 W and 250 W
+requests above its 200 W reported maximum with exact readback and full
+restoration, reads Core current at 1/86.8/95 A, and reports a 185.625 W native
+effective limit. Physical enforcement is unmeasured. See the
 [Pascal evidence](experiments/pascal-gp106-live-power-20261102.md).
 
 Carried forward from 1.9.05: clock offsets can use the validated Pstates20

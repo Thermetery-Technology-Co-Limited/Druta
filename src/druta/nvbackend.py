@@ -4869,6 +4869,22 @@ class GPU:
             "info": (0x58, 0xE4), "status": (0x70, 0x1454),
             "control": (0x14, 0x7C),
         },
+        # Shares the 8620-byte info and 4432-byte control blocks above, but NOT
+        # their status block: this driver's is 1032 bytes shorter, its header
+        # 8 bytes shorter and its per-policy record 32 bytes shorter. Measured
+        # on a GP106 / 576.80, where 172080 is refused (RM 0x1F) and 171048 is
+        # the only size accepted across a 140000..210000 sweep. The record
+        # geometry was then solved from live data rather than carried over:
+        # base 0x68 / stride 0x1434 is the only pair in that packet for which
+        # all ten occupied policies' status type bytes match their info types
+        # and every effective value falls inside its own info bounds.
+        # Two blocks agreeing is not evidence that the third does.
+        (11740, 11672): {
+            "sizes": {0x2080A618: 8620, 0x2080A619: 171048,
+                      0x2080A61A: 4432, 0x2080E61B: 4432},
+            "info": (0x58, 0xE4), "status": (0x68, 0x1434),
+            "control": (0x14, 0x7C),
+        },
         (54420, 54352): {
             "sizes": {0x2080A618: 20000, 0x2080A619: 396024,
                       0x2080A61A: 13840, 0x2080E61B: 13840},
