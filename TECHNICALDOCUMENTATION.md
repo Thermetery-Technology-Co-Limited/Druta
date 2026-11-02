@@ -2667,6 +2667,48 @@ physical effect on other devices. The second threshold remains unqualified.
 [additional controller evidence](experiments/live-additional-idle-thresholds-20261102.json);
 [DIFR controller evidence](experiments/live-difr-idle-thresholds-20261102.json).
 
+The **Live adaptive power policy** panel uses A801 type 4 attribute 9 for
+per-role availability and attribute 10 for the aggregate enabled predicate.
+Source associations map GR to role 0, MS to 2, NVDEC to 4, NVENC to 5, NVJPG to 6
+and OFA to 7. These indices differ from the type 3 threshold controllers.
+`adaptive_power_live.py` admits the source-qualified native Blackwell layout
+and current per-role capability, without board or driver-version allowlists.
+
+E802 type 4 attribute 10 value 0 sets shared reason bit 1; value 1 clears only that
+bit. This is not an owned/counted reference. The getter reports whether the
+entire reason DWORD is zero, not its individual bits. Other reasons, including
+the bit 2 associated with manual threshold requests, may keep it disabled.
+The implementation validates exact packet geometry, routing and opaque fields,
+Boolean capability/state, the full SET acknowledgement and stable aggregate
+readback. Only a distinguishing transition verifies the aggregate change;
+accepted no-change or masked results are labeled as not independently verified.
+SET is never retried. No profile, restart replay or exit-time clearing is added.
+
+The traced zero-to-nonzero transition sends firmware header `00/03/0D`;
+the transition back to zero sends `02/03/0C`. The host packets carry a role,
+not an explicit numeric threshold. The firmware receiver and its current
+algorithm remain unbound. The source trace establishes shared policy semantics,
+not physical gating or residency.
+
+On RTX 5080/617.42 the production callbacks disabled all five present roles
+0/4/5/6/7 together and allowed each in reverse order. Ten aggregate transitions
+and selected/peer comparisons passed; role 2 was independently unavailable.
+Voltage requests and configured LPWR observations were unchanged. Each disabled
+role's first idle threshold changed from100 to 70000 microseconds while its
+paired word stayed 108000000. Allow restored aggregate enabled state but did
+not immediately restore every threshold. A later read showed GR back at 100
+while media remained 70000. An earlier GR-only trial failed its incorrect
+numeric-invariance assertion despite successful policy transitions; this is
+retained in the evidence. No threshold number is promised by Allow.
+
+A final GPU-only reset completed without a Windows reboot or tuning replay.
+All five present policies read enabled; fresh GR/media thresholds read 70000
+and MS/DIFR 150. This does not assert restoration of adaptive numeric state.
+[Adaptive policy evidence](experiments/live-adaptive-power-policy-20261102.json)
+contains the exact request prefixes/zero tails, observations and 36 verified
+source windows. The 337 focused tests cover alternate identities, partial
+capabilities, shared reasons, no-effect responses and read/SET failures.
+
 The BLCG follow-up binds the native architecture getter and generated HAL
 constructor to the same chipword. In the inspected source, native architecture
 `0x1B0` and implementations `2/3/5/6/7` select the same graphics method and

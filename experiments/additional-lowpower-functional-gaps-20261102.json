@@ -1838,5 +1838,11 @@
     "local_trial": "Both individual150?151?150 trials and coexisting production panel trial passed exact all-eight raw-pair checks; final compared attributes, voltage requests and LPWR configuration matched baseline.",
     "auxiliary_effect": "The source-defined DIFR10/11 initializer leaves auxiliary index11, rejected by the callback predicate. Some existing GR/MS/media routes use valid indices and can set a separate reason bit2, with a firmware request on the first reason transition. Threshold-number restoration alone does not clear or measure that policy bit. No adaptive policy restore is added.",
     "remaining": "Second-field functional meaning remains unqualified; no second-field write or control added."
+  },
+  "adaptive_power_qualification": {
+    "status": "Shared adaptive policy Allow/Disable implemented for independently supported GR/MS/media roles on the source-qualified Blackwell layout.",
+    "evidence": "experiments/live-adaptive-power-policy-20261102.json",
+    "local_trial": "Five present roles0/4/5/6/7 passed ten distinguishing production-panel transitions with peer checks. Role2 unavailable. Voltage and configured LPWR unchanged.",
+    "limits": "Full reason mask, current firmware algorithm and physical effects remain unbound. Allow clears shared bit1 only, not manual-threshold bit2, and does not restore numeric thresholds. No recovery/profile/restart replay."
   }
 }

@@ -890,6 +890,24 @@ threshold number to its earlier value does not establish that the separate bit
 was cleared. The source-defined construction for the two MS DIFR controllers
 skips this auxiliary callback.
 
+**Live adaptive power policy** provides **Refresh**, **Allow** and **Disable**
+for Graphics (GR), Memory subsystem (MS), NVDEC, NVENC, NVJPG and OFA, where
+the selected role reports support. Refresh each selection before requesting a
+change. Unavailable roles do not disable the supported controls.
+
+Disable requests a shared adaptive-policy disable bit; Allow clears that bit.
+Other driver reasons can keep the aggregate policy disabled. Druta distinguishes
+an observed aggregate transition from an accepted request whose effect cannot
+be independently verified. This is shared driver policy, not an owned hold or
+a measurement of physical gating, residency or power savings.
+
+The driver may also change idle thresholds. In the local trial, Disable changed
+the selected first threshold from 100 to 70,000 microseconds; Allow did not
+immediately return every threshold to its previous number. Refresh **Idle
+threshold** for current values. Allow does not clear the separate reason that
+manual idle-threshold requests may set. These controls use no registry changes
+and are not saved or reapplied after a driver restart.
+
 **Runtime VF policy control** reads the active monotonicity and smoothing checks.
 After **Read VF policies**, use **Apply policies now** to change either check
 without restarting the GPU. **Restore initial policies** restores the values

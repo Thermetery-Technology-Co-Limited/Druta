@@ -128,6 +128,11 @@ class RegistryPanel:
         self.gr_idle_threshold_panel = GrIdleThresholdPanel(self.app)
         with dpg.collapsing_header(label="Live idle thresholds", tag="reg_gr_idle_threshold_header"):
             self.gr_idle_threshold_panel.build()
+        from .adaptive_power_panel import AdaptivePowerPanel
+
+        self.adaptive_power_panel = AdaptivePowerPanel(self.app)
+        with dpg.collapsing_header(label="Live adaptive power policy", tag="reg_adaptive_power_header"):
+            self.adaptive_power_panel.build()
         from .engine_clock_gating_panel import EngineClockGatingPanel
 
         self.engine_clock_gating_panel = EngineClockGatingPanel(self.app)
