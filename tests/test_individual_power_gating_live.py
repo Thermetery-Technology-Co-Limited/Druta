@@ -116,7 +116,11 @@ def device(monkeypatch):
     return live.IndividualPowerGatingController(gpu, 12), data
 
 
-@pytest.mark.parametrize("index,name", [(0, "Graphics (GR)"), (12, "NVDEC"), (13, "NVENC"), (14, "OFA"), (15, "NVJPG")])
+@pytest.mark.parametrize("index,name", [
+    (0, "Graphics (GR)"), (4, "Memory subsystem (MS)"),
+    (10, "MS DIFR SW-ASR"), (11, "MS DIFR CG"),
+    (12, "NVDEC"), (13, "NVENC"), (14, "OFA"), (15, "NVJPG"),
+])
 def test_selected_only_balanced_lifecycle_preserves_other_reason_bits(device, index, name):
     initial, data = device
     data["index"] = index
@@ -140,7 +144,7 @@ def test_selected_only_balanced_lifecycle_preserves_other_reason_bits(device, in
     assert {row[0] for row in data["gets"] if isinstance(row, tuple)} == {index}
 
 
-@pytest.mark.parametrize("index", [1, 4, 11, 16, True, "12"])
+@pytest.mark.parametrize("index", [1, 9, 16, True, "12"])
 def test_only_explicit_individual_indices_are_admitted(index):
     with pytest.raises(ValueError, match="Only individual"):
         live.IndividualPowerGatingController(None, index)
@@ -153,6 +157,69 @@ def test_unknown_family_never_reads_attributes_or_writes(device):
     with pytest.raises(live.IndividualPowerGatingError, match="unsupported"):
         controller.hold()
     assert not data["sets"] and not any(isinstance(row, tuple) for row in data["gets"])
+
+
+@pytest.mark.parametrize("architecture,implementation", [
+    (architecture, implementation)
+    for architecture, implementations in (
+        (0x170, (2, 3, 4, 6, 7)),
+        (0x190, (2, 3, 4, 6, 7)),
+        (0x1B0, (2, 3, 5, 6, 7)),
+    )
+    for implementation in implementations
+])
+def test_ms_known_native_pairs_have_balanced_selected_lifecycle(device, architecture, implementation):
+    original, data = device
+    data["index"] = 4
+    data["native"] = (architecture, implementation, 9, 10)
+    controller = live.IndividualPowerGatingController(original.gpu, 4)
+    assert controller.hold()["reason_masks"] == {0x48: 0x21, 0x49: 0x81}
+    assert controller.release()["reason_masks"] == {0x48: 0x20, 0x49: 0x81}
+    assert [row[2] for row in data["sets"]] == [0, 1]
+
+
+@pytest.mark.parametrize("architecture,implementation", [(0x160, 4), (0x170, 0xF), (0x190, 0xF), (0x1B0, 4)])
+def test_ms_unqualified_layout_is_refused_before_attribute_reads_or_set(device, architecture, implementation):
+    original, data = device
+    data["index"] = 4
+    data["native"] = (architecture, implementation, 0, 0)
+    controller = live.IndividualPowerGatingController(original.gpu, 4)
+    assert controller.read()["status"] == "unsupported_layout"
+    with pytest.raises(live.IndividualPowerGatingError, match="unsupported"):
+        controller.hold()
+    assert not data["sets"] and not any(isinstance(row, tuple) for row in data["gets"])
+
+
+def test_turing_ms_refusal_does_not_remove_other_individual_controls(device):
+    original, data = device
+    data["native"] = (0x160, 4, 0, 0)
+    data["index"] = 4
+    assert live.IndividualPowerGatingController(original.gpu, 4).read()["status"] == "unsupported_layout"
+    data["index"] = 12
+    media = live.IndividualPowerGatingController(original.gpu, 12)
+    assert media.hold()["owned_request"]
+    media.release()
+
+
+def test_ms_missing_selected_support_refuses_before_set(device):
+    original, data = device
+    data.update(index=4, supported=False)
+    controller = live.IndividualPowerGatingController(original.gpu, 4)
+    assert controller.read()["status"] == "unsupported"
+    with pytest.raises(live.IndividualPowerGatingError, match="unsupported"):
+        controller.hold()
+    assert not data["sets"]
+
+
+@pytest.mark.parametrize("index", [10, 11])
+def test_difr_component_hold_requires_reason_masks_not_eligibility_predicate(device, index):
+    original, data = device
+    data["index"] = index
+    controller = live.IndividualPowerGatingController(original.gpu, index)
+    assert controller.hold()["reason_masks"][0x48] == 0x21
+    assert controller.release()["reason_masks"][0x48] == 0x20
+    assert {row[1] for row in data["gets"] if isinstance(row, tuple)} == {0x39, 0x48, 0x49}
+    assert [row[2] for row in data["sets"]] == [0, 1]
 
 
 @pytest.mark.parametrize("unavailable", [0x39, 0x48, 0x49])

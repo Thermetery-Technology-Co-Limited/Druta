@@ -826,7 +826,8 @@ restart. They can be held independently; releasing one does not release the
 others. No registry change or GPU restart is needed to use them.
 
 **Individual engine power gating** provides separate **Refresh**, **Hold disabled**
-and **Release** controls for Graphics (GR), NVDEC, NVENC, OFA and NVJPG. Each checks its own
+and **Release** controls for Graphics (GR), Memory subsystem (MS), MS DIFR
+SW-ASR, MS DIFR CG, NVDEC, NVENC, OFA and NVJPG. Each checks its own
 availability, so an unsupported engine does not disable the others. Hold
 adds one counted inhibit for the selected controller and checks its reason bit;
 Release removes this instance's one request. Another client's request can keep
@@ -837,6 +838,12 @@ The Graphics control changes the graphics controller's individual request,
 whereas grouped ELPG asks the driver to inhibit a group that can include media.
 Driver callbacks can reevaluate dependencies; an individual request does not
 guarantee effects are physically confined to that one engine.
+
+MS is available on the source-qualified Ampere, Ada and Blackwell layouts.
+Turing MS remains unavailable because it has an additional unqualified path;
+this does not disable other supported controls. The SW-ASR and CG requests
+target separate DIFR subcontrollers and can coexist with the existing live DIFR
+switch. They report driver requests, not measured memory power or residency.
 
 These controls do not need a registry change or GPU restart. Druta releases its
 own requests on normal exit or GPU switch and does not save or reapply them

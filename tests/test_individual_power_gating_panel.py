@@ -13,7 +13,7 @@ from druta.individual_power_gating_panel import IndividualPowerGatingPanel
 class FakeController:
     def __init__(self, gpu, index):
         self.gpu, self.index = gpu, index
-        self.name = {0: "Graphics (GR)", 12: "NVDEC", 13: "NVENC", 14: "OFA", 15: "NVJPG"}[index]
+        self.name = {0: "Graphics (GR)", 4: "Memory subsystem (MS)", 10: "MS DIFR SW-ASR", 11: "MS DIFR CG", 12: "NVDEC", 13: "NVENC", 14: "OFA", 15: "NVJPG"}[index]
         self.support = self.available = True
         self.owned = self.uncertain = False
         self.masks = {0x48: 0, 0x49: 0}
@@ -67,7 +67,7 @@ def call(panel, operation, index):
 def test_per_controller_hold_release_and_explainer(panel):
     text = dpg.get_value("individual_power_gating_explainer")
     assert "individual power-gating inhibit" in text and "not physical" in text and "not reapplied" in text
-    for index in (0, 12, 13, 14, 15):
+    for index in (0, 4, 10, 11, 12, 13, 14, 15):
         call(panel, "read", index)
         assert enabled(index, "hold") and not enabled(index, "release")
     call(panel, "hold", 12)
@@ -76,6 +76,39 @@ def test_per_controller_hold_release_and_explainer(panel):
     assert all(enabled(index, "hold") for index in (13, 14, 15))
     call(panel, "release", 12)
     assert enabled(12, "hold") and not enabled(12, "release")
+
+
+def test_memory_subsystem_hold_and_unavailable_peer_are_independent(panel):
+    call(panel, "read", 0)
+    call(panel, "read", 4)
+    call(panel, "read", 12)
+    assert enabled(4, "hold")
+    call(panel, "hold", 4)
+    assert "Memory subsystem (MS) request support: available" in dpg.get_value("individual_power_gating_4_readback")
+    assert "disable request: held" in dpg.get_value("individual_power_gating_4_readback")
+    assert enabled(4, "release") and enabled(0, "hold") and enabled(12, "hold")
+    call(panel, "release", 4)
+    assert enabled(4, "hold") and not enabled(4, "release")
+
+    panel._controller(4).available = False
+    call(panel, "read", 4)
+    assert not enabled(4, "hold") and enabled(4, "read")
+    assert enabled(0, "hold") and enabled(12, "hold")
+
+
+@pytest.mark.parametrize("index,name,peer", [(10, "MS DIFR SW-ASR", 11), (11, "MS DIFR CG", 10)])
+def test_ms_difr_requests_remain_independent_when_ms_unavailable(panel, index, name, peer):
+    panel._controller(4).available = False
+    for controller in (4, 10, 11):
+        call(panel, "read", controller)
+    assert not enabled(4, "hold") and enabled(index, "hold") and enabled(peer, "hold")
+    call(panel, "hold", index)
+    text = dpg.get_value(f"individual_power_gating_{index}_readback")
+    assert f"{name} request support: available" in text and "disable request: held" in text
+    assert enabled(index, "release") and enabled(peer, "hold")
+    assert panel._controller(peer).masks[0x48] == 0
+    call(panel, "release", index)
+    assert enabled(index, "hold") and not enabled(index, "release") and enabled(peer, "hold")
 
 
 def test_graphics_request_is_independent_of_media_controllers(panel):

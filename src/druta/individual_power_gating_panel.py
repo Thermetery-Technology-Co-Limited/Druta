@@ -4,7 +4,11 @@
 
 import dearpygui.dearpygui as dpg
 
-_CONTROLLERS = ((0, "Graphics (GR)"), (12, "NVDEC"), (13, "NVENC"), (14, "OFA"), (15, "NVJPG"))
+_CONTROLLERS = (
+    (0, "Graphics (GR)"), (4, "Memory subsystem (MS)"),
+    (10, "MS DIFR SW-ASR"), (11, "MS DIFR CG"),
+    (12, "NVDEC"), (13, "NVENC"), (14, "OFA"), (15, "NVJPG"),
+)
 
 
 class IndividualPowerGatingPanel:
@@ -23,7 +27,7 @@ class IndividualPowerGatingPanel:
     def build(self):
         dpg.add_text(
             "Each control holds an individual power-gating inhibit for this session. "
-            "The request targets the selected controller; readback confirms a driver request, not physical power gating or residency. "
+            "The request targets the selected controller; readback confirms a driver request, not physical power gating, memory power, or residency. "
             "Requests are not reapplied after a driver restart.",
             tag="individual_power_gating_explainer", wrap=self.app.s(900),
         )

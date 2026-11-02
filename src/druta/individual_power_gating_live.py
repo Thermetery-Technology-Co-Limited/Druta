@@ -16,11 +16,27 @@ from . import clock_bios_runtime as clock
 from . import lpwr_runtime as lpwr
 from .perf_diagnostics import PerfDiagnosticError, PerfDiagnosticsReader
 
-_CONTROLLERS = {0: "Graphics (GR)", 12: "NVDEC", 13: "NVENC", 14: "OFA", 15: "NVJPG"}
+_CONTROLLERS = {
+    0: "Graphics (GR)",
+    4: "Memory subsystem (MS)",
+    10: "MS DIFR SW-ASR",
+    11: "MS DIFR CG",
+    12: "NVDEC",
+    13: "NVENC",
+    14: "OFA",
+    15: "NVJPG",
+}
 # Known native families; runtime callback selection is separate. A callback
 # can fail after changing the count/bit, so acknowledgement and readback remain
 # mandatory and a release dispatch is never blindly repeated.
 _SUPPORTED_FAMILIES = frozenset({0x160, 0x170, 0x190, 0x1B0})
+# Controller 4 has an additional hardware path on Turing. The listed native
+# pairs select the source-verified no-op auxiliary path on Ampere and later.
+_MS_IMPLEMENTATIONS = {
+    0x170: frozenset({2, 3, 4, 6, 7}),
+    0x190: frozenset({2, 3, 4, 6, 7}),
+    0x1B0: frozenset({2, 3, 5, 6, 7}),
+}
 _SET_COMMAND = 0x2080E802
 
 
@@ -34,7 +50,7 @@ class IndividualPowerGatingController:
     def __init__(self, gpu, index):
         if type(index) is not int or index not in _CONTROLLERS:
             raise ValueError(
-                "Only individual controller indices0 Graphics (GR),12 NVDEC,13 NVENC,14 OFA and15 NVJPG are understood"
+                "Only individual controller indices 0, 4, 10, 11, 12, 13, 14 and 15 are understood"
             )
         self.gpu, self.index = gpu, index
         self.reader = PerfDiagnosticsReader(gpu)
@@ -68,6 +84,8 @@ class IndividualPowerGatingController:
         }
         if architecture not in _SUPPORTED_FAMILIES:
             return {**state, "status": "unsupported_family"}
+        if self.index == 4 and implementation not in _MS_IMPLEMENTATIONS.get(architecture, ()):
+            return {**state, "status": "unsupported_layout"}
         available, supported = self._attribute(0x39)
         state["available"] = available
         if not available or not supported:

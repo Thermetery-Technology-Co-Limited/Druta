@@ -2476,14 +2476,14 @@ records these findings; they do not add recovery or profile work.
 
 ### Individual live engine power-gating inhibits
 
-`individual_power_gating_live.py` exposes independent Graphics/GR (0), NVDEC (12),
-NVENC (13), OFA (14) and NVJPG (15) holds through the actual attribute SET `0x2080E802`. A singleton
+`individual_power_gating_live.py` exposes independent Graphics/GR (0), MS (4),
+MS DIFR SW-ASR (10), MS DIFR CG (11), NVDEC (12), NVENC (13), OFA (14) and NVJPG (15) holds through the actual attribute SET `0x2080E802`. A singleton
 `0x404` packet contains one 16-byte type3 row for attribute `0x37`: value0 acquires
 one shared reason0 reference; value1 releases one. The source increments row+10C
 and sets row+110 bit0 on acquire, and clears that bit only when the count reaches
 zero on release. This is a balanced shared count, not an allocated profiler
-object or a getter for exclusive ownership. Controller4 has an additional
-shared-state path and is outside this interface.
+object or a getter for exclusive ownership. Controller4 additionally requires the family-specific auxiliary-path qualification
+described below.
 
 Admission requires paired transport identity, the understood native architecture,
 selected controller support and stable selected A801 `48`/`49` readbacks, with
@@ -2510,6 +2510,31 @@ ENABLE and BLCG DISABLE, then released GR while preserving the media requests.
 All final compared masks, registers, voltage requests and configured LPWR
 matched baseline. The focused suite passed 346 tests.
 [GR extension evidence](experiments/live-individual-power-gating-20261102.json).
+
+MS controller4 has a distinct auxiliary helper, but its additional counter and
+firmware path are inactive for source-qualified GA10x, AD10x and GB20x native
+implementation pairs. The GPU+2208 object constructor receives the native-derived
+ChipHal owner and sets its +179B flag only for Turing ordinals25 through29.
+The admitted Ampere/Ada/Blackwell pairs select false and return from the auxiliary
+helper before touching its count or firmware path. Turing MS remains unavailable;
+other independently supported controllers keep their own admission. The gate is
+architectural and does not inspect board IDs or driver versions.
+
+Controllers10/11 use separate selected primary-bank reason0 requests. Existing
+DIFR command20802801 instead fixes controller9 and selects primary48 or secondary49
+through a driver flag. Direct controller9 was not added as another switch, since
+it would duplicate the existing primary path or expose an unexplained alternate
+bank. A false latest enabled predicate on10/11 does not establish unsupported
+requests; capability and the positive reason transition are checked separately.
+
+Root verified 14 additional source windows and bounded single-reference trials
+for4/10/11 on RTX5080/617.42. Each changed only its selected48 bit0, preserved all
+observed peers and49, and returned to baseline on release. The production trial
+held all eight individual controllers with ELCG/SLCG enabled and BLCG disabled,
+then verified4/10/11 release while the existing DIFR switch remained held. Final
+masks, clock-gating registers, voltage requests and configured LPWR matched
+baseline; no registry change, restart or workload was used. The focused suite
+passed 378 tests. [MS/DIFR component evidence](experiments/live-ms-difr-components-20261102.json).
 
 The release callback is selected by RM runtime variant, independently of GPU
 architecture: PF monolithic selects the working callback; other examined variants
