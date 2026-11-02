@@ -1524,5 +1524,62 @@
     },
     "result": "Both endpoints advertise ASPM mask2 (L1 only), and both control masks are0. Native20801824 true forces3 (L0s+L1), so no SET was issued. The existing type8 candidate does not establish a selective L1 writer. No working ASPM control is claimed.",
     "limits": "Capability and configured control fields do not measure residency or savings. The separate LTR no-effect result and existing working controls are unchanged. No new release gate or remote-adapter task added."
+  },
+  "aspm_selective_policy_followup": {
+    "driver_sha256": "db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b",
+    "scope": "Bounded literal-to-selective-policy source join; no hardware, registry mutation, or product changes.",
+    "primary_header": "experiments/registry-overrides/speedo-iddq/public-clock/nvrm_registry.h:37-56",
+    "findings": [
+      "Installed literal PCIEPowerControl at D05D20 is used in 12F850 reader. 130D30 passes output to 12F850 at 130F29. 197F4C calls 130D30 and stores result in Bus+2380 with validity +2384 on success; on error clears both.",
+      "31A286 gets GPU+2128 Bus object, 31A29D checks +2384, and 31A2A6 extracts bits 5:4 from +2380. 31A2ED..344 map value 3 to both +9DC/+9DD = 1, value 1 to +9DC, value 2 to +9DD. This agrees with NVIDIA public nvrm_registry.h PCIEPowerControl ASPM_ENABLE enum 1=L0S, 2=L1, 3=ALL. Other branch and preexisting bytes apply; this is a policy selection, not by itself proof of hardware write.",
+      "The observed route is an initialization-time read/cache plus internal selector. This bounded trace found no exported live setter for the cached policy and does not prove universal absence of an alternate runtime interface. No registry-write proposal follows."
+    ],
+    "windows": [
+      {
+        "name": "literal",
+        "rva": "0xd05d20",
+        "length": 40,
+        "bytes": "50434945506f776572436f6e74726f6c00cccccccccccccccccccccccccccccc5f00cccccccccccc",
+        "sha256": "b590e9283aa5dd3b383da337be94596a7dfee795cc8b9163254f56a8810bec77"
+      },
+      {
+        "name": "registry_lookup",
+        "rva": "0x12fa05",
+        "length": 94,
+        "bytes": "4c8bc7488d151163bd00488bcee8b9b0030085c07519c7837823000002000000c7837c23000002000000e9d90000004c8bc7488d15e262bd00488bcee8cac7fbff85c07519c7837823000002000000c7837c23000001000000e9aa000000",
+        "sha256": "ce167ac162a5ae38fd2c856bef62602757d972bf3485378b01847fbde5aa0455"
+      },
+      {
+        "name": "sbios_fallback",
+        "rva": "0x12fac7",
+        "length": 64,
+        "bytes": "4c8d4c2428488bce4c8d442420488d157562bd00e8501f1e0085c075230fb6442420c0e0040fb6c0c7837823000002000000c7837c230000050000008907eb06",
+        "sha256": "d09f3ac8f90ba287cf2b9f543636115ec3c085b935e33a1374e1a72fbe825e8c"
+      },
+      {
+        "name": "wrapper_calls_reader",
+        "rva": "0x130f14",
+        "length": 28,
+        "bytes": "4c8d4c247048897424204c8d442448498bd6488bcde822e9ffff488b",
+        "sha256": "bc15699ac5ba7331348af591f322997767d8429229dddfdc55a91c1af43a76b6"
+      },
+      {
+        "name": "read_and_cache",
+        "rva": "0x197f39",
+        "length": 70,
+        "bytes": "4c8d442430c744243000000000498bd5488bcbe8df8df9ff85c0740f41c785802300000000000032c0eb0d8b44243041898580230000b001498bd541888584230000488bcbe8",
+        "sha256": "15d097787659799ecbb4ce6f08bc43cadad64f74fc61ef653ef041d44a5e4cc0"
+      },
+      {
+        "name": "policy_select",
+        "rva": "0x31a286",
+        "length": 190,
+        "bytes": "4c8bb72821000033f6488b05829b0901488ba8300200004138b684230000740f418bb680230000c1ee0483e603eb0fba00002d07b965e4ef0ee86c69dcff488b87e8030000488bcfff15d487ae0084c0740b66c783dc0900000101eb614180be8423000000742583fe03750b66c783dc0900000101eb4783fe0175094088b3dc090000eb3983fe027534eb2b4c8d442428488bcf488d155f259f00e8aa07e5ff85c0751a8b442428a8017407c683dc09000001a8027407c683dd09000001",
+        "sha256": "2c2204be9aa8fac90e2d21f2379a5a61ef01b3d79e13e24745ee61e2cc7fe304"
+      }
+    ],
+    "source_record_sha256": "c97bd07cc926242b135883a18dff7d324424ff0956f098904ae614e7bfe04b12",
+    "root_review": "All six source windows matched the installed image byte-for-byte and by hash. Cache status and bit selection reviewed in disassembly; enum checked against NVIDIA nvrm_registry.h. Selection can be overridden by another branch and does not clear the unselected preexisting byte. No runtime setter, applied link state or physical effect established.",
+    "shipping_result": "No new control. Keep existing qualified live controls available; this initialization-policy lead is not a prerequisite for their shipment. No registry changes, GPU writes or restart were performed."
   }
 }

@@ -2445,6 +2445,14 @@ its other fixed-selector path has no qualified L1-only meaning. A selective
 L1 operation remains unqualified. Capability/configuration readback does not
 measure low-power residency or savings; no working ASPM control is claimed.
 
+The separate `PCIEPowerControl` configuration path caches its value before
+selecting L0s/L1 policy through bits 5:4. The installed code agrees with
+NVIDIA's named enum (1=L0s, 2=L1, 3=both), but other branches and preexisting
+policy bytes still matter. This establishes a selective configuration input,
+not an exported live setter or an applied link-state change. No registry write
+was performed, and this initialization-policy lead adds no prerequisite to
+shipping the qualified session-only controls.
+
 Named `RMLpwr*ElcgThreshold` inputs unpack 8/4/4 bits into three per-engine
 words. The driver sends them in firmware header bytes `00/03/11` and copies
 returned values back after success. NVIDIA's older thermal definitions have
