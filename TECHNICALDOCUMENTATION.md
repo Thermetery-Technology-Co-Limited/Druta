@@ -2609,6 +2609,28 @@ has not yet established Ampere hardware results. The 82 focused collector/backen
 panel tests passed; [collector qualification](experiments/individual-power-gating-validation-20261102.json)
 records the exact local request/response and unchanged final comparison state.
 
+The **GR idle threshold** panel controls the first controller-0 idle request via
+E802 attribute `0x3A`. It checks native Blackwell architecture and the
+source-qualified implementations, support, scaled A801 attributes and a guarded
+`0x20801706` raw pair. Two stable reads with different sentinels detect skipped
+entries; the raw first word must agree with A801 attribute `0x4C`. The scale must
+be uniquely implied by both raw/scaled pairs before Apply. The accepted request
+is checked against the exact response and fresh raw pair, including the peer.
+Requests are session-only and are not reissued after driver restart.
+
+The microsecond request label follows the `RMLpwrGrIdleThresholdUs` name and
+its traced conditional path into the ordinary GR default generator, which joins
+the first live threshold conversion. This is an interpretation of the source
+name and dataflow, rather than independent documentation of the live field or
+a measurement of physical latency. In one local RTX 5080 trial, a request from
+100 to 101 changed the first raw word from 10800 to 10908; the second word and
+all eight sampled controller pairs otherwise remained unchanged. Returning to
+100 restored the captured raw pair; voltage and configured LPWR observations
+also matched. The production panel read/apply callbacks repeated the 100 to 101 to 100
+sequence with the same verified raw transitions and restored sampled pairs.
+This does not establish a general firmware zero-peer rule or the physical
+effect on other devices. [Source and trial evidence](experiments/live-gr-idle-threshold-20261102.json).
+
 The BLCG follow-up binds the native architecture getter and generated HAL
 constructor to the same chipword. In the inspected source, native architecture
 `0x1B0` and implementations `2/3/5/6/7` select the same graphics method and

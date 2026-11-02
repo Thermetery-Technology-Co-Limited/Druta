@@ -540,7 +540,7 @@
         "descriptors": "The sorted A7/A8 range e69fb0..e6a110 ends A70F, A7D7, A801 then B201; no A802 in this range. A separate E802 descriptor e6add0 points 4f4100, flags 0x44 and size 0x404.",
         "setter": "E802 4f4100 dispatches 16-byte entries; type3 checks controller support then calls 7388e0. That function jump table 738dbc admits attributes 3a, 3b, 4c. 3a constructs [value,0], 3b [0,value] and both call 738200; 4c follows a different guarded route. Existing A801 type3 GET supports 3a/3b/4c but exact correspondence remains unproven.",
         "conversion": "For each nonzero u32 x, 738200 computes q=floor(uint64(x)*DWORD(LPWR+1318)/1000), takes low32(q), and replaces zero low32 with 1. Zero x passes as zero, but both zero rejected 0x1f. LPWR+1318 selected at 772de5 from LPWR+1314 when source+655 set, otherwise floor(DWORD(source+e28)/1000). Source units and admissible range remain unbound.",
-        "dispatch": "738200 requires controller row+f1 and GPU+23b0+63e then calls 73acc0. This copies controller index and 16-byte control payload into firmware request 02 03 04, via 353ee0. Zero other field effect is not established. GET correspondence, endpoint behavior, units, admissible range, and exact readback contract remain unresolved.",
+        "dispatch": "738200 requires controller row+f1 and GPU+23b0+63e then calls 73acc0. This copies controller index and 16-byte control payload into firmware request 02 03 04, via 353ee0. Zero other field effect is not established. GET correspondence, endpoint behavior, units, admissible range, and exact readback contract remain unresolved. This describes the earlier source-only checkpoint; later scoped GR qualification is recorded in gr_idle_threshold_qualification.",
         "receiver_boundary": "73acc0 constructs size 0x24, header 02 03 04, index DWORD at +10, parameter block 16 bytes at +14, and sends through GPU+23b0+1038 -> 353ee0. Header low bits 2 select non-callback path; 354104..143 forwards through transport object vtable+30. Reviewed host construction and transport do not implement or reveal zero-peer behavior. Existing older-driver pmu-firmware-packaging-lead.json explicitly says PMU payload not identified; no matching receiver/protocol definition was found in bounded local source. Establish receiver behavior from corresponding 617.42 firmware or authoritative protocol before assuming zero ignores or overwrites peer."
       },
       "references": [
@@ -929,7 +929,7 @@
       "artifact_sha256": "ce4562b9cabf9453800cbb88889acf6c141ebaf1af6f783ad098b859745af332",
       "mutations": 0
     },
-    "decision": "Real live setter candidate, not a shipped control. Current scale is not uniquely determined, units are not source-qualified, and matching firmware receiver semantics for a zero peer are absent. No SET or guessed-register read was executed. This does not establish that the setter is write-suppressed or ineffective."
+    "decision": "Superseded for the first GR threshold by the locally qualified session-only control; see gr_idle_threshold_qualification. The remaining threshold fields and general firmware receiver behavior remain unresolved."
   },
   "live_attribute_followup": {
     "threshold_pair": {
@@ -1672,11 +1672,12 @@
       "existing_pmu_boundary": "Prior exact PMU descriptor/materialization work found conditional archive/staging copies and RISC-V boot descriptor roles, but no qualified readable inner application format or decoded matching receiver. The present files are available; what is absent is a source-bound current application/receiver implementation. This is not a missing-installer or permission problem."
     },
     "decisions": {
-      "zero_peer_preservation": "unproven",
-      "current_complete_threshold_pair": "unproven",
+      "zero_peer_preservation": "The general receiver rule remains unproven; the local GR trial verified the peer value unchanged.",
+      "current_complete_threshold_pair": "Selectors 1/2 now provide separately sampled raw words for the supported controller; see gr_idle_threshold_qualification.",
       "safe_threshold_write_from_this_audit": false,
-      "finite_required_evidence": "A source-matched617.42 PMU02/03/04 receive handler that explicitly defines all four input words and zero-peer behavior, or a documented/native current full-pair getter joined to that exact receiver. Existing4C first-word GET and43 default-derived pair cannot supply it.",
-      "excluded_inferences": "No live threshold trial, inferred-unit conversion, guessed firmware ID, generic driver sweep, memory dump, or boot/firmware mutation follows."
+      "finite_required_evidence": "The receiver rule remains unproven generally. The scoped GR control uses independently checked raw first and peer values; additional threshold controls need their own contract and qualification.",
+      "excluded_inferences": "This historical audit did not execute a SET. A later scoped GR trial is recorded in gr_idle_threshold_qualification; no broader receiver or physical-effect inference follows.",
+      "later_gr_qualification": "A later local GR first-field trial and exact peer readback qualified the scoped control."
     },
     "public_sources": [
       {
@@ -1757,7 +1758,7 @@
       "Descriptor E65AF0 binds 20801706 size 0x10 to handler 4F45F0. Handler checks LPWR+283, nonzero count DWORD+0 and nonnull entries pointer+8, then dispatches LPWR virtual+1C0. 17ADA(FB)..17ADB28 assigns 4F3480 for selector 2 and an alternate stub otherwise.",
       "4F3480 processes count entries in 12-byte records [u32 selector, u32 controller index, u32 value]. It calls 7383F0 per controller and skips unsupported rows without modifying value or failing the whole call; successful outer status alone does not validate a skipped row.",
       "Selector 0x303 calls 738130 then returns its first output in entry+8; 0x304 invokes the same helper and returns its second output. Each record invokes a separate 738130 call. The shared helper 738130 obtains a pair from the raw provider, ignores provider return status, and scales each by floor(raw*1000/factor). These match the known A801 3A/3B scaled outputs, not a direct factor or exact raw-second getter.",
-      "Both values can be inspected in separate records, but no atomic two-field sample, exact raw pair, or complete factor is exposed by this selected getter. Rounding and ignored provider errors preclude using GET equality alone to establish raw-peer preservation or firmware acceptance after SET. This is not evidence that the firmware necessarily modifies the zero peer."
+      "Selectors 0x303/0x304 are scaled, but later source work identified selectors 1/2 as exact raw first/second words. The entries are sampled separately, not atomically; see gr_idle_threshold_qualification."
     ],
     "windows": [
       {
@@ -1812,5 +1813,14 @@
     ],
     "source_record_sha256": "4166ff981ce0bdc37a2a04828b8f525ce3d4f11a06fe37d9535846f092a8ef52"
   },
-  "work_scope": "Current priority is locally qualified controls on this RTX5080. Other adapters, including the3070Ti, are deferred at user request and are not prerequisites for shipping these local controls. Recovery/Undo and profile replay remain deferred. This source checkpoint adds no GPU writes or new control."
+  "work_scope": "Current priority is locally qualified controls on this RTX 5080. Other adapters, including the 3070 Ti, are deferred at user request and are not prerequisites for shipping these local controls. Recovery/Undo and profile replay remain deferred. The later scoped GR first idle threshold trial and implementation are recorded below.",
+  "gr_idle_threshold_qualification": {
+    "status": "GR first idle threshold implemented, with local raw trial passed; other thresholds remain unqualified.",
+    "evidence": "experiments/live-gr-idle-threshold-20261102.json",
+    "source_window_verification": "All nine registry-parent and conversion windows match installed driver db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b byte-for-byte and by SHA256.",
+    "units": "Microsecond request label is an interpretation of the source name and ordinary default-generator path, not independently documented physical latency.",
+    "local_trial": "RTX 5080 driver 617.42: 100 to 101 changed first raw 10800 to 10908; second raw 108000000 and other sampled pairs unchanged. Exact initial pair restored.",
+    "scope": "Session-only GR first field; native Blackwell implementations 2/3/5/6/7 plus live capability and exact raw peer verification. Other threshold fields and BLCG ENABLE remain unresolved.",
+    "production_panel_trial": "Actual panel read/apply callbacks passed the same 100 to 101 to 100 request and exact raw pair checks; all sampled raw pairs restored, voltage and LPWR unchanged."
+  }
 }
