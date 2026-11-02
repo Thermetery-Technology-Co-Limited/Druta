@@ -2350,6 +2350,19 @@ members or their counts. These are concrete callback/observation gaps, not a
 request to add recovery machinery. The existing owned DISABLE lifecycles remain
 available. Other driver paths require their own evidence.
 
+The ELPG follow-up narrows that admission gap. The identified group constructor,
+addition and removal paths maintain membership within supported controllers;
+its delayed callback performs policy-gated reevaluation. But feature6 also has
+a parallel path: when the parent low-power object's `+F10` capability satisfies
+the selected predicate, ENABLE and final release additionally clear reason bit2
+at `+FC8` and a flag at `+F24`, possibly invoking another state transition.
+This path can run alongside the controller-group path. A801 type3 support and
+reason masks do not expose those fields, so even every visible reason mask
+being zero cannot qualify an independent ELPG ENABLE. A typed observation or
+source-proven constraint on that parallel path is the concrete missing piece.
+[Callback and decoder evidence](experiments/additional-lowpower-functional-gaps-20261102.json)
+also records why the inspected VAT field is not a working request.
+
 The other named requests were tested individually with explicit release/free:
 
 | Control | Local request response | Qualification |
@@ -2381,6 +2394,17 @@ distinguishes zero latency with an asserted requirement from no requirement.
 That is a primary PCIe example, not a binding of NVIDIA's current proprietary
 registers. The current request/status relationship and resulting advertised
 requirement remain unqualified. No LTR SET or new control is claimed.
+The public profiler header also defines a **VAT** field at bits11:10:
+disable `0x400`, enable `0x800`, release `0xC00`. The inspected Windows driver 617.42
+real handler (profiler HAL selector2) decodes only five fields through bit9;
+its internal manager masks requests with `0x3FF`. Its status translator also
+rewrites only those five fields, preserving the caller's original VAT status
+bits. A zero-initialized VAT status could therefore look fulfilled without any
+VAT operation. The release decoder likewise does not dispatch VAT. No VAT
+hardware trial or control is qualified by that path. This finding is scoped to
+the traced handler, not a version-based feature gate or a claim about every
+implementation; the public header does not expand the name VAT.
+
 [Bounded byte evidence and exact gaps](experiments/additional-lowpower-functional-gaps-20261102.json)
 records these findings; they do not add recovery or profile work.
 

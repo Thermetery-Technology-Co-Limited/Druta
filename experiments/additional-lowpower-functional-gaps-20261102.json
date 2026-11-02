@@ -83,5 +83,240 @@
       }
     ]
   },
-  "other_scopes": "ASPM and alternate NVDEC controller17 remain separately unqualified. Recovery, Undo and profile replay remain deferred. No new hardware trial was run."
+  "other_scopes": "ASPM and alternate NVDEC controller17 remain separately unqualified. Recovery, Undo and profile replay remain deferred. No new hardware trial was run.",
+  "vat_profiler": {
+    "scope": "Pinned 617.42 offline decoder audit only; no GPU operations or mutations.",
+    "public_source": "src/common/sdk/nvidia/inc/ctrl/ctrlb0cc/ctrlb0ccpower.h:148-160, 221-239, 256-258, 383-390",
+    "findings": [
+      "Current public header calls feature VAT without expanding it; profiler control bits11:10 encode ignore0, disable1 (0x400), enable2 (0x800), release3 (0xc00). B0CC0301 request packet is 12 bytes (globalStatus, controlMask, statusMask); B0CC0302 release is 4-byte controlMask. Documented request lifetime is tied to B2CC profiler object or explicit release.",
+      "Pinned Windows request handler 436730 decodes exactly five two-bit fields through 9:8; at 43688A it shifts input8 and masks3, decodes last field, then immediately calls 42EA10. It neither decodes VAT bits11:10 nor forwards them. Manager 42E305 restricts active request to 0x3ff.",
+      "Status translator 84DFA0..84E0F3 rewrites only bits0..9, leaving output status bits11:10 unchanged from caller input. They are not a VAT result and can mislead if zero initialized.",
+      "Release handler 435F80 checks five fields through mask0x300, then forwards to 42E830; VAT release bits do not reach manager. There is no selected VAT callback, current VAT capability probe or independent readback on this pinned request path. Behavior of other binaries is not inferred.",
+      "Descriptor E5C490 binds B0CC0301 size12 to wrapper 175B70 (+178), and B0CC0302 size4 to wrapper 175B80 (+180). For profiler HAL selector2, initializer 16F5CB1..CF4 assigns +178=436730 and +180=435F80; other HAL selectors can use distinct methods and are not covered by the real-handler findings."
+    ],
+    "root_verified_windows": [
+      {
+        "label": "request_control_descriptor",
+        "rva": "0xe5c490",
+        "length": 64,
+        "bytes_hex": "705b17400100000048000400000000000103ccb00c00000078bfe54001000000805b17400100000048000400000000000203ccb00400000078bfe54001000000",
+        "sha256": "7476454a796335d8f426db049e4acce5ed2b3a6483cae902879b9c24bc54b2cb"
+      },
+      {
+        "label": "request_final_field_and_call",
+        "rva": "0x43687b",
+        "length": 158,
+        "bytes_hex": "ba40000000eb03418bd0253fffffffc1e9080bc28944243483e103744583e901743a83f901742dbb1f000000ba00108707448bc3b9935c130ee8d7a3caff41b8870700008bd3b904000000e8e5f8bcff8bc3eb7f41b800020000eb0641b80001000025fffcffff4c8d8bd8080000410bc0498bd6894424344c8bc7488d442430488bcd4889442420e80881ffff488d4e088bf8488d542430e8887641008b",
+        "sha256": "21ba71b28bdf71b95b07c6e32e07ccdd179809de901370d9f9493371b7c92824"
+      },
+      {
+        "label": "status_translation_final_field",
+        "rva": "0x84e08e",
+        "length": 102,
+        "bytes_hex": "253fffffff0bc14189018b4a08c1e90883e103744383e901743883e901741f83f9017406b81f000000c325fffcffff41b800030000410bc041890133c0c325fffcffff41b800020000410bc041890133c0c341b80001000025fffcffff410bc041890133c0c3",
+        "sha256": "ee44c2e0fe2651a99a813ec9a5e0eb8f47b047919b803e2cbbae2f643514bab9"
+      },
+      {
+        "label": "release_final_field_and_call",
+        "rva": "0x436087",
+        "length": 106,
+        "bytes_hex": "b9000300008944243023d174313bd1742fbb1f000000ba0010d807448bc3b9935c130ee8e1abcaff41b8d80700008bd3b904000000e8ef00bdff8bc3eb5c33c925fffcffff4c8d8fd80800000bc14c8bc689442430498bd6488d442430488bcd4889442420e83f87ffff",
+        "sha256": "92404d978d2a6d4198a20dedd8de191f2b3dfff0dc9b87438bfd1696b21eae57"
+      },
+      {
+        "label": "internal_mask",
+        "rva": "0x42e2ee",
+        "length": 39,
+        "bytes_hex": "488b82200800004c8d4424584c89642478ff15a3479d00448b5c24584181e3ff030000418bc345",
+        "sha256": "68839fd20f892a30472eb9f90598c0dbe4b1abaf2ab0923a0981310cd5528e1e"
+      },
+      {
+        "label": "descriptor_wrappers",
+        "rva": "0x175b70",
+        "length": 32,
+        "bytes_hex": "488b817801000048ff252acfc800cccc488b818001000048ff251acfc800cccc",
+        "sha256": "ad05de0bde0f8ca45f6a2b3393f715a590fad89b1a2387f8a630ae5b9a502b61"
+      },
+      {
+        "label": "selector_2_real_handler_assignments",
+        "rva": "0x16f5cb1",
+        "length": 68,
+        "bytes_hex": "418bc183e01f83c0fe7539488d057defd3fe49898068010000488d05dffbd3fe49898070010000488d05510ad4fe49898078010000488d059302d4fe49898080010000c3",
+        "sha256": "6287549010e9c3aa4ef788b0d5429421076f2a2861ae7fffa6a93728240d626c"
+      },
+      {
+        "label": "output_translation_entry",
+        "rva": "0x84dfa0",
+        "length": 96,
+        "bytes_hex": "8b42084533c04c8bc983e003742883e801741c83e801741083f8010f85f1000000b903000000eb11b902000000eb0ab901000000eb03418bc8418b0183e0fc0bc14189018b4a08c1e90283e103742883e901741c83e901741083f9010f85b000",
+        "sha256": "f0c201e370206744b4fab9a6ecb7b3ffdf725d7ce20b4dd2ccdace9162fe1a38"
+      }
+    ]
+  },
+  "elpg_enable_admission": {
+    "scope": "Offline static 617.42, no hardware or product mutation; source observations are not a universal driver guarantee.",
+    "findings": {
+      "membership": "Factory zeroes 0x1960 bytes. 3057e8 initializes support bitmap 0x3ffff7; 3057f2..81a invokes 736db0 only for its set bits, all below 22. 752430 adds only when 7383f0 confirms index <22 and currently supported. Three direct calls to removal helper 752480 at 739de9, 739f84, 73a0ff precede their respective support bit clears; removal clears the index in all four masks. These paths maintain membership subset of currently supported indices. Exhaustiveness of all support and membership writers is not established by this artifact.",
+      "callback": "73a480 zero-count reason0 branch logs and calls +50 even if count was zero. 17e1580 selects 7377f0 if third descriptor word +10 equals 2, else 92d80 returns 0x56. 7377f0 resolves another object and, depending on its +48 low nibble and group+1958, calls e49a0 with callback 7345b0 and argument 0x258 or sets a bit in resolved+40. Thus callback is not generally equivalent to leaving all state unchanged on a zero mask. Descriptor selection for a specific runtime and e49a0 semantics are not established here.",
+      "decision": "Documented membership construction/update preserves selected members within supported IDs, and queued callback is policy-gated reevaluation consistent with ENABLE. However A801 type3 group support does not disclose the parallel object capability or reason bit: admission needs a qualified getter for GPU+2550 +f10 and, if active, +fc8 bit2 and +f24 semantics, or another source-proven constraint establishing the operation cannot affect an independently held request.",
+      "deferred_followup": "7345b0 checks group+1958 then calls 305b00 and clears the queued flag. 305b00 iterates all supported members; 73a1f0 requires full reason mask +110 zero and state +114 nonzero before transition helpers 739620/73a5a0 and clears +114. If group+e3 set, 737b80 independently checks +11c zero and +120 before its own transition. This is a policy-gated all-supported reevaluation, not an unconditional reason0 count decrement; exact lower helper effects are not resolved. The third selector descriptor is cast from owner (fallback class 34a6d6) at 17e1f3b..f8f; its word +10 selects callback, but actual runtime value is not bound.",
+      "parallel_object": "Feature6 group case 42b784 requires GPU+2550+12c0, checks group0/1/3 masks and independently tests 7ec4e0(GPU+2550): +f10 >=2 and odd. If true, ENABLE/final release also calls 7ec3f0 with reason2, clears +fc8 bit2 and +f24 byte, and invokes object+130 method with state0 if resulting +fc8 is zero. A801 type3 reads the group object at +12c0 and cannot by itself exclude the parallel +f10 branch; it is not an alternative mutually exclusive group path. Current support reads do not establish +f10 or +fc8 values."
+    },
+    "root_verified_windows": [
+      {
+        "label": "group_factory_alloc_zero",
+        "rva": "0x17e1d80",
+        "length": 320,
+        "bytes_hex": "48896c241856574154415541574883ec2033ed458be8488bf24c8bf9448be541f6c0020f849a0000004885c97460483929745b488b3948895c245033d241b8601900004c89742458488bcfe820dc8ffe4885f644896f3cbb1f0000000f45dd0f85a9000000448bc3ba00107102b92f7cca0ee899ee8ffe41b8710200008bd3b904000000e8a74382fee9c5010000ba00006002b92f7cca0ee873ee8ffeba60020000b904000000e8844382feb83b000000488b6c24604883c420415f415d415c5f5ec3b960190000e823d391fe488bf84885c00f855dffffffba00006802b92f7cca0ee828ee8ffeba68020000b904000000e8394382feb851000000488b6c24604883c420415f415d415c5f5ec341f6c5017520488d157dcd6aff488bcee8bdbd92fe488d5708488bc84c8be0e87ec092feeb0448896f18488d1539756cff48",
+        "sha256": "082aaaa45570a7b7602be231ff629bd45c72ee9e9d23be5ad379f06385ef1b42"
+      },
+      {
+        "label": "support_init_and_construct",
+        "rva": "0x3057d9",
+        "length": 67,
+        "bytes_hex": "488b442420418bff488983c0120000c780e8000000f7ff3f00488b5424208b9ae800000085db741bf6c3017410448bc7488bcee89f154300488b542420ffc7d1eb75e5",
+        "sha256": "317d92b97a956df04a16c5f737f41ce2da155652697524153a9add3da397f127"
+      },
+      {
+        "label": "support_guard",
+        "rva": "0x7383f0",
+        "length": 23,
+        "bytes_hex": "4183f816730e8b82e8000000440fa3c00f92c0c332c0c3",
+        "sha256": "57ab39d9f6bb5699c930ac637b15df55b772640eb6e78857080b7fa1c740f8d1"
+      },
+      {
+        "label": "membership_add_remove",
+        "rva": "0x752430",
+        "length": 192,
+        "bytes_hex": "48895c2408574883ec20418bc0418bf9458bc1488d1c82e8a45ffeff84c07510b856000000488b5c24304883c4205fc38b83301900000fabf889833019000033c0488b5c24304883c4205fc3cccccccc48895c2408574883ec20418bf8488bdae85b5ffeff84c07510b856000000488b5c24304883c4205fc38b83301900000fb3f88983301900008b83341900000fb3f88983341900008b83381900000fb3f88983381900008b833c1900000fb3f889833c19000033c0488b5c24304883c420",
+        "sha256": "fd7f0c354abd4eee672553ac7ee2ac7a741c1e05a19759ac1f6cd3924300f7d8"
+      },
+      {
+        "label": "remove_before_clear_1",
+        "rva": "0x739de0",
+        "length": 29,
+        "bytes_hex": "448bc3488bd5488bcee8928601008b85e80000000fb3d88985e8000000",
+        "sha256": "ce8f3aac38ef5fd16b7cd2a850d19fb11a183db52db5f35fc844b52897a89dd0"
+      },
+      {
+        "label": "remove_before_clear_2",
+        "rva": "0x739f7b",
+        "length": 29,
+        "bytes_hex": "448bc3488bd5488bcee8f78401008b85e80000000fb3d88985e8000000",
+        "sha256": "6d5f55c9eaae4b85e465becade4993d6cf19453176aacb0a51f8407cf5b41582"
+      },
+      {
+        "label": "remove_before_clear_3",
+        "rva": "0x73a0fc",
+        "length": 24,
+        "bytes_hex": "458bc6e87c8301008b85e8000000440fb3f08985e8000000",
+        "sha256": "fd34149f4308084c694a4b701eecb94041d77441bf283462c3ffa54bdb8aaecd"
+      },
+      {
+        "label": "hal_callback_selection",
+        "rva": "0x17e1580",
+        "length": 47,
+        "bytes_hex": "410fb740104c8bd1440fb74a1083f820730f83e01f83f802488d055162f5fe7407488d05d8178bfe418bd148894150",
+        "sha256": "7266782766369d2896078af6aae0e2d17d6a514d80279c114c8fee589a899b2b"
+      },
+      {
+        "label": "zero_reason_then_callback",
+        "rva": "0x73a516",
+        "length": 104,
+        "bytes_hex": "4084f6753f8b830c01000085c07e0affc889830c010000eb19ba00002e10b9329b890ee852679affb92e100000e8785b9cff83bb0c01000000751883a310010000feeb0f8b8b100100000fb3f1898b10010000488b4550458bc6488bd5488bcfff152c856c00eb02",
+        "sha256": "69b465e8d6c7fb4a471555d9670925cab4eaffc2757101d15b5d188dc9aa0045"
+      },
+      {
+        "label": "callback_extra_action",
+        "rva": "0x7377f0",
+        "length": 227,
+        "bytes_hex": "48895c24184889742420574883ec30488b057a21a6004833c44889442428488bfa48c744242000000000488bd1488bf1488d4c2420e8e61e9fff8bd885c0741e448bc0ba00100e13b9329b890ee84e949affb90f130000e8b4969dffeb66488b5424208b4248a80f744b80bf5819000000755141b958020000488d1540cdffff4533c0488bcee825d19aff8bd885c07509c6875819000001eb2aba00003913b9329b890ee8f7939affb93a130000e85d969dffeb0f8b4a408b86340d00000fabc1894a408bc3488b4c24284833cce89d635b00488b5c2450488b7424584883c4305fc3",
+        "sha256": "d8867bd799e10249d4f658de3099a5ac24a6f6b016ce01f3b8fefd52c7876094"
+      },
+      {
+        "label": "default_callback",
+        "rva": "0x92d80",
+        "length": 6,
+        "bytes_hex": "b856000000c3",
+        "sha256": "bddd17a8a5899e510e94c38e4cdef575614bd86de97e38b49fd97c5c9601281a"
+      },
+      {
+        "label": "selector_object_construction",
+        "rva": "0x17e1f3b",
+        "length": 85,
+        "bytes_hex": "488d158e746cff488bcee816bd92fe488be84885c0753bbad6a63400488bcee8d1c092fe4885c07411bad6a63400488bcee8bfc092fe33f6eb0433f68bc6488d1550746cff488bc8e8d8bc92fe488be8eb0233f648",
+        "sha256": "e48551bda0ef97b658a17133870a4dfc009e02981334cb4af8c858f8dbb719c0"
+      },
+      {
+        "label": "selector_pass",
+        "rva": "0x17e1fff",
+        "length": 33,
+        "bytes_hex": "488d05baa471ff4c8bc5488903498bd6488d0592a471ff488bcf488907e85ff5ff",
+        "sha256": "4abd67cb36a2d2e3580cf92663862ad0cb6b399dbe56070d74b8f847e0966ead"
+      },
+      {
+        "label": "deferred_callback",
+        "rva": "0x7345b0",
+        "length": 68,
+        "bytes_hex": "40534883ec20e8b53b9dff488b98502500004885db7427488b9bc01200004885db741b80bb58190000007412488bd3488bc8e81915bdffc68358190000004883c4205bc3",
+        "sha256": "d0d0dd0b52c3f9569b4dcf022b5b251a1bbab296af1c9679143a9cfdcfba2498"
+      },
+      {
+        "label": "all_supported_iteration",
+        "rva": "0x305b00",
+        "length": 110,
+        "bytes_hex": "48895c240848896c24104889742418574883ec208bbae800000033db488bf2488be985ff743140f6c701742580bee300000000740e448bc3488bd6488bcde83d204300448bc3488bd6488bcde89f464300ffc3d1ef75cf488b5c243033c0488b6c2438488b7424404883c4205fc3",
+        "sha256": "5487e28932a467dd6f556a176f44284d3546fa4123e47ca5c1f1bf00e379d37d"
+      },
+      {
+        "label": "primary_policy_gate",
+        "rva": "0x73a2e8",
+        "length": 143,
+        "bytes_hex": "83bf10010000000f858600000080bff100000000747d8b871401000085c0747383f801752041b902000000884424204c8d8714010000498bd7488bcbe8578b030085c0754e41b101c744242000000000448bc6498bd6488bcbe8daf2ffff448bc6498bd6488bcbe84c02000085c07419ba00004211b9329b890ee829699affb942110000e84f5d9cffc78714010000",
+        "sha256": "6581974b13dd302bcda1f77c007809785993d1b188400acb1914c24ab32b265b"
+      },
+      {
+        "label": "secondary_policy_gate",
+        "rva": "0x737c69",
+        "length": 96,
+        "bytes_hex": "83bf1c01000000755880bf2001000000744f80bff1000000007446498b4670448bc6498bd6488bcbff1511ae6c0041b101c744242001000000448bc6498bd6488bcbe870190000498b4668448bc6498bd6488bcbff15e5ad6c00c68720010000",
+        "sha256": "98e6a7d25919bcd4b497ffa1b7c92c4ea24984fdd75c2906f4276e89a290a432"
+      },
+      {
+        "label": "feature6_object_loads",
+        "rva": "0x42b3d6",
+        "length": 58,
+        "bytes_hex": "4c89ac24980000004c8ba8502500004889bc24e00000004c89bc24900000004d85ed7410498bbdc01200004d8bbdd8120000eb06488bfe4c8bfe",
+        "sha256": "ca7c4114698bc5bb01083a6693f14b052ac348021e0f24f61d00d2f7ab5152a1"
+      },
+      {
+        "label": "parallel_group_and_other_branch",
+        "rva": "0x42b784",
+        "length": 307,
+        "bytes_hex": "4885ff0f84810100004533c0488bd7488bcbe8456c320041b801000000488bd7488bcb440fb6f8e8306c320041b803000000488bd7488bcb440fb6e0e81b6c3200498bd58845c7488bcbe80d0d3c00837de7028845c875734584ff74054533c0eb0b4584e4741441b8010000004533c9488bd7488bcbe8a16a3200403875c774144533c941b803000000488bd7488bcbe8876a3200403875c8741141b802000000498bd5488bcbe8000b3c004138b63a0900000f84d1000000498bd6488bcbe8e80600008bc6e959feffff4138b63a090000740b498bd6488bcbe8cd0600004584ff74054533c0eb0b4584e4741441b8010000004533c9488bd7488bcbe8ba6a3200403875c774144533c941b803000000488bd7488bcbe8a06a3200403875c8746841b802000000498bd5488bcbe8390b3c00",
+        "sha256": "330fe52bb730ded8193b77c869d6a304626fc6174a8b3e78f0ca5b92b7915cfb"
+      },
+      {
+        "label": "other_object_capability",
+        "rva": "0x7ec4e0",
+        "length": 17,
+        "bytes_hex": "8b82100f000083f80272032401c332c0c3",
+        "sha256": "319d821751d416d9a2f227e95b6c01a4a42e6865dd88eabaa0edaa6f079f78d7"
+      },
+      {
+        "label": "other_object_release",
+        "rva": "0x7ec3f0",
+        "length": 69,
+        "bytes_hex": "4883ec288b82100f000083f802722fa801742b8b82c80f0000440fb3c0c682240f0000008982c80f000085c07510488b82300100004533c0ff157a66610033c04883c428c3",
+        "sha256": "f28a82ba6dea415fb946f12911a3713aa9c4a152a02453f22762ee2bc2138a4f"
+      },
+      {
+        "label": "a801_group_object",
+        "rva": "0x4f3cfe",
+        "length": 85,
+        "bytes_hex": "498baec01200004885ed0f84ba02000066837b04397418440fb74302488bd5488bcfe8cb46240084c00f849b020000440fb743024c8bcb488bd5488bcfe8d0462400bdff08000085c00f858002000066834b0601e9",
+        "sha256": "1762973eb29b52a5f33ddd34589258780d6a7b5e8221454212f7e82dd60786a6"
+      }
+    ]
+  }
 }
