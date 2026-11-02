@@ -1859,8 +1859,10 @@
   "aspm_enable_followup": {
     "evidence": "experiments/pcie-ltr-and-additional-controls-20261102.json",
     "findings": "True ORs bits0/1 into a read16 value, but the helper sends a zero-extended four-byte config write and ignores write status. Handler performs additional bus callbacks. A typed same-handle getter exists only under unresolved current predicates. Endpoint scope and effects remain unqualified. No SET issued.",
-    "status": "Unqualified; no hardware SET. This corrects the earlier assumption that the underlying write was16-bit.",
-    "blackwell_callback_join": "For HAL0x41..0x45, only bus+6D0 is substantive: GPU own config offset0x70, independently read by selector7. Three other callbacks are stubs. The first helper separate topology handle still has only a conditional same-target getter; no SET qualified."
+    "status": "No ASPM control shipped. Local capability mismatch is concrete; any future candidate needs a qualified selectiveL1 operation, not another blind20801824 trial.",
+    "blackwell_callback_join": "For HAL0x41..0x45, only bus+6D0 is substantive: GPU own config offset0x70, independently read by selector7. Three other callbacks are stubs. The first helper separate topology handle still has only a conditional same-target getter; no SET qualified.",
+    "local_readonly_result": "Windows shows GPU directly below Root Port; source root-getter relation is qualified for that topology. Independent native GPU/root capabilities both reportL1-only(mask2); controls both0. 20801824 true forcesbothL0s/L1(mask3), so not used. No SET or register mutation. Typed type8 alternate does not establish a selectiveL1 writer.",
+    "board_getter_correction": "Selector9/23 board descriptor is not always copied from the first-helper target: 194E20 can supply another handle. The direct-root relation uses selector8 instead."
   },
   "elcg_threshold_followup": {
     "evidence": "experiments/pcie-ltr-and-additional-controls-20261102.json",

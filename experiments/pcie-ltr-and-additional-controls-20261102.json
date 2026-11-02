@@ -1182,5 +1182,347 @@
       "elcg_thresholds": "Named registry thresholds unpack8/4/4 bits into three per-engine words sent in PG packet00/03/11 and copied back on success. Historical NVIDIA thermal fields have matching widths, but current firmware encoding/units/register target and a session-only setter/readback are unbound. Type10 attrs805/806 are a different boolean request, not a threshold setter.",
       "corrections": "Reviewed final evidence uses hexadecimal HAL ordinals0x41..0x45, not decimal41..45, and byte header00/03/11, not transposed00/11/03. Earlier tentative negative HAL/PMU-unit conclusions were withdrawn before publication."
     }
+  },
+  "aspm_local_capability_followup": {
+    "scope": "One local read-only topology and link-capability inventory plus bounded source joins. No ASPM SET, registry change or driver restart.",
+    "source_verification": "Root independently matched all32 added windows against the installed617.42 image.",
+    "sources": [
+      {
+        "path": "experiments/registry-overrides/aspm-enable-terra-20261102/aspm-root-port-join-61742.json",
+        "sha256": "847613ab318654e8fbc44d152f1c24bb0bbf41d18abe26711198d919324c5819",
+        "driver_sha256": "db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b",
+        "scope": "Bounded first PCI helper topology and typed root-port read relationship. No GPU calls.",
+        "chiphal": "0x42 decimal 66 local; relevant Blackwell source layout 0x41..0x45 decimal 65..69",
+        "findings": [
+          "1975A0 scans PCI functions with F8950 and stores each function handle at node+8 and its domain/bus/device/function in node+1C/20/21/22. For accepted bridge class codes it reads configuration byte 0x19, the PCI secondary bus, into node+23. 198390 selects the first same-domain node whose secondary bus equals the GPU bus, whose scanned bus is less than GPU bus, and whose node+26 is zero; it stores its handle in GPU+2740. This is an upstream bridge node on an earlier bus, not a conclusion from differing struct offsets alone.",
+          "198390 passes the GPU bus and same topology-list object to 198120. Its first iteration applies the same first-match predicates, and follows each selected node primary bus on later iterations. It scans PCI capability ID10 and accepts a node only when the PCIe device/port type bits23:20 equal4 (Root Port). If the first selected bridge is already a Root Port and list selection is unchanged, 198120 returns that same node handle.",
+          "198390 stores 198120 return handle at GPU+2770 in root descriptor GPU+2768 and 199C30 scans its PCIe capability ID10 into descriptor+18 (GPU+2780). GET_INFO_V2 selector8 selects GPU+2768 and passes offset110 to 196AA0, which validates descriptor and reads handle+capability+10. The first helper reads GPU+2740 and +2750+10. Under the first-selected-node-is-Root-Port condition and successful capability reads both paths therefore use the same node and capability offset.",
+          "An OS read-only PCI parent-chain observation that identifies the selected GPU immediate bridge as Root Port is a meaningful candidate to establish direct topology. It still needs a source-bound link from observed parent BDF to the exact first matching node used by the native scan and proof the descriptors correspond to that live topology; no such runtime observation was made here. Identical selector7/8 values alone are not identity proof.",
+          "Correction to earlier getter9/23 evidence: 198B45 calls 194E20; on nonzero return 198B68 writes that handle into board descriptor GPU+27A0. Only if that helper returns zero and neither 9C8 nor 9C9 is set does 198C9B-D0B copy +2740/+2750 into the board descriptor. Thus mode-true by itself does not guarantee selector9/23 sees the helper target.",
+          "No source-backed claim that getter mode false forces GPU-node selection: producer selection instead requires an earlier-bus bridge. Runtime predicate, actual native selected BDF and root-port identity remain unverified. No SET is proposed until the first-node-root relationship or another independent getter is established."
+        ],
+        "windows": [
+          {
+            "name": "topology_scan_open_pci_function",
+            "rva": "0x1976c0",
+            "length": 96,
+            "bytes": "488d44244c440fb6cf4889442428450fb6c7488d442448410fb6d4418bcd4889442420e86812f6ff488bf04885c0750e4084ff0f842f010000e91d0100000fb744244866ffc8663bc30f8719010000ba0a000000488bcee8c418f6ffb9280000",
+            "sha256": "bf97312a1201faa4b8c0464467e7ca06dadd95965560ee8f792fea51bf3e2051"
+          },
+          {
+            "name": "node_handle_and_bdf",
+            "rva": "0x19775b",
+            "length": 105,
+            "bytes": "48c70300000000ba2c00000048897308488bce44896b1c4c8bf34488632044887b2140887b2266896b240fb7442448668943120fb744244c66894310e84418f6ffba2e00000066894316488bcee83318f6ffba0800000066894314488bcee80214f6ff884318b90006",
+            "sha256": "6d6a4194b3e9f719e5dbe2d9f01f6b8796b3c390f61efeab53ddb15cfad1cf01"
+          },
+          {
+            "name": "bridge_secondary_bus_read",
+            "rva": "0x1977c1",
+            "length": 60,
+            "bytes": "b9000600000fb7c5662bc1b9fbff00006685c17415807c243000740ab802030000663be87404b001eb12ba19000000488bcee8c813f6ff88432332c0",
+            "sha256": "cefb21b10dbf5c50f52e7b2ac5aff6c655a62462fcac5d4668399d76cef0a217"
+          },
+          {
+            "name": "gpu_identity_and_scan",
+            "rva": "0x198407",
+            "length": 173,
+            "bytes": "488bb7280e0000488d55074c8bee48899c24d0000000488d4d0b49c1ed2048c1ee08e8a2fdf6ff8b4d07488d550fc7450f00000000e83f12f7ff4c8bf0b8000100008945034d85f674104180be46530000007506440fb7e0eb31837d0b01440fb6e67627498b8fe00000004885c97410488b19e8816cf6ff488bcb4885db75f049c787e000000000000000410fb6869f090000450fb7cc458bc588442420498bd7498bcee8f0f0ffff85c07534",
+            "sha256": "a01c647233924f0cc3aa7f2da51247552cdb5995b4c5b101ab88f057346f83bf"
+          },
+          {
+            "name": "select_immediate_bridge",
+            "rva": "0x1984b4",
+            "length": 54,
+            "bytes": "498b8fe00000004885c9742840387123751a4439691c75140fb65120400fb6c6ffc83bd07f06807926007470488b094885c975d84c8d",
+            "sha256": "2ddde2fee7ea2b422aef7a5f5d47c793ed2dcf7196ae0e2e14b2fb1fd702d9e1"
+          },
+          {
+            "name": "store_first_bridge_handle",
+            "rva": "0x198550",
+            "length": 112,
+            "bytes": "4c8b59084c8da7382700000fb64121440fb64122440fb74912440fb751108855f78845f8448845f96644894dff66448955fb4d85db0f8464ffffff45892c2488973c27000088873d2700004488873e270000c6873f270000014c899f4027000066448997642700006644898f66270000",
+            "sha256": "557ad74fa1f6f6c142dcdae05b83a96cc0ff10573f1591010db8843b66746d6f"
+          },
+          {
+            "name": "first_bridge_capability_scan",
+            "rva": "0x1986a7",
+            "length": 70,
+            "bytes": "ba34000000498bcee80c05f6ff84c00f844dffffff0f1f40000fb6d8498bce8bd3e80307f6ff3c10740cc1e80884c075e8e92cffffff498bd441895c2418498bcfe803160000",
+            "sha256": "df3e7ce100020aae8fb815f3b05c3e3e3d9b886e7251011c1ffb150151ae8297"
+          },
+          {
+            "name": "root_walk_initial_and_match",
+            "rva": "0x198120",
+            "length": 431,
+            "bytes": "4c8bdc53555657415541564881ec88000000488b05471800014833c44889442478488b8424e0000000410fb6f94889442440458be8488b8424e80000004c8bf24889442448488b8424f00000004889442450488b8424f80000004889442458488b8424000100004d89630848894424604d897bc84889542438c744243000000000eb120f1f4000660f1f8400000000004c8b742438488d542468bb00010000488d4c2470e80700f7ff8b4c2468488d54246cc744246c00000000e8a114f7ff488bf04885c0740e80b8465300000075050fb7ebeb36837c247001400fb6ef762b498b8ee00000004885c974140f1f4000488b19e8e86ef6ff488bcb4885db75f049c786e0000000000000000fb6869f090000440fb7cd458bc588442420498bd6488bcee858f3ffff85c07534498b86e00000004885c0742840387823751a4439681c75140fb65020400fb6cfffc93bd17f06807826007437488b004885c075d833c04c8bbc24800000004c8ba424c0000000488b4c24784833cce8c159b5004881c488000000415e415d5f5e5d5bc3488b58080fb6fa440fb66021440fb67822440fb770120fb768104885db74b2ba",
+            "sha256": "3d44a2e71bf8ee5433e3ac8785230610f074681e9c3a58ec3c452f63fb53d63e"
+          },
+          {
+            "name": "root_port_capability_type",
+            "rva": "0x1982ce",
+            "length": 189,
+            "bytes": "ba04000000488bcbe8f50af6ff0fbae014726dba00001008b9868cba0ee8a089f4ffba00001108b9868cba0ee89189f4ffb911080000e8b77df6ff8b442430250000f0003d000040000f8593feffff488b442440408838488b442448448820488b442450448838488b44245866448930488b442460668928488bc3e934ffffffba34000000488bcbe86508f6ff84c074aa900fb6f0488bcb8bd6e8630af6ff3c107409c1e80884c075e8eb8f8bd6488bcbe84c0af6ff89442430eb83cc",
+            "sha256": "6ead7f81c06372a14644206231ee4975eab4038e730068dd2a17f97182abac62"
+          },
+          {
+            "name": "store_root_descriptor",
+            "rva": "0x198609",
+            "length": 158,
+            "bytes": "488d45fb440fb6ce4889442440458bc5488d45ff498bd74889442438488bcf488d45f94889442430488d45f84889442428488d45f74889442420e8d8faffff4885c00f84a10000000fb64df7488d9768270000888f6c2700000fb64df8488987702700000fb745fb888f6d2700000fb64df9668987942700000fb745ff888f6e270000498bcf44892ac6876f2700000166898796270000e88b150000eb55",
+            "sha256": "1fb292617807a36e0bac7b1776125e31e997cd456a4b4873550498d485933812"
+          },
+          {
+            "name": "root_capability_scan",
+            "rva": "0x199c30",
+            "length": 186,
+            "bytes": "48895c240848896c24104889742418574883ec20488b5a08488bf2488be94885db743bba04000000488bcbe870f1f5ff0fbae0147242ba00001008b9868cba0ee81b70f4ffba00001108b9868cba0ee80c70f4ffb911080000e83264f6ffb8ffff0000488b5c2430488b6c2438488b7424404883c4205fc3ba34000000488bcbe80beff5ff84c074d50f1f80000000000fb6f8488bcb8bd7e803f1f5ff3c107409c1e80884c075e8ebb4488bd6897e18488bcde808000000eba9",
+            "sha256": "8fd691e21302c7e94ca936110e83abe707070fec34f0834272bfac2685788f48"
+          },
+          {
+            "name": "selector8_root_descriptor",
+            "rva": "0x130389",
+            "length": 18,
+            "bytes": "4c8d876827000041b910010000e944ffffff",
+            "sha256": "fa5566065d01a0e44f77945b9670641f78c428f6ea7c10ee3b53a23299aa9056"
+          },
+          {
+            "name": "common_pci_read_translation",
+            "rva": "0x196ace",
+            "length": 49,
+            "bytes": "807b07000f84b20100008d8700ffffff83f82c771d837b18000f849d0100000faee88b531881c200ffffff03d7e9680100",
+            "sha256": "c02998d42fff060a575024b08ab9e5572fb02242fe6d7eb6afb88f06771b027c"
+          },
+          {
+            "name": "common_pci_read_handle",
+            "rva": "0x196c68",
+            "length": 34,
+            "bytes": "488b4b08e85f21f6ff488b4c2460890133c0488b5c2440488b7424484883c4305fc3",
+            "sha256": "0865778ad133e77c47d7fdc879b00e8585073d503d4eee99dcf1296fb7c2aba1"
+          },
+          {
+            "name": "selector_board_alternate",
+            "rva": "0x198ae6",
+            "length": 84,
+            "bytes": "80bfc8090000000f857f03000080bfc9090000000f8572030000488b9f280e0000488d45fb48c7442440000000004c8d4df7488944243841b001488d45ff48c1eb204889442430498bd7488d45f9488bcf488944",
+            "sha256": "3cfead4ab9c7949f33bce6803139915e0dd1a22244db5bda17fc7317ca658d0e"
+          },
+          {
+            "name": "selector_board_alternate_handle",
+            "rva": "0x198b45",
+            "length": 91,
+            "bytes": "e8d6c2ffff4885c00f842e0100000fb64df7488d9798270000888f9c2700000fb64df8488987a02700000fb745fb888f9d2700000fb64df9668987c42700000fb745ff888f9e270000498bcf891ac6879f27000001668987c62700",
+            "sha256": "834cddaead0b6e58e7db9bab1ea97018509cd7df7fab3572127ec449e1de2300"
+          },
+          {
+            "name": "selector_board_copy_fallback",
+            "rva": "0x198c81",
+            "length": 143,
+            "bytes": "80bfc8090000000f85dd01000080bfc9090000000f85d00100008b87382700008987982700000fb6873c27000088879c2700000fb6873d27000088879d2700000fb6873e27000088879e2700000fb6873f27000088879f270000488b8740270000488987a02700000fb78764270000668987c42700000fb78766270000668987c62700008b87502700008987b02700",
+            "sha256": "783ad96ee42e44b035b6238471456d4c471cde45d3d6696437271c4977ea365d"
+          },
+          {
+            "name": "alternate_topology_bridge_select",
+            "rva": "0x194f7a",
+            "length": 149,
+            "bytes": "85c07539498b8de00000004885c9742d660f1f44000040387123751939691c75140fb65120400fb6c6ffc83bd07f0640387926745d488b094885c975d933c94532c04532c90fb7d14885db740340883b4885c90f8482000000b8de100000663bd0755041baf0ff0000410fb7c4664123c241bab005000066413bc20f84c1000000b8b301000066443be00f84b2000000eb49440fb6",
+            "sha256": "d7528dfc54f7940ae69cebd17d6bda2c37270194ea8870044074eb488ec0a628"
+          }
+        ]
+      },
+      {
+        "path": "experiments/registry-overrides/aspm-enable-terra-20261102/aspm-link-caps-61742.json",
+        "sha256": "d7407fbb2e42d4ab6ebca63c6f6bbff1a863de33943e6405d7280141cccc588c",
+        "driver_sha256": "db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b",
+        "sources": [
+          "https://github.com/MicrosoftDocs/Virtualization-Documentation/blob/main/hyperv-tools/DiscreteDeviceAssignment/SurveyDDA.ps1",
+          "https://raw.githubusercontent.com/NVIDIA/open-gpu-kernel-modules/main/src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080bus.h"
+        ],
+        "findings": [
+          "Microsoft script defines PciDevice_DeviceType key GUID 3AB22E31-8264-4B4E-9AF5-A8D2D8E33E62 PID 1, and DevProp_PciDevice_BridgeType_PciExpressRootPort = 8. This differs from other PCI Express device type enumerations.",
+          "Public bus information selector 3 GPU link caps and 4 root link caps; bits 11:10 of returned link capability encode ASPM support, value 3 means L0s and L1. Public control/status selectors 7 GPU and 8 root use status bits 1:0.",
+          "13063C maps selector 3 to 130103 -> 130B40 (two indirect methods; failures return zero), selector 4 to 1302D2 (GPU+2768 descriptor offset 10C -> 196AA0); selector 8 to 130389 (same descriptor offset 110). Value zero is ambiguous/not positive capability. A nonzero field 3 at each selector positively reports both capabilities, not write success.",
+          "Same selected target for root descriptor depends on separately established first-bridge-root condition, not link capability alone; no hardware calls were made."
+        ],
+        "windows": [
+          {
+            "rva": "0x1300e1",
+            "length": 47,
+            "bytes": "418d45fd83f82e0f871e050000488d0d0bffecff448b84813c0613004c03c141ffe0498bd6488bcfe8320a00008bd8",
+            "sha256": "aee70575b5e8a00299ebf5bdf271c0e13486dfa07629ab5d6467aa3d6b2bbb8e"
+          },
+          {
+            "rva": "0x1302d2",
+            "length": 46,
+            "bytes": "4c8d876827000041b90c010000488bcf488d45e0498bd74889442420e8ad67060085c00f8411030000e90f030000",
+            "sha256": "051af43e7e05c668ea5e7e0d8f83906a96842574c7d3feca71f83a8f6ffe9b4d"
+          },
+          {
+            "rva": "0x130389",
+            "length": 18,
+            "bytes": "4c8d876827000041b910010000e944ffffff",
+            "sha256": "fa5566065d01a0e44f77945b9670641f78c428f6ea7c10ee3b53a23299aa9056"
+          },
+          {
+            "rva": "0x130b40",
+            "length": 174,
+            "bytes": "48895c24184889742420574883ec40488b052a8e06014833c44889442438488b82480200004c8d4c243033db41b802000000895c2430488bfa895c2434488bf1ff15221fcd0085c0740433c0eb3f488b86380200004c8d4424348b542430488bceff15011fcd0085c07416448b442430ba00100e05b9b169120ee8d100fbffeb048b5c2434899f142400008bc3488b4c24384833cce886d0bb00488b5c2460488b7424684883c4405fc3cccccccc",
+            "sha256": "f6b85ae517706ef7eb3df7236b02d737a4b1697c6376ae12130c7ba6cbb42177"
+          },
+          {
+            "rva": "0x196aa0",
+            "length": 96,
+            "bytes": "48895c24084889742410574883ec30488b8128020000498bd8418bf9488bf2ff15e3bfc60083f8030f85bc010000807b07000f84b20100008d8700ffffff83f82c771d837b18000f849d0100000faee88b531881c200ffffff03d7e968010000",
+            "sha256": "5b7b73c3d7f0c8c62f7364241a75d3b1d559535a825667ce9702ea9c8dfdde75"
+          },
+          {
+            "rva": "0x13063c",
+            "length": 32,
+            "bytes": "03011300d202130015011300000313004703130089031300590313009b031300",
+            "sha256": "25a47003e9a5b9b92656bb9a04b8bb28321fc86df190e1eee98247ed9c503a55"
+          }
+        ]
+      },
+      {
+        "path": "experiments/registry-overrides/aspm-enable-terra-20261102/aspm-type8-61742.json",
+        "sha256": "ee0e48dd36cc4d721051d7b1da7a16e6ca15fed22f2fe39288c357f1f1379867",
+        "driver_sha256": "db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b",
+        "scope": "Offline known A801/E802 type8 bus path, no hardware.",
+        "findings": [
+          "E802 type8 bus handler 3180E0 index1 attr3 sets or clears bus+A68 bit 0x10 and invokes +580 only on aggregate transitions. 175C9E0 initializer GB ordinal 0x41..0x45 selects +580 = 6190 zero-return stub. Handler ignores its result. Index0 attr3 is successful no-op. A801 type8 index1 attr3 reads whether aggregate+A68 equals zero, not PCIe link control.",
+          "E802 type8 attr2 selects fixed 0x12 for index0 and 0x14 for index1, ignoring input value. GB initializer 175BC3C selects +3E0 = 96CF60. Its selector0x12 branch sets bit17 of GPU register 85740; selector0x14 reaches default/log then register write path. No source-defined relation to PCIe L1 was found; this is not a qualified selective ASPM request.",
+          "No inference that other named controls do not exist; 20801824 true forces L0s+L1 and both tested endpoints advertise L1 only."
+        ],
+        "windows": [
+          {
+            "rva": "0x3180e0",
+            "length": 248,
+            "bytes": "48895c24084889742410574883ec30488bda33f6410fb75002498bf84c8bd185d2747c83fa010f8582000000410fb7480483e90274613bca75748b83680a000041397008742b83e0ef8983680a00000f858d000000488b8380050000440fb6c2488bd34533c9498bcaff1559a9ae00eb7185c07519488b83800500004533c94533c0488bd3498bcaff153aa9ae00838b680a000010eb4b41b814000000eb2a410fb7480483e902741a83f9017434b81f000000488b5c2440488b7424484883c4305fc341b812000000488b83e0030000488bd3498bcaff15eca8ae008bf085c0750566834f0601488b5c24408bc6488b7424484883c4305f",
+            "sha256": "432b36a64e688fd803c4833c0528bcdf36076aa504d0219b25a35e51aa1f52fb"
+          },
+          {
+            "rva": "0x317f80",
+            "length": 351,
+            "bytes": "48895c240848896c24104889742418574883ec30498bd833ff450fb74002488bf2488be94585c00f84ba0000004183e80174634183f801740ab81f000000e900010000448b4308e8e4d9ffff440fb6c04183f8067313418bc048c1e0050fb68430dd0a000084c07522ba0010d307b965e4ef0ee8688cdcff488b86f0060000488bd6488bcdff159daaae000fb6c0894308e9a60000000fb74b0483e901744083e902742b83e901741683f901758b448bc14c8d4b08488bcde823a5ffffeb778bc73882cd0900000f94c0894308eb6d8bc73982680a00000f94c0894308eb5d41b814000000eb3b0fb74b0483e901742c83e903741783f9010f853bffffff4c8d4b08488bcde8d6a4ffffeb2a8bc73882cc0900000f94c0894308eb2041b812000000488b82d80300004c8d4b08488bcdff15f2a9ae008bf885c0750566834b06018bc7488b5c2440488b6c2448488b7424504883c4305fc3cccccccccccccc",
+            "sha256": "63966b9e7ea69078bcf6c4504c97aee494239b3c2e9fdbc485db412fb85e6f95"
+          },
+          {
+            "rva": "0x175d59d",
+            "length": 88,
+            "bytes": "418bc083e0e083f820753c418bc083e01f83c0fb83f8047710488d0513fdbbfe49898180050000eb37418bc88bc2d3e0a900fcf8037410488d05d5a321ff49898180050000eb19488d05a58b8afe49898180050000418bc0",
+            "sha256": "01ae2d1c461193f3de0a733852817e56c92c5a84ff695228b442249115ad8f9b"
+          },
+          {
+            "rva": "0x175bc26",
+            "length": 69,
+            "bytes": "418bc183e0e083f820750b418bc183e01f83f81a7418418bc183e0e083f8407516418bc183e01fffc883f8047709488d05051321ffeb07488d052c6420ff498982e0030000",
+            "sha256": "c33ff61caa5280f837ac7ba99cbb08f07c64c84b9e932f273e285f13c635748b"
+          },
+          {
+            "rva": "0x96cf60",
+            "length": 258,
+            "bytes": "48895c240848896c241048897424185741544155415641574883ec304c8db110440000458bf8488bfa488be94533ed498bce41b9405708004c896c24204533c033d2e8a9967bff41b9244a08004c896c24204533c033d2498bce8bd8e88f967bff41b9345908004c896c24204533c033d2498bce8bf0e875967bff41b9385908004c896c24204533c033d2498bce448be0e85a967bff418d4fff448be883f92d0f8775010000488d05f32f69ff0fb68c0894d296008b948830d296004803d0ffe20fbaeb16e9630100000fbaeb17e95a0100000fbaeb0ae9510100000fbaeb0be9480100000fbaeb0ce93f0100000fbaeb11e9360100000fbaeb13e92d0100000fba",
+            "sha256": "0b09b03f5feb16ab4fd70ff5f59436e1f2a4ba8bcd1080a1a9022a3377585d52"
+          },
+          {
+            "rva": "0x96d17b",
+            "length": 56,
+            "bytes": "458bc7ba0010f815b97c392e0ee8033b77ff48c74424280000000041b9405708004533c0895c242033d2498bcee8939d7bff41b9244a0800",
+            "sha256": "291f6e16701c0a4c2ec57b6888d932dbbfb6bcd860e4ca9d75d5dad3d9d105b3"
+          },
+          {
+            "rva": "0x96d230",
+            "length": 148,
+            "bytes": "e3d0960003d196000bd1960010d1960015d1960072d096007cd09600ebd09600f3d09600fbd0960086d0960033d096003cd0960045d096004ed0960069d096001bd1960033d196004bd1960063d1960021d096002ad0960060d0960057d096007bd1960000010203040506071808090a0b0c0d18180e18180f18101112131415181818181818181818181818181818181617cccc",
+            "sha256": "6b9b54fdfaea51dda23baeabdae0f698ec407f28ed2ec6ca6415323bccae9b03"
+          },
+          {
+            "rva": "0x6190",
+            "length": 8,
+            "bytes": "33c0c3cccccccccc",
+            "sha256": "15a7383e0d0748554644d41c2f48de1b97cc0e335c98ef430559da545d704d09"
+          }
+        ]
+      }
+    ],
+    "topology": {
+      "receipt": {
+        "path": "experiments/registry-overrides/aspm-root-20261102/parent-topology-v2-20261102.json",
+        "sha256": "be05d3848e388c65cadf58d94329d532d6536b7a341a64b882512483e15ede0b"
+      },
+      "captured_utc": "2026-11-02T15:01:56.4200360Z",
+      "gpu_bus": 1,
+      "gpu_device": 0,
+      "gpu_function": 0,
+      "immediate_parent_bus": 0,
+      "immediate_parent_device": 1,
+      "immediate_parent_function": 1,
+      "immediate_parent_windows_pci_device_type": 8,
+      "immediate_parent_base_class": 6,
+      "immediate_parent_subclass": 4,
+      "gpu_location_paths": [
+        "PCIROOT(0)#PCI(0101)#PCI(0000)",
+        "ACPI(_SB_)#ACPI(PCI0)#ACPI(D0A0)#PCI(0000)"
+      ],
+      "parent_location_paths": [
+        "PCIROOT(0)#PCI(0101)",
+        "ACPI(_SB_)#ACPI(PCI0)#ACPI(D0A0)"
+      ],
+      "parent_parent": "ACPI\\PNP0A08\\0",
+      "scope": "Windows immediate-parent relationship is directly to a Root Port, with no intermediate PCI switch in the captured path. Source proves selector8 and initial helper use the same bridge under this first-node-root condition. This is not a generic guarantee for other topology or an observation of private cached pointer values.",
+      "capture_note": "Initial multi-device/key-filter PnP query returned duplicated GPU rows; it was not used. The retained valid receipt queries and validates each device separately."
+    },
+    "link_inventory": {
+      "receipt": {
+        "path": "experiments/registry-overrides/aspm-root-20261102/link-inventory-20261102.json",
+        "sha256": "e6413bf83341ee8025919a61abfb07990aab34f8c866bba40af52fd1739aeabf"
+      },
+      "scope": "Read-only exact GPU/root capabilities and status; no ASPM request.",
+      "identity": {
+        "slot": "0000:01:00.0",
+        "architecture": 10,
+        "device_id": 11266,
+        "subsystem_id": 2313031747
+      },
+      "request_hex": "0700000003000000000000000400000000000000070000000000000008000000000000000f0000000000000010000000000000002c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "reads": [
+        {
+          "raw_hex": "070000000300000005f947000400000004797300070000004000011108000000400001f10f0000000100000010000000000000002c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "values": {
+            "3": 4716805,
+            "4": 7567620,
+            "7": 285278272,
+            "8": 4043374656,
+            "15": 1,
+            "16": 0,
+            "44": 0
+          }
+        },
+        {
+          "raw_hex": "070000000300000005f947000400000004797300070000004000011108000000400001f10f0000000100000010000000000000002c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "values": {
+            "3": 4716805,
+            "4": 7567620,
+            "7": 285278272,
+            "8": 4043374656,
+            "15": 1,
+            "16": 0,
+            "44": 0
+          }
+        }
+      ],
+      "mutations": 0,
+      "aspm_support": {
+        "gpu": 2,
+        "root": 2
+      },
+      "aspm_control": {
+        "gpu": 0,
+        "root": 0
+      },
+      "both_modes_supported_at_both_ends": false
+    },
+    "result": "Both endpoints advertise ASPM mask2 (L1 only), and both control masks are0. Native20801824 true forces3 (L0s+L1), so no SET was issued. The existing type8 candidate does not establish a selective L1 writer. No working ASPM control is claimed.",
+    "limits": "Capability and configured control fields do not measure residency or savings. The separate LTR no-effect result and existing working controls are unchanged. No new release gate or remote-adapter task added."
   }
 }

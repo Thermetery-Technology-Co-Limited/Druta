@@ -2429,6 +2429,22 @@ whose same-target getter depends on an unbound runtime mode. No ASPM SET is
 qualified by the GPU-side readback alone. This trace does not establish the
 upper status bits' write effect.
 
+The later topology trace establishes a useful conditional join: if the first
+upstream bridge is a Root Port, the initial helper and root getter selector 8
+use the same selected node and PCIe capability. Windows reports this local GPU
+at bus 1/device 0/function 0 directly beneath Root Port bus 0/device 1/function 1.
+Its PCI device-property type is 8, distinct from the PCIe capability-register
+Root Port type 4. Board getters 9/23 are not substitutes: their descriptor may
+come from another helper instead of copying the initial target.
+
+Two exact native inventories returned GPU link caps `0x0047F905` and root caps
+`0x00737904`: both ASPM fields are 2 (L1 only). Both configured control fields
+are 0. The inspected public Boolean command forces 3 (L0s and L1), so no ASPM
+SET was issued. The known private type8 Boolean path reaches a Blackwell stub;
+its other fixed-selector path has no qualified L1-only meaning. A selective
+L1 operation remains unqualified. Capability/configuration readback does not
+measure low-power residency or savings; no working ASPM control is claimed.
+
 Named `RMLpwr*ElcgThreshold` inputs unpack 8/4/4 bits into three per-engine
 words. The driver sends them in firmware header bytes `00/03/11` and copies
 returned values back after success. NVIDIA's older thermal definitions have
