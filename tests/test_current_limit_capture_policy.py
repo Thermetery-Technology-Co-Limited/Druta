@@ -230,6 +230,60 @@ class FailedReadsStillBlockTests(unittest.TestCase):
         self.assert_blocking(gpu, "policy 13 was read earlier this session")
 
 
+class TransportOutlivesAnUnknownRecordLayoutTests(unittest.TestCase):
+    """The captured power GET is a TRANSPORT, borrowed for its handles.
+
+    Live power (W) rides on it with packet sizes the client group negotiates
+    for itself, so it must not disappear because this driver's current (A)
+    record layout is absent from _CURRENT_LIMIT_LAYOUTS. 11740/11672 is the
+    geometry a GP106 on 576.80 presents, which no entry describes.
+    """
+
+    def unknown_geometry(self, arch=n.GPU.ARCH_PASCAL, packet=11740, param=11672,
+                         command=0x2080A612):
+        gpu, _ = fixture(arch)
+        header, fields = gpu._capture_current_limit_transport.return_value
+        header[2], header[14], header[15] = packet, command, param
+        return gpu, header, fields
+
+    def test_an_unknown_parameter_size_still_yields_a_usable_transport(self):
+        gpu, header, fields = self.unknown_geometry()
+        self.assertEqual(gpu._rm_power_transport(), (header, fields))
+        with self.assertRaises(n.CurrentLimitUnsupported):
+            gpu._current_limit_transport_layouts()
+        # Still captured afterwards: the envelope is understood and other
+        # callers reuse it; only the current-policy records are unknown.
+        self.assertEqual(gpu._current_limit_transport, (header, fields))
+
+    def test_only_the_current_sliders_go_away_and_not_as_a_failed_read(self):
+        gpu, _, _ = self.unknown_geometry()
+        self.assertEqual(gpu.get_current_limits(), [])
+        self.assertIn("unvalidated current-policy transport geometry",
+                      gpu._current_limit_error)
+        self.assertEqual(gpu._current_limit_read_error, "")
+        self.assertEqual(capture_problems(gpu), [])
+        self.assertEqual(reset_steps(gpu), [])
+
+    def test_a_malformed_envelope_is_not_a_transport_at_all(self):
+        for name, kwargs in (
+                ("packet is not parameters plus the prologue", {"param": 11000}),
+                ("command is outside the known families", {"command": 0x2080A613}),
+        ):
+            with self.subTest(name):
+                gpu, _, _ = self.unknown_geometry(**kwargs)
+                with self.assertRaises(n.CurrentLimitUnsupported):
+                    gpu._rm_power_transport()
+                # Dropped, so the next attempt captures afresh.
+                self.assertIsNone(gpu._current_limit_transport)
+
+    def test_a_known_geometry_still_selects_its_record_layout(self):
+        gpu, _ = fixture(n.GPU.ARCH_PASCAL)                 # 11748/11680
+        self.assertEqual([row["policy"] for row in gpu.get_current_limits()], [13])
+        self.assertEqual(gpu._current_limit_error, "")
+        layouts = gpu._current_limit_transport_layouts()
+        self.assertEqual(layouts[0]["sizes"][A618], 8620)
+
+
 class UnchangedTests(unittest.TestCase):
     def test_supported_cards_capture_and_reset_as_before(self):
         for arch, newer in ((n.GPU.ARCH_TURING, True), (n.GPU.ARCH_TURING, False),

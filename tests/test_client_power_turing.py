@@ -11,6 +11,7 @@ from unittest.mock import Mock
 import pytest
 
 from druta import client_power_runtime as cp
+from druta import perf_diagnostics as perf
 from tests.test_client_power_runtime import FakeGpu, Lock, put
 
 
@@ -93,6 +94,10 @@ class TuringGpu:
             )
         return ({},)
 
+    def _rm_power_transport(self):
+        self._current_limit_transport_layouts()
+        return self._current_limit_transport
+
     def _legacy_clk_escape(self, packet, fields):
         assert self._lock.held
         command, size = int(packet[14]), int(packet[15])
@@ -149,6 +154,9 @@ class TuringGpu:
     (6, 0, 2, "0000:52:1d.3", 0xABCD, 0x87654321),
     (6, 31, 31, "0000:ab:1f.7", 0xFFFF, 0x10203040),
     (7, 5, 17, "0000:07:02.1", 0x1234, 0xABCDEF01),
+    # Pascal speaks the same small client group and 124-byte native controls.
+    # A GP106 binds client row 0 to native policy 2 this way on 576.80.
+    (4, 0, 2, "0000:01:00.0", 0x1C03, 0x374A1458),
 ])
 def test_small_client_and_policy124_bind_current_adapter_and_restore(
     architecture, client, native, slot, device, subsystem,
@@ -178,6 +186,23 @@ def test_small_client_and_policy124_bind_current_adapter_and_restore(
         assert cp._state(controller.read()) == cp._state(before)
     assert len(gpu.set_payloads) == 4
     gpu.restore_peer.assert_not_called()
+
+
+@pytest.mark.parametrize("architecture", [arch for arch in perf.PROBE_ARCHITECTURES
+                                          if arch not in cp.LEGACY_GROUP_ARCHITECTURES])
+def test_a_generation_outside_the_validated_set_does_not_guess_the_small_group(architecture):
+    """Generation decides whether these policy semantics are understood at all.
+
+    Widening the set is a hardware-validation result, not something a refused
+    modern INFO may infer on its own. Parameterized over the generations that
+    reach this probe at all, so adding one to either set is a visible change.
+    """
+    gpu = TuringGpu(architecture=architecture)
+    with pytest.raises(cp.ClientPowerError) as caught:
+        cp.ClientPowerController(gpu).read()
+    assert caught.value.kind == "unsupported"
+    assert [size for command, size in gpu.counts if command == cp.INFO] == [2340]
+    assert not gpu.set_payloads
 
 
 def test_turing_modern_geometry_does_not_probe_smaller_client_or_native_layout():

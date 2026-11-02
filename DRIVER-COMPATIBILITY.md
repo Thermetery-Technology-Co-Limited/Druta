@@ -1,5 +1,41 @@
 # Driver compatibility: runtime rail detection and legacy controls
 
+## 1.9.06 Pascal live power and the transport/record-layout split
+
+Druta borrows a paired RM transport from an unmodified power getter. Keying
+the current-policy *record* layout off that getter's packet geometry is a
+separate question from whether the transport itself is usable, and the two are
+no longer answered together. The transport is validated as an envelope; a
+parameter size no recorded layout describes now removes only the current (A)
+sliders, reported as an unsupported interface rather than a failed read. Live
+power (W) rides on the transport with packet sizes the client group negotiates
+for itself.
+
+Pascal is also now eligible for the fallback from the modern client group to
+the smaller one, which previously admitted only Turing and Ampere. Acceptance
+still selects the group; generation only decides whether the semantics are
+understood.
+
+A Gigabyte GTX 1060 6GB (GP106, VBIOS `86.06.4b.00.32`) on driver 576.80
+qualified at idle. Its A612 transport was `2080A612`, 11740/11672 bytes, which
+no recorded current-policy layout describes.
+
+| Tested driver | Captured power transport, packet/parameters | Client INFO / CONTROL / role bytes | Native INFO / CONTROL bytes | Ordinary range |
+| --- | --- | --- | --- | --- |
+| 576.80 | `2080A612`, 11740/11672 | 1160 / 392 / 232 | 8620 / 4432 | 90/180/200 W |
+
+Role 1 uniquely bound existing FE client row 0 to native policy 2. Requests of
+190 W (inside the range), 201 W and 250 W (above the reported maximum, behind
+XOC) each passed exact request readback and complete client/native restoration
+to the captured 180 W baseline. Test points were derived from the adapter's
+reported bounds, not fixed. The native effective limit, arbitration detail and
+original-BIOS slider coloring are unavailable on this record layout and are
+reported as such without disabling the ordinary slider. No current (A) slider
+is offered on this driver. These are idle software observations on one adapter
+and one driver; physical enforcement under load is unmeasured, and the 1999 W
+XOC range remains a software request envelope. See the
+[Pascal evidence](experiments/pascal-gp106-live-power-20261102.md).
+
 ## 1.9.05 Turing compatibility and power readback
 
 Clock offsets use NVML when its setter is available. If that setter returns

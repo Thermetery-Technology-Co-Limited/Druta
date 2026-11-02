@@ -4973,10 +4973,17 @@ class GPU:
                                     "packet_bytes": int(words[2]),
                                     "parameter_bytes": int(words[15]),
                                 }
+                            # Capture any self-consistent power GET, including a
+                            # parameter size no _CURRENT_LIMIT_LAYOUTS entry
+                            # describes. What is borrowed here is the paired
+                            # transport - the handles and the envelope - not the
+                            # current-policy record layout. The client-power
+                            # group negotiates its own packet sizes by read-only
+                            # acceptance, so withholding the handles would hide a
+                            # working interface behind an unrelated table.
                             if (words[2] == escape.PrivateDriverDataSize
                                     and words[14] in (0x2080A612, 0x20802612)
-                                    and (words[2], words[15]) in
-                                    self._CURRENT_LIMIT_LAYOUTS):
+                                    and words[2] == 68 + words[15]):
                                 found.append((list(words[:17]), {
                                     key: getattr(escape, key) for key in
                                     ("hAdapter", "hDevice", "Type", "Flags", "hContext")}))
@@ -5006,8 +5013,21 @@ class GPU:
                                       ctypes.byref(previous))
             return found[0] if status == 0 and len(found) == 1 else None
 
-    def _current_limit_transport_layouts(self):
-        """Capture the power GET once and return every layout that packet can be."""
+    def _rm_power_transport(self):
+        """The paired power-GET header and handles, captured once per card.
+
+        Separate from _current_limit_transport_layouts because the two ask
+        different questions. This one asks whether a paired RM getter was
+        borrowed at all, and validates only the envelope it has to reuse: a
+        17-word header of a known command family whose packet length is its
+        parameter length plus the 68-byte prologue.
+
+        Which current-policy RECORD layout the driver speaks is a separate
+        question, and not one the client-power group needs answered: that
+        group selects its own packet sizes by read-only INFO acceptance. A
+        parameter size missing from _CURRENT_LIMIT_LAYOUTS therefore removes
+        the current (A) sliders, and must not also remove live power (W).
+        """
         transport = getattr(self, "_current_limit_transport", None)
         if transport is None:
             self._current_limit_layout_choice = None
@@ -5026,13 +5046,25 @@ class GPU:
                                  + (seen + ", but the capture did not complete" if observed
                                     else "no recognized power GET captured"))
         header, _ = transport
-        key = (header[2], header[15]) if len(header) == 17 else None
-        layout = self._CURRENT_LIMIT_LAYOUTS.get(key)
-        if layout is None or header[14] != layout.get("transport_command", 0x2080A612):
+        if (len(header) != 17 or header[14] not in (0x2080A612, 0x20802612)
+                or header[2] != 68 + header[15]):
             self._current_limit_transport = None
             self._current_limit_layout_choice = None
             raise CurrentLimitUnsupported("unvalidated current-policy transport geometry")
         self._current_limit_transport = transport
+        return transport
+
+    def _current_limit_transport_layouts(self):
+        """Capture the power GET once and return every layout that packet can be."""
+        header, _ = self._rm_power_transport()
+        key = (header[2], header[15])
+        layout = self._CURRENT_LIMIT_LAYOUTS.get(key)
+        if layout is None or header[14] != layout.get("transport_command", 0x2080A612):
+            # The transport stays captured: it is understood and other callers
+            # legitimately reuse it. Only this driver's current-policy record
+            # layout is unknown, so only the current sliders go away.
+            self._current_limit_layout_choice = None
+            raise CurrentLimitUnsupported("unvalidated current-policy transport geometry")
         return (layout, *self._CURRENT_LIMIT_LAYOUT_FALLBACKS.get(key, ()))
 
     def _current_limit_abi(self):

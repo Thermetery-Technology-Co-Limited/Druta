@@ -40,6 +40,13 @@ TURING_SIZES = {
     **LEGACY_SIZES,
     NATIVE_INFO: 8620, NATIVE_CONTROL: 4432, NATIVE_STATUS: 172080,
 }
+# Generations whose client power-policy semantics have been validated against
+# a live adapter, and so may fall back from the modern client group to the
+# smaller one. Generation decides whether the semantics are understood at all;
+# WHICH group a card speaks is still decided by read-only INFO acceptance
+# below, never by a device, board or driver version.
+#   4 Pascal, 6 Turing, 7 Ampere
+LEGACY_GROUP_ARCHITECTURES = (4, 6, 7)
 RM26_SIZES = {
     INFO: 644, CONTROL: 388, SET: 388, ROLE_INFO: 120,
     NATIVE_INFO: 5008, NATIVE_CONTROL: 2108, NATIVE_STATUS: 14148,
@@ -220,8 +227,11 @@ class ClientPowerController:
     def _transport(self):
         identity = self._binding()
         try:
-            self.gpu._current_limit_transport_layouts()
-            header, fields = self.gpu._current_limit_transport
+            # The paired transport only, not a current-policy record layout:
+            # this group's own packet sizes are chosen below by read-only INFO
+            # acceptance, so a driver whose current (A) records are unknown can
+            # still carry live power (W).
+            header, fields = self.gpu._rm_power_transport()
             if (not isinstance(header, (tuple, list)) or len(header) != 17
                     or any(type(v) is not int or not 0 <= v <= 0xFFFFFFFF for v in header)
                     or header[2] != 68 + header[15]
@@ -308,7 +318,8 @@ class ClientPowerController:
         try:
             info = self._exchange(INFO, bytes(self.sizes[INFO]))
         except ClientPowerError as exc:
-            if self._legacy or self._rm26 or identity["architecture"] not in (6, 7) or exc.rm_status != 0x1F:
+            if (self._legacy or self._rm26 or exc.rm_status != 0x1F
+                    or identity["architecture"] not in LEGACY_GROUP_ARCHITECTURES):
                 raise
             self.sizes, self._legacy = LEGACY_SIZES, True
             info = self._exchange(INFO, bytes(self.sizes[INFO]))
