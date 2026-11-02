@@ -13,34 +13,36 @@ from druta.gr_idle_threshold_panel import GrIdleThresholdPanel
 class FakeController:
     instances = []
 
-    def __init__(self, gpu):
+    def __init__(self, gpu, index):
         self.gpu = gpu
+        self.index = index
         self.instances.append(self)
 
     def read(self):
         if self.gpu.error:
             raise RuntimeError(self.gpu.error)
-        return self.gpu.snapshot.copy()
+        return self.gpu.snapshot | {"index": self.index, "name": str(self.index),
+                                    "available": self.gpu.snapshot["available"] and self.index not in self.gpu.unavailable}
 
     def apply(self, value):
         if self.gpu.error:
             raise RuntimeError(self.gpu.error)
-        self.gpu.applied.append(value)
-        return self.gpu.snapshot | {"requested_us": value, "applied_us": value - 1, "changed": True}
+        self.gpu.applied.append((self.index, value))
+        return self.read() | {"requested_us": value, "applied_us": value - 1, "changed": True}
 
 
 def gpu(**updates):
     snap = {"available": True, "status": "ready", "architecture": {}, "raw_pair": [10800, 108000000],
             "scaled_pair": [100, 1000000], "scale_factor": 108000, "minimum_us": 1,
             "maximum_us": 39768215, "applied_us": 100}
-    return SimpleNamespace(snapshot=snap | updates, error=None, applied=[])
+    return SimpleNamespace(snapshot=snap | updates, error=None, applied=[], unavailable=set())
 
 
 @pytest.fixture
 def panel(monkeypatch):
     FakeController.instances.clear()
     monkeypatch.setitem(sys.modules, "druta.gr_idle_threshold_live",
-                        SimpleNamespace(GrIdleThresholdController=FakeController))
+                        SimpleNamespace(IdleThresholdController=FakeController))
     dpg.create_context()
     app = SimpleNamespace(gpu=gpu(), s=lambda value: value, guard=Mock(return_value=True), log=Mock())
     view = GrIdleThresholdPanel(app)
@@ -78,7 +80,7 @@ def test_apply_shows_requested_and_actual_value(panel):
     panel.read()
     enter(panel, "101")
     panel.apply()
-    assert panel.app.gpu.applied == [101]
+    assert panel.app.gpu.applied == [(0, 101)]
     assert "Requested 101 µs; driver readback 100 µs" in dpg.get_value("gr_idle_threshold_status")
     assert dpg.get_value("gr_idle_threshold_value") == "101"
 
@@ -127,4 +129,50 @@ def test_gpu_switch_requires_fresh_status_and_uses_current_gpu(panel):
     panel.reset_view()
     panel.read()
     panel.apply()
-    assert panel.app.gpu.applied == [100] and FakeController.instances[-1].gpu is panel.app.gpu
+    assert panel.app.gpu.applied == [(0, 100)] and FakeController.instances[-1].gpu is panel.app.gpu
+
+
+def select(panel, value):
+    dpg.set_value("gr_idle_threshold_controller", value)
+    panel._selection_changed()
+
+
+def test_selection_requires_refresh_and_targets_selected_controller(panel):
+    panel.read()
+    enter(panel, "101")
+    select(panel, "NVENC")
+    assert not enabled() and dpg.get_value("gr_idle_threshold_value") == ""
+    assert dpg.get_value("gr_idle_threshold_readback") == ""
+    assert panel.app.gpu.applied == []
+    panel.read()
+    assert enabled() and FakeController.instances[-1].index == 13
+    enter(panel, "102")
+    panel.apply()
+    assert panel.app.gpu.applied == [(13, 102)]
+
+
+def test_unavailable_controller_does_not_block_another(panel):
+    panel.app.gpu.unavailable.add(4)
+    select(panel, "Memory subsystem (MS)")
+    panel.read()
+    assert not enabled()
+    select(panel, "NVDEC")
+    panel.read()
+    assert enabled() and FakeController.instances[-1].index == 12
+
+
+def test_invalid_selection_cannot_retarget_stale_readback(panel):
+    panel.read()
+    enter(panel, "101")
+    # A bad value cannot be used even if a selection callback was missed.
+    dpg.set_value("gr_idle_threshold_controller", "invalid")
+    panel.apply()
+    panel.read()
+    assert not enabled() and panel.app.gpu.applied == []
+    assert "valid controller" in dpg.get_value("gr_idle_threshold_status")
+
+
+def test_mismatched_controller_readback_never_enables_apply(panel, monkeypatch):
+    monkeypatch.setattr(FakeController, "read", lambda self: self.gpu.snapshot | {"index": 13})
+    panel.read()
+    assert not enabled() and "does not match" in dpg.get_value("gr_idle_threshold_status")

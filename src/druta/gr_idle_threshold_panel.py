@@ -1,8 +1,11 @@
 # Copyright (C) 2026 Thermetery Technology Co Limited
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Session-only graphics idle threshold control."""
+"""Session-only individual controller idle threshold control."""
 
 import dearpygui.dearpygui as dpg
+
+_CONTROLLERS = {"Graphics (GR)": 0, "Memory subsystem (MS)": 4,
+                "NVDEC": 12, "NVENC": 13, "OFA": 14, "NVJPG": 15}
 
 
 class GrIdleThresholdPanel:
@@ -16,13 +19,16 @@ class GrIdleThresholdPanel:
 
     def build(self):
         dpg.add_text(
-            "Adjust the graphics idle delay before power gating for this session. "
+            "Adjust the idle delay for the selected controller before power gating for this session. "
             "Actual latency, power and residency are not measured. "
             "The driver request is not reapplied after a driver restart.",
             tag="gr_idle_threshold_explainer", wrap=self.app.s(900),
         )
         with dpg.group(horizontal=True):
-            dpg.add_input_text(label="GR idle threshold (µs)", tag="gr_idle_threshold_value",
+            dpg.add_combo(list(_CONTROLLERS), default_value="Graphics (GR)",
+                          tag="gr_idle_threshold_controller", callback=self._selection_changed,
+                          width=self.app.s(180))
+            dpg.add_input_text(label="Idle threshold (µs)", tag="gr_idle_threshold_value",
                                callback=self._input_changed, width=self.app.s(180))
             dpg.add_button(label="Refresh", tag="gr_idle_threshold_read", callback=self.read)
             dpg.add_button(label="Apply", tag="gr_idle_threshold_apply", callback=self.apply, enabled=False)
@@ -41,10 +47,17 @@ class GrIdleThresholdPanel:
         dpg.set_value("gr_idle_threshold_status", "Refresh status before requesting a change.")
         self._configure_actions()
 
-    def _controller(self):
-        from .gr_idle_threshold_live import GrIdleThresholdController
+    def _selection_changed(self, sender=None, app_data=None, user_data=None):
+        self.reset_view()
 
-        return GrIdleThresholdController(self.app.gpu)
+    @staticmethod
+    def _selected():
+        return _CONTROLLERS.get(dpg.get_value("gr_idle_threshold_controller"))
+
+    def _controller(self, index):
+        from .gr_idle_threshold_live import IdleThresholdController
+
+        return IdleThresholdController(self.app.gpu, index)
 
     def _value(self):
         value = dpg.get_value("gr_idle_threshold_value").strip()
@@ -55,7 +68,8 @@ class GrIdleThresholdPanel:
     def _eligible(self):
         snap = self.snapshot
         if (self.stale or self.snapshot_gpu is not self.app.gpu or not snap
-                or not snap.get("available")):
+                or not snap.get("available") or self._selected() is None
+                or snap.get("index") != self._selected()):
             return False
         minimum, maximum, factor = snap.get("minimum_us"), snap.get("maximum_us"), snap.get("scale_factor")
         value = self._value()
@@ -74,7 +88,7 @@ class GrIdleThresholdPanel:
             return "Unavailable: " + str(snapshot.get("status", "No verified threshold readback."))
         scaled = snapshot.get("scaled_pair")
         raw = snapshot.get("raw_pair")
-        return (f"Driver readback: {snapshot.get('applied_us')} µs; "
+        return (f"{snapshot.get('name', 'Controller')} driver readback: {snapshot.get('applied_us')} µs; "
                 f"scaled pair: {scaled}; raw pair: {raw}; "
                 f"scale: {snapshot.get('scale_factor')}; "
                 f"allowed: {snapshot.get('minimum_us')}–{snapshot.get('maximum_us')} µs")
@@ -84,20 +98,27 @@ class GrIdleThresholdPanel:
         self.snapshot_gpu = gpu
         self.stale = False
         dpg.set_value("gr_idle_threshold_readback", self._format(snapshot))
-        dpg.set_value("gr_idle_threshold_status", message)
+        dpg.set_value("gr_idle_threshold_status", f"{snapshot.get('name', 'Controller')}: {message}")
         self._configure_actions()
 
     def _failed(self, operation, exc):
         self.stale = True
         self._configure_actions()
-        message = f"GR idle threshold {operation} failed: {exc}. Refresh status before applying."
+        message = f"{dpg.get_value('gr_idle_threshold_controller')} idle threshold {operation} failed: {exc}. Refresh status before applying."
         dpg.set_value("gr_idle_threshold_status", message)
         self.app.log(message, False)
 
     def read(self, sender=None, app_data=None, user_data=None):
         gpu = self.app.gpu
+        index = self._selected()
+        if index is None:
+            self.reset_view()
+            dpg.set_value("gr_idle_threshold_status", "Select a valid controller before refreshing.")
+            return
         try:
-            snapshot = self._controller().read()
+            snapshot = self._controller(index).read()
+            if snapshot.get("index") != index:
+                raise ValueError("readback controller does not match selection")
             if snapshot.get("available") and not dpg.get_value("gr_idle_threshold_value").strip():
                 value = snapshot.get("applied_us")
                 if type(value) is int:
@@ -119,9 +140,12 @@ class GrIdleThresholdPanel:
         if not self.app.guard():
             return
         gpu = self.app.gpu
+        index = self._selected()
         value = self._value()
         try:
-            snapshot = self._controller().apply(value)
+            snapshot = self._controller(index).apply(value)
+            if snapshot.get("index") != index:
+                raise ValueError("readback controller does not match selection")
             if not snapshot.get("available"):
                 message = str(snapshot.get("status", "Threshold readback unavailable."))
             else:

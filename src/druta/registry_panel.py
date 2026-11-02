@@ -126,7 +126,7 @@ class RegistryPanel:
         from .gr_idle_threshold_panel import GrIdleThresholdPanel
 
         self.gr_idle_threshold_panel = GrIdleThresholdPanel(self.app)
-        with dpg.collapsing_header(label="Live GR idle threshold", tag="reg_gr_idle_threshold_header"):
+        with dpg.collapsing_header(label="Live idle thresholds", tag="reg_gr_idle_threshold_header"):
             self.gr_idle_threshold_panel.build()
         from .engine_clock_gating_panel import EngineClockGatingPanel
 

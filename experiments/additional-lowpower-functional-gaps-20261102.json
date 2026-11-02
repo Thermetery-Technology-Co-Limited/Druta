@@ -1815,12 +1815,20 @@
   },
   "work_scope": "Current priority is locally qualified controls on this RTX 5080. Other adapters, including the 3070 Ti, are deferred at user request and are not prerequisites for shipping these local controls. Recovery/Undo and profile replay remain deferred. The later scoped GR first idle threshold trial and implementation are recorded below.",
   "gr_idle_threshold_qualification": {
-    "status": "GR first idle threshold implemented, with local raw trial passed; other thresholds remain unqualified.",
+    "status": "GR first idle threshold implemented; MS4 and media12..15 now independently qualified in additional_idle_threshold_qualification.",
     "evidence": "experiments/live-gr-idle-threshold-20261102.json",
     "source_window_verification": "All nine registry-parent and conversion windows match installed driver db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b byte-for-byte and by SHA256.",
     "units": "Microsecond request label is an interpretation of the source name and ordinary default-generator path, not independently documented physical latency.",
     "local_trial": "RTX 5080 driver 617.42: 100 to 101 changed first raw 10800 to 10908; second raw 108000000 and other sampled pairs unchanged. Exact initial pair restored.",
-    "scope": "Session-only GR first field; native Blackwell implementations 2/3/5/6/7 plus live capability and exact raw peer verification. Other threshold fields and BLCG ENABLE remain unresolved.",
+    "scope": "Session-only GR first field; native Blackwell implementations 2/3/5/6/7 plus live capability and exact raw peer verification. Additional MS/media first fields are qualified below; second fields and BLCG ENABLE remain unresolved.",
     "production_panel_trial": "Actual panel read/apply callbacks passed the same 100 to 101 to 100 request and exact raw pair checks; all sampled raw pairs restored, voltage and LPWR unchanged."
+  },
+  "additional_idle_threshold_qualification": {
+    "status": "First idle requests implemented for MS4 and media12/13/14/15 alongside GR0.",
+    "evidence": "experiments/live-additional-idle-thresholds-20261102.json",
+    "local_trial": "All five individual +1 trials and six-controller coexisting production panel trial passed exact raw peer and final baseline checks on local RTX5080/617.42.",
+    "second_field": "Same numerical conversion is bound, but current functional meaning is not. Older named post-powerup constants are suggestive only; no second-field SET or control exposed.",
+    "other_controllers": "10/11 first-field naming join remains incomplete; no threshold control exposed for those indices.",
+    "physical_effects": "No latency, power or residency measurement claimed."
   }
 }

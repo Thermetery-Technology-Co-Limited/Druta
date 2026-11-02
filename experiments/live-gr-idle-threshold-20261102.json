@@ -100,7 +100,7 @@
     "voltage_unchanged": true,
     "lpwr_unchanged": true
   },
-  "limits": "Receiver zero-peer rule is not source-proven generally; the observed peer remained unchanged on this trial, and the controller checks the exact peer after each apply. Other controller thresholds and BLCG ENABLE remain separate unresolved controls.",
+  "limits": "Receiver zero-peer rule is not source-proven generally; the observed peer remained unchanged on this trial, and the controller checks the exact peer after each apply. The second field and BLCG ENABLE remain unresolved. First idle thresholds for MS4 and media12..15 were qualified subsequently in experiments/live-additional-idle-thresholds-20261102.json.",
   "private_audit_sha256": {
     "experiments\\registry-overrides\\profiler-more-terra-20261101\\lpwr-gr-threshold-registry-parent-join-61742.json": "bb1f1d460984d73f6b03021afe9b1e50bb908c5659538a73a5b8151a662bad9d",
     "experiments\\registry-overrides\\profiler-more-root-20261101\\threshold-raw-pair-read-20261102.json": "3a357d9e45fd103b4040d9cb78f4b65cf5e91e62ed652892922052d7cd4e9188",

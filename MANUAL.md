@@ -864,18 +864,24 @@ The trial selects one controller: 0 Graphics, 4 MS, 10 SW-ASR, 11 DIFR CG,
 JSON separates the selected request result from peer coverage; unreadable peers
 remain unverified. No workload, registry change or restart is performed.
 
-**GR idle threshold** provides **Refresh** and **Apply** for the graphics
-controller's session-only idle request. Enter a positive integer in microseconds;
-Druta displays the driver's applied value, which may be quantized. Apply is
-available only when the selected Blackwell layout, current support, both raw
-threshold words and a unique conversion scale can be verified. A failed or
-ambiguous read leaves the control unavailable for applying a change.
+**Idle threshold** provides **Refresh** and **Apply** for Graphics (GR),
+Memory subsystem (MS), NVDEC, NVENC, OFA and NVJPG. Choose a controller and
+refresh its current state before entering a positive integer in microseconds.
+Changing the selection clears the entered value and readback, so refresh the new
+selection before applying. Druta displays the driver's applied value, which may
+be quantized.
+
+Each controller is checked independently. Apply requires a source-qualified
+Blackwell layout, selected controller support, both raw threshold words and a
+unique conversion scale. A failed or ambiguous read prevents Apply for that
+selection without disabling other controllers.
 
 The value is a driver request: actual gating latency, residency and power are
 not measured. Druta checks the other threshold word after Apply and reports a
-verification failure if it changed. The request is not saved or reapplied after
-a driver restart. The microsecond label follows the driver's GR threshold name
-and its source dataflow; it is not an independent physical timing measurement.
+verification failure if it changed. The request is session-only and is not
+saved or reapplied after a driver restart. The microsecond label follows the
+driver's threshold names and source dataflow; it is not a physical timing
+measurement.
 
 **Runtime VF policy control** reads the active monotonicity and smoothing checks.
 After **Read VF policies**, use **Apply policies now** to change either check
