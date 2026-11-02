@@ -24,6 +24,8 @@ from .perf_diagnostics import PerfDiagnosticError, PerfDiagnosticsReader
 SecondLevelClockGatingError = GrGatingError
 _LAYOUTS = {(0x1B0, implementation): "gb20x-slcg" for implementation in (2, 3, 5, 6, 7)} | {
     (0x170, implementation): "ga10x-slcg" for implementation in (2, 3, 4, 6, 7)
+} | {
+    (0x190, implementation): "ad10x-slcg" for implementation in (2, 3, 4, 6, 7)
 }
 # Source selector1 values for the complete unique route table. Selector3
 # releases all entries to zero. These are source values, not local readbacks.
@@ -42,14 +44,14 @@ _DISABLED_VALUES = {
     0x2B6CBC: 1,
     0x2B6CFC: 1,
 }
-# Native170 implementations2/3/4/6/7 map to chip HAL2B..2F, whose source
-# selector paths choose this same three-register table; LPWR+100 is a no-op.
-# This is a source layout contract only: Ampere hardware qualification remains
-# pending. Each current adapter still needs valid zero baseline reads and an
-# independently observed exact source-value transition; no effect is assumed.
+# Native 0x170 and 0x190 qualified implementations independently select
+# equivalent three-register tables; LPWR+100 is a no-op on both paths. Each
+# adapter still needs valid zero baseline reads and an exact observed transition.
+_GA_AD_DISABLED_VALUES = {0x248018: 3, 0x251A18: 3, 0x251818: 3}
 _LAYOUT_VALUES = {
     "gb20x-slcg": _DISABLED_VALUES,
-    "ga10x-slcg": {0x248018: 3, 0x251A18: 3, 0x251818: 3},
+    "ga10x-slcg": _GA_AD_DISABLED_VALUES,
+    "ad10x-slcg": _GA_AD_DISABLED_VALUES,
 }
 
 

@@ -31,7 +31,10 @@ _ALLOWED_CLEAR = {0x4041F0: 0xC646, 0x409890: 0x7F, 0x405BF0: 0xC044, 0x407000: 
 # whole zero words; unlike GB20x, subset-clearing is insufficient verification.
 _LAYOUTS.update({(0x170, implementation): "ga10x-blcg" for implementation in (2, 3, 4, 6, 7)})
 _AMPERE_CLEAR = {0x4041F0: 0xC646, 0x409890: 0x7F, 0x4098B0: 0x7F, 0x405BF0: 0xC444, 0x407000: 0x4000C242}
-_MASKS = {"gb20x-blcg": _ALLOWED_CLEAR, "ga10x-blcg": _AMPERE_CLEAR}
+# AD10x HAL 34..38 uses a distinct table whose five source rows match GA10x.
+_LAYOUTS.update({(0x190, implementation): "ad10x-blcg" for implementation in (2, 3, 4, 6, 7)})
+_FULL_WORD_LAYOUTS = frozenset(("ga10x-blcg", "ad10x-blcg"))
+_MASKS = {"gb20x-blcg": _ALLOWED_CLEAR, **dict.fromkeys(_FULL_WORD_LAYOUTS, _AMPERE_CLEAR)}
 _READ32, _GLOBAL, _ROUTE_NONE = 0, 0, 0
 
 
@@ -139,7 +142,7 @@ class BlockClockGatingController(GrGatingController):
                 raise BlockClockGatingError("BLCG outcome is uncertain; explicitly release this session")
             before = self._read_locked()
             if self._owned:
-                if self._initial_state and self._initial_state["layout"] == "ga10x-blcg":
+                if self._initial_state and self._initial_state["layout"] in _FULL_WORD_LAYOUTS:
                     _same_layout(self._initial_state, before)
                     if any(before["registers"].values()):
                         raise BlockClockGatingError("The owned BLCG request is no longer independently visible")
@@ -152,7 +155,7 @@ class BlockClockGatingController(GrGatingController):
             if not before["support"]:
                 raise BlockClockGatingError("The native BLCG register layout is not understood")
             masks = _MASKS[before["layout"]]
-            if before["layout"] == "ga10x-blcg" and any(
+            if before["layout"] in _FULL_WORD_LAYOUTS and any(
                 before["registers"][hex(address)] & ~mask for address, mask in masks.items()
             ):
                 raise BlockClockGatingError("BLCG baseline has bits outside the source-defined full-word values")
@@ -174,7 +177,7 @@ class BlockClockGatingController(GrGatingController):
                     if new & ~old or cleared & ~allowed:
                         raise BlockClockGatingError("BLCG request changed bits outside the source-defined clear masks")
                     observed[key] = cleared
-                if before["layout"] == "ga10x-blcg" and any(after["registers"].values()):
+                if before["layout"] in _FULL_WORD_LAYOUTS and any(after["registers"].values()):
                     raise BlockClockGatingError("BLCG request did not clear every complete register word")
                 if not any(observed.values()):
                     raise BlockClockGatingError("BLCG request produced no independent register transition")
@@ -197,7 +200,7 @@ class BlockClockGatingController(GrGatingController):
                     self._owned = False
                 after = self._read_locked()
                 _same_layout(before, after)
-                if self._initial_state and self._initial_state["layout"] == "ga10x-blcg":
+                if self._initial_state and self._initial_state["layout"] in _FULL_WORD_LAYOUTS:
                     _same_layout(self._initial_state, after)
                     expected = self._initial_state["registers"]
                 else:

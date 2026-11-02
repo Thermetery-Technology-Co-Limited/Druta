@@ -102,7 +102,7 @@ def device(monkeypatch):
         if data["malformed"] == "rmstatus":
             raise PerfDiagnosticError("unsupported", "RM status 0x56", 0x56)
         a, b, c, d, e, count, pointer, route, pad, route_value = struct.unpack("<6IQIIQ", request)
-        masks = live._AMPERE_CLEAR if data["native"][0] == 0x170 else live._ALLOWED_CLEAR
+        masks = live._AMPERE_CLEAR if data["native"][0] in (0x170, 0x190) else live._ALLOWED_CLEAR
         assert (a, b, c, d, e, count, route, pad, route_value) == (0, 0, 0, 0, 0, len(masks), 0, 0, 0)
         assert pointer
         ops = (ctypes.c_ubyte * (32 * count)).from_address(pointer)
@@ -135,20 +135,21 @@ def commands(data):
     return [words[14] if words[4] == 0x0500002B else words[4] for words in data["writes"]]
 
 
-def ampere(data, implementation=4):
-    data["native"] = (0x170, implementation, 0x123, 0x456)
+def ampere(data, implementation=4, architecture=0x170):
+    data["native"] = (architecture, implementation, 0x123, 0x456)
     # The captured baseline may contain any subset of the source table values.
     data["values"] = {0x4041F0: 0x46, 0x409890: 0x03, 0x4098B0: 0, 0x405BF0: 0x4000, 0x407000: 0x200}
     data["selected"] = dict(data["values"])
 
 
 @pytest.mark.parametrize("implementation", [2, 3, 4, 6, 7])
-def test_ampere_full_word_hold_and_exact_initial_release(device, implementation):
+@pytest.mark.parametrize(("architecture", "layout"), [(0x170, "ga10x-blcg"), (0x190, "ad10x-blcg")])
+def test_full_word_hold_and_exact_initial_release(device, implementation, architecture, layout):
     controller, data = device
-    ampere(data, implementation)
+    ampere(data, implementation, architecture)
     baseline = dict(data["values"])
     initial = controller.read()
-    assert initial["layout"] == "ga10x-blcg"
+    assert initial["layout"] == layout
     assert initial["allowed_clear_masks"] == {hex(k): v for k, v in live._AMPERE_CLEAR.items()}
     held = controller.hold()
     assert held["owned_request"] and all(value == 0 for value in held["registers"].values())
@@ -157,9 +158,10 @@ def test_ampere_full_word_hold_and_exact_initial_release(device, implementation)
     assert controller.release()["registers"] == {hex(k): v for k, v in baseline.items()}
 
 
-def test_ampere_unknown_baseline_bits_and_empty_baseline_refused_before_allocation(device):
+@pytest.mark.parametrize("architecture", [0x170, 0x190])
+def test_full_word_unknown_baseline_bits_and_empty_baseline_refused_before_allocation(device, architecture):
     controller, data = device
-    ampere(data)
+    ampere(data, architecture=architecture)
     data["values"][0x4098B0] = 0x80
     with pytest.raises(live.BlockClockGatingError, match="outside"):
         controller.hold()
@@ -170,9 +172,10 @@ def test_ampere_unknown_baseline_bits_and_empty_baseline_refused_before_allocati
     assert not data["writes"]
 
 
-def test_ampere_partial_clear_and_duplicate_hold_require_full_zero(device, monkeypatch):
+@pytest.mark.parametrize("architecture", [0x170, 0x190])
+def test_full_word_partial_clear_and_duplicate_hold_require_full_zero(device, monkeypatch, architecture):
     controller, data = device
-    ampere(data)
+    ampere(data, architecture=architecture)
     original = controller._profiler.request
 
     def partial():
@@ -184,7 +187,7 @@ def test_ampere_partial_clear_and_duplicate_hold_require_full_zero(device, monke
         controller.hold()
     controller.close()
 
-    ampere(data)
+    ampere(data, architecture=architecture)
     monkeypatch.setattr(controller._profiler, "request", original)
     controller.hold()
     data["values"][0x4098B0] = 1
@@ -194,9 +197,10 @@ def test_ampere_partial_clear_and_duplicate_hold_require_full_zero(device, monke
     controller.release()
 
 
-def test_ampere_release_policy_zero_is_reported_as_mismatch(device):
+@pytest.mark.parametrize("architecture", [0x170, 0x190])
+def test_full_word_release_policy_zero_is_reported_as_mismatch(device, architecture):
     controller, data = device
-    ampere(data)
+    ampere(data, architecture=architecture)
     controller.hold()
     data["selected"] = dict.fromkeys(data["selected"], 0)
     with pytest.raises(live.BlockClockGatingError, match="exact expected"):
@@ -208,6 +212,15 @@ def test_ampere_unknown_implementation_has_no_register_inventory(device):
     data["native"] = (0x170, 5, 0, 0)
     result = controller.read()
     assert not result["support"] and result["allowed_clear_masks"] == {} and not data["reads"]
+
+
+def test_ada_implementation_f_refuses_before_register_reads_or_allocation(device):
+    controller, data = device
+    data["native"] = (0x190, 0xF, 0, 0)
+    assert not controller.read()["support"]
+    with pytest.raises(live.BlockClockGatingError, match="layout is not understood"):
+        controller.hold()
+    assert not data["reads"] and not data["writes"]
 
 
 def test_alternate_baseline_source_bits_and_reserved_fields_preserved(device):

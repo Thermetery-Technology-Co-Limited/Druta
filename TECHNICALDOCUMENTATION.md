@@ -2381,7 +2381,7 @@ it is not presented as a factory default.
 [Ampere BLCG source qualification](experiments/blcg-ampere-layout-20261101.json)
 records the native bindings and verification limits. Hardware qualification is
 pending. `experiments/blcg_live_validation.py` defaults to read-only; `--trial`
-performs one Ampere production-controller Hold/read/Release session and records
+performs one Ampere or Ada production-controller Hold/read/Release session and records
 the exact request packets. Run it on the target adapter with an explicit PCI
 slot and a new output path. Success requires a positive transition and exact
 release readback, not merely an accepted API status.
@@ -2389,6 +2389,20 @@ release readback, not merely an accepted API status.
 All 697 targeted tests passed, including 29 new ELCG tests. The trials used no
 registry changes, driver restart, workload, physical measurement or Windows reboot.
 [Additional-control evidence](experiments/live-profiler-controls-20261101.json).
+
+The Ada extension uses distinct `ad10x-blcg` and `ad10x-slcg` layouts for native
+architecture `0x190`, implementations `2/3/4/6/7`. Its HAL selects different table
+providers from Ampere, but root verified identical base-instance BLCG and HWPM
+SLCG table bytes. The BLCG Graphics aperture/write/public-read joins and SLCG
+direct writer plus no-op LPWR callback are source-bound for those selections.
+Ada therefore uses the existing full-word BLCG and exact-value SLCG checks;
+unknown implementations never borrow another family's layout.
+
+[Ada gating source qualification](experiments/ada-gating-layouts-20261102.json)
+records the branches and limits. Both remote collectors accept only matching
+Ampere or Ada native/layout pairs for `--trial`. Ada hardware qualification is
+pending; source equivalence and offline tests do not establish an actual gating
+transition or physical effect.
 
 **Live second-level clock gating (SLCG)** uses its own session-owned profiler request,
 mask `0x10`, and release mask `0x30`. Corrected decoding of the compressed dispatch

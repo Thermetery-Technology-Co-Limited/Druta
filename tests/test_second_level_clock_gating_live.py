@@ -507,3 +507,69 @@ def test_unqualified_ampere_implementations_never_read_a_fallback_layout(device,
     with pytest.raises(live.SecondLevelClockGatingError, match="no valid register witness"):
         controller.hold()
     assert not data["read_addresses"] and not data["writes"]
+
+
+@pytest.fixture
+def ada_layout(device):
+    controller, data = device
+    data["native"] = (0x190, 2, 0x123, 0x456)
+    data["expected_values"] = dict(live._LAYOUT_VALUES["ad10x-slcg"])
+    data["values"] = dict.fromkeys(data["expected_values"], 0)
+    return controller, data
+
+
+@pytest.mark.parametrize("implementation", [2, 3, 4, 6, 7])
+def test_source_qualified_ada_lifecycle(ada_layout, implementation):
+    controller, data = ada_layout
+    data["native"] = (0x190, implementation, 0x12345678, 0x87654321)
+    before = controller.read()
+    assert before["layout"] == "ad10x-slcg" and not any(before["registers"].values())
+    assert before["expected_disabled_values"] == {"0x248018": 3, "0x251a18": 3, "0x251818": 3}
+    assert controller.hold()["registers"] == before["expected_disabled_values"]
+    assert not any(controller.release()["registers"].values())
+    assert set(data["read_addresses"]) == {0x248018, 0x251A18, 0x251818}
+
+
+def test_unqualified_ada_implementation_never_reads_registers(device):
+    controller, data = device
+    data["native"] = (0x190, 0xF, 0, 0)
+    assert controller.read()["status"] == "unsupported_layout"
+    with pytest.raises(live.SecondLevelClockGatingError, match="no valid register witness"):
+        controller.hold()
+    assert not data["read_addresses"] and not data["writes"]
+
+
+@pytest.mark.parametrize("wrong_value", [0, 1, 0x80000000])
+def test_ada_hold_requires_exact_disabled_value(ada_layout, monkeypatch, wrong_value):
+    controller, data = ada_layout
+    request = controller._profiler.request
+
+    def wrong_or_noop():
+        request()
+        data["values"][0x248018] = wrong_value
+
+    monkeypatch.setattr(controller._profiler, "request", wrong_or_noop)
+    with pytest.raises(live.SecondLevelClockGatingError, match="source disabled"):
+        controller.hold()
+    controller.close()
+
+
+def test_ada_noop_request_does_not_count_as_a_hold(ada_layout):
+    controller, data = ada_layout
+    data["stub"] = True
+    with pytest.raises(live.SecondLevelClockGatingError, match="source disabled"):
+        controller.hold()
+    controller.close()
+
+
+def test_ada_partial_witness_retains_unavailable_peers(ada_layout):
+    controller, data = ada_layout
+    data["operation_statuses"][0x248018] = 8
+    data["values"][0x251A18] = 0xBADF1002
+    held = controller.hold()
+    assert held["status"] == "partial" and held["registers"] == {"0x251818": 3}
+    assert held["observed_registers"] == ["0x251818"]
+    assert set(held["unavailable_registers"]) == {"0x248018", "0x251a18"}
+    released = controller.release()
+    assert released["registers"] == {"0x251818": 0}
+    assert set(released["unavailable_registers"]) == {"0x248018", "0x251a18"}

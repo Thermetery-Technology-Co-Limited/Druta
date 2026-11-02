@@ -94,15 +94,17 @@ def run(monkeypatch):
         lambda gpu: {"requested_slot": SLOT, "selected_slot": SLOT, "pairing_error": ""},
     )
 
-    def execute(*, trial=False, failure=None, before_value=0, native=0x170):
+    def execute(*, trial=False, failure=None, before_value=0, native=0x170, layout="ga10x-slcg"):
         gpu = FakeGPU()
         controller = FakeController(gpu, failure=failure)
+        controller.identity["architecture"] = 8 if native == 0x190 else 7
         controller.value = before_value
         read = controller.read
 
         def snapshot():
             state = read()
             state["architecture"]["architecture"] = native
+            state["layout"] = layout
             return state
 
         controller.read = snapshot
@@ -131,8 +133,9 @@ def test_default_read_only_has_no_mutation_packets(run):
     assert report["before"]["unavailable_registers"]
 
 
-def test_one_trial_records_exact_packets_and_positive_transition(run):
-    report, controller, gpu, checkpoints = run(trial=True)
+@pytest.mark.parametrize("native,layout", [(0x170, "ga10x-slcg"), (0x190, "ad10x-slcg")])
+def test_one_trial_records_exact_packets_and_positive_transition(run, native, layout):
+    report, controller, gpu, checkpoints = run(trial=True, native=native, layout=layout)
     assert report["qualified"] is True
     assert len(gpu.calls) == 4
     assert report["event_counts"] == {"allocate": 1, "request": 1, "release": 1, "free": 1}
@@ -160,8 +163,18 @@ def test_noop_never_qualifies(run):
     assert report["checks"]["positive_transition"] is False
 
 
-@pytest.mark.parametrize("kwargs", [{"before_value": 3}, {"native": 0x1B0}])
-def test_trial_requires_zero_baseline_and_native170(run, kwargs):
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"before_value": 3},
+        {"native": 0x1B0},
+        {"native": 0x170, "layout": "ad10x-slcg"},
+        {"native": 0x190, "layout": "ga10x-slcg"},
+        {"native": 0x1F0, "layout": "ga10x-slcg"},
+        {"native": 0x190, "layout": "unknown-slcg"},
+    ],
+)
+def test_trial_requires_zero_baseline_and_qualified_pair(run, kwargs):
     report, controller, gpu, _ = run(trial=True, **kwargs)
     assert report["qualified"] is False
     assert not gpu.calls

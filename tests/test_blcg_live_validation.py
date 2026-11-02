@@ -103,6 +103,7 @@ def run(monkeypatch):
     def execute(*, trial=False, failure=None, baseline=None, native=0x170, layout="ga10x-blcg"):
         gpu = FakeGPU()
         controller = FakeController(gpu, failure=failure)
+        controller.identity["architecture"] = 8 if native == 0x190 else 7
         if baseline is not None:
             controller.baseline = dict(baseline)
             controller.registers = dict(baseline)
@@ -140,8 +141,9 @@ def test_default_read_only_has_no_mutation_packets(run):
     assert report["before"]["registers"] == MASKS
 
 
-def test_one_trial_records_exact_packets_and_positive_transition(run):
-    report, controller, gpu, checkpoints = run(trial=True)
+@pytest.mark.parametrize("native,layout", [(0x170, "ga10x-blcg"), (0x190, "ad10x-blcg")])
+def test_one_trial_records_exact_packets_and_positive_transition(run, native, layout):
+    report, controller, gpu, checkpoints = run(trial=True, native=native, layout=layout)
     assert report["qualified"] is True
     assert len(gpu.calls) == 4
     assert report["event_counts"] == {"allocate": 1, "request": 1, "release": 1, "free": 1}
@@ -177,9 +179,13 @@ def test_noop_never_qualifies(run):
         {"baseline": {key: value for key, value in MASKS.items() if key != "0x4098b0"}},
         {"native": 0x1B0},
         {"layout": "gb20x-blcg"},
+        {"native": 0x170, "layout": "ad10x-blcg"},
+        {"native": 0x190, "layout": "ga10x-blcg"},
+        {"native": 0x1F0, "layout": "ga10x-blcg"},
+        {"native": 0x190, "layout": "unknown-blcg"},
     ],
 )
-def test_trial_requires_source_complete_nonzero_baseline_and_native170(run, kwargs):
+def test_trial_requires_source_complete_nonzero_baseline_and_qualified_pair(run, kwargs):
     report, controller, gpu, _ = run(trial=True, **kwargs)
     assert report["qualified"] is False
     assert not gpu.calls
