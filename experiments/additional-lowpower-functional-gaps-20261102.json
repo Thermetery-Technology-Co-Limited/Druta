@@ -36,8 +36,8 @@
       "set_20801818": "8 bytes: u16 snoop value +0, u8 snoop scale +2, u16 no-snoop value +4, u8 no-snoop scale +6. Setter masks value 10 bits, scale 3 bits; no range validation in selected routine.",
       "request_8a254": "snoop value bits10:1; snoop scale13:11; forced bit14=1; no-snoop value24:15; no-snoop scale27:25; forced bit28=1; bit0 trigger=1 and polled. Remaining retained bits follow read/modify/write mask 0xf0004001, combined with forced 0x10004001.",
       "get_20801817": "reads 8a24c and projects snoop value9:0 scale12:10; no-snoop value23:14 scale26:24. Public output excludes status bits13 and27 and trigger-source bits. Error is suppressed by outer handler.",
-      "relation": "Shifting request fields and forced bits right by one matches the status field layout exactly; official NVIDIA GA102 published LAST_MSG_SENT uses the same status layout including requirement bits13 and27. This homologous mapping does not prove current register names, each SET reflected as latest message, requirement meaning, or ability to deassert.",
-      "units": "Pinned NVIDIA public API header gives no units or permitted scale semantics. Prior primary Linux source L1.2 threshold encoding uses scales0..5 for 1,32,1024,32768,1048576,33554432 ns; it is analogous PCIe encoding, not proof of this NVIDIA API. Scales6..7 are not rejected by selected setter; semantic validity is unestablished.",
+      "relation": "The named public LTR command, selected GB HAL and same-accessor request read bind an exact programmed-request witness. Separate last-message status cannot establish message delivery. The local native SET failed the programmed-request check.",
+      "units": "PCI Express Base Specification rev2.1 section6.18 directly defines10-bit values and scales0..5 as multipliers1,32,1024,32768,1048576,33554432 ns; scales6/7 are prohibited. This supersedes the prior L1.2-only analogy.",
       "ownership": "No separate owned handle or release operation exists in public SET packet; setter issues a message trigger and returns after bit clears or timeout. Duration and replacement semantics beyond that event are not established."
     },
     "zero_request_example": {
@@ -52,7 +52,7 @@
       "scope": "Independent PCIe LTR example on Intel I210, not a binding of NVIDIA proprietary registers.",
       "paraphrase": "With a requirement asserted, zero latency requests best service. Clearing the requirement denotes no latency requirement. Device-specific scale choices must not be generalized to this NVIDIA interface."
     },
-    "next_requirement": "Bind the current NVIDIA request/status semantics and distinguish an actual reflected SET from unrelated last-message updates. No claim that unknown reset/replay behavior is a prerequisite to all other functionality.",
+    "next_requirement": "The new exact request-register qualification was attempted locally: native SET acknowledged, but request/status/typed readbacks stayed zero. No working LTR control is established. Resolve the concrete unreflected write before another functional trial; ownership/restore and proving message delivery are not prerequisites to explicit programmed-request semantics.",
     "verified_windows": [
       {
         "label": "public_set_handler",
@@ -82,9 +82,18 @@
         "bytes_hex": "48895c2408574883ec40488b8160010000488bda33c9488bb8e8000000488b05545ef200488b97202100004c8b80300200004885d27510b856000000488b5c24504883c4405fc30fb682d40900008803450fb6406d4488430184c0753b4584c07436488d430a488bcf48894424284c8d5308488b82580600004c8d4b064c8d43044c89542420ff157c4a97008bc885c07406c643020033c9488b5c24508bc14883c4405fc3",
         "sha256": "52f83b56b2c735e404265c97d8f0da554a19c3de42579b9169ea8007dab8f5c4"
       }
-    ]
+    ],
+    "local_followup": {
+      "evidence": "experiments/pcie-ltr-and-additional-controls-20261102.json",
+      "request_hex": "4000020060000200",
+      "expected_request": "0x14305080",
+      "observed_request_and_status": 0,
+      "acknowledged": true,
+      "programmed_request_verified": false,
+      "cleanup": "GPU-only reset completed; sampled request/status/typed fields stayed at baseline; no reboot/replay."
+    }
   },
-  "other_scopes": "ASPM and alternate NVDEC controller17 remain separately unqualified. Recovery, Undo and profile replay remain deferred. No new hardware trial was run.",
+  "other_scopes": "ASPM and alternate NVDEC controller17 remain separately unqualified. Recovery, Undo and profile replay remain deferred. One later local LTR SET is documented under ltr.local_followup; no ASPM or unnamed-byte SET was issued.",
   "vat_profiler": {
     "scope": "Pinned 617.42 offline decoder audit only; no GPU operations or mutations.",
     "public_source": "src/common/sdk/nvidia/inc/ctrl/ctrlb0cc/ctrlb0ccpower.h:148-160, 221-239, 256-258, 383-390",
@@ -1091,7 +1100,8 @@
           "bytes_hex": "a03b4f4001000000480000000000000001a880200404000090b0e64001000000",
           "sha256": "dd66e2142443b6e016523152d7eacc55933057fa4a1c83808a9d089862a81ff3"
         }
-      ]
+      ],
+      "initialization_correction": "The initial cached row+168 byte can come from firmware initialization reply00/06/13 byte+5D; it is not necessarily zero after initialization. SET updates the cache with the caller byte, so post-SET echo still does not independently qualify the unknown action. See experiments/pcie-ltr-and-additional-controls-20261102.json."
     },
     "attribute3d_followup": {
       "scope": "Offline bounded static semantic checks; no hardware operations or product edits.",
@@ -1844,5 +1854,10 @@
     "evidence": "experiments/live-adaptive-power-policy-20261102.json",
     "local_trial": "Five present roles0/4/5/6/7 passed ten distinguishing production-panel transitions with peer checks. Role2 unavailable. Voltage and configured LPWR unchanged.",
     "limits": "Full reason mask, current firmware algorithm and physical effects remain unbound. Allow clears shared bit1 only, not manual-threshold bit2, and does not restore numeric thresholds. No recovery/profile/restart replay."
+  },
+  "aspm_enable_followup": {
+    "evidence": "experiments/pcie-ltr-and-additional-controls-20261102.json",
+    "findings": "True ORs bits0/1 into a read16 value, but the helper sends a zero-extended four-byte config write and ignores write status. Handler performs additional bus callbacks. A typed same-handle getter exists only under unresolved current predicates. Endpoint scope and effects remain unqualified. No SET issued.",
+    "status": "Unqualified; no hardware SET. This corrects the earlier assumption that the underlying write was16-bit."
   }
 }

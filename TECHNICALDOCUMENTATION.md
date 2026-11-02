@@ -2387,22 +2387,45 @@ established. Public `khwpmGetRequestCgStatusMask` merely translates a supplied
 request status and is not an independent GPU getter. These are bounded findings
 for the inspected paths, not driver-version or hardware denylists.
 
-Additional live-control source qualification on 617.42 leaves two specific
-functional gaps. The examined MS inhibition calls at `82BC1A` and `82BD29`
-belong to the same `82BBA0..82BD4E` operation. Completion and timeout converge
-on releasing its request before return; an exported caller would not give this
-path an independently owned lasting hold. A different callable path is needed.
+An earlier MS inhibition path at `82BC1A`/`82BD29` releases its request before
+returning from the same operation. That historical path is not the later shipped
+individual MS control; it is not a remaining gap in that implemented control.
 
 PCIe LTR GET `20801817` returns four value/scale fields; SET `20801818` masks
-values to ten bits and scales to three bits, forces request bits14/28, and
-triggers bit0. GET omits the corresponding additional status bits. In particular,
-zero input fields pack to `0x10004001`, not the captured zero raw request;
-matching the four GET fields cannot establish equality of that request.
-Intel's [I210 datasheet, section8.25.9](https://cdrdv2-public.intel.com/333016/333016%20-%20I210_Datasheet_v_3_7.pdf)
-distinguishes zero latency with an asserted requirement from no requirement.
-That is a primary PCIe example, not a binding of NVIDIA's current proprietary
-registers. The current request/status relationship and resulting advertised
-requirement remain unqualified. No LTR SET or new control is claimed.
+values to ten bits and scales to three bits, forces request bits 14/28, and
+triggers bit 0. GET omits corresponding requirement and trigger-source bits.
+The [PCI Express Base Specification rev2.1, section6.18](https://www.intel.com/content/dam/support/us/en/programmable/support-resources/fpga-wiki/asset03/pci-express-base-r2.1.pdf)
+defines scales 0 through 5 as multipliers 1, 32, 1024, 32768, 1048576 and
+33554432 nanoseconds; scales 6 and 7 are prohibited. The named public command
+and selected GB HAL bind a programmed-request check through raw `0x8A254`.
+The separate status at `0x8A24C` does not prove this request was transmitted.
+Owned-reference or restoration semantics are not required for an explicit
+programmed request, and message delivery is a separate qualification.
+
+On RTX 5080/617.42, one native request for 65536/98304 ns (value/scale pairs
+64/2 and 96/2) returned success and an unchanged request packet. Expected
+post-trigger request `0x14305080` did not appear: two independent reads of both
+registers remained zero, as did the typed latency fields. The normal GLOBAL
+read and setter poll use the same accessor, aperture and address. The write
+helper has interception paths that can skip MMIO, while an already-clear
+trigger lets the caller return success. That is a possible explanation, not a
+proven local cause. No functioning LTR control is claimed. A GPU-only reset
+completed afterward; sampled fields matched baseline, without reboot or replay.
+
+The public ASPM path remains unqualified. Its helper reads a 16-bit control
+word, but sends a zero-extended four-byte configuration write and ignores the
+write result. The handler also invokes additional bus callbacks. A typed
+getter can use the same copied handle/capability only under predicates whose
+current state is unbound. No ASPM SET was issued. This corrects the earlier
+16-bit-write assumption; it does not establish the upper status bits' effect.
+
+Unnamed type3 attribute `0x45` can initially receive its cached byte from a
+firmware initialization reply. After SET, its getter echoes the requested byte
+stored by the host on success. Its meaning, allowed values and independent
+effect remain unbound, so no SET or user-facing control is qualified.
+[Source windows and local negative trial](experiments/pcie-ltr-and-additional-controls-20261102.json)
+preserve these distinctions; the working controls are unchanged.
+
 The public profiler header also defines a **VAT** field at bits11:10:
 disable `0x400`, enable `0x800`, release `0xC00`. The inspected Windows driver 617.42
 real handler (profiler HAL selector2) decodes only five fields through bit9;

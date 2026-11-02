@@ -1,0 +1,604 @@
+{
+  "schema": 1,
+  "date_utc": "2026-11-02",
+  "scope": "Local RTX5080/617.42 follow-up: one native LTR SET with no observed programmed-request change; bounded ASPM/unnamed attribute source qualification. No new functional control claimed.",
+  "driver_sha256": "db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b",
+  "source_verification": "Root matched all62 retained source windows against the installed driver bytes and recorded hashes.",
+  "sources": [
+    {
+      "path": "experiments/registry-overrides/ltr-followup-terra-20261102/ltr-explicit-request-source-61742.json",
+      "sha256": "071665189b947a8bb85f8aff8508f3ceffc55c31eceff498813098db18452bf8",
+      "findings": [
+        "PCI Express Base Specification Revision 2.1 section 6.18 defines LTR message 10-bit latency value and scales 0..5 as multipliers 1,32,1024,32768,1048576,33554432 ns; scales 6..7 are not permitted. The Requirement bit distinguishes whether a snoop/no-snoop requirement is reported.",
+        "The named public NV2080_CTRL_CMD_BUS_SET_PCIE_LTR_LATENCY and selected GB HAL bind the four input fields to the LTR request path. The selected setter writes them into 8A254, forces bits14/28 and trigger bit0, and polls trigger; it masks rather than rejects scale6/7. Its paired GET projects values/scales from 8A24C, omits bits13/27 and trigger-source bits, and suppresses nested errors. A separate sampled status is diagnostic; matching it does not establish message delivery.",
+        "An explicit programmed request can be qualified at the selected request-register boundary without proving the exact architectural register name or a unique owner. For stable supported identity, an initial request DWORD R with trigger bit0 clear, values VS,VN in 0..1023 and scales SS,SN in 0..5, expected exact DWORD after the native SET returns and trigger clears is ((R & 0xF0004001) | 0x10004001 | (VS<<1) | (SS<<11) | (VN<<15) | (SN<<25)) & 0xFFFFFFFE. Require normal typed read transport, exact SET success and full-DWORD matching, and preserve other bits as shown. A request readback match establishes sampled programmed state, not a transmitted message or a physical power effect.",
+        "GA102 NV_XVE_LTR_LAST_MSG_SENT is homologous to 8A24C, including named requirement and trigger-source fields, but exact GB register definitions and external trigger attribution remain unavailable. If the sampled 8A24C or public GET differs, report it separately; a matching status cannot by itself prove attribution or delivery. Never interpret a suppressed nested GET error as valid zero.",
+        "No owned handle, restore, replay or persistence is required for an explicit manual request. Reject a pending trigger before SET, validate capabilities and routing, and treat a SET error or mismatched raw readback as unverified without blind repeat. Existing local zero samples are only baseline observations on one device, not semantic proof."
+      ],
+      "windows": [
+        {
+          "label": "public_set_handler",
+          "rva": "0x48ee40",
+          "length": 80,
+          "bytes_hex": "4883ec48488b81600100004c8bc2488b88e8000000488b91202100004885d2750ab8560000004883c448c3450fb65006450fb75804450fb64802450fb700488b824006000044885424286644895c2420",
+          "sha256": "410b44e920e96feecfafa19982f95da64f29cf979b2985fdbfc0fcfab452c6f8"
+        },
+        {
+          "label": "selected_setter",
+          "rva": "0x975800",
+          "length": 485,
+          "bytes_hex": "4053564154415641574883ec60488b056c4182004833c44889442448488b05f5e5a3004533e4418bdc450fb6f1450fb7f8488bf1488b9030020000385a6d7519ba0000f600b9b3d6710ee841b476ffb856000000e952010000488b81c805000048896c245848897c2450ff1538d248004533c04c8964242033d2488d8e10440000448d8854020000e8c30d7bff8b9424b80000008bf88b8c24b000000083e207488b86c805000081e1ff030000c1e20a81e7014000f00bd14183e607c1e2044181e7ff030000410bd6488bcec1e20a410bd703d20bfa81cf01400010ff15c6d148004c89642428488d8e104400004533c0897c242033d2448d8854020000e83d167bff4533c9488d5424304533c0488d8ea0200000e856f579ff488b86c8050000488bceff157ed148004533c04c8964242033d2488d8e10440000448d8854020000e8090d7bffa80174540f1f44000041b819010000488d542430488d8ea0200000e8d9ed79ff8bd883f8657457488b86c8050000488bceff152ad148004533c04c8964242033d2488d8e10440000448d8854020000e8b50c7bffa80175b18bc3488b6c2458488b7c2450488b4c24484833cce8a88237004883c460415f415e415c5e5bc3ba00001d01b9b3d6710ee8bcb276ffb91e010000e822b579ffb865000000ebbc",
+          "sha256": "14044cf66e753ba59bc4b0645f24ebaf708a33d2664a78f71a4eab8b63764656"
+        },
+        {
+          "label": "selected_getter",
+          "rva": "0x974bb0",
+          "length": 202,
+          "bytes_hex": "48895c24084889742410574883ec30488b0552f2a300498bf9498bf0488bd9488b9030020000807a6d007524ba00004501b9b3d6710ee8a5c076ffb856000000488b5c2440488b7424484883c4305fc3488b81c8050000ff159bde4800488d8b1044000048c7442420000000004533c033d2448d884c020000e8221a7bff488b5c24408bc8c1e90a8bd080e107c1ea0e880f41b8ff0300000fb7c8664123d0664123c866890e8bc8488b442468488b742448c1e91880e1078808488b44246066891033c04883c4305fc3",
+          "sha256": "efd26ef2c9f7d36a73ab86de4fd4b17a3147f4864958c66430e6f6e997a631c5"
+        },
+        {
+          "label": "public_get_handler",
+          "rva": "0x48dfa0",
+          "length": 165,
+          "bytes_hex": "48895c2408574883ec40488b8160010000488bda33c9488bb8e8000000488b05545ef200488b97202100004c8b80300200004885d27510b856000000488b5c24504883c4405fc30fb682d40900008803450fb6406d4488430184c0753b4584c07436488d430a488bcf48894424284c8d5308488b82580600004c8d4b064c8d43044c89542420ff157c4a97008bc885c07406c643020033c9488b5c24508bc14883c4405fc3",
+          "sha256": "52f83b56b2c735e404265c97d8f0da554a19c3de42579b9169ea8007dab8f5c4"
+        }
+      ],
+      "primary_sources": [
+        {
+          "title": "PCI Express Base Specification Revision 2.1, section 6.18",
+          "url": "https://www.intel.com/content/dam/support/us/en/programmable/support-resources/fpga-wiki/asset03/pci-express-base-r2.1.pdf",
+          "finding": "LTR message requirement/value/scale semantics and permitted scale encodings."
+        },
+        {
+          "title": "NVIDIA GA102 NV_XVE register manual, LTR last message",
+          "url": "https://github.com/NVIDIA/open-gpu-doc/blob/9fdf5c4062007929d9f4e6cbad9c9771fe61b880/manuals/ampere/ga102/dev_nv_xve3g_fn0.ref.txt#L1584",
+          "finding": "Published homologous status layout; not a definition for the current selected GB MMIO registers."
+        }
+      ]
+    },
+    {
+      "path": "experiments/registry-overrides/profiler-more-terra-20261101/pcie-ltr-static-61742.json",
+      "sha256": "b28e426f19beabf693fd96dbdcd18e56931b131ff98874e8828b11b0cd8397ae",
+      "findings": [
+        "GET 20801817 initializes output bytes 0 and 1 from bus+0x9d4 and system+0x6d; if !byte0 and byte1 it calls function at bus+0x658 with pointers to output offsets 4,6,8,10. A failing nested return clears byte2 and is converted to success; a successful call does not itself set byte2. A null bus returns status 0x56.",
+        "SET 20801818 passes u16/u8/u16/u8 from input offsets 0,2,4,6 to function at bus+0x640 and returns its result.",
+        "Zero-initialized GET byte2 is not sufficient to distinguish successful nested call from suppressed nested failure, since handler never sets byte2 true.",
+        "GPU initialization 1197B0 passes pointer to GPU+0x2120 and class ID 0xD1C956 to 11AA00; public g_eng_desc_nvoc.h identifies that class as OBJBIF. OBJBIF class descriptor ED89F8 points to creator trampoline 1759260, leading to 1760A20, which invokes generated initializer 175C9E0 on the object base.",
+        "For independently established ChipHal ordinals 0x41 through 0x45, initializer assigns OBJBIF+0x640 to 0x975800 and +0x658 to 0x974BB0.",
+        "Selected getter obtains GPU virtual +0x5c8 result and reads at that base +0x24c. It extracts snoop value bits 0..9, snoop scale 10..12, no-snoop value bits 14..23 and no-snoop scale bits 24..26. If system+0x6d is zero it returns 0x56; otherwise returns zero.",
+        "Selected setter masks both input values to 10 bits and scales to 3 bits. It reads and writes base+0x254, setting 0x10004001 and packing the values beginning at bit 1. It polls bit0 and returns 0x65 on timeout, and 0x56 if system+0x6d is zero. GET reads a distinct register and is not established as exact setter-state readback.",
+        "Units, scale semantics, field relationships between +0x24c and +0x254, and restoration semantics are unqualified; no usable exact-readback control is claimed.",
+        "For ChipHal ordinals 0x41 through 0x45, OBJGPU initializer 1719C00 assigns GPU+0x5C8 to function 66C120, which returns constant 0x8A000. Selected GET reads 0x8A24C; SET reads/writes 0x8A254. This establishes addresses for this statically qualified family only; it does not establish their relationship or permit inferring exact write readback."
+      ],
+      "windows": [
+        {
+          "label": "get_handler",
+          "rva": "0x48dfa0",
+          "length": 165,
+          "bytes": "48895c2408574883ec40488b8160010000488bda33c9488bb8e8000000488b05545ef200488b97202100004c8b80300200004885d27510b856000000488b5c24504883c4405fc30fb682d40900008803450fb6406d4488430184c0753b4584c07436488d430a488bcf48894424284c8d5308488b82580600004c8d4b064c8d43044c89542420ff157c4a97008bc885c07406c643020033c9488b5c24508bc14883c4405fc3",
+          "sha256": "52f83b56b2c735e404265c97d8f0da554a19c3de42579b9169ea8007dab8f5c4"
+        },
+        {
+          "label": "set_handler",
+          "rva": "0x48ee40",
+          "length": 144,
+          "bytes": "4883ec48488b81600100004c8bc2488b88e8000000488b91202100004885d2750ab8560000004883c448c3450fb65006450fb75804450fb64802450fb700488b824006000044885424286644895c2420ff15123c97004883c448c3cccccccccc48895c240848896c2410488974241848897c242041564883ec20488b81600100004032ed4c8bf2488bb0e8000000488b",
+          "sha256": "0cfd6ca97331412b84678b6ed4bd1ce2159bf5846df045b141554be4716ce4f3"
+        },
+        {
+          "label": "objbus_initializer_entry",
+          "rva": "0x17779f0",
+          "length": 54,
+          "bytes": "4883ec08410fb750104c8bc9448bc248895c2410448bda41c1e8054183e31f48893c24bf010000004183f802755e418bcb8bc7d3e0a9",
+          "sha256": "5a219a2fcfc85e82a988381f69ccc59f36c3ddf41509b2b1945c034ff0eba3f3"
+        },
+        {
+          "label": "kernelbus_initializer_entry",
+          "rva": "0x177a170",
+          "length": 69,
+          "bytes": "4883ec08440fb74a104c8bd148895c2410410fb75810448bdb4183e31f83fb2073344585db7509488d0512abdbfeeb0f418d43fe85c0751e488d0531a826ff488981080100",
+          "sha256": "d272f738f6b286d7a10bf3c94c6d5964e0abb2a94d9f7b7e2fd3a2b31cd8a538"
+        },
+        {
+          "label": "kernelbus_constructor_initializer_calls",
+          "rva": "0x177cb32",
+          "length": 129,
+          "bytes": "488d7e084889b600010000488d5e104889bef8000000488bcf48899ef0000000e8b902fcff488d05a2e575ff4c8bc5488903498bd6488d057ae575ff488bce488907488d0555e575ff488906e8edd5ffff4c8bc5498bd6488bcee84ffaffff488bcfe86702fcff8bd885c00f855dffffff4c8bc5498bd6488bcee8afd2ffff33c0",
+          "sha256": "9453a7602c841fc6db7d9f41f6c7ab7dc17f1b3d2aca51106f03f25b3362a59b"
+        },
+        {
+          "label": "gpu_objbif_class_binding",
+          "rva": "0x1197b0",
+          "length": 34,
+          "bytes": "4c8d8b202100004c8bc6ba56c9d100488bcbe83912000085c00f851712000048ffc6",
+          "sha256": "52e08e0a6ee1e64fb853378a85a1df03b82d8ff86d8514a00ad6089b6195d6e9"
+        },
+        {
+          "label": "objbif_class_descriptor",
+          "rva": "0xed89f8",
+          "length": 48,
+          "bytes": "b817000056c9d1005018e540010000006092754101000000308aed4001000000688aed40010000000100000000000000",
+          "sha256": "d3baa20dc8a12f3a26d7b4e87ad35dee22e814fc1ce3dc3bf67cf849f585a661"
+        },
+        {
+          "label": "objbif_create_trampoline",
+          "rva": "0x1759260",
+          "length": 5,
+          "bytes": "e9bb770000",
+          "sha256": "9a3186b1b635aaab2eefea19f0851f431d4f2eab9bcb1853b0c424ba7f611f75"
+        },
+        {
+          "label": "objbif_constructor_initializer_calls",
+          "rva": "0x1760d15",
+          "length": 50,
+          "bytes": "498bd6488d05617d77ff488bcf488907e8968bffff4c8bc5498bd6488bcfe8a8bcffff4c8bc5498bd6488bcfe80ae4ffff48",
+          "sha256": "ae730a55cf3f663903619b351376f8b54eb4b0285b6b8b6b25e822d2fe8c2c18"
+        },
+        {
+          "label": "objbif_initializer_entry",
+          "rva": "0x175c9e0",
+          "length": 29,
+          "bytes": "440fb742104c8bc9458bd8418bc841c1eb0583e11fba01000000443bda",
+          "sha256": "735a701bc7c518b9e763818046dc76aa31e36dc6b6bdb6d4436d6f1dea333e8e"
+        },
+        {
+          "label": "set_selector",
+          "rva": "0x175de5f",
+          "length": 58,
+          "bytes": "418bc083e0e083f8400f85d7feffff418bc083e01fffc883f804771e488d057e7921ff49898140060000488d05907821ff49898148060000eb77",
+          "sha256": "6bb42fc45f3b630bfa917b4d901066230a612aa8936263989118ae765092040c"
+        },
+        {
+          "label": "get_selector",
+          "rva": "0x175df1e",
+          "length": 42,
+          "bytes": "418bc083e0e083f8400f8584feffff418bc083e01fffc883f804772f488d056f6c21ff49898158060000",
+          "sha256": "0708d1645a5a90809d99ffc3b148d76b54ace3cb061fc03c8afbdc30450a41f6"
+        },
+        {
+          "label": "selected_getter",
+          "rva": "0x974bb0",
+          "length": 202,
+          "bytes": "48895c24084889742410574883ec30488b0552f2a300498bf9498bf0488bd9488b9030020000807a6d007524ba00004501b9b3d6710ee8a5c076ffb856000000488b5c2440488b7424484883c4305fc3488b81c8050000ff159bde4800488d8b1044000048c7442420000000004533c033d2448d884c020000e8221a7bff488b5c24408bc8c1e90a8bd080e107c1ea0e880f41b8ff0300000fb7c8664123d0664123c866890e8bc8488b442468488b742448c1e91880e1078808488b44246066891033c04883c4305fc3",
+          "sha256": "efd26ef2c9f7d36a73ab86de4fd4b17a3147f4864958c66430e6f6e997a631c5"
+        },
+        {
+          "label": "selected_setter",
+          "rva": "0x975800",
+          "length": 485,
+          "bytes": "4053564154415641574883ec60488b056c4182004833c44889442448488b05f5e5a3004533e4418bdc450fb6f1450fb7f8488bf1488b9030020000385a6d7519ba0000f600b9b3d6710ee841b476ffb856000000e952010000488b81c805000048896c245848897c2450ff1538d248004533c04c8964242033d2488d8e10440000448d8854020000e8c30d7bff8b9424b80000008bf88b8c24b000000083e207488b86c805000081e1ff030000c1e20a81e7014000f00bd14183e607c1e2044181e7ff030000410bd6488bcec1e20a410bd703d20bfa81cf01400010ff15c6d148004c89642428488d8e104400004533c0897c242033d2448d8854020000e83d167bff4533c9488d5424304533c0488d8ea0200000e856f579ff488b86c8050000488bceff157ed148004533c04c8964242033d2488d8e10440000448d8854020000e8090d7bffa80174540f1f44000041b819010000488d542430488d8ea0200000e8d9ed79ff8bd883f8657457488b86c8050000488bceff152ad148004533c04c8964242033d2488d8e10440000448d8854020000e8b50c7bffa80175b18bc3488b6c2458488b7c2450488b4c24484833cce8a88237004883c460415f415e415c5e5bc3ba00001d01b9b3d6710ee8bcb276ffb91e010000e822b579ffb865000000ebbc",
+          "sha256": "14044cf66e753ba59bc4b0645f24ebaf708a33d2664a78f71a4eab8b63764656"
+        },
+        {
+          "label": "objgpu_class_descriptor",
+          "rva": "0xe8c9e0",
+          "length": 48,
+          "bytes": "705d0000cbf37e005018e54001000000406671410100000080c8e84001000000b0c8e840010000000100000000000000",
+          "sha256": "51d362cdbc43d8cf4a60119a5d44cf49497f1f640fc45fbaf5b30f3543d5cb4a"
+        },
+        {
+          "label": "objgpu_constructor_initializer_call",
+          "rva": "0x171f5c2",
+          "length": 16,
+          "bytes": "488907e84682ffff488bcfe82ea6ffff",
+          "sha256": "e3d4e76dcadf28c4cf14ff5cbea39805afee71c1522dbd3505ca5b8d1f7afe42"
+        },
+        {
+          "label": "objgpu_initializer_selector_load",
+          "rva": "0x1719c00",
+          "length": 48,
+          "bytes": "48895c24084c8bc14885c97414488b81880000000fb75010488b8190000000eb0a0fb714251000000033c0440fb75010",
+          "sha256": "c162c3b3dd9668977f254d6543ec225afb7ff8fbbc97f3c4ea5691cf89109583"
+        },
+        {
+          "label": "objgpu_xve_base_selector",
+          "rva": "0x171b8b8",
+          "length": 66,
+          "bytes": "8bc283e0e083f8408bc2751383e01fffc883f8047772488d054b08f5feeb1c83e0e083f82075618bca8bc3d3e0a900000064756a488d050db0b5fe498980c8050000",
+          "sha256": "84a30de82dfe41a6995527091e76fef3fad78473bc08026a68cbc2e30a792035"
+        },
+        {
+          "label": "selected_xve_base",
+          "rva": "0x66c120",
+          "length": 6,
+          "bytes": "b800a00800c3",
+          "sha256": "348531a00721b6fc128bc60d07e1e36d343dd1a0277cebcdb9414e7d4f39ea6c"
+        }
+      ]
+    },
+    {
+      "path": "experiments/registry-overrides/ltr-followup-terra-20261102/ltr-write-read-namespace-61742.json",
+      "sha256": "5bdf999c8da479e4e0608dd1165441753783e6e2d884f8bc55c9a232c794a31f",
+      "findings": [
+        "The root-reported trial used native SET payload 4000020060000200 and received status0 but sampled raw request and status still zero. It does not establish physical message behavior; no claim is made about why this happened.",
+        "48EE40 obtains GPU+2120 and always dispatches its +640 function when nonnull; it returns error 0x56 for null, not success. In the source-bound 975800 selected method, system+6D false returns 0x56. On that selected method there is no demonstrated host branch that simply skips the call and returns success before reaching the packed request/write helper.",
+        "975800 computes GPU+5C8 selected base plus 0x254; it invokes 126650 to read and 126F40 to write, with GPU+4410 and device/index arguments zero. It then uses 126650 on the same offset to poll bit0. Prior root verified 20800122 GLOBAL READ32 fallback invokes 126650 with the same GPU+4410, device/index zero and external offset. For source-bound base 8A000 and offset 8A254, this supplies an exact same-helper/same-address route, not merely similar aperture names. The public transport still has its own validation and possible hooks; source alone does not prove identical runtime hook selection.",
+        "126F40 is a void write helper with concrete interception branches: 1253F0 nonzero branches to return without its underlying EB460 write; 304A20 may set flag bit1 and skip EB460. 126650 also contains virtualization, filtering and emulation branches. Thus a source-possible explanation for status0 with no observed write is interception or suppression before physical write: 975800 initializes EBX=0, then a read of already-clear trigger bit immediately returns that zero status. This does not establish that a filter actually caused the reported trial.",
+        "The precise trial mismatch remains unverified request programming. Runtime callback selection, interception and post-write hardware behavior are not individually observed by this static trace. No raw write, additional SET, restore flow or hardware action is proposed."
+      ],
+      "windows": [
+        {
+          "label": "native_set_handler",
+          "rva": "0x48ee40",
+          "length": 91,
+          "bytes_hex": "4883ec48488b81600100004c8bc2488b88e8000000488b91202100004885d2750ab8560000004883c448c3450fb65006450fb75804450fb64802450fb700488b824006000044885424286644895c2420ff15123c97004883c448c3",
+          "sha256": "79b6a482958c36c6bd311c444cac37b853de2d1d5bbb6d9e072fefc07aa4a202"
+        },
+        {
+          "label": "setter_condition_and_base",
+          "rva": "0x975800",
+          "length": 117,
+          "bytes_hex": "4053564154415641574883ec60488b056c4182004833c44889442448488b05f5e5a3004533e4418bdc450fb6f1450fb7f8488bf1488b9030020000385a6d7519ba0000f600b9b3d6710ee841b476ffb856000000e952010000488b81c805000048896c245848897c2450ff1538d248004533c04c89",
+          "sha256": "98f8f9908d1f5bcdc6afa8a305d3bca25999cc459bc5a917725d12618f7c4018"
+        },
+        {
+          "label": "setter_write_and_trigger_poll",
+          "rva": "0x97588a",
+          "length": 283,
+          "bytes_hex": "0d7bff8b9424b80000008bf88b8c24b000000083e207488b86c805000081e1ff030000c1e20a81e7014000f00bd14183e607c1e2044181e7ff030000410bd6488bcec1e20a410bd703d20bfa81cf01400010ff15c6d148004c89642428488d8e104400004533c0897c242033d2448d8854020000e83d167bff4533c9488d5424304533c0488d8ea0200000e856f579ff488b86c8050000488bceff157ed148004533c04c8964242033d2488d8e10440000448d8854020000e8090d7bffa80174540f1f44000041b819010000488d542430488d8ea0200000e8d9ed79ff8bd883f8657457488b86c8050000488bceff152ad148004533c04c8964242033d2488d8e10440000448d8854020000e8b50c7bffa80175b18bc3488b6c24",
+          "sha256": "e5b8725e29eec364b3797ae743ea443e88648b9b23cd84779e1932b8da67f0a4"
+        },
+        {
+          "label": "global_read_dispatch",
+          "rva": "0x4d24b0",
+          "length": 72,
+          "bytes_hex": "4084ff74234d85ff7406498b4f58eb0233c9488b01488b4028ff15d9059300498db510440000eb20448bca48c744242000000000498db5104400004533c0488bce33d2e85841c5ff",
+          "sha256": "3153e4f2776d01f2923f5e2f44c0a494ad957f11778e18c9c4e4c4de7d27f137"
+        },
+        {
+          "label": "common_read_fallback",
+          "rva": "0x126689",
+          "length": 288,
+          "bytes_hex": "48895c2460488b1980bbab090000007430488b83f02100004885c07424488b90880200004885d27418488b4a588bd6488b01488b4028ff15e3c3cd00e93d010000ff411833c0488bcb894424448bd78944244048896c2458e8dadb1d00488be84885c0753d448bcf4489742420448bc6ba10119302b9e871600ee888a5fbffba00009402b9e871600ee879a5fbffb994020000e89f99fdffbfd0d0d0d0e9d500000080bbb309000000488bcb7412448bc6488bd5e88e4cfcff8bf8e9b70000004c8d4424408bd6e89becffff85c074098b7c2440e99e00000048837d28007430c644243800488d4424444c897c2430448bce4889442428458bc68bd7c744242020000000488bcbe8ebe01d008bf8eb048b7c2440f6442444017510448bc6488b",
+          "sha256": "6417357144441ea21590ba252ced3412af078c02b1b92347230e60bc46dbed2c"
+        },
+        {
+          "label": "common_write_entry",
+          "rva": "0x126f40",
+          "length": 160,
+          "bytes_hex": "405355565741544155415641574883ec78488b05282a07014833c44889442468488b19418be9488b8424e8000000458be8448be248894424584c8bf348895c24508bbb440d0000c74424640000000083ff200f859400000033f6488d059fecbd0041b1014533c0488944242033d2488bcbe8da3402004532ff448bb424e000000085f67418488bcbe8036bffff84c0750c3883940900000f8474010000488bbb",
+          "sha256": "006cb5d5c364b5fd8e057285671f427b70f592272c58ad45a78aa695a7b440bc"
+        },
+        {
+          "label": "common_write_filter_and_store",
+          "rva": "0x127092",
+          "length": 191,
+          "bytes_hex": "ff832c440000458bc5418bd4c744246000000000488bcfe812d21d00488bd84885c07535458bcc44896c2420448bc5ba1011c800b9e871600ee8c09bfbffba0000c900b9e871600ee8b19bfbffb9c9000000e8d78ffdffeb664533c08bd5488bcfe8f8e2ffff85c0755548837b2800743688442440448bcd488b442458458bc54889442438418bd4488d442460488bcf4889442430c7442428200000004489742420e8e7d81d00f6442460027511458bce448bc5488bd3488bcfe80f43fcff",
+          "sha256": "ab940a6e41cc09fc0b4928e7717e55f8879f37be9fa4eb53f99cf4376c1b9b4d"
+        }
+      ]
+    },
+    {
+      "path": "experiments/registry-overrides/lowpower-attr45-terra-20261102/attr45-init-and-set-61742.json",
+      "sha256": "fa31a3bddbf0d23a0d6e45af29c13692ef5f6af71c092019c89c67eac9e92a20",
+      "findings": [
+        "GET A801 type3 attr45 reads controller row+168 under controller-support dispatch. SET E802 type3 attr45 passes only low byte of entry value to 73ADB0; no Boolean range validation appears on that path. Same byte as cached value returns status 0x3F. A different byte is sent in request 00/03/08 with selected controller; on transport status 0 it overwrites host row+168. GET after SET thus reflects host request cache and is not independent effect readback.",
+        "New join: 3062EC calls 73A760 for a selected controller. 73A760 initializes an inactive row with request 00/06/13 and on status 0 copies byte reply stack+5D into [group+F0+index*108+78] = row+168 at 73A88B-890, then marks row+F1 active. The initial cache may derive from a firmware response rather than exclusively zero or prior writes; this is not a fresh independent post-SET query.",
+        "NVIDIA-authored GA10B public pmuif headers at pinned OE4T commit list PG_LOADING unit06 functions 00,01,0A,0B,0F,10 and PG unit03 functions 04,05,06,07,09,0E,0F,10. Neither function13 nor function08 appears in these respective finite lists. Current Windows wire/header equivalence is not established; no name or value domain can be inferred from the omission.",
+        "Local bounded direct operand scan of LPWR code 730000..73FFFF found the known GET and setter compare/store for +168, not another direct consumer. This excludes aliases, other modules, indirect paths and firmware. No current receiver meaning, independent post-SET firmware state getter, permitted byte domain, units, or exact lifetime across modes was established.",
+        "No named functional control or write trial is justified. A source-matched 00/03/08 receiver or authoritative corresponding schema with a distinguishing getter is the concrete missing join."
+      ],
+      "windows": [
+        {
+          "name": "get_type3_support_dispatch",
+          "rva": "0x4f3cfe",
+          "length": 84,
+          "bytes": "498baec01200004885ed0f84ba02000066837b04397418440fb74302488bd5488bcfe8cb46240084c00f849b020000440fb743024c8bcb488bd5488bcfe8d0462400bdff08000085c00f858002000066834b0601",
+          "sha256": "67141e707033e92eaf1d9ce093eb3f3c95dff1f3233cebfb66885ef140dcccb0"
+        },
+        {
+          "name": "get_cached_byte",
+          "rva": "0x738775",
+          "length": 13,
+          "bytes": "0fb6826801000041894108eb4f",
+          "sha256": "6852f5b2f86408bf3b2d2d1761f4e5d043fef1a19c47b96123706e3d74bab594"
+        },
+        {
+          "name": "setter_entry_low_byte",
+          "rva": "0x738da4",
+          "length": 21,
+          "bytes": "450fb64908458bc6488bd5488bcfe8f91f0000e998",
+          "sha256": "d8c0fdc6451398b110c3ce5dfeee3f4e830da97327363eab3a37a5f2e7f10194"
+        },
+        {
+          "name": "active_equal_guard_and_rpc",
+          "rva": "0x73adb0",
+          "length": 316,
+          "bytes": "405355565741564883ec60488b05beeba5004833c448894424584c8bb150250000410fb6f9418be8488bd94869f5080100004803f2e8e6d5ffff84c07514b9d3010000e808619dffb855000000e9d20000004038be680100007529ba0010dc01b9b476e50e41b8ffff0000e8705e9affb9dd010000e8d6609dffb83f000000e9a000000033d2488d4c244041b818000000e8aa4b9aff33d240886c245041b81000000040887c2451488d4c2440e88e4b9aff488b93b02300004c8d44244033c966c74424410308c64424400041b914000000410fb68629130000488b92381000008844243048894c242866894c2420488bcbe83990c1ff8bd885c0741e448bc0ba0010ef01b9b476e50ee8d15d9affb9f0010000e837609dffeb074088be680100008bc3488b4c24584833cce87f2d5b004883c460415e5f5e5d5bc3",
+          "sha256": "589beb6450e60d1878e0b87348ed9ff869320d9f1f3e3487c5633dcdabbf17cd"
+        },
+        {
+          "name": "controller_activation_caller",
+          "rva": "0x3062da",
+          "length": 62,
+          "bytes": "8bc5448bc5488bd6498bcf4c69f008010000e86f44430085c07419ba00005a01b9affebc0ee88ca9ddffb95a010000e8b29ddfff448bc5488bd6498bcfe8",
+          "sha256": "30d347655d64895232c064dd5ea004f209cec57790f71d6afa9fd987833ea0c0"
+        },
+        {
+          "name": "firmware_init_rpc_and_cache",
+          "rva": "0x73a760",
+          "length": 349,
+          "bytes": "405355565741564881ec80000000488b050bf2a5004833c448894424704c8bb150250000488d9af0000000488bf9418bf04869ce08010000488bea4803d9488bcfe86ad4a0ff84c07419ba00003800b9b476e50ee8d7649affb938000000e8fd589cff448bc6488bd5488bcfe8ffdbffff84c0740733c0e9c600000033d2488d4c244041b82c000000e802529aff8b4348488d4c244033d28944246041b81000000089742464e8e5519aff488b97b02300004533c066c7442441061341b928000000c644244000488bcf410fb68629130000488b9238100000884424304c894424286644894424204c8d442440e88e96c1ff8bf885c0741e448bc0ba00104e00b9b476e50ee826649affb94f000000e88c669dffeb2a0fb644245c88038b4424602143488b4424508943740fb644245d884378488b442454c6430101488943148bc7488b4c24704833cce8b1335b004881c480000000415e5f5e5d5bc3",
+          "sha256": "25e80a32aac175f3d8bcd94ca771576ce8e86513f9ffab491ec3699c9bd15dd8"
+        },
+        {
+          "name": "controller_row_initialization",
+          "rva": "0x736dc8",
+          "length": 78,
+          "bytes": "4c8bb150250000488d9af00000004533ff418bf04c69ce08010000488bfa488be94903d94c897b70c703ff000b044c897b0c44897b384c897b40c7432402000000c643040344897b08e8ead7ffff",
+          "sha256": "686de6a3a7cb0f3f78f958552c8ff2f58a70e09006e275e62b2c185521fa97a4"
+        }
+      ]
+    },
+    {
+      "path": "experiments/registry-overrides/aspm-enable-terra-20261102/aspm-enable-source-61742.json",
+      "sha256": "83422ce55b63b7778712c9d2d535b98dc87bd81aa1be91dac07ed44522b7ea76",
+      "findings": [
+        "48D950 takes one byte, resolves GPU and bus object+2120, calls 1945C0 and on success always calls bus+6D0, then conditionally calls bus+6D8/+6E0/+6E8 based on +9CF/+9D0/+9D1. Later callback return values are not checked. Thus helper alone does not bind every action or endpoint.",
+        "1945C0 reads 16 bits through F8FE0 using GPU+2740 and GPU+2750+10; FFFF causes error. For true it ORs 3, then zero-extends the 16-bit result into r8d and calls F91E0. F91E0 stores the input DWORD and both examined low-level paths send length 4; 194629 returns zero after the call without checking its result. Read success alone is not write confirmation, and the write width must not be described as 16-bit.",
+        "198390 uses GPU+E28 identity, a scanned topology list and predicates to select a node, whose +8 value is stored in GPU+2740 at 1985A9. It locates PCI capability ID10 and stores its discovered offset to GPU+2750 at 1986E0. The exact bus/topology semantic name of the selected node is not fully bound here.",
+        "20801823 dispatches to 4105E0 and through 130080. Selectors9/23, when 12F5D0 true, use GPU+2798 and offset110; 196AA0 requires GPU type3, descriptor valid byte and nonzero capability. It adds copied cap offset to 10 and reads through copied handle. 198CDB copies +2740 to +27A0 and 198D05 copies +2750 to +27B0. Same-target read is conditional on that copy and mode; alternate branch 130BF0 and current mode are unresolved.",
+        "F91E0 has an early null-handle exit and conditional exits; 1945C0 does not propagate its outcome. Actual backend callbacks and current transport can therefore acknowledge without source-proven requested configuration; no SET or action is proposed until exact runtime target and all selected callbacks are bound and typed readback verifies it.",
+        "12F5D0 returns true only when (198060 returns true or GPU+9A3 is nonzero) and at least one of GPU+9C7/+9C8/+9C9 is nonzero. 198060 includes GPU+9C7 and a table/device-identity comparison. No typed getter or current-state proof for these predicates was established in this bounded check. When true and copied descriptor is valid, 196AA0 receives selector offset 0x110, computes copied capability +0x10, then uses F8DD0 with copied handle. This is a conditional read join, not proof of which physical link is selected on the local adapter."
+      ],
+      "windows": [
+        {
+          "name": "aspm_descriptor",
+          "rva": "0xe65d70",
+          "length": 32,
+          "bytes": "50d94840010000004800000000000000241880200100000090b0e64001000000",
+          "sha256": "c468515213616824525718a7640d15a5aac119379877c6092d9fc15e203794fb"
+        },
+        {
+          "name": "aspm_handler_and_callbacks",
+          "rva": "0x48d950",
+          "length": 298,
+          "bytes": "48895c241048896c241848897c242041564883ec20488b81600100000fb62a488bb8e8000000488b059b64f200488b9f202100004c8bb0300200004885db750ab856000000e9ca000000488b83e0050000488bd3488bcf4889742430ff15f650970084c07407c683cf09000001440fb6c5498bd6488bcfe8f46bd0ff85c07416ba00006701b9eb4c200ee8b132c5ffb8ffff0000eb79488b83d0060000440fb6c5488bd3488bcfff15ab50970080bbcf090000007417488b83d8060000440fb6c5488bd3488bcfff158b50970080bbd0090000007417488b83e0060000440fb6c5488bd3488bcfff156b50970080bbd1090000007417488b83e8060000440fb6c5488bd3488bcfff154b50970033c0488b742430488b5c2438488b6c2440488b7c24484883c420415ec3",
+          "sha256": "80e457b1ed6b2c6e60711c643422b855c323f2bafcb079a5d123221250bc13ae"
+        },
+        {
+          "name": "enable_helper",
+          "rva": "0x1945c0",
+          "length": 128,
+          "bytes": "48895c240848896c24104889742418574883ec208b9950270000410fb6f0488bb940270000488bcf8d5310e8f049f6ffbdffff0000663bc57513ba00008914b9868cba0ee887c6f4ff8bc5eb1e33c98d53106683c8034084f6660f44c1488bcf440fb7c0e8b74bf6ff33c0488b5c2430488b6c2438488b7424404883c4205fc3",
+          "sha256": "39b20158e56fab342a6ddd99eec393bfcd7ef91037831ef335909b4f4637d34d"
+        },
+        {
+          "name": "read16_callback",
+          "rva": "0xf913d",
+          "length": 42,
+          "bytes": "488b46384c8d442430488b4e08458bcf33d2897c2420ff154f99d00085c00f8448ffffff0fb7442430e9",
+          "sha256": "cc81cb889330e2ab031e3d8e0dba13e71adad442c2541cd3ccc963cbd6cda3a9"
+        },
+        {
+          "name": "write_input_width",
+          "rva": "0xf91e0",
+          "length": 48,
+          "bytes": "4057415441574883ec60488b058f070a014833c44889442438488bf94489442430488b0d10ac2b01448bfae870200000",
+          "sha256": "cc1f3251020943213de1fc8f811d3a5aeae1d262fae167a48691881db560c10a"
+        },
+        {
+          "name": "write_path_gpu",
+          "rva": "0xf9334",
+          "length": 34,
+          "bytes": "488b47304c8d442430488b4f08458bcf33d2c744242004000000ff155497d000eb68",
+          "sha256": "eece9270061dd0e1b5acc9122d3cacda6873558d1a1f2b0d7908ea735ce90667"
+        },
+        {
+          "name": "write_path_bus",
+          "rva": "0xf938f",
+          "length": 47,
+          "bytes": "83e507400fb6d7c1e5054c8d4c243083e61fc7442428040000000bee44897c2420448bc5b904000000ff15528cd000",
+          "sha256": "750f9a367ee36923079cc0fa24a5a56e0dae7931ddfb2a85b205e645142285ae"
+        },
+        {
+          "name": "gpu_pci_identity_setup",
+          "rva": "0x198390",
+          "length": 178,
+          "bytes": "4055574157488d6c24b94881eca0000000488b05d81500014833c44889451780b93f270000004c8bfa488bf97407b001e9eb0a000080b9300e0000004889b424980000004c89a424900000004c89ac24880000004c89b424800000007519ba00002006b9868cba0ee89388f4ffb920060000e8b97cf6ff488bb7280e0000488d55074c8bee48899c24d0000000488d4d0b49c1ed2048c1ee08e8a2fdf6ff8b4d07488d550fc7450f00000000e83f12f7ff4c",
+          "sha256": "7c544433defd3cf2f0ba8e581f0abf226f99bfd129d094c044c46c3778cbe7fb"
+        },
+        {
+          "name": "upstream_selection",
+          "rva": "0x198492",
+          "length": 302,
+          "bytes": "410fb6869f090000450fb7cc458bc588442420498bd7498bcee8f0f0ffff85c07534498b8fe00000004885c9742840387123751a4439691c75140fb65120400fb6c6ffc83bd07f06807926007470488b094885c975d84c8da738270000488b0522b92101488bcf488b986002000033c04189042448898740270000488b8728020000c7873c27000000000001c78764270000ffffffffff157aa5c60083f8040f84d20000004885db740a807b51000f85c3000000b942060000e9310900004c8b59084c8da7382700000fb64121440fb64122440fb74912440fb751108855f78845f8448845f96644894dff66448955fb4d85db0f8464ffffff45892c2488973c27000088873d2700004488873e270000c6873f270000014c899f4027000066448997642700006644898f66270000",
+          "sha256": "e366c2e9a43bbe888041def5eec143a056cb6556551cd6bc4897f3a85e89ddf9"
+        },
+        {
+          "name": "pci_capability_find",
+          "rva": "0x1986a7",
+          "length": 70,
+          "bytes": "ba34000000498bcee80c05f6ff84c00f844dffffff0f1f40000fb6d8498bce8bd3e80307f6ff3c10740cc1e80884c075e8e92cffffff498bd441895c2418498bcfe803160000",
+          "sha256": "df3e7ce100020aae8fb815f3b05c3e3e3d9b886e7251011c1ffb150151ae8297"
+        },
+        {
+          "name": "copied_handle_and_cap",
+          "rva": "0x198c9b",
+          "length": 118,
+          "bytes": "8b87382700008987982700000fb6873c27000088879c2700000fb6873d27000088879d2700000fb6873e27000088879e2700000fb6873f27000088879f270000488b8740270000488987a02700000fb78764270000668987c42700000fb78766270000668987c62700008b87502700008987b0270000",
+          "sha256": "5d73440adb904a3bdf0372e9a0204b19e82a272e9d030ea26f900fc5435b2139"
+        },
+        {
+          "name": "getinfo_descriptor",
+          "rva": "0xe65d50",
+          "length": 32,
+          "bytes": "b00a414001000000180101000000000023188020a401000090b0e64001000000",
+          "sha256": "be1ce4fda75936f2cd85c3c2dca9b095c6c90ca85931e3c6bad0f1587393a1dd"
+        },
+        {
+          "name": "getinfo_dispatch",
+          "rva": "0x410ab0",
+          "length": 41,
+          "bytes": "448b02418d40ff83f8337717488b81600100004883c204488b88e8000000e90dfbffffb81f000000c3",
+          "sha256": "5068c544b725adf0eddc1afdb7562f876c424725616c1eea1e3e8692452d9abd"
+        },
+        {
+          "name": "getinfo_info_entry",
+          "rva": "0x410767",
+          "length": 63,
+          "bytes": "488bcbe8d1d4d0ff84c00f84f20100004d8bc7498bd5488bcbe8fbf8d1ff448bf085c00f85bf0100004c8b4424604c8d1564f8beff4c8b4c2478e972010000",
+          "sha256": "a30efa6a8f880e67368c0d0c6ed257ae315a9a541abaa5e8f9ab4fb597687440"
+        },
+        {
+          "name": "info_selectors9_23",
+          "rva": "0x130359",
+          "length": 43,
+          "bytes": "488bcfe86ff2ffff488bcf84c074124c8d879827000041b910010000e968ffffff498bd6e86e0800008bd8",
+          "sha256": "aac763e24a3f7faf52e89d90cb75d2fbb6fe3c437e9ba7336c92972a71091c8c"
+        },
+        {
+          "name": "selector_mode",
+          "rva": "0x12f5d0",
+          "length": 73,
+          "bytes": "40534883ec20488bd9e8828a060084c0750e3883a309000075064883c4205bc380bbc709000000751980bbc809000000751080bbc9090000000f95c04883c4205bc3b0014883c4205b",
+          "sha256": "c13ce2357eb6c21ef4b5853306af6229ed3645f4f29eb93735fdb27b9310881f"
+        },
+        {
+          "name": "info_common_read",
+          "rva": "0x1302df",
+          "length": 32,
+          "bytes": "488bcf488d45e0498bd74889442420e8ad67060085c00f8411030000e90f0300",
+          "sha256": "f1d6a6f66dd610d72f5be224ad0dc0206f82d27bac773bb398c2648ec49c72a1"
+        },
+        {
+          "name": "typed_pci_guard_and_offset",
+          "rva": "0x196aa0",
+          "length": 96,
+          "bytes": "48895c24084889742410574883ec30488b8128020000498bd8418bf9488bf2ff15e3bfc60083f8030f85bc010000807b07000f84b20100008d8700ffffff83f82c771d837b18000f849d0100000faee88b531881c200ffffff03d7e968010000",
+          "sha256": "5b7b73c3d7f0c8c62f7364241a75d3b1d559535a825667ce9702ea9c8dfdde75"
+        },
+        {
+          "name": "typed_pci_read",
+          "rva": "0x196c68",
+          "length": 40,
+          "bytes": "488b4b08e85f21f6ff488b4c2460890133c0488b5c2440488b7424484883c4305fc3488b5c2440b8",
+          "sha256": "5724be7a34ae85e26d490d24dbfece35fd30cbe5b1189749eb7e1f3e654aa816"
+        },
+        {
+          "name": "selector_mode_predicate",
+          "rva": "0x12f5d0",
+          "length": 73,
+          "bytes": "40534883ec20488bd9e8828a060084c0750e3883a309000075064883c4205bc380bbc709000000751980bbc809000000751080bbc9090000000f95c04883c4205bc3b0014883c4205b",
+          "sha256": "c13ce2357eb6c21ef4b5853306af6229ed3645f4f29eb93735fdb27b9310881f"
+        },
+        {
+          "name": "selector_mode_helper",
+          "rva": "0x198060",
+          "length": 190,
+          "bytes": "48895c240848897c241080b9c7090000004c8bc10f859600000033db488d3d2512cf004533db66660f1f8400000000004532d233c06666660f1f8400000000008bc84903cb488d1409440fb74c3a08664585c9740866837c3a1000750341b2010fb70c3a6685c9742f66413b889e0d0000751e4584d2753866453b88a40d0000750f410fb788a60d000066394c3a10741fffc083f80472a8ffc34983c30c83fb01728d32c0488b5c2408488b7c2410c3488b5c2408b001488b7c2410c3cc",
+          "sha256": "917941fbe01efb533fbd4d83145a8eaf744c3941f60bf639062f16624412af6c"
+        },
+        {
+          "name": "copied_cap_offset",
+          "rva": "0x198d05",
+          "length": 12,
+          "bytes": "8b87502700008987b0270000",
+          "sha256": "7d9761db610450703ba9759f6bb18acc2b5b28d63f9692b7c26f9ae8cb22228a"
+        },
+        {
+          "name": "info_index9_23_route",
+          "rva": "0x130359",
+          "length": 48,
+          "bytes": "488bcfe86ff2ffff488bcf84c074124c8d879827000041b910010000e968ffffff498bd6e86e0800008bd8e986020000",
+          "sha256": "d192eed7cb9ca1f4813f211f8e1eb74db20688efca01d63b3e2d1e24b56ee716"
+        },
+        {
+          "name": "translated_cap_plus_10",
+          "rva": "0x196ad8",
+          "length": 37,
+          "bytes": "8d8700ffffff83f82c771d837b18000f849d0100000faee88b531881c200ffffff03d7e968",
+          "sha256": "a99a24abbe2fa57dd64a5062795f077597056d69aaf10e8e8e133ed99c5b5ae1"
+        },
+        {
+          "name": "typed_pci_read",
+          "rva": "0x196c68",
+          "length": 34,
+          "bytes": "488b4b08e85f21f6ff488b4c2460890133c0488b5c2440488b7424484883c4305fc3",
+          "sha256": "0865778ad133e77c47d7fdc879b00e8585073d503d4eee99dcf1296fb7c2aba1"
+        }
+      ]
+    }
+  ],
+  "ltr_trial": {
+    "receipt": {
+      "path": "experiments/registry-overrides/ltr-root-20261102/native-ltr-trial-20261102.json",
+      "sha256": "cd41a7bb7a0acce9c19a2eff41451336c0f7c24cdf3135748b927ad578ffebad"
+    },
+    "qualification": "The public named LTR SET, selected GB HAL and exact request-register readback can qualify programmed request state without proving message delivery. The runtime trial did not satisfy that check.",
+    "identity": {
+      "slot": "0000:01:00.0",
+      "architecture": 10,
+      "device_id": 11266,
+      "subsystem_id": 2313031747
+    },
+    "request_hex": "4000020060000200",
+    "response_hex": "4000020060000200",
+    "ntstatus": 0,
+    "request_fields": {
+      "snoop_value": 64,
+      "snoop_scale": 2,
+      "no_snoop_value": 96,
+      "no_snoop_scale": 2
+    },
+    "request_nanoseconds": [
+      65536,
+      98304
+    ],
+    "expected_register_hex": "0x14305080",
+    "before": {
+      "architecture": "b001000003000000a100000001000000",
+      "typed_get": "000100000000000000000000",
+      "registers": {
+        "0x8a254": 0,
+        "0x8a24c": 0
+      }
+    },
+    "after": {
+      "architecture": "b001000003000000a100000001000000",
+      "typed_get": "000100000000000000000000",
+      "registers": {
+        "0x8a254": 0,
+        "0x8a24c": 0
+      }
+    },
+    "after_second": {
+      "architecture": "b001000003000000a100000001000000",
+      "typed_get": "000100000000000000000000",
+      "registers": {
+        "0x8a254": 0,
+        "0x8a24c": 0
+      }
+    },
+    "result": "Acknowledged but not reflected in the sampled programmed-request register, status register or typed GET. No verified functioning control on this configuration. Suppression, runtime interception or post-write hardware behavior remain possible; no causal or cross-device claim.",
+    "cleanup": {
+      "target": {
+        "slot": "0000:01:00.0",
+        "instance_id": "PCI\\VEN_10DE&DEV_2C02&SUBSYS_89DE1043&REV_A1\\10815610DF2DB04800",
+        "name": "NVIDIA GeForce RTX 5080"
+      },
+      "result": {
+        "ok": true,
+        "reboot_required": false,
+        "message": "GPU PnP restart completed and Windows reports the device started",
+        "returncode": 0
+      },
+      "identity": {
+        "slot": "0000:01:00.0",
+        "architecture": 10,
+        "device_id": 11266,
+        "subsystem_id": 2313031747
+      },
+      "registers_after_reset": {
+        "0x8a254": 0,
+        "0x8a24c": 0
+      },
+      "typed_get_after_reset": "000100000000000000000000"
+    }
+  },
+  "attribute45": "Initialization can populate cached byte from firmware reply00/06/13, byte+5D to row+168. SET00/03/08 overwrites the cache with the requested byte on success. The source does not identify its meaning, permitted values or independent post-SET effect. No SET issued.",
+  "aspm": "True ORs bits0/1 into a read16 value, but the helper sends a zero-extended four-byte config write and ignores write status. Handler performs additional bus callbacks. A typed same-handle getter exists only under unresolved current predicates. Endpoint scope and effects remain unqualified. No SET issued.",
+  "non_goals": "No remote adapter work, workload/physical measurements, recovery mechanism, saved profile or restart replay. Existing working controls are unchanged."
+}
