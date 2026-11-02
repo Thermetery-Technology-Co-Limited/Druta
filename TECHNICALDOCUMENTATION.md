@@ -2827,6 +2827,30 @@ See the [Pascal evidence](experiments/pascal-gp106-live-power-20261102.md) and
 its sanitized report. These are idle software observations on one adapter and
 one driver; they do not establish physical enforcement under load.
 
+### The role GET size fixes the native policy record stride
+
+`2080A61C` returns a 4-byte semantic selector followed by exactly one native
+policy INFO record, so the size it accepts fixes that record's stride:
+264/260, 232/228, 220/216, 136/132 and 120/116 across every ABI measured.
+`_definition_stride` therefore derives the stride from the accepted role size
+instead of carrying it per table, and `_native_geometry` records it on the
+binding as `native_info_stride` only when it differs from that layout's usual
+record size, so bindings captured on previously supported ABIs stay
+byte-identical.
+
+The derived value is never trusted on its own. The role definition must still
+bind to exactly one occupied native policy, which is the check a wrong stride
+fails. The role GET also negotiates its size: a refusal with RM `0x1F` — a
+definite answer about the request's shape — tries the one other understood
+small-group record size, while a transient error selects nothing, matching
+the existing client and native INFO fallbacks.
+
+A GP106 on driver 572.83 presents an A612 transport of 3676/3608 bytes with a
+220-byte role GET and an 8236-byte native INFO block of 216-byte records,
+while sharing the 1160-byte client group, the 4432-byte native CONTROL and
+the 171048-byte native STATUS with the 11740/11672 transport. See the
+[572.83 evidence](experiments/pascal-gp106-driver57283-20261102.md).
+
 ### A shared info and control block does not imply a shared status block
 
 The 11740/11672 entry added for that adapter shares the 8620-byte info and

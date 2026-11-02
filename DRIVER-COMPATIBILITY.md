@@ -1,5 +1,36 @@
 # Driver compatibility: runtime rail detection and legacy controls
 
+## 1.9.07 A refused role GET no longer removes live power and current
+
+The role INFO GET `2080A61C` carries a 4-byte semantic selector followed by
+exactly one native policy INFO record, so its accepted size fixes that
+record's stride. 1.9.06 carried the stride as a per-table constant and did not
+negotiate the role size at all, so a driver whose record is 216 bytes failed
+at the first role request and lost both the extended power ceiling and the
+current sliders.
+
+The role GET now negotiates its size on a refusal **for its size**, exactly as
+the client and native INFO GETs already do; a transient error still selects
+nothing. The stride is derived from the accepted size and must still bind the
+role definition to exactly one occupied native policy before anything uses it.
+
+The same Gigabyte GTX 1060 6GB (GP106, VBIOS `86.06.4b.00.32`) qualified at
+idle on driver 572.83. Three of its five blocks are identical to the 576.80
+entry and two are not:
+
+| Tested driver | Captured power transport | Client INFO / CONTROL / role | Native INFO (record) / CONTROL / STATUS | Status header / stride |
+| --- | --- | --- | --- | --- |
+| 576.80 | `2080A612`, 11740/11672 | 1160 / 392 / 232 | 8620 (228) / 4432 / 171048 | `0x68` / `0x1434` |
+| 572.83 | `2080A612`, 3676/3608 | 1160 / 392 / **220** | **8236 (216)** / 4432 / 171048 | `0x68` / `0x1434` |
+
+Requests of 190 W, 201 W and 250 W each passed exact readback and complete
+restoration to the captured 200 W baseline. Core current policy 13 reads
+1/86.8/95 A; a reversible trial set 94.2 A with the effective limit verified,
+refused 95.001 A without changing state, and restored 95 A. The native
+effective power limit reads 200000 mW. Physical enforcement under load remains
+unmeasured. See the
+[572.83 evidence](experiments/pascal-gp106-driver57283-20261102.md).
+
 ## 1.9.06 Pascal live power and the transport/record-layout split
 
 Druta borrows a paired RM transport from an unmodified power getter. Keying
