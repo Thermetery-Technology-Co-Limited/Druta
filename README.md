@@ -5,8 +5,11 @@ Supersedes 1.9.06. A role INFO GET refused for its size no longer removes
 live power and the current sliders: that GET now negotiates its size, and the
 native policy record stride is derived from the size it accepts rather than
 carried as a constant. Qualified on the same GTX 1060 under driver 572.83,
-whose policy record is 216 bytes rather than 228. See the
-[572.83 evidence](experiments/pascal-gp106-driver57283-20261102.md).
+whose policy record is 216 bytes rather than 228. The RM26 packet families
+are also no longer gated to Turing, which is all that stood between the same
+card on 472.12 and an interface Druta already described in full. See the
+[572.83](experiments/pascal-gp106-driver57283-20261102.md) and
+[472.12](experiments/pascal-gp106-driver47212-20261102.md) evidence.
 
 1.9.06 — [release notes](RELEASE-NOTES-1.9.06.md).
 Superseded 1.9.05 and carried its Turing work forward. The XOC power-limit

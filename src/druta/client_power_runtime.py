@@ -57,6 +57,12 @@ INFO216_SIZES = {
 # below, never by a device, board or driver version.
 #   4 Pascal, 6 Turing, 7 Ampere
 LEGACY_GROUP_ARCHITECTURES = (4, 6, 7)
+# The same question for the RM26 packet family, kept as a separate list
+# because it rests on separate evidence: a generation qualified against one
+# packet family is not thereby qualified against the other, and merging the
+# two would silently claim Ampere on RM26, which nothing here has tested.
+#   4 Pascal, 6 Turing
+RM26_ARCHITECTURES = (4, 6)
 RM26_SIZES = {
     INFO: 644, CONTROL: 388, SET: 388, ROLE_INFO: 120,
     NATIVE_INFO: 5008, NATIVE_CONTROL: 2108, NATIVE_STATUS: 14148,
@@ -274,8 +280,9 @@ class ClientPowerController:
             if self._transport_key is not None and key != self._transport_key:
                 raise ClientPowerError("identity", "Client-power transport changed; create a fresh controller")
             if key in ((0x20802612, 2524, 2456), (0x20802612, 3548, 3480)):
-                if identity["architecture"] != 6:
-                    raise ClientPowerError("unsupported", "This client-power RM26 ABI requires Turing")
+                if identity["architecture"] not in RM26_ARCHITECTURES:
+                    raise ClientPowerError(
+                        "unsupported", "This client-power RM26 ABI is not qualified for this GPU generation")
                 self._rm26_extended = key == (0x20802612, 3548, 3480)
                 self.sizes = RM26_EXTENDED_SIZES if self._rm26_extended else RM26_SIZES
                 self._rm26 = True

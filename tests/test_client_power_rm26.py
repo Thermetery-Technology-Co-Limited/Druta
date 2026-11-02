@@ -459,7 +459,8 @@ def test_rm26_size_refusal_does_not_probe_modern_namespace_or_retry_a_set():
     assert [command for command, _ in gpu.calls] == [0x20802630]
 
 
-@pytest.mark.parametrize("architecture", [5, 7, 8, 10])
+@pytest.mark.parametrize("architecture", [a for a in (3, 5, 7, 8, 9, 10)
+                                          if a not in cp.RM26_ARCHITECTURES])
 def test_rm26_unqualified_architecture_is_refused_before_any_exchange(architecture):
     gpu = Rm26Gpu()
     gpu.architecture = architecture
@@ -467,6 +468,23 @@ def test_rm26_unqualified_architecture_is_refused_before_any_exchange(architectu
         cp.ClientPowerController(gpu).set_request(551000)
     assert caught.value.kind == "unsupported" and caught.value.rollback is None
     assert not gpu.calls and not gpu.set_payloads
+
+
+@pytest.mark.parametrize("architecture", cp.RM26_ARCHITECTURES)
+def test_every_qualified_generation_reads_on_the_short_geometry(architecture):
+    gpu = Rm26Gpu()
+    gpu.architecture = architecture
+    before = cp.ClientPowerController(gpu).read()
+    assert before["identity"]["architecture"] == architecture
+    assert before["binding"]["layout"] == "rm26"
+    assert "native_layout" not in before["binding"]
+
+
+def test_the_two_generation_lists_stay_separate_evidence():
+    """Merging them would claim Ampere on RM26, which nothing has tested."""
+    assert cp.RM26_ARCHITECTURES == (4, 6)
+    assert cp.LEGACY_GROUP_ARCHITECTURES == (4, 6, 7)
+    assert set(cp.RM26_ARCHITECTURES) < set(cp.LEGACY_GROUP_ARCHITECTURES)
 
 
 @pytest.mark.parametrize("defect", ["envelope", "header_length", "fields", "field_value", "unknown_geometry"])

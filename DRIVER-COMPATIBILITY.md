@@ -31,6 +31,22 @@ effective power limit reads 200000 mW. Physical enforcement under load remains
 unmeasured. See the
 [572.83 evidence](experiments/pascal-gp106-driver57283-20261102.md).
 
+Driver **472.12** on the same board needed no new geometry at all. It presents
+the `20802612` RM26 transport at 3548/3480 bytes, and every block matched the
+existing table on the first try — client INFO 900, role INFO 136, native INFO
+5520 (record 132 at base `0x3C`), native CONTROL 2124, native STATUS 69148 —
+each confirmed by sweep to be the only accepted size. The sole blocker was a
+generation gate reading "This client-power RM26 ABI requires Turing", which
+becomes `RM26_ARCHITECTURES`, now `(4, 6)`. It stays separate from the client
+group's `(4, 6, 7)`, because a generation qualified against one packet family
+is not thereby qualified against the other.
+
+The same idle trials passed against its captured 180 W baseline, with core
+current moving 86.8 → 86 A and back. Recorded but not acted on: this family
+rejects a wrong parameter size with RM `0x3A` rather than the RM `0x1F` the
+A6xx families return. See the
+[472.12 evidence](experiments/pascal-gp106-driver47212-20261102.md).
+
 ## 1.9.06 Pascal live power and the transport/record-layout split
 
 Druta borrows a paired RM transport from an unmodified power getter. Keying

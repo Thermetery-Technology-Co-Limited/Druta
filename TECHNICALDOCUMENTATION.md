@@ -2822,6 +2822,24 @@ See the [Pascal evidence](experiments/pascal-gp106-live-power-20261102.md) and
 its sanitized report. These are idle software observations on one adapter and
 one driver; they do not establish physical enforcement under load.
 
+### Generation lists are per packet family, and stay separate
+
+Two constants record which GPU generations have had their client power-policy
+semantics qualified against a live adapter: `LEGACY_GROUP_ARCHITECTURES` for
+the smaller A6xx client group and `RM26_ARCHITECTURES` for the `20802612`
+families. They are `(4, 6, 7)` and `(4, 6)` and are deliberately not merged —
+a generation qualified against one packet family is not thereby qualified
+against the other, and merging would silently claim Ampere on RM26.
+
+Generation decides only whether a family's policy semantics are understood at
+all. Which packet sizes a card speaks is still decided by read-only
+acceptance and validated by exact binding and readback.
+
+The RM26 families reject a wrong parameter size with RM `0x3A`, where the
+A6xx families return RM `0x1F`. This is recorded as an observation; no code
+path treats the two as equivalent, because the RM26 layouts are selected by
+transport key with a single size candidate each and so never probe.
+
 ### The role GET size fixes the native policy record stride
 
 `2080A61C` returns a 4-byte semantic selector followed by exactly one native

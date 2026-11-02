@@ -389,13 +389,36 @@ def test_modern_controller_cannot_change_to_extended_geometry():
     assert len(gpu.calls) == calls and not gpu.set_payloads
 
 
-@pytest.mark.parametrize("architecture", [5, 7, 8, 10])
-def test_extended_geometry_is_turing_capability_not_a_driver_allowlist(architecture):
+@pytest.mark.parametrize("architecture", [a for a in (3, 5, 7, 8, 9, 10)
+                                          if a not in cp.RM26_ARCHITECTURES])
+def test_extended_geometry_is_a_capability_not_a_driver_allowlist(architecture):
     gpu = ExtendedRm26Gpu()
     gpu.architecture = architecture
     with pytest.raises(cp.ClientPowerError) as caught:
         cp.ClientPowerController(gpu).read()
     assert caught.value.kind == "unsupported" and not gpu.calls
+
+
+@pytest.mark.parametrize("architecture", cp.RM26_ARCHITECTURES)
+def test_every_qualified_generation_reads_and_restores_on_this_geometry(architecture):
+    """Qualifying a generation on the RM26 family is a hardware result.
+
+    Pascal joins Turing here on driver 472.12 evidence; the packet sizes are
+    the ones this ABI already used, so nothing but the gate changed.
+    """
+    gpu = ExtendedRm26Gpu()
+    gpu.architecture = architecture
+    controller = cp.ClientPowerController(gpu)
+    before = controller.read()
+    assert before["identity"]["architecture"] == architecture
+    assert before["binding"]["layout"] == "rm26"
+    assert before["binding"]["native_layout"] == "rm26_extended"
+    # The role size this ABI already used still implies its record stride.
+    assert cp._definition_stride(cp.RM26_EXTENDED_SIZES[cp.ROLE_INFO]) == 132
+    assert "native_info_stride" not in before["binding"]
+    controller.set_request(551000)
+    controller.set_request(gpu.original)
+    assert cp._state(controller.read()) == cp._state(before)
 
 
 def test_extended_transport_change_after_set_refuses_restore_into_new_geometry():
