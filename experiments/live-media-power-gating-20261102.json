@@ -1,0 +1,448 @@
+{
+  "schema": 1,
+  "date_utc": "2026-11-02",
+  "scope": "Source-qualified individual shared-count media inhibits and bounded RTX5080/617.42 request/readback trials; no physical activity/power claim.",
+  "driver_sha256": "db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b",
+  "contract": {
+    "set": "0x2080E802",
+    "get": "0x2080A801",
+    "size": 1028,
+    "type": 3,
+    "attribute": "0x37",
+    "acquire_value": 0,
+    "release_value": 1,
+    "controllers": {
+      "12": "NVDEC",
+      "13": "NVENC",
+      "14": "OFA",
+      "15": "NVJPG"
+    },
+    "response": "Entry flags0->1, every other byte unchanged; separately observe selected reason48bit0.",
+    "ownership": "One balanced shared-count reference, not a native per-object ownership handle. No replay after driver restart.",
+    "excluded": "Controller4 has a distinct shared-state side path. Numeric threshold units/peer semantics, attr45 meaning and attr3E partial-write semantics remain unqualified."
+  },
+  "individual_trials": [
+    {
+      "controller": 12,
+      "record_sha256": "437ff28df39f36d345a8eb332d7903fc35c2259514d8b1019ba810c634da94ad",
+      "reason_masks_before": {
+        "72": 0,
+        "73": 0
+      },
+      "reason_masks_held": {
+        "72": 1,
+        "73": 0
+      },
+      "reason_masks_released": {
+        "72": 0,
+        "73": 0
+      },
+      "set_requests": [
+        {
+          "value": 0,
+          "response_flag": 1,
+          "ntstatus": 0,
+          "rmstatus": 0
+        },
+        {
+          "value": 1,
+          "response_flag": 1,
+          "ntstatus": 0,
+          "rmstatus": 0
+        }
+      ],
+      "checks": {
+        "selected_transition_and_peers_unchanged": true,
+        "released_once": true,
+        "masks_restored": true,
+        "voltage_unchanged": true,
+        "lpwr_unchanged": true
+      }
+    },
+    {
+      "controller": 13,
+      "record_sha256": "e32e787ede4ae412b2233a2c9455b7dfa514e0636f564df3430a8868881d160f",
+      "reason_masks_before": {
+        "72": 0,
+        "73": 0
+      },
+      "reason_masks_held": {
+        "72": 1,
+        "73": 0
+      },
+      "reason_masks_released": {
+        "72": 0,
+        "73": 0
+      },
+      "set_requests": [
+        {
+          "value": 0,
+          "response_flag": 1,
+          "ntstatus": 0,
+          "rmstatus": 0
+        },
+        {
+          "value": 1,
+          "response_flag": 1,
+          "ntstatus": 0,
+          "rmstatus": 0
+        }
+      ],
+      "checks": {
+        "selected_transition_and_peers_unchanged": true,
+        "released_once": true,
+        "masks_restored": true,
+        "voltage_unchanged": true,
+        "lpwr_unchanged": true
+      }
+    },
+    {
+      "controller": 14,
+      "record_sha256": "dbc0b259ea0733103b7ea431c6adf7c7d1230cf10aa1db60c9fb84dad52ef4ec",
+      "reason_masks_before": {
+        "72": 0,
+        "73": 0
+      },
+      "reason_masks_held": {
+        "72": 1,
+        "73": 0
+      },
+      "reason_masks_released": {
+        "72": 0,
+        "73": 0
+      },
+      "set_requests": [
+        {
+          "value": 0,
+          "response_flag": 1,
+          "ntstatus": 0,
+          "rmstatus": 0
+        },
+        {
+          "value": 1,
+          "response_flag": 1,
+          "ntstatus": 0,
+          "rmstatus": 0
+        }
+      ],
+      "checks": {
+        "selected_transition_and_peers_unchanged": true,
+        "released_once": true,
+        "masks_restored": true,
+        "voltage_unchanged": true,
+        "lpwr_unchanged": true
+      }
+    },
+    {
+      "controller": 15,
+      "record_sha256": "180cfaeafa5a117a684476e044d8f9f41ee7fee1195e46fe048ea03dba571ee7",
+      "reason_masks_before": {
+        "72": 0,
+        "73": 0
+      },
+      "reason_masks_held": {
+        "72": 1,
+        "73": 0
+      },
+      "reason_masks_released": {
+        "72": 0,
+        "73": 0
+      },
+      "set_requests": [
+        {
+          "value": 0,
+          "response_flag": 1,
+          "ntstatus": 0,
+          "rmstatus": 0
+        },
+        {
+          "value": 1,
+          "response_flag": 1,
+          "ntstatus": 0,
+          "rmstatus": 0
+        }
+      ],
+      "checks": {
+        "selected_transition_and_peers_unchanged": true,
+        "released_once": true,
+        "masks_restored": true,
+        "voltage_unchanged": true,
+        "lpwr_unchanged": true
+      }
+    }
+  ],
+  "hardware_mutations": 36,
+  "registry_changes": false,
+  "driver_restart": false,
+  "workload": false,
+  "source_audit": {
+    "driver_sha256": "db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b",
+    "scope": "Offline source audit of E802/A801 type3 attr37 only; no GPU operations.",
+    "findings": {
+      "setter": "E802 type3 attr37 input DWORD zero calls 736b60 then increments per-controller row+10c and sets reason0 bit in row+110; any nonzero decrements that shared count when positive and clears reason0 only when count is zero, then invokes group+50. This is a counted shared request, not replacement or per-object ownership. The path also has GPU state guards.",
+      "witness": "A801 type3 attr48 returns full row+110 reason bitmap; attr49 returns different row+11c. Attr37 getter returns eligible predicate requiring support, row+f1, entire row+110 zero and selected +80 callback true, not a count or client ownership. Reason bit zero on an admitted controller gives initial baseline for one acquired reference; exact complete mask transitions and one matching release must be verified.",
+      "side_effects": "On zero input group+e6 can trigger 73aef0, which under additional global conditions sends header 00/03/1c with no selected controller argument. On controller4, both branches invoke 3628a0 with opposite Boolean; this helper can change extra shared state/counters. Thus host source does not establish universal peer preservation or effects beyond selected reason bit. No session handle links request lifetime to object close; balancing requires explicit matching call.",
+      "qualification": "A per-controller shared reason0 inhibit is an actual source path and may cover independently supported controllers; it is distinct from profiler-manager ownership. Admit only source-appropriate scope after bounding additional group/controller4 side effects and testing selected mask behavior. No physical state claim follows from bitmap alone.",
+      "group_e6": "305843..8c1 reads registry key RmPmuPgLogParams, requires bits31:30 ==01 and GPU+23b0+863 nonzero, initializes group+1948/+194c and sets group+e6; zero-allocated default is off. 306402..453 sends setup with 73b000 if support exists, else clears flag. On hold, 73aef0 under independent guards sends header 00/03/1c without selected-controller or value payload. Association is a PG logging notification path; firmware implementation is not independently decoded.",
+      "bounded_trial": "For supported controller12 or13, capture stable complete A801 type3 39/48/49 inventory; require selected reason0 bit clear. E802 type3 attr37 value0 once; verify selected attr48 equals baseline|1 and all peer attr48 and every attr49 unchanged. E802 value1 once; verify full captured attr48/49 inventory restored. Verify validity/transport and distinguish status failure, which can occur after count change. This verifies shared reason request only, not physical state or universal peer invariance. These media IDs avoid the additional controller4-specific 3628a0 path.",
+      "response_contract": "E802 entry handler clears only flags bit0 before routing, and sets bit0 when type3 7388e0 returns zero; other bits preserved. Attribute37 path reads but does not write input value or reserved fields. With initial flags=0, one entry and otherwise zeroed packet, status0 and flags1 with all other bytes unchanged show handler accepted; independently require attr48 exact transition. Failure can occur after count increment, and status0 can accompany state-guarded no-op. Verify full inventory after either outcome.",
+      "media_and_architecture": "Existing source-backed product media identities: 12 NVDEC,13 NVENC,14 OFA,15 NVJPG. E802 type3 dispatch uses support guard and common attr37 body for each. Its special controller4 branch excludes all four. Factory 17e1580 selects release +50 method 7377f0 if separate RM HAL descriptor word+10 is 2, else default 92d80 returns 0x56; no current evidence establishes RM HAL word across TU/GA/AD/GB. Thus code commonality and support are not proof that every generation will successfully release; current 5080 trial supplies Blackwell device evidence and runtime validation supplies operation-specific checks. Do not infer blanket compatibility from driver version or one board.",
+      "rm_variant_selector": "RmHalspecOwner class34a6d6 places RmVariantHal ordinal at owner+10 (local NVIDIA generated g_gpu_halspec_nvoc.h). Windows 2a9880 maps runtime variant enum1/2/3 to ordinal0/1/2, matching generated enum VF/PF_KERNEL_ONLY/PF_MONOLITHIC. Factory17e1580 chooses 7377f0 for ordinal2 and otherwise 92d80 stub. 104d40 calls 108a50 with output pointer stack+80, then 10504b passes the result through GPU factory171f410 to RmHalspecOwner initializer1750ce0. 108c08..4b chooses enum1 for VF, else enum2 when GPU-config+1158 is set and GPU ID mask at least16000000, else enum3. This is RM runtime mode, not a generation-only property. Exact external getter for GPU-config+1158 not established here; do not infer mode solely from native GPU architecture.",
+      "eligibility_vs_release": "GET37==1 cannot establish release method: 17e1580 selects +50 by RmVariantHal descriptor and then uses independent GpuChipHal word for +80. GB method b8fcb0 reads bit0 of 8f7280+4*controller hardware ID; other branches use b90350/b904b0 register methods. Thus group+80 is not the RM variant selector and true eligibility does not prove PF-monolithic release callback. This does not assert the modes cannot be correlated by an as-yet-untraced external condition.",
+      "stub_release_nuance": "On release, 738a09..53 decrements shared reason count and clears reason0 when zero before calling +50. If +50 resolves 92d80, return status is 0x56; this establishes a failed callback result after host count/bit cleanup, not that release balancing is impossible. Callback-dependent reevaluation remains unresolved.",
+      "mode_getter_search": "No typed public getter was source-bound to bootstrap field+1158 in this bounded audit. 617.42 NVML export nvmlDeviceGetGspFirmwareMode forwards through a device backend virtual method and public export does not identify native control; current adapter returns NVML status3 per root capture, so mode is unavailable there. Device GET_VIRTUALIZATION_MODE 00800289 has separate public meaning and reads GPU+eb8/+534a; its relationship to 108a50 bootstrap bytes+1160/+60 is unproved. Neither unavailable result nor mode0 may be equated to monolithic selector."
+    },
+    "windows": [
+      {
+        "label": "e802_type3_dispatch",
+        "rva": "0x4f4220",
+        "length": 80,
+        "bytes_hex": "4c8bb5c0120000bf560000004d85f60f84f8020000440fb74302498bd6498bcfe8ab41240084c00f84e0020000440fb743024c8bcb498bd6498bcfe8804624008bf885c00f85c302000066834b0601e9",
+        "sha256": "8e11dac6178cf2e65931b3855cf830e7c79702c5dde3b86cab2446f69b554d48"
+      },
+      {
+        "label": "attr37_case",
+        "rva": "0x738958",
+        "length": 455,
+        "bytes_hex": "413959080f84050100004183fe0475494d85e4744441b001498bd4488bcfe8259fc2ff8bd885c07430ba0000b518b9329b890ee800839aff4533c0ba0010b818b9329b890ee8ee829affb9ba180000e854859dffe9a302000080bfa0090000000f85a200000080bfa1090000000f859500000080bfa2090000000f858800000080bfb209000000757f8b8f340d0000e8b48d9cff84c07519ba00001d10b9329b890ee891829affb91d100000e8b7769cff8b860c01000085c07e0affc889860c010000eb19ba00002e10b9329b890ee864829affb92e100000e88a769cff83be0c01000000750783a610010000fe488b4550458bc6488bd5488bcfff154fa06c008bd8e9f401000033dbe9ed010000389fa0090000755d389fa10900007555389fa2090000754d389fb209000075458b8f340d0000e80e8d9cff84c07519ba00007110b9329b890ee8eb819affb971100000e811769cff458bc6488bd5488bcfe8a3e0ffffff860c0100008bd8838e100100000180bde600000000740b488bd5488bcfe8102400004183fe040f856a0100004d85e40f84610100004533c0498bd4488bcfe89f9dc2ff8bd885c00f8449010000ba0000d418b9329b890ee876819affe935010000",
+        "sha256": "2ad8c17620813986d22352aa2f01c875dc220f450c00813a6c194e597c6fc5e4"
+      },
+      {
+        "label": "getter_37_eligibility",
+        "rva": "0x7384c9",
+        "length": 84,
+        "bytes_hex": "4939be50250000744483fd16733f8b86e80000000fa3e873344038baf1000000742b39ba100100007523488b8680000000448bc5488bd6498bceff159fa56c0084c0b8010000000f85b80200008bc7e9b1020000",
+        "sha256": "a5645ef2b252c08f89f69309bfc78c4a9ac4874338b84e153579e0966df6e56f"
+      },
+      {
+        "label": "getter_48_49",
+        "rva": "0x738782",
+        "length": 22,
+        "bytes_hex": "8b821001000041894108eb438b821c01000041894108",
+        "sha256": "bfda8fc2c034ec1ecbdb3ce485825f71eb69d98effd69ada471263ee5e499a2e"
+      },
+      {
+        "label": "group_side_callback",
+        "rva": "0x73aef0",
+        "length": 249,
+        "bytes_hex": "48895c2410574883ec60488b057feaa5004833c44889442458488bd9488b89b0230000488bbb502500004885c90f84bd000000488b89c80b0000488b415880b85b040000000f84a5000000807950000f859b00000083bae8000000000f848e00000033d2488d4c244041b814000000e88c4a9aff33d2488d4c244041b810000000e87a4a9aff488b93b02300004c8d44244033c966c7442441031cc64424400041b9100000000fb68729130000488b92381000008844243048894c242866894c2420488bcbe8268fc1ff8bd885c0741c448bc0ba00106002b9b476e50ee8be5c9affb961020000e8245f9dff8bc3eb0233c0488b4c24584833",
+        "sha256": "74921bbc1fa187ca11a9268ac79c28c564a36d69c20ad0be56457a0f19b5b1bf"
+      },
+      {
+        "label": "controller4_side_handler",
+        "rva": "0x3628a0",
+        "length": 272,
+        "bytes_hex": "40535556574154415641574883ec50488b05ca70e3004833c44889442440488b995025000033ed450fb6e0488bf24c8bf14038aa9b1700000f8489000000488b82780c00004c8d4424384533c9ff15b501aa008b86f43900004584e40f845101000085c00f843001000083e8018986f43900000f85d30100008b963018000032c985d274420fb6c1807c0438007408ffc5888ef8390000fec10fb6c13bc272e583fd01764080bb76020000007419ba0000b700b9f4d4360ee833e3d7ffb9b7000000e859d7d9ff33c0488b4c24404833cce8eab298004883c450415f415e415c5f5e5d5bc385ed74de0fb6aef8390000488bce8bbe642d00008bd5e8d0c7ddff80be981700000074068bb8dc07000085",
+        "sha256": "80c7c8aa9249738ae611eb9e2552a27729179a011409f3af37c0d1a97066cd8f"
+      },
+      {
+        "label": "inhibit_helper",
+        "rva": "0x736b60",
+        "length": 96,
+        "bytes_hex": "40535557415441564883ec50488b050d2ea6004833c448894424384c8ba150250000488bea458bf0488bd94969fe080100004803fa80bff1000000000f847e01000083bf10010000000f85710100004c897c24404532ff48c744243000000000",
+        "sha256": "35e06c58afd4ea8905d26d33e6d556ac67fff86ab510eff9e04ed66c2c8d13d5"
+      },
+      {
+        "label": "logging_option_init",
+        "rva": "0x30581c",
+        "length": 199,
+        "bytes_hex": "488bcee86cfaffff4c8b4c2420ba0600000041b800153bb3488bce458b89e8000000e89db40400488b7c24204c8d442428488b9eb0230000488d15c569a000488bce44897c2428e86852e6ff85c075778b44242825000000c03d0000004075674885db74494438bb63080000744033d24c89b4248000000041b808000000488d8f48190000e84aa1ddff4c8bb42480000000c787481900001f00080066c7874c1900001b00c687e600000001eb19ba00003505b9affebc0ee8b7b3ddffb936050000e81db6e0ff",
+        "sha256": "7e5f22006bf4f4f6090f99348991d653f741394f97c13d4a35224aab8b4eed83"
+      },
+      {
+        "label": "logging_option_name",
+        "rva": "0xd0c220",
+        "length": 17,
+        "bytes_hex": "526d506d7550674c6f67506172616d7300",
+        "sha256": "304e5877fe778547d5adea8a1dd6a8bc0bb46bfb741fa321732d377fd3d0e4ff"
+      },
+      {
+        "label": "logging_setup",
+        "rva": "0x306402",
+        "length": 91,
+        "bytes_hex": "83bee800000000488b6c2460744380bee600000000743a488bd6498bcfe8dc4b43008bd885c07433448bc0ba00108201b9affebc0ee854a8ddffb983010000e8baaae0ff8bc34883c438415f415d5e5bc3c686e600000000418bc5",
+        "sha256": "68c0514eca718b21fe7e58f5e8bb74961ac47de13525e6573be89a339df43274"
+      },
+      {
+        "label": "logging_setup_rpc",
+        "rva": "0x73b000",
+        "length": 245,
+        "bytes_hex": "48895c24184889742420574881ec80000000488b0567e9a5004833c4488944247080bae600000000488bda488bb150250000488bf9750733c0e9ae00000033d2488d4c244041b830000000e8a0499aff488b8348190000488d4c244033d2488944246441b810000000e882499aff488b97b02300004c8d44244033c966c7442441061ac64424400041b92c0000000fb68629130000488b92381000008844243048894c242866894c2420488bcfe82e8ec1ff8bf885c0741e448bc0ba00102002b9b476e50ee8c65b9affb921020000e82c5e9dffeb148b4424508983401900008b4424548983441900008bc7488b4c24704833cce8",
+        "sha256": "194281aeb1f48e69131f0330911e60c29b510a01a2038b30255c0de45f0d8f7f"
+      },
+      {
+        "label": "set_response_loop",
+        "rva": "0x4f4193",
+        "length": 80,
+        "bytes_hex": "48895c24704c8d0d61beb0ffb9feff00000f1f40000f1f8400000000008bde48c1e3044883c3044903dc440fb70366214b06418d40ff83f80d0f87610300004898418b8c81b4454f004903c9ffe14d85",
+        "sha256": "3842797d2e3e67cd3e7a25f5f7ed27e934e7db0374fad6d0ced229178526b314"
+      },
+      {
+        "label": "set_response_success",
+        "rva": "0x4f4220",
+        "length": 80,
+        "bytes_hex": "4c8bb5c0120000bf560000004d85f60f84f8020000440fb74302498bd6498bcfe8ab41240084c00f84e0020000440fb743024c8bcb498bd6498bcfe8804624008bf885c00f85c302000066834b0601e9",
+        "sha256": "8e11dac6178cf2e65931b3855cf830e7c79702c5dde3b86cab2446f69b554d48"
+      },
+      {
+        "label": "set_response_status",
+        "rva": "0x4f452b",
+        "length": 115,
+        "bytes_hex": "8bf885ff7445eb21448bceba00119301b9865bca0ee84bc7beffb995010000e8b1c9c1ffbf56000000448bcf448bc6ba0011a001b9865bca0ee827c7beffb9a2010000e88dc9c1ff448bef4c8b7424604c8d0d7ebab0ff488b542468ffc6b9feff0000413b34240f8218fcffff488b5c247048",
+        "sha256": "ec76457332e73ed0fbae4aaa0883c3c3297ab9a1302b0fe9ea1cfb00a582782f"
+      },
+      {
+        "label": "rmhal_release_callback_selection",
+        "rva": "0x17e1580",
+        "length": 47,
+        "bytes_hex": "410fb740104c8bd1440fb74a1083f820730f83e01f83f802488d055162f5fe7407488d05d8178bfe418bd148894150",
+        "sha256": "7266782766369d2896078af6aae0e2d17d6a514d80279c114c8fee589a899b2b"
+      },
+      {
+        "label": "rmhal_callback_default",
+        "rva": "0x92d80",
+        "length": 6,
+        "bytes_hex": "b856000000c3",
+        "sha256": "bddd17a8a5899e510e94c38e4cdef575614bd86de97e38b49fd97c5c9601281a"
+      },
+      {
+        "label": "media_controller_constructor_table",
+        "rva": "0x7370ec",
+        "length": 16,
+        "bytes_hex": "d46f7300ed6f7300067073001c707300",
+        "sha256": "45622d0fc70282a8a932433141a6ab00005dd5b204514de7af4c59e955b91649"
+      },
+      {
+        "label": "variant_enum_to_ordinal",
+        "rva": "0x2a9880",
+        "length": 33,
+        "bytes_hex": "83fa01750633c0668901c383fa02750666c7010100c383fa03750566c7010200c3",
+        "sha256": "9d9edf0dfcc5201ac846ecdca708de7b1b95277392a96fa5fd2aebb83a024627"
+      },
+      {
+        "label": "rmvariant_owner_init",
+        "rva": "0x1750ce0",
+        "length": 59,
+        "bytes_hex": "48895c2408574883ec20488d054f8775ff48894908488901488bd94883c110418bf8e8798bb5fe488d4b128bd7488b5c24304883c4205fe9f48ab5",
+        "sha256": "22915e839e5cd3983035c14f4adb554c90ca42a120781530045e53cfc94ac529"
+      },
+      {
+        "label": "gpu_factory_selector_forward",
+        "rva": "0x171f56f",
+        "length": 23,
+        "bytes_hex": "448b8424a0000000498bcc8b942498000000e85a170300",
+        "sha256": "bfd62f010b6fc2ad182a351c407d0d716bc60463e29b5ccfde42af969a20bebe"
+      },
+      {
+        "label": "gpu_creator_forwards_variant",
+        "rva": "0x10504b",
+        "length": 59,
+        "bytes_hex": "8b842480000000895c2450897c24484489742440894424388b8698000000894424308b8694000000894424288b869000000089442420e88aa36101",
+        "sha256": "8aa30f5ba1df03669f38ec2eb6cebaa7c8ef73b2aa824625576a36ab14bf390d"
+      },
+      {
+        "label": "gpu_identity_helper_output",
+        "rva": "0x104d6b",
+        "length": 71,
+        "bytes_hex": "894c247c498d4380488b0d9ef02a014d8d4b8848895424284c8d4424704889942488000000488d54247448898c24900000004c8bb908020000498d4b8c4889442420e89e3c0000",
+        "sha256": "0cedd5977dd32b242bec04f0c7f4a3f96cc4f8820444b722fdb7066b8bb63799"
+      },
+      {
+        "label": "variant_calculation",
+        "rva": "0x108c08",
+        "length": 70,
+        "bytes_hex": "4438a358110000750432c0eb258b06250000003f3d000000167313ba00008f05b9f1b23b0ee85e80fdff32c0eb04410fb6c54084ff740545892feb0af6d81bc083c003418907",
+        "sha256": "9b5b183d328a7c71a30423afe8960aeafd10065ebf372cffbec210943d535bf9"
+      },
+      {
+        "label": "rm_and_chip_hal_separation",
+        "rva": "0x17e1580",
+        "length": 56,
+        "bytes_hex": "410fb740104c8bd1440fb74a1083f820730f83e01f83f802488d055162f5fe7407488d05d8178bfe418bd148894150c1ea0541b801000000",
+        "sha256": "21355f6d04b07eb1f11b7b0d722c7250f05f04d0bcfd65488ab01c713dfe90fc"
+      },
+      {
+        "label": "gpu80_selection_paths",
+        "rva": "0x17e1788",
+        "length": 207,
+        "bytes_hex": "418bc183e0e083f8200f8598000000418bc183e01f83e81b83f8040f869f000000488d0500ed3aff49898280000000418bc183e0e083f8400f858e000000418bc9418bc0d3e0a9fe3000000f84cb000000488d0580e43aff49898288000000e99a000000488d05bd4982fe49894278418bc183e0e083f8407586418bc9418bc0d3e0a9fe300000741e488d0598e43aff49898280000000488d053ae43aff49898288000000eb57418bc183e0e083f8400f856bffffff41f6c11f0f8761ffffff488d0501eb3affe95cffffff418bc1",
+        "sha256": "8ecf64885cc2f57a4ffd2f02a9d050e124dd0211106e6f016f3d3cf42d44d931"
+      },
+      {
+        "label": "gb_eligibility_method",
+        "rva": "0xb8fcb0",
+        "length": 64,
+        "bytes_hex": "4883ec38418bc04881c1104400004c69c00801000048c744242000000000450fb68c10f00000004533c033d2468d0c8d80728f00e8676959ff24014883c438c3",
+        "sha256": "cd78679f6fa93e047544a6ecee7797da097d00c12450cfe3a42fb61db019317e"
+      },
+      {
+        "label": "legacy_eligibility_method",
+        "rva": "0xb904b0",
+        "length": 64,
+        "bytes_hex": "4883ec38418bc04881c1104400004c69c00801000048c744242000000000450fb68c10f00000004533c033d2468d0c8d60a71000e8676159ff24014883c438c3",
+        "sha256": "2dcea177d84903c3bd926a19b34748f6373267da785532e0eb9de56f29441ad0"
+      },
+      {
+        "label": "alternate_eligibility_method",
+        "rva": "0xb90350",
+        "length": 64,
+        "bytes_hex": "4883ec38418bc04881c1104400004c69c00801000048c744242000000000450fb68c10f00000004533c033d2468d0c8d60678f00e8c76259ff24014883c438c3",
+        "sha256": "d7b83873064b7669bc752a971f077f0065e2f858cf1fc57e9790bad6e172caaf"
+      }
+    ],
+    "references": [
+      "src/druta/nvdec_runtime.py",
+      "src/druta/media_lpwr_runtime.py",
+      "experiments/registry-overrides/functional-backlog-audit-terra-20261101/elcg-elpg-enable-61742.json",
+      "experiments/registry-overrides/luna-voltage-semantics-20261027/nvoc-class-crosscheck/open-gpu-kernel-modules/src/nvidia/generated/g_gpu_halspec_nvoc.h",
+      "experiments/registry-overrides/luna-voltage-semantics-20261027/nvoc-class-crosscheck/open-gpu-kernel-modules/src/nvidia/generated/g_chips2halspec_nvoc.h",
+      "experiments/registry-overrides/voltage-writer-root-20261030/gsp-nvml-read-61742-20261102.json",
+      "experiments/registry-overrides/profiler-more-terra-20261101/vf-virtualization-getter-61742.json"
+    ]
+  },
+  "source_audit_record_sha256": "ff1a04c7b935876ed1cc8ccbbdaf59b5c79b6090fc2e969c977e88c95323efb2",
+  "production_trial": {
+    "source_record_sha256": "32bf08be5935b02ddda98b8788cd563e512c70114100b28111b6516fb8ec935e",
+    "backend_sha256": "5e857a743f0a99487553591d49fef1d5cbf58a40b066a5286a6edb5e22fe870f",
+    "mutation_count": 28,
+    "checks": {
+      "all_media_independent_and_duplicate_no_write": true,
+      "shared_reference_release_verified": true,
+      "independent_release_verified": true,
+      "masks_restored": true,
+      "voltage_unchanged": true,
+      "lpwr_unchanged": true,
+      "clock_controls_restored": true
+    },
+    "shared_release": {
+      "architecture": {
+        "architecture": 432,
+        "implementation": 3,
+        "revision": 161,
+        "raw_auxiliary": 1
+      },
+      "support": true,
+      "available": true,
+      "reason_masks": {
+        "72": 1,
+        "73": 0
+      },
+      "status": "available",
+      "index": 12,
+      "name": "NVDEC",
+      "owned_request": false,
+      "uncertain_outcome": false,
+      "release_attempted": true,
+      "state": "idle",
+      "verification_scope": "selected shared reason0 reference; no unique ownership or physical power-gating claim",
+      "last_verification_error": null
+    },
+    "close_errors": [],
+    "coexistence": "All four media inhibits, ELCG and SLCG ENABLE and BLCG DISABLE. ELCG released independently; media holds released independently while SLCG/BLCG stayed held. Extra root-owned NVDEC reference verified remaining shared reason after product release."
+  },
+  "validation": {
+    "focused_tests_passed": 343,
+    "ruff": "passed new backend/panel and their tests",
+    "final_media_suite_passed": 40
+  }
+}

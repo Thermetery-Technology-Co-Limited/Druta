@@ -825,6 +825,19 @@ requests on normal exit or GPU switch and never reapplies them after a driver
 restart. They can be held independently; releasing one does not release the
 others. No registry change or GPU restart is needed to use them.
 
+**Live media power gating** provides separate **Refresh**, **Hold disabled**
+and **Release** controls for NVDEC, NVENC, OFA and NVJPG. Each checks its own
+availability, so an unsupported media engine does not disable the others. Hold
+adds one counted inhibit for the selected controller and checks its reason bit;
+Release removes this instance's one request. Another client's request can keep
+the inhibit active after release. Release a grouped ELPG hold before acquiring
+an individual media hold if it already sets that controller's reason bit.
+
+These controls do not need a registry change or GPU restart. Druta releases its
+own requests on normal exit or GPU switch and does not save or reapply them
+after a driver restart. Readback confirms the driver's request state, not
+physical gating, residency or power savings.
+
 **Runtime VF policy control** reads the active monotonicity and smoothing checks.
 After **Read VF policies**, use **Apply policies now** to change either check
 without restarting the GPU. **Restore initial policies** restores the values

@@ -6899,9 +6899,9 @@ class Druta:
         self.sync_hold_headroom(replan=True)
 
     def _close_live_gating_requests(self, gpu=None):
-        """Free this window's profiler objects; never replay a saved setting."""
+        """Release this window's live gating requests; never replay a saved setting."""
         complete = True
-        for name in ("_gr_gating_live_controllers", "_engine_clock_gating_controllers",
+        for name in ("_gr_gating_live_controllers", "_media_power_gating_controllers", "_engine_clock_gating_controllers",
                      "_block_clock_gating_controllers", "_second_level_clock_gating_controllers"):
             controllers = getattr(self, name, {})
             for key, controller in list(controllers.items()):

@@ -929,5 +929,235 @@
       "mutations": 0
     },
     "decision": "Real live setter candidate, not a shipped control. Current scale is not uniquely determined, units are not source-qualified, and matching firmware receiver semantics for a zero peer are absent. No SET or guessed-register read was executed. This does not establish that the setter is write-suppressed or ineffective."
+  },
+  "live_attribute_followup": {
+    "threshold_pair": {
+      "findings": {
+        "4c": "738be9..c37 reads entry+8 to local+40, sets local+44=0; it never reads entry+0c. After controller active/nonzero and GPU firmware capability checks, 73acc0 copies 16 bytes starting local+40. Only first 8 bytes are initialized on this case; +48/+4c are not initialized along this entry path. The untouched peer is zero in packet; receiver behavior unknown.",
+        "43": "738c74..d05 initializes a 16-byte local to zero, calls 737120 with controller index to fill its first two words using controller-specific configuration/defaults, then submits same 73acc0 path. It does not read caller-provided entry+8 or +0c. This is a default-derived pair, not arbitrary pair SET.",
+        "case_inventory": "Dispatch accepts 37,3a,3b,3d,3e,43,45,4c. 3d calls 73aaa0, sends distinct 00 03 06 request with controller index only. 3e forwards one input DWORD to feature intersection helper 739b50. 37 is reason hold/release; 45 forwards one byte. The only cases invoking 73acc0 are 3a,3b,43,4c. No arbitrary two-word caller input is present in this bounded dispatcher."
+      },
+      "references": [
+        "experiments/registry-overrides/functional-backlog-audit-terra-20261101/elpg-threshold-setter-61742.json"
+      ],
+      "windows": [
+        {
+          "label": "attr_dispatch_table",
+          "rva": "0x738dbc",
+          "length": 88,
+          "bytes_hex": "588973004f8c73004f8c73001f8b7300888b73004f8c73006e8d7300838d73004f8c73004f8c73004f8c73004f8c7300748c73004f8c7300a48d73004f8c73004f8c73004f8c73004f8c73004f8c73004f8c7300ae8b7300",
+          "sha256": "6776d05be790ab5bafc0c87aa18a8fe9e7e4a8f1f5875f8567f183e8ca0da479"
+        },
+        {
+          "label": "4c_case",
+          "rva": "0x738bae",
+          "length": 160,
+          "bytes_hex": "4d85ff7436440fb686f2000000498bd7488bcfe8bacd1b0084c0741f440fb686f200000041b902000000498bd7488bcfe80dd11b008bd885c0756b80bef100000000418b450889442440c7442444000000007507bb55000000eb4b85c07507bb1f000000eb40488b87b02300004885c0742080b83e0600000074174c8d4c2440458bc6488bd5488bcfe8842000008bd8eb14ba00002614b9329b890ee841809a",
+          "sha256": "49ba361d368f025726bd426ef4de942da30a915da14749602825378f1599936d"
+        },
+        {
+          "label": "43_defaults_case",
+          "rva": "0x738c74",
+          "length": 246,
+          "bytes_hex": "33d2488d4c243041b810000000e86a6d9aff4c8d4c2430458bc6488bd5488bcfe887e4ffff8bd885c0741e448bc0ba00108115b9329b890ee8df7f9affb982150000e845829dffeb6580bef1000000007507bb55000000eb55837c243000750e837c2434007507bb1f000000eb40488b87b02300004885c0742080b83e0600000074174c8d4c2430458bc6488bd5488bcfe8b61f00008bd8eb14ba00002614b9329b890ee8737f9affbb560000004d85ff0f8429ffffff440fb686f2000000498bd7488bcfe842cc1b0084c00f840effffff85db0f8506ffffff440fb686f200000041b902000000498bd7488bcfe859d01b008bd8e9",
+          "sha256": "313198dd5000ea40630f9e8e94855ee4ea7ed65e1c05d11c55777269f582fbeb"
+        },
+        {
+          "label": "default_generator",
+          "rva": "0x737120",
+          "length": 462,
+          "bytes_hex": "48895c240848896c24104889742418574883ec20488bb950250000498bf1488ba9b0230000bb701101004d85c9750ab81f000000e98001000080b99609000000741441c701f0d2000041c7410440420f00e96101000080b94653000000741441c701e803000041c7410400093d00e9440100004183f8150f8784000000488d155c8e8cff418bc08b8c82f07273004803caffe18b9f7c030000eb7f8b9fd4030000eb77bb64000000eb708b9f2c040000eb688b9fec080000eb60bbb8880000eb598b9f70090000eb518b9f74090000eb498b9f78090000eb418b9f600e0000eb398b9fbc0a0000eb318b9ff80a0000eb298b9f340b0000eb218b9f700b0000eb19ba00103d15b9329b890ee8609a9affb93e150000e8c69c9dff4885ed0f849400000080bd55060000008bc3744f8b8f1413000049b977be9f1a2fdd2406480fafc8498bc148f7e1498bc1482bca48d1e94803ca48c1e909890e8b8f141300004c69c140420f0049f7e04c2bc249d1e84c03c249c1e80944894604eb3a8b8d280e000049b8db34b6d782de1b43480fafc8498bc048f7e1498bc048c1ea1289168b8d280e00004869d140420f0048f7e248c1ea1289560433c0488b5c2430488b6c2438488b7424404883c4205fc3",
+          "sha256": "448b36c05bf94aa3d3e5b030edb8ce5afaa459f56bcbabcbca21ee9752211028"
+        },
+        {
+          "label": "3d_nonpair_rpc",
+          "rva": "0x73aaa0",
+          "length": 220,
+          "bytes_hex": "405356574883ec60488b05d1eea5004833c44889442458488bb150250000418bf8488bd9e807d9ffff84c0750ab855000000e99000000033d2488d4c244041b818000000e8074f9aff33d2897c245041b810000000488d4c2440e8f14e9aff488b93b02300004c8d44244033c966c74424410306c64424400041b9140000000fb68629130000488b92381000008844243048894c242866894c2420488bcbe89d93c1ff8bd885c0741c448bc0ba00107c01b9b476e50ee835619affb97d010000e89b639dff8bc3488b4c24584833cce8ec305b004883c4605f5e5bc3",
+          "sha256": "b232b3123c9ea800922560da1dde0b4d3833ff25cbc5831acace4c5d20188f57"
+        },
+        {
+          "label": "3e_feature_dispatch",
+          "rva": "0x738d83",
+          "length": 33,
+          "bytes_hex": "418b4108458bc641b90300000089442420488bd5488bcfe8b10d0000e9b0feffff",
+          "sha256": "4745f42d1df82ab78f11b31631ba1d5d4b015c663510af987158a26cd2ed4e49"
+        },
+        {
+          "label": "packet_copy",
+          "rva": "0x73acc0",
+          "length": 181,
+          "bytes_hex": "48895c24105556574883ec70488b05adeca5004833c44889442468488bb150250000418bd8488be941b828000000488d4c244033d2498bf9e8f34c9aff41b910000000895c2450418bd1488d4c24544c8bc7e8a94a9aff33d2488d4c244041b810000000e8c74c9aff488b95b02300004c8d44244033c966c74424410304c64424400241b9240000000fb68629130000488b92381000008844243048894c242866894c2420488bcde87391c1ff8bd885c0741e448b",
+          "sha256": "50d68ae6503c788004bf111e2bd3123633efe5cd7eaba9a446e44172597e87e3"
+        }
+      ]
+    },
+    "hardware_id": {
+      "findings": [
+        "736DC8..DF6 initializes controller record group+F0+index*0x108 with first byte FF.",
+        "73A760 computes that same record address, prepares a PMU/RPC request including controller index at stack+64, and invokes 353EE0 at 73A84D. On success 73A876 loads byte stack+5C and 73A87B stores it to the record first byte. The runtime ID is supplied by that firmware response.",
+        "GB group+98 B8FB80 reads that byte, rejects FF, and uses 0x8F7100+4*ID and 0x8F7180+4*ID. The controller index is not itself proof of hardware ID.",
+        "The known type3 A801 direct branches expose scaled first/second and raw first, not this record byte; other metadata/performance paths have not been proven to return this firmware field. A documented typed response containing this exact current ID, or another source-qualified getter, is required before computing raw-second register address. No undocumented request is proposed."
+      ],
+      "windows": [
+        {
+          "label": "controller_default",
+          "rva": "0x736dc8",
+          "length": 57,
+          "bytes_hex": "4c8bb150250000488d9af00000004533ff418bf04c69ce08010000488bfa488be94903d94c897b70c703ff000b044c897b0c44897b384c897b",
+          "sha256": "ee30320db7ff04809291f1f801a8455686a2f44ddaed7d4b99621f458683af5b"
+        },
+        {
+          "label": "firmware_controller_query_and_id_assignment",
+          "rva": "0x73a760",
+          "length": 317,
+          "bytes_hex": "405355565741564881ec80000000488b050bf2a5004833c448894424704c8bb150250000488d9af0000000488bf9418bf04869ce08010000488bea4803d9488bcfe86ad4a0ff84c07419ba00003800b9b476e50ee8d7649affb938000000e8fd589cff448bc6488bd5488bcfe8ffdbffff84c0740733c0e9c600000033d2488d4c244041b82c000000e802529aff8b4348488d4c244033d28944246041b81000000089742464e8e5519aff488b97b02300004533c066c7442441061341b928000000c644244000488bcf410fb68629130000488b9238100000884424304c894424286644894424204c8d442440e88e96c1ff8bf885c0741e448bc0ba00104e00b9b476e50ee826649affb94f000000e88c669dffeb2a0fb644245c88038b4424602143488b4424508943740fb644245d884378488b442454c643010148",
+          "sha256": "ab005f88e8669e11da9566066950982f28d7b2517a00003a58203d2f3604d72d"
+        },
+        {
+          "label": "gb_provider_id_and_reads",
+          "rva": "0xb8fb80",
+          "length": 211,
+          "bytes_hex": "4889742410574883ec30418bc0498bf14869f8080100004803fa0fb687f00000003cff7529ba00008a00b92717bd0ee8dc1055ffb98a000000e8020557ffb8ffff0000488b7424484883c4305fc348895c2440448d0c8500718f00488d991044000048c744242000000000488bcb4533c033d2e8586a59ff89064533c0440fb68ff000000033d2488bcb48c744242000000000468d0c8d80718f00e8306a59ff833e00488b5c24408946047719ba00009000b92717bd0ee8541055ffb990000000e87a0457ff488b74244833c04883c4305fc3",
+          "sha256": "604f3ee9fed983334df21cd6516339dd56c9e89b32263785a9770eb47890570f"
+        },
+        {
+          "label": "attribute_type3_dispatch",
+          "rva": "0x738431",
+          "length": 73,
+          "bytes_hex": "450fb76904488bf2418be833ff4869d508010000458d65fa498bd94803d64c8bf14183fc460f87750300004c8d059d7b8cff4963c4410fb6840034887300418b8c80f48773004903c8",
+          "sha256": "f3755f9f80556aebe5db2e6f085e5c59b5b2e2b8f0d7dd63d5b47927f9b581e7"
+        },
+        {
+          "label": "attribute_selector",
+          "rva": "0x738834",
+          "length": 71,
+          "bytes_hex": "00000f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f00000f0f0f0000000f00000101010101010f0f0f0f0203040506070f0f08090a0a0a0f000b00000c0d00000e",
+          "sha256": "4ce8a8f75d791039d8a7d1748d1f2abe9831340e460158dd9e5b93930c46a4e3"
+        }
+      ]
+    },
+    "attribute45": {
+      "findings": {
+        "setter": "E802 size404 type3 attr45 dispatch 738da4 forwards low byte of entry+8. 73adb0 requires controller row+f1 nonzero and rejects byte equal to cached row+168 with status3f. It sends request header 00 03 08, controller byte at +10, requested byte at +11, and upon RPC status0 stores requested byte to row+168. No caller byte bounds check in this branch; boolean interpretation is not established solely by a byte field.",
+        "getter": "A801 size404 type3 attr45 reports byte row+168 as u32, after controller support gate. It is a host cached request echo, not an independent firmware or physical-effect getter. Group object initial allocation is zeroed; only direct caller of 73adb0 found is 738db2.",
+        "identity_and_limit": "No registry literal, constructor identity, or descriptive action name was established in bounded evidence. The existing LPWR product module does not implement attribute45. The RPC targets one controller byte and one requested byte; firmware-side peer preservation/effect is unknown. Do not present as a named live control or infer effect solely from echoed cache; establish protocol semantics and independently observable consequence first."
+      },
+      "references": [
+        "experiments/registry-overrides/driver-controls/grpg-dependency-followup5-findings.json",
+        "src/druta/lpwr_runtime.py"
+      ],
+      "windows": [
+        {
+          "label": "set_dispatch",
+          "rva": "0x738da4",
+          "length": 21,
+          "bytes_hex": "450fb64908458bc6488bd5488bcfe8f91f0000e998",
+          "sha256": "d8c0fdc6451398b110c3ce5dfeee3f4e830da97327363eab3a37a5f2e7f10194"
+        },
+        {
+          "label": "controller_active_guard",
+          "rva": "0x7383d0",
+          "length": 19,
+          "bytes_hex": "418bc04869c0080100000fb68410f1000000c3",
+          "sha256": "aaf9f40417dba2b9a2534989d9ee696526f140b40cdbe90ec551da01c9e577b6"
+        },
+        {
+          "label": "attribute45_set_rpc_and_cache",
+          "rva": "0x73adb0",
+          "length": 316,
+          "bytes_hex": "405355565741564883ec60488b05beeba5004833c448894424584c8bb150250000410fb6f9418be8488bd94869f5080100004803f2e8e6d5ffff84c07514b9d3010000e808619dffb855000000e9d20000004038be680100007529ba0010dc01b9b476e50e41b8ffff0000e8705e9affb9dd010000e8d6609dffb83f000000e9a000000033d2488d4c244041b818000000e8aa4b9aff33d240886c245041b81000000040887c2451488d4c2440e88e4b9aff488b93b02300004c8d44244033c966c74424410308c64424400041b914000000410fb68629130000488b92381000008844243048894c242866894c2420488bcbe83990c1ff8bd885c0741e448bc0ba0010ef01b9b476e50ee8d15d9affb9f0010000e837609dffeb074088be680100008bc3488b4c24584833cce87f2d5b004883c460415e5f5e5d5bc3",
+          "sha256": "589beb6450e60d1878e0b87348ed9ff869320d9f1f3e3487c5633dcdabbf17cd"
+        },
+        {
+          "label": "attribute45_get_cache",
+          "rva": "0x738775",
+          "length": 13,
+          "bytes_hex": "0fb6826801000041894108eb4f",
+          "sha256": "6852f5b2f86408bf3b2d2d1761f4e5d043fef1a19c47b96123706e3d74bab594"
+        },
+        {
+          "label": "setter_descriptor",
+          "rva": "0xe6add0",
+          "length": 32,
+          "bytes_hex": "00414f4001000000440000000000000002e880200404000090b0e64001000000",
+          "sha256": "c63891811d9f4acd12e3c4922b4a4a314680a99c664cf2c04878aee99becf362"
+        },
+        {
+          "label": "getter_descriptor",
+          "rva": "0xe6a0f0",
+          "length": 32,
+          "bytes_hex": "a03b4f4001000000480000000000000001a880200404000090b0e64001000000",
+          "sha256": "dd66e2142443b6e016523152d7eacc55933057fa4a1c83808a9d089862a81ff3"
+        }
+      ]
+    },
+    "feature_mask": {
+      "findings": [
+        "GET type3 attr38 returns controller record+138 base feature mask; attr3E returns record+13C current effective intersection. Controller support must be available for either.",
+        "SET E802 type3 attr3E passes item u32 value and hardcodes client index3 to 739B50; there is no object/client identity in this call. It clips requested mask to base+138, applies controller-specific dependency normalizer 736840, and overwrites shared slot +140+4*3.",
+        "739B9E..BA calculates effective = base & all seven slots. If changed it calls 73A9B0, whose firmware send result is logged but the aggregate is still stored at 739D26; no individual slot readback is exposed by GET38/3E.",
+        "Controller0 dependency normalization 73686E..D5 changes some selected bits based on other bits; accepted set is controller- and state-dependent. Existing GRPG/DIFR configured registry paths establish selected bit relationships, not complete official bit names or a per-client live ownership contract.",
+        "This path is distinct from shipped registry-configured features but writes a shared slot rather than acquiring a session-owned request. Using the effective aggregate to rebuild slot3 can accidentally retain another slot?s temporary restrictions. Without exact slot3 readback and source-qualified independent ownership/lifetime semantics it is not a qualified preserve-unselected-bits live control."
+      ],
+      "windows": [
+        {
+          "label": "set_descriptor",
+          "rva": "0xe6add0",
+          "length": 32,
+          "bytes_hex": "00414f4001000000440000000000000002e880200404000090b0e64001000000",
+          "sha256": "c63891811d9f4acd12e3c4922b4a4a314680a99c664cf2c04878aee99becf362"
+        },
+        {
+          "label": "set_type3_dispatch",
+          "rva": "0x4f4220",
+          "length": 80,
+          "bytes_hex": "4c8bb5c0120000bf560000004d85f60f84f8020000440fb74302498bd6498bcfe8ab41240084c00f84e0020000440fb743024c8bcb498bd6498bcfe8804624008bf885c00f85c302000066834b0601e9",
+          "sha256": "8e11dac6178cf2e65931b3855cf830e7c79702c5dde3b86cab2446f69b554d48"
+        },
+        {
+          "label": "set_attribute_3e",
+          "rva": "0x738d83",
+          "length": 33,
+          "bytes_hex": "418b4108458bc641b90300000089442420488bd5488bcfe8b10d0000e9b0feffff",
+          "sha256": "4745f42d1df82ab78f11b31631ba1d5d4b015c663510af987158a26cd2ed4e49"
+        },
+        {
+          "label": "mask_intersection",
+          "rva": "0x739b50",
+          "length": 122,
+          "bytes_hex": "48895c240848896c2410488974241857415641574883ec208b5c24604c8bf2458bf8488bf1418bf94969ef080100004803ea239d38010000448bcbe8b0ccffff23c3b9070000008984bd40010000488d85400100008b9d380100000f1f4400002318488d40044883e90175f43b9d3c0100000f84640100004138",
+          "sha256": "90819c40e28683a7871bbc4b9cabd41fb92afa02ea325ce423978bdec9d81db1"
+        },
+        {
+          "label": "controller0_dependency_filter",
+          "rva": "0x73686e",
+          "length": 111,
+          "bytes_hex": "8bc38bd381e27ffef7ff24063c040f45d38bca83e1fd0fbae2080f42ca8bd10fbaf209f6c10c0f45d18bca83e1f90fbae2090f42ca8bd10fbaf20cf6c1040f45d18bca0fbaf1190fbae2160f43ca8bd10fbaf2160fbae1190f43d18bda0fbaf31ef6c2020f45da8bc34883c4205bc3",
+          "sha256": "fe4381ecd12990e96ef7e7a2e36e7d63f97362106df781ecd54dfb23cec9e862"
+        },
+        {
+          "label": "aggregated_mask_firmware_update",
+          "rva": "0x739c39",
+          "length": 50,
+          "bytes_hex": "448bcb458bc7498bd6488bcee8660d000085c07419ba0000b619b9329b890ee833709affb9b6190000e859649cff4180bee2",
+          "sha256": "034ea705d46fb09d2e546144a1def52d7220a4db9c41d238ab34b479673cb0d1"
+        },
+        {
+          "label": "aggregate_store",
+          "rva": "0x739d13",
+          "length": 28,
+          "bytes_hex": "498b4650458bc7498bd6488bceff15828d6c00899d3c010000488b5c",
+          "sha256": "8dcd528b1a0e80686509753b8a7df06ba391bd5d9a7e00bca2122d9572d3467f"
+        },
+        {
+          "label": "get_base_and_aggregate",
+          "rva": "0x7384ab",
+          "length": 30,
+          "bytes_hex": "8b823801000041894108e9170300008b823c01000041894108e908030000",
+          "sha256": "2ae86982477e7cdf3e8f5d47f5dd3bf36efd7c1ccf99021321643d5fbb0edf50"
+        }
+      ]
+    }
   }
 }

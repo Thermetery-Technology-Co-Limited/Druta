@@ -2433,8 +2433,85 @@ license a guessed register-ID0 read for the second word. Units, exact conversion
 and firmware peer semantics remain unqualified. No SET was issued, and no
 write-suppression conclusion follows from this read-only qualification.
 
+The follow-up excludes an arbitrary-pair shortcut through this type3 dispatcher.
+SET `4C` reads only entry+8 and supplies zero as the second threshold; SET `43`
+sends a pair generated from controller defaults, ignoring caller value fields.
+Neither is a caller-supplied paired write. The provider's hardware ID is assigned
+from a successful firmware response by `73A760`, then stored at controller-row
+byte0; it is not a family constant or the public controller index. No current-ID
+getter was qualified, so no guessed-address raw-second read was attempted.
+
+Two other actual E802 type3 cases remain distinct from the threshold controls.
+Attribute `45` sends the low byte of the requested value through firmware request
+`00/03/08`, then caches it at row+168 on successful status. A801 returns that
+cached byte. Its feature meaning and firmware behavior are not established;
+arbitrary low-byte acceptance does not prove Boolean semantics.
+Attribute `3E` replaces hardcoded shared client slot3 with a dependency-normalized
+mask. A801 `38` returns the base mask and `3E` the intersection of seven slots;
+neither reveals slot3. Using the aggregate as a read-modify-write baseline can
+copy another slot's temporary restrictions into slot3, so it cannot establish
+preservation of unselected restrictions. This does not prove that explicit
+whole-mask replacement is impossible; it rules out presenting the current
+interface as an independently owned request or verified partial-bit editor.
+No SET or product control was added for these cases.
+
 [Bounded byte evidence and exact gaps](experiments/additional-lowpower-functional-gaps-20261102.json)
 records these findings; they do not add recovery or profile work.
+
+### Individual live media power-gating inhibits
+
+`media_power_gating_live.py` exposes independent NVDEC (12), NVENC (13), OFA (14)
+and NVJPG (15) holds through the actual attribute SET `0x2080E802`. A singleton
+`0x404` packet contains one 16-byte type3 row for attribute `0x37`: value0 acquires
+one shared reason0 reference; value1 releases one. The source increments row+10C
+and sets row+110 bit0 on acquire, and clears that bit only when the count reaches
+zero on release. This is a balanced shared count, not an allocated profiler
+object or a getter for exclusive ownership. Controller4 has an additional
+shared-state path and is outside this interface.
+
+Admission requires paired transport identity, the understood native architecture,
+selected controller support and stable selected A801 `48`/`49` readbacks, with
+`48` bit0 initially clear. An unrelated unavailable controller is not a prerequisite.
+The SET response must set only the entry's success flag and preserve all other
+request bytes; the selected `48` bit must independently transition, preserving
+all other bits and `49`. A successful status alone is insufficient. A failed
+acquire can already have changed the shared count, so its selected readback is
+inspected before deciding whether one balancing release remains due. Mutating
+requests are never retried. Duplicate holds send no extra acquire; a release
+attempt is never repeated blindly after a response or verification error.
+
+The release callback is selected by RM runtime variant, independently of GPU
+architecture: PF monolithic selects the working callback; other examined variants
+select an unsupported stub. The host decrements the shared count and clears bit0
+when appropriate before invoking that callback. A callback error therefore cannot
+be treated as proof of no mutation. No read-only mode getter was source-bound to
+this selector; the documented NVML GSP query was unavailable on this adapter.
+Native-family and selected-support checks do not guarantee callback fulfillment.
+Each actual SET still requires acknowledgement and independent readback, and a
+callback error is reported rather than described as a successful hold/release.
+
+The group+E6 callback on acquire is tied to `RmPmuPgLogParams` and a PG logging
+notification; the firmware logging receiver was not independently decoded.
+Current hardware qualification on RTX5080/617.42 tested each of the four media
+controllers separately. Each showed exactly its selected reason0 transition,
+unchanged peer reason masks, and return to the captured masks on release.
+Voltage requests and configured LPWR records were unchanged. These observations
+qualify the request and readback on that configuration, not physical engine
+activity or generation-wide power effects.
+
+The production trial then held all four media requests simultaneously with
+ELCG/SLCG enabled and BLCG disabled. Duplicate holds issued no extra acquire;
+independent releases preserved the remaining requests. An extra root-owned
+NVDEC reference stayed active after the product released its one reference,
+then cleared after the extra reference was released. Final reason masks,
+clock-gating registers, voltage requests and configured LPWR matched baseline.
+The trial used no workload, registry change or driver restart.
+
+The panel and shutdown path own only this application's counted references.
+Another client's reference may keep reason0 active after our one release, which
+is reported as the current readback. There is no profile or driver-restart replay.
+[Media request evidence](experiments/live-media-power-gating-20261102.json)
+records the source and bounded hardware qualification.
 
 The BLCG follow-up binds the native architecture getter and generated HAL
 constructor to the same chipword. In the inspected source, native architecture
