@@ -1,0 +1,87 @@
+{
+  "schema": 1,
+  "date_utc": "2026-11-02",
+  "scope": "Offline functional-path qualification; no hardware calls, mutations or new control claimed.",
+  "driver_sha256": "db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b",
+  "ms": {
+    "finding": "Both calls reside in the same unwind-bounded function 82BBA0..82BD4E. 82BC1A invokes 771C00 with bool1; success sets local r15b. The routine performs an object operation at offset 0x214 and polls bit0. Its completion and timeout branches join at 82BD1B, which tests r15b then 82BD29 invokes 771C00 with bool0 before returning. The controller4 request is scoped to this internal operation; an external caller cannot hold it beyond that return through this path. This does not establish absence of other controls.",
+    "next_requirement": "A different externally callable request with an independent owned lifetime is required; tracing callers of82BBA0 cannot turn this bounded operation into a lasting hold.",
+    "verified_windows": [
+      {
+        "label": "bounded_operation",
+        "rva": "0x82bba0",
+        "length": 430,
+        "bytes_hex": "48895c2420555657415641574883ec30488b05c9dd96004833c44889442428488ba9502500004c8d4c24204d8bf0488bf141b8ffffffff32db4532ffe84f24a7ff8bf885c07425448bc0ba00108604b9e31c460ee897508bffba860400008bcfe8cb448dff8bc7e9240100004885ed743741b001488bd5488bcee8e15ff4ff8bf885c07420ba00008d04b9e31c460ee85c508bffb98e040000e8c2528eff8bc7e9eb00000041b701488b4424204885c07406488b7858eb0233ff488b07ba14020000488bcf488b4028ff15396e5d00488b0fba14020000448bc04183c801488b4140488bcfff151d6e5d00488b4c24204885c97404488b4958488b01ba14020000488b4028ff15fd6d5d00a801746cbf0100000084db754ae893dc8cff488d8ea020000041b8a6040000498bd6e86e8a8eff488b4c242083f8650fb6db0f44df4885c97404488b4958488b01ba14020000488b4028ff15ad6d5d004084c775b4eb19ba00009f04b9e31c460ee87f4f8bffb9a0040000e8e5518eff4584ff740e4533c0488bd5488bcee8d25ef4ff33c0488b4c24284833cce8231f4c00488b5c24784883c430415f415e5f5e5dc3",
+        "sha256": "2e4f492206adc2fea44e7af1b7211b098f4b7e04c6614f962184536be2ab808f"
+      },
+      {
+        "label": "ms_controller_selection",
+        "rva": "0x771c68",
+        "length": 105,
+        "bytes_hex": "4d85ff0f846701000041b90000100048896c245041b804000000498bd7498bcee8937efcff84c0742041b805000000498bd7498bcebb10000000e84967fcff84c0b9300000000f45d941b809000000498bd7498bcee82e67fcff8beb0fbaed0984c00f44eb8bde85ed",
+        "sha256": "6de5afc46889107751ae9d1a25f31c8846fc6e4114cd0df96a5d34657eddfe9f"
+      },
+      {
+        "label": "ms_reason_loop",
+        "rva": "0x771ccd",
+        "length": 112,
+        "bytes_hex": "8bde85ed0f84f800000040f6c50174694533c9448bc3498bd7498bce4584e47433e8dd59fcff8bf885c0744d448bc3ba0010b215b9764ba90ee825ef96ffb9b4150000e8ebf199ff488b6c24508bc7e9b9000000e8ba5bfcff85c0741c448bc3ba0010c015b9764ba90ee8f4ee96ffb9",
+        "sha256": "a4701ef4a962de92d204b799de58ced8b561a52903eea196822598a09280b8cf"
+      }
+    ]
+  },
+  "ltr": {
+    "native_contract": {
+      "set_20801818": "8 bytes: u16 snoop value +0, u8 snoop scale +2, u16 no-snoop value +4, u8 no-snoop scale +6. Setter masks value 10 bits, scale 3 bits; no range validation in selected routine.",
+      "request_8a254": "snoop value bits10:1; snoop scale13:11; forced bit14=1; no-snoop value24:15; no-snoop scale27:25; forced bit28=1; bit0 trigger=1 and polled. Remaining retained bits follow read/modify/write mask 0xf0004001, combined with forced 0x10004001.",
+      "get_20801817": "reads 8a24c and projects snoop value9:0 scale12:10; no-snoop value23:14 scale26:24. Public output excludes status bits13 and27 and trigger-source bits. Error is suppressed by outer handler.",
+      "relation": "Shifting request fields and forced bits right by one matches the status field layout exactly; official NVIDIA GA102 published LAST_MSG_SENT uses the same status layout including requirement bits13 and27. This homologous mapping does not prove current register names, each SET reflected as latest message, requirement meaning, or ability to deassert.",
+      "units": "Pinned NVIDIA public API header gives no units or permitted scale semantics. Prior primary Linux source L1.2 threshold encoding uses scales0..5 for 1,32,1024,32768,1048576,33554432 ns; it is analogous PCIe encoding, not proof of this NVIDIA API. Scales6..7 are not rejected by selected setter; semantic validity is unestablished.",
+      "ownership": "No separate owned handle or release operation exists in public SET packet; setter issues a message trigger and returns after bit clears or timeout. Duration and replacement semantics beyond that event are not established."
+    },
+    "zero_request_example": {
+      "original_request_register": 0,
+      "all_zero_fields_after_native_packing": "0x10004001",
+      "if_only_trigger_bit_clears": "0x10004000",
+      "conclusion": "Even with all four public values zero, the packed request differs from the captured all-zero raw baseline. Public GET omits these additional bits, so equality of its four fields cannot establish equality of the request."
+    },
+    "primary_semantics": {
+      "url": "https://cdrdv2-public.intel.com/333016/333016%20-%20I210_Datasheet_v_3_7.pdf",
+      "section": "8.25.9, printed page541",
+      "scope": "Independent PCIe LTR example on Intel I210, not a binding of NVIDIA proprietary registers.",
+      "paraphrase": "With a requirement asserted, zero latency requests best service. Clearing the requirement denotes no latency requirement. Device-specific scale choices must not be generalized to this NVIDIA interface."
+    },
+    "next_requirement": "Bind the current NVIDIA request/status semantics and distinguish an actual reflected SET from unrelated last-message updates. No claim that unknown reset/replay behavior is a prerequisite to all other functionality.",
+    "verified_windows": [
+      {
+        "label": "public_set_handler",
+        "rva": "0x48ee40",
+        "length": 80,
+        "bytes_hex": "4883ec48488b81600100004c8bc2488b88e8000000488b91202100004885d2750ab8560000004883c448c3450fb65006450fb75804450fb64802450fb700488b824006000044885424286644895c2420",
+        "sha256": "410b44e920e96feecfafa19982f95da64f29cf979b2985fdbfc0fcfab452c6f8"
+      },
+      {
+        "label": "selected_setter",
+        "rva": "0x975800",
+        "length": 485,
+        "bytes_hex": "4053564154415641574883ec60488b056c4182004833c44889442448488b05f5e5a3004533e4418bdc450fb6f1450fb7f8488bf1488b9030020000385a6d7519ba0000f600b9b3d6710ee841b476ffb856000000e952010000488b81c805000048896c245848897c2450ff1538d248004533c04c8964242033d2488d8e10440000448d8854020000e8c30d7bff8b9424b80000008bf88b8c24b000000083e207488b86c805000081e1ff030000c1e20a81e7014000f00bd14183e607c1e2044181e7ff030000410bd6488bcec1e20a410bd703d20bfa81cf01400010ff15c6d148004c89642428488d8e104400004533c0897c242033d2448d8854020000e83d167bff4533c9488d5424304533c0488d8ea0200000e856f579ff488b86c8050000488bceff157ed148004533c04c8964242033d2488d8e10440000448d8854020000e8090d7bffa80174540f1f44000041b819010000488d542430488d8ea0200000e8d9ed79ff8bd883f8657457488b86c8050000488bceff152ad148004533c04c8964242033d2488d8e10440000448d8854020000e8b50c7bffa80175b18bc3488b6c2458488b7c2450488b4c24484833cce8a88237004883c460415f415e415c5e5bc3ba00001d01b9b3d6710ee8bcb276ffb91e010000e822b579ffb865000000ebbc",
+        "sha256": "14044cf66e753ba59bc4b0645f24ebaf708a33d2664a78f71a4eab8b63764656"
+      },
+      {
+        "label": "selected_getter",
+        "rva": "0x974bb0",
+        "length": 202,
+        "bytes_hex": "48895c24084889742410574883ec30488b0552f2a300498bf9498bf0488bd9488b9030020000807a6d007524ba00004501b9b3d6710ee8a5c076ffb856000000488b5c2440488b7424484883c4305fc3488b81c8050000ff159bde4800488d8b1044000048c7442420000000004533c033d2448d884c020000e8221a7bff488b5c24408bc8c1e90a8bd080e107c1ea0e880f41b8ff0300000fb7c8664123d0664123c866890e8bc8488b442468488b742448c1e91880e1078808488b44246066891033c04883c4305fc3",
+        "sha256": "efd26ef2c9f7d36a73ab86de4fd4b17a3147f4864958c66430e6f6e997a631c5"
+      },
+      {
+        "label": "public_get_handler",
+        "rva": "0x48dfa0",
+        "length": 165,
+        "bytes_hex": "48895c2408574883ec40488b8160010000488bda33c9488bb8e8000000488b05545ef200488b97202100004c8b80300200004885d27510b856000000488b5c24504883c4405fc30fb682d40900008803450fb6406d4488430184c0753b4584c07436488d430a488bcf48894424284c8d5308488b82580600004c8d4b064c8d43044c89542420ff157c4a97008bc885c07406c643020033c9488b5c24508bc14883c4405fc3",
+        "sha256": "52f83b56b2c735e404265c97d8f0da554a19c3de42579b9169ea8007dab8f5c4"
+      }
+    ]
+  },
+  "other_scopes": "ASPM and alternate NVDEC controller17 remain separately unqualified. Recovery, Undo and profile replay remain deferred. No new hardware trial was run."
+}

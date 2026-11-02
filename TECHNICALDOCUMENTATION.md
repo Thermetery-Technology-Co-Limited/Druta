@@ -2319,6 +2319,25 @@ established. Public `khwpmGetRequestCgStatusMask` merely translates a supplied
 request status and is not an independent GPU getter. These are bounded findings
 for the inspected paths, not driver-version or hardware denylists.
 
+Additional live-control source qualification on 617.42 leaves two specific
+functional gaps. The examined MS inhibition calls at `82BC1A` and `82BD29`
+belong to the same `82BBA0..82BD4E` operation. Completion and timeout converge
+on releasing its request before return; an exported caller would not give this
+path an independently owned lasting hold. A different callable path is needed.
+
+PCIe LTR GET `20801817` returns four value/scale fields; SET `20801818` masks
+values to ten bits and scales to three bits, forces request bits14/28, and
+triggers bit0. GET omits the corresponding additional status bits. In particular,
+zero input fields pack to `0x10004001`, not the captured zero raw request;
+matching the four GET fields cannot establish equality of that request.
+Intel's [I210 datasheet, section8.25.9](https://cdrdv2-public.intel.com/333016/333016%20-%20I210_Datasheet_v_3_7.pdf)
+distinguishes zero latency with an asserted requirement from no requirement.
+That is a primary PCIe example, not a binding of NVIDIA's current proprietary
+registers. The current request/status relationship and resulting advertised
+requirement remain unqualified. No LTR SET or new control is claimed.
+[Bounded byte evidence and exact gaps](experiments/additional-lowpower-functional-gaps-20261102.json)
+records these findings; they do not add recovery or profile work.
+
 The BLCG follow-up binds the native architecture getter and generated HAL
 constructor to the same chipword. In the inspected source, native architecture
 `0x1B0` and implementations `2/3/5/6/7` select the same graphics method and

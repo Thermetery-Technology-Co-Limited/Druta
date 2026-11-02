@@ -78,7 +78,7 @@
     },
     {
       "path": "experiments/registry-overrides/profiler-more-terra-20261101/turing-slcg-hal-61742.json",
-      "sha256": "806661a3d253416c2730f765054946ee1f52d3e6f95b1bf873e228fba49d4c94",
+      "sha256": "54defd6db9ca4bda2dbeb9232c568f346fefa72c9bda114169928ff8f9cdef1d",
       "root_verified_source_windows": 19
     }
   ],
