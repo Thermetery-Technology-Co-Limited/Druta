@@ -5,7 +5,7 @@
   "driver_sha256": "db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b",
   "ms": {
     "finding": "Both calls reside in the same unwind-bounded function 82BBA0..82BD4E. 82BC1A invokes 771C00 with bool1; success sets local r15b. The routine performs an object operation at offset 0x214 and polls bit0. Its completion and timeout branches join at 82BD1B, which tests r15b then 82BD29 invokes 771C00 with bool0 before returning. The controller4 request is scoped to this internal operation; an external caller cannot hold it beyond that return through this path. This does not establish absence of other controls.",
-    "next_requirement": "A different externally callable request with an independent owned lifetime is required; tracing callers of82BBA0 cannot turn this bounded operation into a lasting hold.",
+    "next_requirement": "None for the already shipped source-qualified MS4 control. The historical temporary-operation path below is not the product path.",
     "verified_windows": [
       {
         "label": "bounded_operation",
@@ -28,7 +28,8 @@
         "bytes_hex": "8bde85ed0f84f800000040f6c50174694533c9448bc3498bd7498bce4584e47433e8dd59fcff8bf885c0744d448bc3ba0010b215b9764ba90ee825ef96ffb9b4150000e8ebf199ff488b6c24508bc7e9b9000000e8ba5bfcff85c0741c448bc3ba0010c015b9764ba90ee8f4ee96ffb9",
         "sha256": "a4701ef4a962de92d204b799de58ced8b561a52903eea196822598a09280b8cf"
       }
-    ]
+    ],
+    "status": "The temporary operation below remains unsuitable for a held request, but that functional gap is resolved by the separately qualified E802 controller4 control shipped in commit4d9cd61. See experiments/live-ms-difr-components-20261102.json; no further MS path is required by this finding."
   },
   "ltr": {
     "native_contract": {
@@ -1560,11 +1561,13 @@
     "driver_sha256": "db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b",
     "scope": "Offline bounded ClockManager +198 and PMU mode source audit; no hardware.",
     "findings": [
-      "BCADD3 ClockManager metadata EDCFBC identifies constructor trampoline 1792A80?17960A0. In generated initializer, 1793588..35B8 assigns virtual +198 A4EB70 if (r9 & ~31)==32 and bit(r9 &31) in 0x02080000, else 858340. This record does not prove the actual initializer r9 identity or mode for the current GPU.",
-      "Dynamic method 858340 checks per-domain state and dispatches selector through either 60D8D0 or 476D70?858000; successful output first DWORD is used by caller. Alternate method A4EB70 instead checks a domain capability bitmap and has literal-value switch. The unit and exact 0x13 domain are not identified by these observations; no inference from local observed number.",
-      "PMU+655 zero versus nonzero is the branch predicate for choosing the PMU+E28-derived factor or LPWR+1314 in 772DE5. The identified byte write at B8458D sets receiver+655 to 1 but this bounded inspection does not prove its receiver identity, runtime execution, or existence and effect of other writers. Current live mode is not established."
+      "ClockManager class BCADD3 metadata EDCFBC identifies constructor trampoline 1792A80 -> 17960A0. Constructor 17961EF resolves class 74BC71 (ChipHal); 1796376 passes it to initializer 17930C0, which loads the word at ChipHal+10 into r9d at 17930C5.",
+      "The initializer at 1793588..35B8 selects method A4EB70 if (r9 & ~31)==32 and bit(r9 & 31) is set in 0x02080000; otherwise it selects 858340. Conditional on the previously source-bound ChipHal ordinals 41..45 for native architecture 1B0 implementations 2/3/5/6/7, this selects 858340. This source-derived class/architecture binding does not establish the current PMU scale mode.",
+      "Dynamic method 858340 checks per-domain state and routes the selector through either 60D8D0 or 476D70 -> 858000; its first output DWORD is used by the PMU caller. Alternate method A4EB70 checks a domain capability bitmap and uses a literal-value switch. Neither provider result unit nor current dynamic subroute is established by this record.",
+      "In the 858340 fallback branch, 85852B..53C maps one-bit selector 0x13 through 476D70. For input bit19, 476EE4..F5 sets output bit19. NVIDIA nvgpu-public-clk-definitions.h defines CTRL_CLK_DOMAIN_PWRCLK=0x00080000. This establishes a PWRCLK mask interpretation for this conversion branch only, not current-branch selection, numerical unit, or a public binding of the 60D8D0 route.",
+      "PMU+655 zero versus nonzero is the branch predicate for choosing the PMU+E28-derived factor or LPWR+1314 at 772DE5. The identified byte write at B8458D sets receiver+655 to 1, but this bounded inspection does not prove its receiver identity, runtime execution, or existence and effect of other writers. Current live mode is not established."
     ],
-    "missing": "Bind constructor initializer input, selector 0x13 name and provider result units, then identify a public current readback or source invariant for PMU+655 if claiming the ordinary branch on a device.",
+    "missing": "Bind the selected provider result units and current dynamic subroute, and identify a public current readback or source invariant for PMU+655 before claiming the ordinary scale branch on a device. Establish any selector name beyond the fallback PWRCLK mask relation separately.",
     "windows": [
       {
         "label": "clockmanager_class_metadata",
@@ -1614,9 +1617,45 @@
         "length": 45,
         "bytes_hex": "4180be5506000000740e8b8714130000898718130000eb15b8d34d621041f7a6280e0000c1ea06899718130000",
         "sha256": "38e4a3683408fab1d2bcc68fcbab15b6eddfd050b107b74e9c5669d0c35e2298"
+      },
+      {
+        "label": "constructor_chip_hal",
+        "rva": "0x17961d8",
+        "length": 78,
+        "bytes_hex": "488d15193271ff488bcee8797a97fe4c8bf04885c07536ba71bc7400488bcee8347e97fe4885c0740fba71bc7400488bcee8227e97feeb03488bc5488d15de3171ff488bc8e83e7a97fe4c8bf04d",
+        "sha256": "bc8856775d51b1adb2f6cfa2459669f1c638e6a9399968fd91fd11f2b5f635bb"
+      },
+      {
+        "label": "constructor_pass_chip_hal",
+        "rva": "0x1796351",
+        "length": 58,
+        "bytes_hex": "488d05c86a74ff4c8bc5488903488d0d436b74ff488d059c6a74ff48898ff0000000488906498bd6488d05706a74ff488bcf488907e835cdffff",
+        "sha256": "3fc861ccc21fddbfe7c9873c0eb006fa8a6ab8bd7a42cb496e3b45159d64d503"
+      },
+      {
+        "label": "selector_load",
+        "rva": "0x17930c0",
+        "length": 32,
+        "bytes_hex": "48895c2408440fb74a104c8bc1458bd1418bc941c1ea0583e11f4183fa027521",
+        "sha256": "e0e6de81a9d9ccdc72e952647ea016c1200fd56496e9bdb4ad8d19c9d3d73eb9"
+      },
+      {
+        "label": "fallback_selector_conversion",
+        "rva": "0x85852b",
+        "length": 47,
+        "bytes_hex": "8bcb41b80100000049d3e0488bd6498bcde82fe8c1ff41b901000000894424544c8d442450488bd6498bcde8a5faff",
+        "sha256": "0a5264c3fd8d6bdf1fa4aba7134d716d9f0463e4fd23e68197019a5c1c0adc7a"
+      },
+      {
+        "label": "bit19_conversion",
+        "rva": "0x476ee4",
+        "length": 17,
+        "bytes_hex": "25000008008bd10fbaea134885c0488bc6",
+        "sha256": "9145a71b3346d0da905f5f69d09773ff65b6afb7f319aaf56bb5e565232d1dbc"
       }
     ],
-    "source_record_sha256": "101ed11b31033b1e8060015f41b1b7bf96b78e57893ef367fe5d115eb5559350"
+    "public_mask_source": "experiments/registry-overrides/driver-controls/nvgpu-public-clk-definitions.h:63",
+    "source_record_sha256": "680f183c9f76546c89a5f84392c56d9813839f8696e4ecad628424b89183919a"
   },
   "threshold_receiver_boundary": {
     "driver_sha256": "db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b",
@@ -1710,5 +1749,68 @@
       "Only the finite PG protocol files and exact current package metadata were inspected; no current firmware application was extracted or assumed readable."
     ],
     "source_record_sha256": "65cc3b8b1243f9b2701dbc397b000a0001c58a68aa3a13f8aa6d23141b0067bd"
-  }
+  },
+  "threshold_alternate_getter": {
+    "driver_sha256": "db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b",
+    "scope": "Offline bounded 20801706 getter trace; no hardware or product edits.",
+    "findings": [
+      "Descriptor E65AF0 binds 20801706 size 0x10 to handler 4F45F0. Handler checks LPWR+283, nonzero count DWORD+0 and nonnull entries pointer+8, then dispatches LPWR virtual+1C0. 17ADA(FB)..17ADB28 assigns 4F3480 for selector 2 and an alternate stub otherwise.",
+      "4F3480 processes count entries in 12-byte records [u32 selector, u32 controller index, u32 value]. It calls 7383F0 per controller and skips unsupported rows without modifying value or failing the whole call; successful outer status alone does not validate a skipped row.",
+      "Selector 0x303 calls 738130 then returns its first output in entry+8; 0x304 invokes the same helper and returns its second output. Each record invokes a separate 738130 call. The shared helper 738130 obtains a pair from the raw provider, ignores provider return status, and scales each by floor(raw*1000/factor). These match the known A801 3A/3B scaled outputs, not a direct factor or exact raw-second getter.",
+      "Both values can be inspected in separate records, but no atomic two-field sample, exact raw pair, or complete factor is exposed by this selected getter. Rounding and ignored provider errors preclude using GET equality alone to establish raw-peer preservation or firmware acceptance after SET. This is not evidence that the firmware necessarily modifies the zero peer."
+    ],
+    "windows": [
+      {
+        "label": "getter_descriptor",
+        "rva": "0xe65af0",
+        "length": 32,
+        "bytes_hex": "f0454f40010000004800000000000000061780201000000090b0e64001000000",
+        "sha256": "c429cbbcdd55d775228c7f6f2b12e0301107e680790527a5fbdb9cdb5486c4cd"
+      },
+      {
+        "label": "getter_handler",
+        "rva": "0x4f45f0",
+        "length": 169,
+        "bytes_hex": "4883ec38488b81600100004c8bc2488b88e80000004d8b5008488b91502500004885d27528ba00006c07b9865bca0ee86cc6beffba6c070000b904000000e87d1bb1ffb8560000004883c438c380ba83020000007527448b899c0e0000ba00117307448b81980e0000b9865bca0ee82dc6beffb8560000004883c438c3458b084585c9741a4d85d27415488b82c00100004d8bc2ff151ee490004883c438c3b81f0000004883c438c3",
+        "sha256": "05fb69d1353cbb43a2f6e19062f0bb5ff9f9acbc80a1cf347342cd801ccd3b29"
+      },
+      {
+        "label": "selected_getter_method",
+        "rva": "0x17adafb",
+        "length": 53,
+        "bytes_hex": "83ff2073218bc783e01f83f8027517488d056f59d4fe498982c0010000488d05515cd4feeb2b488d0558528efe498982c001000083",
+        "sha256": "13ceb0071e1e96c95deb3a5e05ab1689c756249b99ab5e3a0ee598e127e4cc65"
+      },
+      {
+        "label": "getter_entry_loop",
+        "rva": "0x4f3480",
+        "length": 144,
+        "bytes_hex": "48895c242055565741544155415641574883ec50488b05e564ca004833c448894424484c89442430458be14c8bea4c8bf94885d20f843e0200004c8bb2c01200004d85f60f842e02000033ed4585c90f842302000033ff660f1f840000000000488d0c6d00000000498bd64803cd418b748804498d1c88448bc6498bcfe8ee4e240084c00f84a0010000448b0b418bc1",
+        "sha256": "472f4b45717efbe3ea6fce610fe158fd4394746a7530c46127c048b0491cf139"
+      },
+      {
+        "label": "get_303_304",
+        "rva": "0x4f363a",
+        "length": 81,
+        "bytes_hex": "2d02020000744c2d01010000742783f8010f859e0000004c8d4c2438448bc6498bd6498bcfe8cc4a24008bf88b44243c894308eb374c8d4c2438448bc6498bd6498bcfe8ae4a24008bf88b442438894308",
+        "sha256": "ad0ed69ef306cdec3b8301a95502b8f7a6a9709f47833b74b65e8d327300cfdc"
+      },
+      {
+        "label": "getter_skip_and_error_handling",
+        "rva": "0x4f36a4",
+        "length": 86,
+        "bytes_hex": "8bf885ff754affc5413bec73474c8b442430e925feffff448bc6ba00102f08b9865bca0ee8c3d5beffba00003008b9865bca0ee8b4d5beffb930080000e8dac9c0ffbf400000008bc7eb0bbf560000008bc7eb0233c0",
+        "sha256": "4928a1ce124ef5c10ceaa61433fcf4802f165d62b88f26d24eac243a2a8e705e"
+      },
+      {
+        "label": "shared_scaled_getter",
+        "rva": "0x738130",
+        "length": 195,
+        "bytes_hex": "405355565741564883ec50488b053e18a6004833c44889442440488ba950250000498bd9458bf0488bf2488bf94d85c97507b81f000000eb7233d2488d4c243041b810000000e875789aff33d2488d4c243041b810000000e863789aff488b86980000004c8d4c2430458bc6488bd6488bcfff1500a96c008b8d1813000033d28b4424304869c0e803000048f7f133d289038b8d181300008b4424344869c0e803000048f7f189430433c0488b4c24404833cce8785a5b004883c450415e5f5e5d5bc3",
+        "sha256": "d04f2cfb27fd4a164b447a570d54435e425bba22ff3005243259218faaa4b054"
+      }
+    ],
+    "source_record_sha256": "4166ff981ce0bdc37a2a04828b8f525ce3d4f11a06fe37d9535846f092a8ef52"
+  },
+  "work_scope": "Current priority is locally qualified controls on this RTX5080. Other adapters, including the3070Ti, are deferred at user request and are not prerequisites for shipping these local controls. Recovery/Undo and profile replay remain deferred. This source checkpoint adds no GPU writes or new control."
 }
