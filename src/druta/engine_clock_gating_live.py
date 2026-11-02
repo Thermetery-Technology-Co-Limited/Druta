@@ -1,6 +1,6 @@
 # Copyright (C) 2026 Thermetery Technology Co Limited
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Session-owned engine clock-gating disable requests with independent readback.
+"""Session-owned engine clock-gating requests with independent readback.
 
 A801 type-10 engine bitmaps report supported engines and engines without a
 disable reason. They are configured predicates, not physical clock-gating or
@@ -81,6 +81,10 @@ class EngineClockGatingController(GrGatingController):
         self._uncertain = False
         self._observed = 0
         self._last_verification_error = None
+        self._owned_mode = None
+        self._arbitration_verified = False
+        self._arbitration_probe = None
+        self._request_supported = None
 
     def _once(self):
         self._profiler.check()
@@ -102,14 +106,58 @@ class EngineClockGatingController(GrGatingController):
         return {
             **state,
             "owned_request": self._owned,
+            "owned_mode": self._owned_mode,
+            "arbitration_verified": self._arbitration_verified,
             "uncertain_outcome": self._uncertain,
             "state": "uncertain" if self._uncertain else "held" if self._owned else "idle",
             "observed_engines": [bit for bit in range(64) if self._observed & (1 << bit)],
-            "verification_scope": "partial independent engine eligibility witness",
+            "verification_scope": (
+                "partial enabled eligibility and conflicting profiler request rejection; not unique ownership"
+                if self._owned_mode == "enabled"
+                else "partial independent engine eligibility witness"
+            ),
             "last_verification_error": self._last_verification_error,
         }
 
     def hold(self):
+        """Own the default DISABLE request with a positive eligibility transition."""
+        return self._hold("disabled")
+
+    def hold_enabled(self):
+        """Own ENABLE only from complete all-eligible support, with a conflict probe.
+
+        The callback's reachable indices0..44 fit the complete64-bit bitmap.
+        Nonzero supported==eligible establishes zero aggregate reasons for every
+        reachable supported index; it does not establish unique ownership or
+        physical gating. Release/free remains this object's explicit lifecycle.
+        """
+        return self._hold("enabled")
+
+    def _check_enabled(self, state):
+        if (
+            not state["support"]
+            or not state["available"]
+            or state["supported_engines"] != self._request_supported
+            or state["eligible_engines"] != state["supported_engines"]
+        ):
+            raise EngineClockGatingError(
+                "ELCG ENABLE support or eligibility changed from the complete all-eligible inventory"
+            )
+
+    def _verify_enable_arbitration(self, enabled):
+        self._arbitration_probe = _ProfilerTransport(self.reader, self.identity, feature="ELCG")
+        try:
+            self._arbitration_probe.allocate()
+            self._arbitration_probe.probe_disable_conflict()
+        finally:
+            self._arbitration_probe.free()
+            self._arbitration_probe = None
+        after = self._read_locked()
+        _same_support(enabled, after)
+        self._check_enabled(after)
+        self._arbitration_verified = True
+
+    def _hold(self, mode):
         with self.gpu._lock:
             if self._uncertain:
                 raise EngineClockGatingError(
@@ -117,53 +165,92 @@ class EngineClockGatingController(GrGatingController):
                 )
             before = self._read_locked()
             if self._owned:
-                if not before["support"] or before["eligible_engines"] & self._observed:
+                if self._owned_mode != mode:
+                    raise EngineClockGatingError("Release the owned ELCG request before changing mode")
+                if mode == "enabled":
+                    self._check_enabled(before)
+                elif not before["support"] or before["eligible_engines"] & self._observed:
                     raise EngineClockGatingError("The owned ELCG request is no longer independently visible")
                 return self._snapshot(before)
             if not before["support"]:
                 raise EngineClockGatingError("Engine clock-gating metadata is unavailable or unsupported")
             if not before["eligible_engines"]:
                 raise EngineClockGatingError("No eligible engine remains to independently verify an ELCG request")
+            if mode == "enabled" and before["supported_engines"] != before["eligible_engines"]:
+                raise EngineClockGatingError("ELCG ENABLE requires complete nonzero supported==eligible engine bitmaps")
+            self._request_supported = before["supported_engines"]
             try:
                 self._profiler.allocate()
                 self._uncertain = True
-                self._profiler.request()
+                self._owned_mode = mode
+                if mode == "enabled":
+                    self._profiler.request(enabled=True)
+                else:
+                    self._profiler.request()
                 self._owned = True
                 after = self._read_locked()
                 _same_support(before, after)
-                if after["eligible_engines"] & ~before["eligible_engines"]:
-                    raise EngineClockGatingError("ELCG request unexpectedly added eligible engines")
-                observed = before["eligible_engines"] & ~after["eligible_engines"]
-                if not observed:
-                    raise EngineClockGatingError("ELCG request produced no independent engine eligibility transition")
-                self._observed = observed
+                if mode == "enabled":
+                    self._check_enabled(after)
+                    self._observed = 0
+                    self._verify_enable_arbitration(after)
+                else:
+                    if after["eligible_engines"] & ~before["eligible_engines"]:
+                        raise EngineClockGatingError("ELCG request unexpectedly added eligible engines")
+                    observed = before["eligible_engines"] & ~after["eligible_engines"]
+                    if not observed:
+                        raise EngineClockGatingError(
+                            "ELCG request produced no independent engine eligibility transition"
+                        )
+                    self._observed = observed
                 self._uncertain = False
                 return self._snapshot(after)
             except Exception:
-                self._uncertain = self._profiler.handle is not None
+                self._arbitration_verified = False
+                self._uncertain = self._profiler.handle is not None or self._arbitration_probe is not None
                 raise
 
     def release(self):
         with self.gpu._lock:
-            if self._profiler.handle is None:
+            if self._profiler.handle is None and self._arbitration_probe is None:
                 return self._snapshot(self._read_locked())
             self._uncertain = True
             try:
+                if self._arbitration_probe is not None:
+                    self._arbitration_probe.free()
+                    self._arbitration_probe = None
                 before = self._read_locked()
-                if self._profiler.requested:
+                if self._owned_mode == "enabled":
+                    self._check_enabled(before)
+                if self._profiler.handle is not None and self._profiler.requested:
                     self._profiler.release()
                     self._owned = False
                 after = self._read_locked()
                 _same_support(before, after)
-                if after["eligible_engines"] != before["eligible_engines"] | self._observed:
+                if self._owned_mode == "enabled":
+                    self._check_enabled(after)
+                elif after["eligible_engines"] != before["eligible_engines"] | self._observed:
                     raise EngineClockGatingError("ELCG release did not match the exact expected eligible engine mask")
                 self._last_verification_error = None
             except Exception as exc:
                 self._last_verification_error = str(exc)
                 raise
             finally:
-                self._profiler.free()
-                self._owned = False
-                self._observed = 0
-                self._uncertain = False
+                try:
+                    self._profiler.free()
+                finally:
+                    self._owned = self._owned and self._profiler.handle is not None
+                    self._uncertain = self._profiler.handle is not None or self._arbitration_probe is not None
+                    if not self._uncertain:
+                        self._observed = 0
+                        self._owned_mode = None
+                        self._arbitration_verified = False
+                        self._request_supported = None
             return self._snapshot(after)
+
+    def close(self):
+        """Explicitly release/free only this controller's own request and probe."""
+        with self.gpu._lock:
+            if self._profiler.handle is None and self._arbitration_probe is None:
+                return None
+            return self.release()

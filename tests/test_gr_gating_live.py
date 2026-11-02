@@ -117,13 +117,13 @@ def commands(data):
     return [words[14] if words[4] == 0x0500002B else words[4] for words in data["writes"]]
 
 
-@pytest.mark.parametrize("feature", ["ELPG", "ELCG", "BLCG"])
-def test_enable_and_enable_arbitration_are_slcg_only_before_any_write(device, feature):
+@pytest.mark.parametrize("feature", ["ELPG", "BLCG"])
+def test_enable_and_enable_arbitration_reject_unqualified_features_before_any_write(device, feature):
     controller, data = device
     transport = live._ProfilerTransport(controller.reader, controller.identity, feature=feature)
-    with pytest.raises(live.GrGatingError, match="SLCG only"):
+    with pytest.raises(live.GrGatingError, match="ELCG and SLCG only"):
         transport.request(enabled=True)
-    with pytest.raises(live.GrGatingError, match="SLCG only"):
+    with pytest.raises(live.GrGatingError, match="ELCG and SLCG only"):
         transport.probe_disable_conflict()
     assert not transport.requested and not data["writes"]
 

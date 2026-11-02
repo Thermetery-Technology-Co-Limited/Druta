@@ -2318,6 +2318,38 @@ held ELCG and GR simultaneously, released ELCG without changing the GR masks,
 then released GR. Duplicate ELCG Hold added no native request. Both sets of masks,
 voltage requests and configured LPWR observations matched the original afterward.
 
+ELCG also offers **Hold enabled** with named mask `2`. Admission requires a
+complete, stable, nonzero 64-bit supported mask equal to the eligible mask.
+The inspected engine selector maps to indices 0..44, covered by those chunks;
+getter and callback use the same support guards. With an aggregate reason mask
+of zero, the callback returns before decrementing the shared reason-2 count.
+The request still acquires profiler arbitration: a separate temporary DISABLE
+object must return global `0x63` and selected rejection `1`. It is then freed,
+and support and eligibility must remain unchanged. Duplicate enabled holds
+recheck these values without another request; changing modes requires Release.
+No physical gating or exclusive ownership is inferred. Extra supported bits in
+the 64-bit inventory remain visible and checked, not rejected by a local mask.
+
+A bounded RTX5080/617.42 trial accepted ENABLE, rejected the opposing DISABLE,
+released ENABLE, then observed a successful DISABLE transition and its release.
+Engine eligibility, voltage requests and configured LPWR matched their initial
+state afterward. No workload, registry mutation or driver restart was used.
+[ENABLE qualification and callback boundaries](experiments/elcg-enable-qualified-20261102.json)
+records the source and hardware evidence. The production trial also held ELCG
+and SLCG enabled alongside BLCG and ELPG disabled, released ELCG independently,
+then positively verified its DISABLE transition and release. Duplicate enabled
+holds issued no further native requests; all compared masks, registers, voltage
+requests and configured LPWR values matched their starting values afterward.
+
+This ENABLE contract is not copied to BLCG or ELPG. In the inspected driver,
+their initial ENABLE and final release both invoke shared disable-count
+release helpers: BLCG reason0 and grouped ELPG reason0. Those helpers can consume
+another caller's count. Existing BLCG register samples do not expose that count;
+ELPG's supported-controller masks do not independently expose all saved group
+members or their counts. These are concrete callback/observation gaps, not a
+request to add recovery machinery. The existing owned DISABLE lifecycles remain
+available. Other driver paths require their own evidence.
+
 The other named requests were tested individually with explicit release/free:
 
 | Control | Local request response | Qualification |

@@ -1,6 +1,6 @@
 ﻿# Copyright (C) 2026 Thermetery Technology Co Limited
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Session-only controls for an engine clock-gating disable request."""
+"""Session-only controls for engine clock-gating requests."""
 
 import dearpygui.dearpygui as dpg
 
@@ -16,8 +16,9 @@ class EngineClockGatingPanel:
 
     def build(self):
         dpg.add_text(
-            "Hold requests that the driver disable engine clock gating. "
-            "Mask readback is a partial check, not physical gating or residency. "
+            "Hold enabled or disabled requests that state for engine clock gating in this session. "
+            "An enabled request rejects conflicting profiler requests; other driver mechanisms can still interfere. "
+            "Mask readback is a partial check and does not guarantee physical gating or residency. "
             "The request is not automatically reapplied after a driver restart.",
             tag="engine_clock_gating_explainer", wrap=self.app.s(900),
         )
@@ -25,6 +26,8 @@ class EngineClockGatingPanel:
             dpg.add_button(label="Refresh", tag="engine_clock_gating_read", callback=self.read)
             dpg.add_button(label="Hold disabled", tag="engine_clock_gating_hold",
                            callback=self.hold, enabled=False)
+            dpg.add_button(label="Hold enabled", tag="engine_clock_gating_hold_enabled",
+                           callback=self.hold_enabled, enabled=False)
             dpg.add_button(label="Release", tag="engine_clock_gating_release",
                            callback=self.release, enabled=False)
         dpg.add_text("Refresh status before requesting a change.", tag="engine_clock_gating_status",
@@ -57,13 +60,23 @@ class EngineClockGatingPanel:
         self._configure_actions()
 
     @staticmethod
+    def _enable_eligible(snapshot):
+        supported = snapshot.get("supported_engines")
+        eligible = snapshot.get("eligible_engines")
+        return (snapshot.get("available") is True and type(supported) is int
+                and type(eligible) is int and 0 < supported < (1 << 64) and eligible == supported)
+
+    @staticmethod
     def _format(snapshot):
         lines = ["Request readback: " + ("available" if snapshot["support"] else "unavailable")]
         if snapshot.get("uncertain_outcome", False):
             lines.append("This instance's request outcome is uncertain; use Release.")
         else:
-            lines.append("This instance's disable request: "
-                         + ("held" if snapshot["owned_request"] else "not held"))
+            mode = snapshot.get("owned_mode")
+            state = f"held {mode}" if snapshot["owned_request"] and mode in ("enabled", "disabled") else (
+                "held (mode unknown)" if snapshot["owned_request"] else "not held"
+            )
+            lines.append("This instance's request: " + state)
         eligible = snapshot["eligible_engines"]
         lines.append("Engines with no recorded disable reason: "
                      + (str(eligible.bit_count()) if eligible is not None else "unknown"))
@@ -71,6 +84,15 @@ class EngineClockGatingPanel:
         if observed:
             lines.append("Observed changes on engine bits: " + ", ".join(map(str, observed))
                          + " (partial readback)")
+        if snapshot.get("arbitration_verified", False):
+            lines.append("Conflicting request rejection verified for this enabled hold.")
+        if (snapshot["support"] and not snapshot["owned_request"]
+                and snapshot.get("available") is True
+                and type(snapshot.get("supported_engines")) is int
+                and type(eligible) is int and eligible != snapshot["supported_engines"]):
+            lines.append("Other disable reasons are active; release those before holding enabled.")
+        elif snapshot["support"] and not snapshot["owned_request"] and not EngineClockGatingPanel._enable_eligible(snapshot):
+            lines.append("Complete engine eligibility readback is required before holding enabled.")
         if snapshot.get("last_verification_error"):
             lines.append("Last verification error: " + str(snapshot["last_verification_error"]))
         return "\n".join(lines)
@@ -82,6 +104,8 @@ class EngineClockGatingPanel:
         dpg.configure_item("engine_clock_gating_hold", enabled=bool(
             safe and not self.stale and snapshot["support"]
             and snapshot["eligible_engines"] and not owned))
+        dpg.configure_item("engine_clock_gating_hold_enabled", enabled=bool(
+            safe and not self.stale and not owned and snapshot["support"] and self._enable_eligible(snapshot)))
         dpg.configure_item("engine_clock_gating_release", enabled=bool(
             owned or self.release_pending or (snapshot and snapshot.get("uncertain_outcome", False))))
 
@@ -119,8 +143,16 @@ class EngineClockGatingPanel:
         except Exception as exc:  # noqa: BLE001
             self._failed("hold", exc)
 
+    def hold_enabled(self, *unused):
+        if not self.app.guard():
+            return
+        try:
+            self._show(self._controller().hold_enabled(), "Enable request held by this instance.")
+        except Exception as exc:  # noqa: BLE001
+            self._failed("hold enabled", exc)
+
     def release(self, *unused):
         try:
-            self._show(self._controller().release(), "This instance's disable request was released.")
+            self._show(self._controller().release(), "This instance's request was released.")
         except Exception as exc:  # noqa: BLE001
             self._failed("release", exc)

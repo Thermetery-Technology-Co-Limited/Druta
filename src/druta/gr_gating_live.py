@@ -118,10 +118,10 @@ class _ProfilerTransport:
         return self._control(_REQUEST, (0xFFFFFFFF, mask, 0xFFFFFFFF), (17, 19))
 
     def request(self, *, enabled=False):
-        """DISABLE by default; the named ENABLE selector is qualified for SLCG only."""
-        if type(enabled) is not bool or enabled and self.feature != "SLCG":
-            raise GrGatingError("ENABLE requests are qualified for SLCG only")
-        result = self._request(0x20 if enabled else self._disable)
+        """DISABLE by default; named ENABLE is qualified for ELCG and SLCG only."""
+        if type(enabled) is not bool or enabled and self.feature not in ("ELCG", "SLCG"):
+            raise GrGatingError("ENABLE requests are qualified for ELCG and SLCG only")
+        result = self._request((2 << self._shift) if enabled else self._disable)
         if result[17] != 0:
             raise GrGatingError(f"GR gating request global status {result[17]}")
         selected_status = (result[19] >> self._shift) & 3
@@ -130,13 +130,13 @@ class _ProfilerTransport:
             raise GrGatingError(f"{self.feature} request {label}")
 
     def probe_disable_conflict(self):
-        """Require the source-defined SLCG opposing-request rejection, not a stub."""
-        if self.feature != "SLCG":
-            raise GrGatingError("ENABLE arbitration is qualified for SLCG only")
+        """Require the qualified feature's exact opposing-request rejection, not a stub."""
+        if self.feature not in ("ELCG", "SLCG"):
+            raise GrGatingError("ENABLE arbitration is qualified for ELCG and SLCG only")
         result = self._request(self._disable)
         if result[17] != 0x63 or (result[19] >> self._shift) & 3 != 1:
             raise GrGatingError(
-                "SLCG opposing DISABLE did not return exact arbitration rejection (global 99, selected 1)"
+                f"{self.feature} opposing DISABLE did not return exact arbitration rejection (global 99, selected 1)"
             )
 
     def release(self):

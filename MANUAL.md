@@ -812,6 +812,14 @@ arbitration check separately from actual register changes. Release before
 switching between enabled and disabled holds. Other driver mechanisms can still
 interfere, and this does not prove physical gating or residency.
 
+ELCG also provides **Hold enabled** when every supported engine reports no
+active disable reason. It holds an ENABLE request against conflicting profiler
+requests; it does not force an engine past other driver restrictions. The panel
+reports the arbitration check separately from changes to engine eligibility.
+If other disable reasons are active, Hold enabled remains unavailable. Release
+before changing modes. BLCG and ELPG currently offer Hold disabled and Release;
+their ENABLE callbacks are not qualified as independent controls.
+
 These four requests last only for the current session. Druta releases its own
 requests on normal exit or GPU switch and never reapplies them after a driver
 restart. They can be held independently; releasing one does not release the
