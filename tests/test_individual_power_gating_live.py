@@ -1,4 +1,4 @@
-"""Offline selected media references through the real LPWR packet transport."""
+"""Offline selected individual references through the real LPWR packet transport."""
 
 import ctypes
 import struct
@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from druta import media_power_gating_live as live
+from druta import individual_power_gating_live as live
 from druta.perf_diagnostics import PerfDiagnosticError
 
 
@@ -113,14 +113,14 @@ def device(monkeypatch):
         return data["set_status"]
 
     gpu._legacy_clk_escape = escape
-    return live.MediaPowerGatingController(gpu, 12), data
+    return live.IndividualPowerGatingController(gpu, 12), data
 
 
-@pytest.mark.parametrize("index,name", [(12, "NVDEC"), (13, "NVENC"), (14, "OFA"), (15, "NVJPG")])
+@pytest.mark.parametrize("index,name", [(0, "Graphics (GR)"), (12, "NVDEC"), (13, "NVENC"), (14, "OFA"), (15, "NVJPG")])
 def test_selected_only_balanced_lifecycle_preserves_other_reason_bits(device, index, name):
     initial, data = device
     data["index"] = index
-    controller = live.MediaPowerGatingController(initial.gpu, index)
+    controller = live.IndividualPowerGatingController(initial.gpu, index)
     before = controller.read()
     assert before["support"] and before["available"] and not data["sets"]
     assert before["index"] == index and before["name"] == name
@@ -140,17 +140,17 @@ def test_selected_only_balanced_lifecycle_preserves_other_reason_bits(device, in
     assert {row[0] for row in data["gets"] if isinstance(row, tuple)} == {index}
 
 
-@pytest.mark.parametrize("index", [4, 11, 16, True, "12"])
-def test_only_explicit_media_indices_are_admitted(index):
-    with pytest.raises(ValueError, match="Only media"):
-        live.MediaPowerGatingController(None, index)
+@pytest.mark.parametrize("index", [1, 4, 11, 16, True, "12"])
+def test_only_explicit_individual_indices_are_admitted(index):
+    with pytest.raises(ValueError, match="Only individual"):
+        live.IndividualPowerGatingController(None, index)
 
 
 def test_unknown_family_never_reads_attributes_or_writes(device):
     controller, data = device
     data["native"] = (0x999, 1, 0, 0)
     assert controller.read()["status"] == "unsupported_family"
-    with pytest.raises(live.MediaPowerGatingError, match="unsupported"):
+    with pytest.raises(live.IndividualPowerGatingError, match="unsupported"):
         controller.hold()
     assert not data["sets"] and not any(isinstance(row, tuple) for row in data["gets"])
 
@@ -161,7 +161,7 @@ def test_partial_unavailable_selected_metadata_refuses_without_peer_prerequisite
     data["unavailable"].add(unavailable)
     state = controller.read()
     assert not state["support"] and not state["available"]
-    with pytest.raises(live.MediaPowerGatingError, match="unavailable or unsupported"):
+    with pytest.raises(live.IndividualPowerGatingError, match="unavailable or unsupported"):
         controller.hold()
     assert not data["sets"]
 
@@ -179,7 +179,7 @@ def test_preexisting_reason0_is_not_ours_to_acquire_or_release(device):
     controller, data = device
     data["masks"][0x48] |= 1
     data["count"] = 2
-    with pytest.raises(live.MediaPowerGatingError, match="bit0 clear"):
+    with pytest.raises(live.IndividualPowerGatingError, match="bit0 clear"):
         controller.hold()
     controller.release()
     assert not data["sets"] and data["count"] == 2
@@ -189,7 +189,7 @@ def test_preexisting_reason0_is_not_ours_to_acquire_or_release(device):
 def test_failed_acquire_reply_still_retains_observed_pending_reference(device, malformed):
     controller, data = device
     data["malformed"] = malformed
-    with pytest.raises((live.MediaPowerGatingError, PerfDiagnosticError)):
+    with pytest.raises((live.IndividualPowerGatingError, PerfDiagnosticError)):
         controller.hold()
     assert controller.read()["owned_request"] and controller.read()["uncertain_outcome"]
     data["malformed"] = None
@@ -211,7 +211,7 @@ def test_transport_failure_after_increment_is_not_retried_and_can_be_balanced_on
 def test_stub_does_not_qualify_and_close_never_blindly_decrements(device):
     controller, data = device
     data["stub"] = True
-    with pytest.raises(live.MediaPowerGatingError, match="exact selected reason0 transition"):
+    with pytest.raises(live.IndividualPowerGatingError, match="exact selected reason0 transition"):
         controller.hold()
     assert not controller.read()["owned_request"] and controller.read()["uncertain_outcome"]
     controller.close()
@@ -294,7 +294,7 @@ def test_release_unrelated_bit_change_reports_failure_without_another_decrement(
     controller, data = device
     controller.hold()
     data["after_set"] = lambda value: data["masks"].update({0x49: 0x82}) if value == 1 else None
-    with pytest.raises(live.MediaPowerGatingError, match="unrelated"):
+    with pytest.raises(live.IndividualPowerGatingError, match="unrelated"):
         controller.release()
     controller.close()
     assert len(data["sets"]) == 2 and data["count"] == 0
@@ -304,7 +304,7 @@ def test_alternate_binding_and_native_auxiliary_do_not_form_a_device_allowlist(d
     original, data = device
     data["identity"] = ("another-slot", 999, 888)
     data["native"] = (0x170, 0xFE, 0x12345678, 0xABCDEF01)
-    controller = live.MediaPowerGatingController(original.gpu, 12)
+    controller = live.IndividualPowerGatingController(original.gpu, 12)
     assert controller.hold()["architecture"]["implementation"] == 0xFE
     controller.release()
 

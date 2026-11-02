@@ -1,14 +1,14 @@
 # Copyright (C) 2026 Thermetery Technology Co Limited
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Independent session-owned media power-gating inhibit controls."""
+"""Independent session-owned individual power-gating inhibit controls."""
 
 import dearpygui.dearpygui as dpg
 
-_CONTROLLERS = ((12, "NVDEC"), (13, "NVENC"), (14, "OFA"), (15, "NVJPG"))
+_CONTROLLERS = ((0, "Graphics (GR)"), (12, "NVDEC"), (13, "NVENC"), (14, "OFA"), (15, "NVJPG"))
 
 
-class MediaPowerGatingPanel:
-    """Keep each media controller's evidence and request independent."""
+class IndividualPowerGatingPanel:
+    """Keep each controller's evidence and request independent."""
 
     def __init__(self, app):
         self.app = app
@@ -18,14 +18,14 @@ class MediaPowerGatingPanel:
 
     @staticmethod
     def _tag(index, suffix):
-        return f"media_power_gating_{index}_{suffix}"
+        return f"individual_power_gating_{index}_{suffix}"
 
     def build(self):
         dpg.add_text(
             "Each control holds an individual power-gating inhibit for this session. "
-            "Readback confirms a driver request, not physical power gating or residency. "
+            "The request targets the selected controller; readback confirms a driver request, not physical power gating or residency. "
             "Requests are not reapplied after a driver restart.",
-            tag="media_power_gating_explainer", wrap=self.app.s(900),
+            tag="individual_power_gating_explainer", wrap=self.app.s(900),
         )
         for index, name in _CONTROLLERS:
             dpg.add_text(name)
@@ -41,17 +41,17 @@ class MediaPowerGatingPanel:
                                width=-1, height=self.app.s(65))
 
     def _controller(self, index):
-        from .media_power_gating_live import MediaPowerGatingController
+        from .individual_power_gating_live import IndividualPowerGatingController
 
         gpu = self.app.gpu
-        controllers = getattr(self.app, "_media_power_gating_controllers", None)
+        controllers = getattr(self.app, "_individual_power_gating_controllers", None)
         if not isinstance(controllers, dict):
             controllers = {}
-            self.app._media_power_gating_controllers = controllers
+            self.app._individual_power_gating_controllers = controllers
         key = (id(gpu), index)
         controller = controllers.get(key)
         if controller is None or controller.gpu is not gpu:
-            controller = MediaPowerGatingController(gpu, index)
+            controller = IndividualPowerGatingController(gpu, index)
             controllers[key] = controller
         return controller
 

@@ -1092,6 +1092,139 @@
         }
       ]
     },
+    "attribute3d_followup": {
+      "scope": "Offline bounded static semantic checks; no hardware operations or product edits.",
+      "findings": {
+        "attr3d": "E802 type3 3d ignores entry value and invokes 73aaa0, which sends header 00/03/06 with selected controller index only; direct callscan found only this caller. Neighbor helper 73ab80 sends 00/03/05 and copies returned statistics cache; proximity does not establish whether 03/06 resets, latches or changes anything. A801 getter attr3d dispatches default 7387d1; return success does not write a value, thus not independent evidence.",
+        "attr45": "E802 type3 45 forwards low byte to 73adb0, sole direct callsite. Header 00/03/08 sends controller and requested byte; host cache +168 changes on status0. A80145 returns this host cache; it is not independent. Accepted byte values and user feature meaning remain unbound.",
+        "sources": "Local NVIDIA older gk20a pmu_gk20a.h defines a different legacy PG message family and stats layout; no authoritative mapping to current 00/03/06 or 00/03/08 was found. Earlier lpwr-activity-followup-findings.json documents the schema and remaining firmware receiver gap. No evidence-based functional experiment proposed."
+      },
+      "references": [
+        "experiments/registry-overrides/functional-backlog-audit-terra-20261101/elpg-attr45-61742.json",
+        "experiments/registry-overrides/vbios-fields/lpwr-activity-followup-findings.json",
+        "experiments/registry-overrides/luna-grpg-group-witness-20261027/nvoc-voltage-init/mailbox-identity/public-nvgpu/gk20a/pmu_gk20a.h"
+      ],
+      "windows": [
+        {
+          "label": "set_3d_45_dispatch",
+          "rva": "0x738d6e",
+          "length": 78,
+          "bytes_hex": "458bc6488bd5488bcfe8241d00008bd8e9d1feffff418b4108458bc641b90300000089442420488bd5488bcfe8b10d0000e9b0feffff450fb64908458bc6488bd5488bcfe8f91f0000e998feffff",
+          "sha256": "0f40ccaa0e95e607b5a30b282b007ca860b9dee60407a7f555138c65e3b20967"
+        },
+        {
+          "label": "rpc_3d",
+          "rva": "0x73aaa0",
+          "length": 220,
+          "bytes_hex": "405356574883ec60488b05d1eea5004833c44889442458488bb150250000418bf8488bd9e807d9ffff84c0750ab855000000e99000000033d2488d4c244041b818000000e8074f9aff33d2897c245041b810000000488d4c2440e8f14e9aff488b93b02300004c8d44244033c966c74424410306c64424400041b9140000000fb68629130000488b92381000008844243048894c242866894c2420488bcbe89d93c1ff8bd885c0741c448bc0ba00107c01b9b476e50ee835619affb97d010000e89b639dff8bc3488b4c24584833cce8ec305b004883c4605f5e5bc3",
+          "sha256": "b232b3123c9ea800922560da1dde0b4d3833ff25cbc5831acace4c5d20188f57"
+        },
+        {
+          "label": "neighbor_stats_refresh_rpc",
+          "rva": "0x73ab80",
+          "length": 264,
+          "bytes_hex": "48895c24205556574881ecb0000000488b05eaeda5004833c448898424a0000000488ba950250000488bf2418bf8488bd9e81ad8ffff84c0750733c0e9d400000033d2488d4c244041b858000000e81d4e9aff33d24088bc249000000041b810000000488d4c2440e8034e9aff488b93b02300004c8d44244033c966c74424410305c64424400041b9540000000fb68529130000488b92381000008844243048894c242866894c2420488bcbe8af92c1ff8bd885c0741e448bc0ba00104701b9b476e50ee847609affb948010000e8ad629dffeb3e0f284424500f284c24604869cf080100000f1184316c0100000f284424700f118c317c0100000f288c24800000000f1184318c",
+          "sha256": "50f3d28ea56874d9562c5dd996c184ea386aff18593a12ed7328c094500e3a8a"
+        },
+        {
+          "label": "getter_jump_map",
+          "rva": "0x7387f4",
+          "length": 135,
+          "bytes_hex": "ac8573005787730098847300c9847300ab8473007c8473001d85730046857300ba8473009a877300b587730075877300828773008e8773006c857300d187730000000f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f00000f0f0f0000000f00000101010101010f0f0f0f0203040506070f0f08090a0a0a0f000b00000c0d00000e",
+          "sha256": "0008aaf25f023ec43af81da24a31279e5dd9d5aa869a3a9ded38ac41712f338c"
+        },
+        {
+          "label": "getter_default_and_cache",
+          "rva": "0x738775",
+          "length": 125,
+          "bytes_hex": "0fb6826801000041894108eb4f8b821001000041894108eb438b821c01000041894108eb37488b8688000000448bc5488bd6498bceff15f8a26c000fb6c0eb19488b8690000000458bcd448bc5488bd6498bceff15daa26c008943088bc7488b4c24604833cce880545b004881c480000000415e415d415c5f5e5d5bc3",
+          "sha256": "a7c8d8dab2bcd0b65608d4bd84929cae821060559ebae038c1e84500e29ba22f"
+        }
+      ]
+    },
+    "whole_mask_followup": {
+      "scope": "Source-qualified whole-mask analysis and one adapter read-only inventory; no SET.",
+      "findings": [
+        "E802 size 0x404, type 3 attr 0x3e overwrites shared client slot 3 after intersecting input with controller base feature mask and applying its dependency filter. GET A801 type 3 attr 0x38 returns base mask; attr 0x3e returns base intersected with all seven client slots, not slot 3. A GET equality therefore cannot generally prove the full requested slot value or identify its owner.",
+        "When a stable valid GET aggregate equals base, Boolean intersection proves every slot contains all base bits at that instant, including slot 3; bits outside base remain unknown. It does not identify the slot owner, guarantee later state, or establish firmware application. This special baseline improves interpretability but does not supply feature names or lifecycle.",
+        "If aggregate changes, firmware update is called, but host aggregate is stored even when that send reports failure. An aggregate transition is evidence of host arbitration only, not confirmation of firmware application or physical power state.",
+        "The slot is selected as a fixed integer in the setter; the examined path does not bind the assignment to a caller object or show a matching automatic release. Whole-mask assignment avoids a false preserve-unselected-bits promise but does not solve shared-slot ownership, exact readback, and functional verification.",
+        "For controller 0 only, the inspected 0x73686e filter conditionally clears bits. It clears 7, 9, 19 when bit2 is set and bit1 clear; clears bit1 unless bit8 set; clears bit9 unless bit2 or bit3 set; clears bits1 and 2 unless bit9 set; clears bit12 unless bit2 set; if bit22 set clears bit25, otherwise if bit25 set clears bit22; clears bit30 unless bit1 set. These are structural relations, not authoritative feature names. Other controllers may differ.",
+        "The examined NVIDIA public LPWR header defines DIFR control 0x20802801 but contains no definitions mapping this type 3 feature mask to feature names. Prior BIOS and driver analysis establishes selected numeric dependencies but does not by itself identify meanings for media controller 12?15 or a complete GR/DIFR mask. No named feature is source-qualified by this audit."
+      ],
+      "verdict": "Do not expose as a named functional control on this evidence. The aggregate-equals-base baseline constrains all currently available bits of slot 3, but an authoritative per-controller bit definition and current-firmware effect/acceptance witness remain missing, as does an externally owned session lifecycle.",
+      "inventory": {
+        "source": "experiments/registry-overrides/profiler-more-root-20261101/lpwr-named-attribute-inventory-20261102.json",
+        "sha256": "a45053916c85d9507ee7ead8a4eb88022f65f1338140393a63e298a836abfbc7",
+        "stable_reads": 2,
+        "controller_support_0x39": 1,
+        "base_0x38_equals_effective_0x3e_decimal": {
+          "0": 32804372,
+          "12": 253957,
+          "13": 254048,
+          "14": 254208,
+          "15": 254976
+        },
+        "cached_0x45": 0,
+        "scope": "Observed adapter and operating state only; values are not architecture-wide defaults."
+      },
+      "public_source": {
+        "file": "experiments/registry-overrides/vbios-fields/public-headers/ctrl2080lpwr.h",
+        "sha256": "1e6f673fe32b9ceb83f997e6ff35a2f12ac483b008001ccb15fefcd2c75cf937",
+        "url": "https://github.com/NVIDIA/open-gpu-kernel-modules/blob/main/src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080lpwr.h"
+      },
+      "windows": [
+        {
+          "label": "set_descriptor",
+          "rva": "0xe6add0",
+          "length": 32,
+          "bytes_hex": "00414f4001000000440000000000000002e880200404000090b0e64001000000",
+          "sha256": "c63891811d9f4acd12e3c4922b4a4a314680a99c664cf2c04878aee99becf362"
+        },
+        {
+          "label": "set_attribute_3e",
+          "rva": "0x738d83",
+          "length": 33,
+          "bytes_hex": "418b4108458bc641b90300000089442420488bd5488bcfe8b10d0000e9b0feffff",
+          "sha256": "4745f42d1df82ab78f11b31631ba1d5d4b015c663510af987158a26cd2ed4e49"
+        },
+        {
+          "label": "mask_intersection",
+          "rva": "0x739b50",
+          "length": 122,
+          "bytes_hex": "48895c240848896c2410488974241857415641574883ec208b5c24604c8bf2458bf8488bf1418bf94969ef080100004803ea239d38010000448bcbe8b0ccffff23c3b9070000008984bd40010000488d85400100008b9d380100000f1f4400002318488d40044883e90175f43b9d3c0100000f84640100004138",
+          "sha256": "90819c40e28683a7871bbc4b9cabd41fb92afa02ea325ce423978bdec9d81db1"
+        },
+        {
+          "label": "controller0_dependency_filter",
+          "rva": "0x73686e",
+          "length": 111,
+          "bytes_hex": "8bc38bd381e27ffef7ff24063c040f45d38bca83e1fd0fbae2080f42ca8bd10fbaf209f6c10c0f45d18bca83e1f90fbae2090f42ca8bd10fbaf20cf6c1040f45d18bca0fbaf1190fbae2160f43ca8bd10fbaf2160fbae1190f43d18bda0fbaf31ef6c2020f45da8bc34883c4205bc3",
+          "sha256": "fe4381ecd12990e96ef7e7a2e36e7d63f97362106df781ecd54dfb23cec9e862"
+        },
+        {
+          "label": "aggregated_mask_firmware_update",
+          "rva": "0x739c39",
+          "length": 50,
+          "bytes_hex": "448bcb458bc7498bd6488bcee8660d000085c07419ba0000b619b9329b890ee833709affb9b6190000e859649cff4180bee2",
+          "sha256": "034ea705d46fb09d2e546144a1def52d7220a4db9c41d238ab34b479673cb0d1"
+        },
+        {
+          "label": "aggregate_store",
+          "rva": "0x739d13",
+          "length": 28,
+          "bytes_hex": "498b4650458bc7498bd6488bceff15828d6c00899d3c010000488b5c",
+          "sha256": "8dcd528b1a0e80686509753b8a7df06ba391bd5d9a7e00bca2122d9572d3467f"
+        },
+        {
+          "label": "get_base_and_aggregate",
+          "rva": "0x7384ab",
+          "length": 30,
+          "bytes_hex": "8b823801000041894108e9170300008b823c01000041894108e908030000",
+          "sha256": "2ae86982477e7cdf3e8f5d47f5dd3bf36efd7c1ccf99021321643d5fbb0edf50"
+        }
+      ]
+    },
     "feature_mask": {
       "findings": [
         "GET type3 attr38 returns controller record+138 base feature mask; attr3E returns record+13C current effective intersection. Controller support must be available for either.",

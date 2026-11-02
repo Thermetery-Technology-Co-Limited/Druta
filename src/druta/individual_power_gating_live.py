@@ -1,10 +1,11 @@
 # Copyright (C) 2026 Thermetery Technology Co Limited
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Balanced session-only media reason0 references through named E802 attr37.
+"""Balanced session-only individual reason0 references through named E802 attr37.
 
 This is a shared count, with no native object or unique client ownership getter.
 Only the selected controller is observed. Reason masks do not measure physical
 power gating, and other owners can keep reason0 set after our one release.
+Callbacks may reevaluate other controllers; this is not a GR-only physical claim.
 """
 
 from __future__ import annotations
@@ -15,24 +16,26 @@ from . import clock_bios_runtime as clock
 from . import lpwr_runtime as lpwr
 from .perf_diagnostics import PerfDiagnosticError, PerfDiagnosticsReader
 
-_CONTROLLERS = {12: "NVDEC", 13: "NVENC", 14: "OFA", 15: "NVJPG"}
-# Known native media families; runtime callback selection is separate. A callback
+_CONTROLLERS = {0: "Graphics (GR)", 12: "NVDEC", 13: "NVENC", 14: "OFA", 15: "NVJPG"}
+# Known native families; runtime callback selection is separate. A callback
 # can fail after changing the count/bit, so acknowledgement and readback remain
 # mandatory and a release dispatch is never blindly repeated.
 _SUPPORTED_FAMILIES = frozenset({0x160, 0x170, 0x190, 0x1B0})
 _SET_COMMAND = 0x2080E802
 
 
-class MediaPowerGatingError(RuntimeError):
+class IndividualPowerGatingError(RuntimeError):
     """A selected shared reference or its independent readback was not verified."""
 
 
-class MediaPowerGatingController:
+class IndividualPowerGatingController:
     """Acquire/release one selected shared reference; never retry a SET."""
 
     def __init__(self, gpu, index):
         if type(index) is not int or index not in _CONTROLLERS:
-            raise ValueError("Only media controller indices12 NVDEC,13 NVENC,14 OFA and15 NVJPG are understood")
+            raise ValueError(
+                "Only individual controller indices0 Graphics (GR),12 NVDEC,13 NVENC,14 OFA and15 NVJPG are understood"
+            )
         self.gpu, self.index = gpu, index
         self.reader = PerfDiagnosticsReader(gpu)
         self.identity = clock._binding(self.reader)
@@ -50,7 +53,7 @@ class MediaPowerGatingController:
     def _once(self):
         raw = lpwr._get(self.reader, self.identity, 0x20801701, 16, bytes(16))
         if len(raw) != 16:
-            raise MediaPowerGatingError("Media native architecture geometry is not understood")
+            raise IndividualPowerGatingError("Individual native architecture geometry is not understood")
         architecture, implementation, revision, auxiliary = struct.unpack("<4I", raw)
         state = {
             "architecture": {
@@ -80,7 +83,7 @@ class MediaPowerGatingController:
             try:
                 first, second = self._once(), self._once()
                 if first != second:
-                    raise MediaPowerGatingError("Selected media support or reason masks were not stable")
+                    raise IndividualPowerGatingError("Selected individual support or reason masks were not stable")
                 return second
             except PerfDiagnosticError as exc:
                 if attempt or exc.kind != "transient":
@@ -111,28 +114,32 @@ class MediaPowerGatingController:
         response = lpwr._get(self.reader, self.identity, _SET_COMMAND, lpwr.ATTRIBUTE_SIZE, bytes(request))
         struct.pack_into("<H", request, 10, 1)
         if response != bytes(request):
-            raise MediaPowerGatingError(
-                "Media SET did not acknowledge exact flags1 with all other request bytes preserved"
+            raise IndividualPowerGatingError(
+                "Individual SET did not acknowledge exact flags1 with all other request bytes preserved"
             )
 
     @staticmethod
     def _same_support(before, after):
         if not after["support"] or not after["available"] or before["architecture"] != after["architecture"]:
-            raise MediaPowerGatingError("Selected media support or native architecture changed")
+            raise IndividualPowerGatingError("Selected individual support or native architecture changed")
 
     def hold(self):
         with self.gpu._lock:
             if self._uncertain:
-                raise MediaPowerGatingError("Media reference outcome is uncertain; explicitly release this session")
+                raise IndividualPowerGatingError(
+                    "Individual reference outcome is uncertain; explicitly release this session"
+                )
             before = self._read_locked()
             if not before["support"]:
-                raise MediaPowerGatingError("Selected media controller is unavailable or unsupported")
+                raise IndividualPowerGatingError("Selected individual controller is unavailable or unsupported")
             if self._owned:
                 if not before["reason_masks"][0x48] & 1:
-                    raise MediaPowerGatingError("The pending media reason0 reference is no longer visible")
+                    raise IndividualPowerGatingError("The pending individual reason0 reference is no longer visible")
                 return self._snapshot(before)
             if before["reason_masks"][0x48] & 1:
-                raise MediaPowerGatingError("Media hold requires selected reason48 bit0 clear before acquisition")
+                raise IndividualPowerGatingError(
+                    "Individual hold requires selected reason48 bit0 clear before acquisition"
+                )
             self._release_attempted = False
             self._acquire_attempted = True
             self._uncertain = True
@@ -148,8 +155,8 @@ class MediaPowerGatingController:
                 self._same_support(before, after)
                 expected = {**before["reason_masks"], 0x48: before["reason_masks"][0x48] | 1}
                 if after["reason_masks"] != expected:
-                    raise MediaPowerGatingError(
-                        "Media acquire did not match the exact selected reason0 transition and preserved reason masks"
+                    raise IndividualPowerGatingError(
+                        "Individual acquire did not match the exact selected reason0 transition and preserved reason masks"
                     )
                 if write_error is not None:
                     raise write_error
@@ -170,7 +177,9 @@ class MediaPowerGatingController:
                 return self._snapshot(self._read_locked())
             before = self._read_locked()
             if not before["support"]:
-                raise MediaPowerGatingError("Selected media support is unavailable; no release was dispatched")
+                raise IndividualPowerGatingError(
+                    "Selected individual support is unavailable; no release was dispatched"
+                )
             if not before["reason_masks"][0x48] & 1:
                 self._owned = self._acquire_attempted = self._uncertain = False
                 return self._snapshot(before)  # No independent pending reference to decrement.
@@ -191,7 +200,7 @@ class MediaPowerGatingController:
                 expected = dict(before["reason_masks"])
                 expected[0x48] &= ~1
                 if after["reason_masks"] not in (expected, before["reason_masks"]):
-                    raise MediaPowerGatingError("Media release changed unrelated selected reason bits")
+                    raise IndividualPowerGatingError("Individual release changed unrelated selected reason bits")
                 if write_error is not None:
                     raise write_error
                 self._last_verification_error = None

@@ -2441,27 +2441,43 @@ from a successful firmware response by `73A760`, then stored at controller-row
 byte0; it is not a family constant or the public controller index. No current-ID
 getter was qualified, so no guessed-address raw-second read was attempted.
 
-Two other actual E802 type3 cases remain distinct from the threshold controls.
+Three other actual E802 type3 cases remain distinct from the threshold controls.
+Attribute `3D` ignores the entry value and sends firmware request `00/03/06`
+with the selected controller index. Its A801 getter reaches a default branch
+that returns success without writing a value; it is not meaningful readback.
+The adjacent statistics refresh request does not establish whether `3D` resets,
+latches, or changes anything. Its functional meaning remains unknown.
 Attribute `45` sends the low byte of the requested value through firmware request
 `00/03/08`, then caches it at row+168 on successful status. A801 returns that
 cached byte. Its feature meaning and firmware behavior are not established;
 arbitrary low-byte acceptance does not prove Boolean semantics.
 Attribute `3E` replaces hardcoded shared client slot3 with a dependency-normalized
-mask. A801 `38` returns the base mask and `3E` the intersection of seven slots;
-neither reveals slot3. Using the aggregate as a read-modify-write baseline can
-copy another slot's temporary restrictions into slot3, so it cannot establish
-preservation of unselected restrictions. This does not prove that explicit
-whole-mask replacement is impossible; it rules out presenting the current
-interface as an independently owned request or verified partial-bit editor.
+mask, clipped to the base. A801 `38` returns the base mask and `3E` the base
+intersected with seven slots. If the valid aggregate equals the base, every
+available base bit is present in every slot at that instant. This does not reveal
+slot bits outside the base or establish who controls the slot. In general, using
+the aggregate as a read-modify-write baseline can copy another slot's temporary
+restrictions into slot3. The host stores the aggregate even after logging a
+firmware-send error, so matching aggregate readback does not establish firmware
+acceptance. Source-bound names for these masks and the operation's functional
+consequences remain unqualified; an explicit whole-mask assignment does not
+resolve those gaps.
+
+Two stable read-only observations on the captured adapter reported support `39=1`
+and `38=3E` for GR controller0 and media controllers 12 through 15. Their respective
+base masks were `32804372`, `253957`, `254048`, `254208`, and `254976` (decimal);
+all returned cached `45=0`. These values describe that adapter and state, not
+generation-wide defaults. The [recorded inventory](experiments/additional-lowpower-functional-gaps-20261102.json)
+has SHA-256 `a45053916c85d9507ee7ead8a4eb88022f65f1338140393a63e298a836abfbc7`.
 No SET or product control was added for these cases.
 
 [Bounded byte evidence and exact gaps](experiments/additional-lowpower-functional-gaps-20261102.json)
 records these findings; they do not add recovery or profile work.
 
-### Individual live media power-gating inhibits
+### Individual live engine power-gating inhibits
 
-`media_power_gating_live.py` exposes independent NVDEC (12), NVENC (13), OFA (14)
-and NVJPG (15) holds through the actual attribute SET `0x2080E802`. A singleton
+`individual_power_gating_live.py` exposes independent Graphics/GR (0), NVDEC (12),
+NVENC (13), OFA (14) and NVJPG (15) holds through the actual attribute SET `0x2080E802`. A singleton
 `0x404` packet contains one 16-byte type3 row for attribute `0x37`: value0 acquires
 one shared reason0 reference; value1 releases one. The source increments row+10C
 and sets row+110 bit0 on acquire, and clears that bit only when the count reaches
@@ -2479,6 +2495,21 @@ acquire can already have changed the shared count, so its selected readback is
 inspected before deciding whether one balancing release remains due. Mutating
 requests are never retried. Duplicate holds send no extra acquire; a release
 attempt is never repeated blindly after a response or verification error.
+
+The GR extension selects controller0 directly rather than traversing the
+profiler ELPG group0/1 and group3 request loops. Its acquire updates the selected
+reason reference and may update shared resource bookkeeping; release callbacks
+can reevaluate other supported controllers. The control therefore verifies a
+GR-controller request, without promising GR-only physical effects. A bounded
+RTX5080/617.42 trial showed only controller0 reason48 bit0 changing, unchanged
+media/other observed reason masks and reason49, and exact return on release.
+Voltage requests and configured LPWR remained unchanged. The individual panel
+adds this control beside the four media controls; grouped ELPG remains separate.
+The production trial held GR and all four media requests alongside ELCG/SLCG
+ENABLE and BLCG DISABLE, then released GR while preserving the media requests.
+All final compared masks, registers, voltage requests and configured LPWR
+matched baseline. The focused suite passed 346 tests.
+[GR extension evidence](experiments/live-individual-power-gating-20261102.json).
 
 The release callback is selected by RM runtime variant, independently of GPU
 architecture: PF monolithic selects the working callback; other examined variants

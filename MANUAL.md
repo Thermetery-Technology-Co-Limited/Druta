@@ -786,7 +786,7 @@ through NVIDIA's read-only register operations; an inaccessible or unknown layou
 does not enable Hold. The readbacks are partial configuration witnesses, not
 measurements of physical gating, residency or power savings.
 The ELPG request applies to a group chosen by the driver, which can include
-graphics and media controllers. Individual engines cannot be selected. While
+graphics and media controllers. That panel does not select individual controllers. While
 held, each supported controller reports whether a new request transition was
 observed; an overall verified hold does not prove every controller changed.
 
@@ -825,13 +825,18 @@ requests on normal exit or GPU switch and never reapplies them after a driver
 restart. They can be held independently; releasing one does not release the
 others. No registry change or GPU restart is needed to use them.
 
-**Live media power gating** provides separate **Refresh**, **Hold disabled**
-and **Release** controls for NVDEC, NVENC, OFA and NVJPG. Each checks its own
-availability, so an unsupported media engine does not disable the others. Hold
+**Individual engine power gating** provides separate **Refresh**, **Hold disabled**
+and **Release** controls for Graphics (GR), NVDEC, NVENC, OFA and NVJPG. Each checks its own
+availability, so an unsupported engine does not disable the others. Hold
 adds one counted inhibit for the selected controller and checks its reason bit;
 Release removes this instance's one request. Another client's request can keep
 the inhibit active after release. Release a grouped ELPG hold before acquiring
-an individual media hold if it already sets that controller's reason bit.
+an individual hold if it already sets that controller's reason bit.
+
+The Graphics control changes the graphics controller's individual request,
+whereas grouped ELPG asks the driver to inhibit a group that can include media.
+Driver callbacks can reevaluate dependencies; an individual request does not
+guarantee effects are physically confined to that one engine.
 
 These controls do not need a registry change or GPU restart. Druta releases its
 own requests on normal exit or GPU switch and does not save or reapply them
