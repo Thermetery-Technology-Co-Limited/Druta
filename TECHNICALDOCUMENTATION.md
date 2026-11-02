@@ -2835,10 +2835,25 @@ Generation decides only whether a family's policy semantics are understood at
 all. Which packet sizes a card speaks is still decided by read-only
 acceptance and validated by exact binding and readback.
 
-The RM26 families reject a wrong parameter size with RM `0x3A`, where the
-A6xx families return RM `0x1F`. This is recorded as an observation; no code
-path treats the two as equivalent, because the RM26 layouts are selected by
-transport key with a single size candidate each and so never probe.
+### A wrong parameter size is refused with RM 0x1F or RM 0x3A
+
+Which one a driver uses is a property of **that driver**, not of the command
+family: 516.94 returns `0x3A` on the A612 family that 572.83 and 576.80
+answer with `0x1F`. `SIZE_REFUSALS` carries both, and both select the next
+candidate size; anything else stays transient and selects nothing.
+
+### A transport's identity is its command and its packet geometry
+
+`_CURRENT_LIMIT_LAYOUTS` is keyed on `(command, packet_bytes,
+parameter_bytes)`. 3548/3480 is one record layout under `20802612` and a
+different one under `2080A612` — different role, native INFO and native
+STATUS records — so size alone cannot identify a layout.
+
+For the same reason the client group tracks its command family (`_rm26`,
+which selects the 26xx wire commands) separately from its record layout
+(`_rm26_records`, which selects the compact bases, strides and mask words).
+The 26xx transports imply both; `A612_COMPACT_SIZES` is a driver that answers
+the A612 family with compact records.
 
 ### The role GET size fixes the native policy record stride
 

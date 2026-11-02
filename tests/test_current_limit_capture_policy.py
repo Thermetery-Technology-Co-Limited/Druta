@@ -60,7 +60,8 @@ def reset_steps(gpu):
 
 def unknown_transport(gpu, packet_bytes=30000):
     gpu._capture_current_limit_transport = Mock(return_value=None)
-    gpu._current_limit_observed_transport = {"command": "0x2080A612", "packet_bytes": packet_bytes,
+    gpu._current_limit_observed_transport = {"command": "0x2080A612", "command_id": 0x2080A612,
+                                             "packet_bytes": packet_bytes,
                                              "parameter_bytes": packet_bytes - 68}
 
 

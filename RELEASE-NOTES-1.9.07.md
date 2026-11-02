@@ -74,10 +74,43 @@ Ampere on the RM26 family, which nothing has tested. A generation qualified
 against one packet family is not thereby qualified against the other, and the
 test suite asserts the two lists stay distinct.
 
-Observed and recorded but not acted on: the RM26 families reject a wrong
-parameter size with RM `0x3A`, where the A6xx families return RM `0x1F`. No
-code path changed on the strength of that — the RM26 layouts are selected by
-transport key with a single candidate each, so none of them probes sizes.
+## The same packet geometry can mean two different layouts
+
+Driver **516.94** presents an A612 transport at **3548/3480 bytes** — the
+exact packet geometry 472.12 presents under `20802612` — but answers the
+**A6xx** command ids while laying its policies out the compact way. The
+records differ too: role INFO 132 against 136, native INFO 5392 with a
+128-byte record against 5520 with a 132-byte one, and native STATUS 70684
+(`0x64`/`0x858`) against 69148 (`0x64`/`0x828`). The 69148 size is refused
+outright on 516.94.
+
+`_CURRENT_LIMIT_LAYOUTS` is therefore keyed on the transport's **command as
+well as its sizes**; keying on size alone cannot represent these two. The
+client group's command family and its record layout are now tracked
+separately for the same reason, since a driver can answer one family while
+using the other's record shape.
+
+**Correction carried from 1.9.07's own notes:** the 472.12 work recorded
+RM `0x3A` as the RM26 families' size-refusal code, contrasted with `0x1F` on
+the A6xx families. That was wrong. 516.94 returns `0x3A` on the **A612**
+family, so the code is a property of the driver, not the family. Both are now
+treated as the definite "wrong size" answer that selects the next candidate —
+which is exactly what 516.94's detection needed, since the modern client INFO
+was refused with `0x3A` and 1.9.06's fallback only moved on for `0x1F`.
+
+## Max All asks for the XOC envelope
+
+With **XOC** ticked, "Max All" now requests the extended envelope for the
+board row instead of the card's nominal maximum, mirroring what the named
+current rows beside it already did. It only ever raises: if the live request
+interface is unavailable, or the envelope is no wider than the nominal top,
+the nominal maximum stands.
+
+Accepting a request is not the same as the board enforcing it. On the
+measured GP106 the effective board limit settles at the firmware maximum
+regardless of the request, and under load the binding constraint was core
+current rather than board power — see the
+[472.12 under-load measurement](experiments/pascal-gp106-driver47212-20261102.md).
 
 ## Qualification
 
@@ -129,8 +162,13 @@ licenses, matching source, tests and public validation material. Extract the
 complete folder and run `Druta.exe`. As in 1.9.06, the build uses CPython
 3.14.4 with the existing pinned dependencies; 1.9.05 and earlier used 3.13.8.
 
-Validation: the complete hardware-free suite passed **6704 tests**, the 6688
-of 1.9.06 plus sixteen covering the 216-byte record, the derived stride, the
+Validation: the complete hardware-free suite passed **6708 tests**, the 6688
+of 1.9.06 plus twenty covering the 216-byte record, the derived stride, the
 transient-versus-size distinction on the role GET, every qualified generation
-on both RM26 geometries, and an assertion that the two generation lists stay
-separate.
+on both RM26 geometries, an assertion that the two generation lists stay
+separate, that the two 3548/3480 layouts are distinct entries, and Max All's
+behaviour with XOC on, off, and with the envelope unreadable.
+
+Qualified on four drivers on one GP106 — 576.80, 572.83, 472.12 and 516.94 —
+each with reversible idle power and core-current trials, exact readback and
+verified restoration.

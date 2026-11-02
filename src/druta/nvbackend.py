@@ -4842,11 +4842,13 @@ class GPU:
                  "normal_maximum_ma": 200_000},
         },
     }
-    # Keyed by the exact unmodified A612 packet and parameter sizes. Never
+    # Keyed by the exact unmodified power GET: its command AND its packet and
+    # parameter sizes. The command belongs in the key because two families can
+    # present the SAME packet geometry with different record layouts - 3548/3480
+    # is one layout under 20802612 and a different one under 2080A612. Never
     # infer private ABI geometry from a driver string or a device identity.
     _CURRENT_LIMIT_LAYOUTS = {
-        (2524, 2456): {
-            "transport_command": 0x20802612,
+        (0x20802612, 2524, 2456): {
             "sizes": {0x2080A618: 5008, 0x2080A619: 14148,
                       0x2080A61A: 2108, 0x2080E61B: 2108},
             "commands": {0x2080A618: 0x20802618, 0x2080A619: 0x20802619,
@@ -4854,8 +4856,7 @@ class GPU:
             "info": (52, 116), "status": (12, 372),
             "control": (4, 52), "status_mask_word": 0, "control_mask_word": 0,
         },
-        (3548, 3480): {
-            "transport_command": 0x20802612,
+        (0x20802612, 3548, 3480): {
             "sizes": {0x2080A618: 5520, 0x2080A619: 69148,
                       0x2080A61A: 2124, 0x2080E61B: 2124},
             "commands": {0x2080A618: 0x20802618, 0x2080A619: 0x20802619,
@@ -4863,7 +4864,18 @@ class GPU:
             "info": (0x3C, 0x84), "status": (0x64, 0x828),
             "control": (0x14, 0x34), "status_mask_word": 0,
         },
-        (11748, 11680): {
+        # The same packet geometry as the entry above, reached through the A612
+        # command family instead, and NOT the same records: a 128-byte info
+        # record in a 5392-byte block and a 2136-byte status record in a
+        # 70684-byte one. Measured on a GP106 / 516.94, where every 26xx size
+        # is refused. Each base and stride was solved against live descriptors.
+        (0x2080A612, 3548, 3480): {
+            "sizes": {0x2080A618: 5392, 0x2080A619: 70684,
+                      0x2080A61A: 2124, 0x2080E61B: 2124},
+            "info": (0x3C, 0x80), "status": (0x64, 0x858),
+            "control": (0x14, 0x34), "status_mask_word": 0,
+        },
+        (0x2080A612, 11748, 11680): {
             "sizes": {0x2080A618: 8620, 0x2080A619: 172080,
                       0x2080A61A: 4432, 0x2080E61B: 4432},
             "info": (0x58, 0xE4), "status": (0x70, 0x1454),
@@ -4879,7 +4891,7 @@ class GPU:
         # all ten occupied policies' status type bytes match their info types
         # and every effective value falls inside its own info bounds.
         # Two blocks agreeing is not evidence that the third does.
-        (11740, 11672): {
+        (0x2080A612, 11740, 11672): {
             "sizes": {0x2080A618: 8620, 0x2080A619: 171048,
                       0x2080A61A: 4432, 0x2080E61B: 4432},
             "info": (0x58, 0xE4), "status": (0x68, 0x1434),
@@ -4891,13 +4903,13 @@ class GPU:
         # 8620- and 8632-byte info GETs are both refused (RM 0x1F). The info
         # base and the status/control geometry were each re-solved against
         # live descriptors rather than assumed from the neighbouring entry.
-        (3676, 3608): {
+        (0x2080A612, 3676, 3608): {
             "sizes": {0x2080A618: 8236, 0x2080A619: 171048,
                       0x2080A61A: 4432, 0x2080E61B: 4432},
             "info": (0x58, 0xD8), "status": (0x68, 0x1434),
             "control": (0x14, 0x7C),
         },
-        (54420, 54352): {
+        (0x2080A612, 54420, 54352): {
             "sizes": {0x2080A618: 20000, 0x2080A619: 396024,
                       0x2080A61A: 13840, 0x2080E61B: 13840},
             "info": (0xCC, 0xFC), "status": (0x9C, 0x1720),
@@ -4909,7 +4921,7 @@ class GPU:
     # 20000-byte info GET is rejected (RM 0x1F) on the measured GA104.
     # Record bases were checked against every occupied policy's info type.
     _CURRENT_LIMIT_LAYOUT_FALLBACKS = {
-        (54420, 54352): ({
+        (0x2080A612, 54420, 54352): ({
             "sizes": {0x2080A618: 8632, 0x2080A619: 0x2E740,
                       0x2080A61A: 0x18D4, 0x2080E61B: 0x18D4},
             "info": (0x58, 0xE4), "status": (0x80, 0x168C),
@@ -4998,6 +5010,7 @@ class GPU:
                                     and words[14] in (0x2080A612, 0x20802612)):
                                 self._current_limit_observed_transport = {
                                     "command": f"0x{words[14]:08X}",
+                                    "command_id": int(words[14]),
                                     "packet_bytes": int(words[2]),
                                     "parameter_bytes": int(words[15]),
                                 }
@@ -5064,8 +5077,8 @@ class GPU:
                 observed = getattr(self, "_current_limit_observed_transport", {}) or {}
                 seen = (f"observed {observed.get('command')}, {observed.get('packet_bytes')}/"
                         f"{observed.get('parameter_bytes')} bytes")
-                if observed and ((observed.get("packet_bytes"), observed.get("parameter_bytes"))
-                                 not in self._CURRENT_LIMIT_LAYOUTS):
+                if observed and ((observed.get("command_id"), observed.get("packet_bytes"),
+                                  observed.get("parameter_bytes")) not in self._CURRENT_LIMIT_LAYOUTS):
                     # a power GET WAS seen, and its geometry is not one Druta knows
                     raise CurrentLimitUnsupported("unsupported current-policy transport: " + seen)
                 # nothing seen, or a known power GET whose getter then failed:
@@ -5082,12 +5095,17 @@ class GPU:
         self._current_limit_transport = transport
         return transport
 
+    @staticmethod
+    def _current_limit_key(header):
+        """A transport's identity: its command and its exact packet geometry."""
+        return header[14], header[2], header[15]
+
     def _current_limit_transport_layouts(self):
         """Capture the power GET once and return every layout that packet can be."""
         header, _ = self._rm_power_transport()
-        key = (header[2], header[15])
+        key = self._current_limit_key(header)
         layout = self._CURRENT_LIMIT_LAYOUTS.get(key)
-        if layout is None or header[14] != layout.get("transport_command", 0x2080A612):
+        if layout is None:
             # The transport stays captured: it is understood and other callers
             # legitimately reuse it. Only this driver's current-policy record
             # layout is unknown, so only the current sliders go away.
@@ -5872,6 +5890,19 @@ class GPU:
         self._power_policy_pins = {}
         steps = []
         top = (getattr(self, "static", None) or {}).get("pl_max_mw")
+        if getattr(self, "voltage_xoc_enabled", False):
+            # Mirror the named-current rows below: with XOC the ceiling is the
+            # one that knob is actually allowed to reach, not the board's
+            # nominal maximum. Only ever raises - an unavailable live request
+            # interface leaves the nominal top in place rather than lowering
+            # it. Accepting the request is not the same as the board enforcing
+            # it; effective limits can still settle at the firmware maximum.
+            try:
+                extended = self.power_limit_bounds_mw()[1]
+            except Exception:                                           # noqa: BLE001
+                extended = None
+            if type(extended) is int and extended > (top or 0):
+                top = extended
         if top:
             steps.append(("power limit", *self.set_power_limit_mw(top)))
         rows, error = self.read_power_policies()
