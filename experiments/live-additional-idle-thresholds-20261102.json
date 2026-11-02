@@ -794,7 +794,7 @@
         "sha256": "4fcb9dab440b167097a97ebad9af3378abd9a09e8aa9812875e1d6fc3c6ca73c"
       }
     ],
-    "difr10_11": "Registry literals and parent default fields are known, but the complete group-to-parent naming join is not yet bound. Not exposed by this increment."
+    "difr10_11": "Subsequently qualified through the indexed common first-field route in experiments/live-difr-idle-thresholds-20261102.json. Missing registry-to-parent copy limits initialization provenance."
   },
   "private_audit_sha256": {
     "experiments\\registry-overrides\\other-idle-thresholds-terra-20261102\\idle-first-controller-join-61742.json": "830ae74db03fbf1afb864f473b27f7df87ff4b30308ed4a6117e4b7cb2787918",
@@ -805,5 +805,6 @@
     "experiments\\registry-overrides\\profiler-more-root-20261101\\idle-threshold-13-trial-20261102.json": "8a4b76000a5a71fa007b7bb5de88abf8a46bf6c00d8f2a41ee2392680f853a2e",
     "experiments\\registry-overrides\\profiler-more-root-20261101\\idle-threshold-14-trial-20261102.json": "4a62705082304809e822e370043ca0dd97150aa5248efff40292424c335e5a8f",
     "experiments\\registry-overrides\\profiler-more-root-20261101\\idle-threshold-15-trial-20261102.json": "2a9a382f4fb81ddad36adcc53842e096807ad1bbff9d0c6b3ca7db3bc40514a2"
-  }
+  },
+  "auxiliary_policy_followup": "Later source audit found conditional auxiliary reason-bit changes for some GR/MS/media requests. Numeric-threshold restoration is not proof of auxiliary-policy restoration. See experiments/live-difr-idle-thresholds-20261102.json."
 }

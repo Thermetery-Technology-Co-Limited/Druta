@@ -5,6 +5,7 @@
 import dearpygui.dearpygui as dpg
 
 _CONTROLLERS = {"Graphics (GR)": 0, "Memory subsystem (MS)": 4,
+                "MS DIFR SW-ASR": 10, "MS DIFR CG": 11,
                 "NVDEC": 12, "NVENC": 13, "OFA": 14, "NVJPG": 15}
 
 
@@ -23,6 +24,11 @@ class GrIdleThresholdPanel:
             "Actual latency, power and residency are not measured. "
             "The driver request is not reapplied after a driver restart.",
             tag="gr_idle_threshold_explainer", wrap=self.app.s(900),
+        )
+        dpg.add_text(
+            "Some controller paths also change a related adaptive-power policy flag. "
+            "Returning the threshold to its earlier value does not clear that flag.",
+            tag="gr_idle_threshold_policy_note", wrap=self.app.s(900),
         )
         with dpg.group(horizontal=True):
             dpg.add_combo(list(_CONTROLLERS), default_value="Graphics (GR)",

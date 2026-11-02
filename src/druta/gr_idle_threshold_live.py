@@ -16,6 +16,7 @@ _IMPLEMENTATIONS = frozenset({2, 3, 5, 6, 7})
 _SET = 0x2080E802
 _RAW = 0x20801706
 CONTROLLERS = {0: "Graphics (GR)", 4: "Memory subsystem (MS)",
+               10: "MS DIFR SW-ASR", 11: "MS DIFR CG",
                12: "NVDEC", 13: "NVENC", 14: "OFA", 15: "NVJPG"}
 
 

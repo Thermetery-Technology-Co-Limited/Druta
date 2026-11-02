@@ -1828,7 +1828,15 @@
     "evidence": "experiments/live-additional-idle-thresholds-20261102.json",
     "local_trial": "All five individual +1 trials and six-controller coexisting production panel trial passed exact raw peer and final baseline checks on local RTX5080/617.42.",
     "second_field": "Same numerical conversion is bound, but current functional meaning is not. Older named post-powerup constants are suggestive only; no second-field SET or control exposed.",
-    "other_controllers": "10/11 first-field naming join remains incomplete; no threshold control exposed for those indices.",
+    "other_controllers": "DIFR10/11 are now qualified through their named identities and common live first-field route; the missing registry-to-parent copy remains an initialization-provenance limit. See difr_idle_threshold_qualification.",
     "physical_effects": "No latency, power or residency measurement claimed."
+  },
+  "difr_idle_threshold_qualification": {
+    "status": "MS DIFR SW-ASR10 and MS DIFR CG11 first idle requests implemented alongside the previous six controls.",
+    "evidence": "experiments/live-difr-idle-thresholds-20261102.json",
+    "qualification": "The named controller identity, first-default-pair position, common live first-field conversion/index forwarding and common raw provider qualify driver-requested idle threshold semantics. Missing registry-to-parent copying limits initialization provenance, not this live control. This is a source-based naming/unit inference; physical effects remain unmeasured.",
+    "local_trial": "Both individual150?151?150 trials and coexisting production panel trial passed exact all-eight raw-pair checks; final compared attributes, voltage requests and LPWR configuration matched baseline.",
+    "auxiliary_effect": "The source-defined DIFR10/11 initializer leaves auxiliary index11, rejected by the callback predicate. Some existing GR/MS/media routes use valid indices and can set a separate reason bit2, with a firmware request on the first reason transition. Threshold-number restoration alone does not clear or measure that policy bit. No adaptive policy restore is added.",
+    "remaining": "Second-field functional meaning remains unqualified; no second-field write or control added."
   }
 }

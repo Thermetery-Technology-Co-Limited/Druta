@@ -213,5 +213,6 @@
     "focused_tests_passed": 266,
     "ruff": "passed",
     "scope": "New backend and panel, registry panel integration, individual power gating and LPWR runtime tests."
-  }
+  },
+  "auxiliary_policy_followup": "Later source audit found a conditional auxiliary reason-bit2 change in the GR/manual threshold path. Captured threshold/voltage/LPWR equality does not assert auxiliary-policy restoration. See experiments/live-difr-idle-thresholds-20261102.json."
 }

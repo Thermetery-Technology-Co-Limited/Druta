@@ -865,8 +865,9 @@ JSON separates the selected request result from peer coverage; unreadable peers
 remain unverified. No workload, registry change or restart is performed.
 
 **Idle threshold** provides **Refresh** and **Apply** for Graphics (GR),
-Memory subsystem (MS), NVDEC, NVENC, OFA and NVJPG. Choose a controller and
-refresh its current state before entering a positive integer in microseconds.
+Memory subsystem (MS), MS DIFR SW-ASR, MS DIFR CG, NVDEC, NVENC, OFA and
+NVJPG. Choose a controller and refresh its current state before entering a
+positive integer in microseconds.
 Changing the selection clears the entered value and readback, so refresh the new
 selection before applying. Druta displays the driver's applied value, which may
 be quantized.
@@ -882,6 +883,12 @@ verification failure if it changed. The request is session-only and is not
 saved or reapplied after a driver restart. The microsecond label follows the
 driver's threshold names and source dataflow; it is not a physical timing
 measurement.
+
+For some GR, MS and media requests, the driver may also set a separate
+reason bit associated with adaptive power and send a firmware request. Returning the
+threshold number to its earlier value does not establish that the separate bit
+was cleared. The source-defined construction for the two MS DIFR controllers
+skips this auxiliary callback.
 
 **Runtime VF policy control** reads the active monotonicity and smoothing checks.
 After **Read VF policies**, use **Apply policies now** to change either check

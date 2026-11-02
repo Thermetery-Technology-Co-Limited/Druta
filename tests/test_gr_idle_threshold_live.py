@@ -19,7 +19,7 @@ def device(monkeypatch):
             "transient_set": False, "bad_header": False, "bad_guard": False,
             "bad_identity": False, "missing_indices": set(), "unsupported_indices": set(), "misroute": None,
             "sets_by_index": [], "peers": {i: [16200 + i * 108, 108000000]
-                                                for i in (4, 12, 13, 14, 15)}}
+                                                for i in (4, 10, 11, 12, 13, 14, 15)}}
     gpu = SimpleNamespace(_lock=threading.RLock())
     class Reader:
         def __init__(self, gpu):
@@ -186,7 +186,7 @@ def test_source_qualified_native_implementations(device, implementation):
     assert controller.read()["available"]
 
 
-@pytest.mark.parametrize("index", [0, 4, 12, 13, 14, 15])
+@pytest.mark.parametrize("index", [0, 4, 10, 11, 12, 13, 14, 15])
 def test_selected_controller_routes_only_its_own_threshold(device, index):
     original, data = device
     controller = live.IdleThresholdController(original.gpu, index)
@@ -209,6 +209,9 @@ def test_missing_controller_does_not_disable_another(device):
     data["unsupported_indices"].add(14)
     assert live.IdleThresholdController(original.gpu, 14).read()["status"] == "unsupported"
     assert live.IdleThresholdController(original.gpu, 15).read()["available"]
+    data["missing_indices"].add(10)
+    assert not live.IdleThresholdController(original.gpu, 10).read()["available"]
+    assert live.IdleThresholdController(original.gpu, 11).read()["available"]
 
 
 @pytest.mark.parametrize("misroute", ["attribute", "raw"])
@@ -220,7 +223,7 @@ def test_misrouted_reply_is_rejected_before_set(device, misroute):
     assert data["sets"] == 0
 
 
-@pytest.mark.parametrize("index", [True, False, 1, 10, 11, -1, "0", None])
+@pytest.mark.parametrize("index", [True, False, 1, 16, 17, -1, "0", None])
 def test_unknown_index_rejected_before_binding(monkeypatch, index):
     def forbidden(_):
         raise AssertionError("must reject before binding")

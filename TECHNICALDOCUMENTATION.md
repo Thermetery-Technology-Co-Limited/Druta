@@ -2615,8 +2615,8 @@ panel tests passed; [collector qualification](experiments/individual-power-gatin
 records the exact local request/response and unchanged final comparison state.
 
 The **Idle threshold** panel controls the first idle request for Graphics (GR,
-controller 0), Memory subsystem (MS, 4), NVDEC (12), NVENC (13), OFA (14) and
-NVJPG (15) via E802 attribute `0x3A`. Each selection has independent capability
+controller 0), Memory subsystem (MS, 4), MS DIFR SW-ASR (10), MS DIFR CG (11),
+NVDEC (12), NVENC (13), OFA (14) and NVJPG (15) via E802 attribute `0x3A`. Each selection has independent capability
 checks; switching selections clears the entered value and readback. The initial
 scope is native Blackwell with source-qualified implementations and runtime
 support. The selected controller's scaled A801 attributes and guarded
@@ -2629,7 +2629,22 @@ driver restart.
 
 The microsecond request label follows the relevant driver threshold names and
 their traced conditional paths into the default generator and first live
-threshold conversion. It is a driver request, not a physical latency measurement.
+threshold conversion. For controllers 10 and 11, the named registry rows have
+not been joined to their parent default fields; that gap concerns initialization
+provenance. Their controller identity, first default-pair position, indexed live
+setter and indexed raw readback follow the source-qualified common path. These
+are driver requests, not physical latency measurements.
+
+The same `0x3A` path can also change a separate auxiliary reason bit for some GR,
+MS and media controllers. When the selected row's auxiliary index is present,
+the driver sets bit2 in an object whose initializer reads `RMAdaptivePwrDebug`;
+on a first reason transition it can send firmware request `00/03/0D`. Returning
+the threshold value alone does not prove that bit was cleared. The complete
+adaptive policy and firmware effects remain unqualified. In the inspected
+construction, controllers 10 and 11 initialize the auxiliary index to `0x0B`,
+which the callback predicate rejects; this describes the source-defined path,
+not an assertion that the field can never change.
+
 On one local RTX 5080, the GR production panel changed 100 to 101 and back to
 100, with first raw word 10800 to 10908 to 10800; its peer stayed unchanged.
 Separate bounded raw trials changed MS 150 to 151 and back to 150 and each media
@@ -2639,10 +2654,18 @@ The production selector callbacks then kept all six changed requests active
 together, before returning them individually in reverse order. Every step
 matched the expected eight raw pairs; final scaled attributes, voltage requests
 and LPWR configuration matched baseline. The 289 focused tests and Ruff passed.
+On the same adapter, separate controller 10 and 11 trials changed 150 to 151
+and back to 150, with the first raw word 16200 to 16308 to 16200. All eight
+sampled raw pairs, voltage and configured LPWR observations returned to baseline.
+The production panel then kept both DIFR requests changed together and returned
+each independently, checking all eight raw pairs at every step. The same final
+comparisons passed, along with 294 focused tests and Ruff. These comparisons
+do not measure or assert restoration of the separate auxiliary policy state.
 These observations do not establish a general firmware zero-peer rule or the
-physical effect on other devices. The second GR threshold and controller 10/11
-idle thresholds remain unqualified. [GR source and trial evidence](experiments/live-gr-idle-threshold-20261102.json);
-[additional controller evidence](experiments/live-additional-idle-thresholds-20261102.json).
+physical effect on other devices. The second threshold remains unqualified.
+[GR source and trial evidence](experiments/live-gr-idle-threshold-20261102.json);
+[additional controller evidence](experiments/live-additional-idle-thresholds-20261102.json);
+[DIFR controller evidence](experiments/live-difr-idle-thresholds-20261102.json).
 
 The BLCG follow-up binds the native architecture getter and generated HAL
 constructor to the same chipword. In the inspected source, native architecture

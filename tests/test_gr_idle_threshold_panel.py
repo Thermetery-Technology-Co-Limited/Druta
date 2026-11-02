@@ -161,6 +161,26 @@ def test_unavailable_controller_does_not_block_another(panel):
     assert enabled() and FakeController.instances[-1].index == 12
 
 
+@pytest.mark.parametrize("name,index", [("MS DIFR SW-ASR", 10), ("MS DIFR CG", 11)])
+def test_difr_threshold_selection_routes_to_selected_controller(panel, name, index):
+    select(panel, name)
+    panel.read()
+    assert enabled() and FakeController.instances[-1].index == index
+    enter(panel, "101")
+    panel.apply()
+    assert panel.app.gpu.applied == [(index, 101)]
+
+
+def test_unavailable_difr_does_not_block_other_difr(panel):
+    panel.app.gpu.unavailable.add(10)
+    select(panel, "MS DIFR SW-ASR")
+    panel.read()
+    assert not enabled()
+    select(panel, "MS DIFR CG")
+    panel.read()
+    assert enabled() and FakeController.instances[-1].index == 11
+
+
 def test_invalid_selection_cannot_retarget_stale_readback(panel):
     panel.read()
     enter(panel, "101")
