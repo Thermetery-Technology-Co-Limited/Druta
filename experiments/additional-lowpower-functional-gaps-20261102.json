@@ -318,5 +318,219 @@
         "sha256": "1762973eb29b52a5f33ddd34589258780d6a7b5e8221454212f7e82dd60786a6"
       }
     ]
+  },
+  "elpg_parallel_capability_followup": {
+    "getter": {
+      "getter": {
+        "command": "0x2080a801",
+        "size": "0x404",
+        "entry": "count=1, 16-byte entry type=12, index=0, attribute=3; flags at entry+6, value uint32 at entry+8",
+        "binding": "4f3c94..b6 indexes jump table 4f40a4 with type-1; entry 12 reaches 4f3f5e; 4f3f82 calls 7ec550 with GPU+2550. Handler case attribute3 copies GPU+2550+f10 into entry+8. For attribute !=1, +28c and +fce must each be nonzero or valid flag remains clear; invalid means unknown.",
+        "interpretation": "When valid, (value < 2 or (value & 1)==0) makes 7ec4e0 false and excludes parallel +fc8 branch for this read state. Value >=2 and odd means branch active, not proof bit2 state.",
+        "attribute6": "Helper returns 1 << GPU+2550+f20 when byte +f24 equals 1, otherwise 0; not +fc8 reason bitmap."
+      },
+      "outline": "On same selected device use existing A801 transport/geometry; send zero-initialized 0x404 bytes with count=1 and <HHH at offset4 set (12,0,3). Verify entry valid bit and preserved routing/opaque bytes as existing typed readers. If valid report uint32 value and predicate; do not interpret invalid as zero. No request executed.",
+      "limit": "Direct caller scan for 7ec4e0 finds only feature6 callback; direct reference scan identifies this typed capability getter but does not prove absence of indirect reason bitmap getters. If capability active, current binding does not expose +fc8 reason2 or establish +f24 lifecycle semantics.",
+      "windows": [
+        {
+          "label": "type_dispatch",
+          "rva": "0x4f3c62",
+          "length": 86,
+          "bytes_hex": "418b042433f685c00f84c50300004c8d0d89c3b0ffbdff08000041ba020800008bdebafeff000048c1e3044903dd66235306440fb70366895306418d40ff83f80d0f872b0300004898418b8c81a4404f004903c9ffe1",
+          "sha256": "0049559400c1744adf583a32823a61f57a46cffb1e5bc492e8908dd761c703db"
+        },
+        {
+          "label": "type_jump_table",
+          "rva": "0x4f40a4",
+          "length": 56,
+          "bytes_hex": "b83c4f00cb3c4f00fe3c4f00573d4f00cd3f4f008a3d4f00d23d4f00083e4f00bc3e4f00d63e4f00f03e4f005e3f4f008c3f4f00233f4f00",
+          "sha256": "e53739704c616a55280f0160e044c0f505483233ffc866a26c9a3939c03c22f1"
+        },
+        {
+          "label": "type12_validity_gate",
+          "rva": "0x4f3f5e",
+          "length": 43,
+          "bytes_hex": "66837b040174144180be8c02000000745e4180bece0f00000074544c8bc3498bd6488bcfe8c9852f00e9b9",
+          "sha256": "d28a7a9cdcd7892f60a8e243850d47397cfcb9ca7242ed994982fd1b421970b2"
+        },
+        {
+          "label": "type12_attribute_handler",
+          "rva": "0x7ec550",
+          "length": 166,
+          "bytes_hex": "4883ec38450fb758044533d2458bcb4183e90174784183e90274604183e901742c4183e90174324183f901757144388a240f000075178b8a200f0000418bc1d3e041894008418bc24883c438c345895008418bc24883c438c3443892cf0f00007434488b82500100004d8d4808458bc3ff15e26461004883c438c38b82100f000041894008418bc24883c438c34438928c020000740841c7400801000000418bc24883c438c3",
+          "sha256": "d7bfec27c8ef0fbf8ba0dca36943e90fdc598d9590d147640ccbf192882d9409"
+        },
+        {
+          "label": "branch_predicate",
+          "rva": "0x7ec4e0",
+          "length": 17,
+          "bytes_hex": "8b82100f000083f80272032401c332c0c3",
+          "sha256": "319d821751d416d9a2f227e95b6c01a4a42e6865dd88eabaa0edaa6f079f78d7"
+        }
+      ]
+    },
+    "initialization": {
+      "findings": [
+        "GPU initializer 11A350 obtains classID 0x112230 into GPU+0x2550. Public g_eng_desc_nvoc.h names that class Lpwr. Its creator 17AE010 invokes method initializer 17AD4C0 and property initializer 17AC190.",
+        "The 7EC060 initializer sets Lpwr+F10=3 and calls 16AAD0 with the literal RMPowerFeature (public nvrm_registry.h identifies this name). On successful read it extracts bits25:24: value1 clears F10 and F14 and +28C; if value0 and +28D nonzero it clears F10 and +28C; on failed read with +28D nonzero it clears F10/F14 and +28C. Remaining branches retain initial F10=3.",
+        "For source-bound chip HAL ordinals41..45, 17AD29D..2D5 and 337..33A initialize +28C and +28D to0; +130=6190, a three-byte success stub, per 17AD4C0 branch. This does not establish that later state mutations are harmless: 7EC3F0 still clears +FC8 bit2 and writes +F24=0. Other ordinals are not covered.",
+        "7EC6E0 may clear selected +F10 bits based on a graphics-object-derived maximum and per-entry configuration. Both 7EC060 initialization and 7EC6E0 filter are called only when +28C is nonzero on the observed normal caller path. For GB41..45, the factory initially zeroes the object and the generated property initializes +28C=0, so the normal initial path skips both routines. The earlier inference that F10=3 necessarily follows on this path was incorrect. Absence of later +28C writers or indirect initializer entry has not been proven; an unavailable getter remains insufficient as a current-state invariant.",
+        "+FC8 is a bitmask set and cleared by reason index in 7EC330/7EC3F0; +F24 is set or cleared respectively. Exact named feature and any authoritative owner semantics are unresolved. Nearby LpwrDtdPg strings are not sufficient to expand DTD or to identify these fields.",
+        "7EC6E0 derives a maximum from graphics +9C0 and 3B52C0 (which uses the +D40 virtual and 378D80 fallback); for each F10 bit it checks byte +D02[index]. If +F1C is nonzero, it substitutes low byte of the maximum for index0 and low byte of F1C for later indices. It clears the bit when the byte is zero or exceeds the maximum, then clears the entire mask unless it is odd and at least2. No complete public getter for these exact current inputs is established."
+      ],
+      "windows": [
+        {
+          "label": "gpu_lpwr_class_bind",
+          "rva": "0x11a350",
+          "length": 31,
+          "bytes_hex": "4c8d8b502500004c8bc6ba30221100488bcbe89906000085c00f8577060000",
+          "sha256": "a088e65036235dbf927fc18e55d6244f51c0c0f74ac0827ac044293a2f8290f7"
+        },
+        {
+          "label": "lpwr_class_descriptor",
+          "rva": "0xee16a8",
+          "length": 40,
+          "bytes_hex": "30130000302211005018e5400100000080c17a4101000000f011ee40010000001812ee4001000000",
+          "sha256": "b78e0a7108628bb7bb70424a2ba3a8afd432a93185f71b5c01ee3b81c6d05b5d"
+        },
+        {
+          "label": "lpwr_constructor_method_init",
+          "rva": "0x17ae2c8",
+          "length": 51,
+          "bytes_hex": "4c8bc5488903488d0d133073ff488d056c2f73ff48898ff0000000488906498bd6488d05402f73ff488bcf488907e8c5f1ffff",
+          "sha256": "154a32f632ab1fe226ec402e3ef8e331cd3522acd485ed54f641808135ab375c"
+        },
+        {
+          "label": "lpwr_130_hal_selector",
+          "rva": "0x17ad4ca",
+          "length": 174,
+          "bytes_hex": "440fb74a104c8bd1410fb77810418bd1458bd9c1ea054183e31fbb0100000083fa02752b418bcb8bc3d3e0a8c07420488d0da09c2fff49898a280100004c8d05929d2fff8bc84d898230010000eb60418bcb8bc3d3e03bd37530a90000f00375324c8d055e8c85fe4d8982280100008bc883fa027526a8c074224c8d05559d2fff4d898230010000eb2583fa0275d2a83e74ce4c8d053ca12fffebcc4c8d05238c85fe4d89823001000083fa0275",
+          "sha256": "d400fa15f3f490f3e27f2dba215479b5ba5a8e08edac468fa67c5816126a4dd2"
+        },
+        {
+          "label": "lpwr_property_initializers",
+          "rva": "0x17ad29d",
+          "length": 159,
+          "bytes_hex": "418bc183e01f83e806413bc077094588828c020000eb21418bc141c6828c0200000083e0e083f8407570418bc183e01f83e806413bc077624588828d020000418bc141c6828e0200000083e0e083f820756f418bc941d3e041f7c0e0fff807746041c6828f02000001418bc141c682900200000083e0e083f840756f418bc183e01f83f80175644188829102000041888292020000e99b000000418bc141c6",
+          "sha256": "e37593c8534410e89ff5a4783ac755f8dca0cde16515a5969367d64065f27216"
+        },
+        {
+          "label": "lpwr_f10_configuration",
+          "rva": "0x7ec060",
+          "length": 123,
+          "bytes_hex": "48895c2418574883ec30488b050fd99a004833c44889442428488bdac782100f000003000000488d15c3855100488bf94c8d442420e836ea97ff85c075248b442420c1e81883e00383f801741e80bb8d02000000742585c075218983100f0000eb1280bb8d02000000741033c0488983100f0000c6838c02000000",
+          "sha256": "1e6fb9e44c2215c074e5618bfbe66162585e80225519c689eed3a33f3e80d316"
+        },
+        {
+          "label": "registry_key_literal",
+          "rva": "0xd04650",
+          "length": 15,
+          "bytes_hex": "524d506f7765724665617475726500",
+          "sha256": "ac1538d4e3e041bd462e2bc8fed8a4f1b3294433f52787813023c2eef2fc5541"
+        },
+        {
+          "label": "dynamic_feature_removal",
+          "rva": "0x7ec6e0",
+          "length": 240,
+          "bytes_hex": "4053555657415441554883ec28488bfa4c8be9e898a492ff488bc84889442470488bd1498bcd488b80c0090000ff1595636100498bcd448be0e872a492ff488bd0498bcde8978bbcff8bb7100f000033db8be885f6747840f6c601746c448b871c0f00004585c0741485db400fb6cd410fb6c00f45c8888c3b020d00000fb6843b020d000084c074043bc5763c8b87100f0000448bc30fb3d8ba001124048987100f0000b997bb860e440fb68c3b020d0000e8f9448fff8b87140f000085c07408ffc88987140f0000ffc3d1ee75888b87100f000083f8027204a8017512c6878c0200000048c787100f000000000000",
+          "sha256": "7468f385111983afeebfcb64f36bfb196c856f5bdaaa99e2396d79a613d327f1"
+        },
+        {
+          "label": "parallel_capability",
+          "rva": "0x7ec4e0",
+          "length": 17,
+          "bytes_hex": "8b82100f000083f80272032401c332c0c3",
+          "sha256": "319d821751d416d9a2f227e95b6c01a4a42e6865dd88eabaa0edaa6f079f78d7"
+        },
+        {
+          "label": "parallel_add_reason",
+          "rva": "0x7ec330",
+          "length": 100,
+          "bytes_hex": "48895c2408574883ec208b82100f0000418bf8488bda83f802723da801743983bac80f0000007510488b823001000041b001ff15406761008b83c80f00000fabf8c683240f0000018983c80f0000c783200f000000000000488b5c243033c04883c4205f",
+          "sha256": "f56625e8e0f2e078ced970bba465c2addc6886a8daf693e56420af13ac2ec247"
+        },
+        {
+          "label": "parallel_remove_reason",
+          "rva": "0x7ec3f0",
+          "length": 69,
+          "bytes_hex": "4883ec288b82100f000083f802722fa801742b8b82c80f0000440fb3c0c682240f0000008982c80f000085c07510488b82300100004533c0ff157a66610033c04883c428c3",
+          "sha256": "f28a82ba6dea415fb946f12911a3713aa9c4a152a02453f22762ee2bc2138a4f"
+        },
+        {
+          "label": "selected_method_stub",
+          "rva": "0x6190",
+          "length": 3,
+          "bytes_hex": "33c0c3",
+          "sha256": "4bc724f3b1d0caf4fe369c18cba3102e6c4ea057f63fe1587e3973134a7f755e"
+        },
+        {
+          "label": "factory_zero_object",
+          "rva": "0x17ae043",
+          "length": 29,
+          "bytes_hex": "488b3948895c245033d241b8301300004c89742458488bcfe8901993fe",
+          "sha256": "017e8082a9cd68a533518ec6a93f10d140a349dd222d3a92dff7a656d4ea3a9e"
+        },
+        {
+          "label": "guarded_registry_init",
+          "rva": "0x770fcb",
+          "length": 20,
+          "bytes_hex": "80bb8c02000000740b488bd3488bcee881b00700",
+          "sha256": "5e3829915e9ab9e8d038a60767d599da860e439a8b9aaf180e79d096a7fdae39"
+        },
+        {
+          "label": "guarded_capability_filter",
+          "rva": "0x773506",
+          "length": 25,
+          "bytes_hex": "4038ae8c020000742d488bd6488bcbe8c69107008be885c074",
+          "sha256": "57fc9e863d17d12e7fa1248815049663fd434d8b1d434f5a996b7d2dfcec0b95"
+        },
+        {
+          "label": "capability_filter_inputs_and_clear",
+          "rva": "0x7ec6e0",
+          "length": 240,
+          "bytes_hex": "4053555657415441554883ec28488bfa4c8be9e898a492ff488bc84889442470488bd1498bcd488b80c0090000ff1595636100498bcd448be0e872a492ff488bd0498bcde8978bbcff8bb7100f000033db8be885f6747840f6c601746c448b871c0f00004585c0741485db400fb6cd410fb6c00f45c8888c3b020d00000fb6843b020d000084c074043bc5763c8b87100f0000448bc30fb3d8ba001124048987100f0000b997bb860e440fb68c3b020d0000e8f9448fff8b87140f000085c07408ffc88987140f0000ffc3d1ee75888b87100f000083f8027204a8017512c6878c0200000048c787100f000000000000",
+          "sha256": "7468f385111983afeebfcb64f36bfb196c856f5bdaaa99e2396d79a613d327f1"
+        },
+        {
+          "label": "graphics_max_provider",
+          "rva": "0x3b52c0",
+          "length": 149,
+          "bytes_hex": "48895c240848896c2410488974241848897c242041564883ec20488b82c0090000488bf2488be9ff15bbd7a40033ff448bf08bdf85c074400faee80f1f440000488b86400d0000448bc3488bd6488bcdff1592d7a40085c0750e448bc3488bd6488bcde8583afcff3bf80f47c7ffc38bf8413bde72caeb028bc7488b5c2430488b6c2438488b742440488b7c24484883c420415ec3",
+          "sha256": "012d346c2cf22d5fa5eae0b3ff3e466d42933f4737b1a2cb009404326602e9ac"
+        },
+        {
+          "label": "graphics_max_fallback",
+          "rva": "0x378d80",
+          "length": 131,
+          "bytes_hex": "48895c240848896c24104889742418574883ec20488bf2418bd8488be9ba18000000488b8ed0110000e8c20c4200488bf880b82005000000751dba0000b71cb9824f470ee8c77ed6ffb9b71c0000e8ed72d8ff33c0eb2b488b86c0090000488bd6488bcdff15be9ca8003bd873e50faee8488b87600500004869cbf00100008b040148",
+          "sha256": "f32e6431b4660f340c57d7b67e5c3dfbc26f6dc350acc96539ad9e537876edc6"
+        }
+      ]
+    },
+    "captured_read": {
+      "gpu": "RTX5080",
+      "driver": "617.42",
+      "slot": "0000:01:00.0",
+      "command": "0x2080a801",
+      "type": 12,
+      "index": 0,
+      "attribute": 3,
+      "stable": true,
+      "reads": [
+        {
+          "available": false,
+          "value": null,
+          "parallel_active": null
+        },
+        {
+          "available": false,
+          "value": null,
+          "parallel_active": null
+        }
+      ],
+      "artifact_sha256": "ac8b8ebb9af37172719ae8bb9e9d7b6bd6583435b0d2ad63e6ca3b989bd05bdd",
+      "mutations": 0,
+      "interpretation": "Entry unavailable is unknown, not zero and not evidence that the parallel branch is inactive. Normal construction observations do not establish current state."
+    }
   }
 }

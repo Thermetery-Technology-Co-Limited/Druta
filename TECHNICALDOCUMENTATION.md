@@ -2358,8 +2358,17 @@ the selected predicate, ENABLE and final release additionally clear reason bit2
 at `+FC8` and a flag at `+F24`, possibly invoking another state transition.
 This path can run alongside the controller-group path. A801 type3 support and
 reason masks do not expose those fields, so even every visible reason mask
-being zero cannot qualify an independent ELPG ENABLE. A typed observation or
-source-proven constraint on that parallel path is the concrete missing piece.
+being zero cannot qualify an independent ELPG ENABLE. A valid typed observation or
+source-proven current-state constraint on that parallel path is required.
+The follow-up found A801 type12/index0/attribute3: a valid entry returns `+F10`
+and a value below2 or even excludes the branch. The getter has separate
+availability gates. Two captured reads on RTX5080/617.42 returned unavailable,
+so neither zero nor an inactive predicate is inferred. On the inspected GB20x
+normal construction path the object starts zeroed, `+28C` initializes to zero,
+and both the `+F10` initializer and its graphics-dependent filter are skipped.
+That startup observation does not prove current state. Registry `RMPowerFeature`
+bits25:24 can influence the initializer when it is called; the registry value
+is not a substitute for live capability readback. No ELPG ENABLE was sent.
 [Callback and decoder evidence](experiments/additional-lowpower-functional-gaps-20261102.json)
 also records why the inspected VAT field is not a working request.
 
