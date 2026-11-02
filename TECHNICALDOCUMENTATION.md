@@ -2414,7 +2414,7 @@ hardware trial or control is qualified by that path. This finding is scoped to
 the traced handler, not a version-based feature gate or a claim about every
 implementation; the public header does not expand the name VAT.
 
-A separate live numeric candidate is now source-bound: descriptor `0x2080E802`
+A separate live numeric path is source-bound: descriptor `0x2080E802`
 (size `0x404`) dispatches type3 attributes `0x3A`, `0x3B` and `0x4C`. It is not
 an `A802` command. For `3A`/`3B`, the host converts nonzero input `x` using
 `floor(x * factor / 1000)`, takes the low32 bits, and substitutes1 if that word
@@ -2429,14 +2429,18 @@ error, while `4C` propagates it. On the captured RTX5080/617.42, two stable vali
 controller0 reads returned `3A=100`, `3B=1000000`, `4C=10800`. The first pair bounds
 the integer factor to106931..108000, so it does not identify an exact factor.
 The provider uses a separate current hardware ID; controller index0 does not
-license a guessed register-ID0 read for the second word. Units, exact conversion
-and firmware peer semantics remain unqualified. No SET was issued, and no
-write-suppression conclusion follows from this read-only qualification.
+license a guessed register-ID0 read for the second word. At that earlier
+read-only checkpoint, units, exact conversion and firmware peer semantics were
+unqualified and no SET had been issued. The later GR control below uses native
+raw-pair GET selectors 1/2, a unique scale and a verified non-noop SET; this
+supersedes the first-field limitation without guessing hardware addresses.
 
 A further host-source audit binds the IdleThresholdUs registry literals to
 per-controller group rows, while the default-pair generator reads different
-fields in the parent LPWR object. No value flow joins those rows to live 3A/3B,
-so the registry suffix does not establish their units. Another real caller,
+fields in the parent LPWR object. The subsequent GR trace joins group+124 to
+parent+37C and the first default-generated threshold, supporting its requested
+microsecond label. Other controller fields need their own unit qualification.
+Another real caller,
 command 20801707, accepts 12-byte selector/controller/value entries. Its 303/304
 selectors still call the conversion separately with a zero peer; they do not
 provide a simultaneous two-value update. The PMU scale is traced to a
@@ -2450,7 +2454,8 @@ function 6 and a different unjoined header, so it cannot establish the Windows
 and 1293-entry archive differ from the older 1223-entry extraction context; old
 row numbers must not be reused as current firmware identities. Root verified
 39 additional host-source windows, five immutable public source receipts and
-the current firmware-package hashes. No numeric threshold SET was attempted.
+the current firmware-package hashes. That source-only audit attempted no SET;
+the later GR production trial below verifies the raw transition and peer.
 
 The follow-up excludes an arbitrary-pair shortcut through this type3 dispatcher.
 SET `4C` reads only entry+8 and supplies zero as the second threshold; SET `43`
