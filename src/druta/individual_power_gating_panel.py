@@ -4,6 +4,8 @@
 
 import dearpygui.dearpygui as dpg
 
+from . import lowpower_profiles
+
 _CONTROLLERS = (
     (0, "Graphics (GR)"), (4, "Memory subsystem (MS)"),
     (10, "MS DIFR SW-ASR"), (11, "MS DIFR CG"),
@@ -31,10 +33,14 @@ class IndividualPowerGatingPanel:
             "Requests are not reapplied after a driver restart.",
             tag="individual_power_gating_explainer", wrap=self.app.s(900),
         )
+        dpg.add_text("A saved profile describes only this instance's request. Load it manually to apply; "
+                     "requests are not replayed after a driver restart.", wrap=self.app.s(900))
         for index, name in _CONTROLLERS:
             dpg.add_text(name, tag=self._tag(index, "heading"))
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Refresh", tag=self._tag(index, "read"), callback=self.read, user_data=index)
+                dpg.add_button(label="Save request profile", tag=self._tag(index, "save_profile"),
+                               callback=self.app.open_save_profile, user_data=("lowpower_requests", "individual", index))
                 dpg.add_button(label="Hold disabled", tag=self._tag(index, "hold"), callback=self.hold,
                                user_data=index, enabled=False)
                 dpg.add_button(label="Release", tag=self._tag(index, "release"), callback=self.release,
@@ -45,19 +51,7 @@ class IndividualPowerGatingPanel:
                                width=-1, height=self.app.s(65))
 
     def _controller(self, index):
-        from .individual_power_gating_live import IndividualPowerGatingController
-
-        gpu = self.app.gpu
-        controllers = getattr(self.app, "_individual_power_gating_controllers", None)
-        if not isinstance(controllers, dict):
-            controllers = {}
-            self.app._individual_power_gating_controllers = controllers
-        key = (id(gpu), index)
-        controller = controllers.get(key)
-        if controller is None or controller.gpu is not gpu:
-            controller = IndividualPowerGatingController(gpu, index)
-            controllers[key] = controller
-        return controller
+        return lowpower_profiles.controller(self.app, "individual", index)
 
     @staticmethod
     def _format(snapshot):
@@ -122,14 +116,14 @@ class IndividualPowerGatingPanel:
         if not self.app.guard():
             return
         try:
-            self._show(index, self._controller(index).hold(), "Disable request held by this instance.")
+            self._show(index, lowpower_profiles.change(self.app, "individual", "disabled", index), "Disable request held by this instance.")
         except Exception as exc:  # noqa: BLE001
             self._failed(index, "hold", exc)
 
     def release(self, sender=None, app_data=None, user_data=None):
         index = user_data
         try:
-            snapshot = self._controller(index).release()
+            snapshot = lowpower_profiles.change(self.app, "individual", "released", index)
             if snapshot.get("uncertain_outcome", False):
                 message = ("Release outcome remains uncertain; no new release was dispatched."
                            if snapshot.get("release_attempted", False)

@@ -4,6 +4,8 @@
 
 import dearpygui.dearpygui as dpg
 
+from . import lowpower_profiles
+
 
 class EngineClockGatingPanel:
     """Render status and controls for this instance's request."""
@@ -22,8 +24,12 @@ class EngineClockGatingPanel:
             "The request is not automatically reapplied after a driver restart.",
             tag="engine_clock_gating_explainer", wrap=self.app.s(900),
         )
+        dpg.add_text("A saved profile describes only this instance's request. Load it manually to apply; "
+                     "requests are not replayed after a driver restart.", wrap=self.app.s(900))
         with dpg.group(horizontal=True):
             dpg.add_button(label="Refresh", tag="engine_clock_gating_read", callback=self.read)
+            dpg.add_button(label="Save request profile", tag="engine_clock_gating_save_profile",
+                           callback=self.app.open_save_profile, user_data=("lowpower_requests", "elcg", None))
             dpg.add_button(label="Hold disabled", tag="engine_clock_gating_hold",
                            callback=self.hold, enabled=False)
             dpg.add_button(label="Hold enabled", tag="engine_clock_gating_hold_enabled",
@@ -36,19 +42,7 @@ class EngineClockGatingPanel:
                            width=-1, height=self.app.s(100))
 
     def _controller(self):
-        from .engine_clock_gating_live import EngineClockGatingController
-
-        gpu = self.app.gpu
-        controllers = getattr(self.app, "_engine_clock_gating_controllers", None)
-        if not isinstance(controllers, dict):
-            controllers = {}
-            self.app._engine_clock_gating_controllers = controllers
-        key = id(gpu)
-        controller = controllers.get(key)
-        if controller is None or controller.gpu is not gpu:
-            controller = EngineClockGatingController(gpu)
-            controllers[key] = controller
-        return controller
+        return lowpower_profiles.controller(self.app, "elcg")
 
     def reset_view(self):
         """Forget the previous adapter's display after a GPU switch."""
@@ -139,7 +133,7 @@ class EngineClockGatingPanel:
         if not self.app.guard():
             return
         try:
-            self._show(self._controller().hold(), "Disable request held by this instance.")
+            self._show(lowpower_profiles.change(self.app, "elcg", "disabled"), "Disable request held by this instance.")
         except Exception as exc:  # noqa: BLE001
             self._failed("hold", exc)
 
@@ -147,12 +141,12 @@ class EngineClockGatingPanel:
         if not self.app.guard():
             return
         try:
-            self._show(self._controller().hold_enabled(), "Enable request held by this instance.")
+            self._show(lowpower_profiles.change(self.app, "elcg", "enabled"), "Enable request held by this instance.")
         except Exception as exc:  # noqa: BLE001
             self._failed("hold enabled", exc)
 
     def release(self, *unused):
         try:
-            self._show(self._controller().release(), "This instance's request was released.")
+            self._show(lowpower_profiles.change(self.app, "elcg", "released"), "This instance's request was released.")
         except Exception as exc:  # noqa: BLE001
             self._failed("release", exc)

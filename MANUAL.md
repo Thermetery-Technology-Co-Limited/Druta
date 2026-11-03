@@ -45,6 +45,26 @@ can restore the captured pre-load values. Driver-reported values still have to
 pass each control's existing verification. Not every whole-microvolt value is
 accepted, and these requests are not physical voltage or latency measurements.
 
+### Manual low-power request profiles
+
+DIFR, grouped ELPG, ELCG, BLCG, SLCG and each individual engine inhibit now have
+**Save request profile**. The profile records only this Druta instance's request:
+released, held disabled, or held enabled where the control supports it. Loading
+uses this instance's live controller; it never takes ownership of another
+client's requests. Profiles are applied manually, never at startup or after reset.
+
+Changing a request saves its previous intent for **Undo last write**. Loading a
+different enabled/disabled mode releases this instance's old request before
+acquiring the new one. A failed acquisition is reported; Undo can attempt to
+restore the saved intent. This does not promise restoration of global gating
+state. Release remains available if an undo snapshot cannot be saved, with an
+explicit log message. Normal exit and GPU-switch cleanup keep their existing
+behavior; DIFR still requires explicit release.
+
+Idle thresholds and shared adaptive policy are not included: changing either
+can affect the other, and their current getters cannot establish a complete
+restorable state. Saved request ownership is distinct from those shared values.
+
 ### Ordinary tune profiles
 
 **Profiles > Save profile** captures the applied curve, clocks, power, fan policy,

@@ -2372,6 +2372,37 @@ The UI blocks automatic application and startup selection of this scope.
 Hardware round-trip evidence and limitations are recorded in
 [voltage-control profile qualification](experiments/voltage-control-profiles-20261102.json).
 
+### Owned low-power request profiles
+
+`lowpower_requests` stores one selected kind/index and its owned request mode,
+bound to native adapter identity and UUID when available. It does not serialize
+profiler handles, reference counts, reason masks, global predicates or register
+packets. Panels and profile loading share the existing per-app controller caches.
+Manual changes capture the prior intent under the GPU lock; no-op held requests
+still call the existing idempotent hold method to revalidate their witnesses.
+Release can proceed without a verified undo point when saving fails or prior
+ownership is uncertain, and reports that exception explicitly. Existing native
+release restrictions still apply; cleanup does not create profiles.
+
+Load/Undo route through the application context rather than GPU-only restoration.
+Enabled/disabled transitions release the old owned request before acquiring the
+new one and report partial failure. Driver/VBIOS labels are descriptive only.
+Automatic loading and startup selection are rejected. This scope covers DIFR,
+grouped ELPG, ELCG, BLCG, SLCG and eight independent controller inhibits. It does
+not make unsupported BLCG or ELPG enable paths available.
+
+On the local RTX 5080 / 617.42, 15 Apply/Undo/manual Load/baseline round trips and
+two enabled/disabled mode-transition Undo checks passed. All trial-owned requests
+were released and the checked baseline reason masks/register readbacks matched.
+No workload, physical measurement or driver restart was used.
+[Owned request profile evidence](experiments/lowpower-request-profiles-20261102.json).
+
+Threshold/adaptive Undo remains separate: the first threshold's public microsecond
+value can lose raw precision; its setter can also change a shared adaptive reason.
+Adaptive `enabled` is aggregate rather than owned request state, and its setter
+can change threshold values. The current interfaces do not prove full-state Undo
+for either operation, so these values are not silently included in owned profiles.
+
 ### Additional live profiler controls
 
 **Live engine clock gating** adds a separate session-owned ELCG Hold disabled /

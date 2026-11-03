@@ -46,8 +46,12 @@ def panel(monkeypatch):
     monkeypatch.setitem(sys.modules, "druta.individual_power_gating_live",
                         SimpleNamespace(IndividualPowerGatingController=FakeController))
     dpg.create_context()
-    app = SimpleNamespace(gpu=object(), s=lambda value: value, guard=Mock(return_value=True), log=Mock())
+    app = SimpleNamespace(gpu=object(), s=lambda value: value, open_save_profile=Mock(), guard=Mock(return_value=True), log=Mock())
     instance = IndividualPowerGatingPanel(app)
+    from druta import lowpower_profiles
+    monkeypatch.setattr(lowpower_profiles, "change",
+                        lambda app, kind, mode, index=None: getattr(instance._controller(index),
+                            {"disabled": "hold", "enabled": "hold_enabled", "released": "release"}[mode])())
     with dpg.window():
         instance.build()
     try:
@@ -215,3 +219,10 @@ def test_cleanup_closes_only_selected_gpu_and_keeps_failed_peer(panel):
     failing.close.side_effect = None
     assert Druta._close_live_gating_requests(panel.app)
     other.close.assert_called_once_with()
+
+
+def test_save_profile_targets_each_individual_controller(panel):
+    for index in (0, 4, 10, 11, 12, 13, 14, 15):
+        tag = f"individual_power_gating_{index}_save_profile"
+        assert dpg.get_item_callback(tag) == panel.app.open_save_profile
+        assert dpg.get_item_user_data(tag) == ("lowpower_requests", "individual", index)

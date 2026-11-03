@@ -60,8 +60,12 @@ def panel(monkeypatch):
     monkeypatch.setitem(sys.modules, "druta.second_level_clock_gating_live",
                         SimpleNamespace(SecondLevelClockGatingController=FakeController))
     dpg.create_context()
-    app = SimpleNamespace(gpu=object(), s=lambda value: value, guard=Mock(return_value=True), log=Mock())
+    app = SimpleNamespace(gpu=object(), s=lambda value: value, open_save_profile=Mock(), guard=Mock(return_value=True), log=Mock())
     instance = SecondLevelClockGatingPanel(app)
+    from druta import lowpower_profiles
+    monkeypatch.setattr(lowpower_profiles, "change",
+                        lambda app, kind, mode, index=None: getattr(instance._controller(),
+                            {"disabled": "hold", "enabled": "hold_enabled", "released": "release"}[mode])())
     with dpg.window():
         instance.build()
     yield instance
@@ -178,3 +182,9 @@ def test_enable_explainer_and_unknown_owned_mode_do_not_claim_more(panel):
     panel._show(snapshot, "Held")
     assert "held (mode unknown)" in dpg.get_value("second_level_clock_gating_readback")
     assert not enabled("hold") and not enabled("hold_enabled") and enabled("release")
+
+
+def test_save_request_profile_targets_instance(panel):
+    tag = "second_level_clock_gating_save_profile"
+    assert dpg.get_item_callback(tag) == panel.app.open_save_profile
+    assert dpg.get_item_user_data(tag) == ("lowpower_requests", "slcg", None)

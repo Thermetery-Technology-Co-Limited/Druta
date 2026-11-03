@@ -4,6 +4,8 @@
 
 import dearpygui.dearpygui as dpg
 
+from . import lowpower_profiles
+
 
 class DifrLivePanel:
     """Render read/hold/release controls for one selected GPU instance."""
@@ -21,8 +23,12 @@ class DifrLivePanel:
             tag="difr_live_explainer",
             wrap=self.app.s(900),
         )
+        dpg.add_text("A saved profile describes only this instance's request. Load it manually to apply; "
+                     "requests are not replayed after a driver restart.", wrap=self.app.s(900))
         with dpg.group(horizontal=True):
             dpg.add_button(label="Read", tag="difr_live_read", callback=self.read)
+            dpg.add_button(label="Save request profile", tag="difr_live_save_profile",
+                           callback=self.app.open_save_profile, user_data=("lowpower_requests", "difr", None))
             dpg.add_button(label="Hold disable request", tag="difr_live_hold",
                            callback=self.hold, enabled=False)
             dpg.add_button(label="Release this request", tag="difr_live_release",
@@ -33,19 +39,7 @@ class DifrLivePanel:
                            width=-1, height=self.app.s(90))
 
     def _controller(self):
-        from .difr_live_control import DifrController
-
-        gpu = self.app.gpu
-        controllers = getattr(self.app, "_difr_live_controllers", None)
-        if not isinstance(controllers, dict):
-            controllers = {}
-            self.app._difr_live_controllers = controllers
-        key = id(gpu)
-        controller = controllers.get(key)
-        if controller is None or controller.gpu is not gpu:
-            controller = DifrController(gpu)
-            controllers[key] = controller
-        return controller
+        return lowpower_profiles.controller(self.app, "difr")
 
     @staticmethod
     def _format(snapshot):
@@ -107,16 +101,14 @@ class DifrLivePanel:
         if not self.app.guard():
             return
         try:
-            snapshot = self._controller().hold()
+            snapshot = lowpower_profiles.change(self.app, "difr", "disabled")
             self._show(snapshot, "Counted disable request held by this Druta instance.")
         except Exception as exc:  # noqa: BLE001
             self._failed("hold", exc)
 
     def release(self, *unused):
-        if not self.app.guard():
-            return
         try:
-            snapshot = self._controller().release()
+            snapshot = lowpower_profiles.change(self.app, "difr", "released")
             self._show(snapshot, "This Druta instance's disable request was released.")
         except Exception as exc:  # noqa: BLE001
             self._failed("release", exc)

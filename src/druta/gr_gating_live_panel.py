@@ -4,6 +4,8 @@
 
 import dearpygui.dearpygui as dpg
 
+from . import lowpower_profiles
+
 
 class GrGatingLivePanel:
     """Render status and controls for this instance's request."""
@@ -22,8 +24,12 @@ class GrGatingLivePanel:
             "The request is not automatically reapplied after a driver restart.",
             tag="gr_gating_live_explainer", wrap=self.app.s(900),
         )
+        dpg.add_text("A saved profile describes only this instance's request. Load it manually to apply; "
+                     "requests are not replayed after a driver restart.", wrap=self.app.s(900))
         with dpg.group(horizontal=True):
             dpg.add_button(label="Refresh", tag="gr_gating_live_read", callback=self.read)
+            dpg.add_button(label="Save request profile", tag="gr_gating_live_save_profile",
+                           callback=self.app.open_save_profile, user_data=("lowpower_requests", "elpg", None))
             dpg.add_button(label="Hold disabled", tag="gr_gating_live_hold",
                            callback=self.hold, enabled=False)
             dpg.add_button(label="Release", tag="gr_gating_live_release",
@@ -34,19 +40,7 @@ class GrGatingLivePanel:
                            width=-1, height=self.app.s(100))
 
     def _controller(self):
-        from .gr_gating_live import GrGatingController
-
-        gpu = self.app.gpu
-        controllers = getattr(self.app, "_gr_gating_live_controllers", None)
-        if not isinstance(controllers, dict):
-            controllers = {}
-            self.app._gr_gating_live_controllers = controllers
-        key = id(gpu)
-        controller = controllers.get(key)
-        if controller is None or controller.gpu is not gpu:
-            controller = GrGatingController(gpu)
-            controllers[key] = controller
-        return controller
+        return lowpower_profiles.controller(self.app, "elpg")
 
     def reset_view(self):
         """Forget the previous adapter's display after a GPU switch."""
@@ -127,12 +121,12 @@ class GrGatingLivePanel:
         if not self.app.guard():
             return
         try:
-            self._show(self._controller().hold(), "Disable request held by this instance.")
+            self._show(lowpower_profiles.change(self.app, "elpg", "disabled"), "Disable request held by this instance.")
         except Exception as exc:  # noqa: BLE001
             self._failed("hold", exc)
 
     def release(self, *unused):
         try:
-            self._show(self._controller().release(), "This instance's disable request was released.")
+            self._show(lowpower_profiles.change(self.app, "elpg", "released"), "This instance's disable request was released.")
         except Exception as exc:  # noqa: BLE001
             self._failed("release", exc)

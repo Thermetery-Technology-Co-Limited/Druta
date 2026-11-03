@@ -61,7 +61,7 @@ class FakeController:
 def harness(monkeypatch):
     dpg.create_context()
     gpu = object()
-    app = SimpleNamespace(gpu=gpu, s=lambda value: value, log=Mock(), guard=Mock(return_value=True))
+    app = SimpleNamespace(gpu=gpu, s=lambda value: value, log=Mock(), open_save_profile=Mock(), guard=Mock(return_value=True))
     controllers = []
 
     def make_controller(target):
@@ -71,6 +71,10 @@ def harness(monkeypatch):
 
     monkeypatch.setattr(difr_live_control, "DifrController", make_controller)
     panel = difr_live_panel.DifrLivePanel(app)
+    from druta import lowpower_profiles
+    monkeypatch.setattr(lowpower_profiles, "change",
+                        lambda app, kind, mode, index=None: getattr(panel._controller(),
+                            {"disabled": "hold", "enabled": "hold_enabled", "released": "release"}[mode])())
     with dpg.window():
         panel.build()
     try:
@@ -181,7 +185,7 @@ def test_uncertain_hold_outcome_stays_read_only_after_refresh(harness):
     assert enabled("difr_live_release") is False
 
 
-def test_app_guard_blocks_hold_and_release_but_not_read(harness):
+def test_app_guard_blocks_hold_but_not_read_or_release(harness):
     h = harness
     controller = h.panel._controller()
     h.app.guard.return_value = False
@@ -195,7 +199,7 @@ def test_app_guard_blocks_hold_and_release_but_not_read(harness):
     h.panel.read()
     assert controller.read_calls == 2
     h.panel.release()
-    assert controller.release_calls == 0
+    assert controller.release_calls == 1
 
 
 def test_panel_rebuild_reuses_controller_only_for_same_gpu_object(harness):
@@ -209,3 +213,9 @@ def test_panel_rebuild_reuses_controller_only_for_same_gpu_object(harness):
     assert other_gpu is not first
     assert other_gpu.gpu is h.app.gpu
     assert first.gpu is not h.app.gpu
+
+
+def test_save_request_profile_targets_instance(harness):
+    tag = "difr_live_save_profile"
+    assert dpg.get_item_callback(tag) == harness.app.open_save_profile
+    assert dpg.get_item_user_data(tag) == ("lowpower_requests", "difr", None)

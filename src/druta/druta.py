@@ -10373,6 +10373,9 @@ deliberately does not put behind a button."""
                 state = profiles.capture_voltage_requests(self.gpu)
             elif getattr(self, "_profile_save_scope", None) == "voltage_controls":
                 state = profiles.capture_voltage_controls(self.gpu, self._profile_save_kind)
+            elif getattr(self, "_profile_save_scope", None) == "lowpower_requests":
+                from . import lowpower_profiles
+                state = lowpower_profiles.capture(self, self._profile_save_kind, self._profile_save_index)
             else:
                 state = profiles.capture(self.gpu, self.rail)
             path = profiles.save(name, state)
@@ -10390,13 +10393,17 @@ deliberately does not put behind a button."""
             return
         self._profile_save_scope = "voltage_requests" if user_data == "voltage_requests" else None
         self._profile_save_kind = None
+        self._profile_save_index = None
         if user_data in ("gate", "rel_bounds", "constants", "switch_delay"):
             self._profile_save_scope = "voltage_controls"
             self._profile_save_kind = user_data
+        if isinstance(user_data, tuple) and len(user_data) == 3 and user_data[0] == "lowpower_requests":
+            self._profile_save_scope, self._profile_save_kind, self._profile_save_index = user_data
         if dpg.does_item_exist("prof_save_description"):
             dpg.configure_item("prof_save_description", show=self._profile_save_scope is None)
             dpg.configure_item("prof_save_requests_description", show=self._profile_save_scope == "voltage_requests")
             dpg.configure_item("prof_save_controls_description", show=self._profile_save_scope == "voltage_controls")
+            dpg.configure_item("prof_save_lowpower_description", show=self._profile_save_scope == "lowpower_requests")
         # seeded with a timestamp so the box is never empty: profiles are
         # slugged onto disk by name, so an unnamed one would be "unnamed.json"
         # and the next save would silently overwrite it
@@ -10496,7 +10503,7 @@ deliberately does not put behind a button."""
                         dpg.add_button(label="Load", tag=tag, width=-1,
                                        user_data=name,
                                        callback=lambda s, a, u: self.load_profile(u))
-                        if not is_auto and state.get("scope") not in ("voltage_requests", "voltage_controls"):
+                        if not is_auto and state.get("scope") not in ("voltage_requests", "voltage_controls", "lowpower_requests"):
                             dpg.add_button(label="Load at startup", width=-1,
                                            user_data=name,
                                            callback=lambda s, a, u: self.set_startup_profile(u))
@@ -10549,6 +10556,10 @@ deliberately does not put behind a button."""
         except Exception as e:
             self.log(f"load '{name}': {e}", False)
             return
+        if state.get("scope") == "lowpower_requests":
+            self.set_pending_load(None)
+            self.begin_lowpower_profile_load(name, state)
+            return
         if (state.get("i2c") and hasattr(self, "_i2c_discovery_complete")
                 and not self._i2c_discovery_complete):
             self.profile_failure(
@@ -10568,6 +10579,9 @@ deliberately does not put behind a button."""
         self.begin_profile_load(name, state)
 
     def begin_profile_load(self, name, state, automatic=False):
+        if state.get("scope") == "lowpower_requests":
+            self.begin_lowpower_profile_load(name, state, automatic)
+            return
         if state.get("scope") in ("voltage_requests", "voltage_controls"):
             self.begin_voltage_request_profile_load(name, state, automatic)
             return
@@ -10667,6 +10681,33 @@ deliberately does not put behind a button."""
         self.log(f"Undo point saved as '{undo_name}'", None)
         self.finish_profile_load(name, state, False)
 
+    def begin_lowpower_profile_load(self, name, state, automatic=False):
+        from . import lowpower_profiles
+        if automatic:
+            self.profile_failure("low-power request profiles require manual loading", True)
+            return
+        if not self.guard() or self._i2c_busy:
+            self.profile_failure("profile load blocked by another operation or locked controls")
+            return
+        error = lowpower_profiles.preflight(self, state)
+        if error:
+            self.profile_failure(error)
+            return
+        try:
+            target = lowpower_profiles.validate(state)
+            before = lowpower_profiles.capture(self, target["kind"], target["index"])
+            undo_name, _, missing = profiles.autosave_state(f"load-{name}"[:40], before)
+            if missing:
+                raise ValueError("could not capture a complete low-power request undo point")
+        except Exception as exc:
+            self.profile_failure(f"could not save undo state: {exc}; nothing changed")
+            return
+        if getattr(self, "_held_startup_request", None):
+            self._held_startup_request = None
+            self.log("Held startup profile canceled by manual profile load", None)
+        self.log(f"Undo point saved as '{undo_name}'", None)
+        self.finish_profile_load(name, state, False)
+
     def poll_profile_load(self):
         if getattr(self, "_i2c_ui_pending", False) and not self._i2c_busy:
             self._i2c_ui_pending = False
@@ -10698,6 +10739,9 @@ deliberately does not put behind a button."""
         self.refresh_profile_list()
 
     def finish_profile_load(self, name, state, automatic=False):
+        if state.get("scope") == "lowpower_requests":
+            self.finish_lowpower_profile_load(name, state, automatic)
+            return
         if automatic and state.get("scope") in ("voltage_requests", "voltage_controls"):
             self.profile_failure("voltage-request profiles require manual loading", True)
             return
@@ -10788,6 +10832,36 @@ deliberately does not put behind a button."""
         except Exception as e:
             self.log(f"rail/clock sliders could not be refreshed: {e}", False)
 
+    def finish_lowpower_profile_load(self, name, state, automatic=False):
+        from . import lowpower_profiles
+        if automatic:
+            self.profile_failure("low-power request profiles require manual loading", True)
+            return
+        self._profile_applying = True
+        try:
+            results = lowpower_profiles.restore(self, state)
+        except Exception as exc:
+            results = [(False, f"low-power profile restore failed: {exc}")]
+        finally:
+            self._profile_applying = False
+        for ok, message in results:
+            self.log(message, ok)
+        if any(not ok for ok, _ in results):
+            self.profile_failure("low-power request not fully applied; see the per-control result")
+        else:
+            self.log(f"profile '{name}' applied", True)
+        data = state.get("lowpower_requests", {})
+        panel_name = {"difr": "difr_live_panel", "elpg": "gr_gating_live_panel",
+                      "elcg": "engine_clock_gating_panel", "blcg": "block_clock_gating_panel",
+                      "slcg": "second_level_clock_gating_panel", "individual": "individual_power_gating_panel"}.get(data.get("kind"))
+        panel = getattr(getattr(self, "_registry_panel", None), panel_name, None) if panel_name else None
+        if panel is not None:
+            if data["kind"] == "individual":
+                panel.read(user_data=data["index"])
+            else:
+                panel.read()
+        self.refresh_profile_list()
+
     def set_startup_profile(self, name):
         """Selecting this action approves the displayed tune for Windows logon."""
         if not self.guard():
@@ -10799,6 +10873,8 @@ deliberately does not put behind a button."""
             if manager is None:
                 raise ValueError("startup manager is unavailable")
             state = profiles.load(name)
+            if state.get("scope") == "lowpower_requests":
+                raise ValueError("low-power request profiles require manual loading")
             if state.get("scope") in ("voltage_requests", "voltage_controls"):
                 raise ValueError("voltage-request profiles require manual loading")
             error = profiles.preflight(self.gpu, state, self.rail_for_profile(state))
@@ -11227,6 +11303,10 @@ deliberately does not put behind a button."""
                          "Load manually from Profiles; these settings are never applied at startup "
                          "or after a GPU reset. Saved values are control requests, not measured voltage or latency.",
                          tag="prof_save_controls_description", show=False, color=DIM, wrap=self.s(520))
+            dpg.add_text("Saves only this Druta instance's selected low-power request. "
+                         "Loading acquires or releases this instance's request; it does not restore other clients' "
+                         "requests or guarantee physical gating. Manual load only, with no startup or post-reset replay.",
+                         tag="prof_save_lowpower_description", show=False, color=DIM, wrap=self.s(520))
             dpg.add_spacer(height=self.s(6))
             # on_enter as well as the button: this box is a name prompt, and
             # Enter is what a name prompt is expected to take. typing() names

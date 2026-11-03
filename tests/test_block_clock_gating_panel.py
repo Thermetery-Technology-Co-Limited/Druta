@@ -46,8 +46,12 @@ def panel(monkeypatch):
     monkeypatch.setitem(sys.modules, "druta.block_clock_gating_live",
                         SimpleNamespace(BlockClockGatingController=FakeController))
     dpg.create_context()
-    app = SimpleNamespace(gpu=object(), s=lambda value: value, guard=Mock(return_value=True), log=Mock())
+    app = SimpleNamespace(gpu=object(), s=lambda value: value, open_save_profile=Mock(), guard=Mock(return_value=True), log=Mock())
     instance = BlockClockGatingPanel(app)
+    from druta import lowpower_profiles
+    monkeypatch.setattr(lowpower_profiles, "change",
+                        lambda app, kind, mode, index=None: getattr(instance._controller(),
+                            {"disabled": "hold", "enabled": "hold_enabled", "released": "release"}[mode])())
     with dpg.window():
         instance.build()
     yield instance
@@ -85,3 +89,9 @@ def test_reset_view_disables_actions(panel):
     assert not enabled("hold")
     assert not enabled("release")
     assert dpg.get_value("block_clock_gating_readback") == ""
+
+
+def test_save_request_profile_targets_instance(panel):
+    tag = "block_clock_gating_save_profile"
+    assert dpg.get_item_callback(tag) == panel.app.open_save_profile
+    assert dpg.get_item_user_data(tag) == ("lowpower_requests", "blcg", None)

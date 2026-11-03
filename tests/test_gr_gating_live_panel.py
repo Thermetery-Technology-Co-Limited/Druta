@@ -12,7 +12,7 @@ from druta.gr_gating_live_panel import GrGatingLivePanel
 @pytest.fixture
 def panel():
     dpg.create_context()
-    app = SimpleNamespace(s=lambda value: value, log=Mock(), guard=Mock(return_value=True))
+    app = SimpleNamespace(s=lambda value: value, log=Mock(), open_save_profile=Mock(), guard=Mock(return_value=True))
     instance = GrGatingLivePanel(app)
     with dpg.window():
         instance.build()
@@ -61,3 +61,9 @@ def test_idle_snapshot_does_not_claim_request_transitions(panel):
     text = dpg.get_value("gr_gating_live_readback")
     assert "latest enabled predicate: unknown" in text
     assert "request transition observed" not in text
+
+
+def test_save_request_profile_targets_instance(panel):
+    tag = "gr_gating_live_save_profile"
+    assert dpg.get_item_callback(tag) == panel.app.open_save_profile
+    assert dpg.get_item_user_data(tag) == ("lowpower_requests", "elpg", None)

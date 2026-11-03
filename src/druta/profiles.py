@@ -68,7 +68,10 @@ def incomplete(state):
     miss = list(state.get(INCOMPLETE_KEY) or [])
     if state.get("scope") is not None:
         try:
-            if state.get("scope") == "voltage_controls":
+            if state.get("scope") == "lowpower_requests":
+                from . import lowpower_profiles
+                lowpower_profiles.validate(state)
+            elif state.get("scope") == "voltage_controls":
                 from . import voltage_control_profiles
                 voltage_control_profiles.validate(state)
             elif state.get("scope") == "voltage_requests":
@@ -973,6 +976,10 @@ def preflight(gpu, state, rail=None, *, apply_curve=True):
             or state.get("schema", 1) not in (1, SCHEMA)):
         return "unsupported profile format"
     try:
+        if state.get("scope") == "lowpower_requests":
+            from . import lowpower_profiles
+            lowpower_profiles.validate(state)
+            return "low-power request profiles require manual loading in the owning application"
         if state.get("scope") == "voltage_controls":
             from . import voltage_control_profiles as scoped
             data = scoped.validate(state)
@@ -1446,6 +1453,14 @@ def _restore_validated(gpu, state, apply_curve, rail, results, *, i2c_verified):
 def summarize(state):
     """One-line description for a menu row or a confirmation banner."""
     bits = []
+    if state.get("scope") == "lowpower_requests":
+        from . import lowpower_profiles
+        try:
+            data = lowpower_profiles.validate(state)
+            target = data["kind"] + (f" {data['index']}" if data["index"] is not None else "")
+            bits.append(f"{target} request: {data['mode']}, manual apply only")
+        except ValueError as exc:
+            bits.append(f"invalid low-power request: {exc}")
     if state.get("scope") == "voltage_controls":
         from . import voltage_control_profiles as scoped
         try:

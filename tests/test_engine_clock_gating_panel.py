@@ -10,10 +10,14 @@ from druta.engine_clock_gating_panel import EngineClockGatingPanel
 
 
 @pytest.fixture
-def panel():
+def panel(monkeypatch):
     dpg.create_context()
-    app = SimpleNamespace(s=lambda value: value, guard=Mock(return_value=True), log=Mock())
+    app = SimpleNamespace(s=lambda value: value, open_save_profile=Mock(), guard=Mock(return_value=True), log=Mock())
     instance = EngineClockGatingPanel(app)
+    from druta import lowpower_profiles
+    monkeypatch.setattr(lowpower_profiles, "change",
+                        lambda app, kind, mode, index=None: getattr(instance._controller(),
+                            {"disabled": "hold", "enabled": "hold_enabled", "released": "release"}[mode])())
     with dpg.window():
         instance.build()
     try:
@@ -92,3 +96,9 @@ def test_disable_transition_remains_distinct_from_arbitration(panel):
     text = dpg.get_value("engine_clock_gating_readback")
     assert "Observed changes on engine bits: 1" in text
     assert "Conflicting request rejection verified" not in text
+
+
+def test_save_request_profile_targets_instance(panel):
+    tag = "engine_clock_gating_save_profile"
+    assert dpg.get_item_callback(tag) == panel.app.open_save_profile
+    assert dpg.get_item_user_data(tag) == ("lowpower_requests", "elcg", None)
