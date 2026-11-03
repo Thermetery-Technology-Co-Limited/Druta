@@ -64,6 +64,11 @@ behavior; DIFR still requires explicit release.
 Idle thresholds and shared adaptive policy are not included: changing either
 can affect the other, and their current getters cannot establish a complete
 restorable state. Saved request ownership is distinct from those shared values.
+The examined threshold setter can set a separate shared reason bit that numeric
+threshold restoration does not clear. The adaptive getter exposes only an
+aggregate Boolean; its setter changes a different bit. Neither an old number
+nor that Boolean is a complete Undo snapshot. See the
+[readback boundary](experiments/shared-power-profile-boundary-20261102.json).
 
 ### Manual V/F policy profiles
 
@@ -124,8 +129,14 @@ policy are still excluded because a complete restorable state is unavailable.
 The local combined Save/Load/Undo trial covered memory offset, clock control 2,
 voltage boost and an owned ELCG inhibit together on the RTX 5080 / 617.42.
 All selected requests returned exactly to baseline; unrelated power requests
-and fan policy were preserved. Combined full-tune/I2C sequencing and conflict
-checks have offline coverage. See [qualification](experiments/combined-profiles-20261102.json).
+and fan policy were preserved. See [qualification](experiments/combined-profiles-20261102.json).
+
+A subsequent [full-tune combined trial](experiments/combined-full-profiles-20261102.json)
+loaded an ordinary tune and an ELCG inhibit together, changing memory offset,
+boost and board power. Undo restored the complete captured ordinary state and
+released that instance's ELCG request. Unchanged curve and zero voltage-offset
+fields do not establish arbitrary voltage replay. This trial included no I2C
+component; combined I2C sequencing still has offline coverage only.
 
 ### Ordinary tune profiles
 

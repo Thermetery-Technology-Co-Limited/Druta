@@ -1,0 +1,55 @@
+{
+  "schema": 1,
+  "date": "2026-11-02",
+  "scope": "Ordinary full tune plus owned ELCG combined Load/Undo, RTX 5080 / 617.42",
+  "device": {
+    "name": "NVIDIA GeForce RTX 5080",
+    "vbios": "98.03.3b.c0.6f",
+    "driver": "617.42"
+  },
+  "artifact": "experiments/registry-overrides/combined-full-profile-root-20261102/trial.json",
+  "trial_sha256": "c90274842539683404f10d71d3e7eea90ef58953325ad78a56805be32fa9716b",
+  "harness_sha256": "a07fbb6ad48d240dabc9dc4e1df222d33c62eaff1ac2d949c49a1e5c5c456e73",
+  "changed_requests": {
+    "mem_off_units": {
+      "before": 0,
+      "applied": 100,
+      "restored": 0
+    },
+    "mem_off_true_mhz": {
+      "before": 0.0,
+      "applied": 50.0,
+      "restored": 0.0
+    },
+    "power_limit_mw": {
+      "before": 360000,
+      "applied": 355000,
+      "restored": 360000
+    },
+    "volt_boost_pct": {
+      "before": 0,
+      "applied": 1,
+      "restored": 0
+    }
+  },
+  "owned_elcg_request": {
+    "before": "released",
+    "active": "disabled",
+    "restored": "released"
+  },
+  "complete_captured_state_restored": true,
+  "fallback_cleanup_needed": false,
+  "verification": [
+    "Actual combined load and Undo last write callbacks, existing ordinary restore and scoped ELCG restore.",
+    "All returned operation results succeeded; a single combined Undo was captured before the target load.",
+    "Complete before/restored ordinary snapshots matched excluding timestamps and measured duty of automatic fans.",
+    "Rail request words, curve deltas, domain offsets, current/power policies and fan policy matched baseline.",
+    "ELCG request returned from disabled to released in the same owning application instance."
+  ],
+  "limitations": [
+    "Production combined/manual profile callbacks and real GPU backend; display refreshes stubbed; three risk flags mirror sync_risk_ui.",
+    "I2C was absent from the captured profile; combined I2C hardware replay remains unqualified.",
+    "The unchanged curve and zero NVVDD/MSVDD offset requests do not prove changed-state or arbitrary voltage replay.",
+    "No workload, physical measurement, driver restart, registry mutation or other-adapter access."
+  ]
+}
