@@ -22,7 +22,7 @@ IMAGE_HASH = hashlib.sha256(IMAGE).hexdigest()
 @pytest.fixture
 def env(monkeypatch, tmp_path):
     monkeypatch.setattr(ro, "state_directory", lambda: tmp_path)
-    monkeypatch.setattr(replay.voltage, "read", lambda gpu: gpu.policy())
+    monkeypatch.setattr(replay.voltage, "read", lambda gpu, *, request_identities=None: gpu.policy())
     template = Gpu()
     ident = template.identity
     target = ro.Target(
