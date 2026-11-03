@@ -4506,6 +4506,22 @@ comparison included changed `boost_uv` metadata; its failure is retained.
 Both trials restored the original complete voltage snapshot, image and registry.
 No physical voltage or universal boost formula is established.
 
+The panel's Apply and legacy offset-file Load now use a pre-write callback after
+validating the whole selected operation. It saves only changed prior offsets,
+with no snapshot for an unchanged request; a save failure prevents dispatch.
+These schema-2 `voltage_offsets` autosaves store signed, exactly representable
+microvolt values, slot and device metadata, never equations or opaque packets.
+**Profiles > Undo last write** manually restores the selected fields through the
+existing recognized-scaffold setter. A scoped load saves its selected pre-values
+and stops on the first failed offset. UUID/slot and the current scaffold are
+checked; driver/VBIOS labels are descriptive. No startup or post-reset replay is
+added. The existing native-picker schema-1 files remain compatible.
+
+The Undo integration has offline coverage. The local adapter had no installed
+offset scaffold during this increment, so live replay was not qualified and no
+registry activation or driver restart was performed merely to test Undo.
+[Voltage offset Undo evidence](experiments/voltage-offset-undo-20261102.json).
+
 The CLI and Controls panel expose read, set, capture and explicit profile
 replay. Profiles hold app-owned offsets, not the six cached legacy rail words.
 A driver restart reloads zero heads while the saved profile remains available

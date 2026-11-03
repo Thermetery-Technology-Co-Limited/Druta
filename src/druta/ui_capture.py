@@ -11,6 +11,7 @@ from pathlib import Path
 
 # Only read callbacks are used by these display stages.
 _CURRENT_CONTROLS = (
+    ("voltage-offsets", "voltage_offsets_header", "voltage_offsets_panel", "refresh", "voltage_offsets_status", "voltage_offsets_inventory"),
     ("vf-policies", "reg_vf_live_header", None, "refresh_clock_vf_live", "reg_vf_live_status", "reg_vf_live_monotonicity"),
     ("rail-requests", "voltage_requests_header", "voltage_requests_panel", "refresh", "voltage_requests_status", "voltage_requests_inventory"),
     ("request-gate", "reg_voltage_gate_header", None, "refresh_voltage_gate", "reg_voltage_gate_status", "reg_voltage_gate_value"),
@@ -103,6 +104,7 @@ class UiCapture:
                         self.current_cases["current-" + name] = (header, target, method, status, readback, None)
                 for tag in ("voltage_requests_select", "gr_idle_threshold_value", "reg_voltage_gate_value",
                             "reg_vf_live_monotonicity", "reg_vf_live_smoothening",
+                            "voltage_offsets_select", "voltage_offsets_value",
                             *(f"voltage_requests_{index}_value" for index in range(6))):
                     if dpg.does_item_exist(tag):
                         self.snapshot.setdefault("current_values", {})[tag] = dpg.get_value(tag)

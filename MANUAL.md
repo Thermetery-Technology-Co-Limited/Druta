@@ -592,6 +592,13 @@ offsets; **Load and apply offset profile** explicitly replays them for the selec
 adapter. A GPU driver restart reloads zero offsets; saved values are not applied
 automatically. These files are separate from ordinary clock/tuning profiles.
 
+Before **Apply now** or **Load and apply offset profile** changes any offset,
+Druta saves the selected prior values for **Profiles > Undo last write**. An
+unchanged request adds no undo point. If saving fails, no offset is written.
+Undo uses the existing live offset definitions; it does not enable offsets,
+change registry settings, restart the GPU or apply anything automatically.
+A partial failure leaves its pre-write snapshot available for manual Undo.
+
 Command-line access uses an explicit PCI slot and signed microvolts:
 
 ```text

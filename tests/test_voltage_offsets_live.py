@@ -228,3 +228,26 @@ def test_enable_stages_composed_image_and_checks_fresh_activation(monkeypatch, t
     assert live.capture('adapter') == result['values']
     with pytest.raises(live.VoltageOffsetsError, match='already exists'):
         live.enable('adapter', requested)
+
+
+def test_before_write_captures_changed_fields_and_aborts_on_failure(engine):
+    state, heads = engine
+    rel, alt = (h['key'] for h in heads)
+    seen = []
+    def capture(snapshot):
+        assert state['writes'] == []
+        seen.append(snapshot)
+    live.set_offsets('adapter', {rel: 5000, alt: 0}, before_write=capture)
+    assert seen == [{'slot': 'adapter', 'values': {rel: 0}}]
+    live.replay('adapter', {rel: 5000}, before_write=lambda _: pytest.fail('no-op callback'))
+    with pytest.raises(OSError, match='save failed'):
+        live.set_offsets('adapter', {alt: 5000}, before_write=lambda _: (_ for _ in ()).throw(OSError('save failed')))
+    assert state['writes'] == [('REL', 5000)]
+
+
+def test_callback_waits_for_all_value_validation(engine):
+    state, heads = engine
+    with pytest.raises(eq.VfeEquationError):
+        live.set_offsets('adapter', {heads[0]['key']: 5000, heads[1]['key']: 16777217},
+                         before_write=lambda _: pytest.fail('invalid operation reached callback'))
+    assert not state['writes']

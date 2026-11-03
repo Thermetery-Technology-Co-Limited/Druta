@@ -7,7 +7,7 @@ from decimal import Decimal, InvalidOperation
 
 import dearpygui.dearpygui as dpg
 
-from . import devicereset, paths, startup
+from . import devicereset, paths, profiles, startup
 from . import voltage_offsets_live as offsets
 
 
@@ -128,6 +128,15 @@ class VoltageOffsetsPanel:
         self.app._stop.set()
         dpg.stop_dearpygui()
 
+    def _save_undo(self, action):
+        def before_write(snapshot):
+            state = profiles.capture_voltage_offsets(self.app.gpu, snapshot=snapshot)
+            name, _, missing = profiles.autosave_state(action, state)
+            if missing:
+                raise ValueError("could not capture a complete offset undo point")
+            self.app.log(f"Undo point saved as '{name}': {snapshot['values']}", None)
+        return before_write
+
     def apply(self, *unused):
         if not self.app.guard():
             return
@@ -140,9 +149,9 @@ class VoltageOffsetsPanel:
             value = Decimal(dpg.get_value("voltage_offsets_value").strip()) * 1000
             if not value.is_finite() or value != value.to_integral_value():
                 raise ValueError("Enter an offset with whole-microvolt precision")
-            offsets.set_offsets(slot, {key: int(value)})
+            offsets.set_offsets(slot, {key: int(value)}, before_write=self._save_undo("voltage-offset"))
             self.refresh()
-        except (InvalidOperation, ValueError, RuntimeError) as exc:
+        except (InvalidOperation, OSError, ValueError, RuntimeError) as exc:
             self._status("Could not apply offset: " + str(exc), False)
 
     def _pick(self, *, save):
@@ -190,7 +199,7 @@ class VoltageOffsetsPanel:
                     or type(document["schema"]) is not int or document["schema"] != 1
                     or document["slot"] != slot or not isinstance(document["values"], dict)):
                 raise ValueError("Profile does not match the selected adapter")
-            offsets.replay(slot, document["values"])
+            offsets.replay(slot, document["values"], before_write=self._save_undo("load-voltage-offset"))
             self.refresh()
         except (OSError, ValueError, RuntimeError) as exc:
             self._status("Could not load offset profile: " + str(exc), False)

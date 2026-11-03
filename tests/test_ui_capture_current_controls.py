@@ -11,7 +11,8 @@ def test_current_control_frames_use_readbacks_and_restore_display(tmp_path):
     dpg.values.update(registry_header=False, reg_rel_live_header=False,
                       reg_constants_live_header=False, reg_rel_live_select='',
                       reg_constants_live_select='', voltage_requests_select='original rail',
-                      gr_idle_threshold_value='original threshold')
+                      gr_idle_threshold_value='original threshold',
+                      voltage_offsets_select='original offset', voltage_offsets_value='-1.234')
     pending_rails = {f'voltage_requests_{index}_value': f'pending {index}' for index in range(6)}
     dpg.values.update(pending_rails)
     panel = SimpleNamespace(rel_live_choices={}, constants_live_choices={},
@@ -40,6 +41,9 @@ def test_current_control_frames_use_readbacks_and_restore_display(tmp_path):
             elif _name == 'vf-policies':
                 dpg.values['reg_vf_live_monotonicity'] = True
                 dpg.values['reg_vf_live_smoothening'] = False
+            elif _name == 'voltage-offsets':
+                dpg.values['voltage_offsets_select'] = 'refreshed offset'
+                dpg.values['voltage_offsets_value'] = '5'
         setattr(target, method, Mock(side_effect=read))
         for writer in ('hold', 'enable', 'apply', 'release'):
             setattr(target, writer, Mock(side_effect=AssertionError('writer invoked')))
@@ -66,8 +70,9 @@ def test_current_control_frames_use_readbacks_and_restore_display(tmp_path):
         capture.tick()
     assert capture.manifest['state'] == 'complete'
     cases = {item['stage']: item for item in capture.manifest['captures'] if item['stage'].startswith('current-')}
-    assert len(cases) == 18
+    assert len(cases) == 19
     expected = {
+        'current-voltage-offsets': ('voltage_offsets_header', 'voltage_offsets_inventory'),
         'current-vf-policies': ('reg_vf_live_header', 'reg_vf_live_monotonicity'),
         'current-rail-requests': ('voltage_requests_header', 'voltage_requests_inventory'),
         'current-request-gate': ('reg_voltage_gate_header', 'reg_voltage_gate_value'),
@@ -106,6 +111,8 @@ def test_current_control_frames_use_readbacks_and_restore_display(tmp_path):
     assert dpg.values['reg_voltage_gate_value'] is True
     assert dpg.values['reg_vf_live_monotonicity'] is False
     assert dpg.values['reg_vf_live_smoothening'] is True
+    assert dpg.values['voltage_offsets_select'] == 'original offset'
+    assert dpg.values['voltage_offsets_value'] == '-1.234'
     assert {tag: dpg.values[tag] for tag in pending_rails} == pending_rails
     assert all(dpg.values[header] is False for _, header, *_ in _CURRENT_CONTROLS)
 

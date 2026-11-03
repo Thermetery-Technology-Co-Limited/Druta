@@ -45,7 +45,8 @@ def test_read_and_apply_signed_precise_value_for_selected_adapter(ui):
     assert 'Rail 0 reported effective: 1040 mV' in dpg.get_value('voltage_offsets_inventory')
     dpg.set_value('voltage_offsets_value', '-1.234')
     instance.apply()
-    write.assert_called_once_with('0000:01:00.0', {'voltage.0.REL.offset': -1234})
+    assert write.call_args.args == ('0000:01:00.0', {'voltage.0.REL.offset': -1234})
+    assert callable(write.call_args.kwargs['before_write'])
     assert read.call_count == 2
     dpg.set_value('voltage_offsets_value', '0.0001')
     instance.apply()
@@ -94,7 +95,8 @@ def test_save_and_explicit_load_use_native_picker(ui, monkeypatch, tmp_path):
                                              'values': {'voltage.0.REL.offset': -5000}}
     assert not replay.called
     instance.load_profile()
-    replay.assert_called_once_with('0000:01:00.0', {'voltage.0.REL.offset': -5000})
+    assert replay.call_args.args == ('0000:01:00.0', {'voltage.0.REL.offset': -5000})
+    assert callable(replay.call_args.kwargs['before_write'])
     assert app.pick_file_native.call_count == 2
 
 
@@ -108,3 +110,37 @@ def test_profile_for_other_adapter_is_not_applied(ui, monkeypatch, tmp_path):
     instance.load_profile()
     assert not replay.called
     assert 'selected adapter' in dpg.get_value('voltage_offsets_status')
+
+
+@pytest.mark.parametrize("entry", ["apply", "load"])
+@pytest.mark.parametrize("fail", [False, True])
+def test_snapshot_saved_before_write_and_save_failure_aborts(ui, monkeypatch, tmp_path, entry, fail):
+    instance, app, _, _ = ui
+    snapshot = {"slot": "0000:01:00.0", "values": {"voltage.0.REL.offset": -5000}}
+    captured = {"scope": "voltage_offsets"}
+    capture = Mock(return_value=captured)
+    save = Mock(side_effect=OSError("disk full") if fail else None, return_value=("undo", "path", []))
+    monkeypatch.setattr(panel.profiles, "capture_voltage_offsets", capture)
+    monkeypatch.setattr(panel.profiles, "autosave_state", save)
+    writes = []
+    def execute(slot, values, *, before_write):
+        before_write(snapshot)
+        writes.append(values)
+    if entry == "apply":
+        instance.refresh()
+        dpg.set_value("voltage_offsets_value", "-1")
+        monkeypatch.setattr(panel.offsets, "set_offsets", execute)
+        instance.apply()
+    else:
+        path = tmp_path / "load.json"
+        path.write_text(json.dumps({"schema": 1, "slot": snapshot["slot"], "values": snapshot["values"]}))
+        app.pick_file_native.return_value = (str(path), None)
+        monkeypatch.setattr(panel.offsets, "replay", execute)
+        instance.load_profile()
+    capture.assert_called_once_with(app.gpu, snapshot=snapshot)
+    assert save.call_args.args[1] is captured
+    assert bool(writes) is not fail
+    if fail:
+        assert "disk full" in dpg.get_value("voltage_offsets_status")
+    else:
+        assert any("Undo point saved" in str(call) for call in app.log.call_args_list)

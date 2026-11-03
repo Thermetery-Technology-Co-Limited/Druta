@@ -10508,7 +10508,7 @@ deliberately does not put behind a button."""
                         dpg.add_button(label="Load", tag=tag, width=-1,
                                        user_data=name,
                                        callback=lambda s, a, u: self.load_profile(u))
-                        if not is_auto and state.get("scope") not in ("voltage_requests", "voltage_controls", "lowpower_requests", "clock_vf"):
+                        if not is_auto and state.get("scope") not in ("voltage_requests", "voltage_controls", "lowpower_requests", "clock_vf", "voltage_offsets"):
                             dpg.add_button(label="Load at startup", width=-1,
                                            user_data=name,
                                            callback=lambda s, a, u: self.set_startup_profile(u))
@@ -10565,6 +10565,10 @@ deliberately does not put behind a button."""
             self.set_pending_load(None)
             self.begin_lowpower_profile_load(name, state)
             return
+        if state.get("scope") == "voltage_offsets":
+            self.set_pending_load(None)
+            self.begin_voltage_request_profile_load(name, state)
+            return
         if (state.get("i2c") and hasattr(self, "_i2c_discovery_complete")
                 and not self._i2c_discovery_complete):
             self.profile_failure(
@@ -10587,7 +10591,7 @@ deliberately does not put behind a button."""
         if state.get("scope") == "lowpower_requests":
             self.begin_lowpower_profile_load(name, state, automatic)
             return
-        if state.get("scope") in ("voltage_requests", "voltage_controls", "clock_vf"):
+        if state.get("scope") in ("voltage_requests", "voltage_controls", "clock_vf", "voltage_offsets"):
             self.begin_voltage_request_profile_load(name, state, automatic)
             return
         if not self.guard() or self._i2c_busy:
@@ -10663,6 +10667,7 @@ deliberately does not put behind a button."""
     def begin_voltage_request_profile_load(self, name, state, automatic=False):
         if automatic:
             self.profile_failure("clock V/F profiles require manual loading" if state.get("scope") == "clock_vf"
+                                 else "voltage offset profiles require manual loading" if state.get("scope") == "voltage_offsets"
                                  else "voltage-request profiles require manual loading", True)
             return
         if not self.guard() or self._i2c_busy:
@@ -10673,7 +10678,8 @@ deliberately does not put behind a button."""
             self.profile_failure(error)
             return
         try:
-            capture = (profiles.autosave_clock_vf if state.get("scope") == "clock_vf"
+            capture = (profiles.autosave_voltage_offsets if state.get("scope") == "voltage_offsets"
+                       else profiles.autosave_clock_vf if state.get("scope") == "clock_vf"
                        else profiles.autosave_voltage_controls if state.get("scope") == "voltage_controls"
                        else profiles.autosave_voltage_requests)
             undo_name, _, missing = capture(self.gpu, f"load-{name}"[:40], state)
@@ -10749,13 +10755,14 @@ deliberately does not put behind a button."""
         if state.get("scope") == "lowpower_requests":
             self.finish_lowpower_profile_load(name, state, automatic)
             return
-        if automatic and state.get("scope") in ("voltage_requests", "voltage_controls", "clock_vf"):
+        if automatic and state.get("scope") in ("voltage_requests", "voltage_controls", "clock_vf", "voltage_offsets"):
             self.profile_failure("clock V/F profiles require manual loading" if state.get("scope") == "clock_vf"
+                                 else "voltage offset profiles require manual loading" if state.get("scope") == "voltage_offsets"
                                  else "voltage-request profiles require manual loading", True)
             return
         self._profile_applying = True
         try:
-            if state.get("scope") in ("voltage_requests", "voltage_controls", "clock_vf"):
+            if state.get("scope") in ("voltage_requests", "voltage_controls", "clock_vf", "voltage_offsets"):
                 results = profiles.restore(self.gpu, state)
             else:
                 results = profiles.restore(self.gpu, state, rail=self.rail,
@@ -10764,7 +10771,7 @@ deliberately does not put behind a button."""
             results = [(False, f"profile restore failed: {e}")]
         finally:
             self._profile_applying = False
-        if state.get("scope") in ("voltage_requests", "voltage_controls", "clock_vf"):
+        if state.get("scope") in ("voltage_requests", "voltage_controls", "clock_vf", "voltage_offsets"):
             for ok, msg in results:
                 self.log(msg, ok)
             if any(not ok for ok, _ in results):
@@ -10775,6 +10782,12 @@ deliberately does not put behind a button."""
             if state.get("scope") == "clock_vf":
                 if registry_panel is not None:
                     registry_panel.refresh_clock_vf_live()
+                    registry_panel.invalidate()
+            elif state.get("scope") == "voltage_offsets":
+                panel = getattr(registry_panel, "voltage_offsets_panel", None)
+                if panel is not None:
+                    panel.refresh()
+                if registry_panel is not None:
                     registry_panel.invalidate()
             elif state.get("scope") == "voltage_controls":
                 refresh = {
@@ -10887,8 +10900,9 @@ deliberately does not put behind a button."""
             state = profiles.load(name)
             if state.get("scope") == "lowpower_requests":
                 raise ValueError("low-power request profiles require manual loading")
-            if state.get("scope") in ("voltage_requests", "voltage_controls", "clock_vf"):
+            if state.get("scope") in ("voltage_requests", "voltage_controls", "clock_vf", "voltage_offsets"):
                 raise ValueError("clock V/F profiles require manual loading" if state.get("scope") == "clock_vf"
+                                 else "voltage offset profiles require manual loading" if state.get("scope") == "voltage_offsets"
                                  else "voltage-request profiles require manual loading")
             error = profiles.preflight(self.gpu, state, self.rail_for_profile(state))
             error = error or profiles.strict_device_error(state, self.gpu)

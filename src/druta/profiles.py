@@ -74,6 +74,9 @@ def incomplete(state):
             elif state.get("scope") == "lowpower_requests":
                 from . import lowpower_profiles
                 lowpower_profiles.validate(state)
+            elif state.get("scope") == "voltage_offsets":
+                from . import voltage_offset_profiles
+                voltage_offset_profiles.validate(state)
             elif state.get("scope") == "voltage_controls":
                 from . import voltage_control_profiles
                 voltage_control_profiles.validate(state)
@@ -368,6 +371,53 @@ def autosave_clock_vf(gpu, action, template):
     state = capture_clock_vf(gpu, selection=target["policies"])
     if state["clock_vf"]["identity"] != target["identity"]:
         raise ValueError("clock VF adapter identity changed")
+    return autosave_state(action, state)
+
+
+def capture_voltage_offsets(gpu, *, snapshot=None, selection=None):
+    """Capture selected installed policy-offset values only."""
+    from . import voltage_offset_profiles as scoped, voltage_offsets_live as live
+    now = time.time()
+    state = {"schema": SCHEMA, "scope": "voltage_offsets",
+             "saved_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)),
+             "saved_ts": now, "device": {key: gpu.static.get(key)
+                 for key in ("name", "vbios", "driver", "uuid", "slot")},
+             INCOMPLETE_KEY: []}
+    snapshot = live.read(gpu.slot()) if snapshot is None else snapshot
+    state["voltage_offsets"] = scoped.capture(snapshot, selection)
+    scoped.validate(state)
+    error = voltage_offsets_device_error(state, gpu)
+    if error:
+        raise ValueError(error)
+    return state
+
+
+def voltage_offsets_device_error(state, gpu):
+    device = state.get("device")
+    if not isinstance(device, dict):
+        return "voltage offset profile has invalid device metadata"
+    saved_uuid, current_uuid = device.get("uuid"), gpu.static.get("uuid")
+    if saved_uuid and current_uuid and saved_uuid != current_uuid:
+        return "voltage offset profile belongs to a different GPU UUID"
+    try:
+        slot = gpu.slot()
+        native_slot = state["voltage_offsets"]["slot"]
+    except (AttributeError, KeyError, TypeError):
+        return "voltage offset profile has no valid selected adapter slot"
+    if not slot or slot != native_slot:
+        return "voltage offset profile belongs to a different adapter slot"
+    return None
+
+
+def autosave_voltage_offsets(gpu, action, template):
+    from . import voltage_offset_profiles as scoped, voltage_offsets_live as live
+    target = scoped.validate(template)
+    error = voltage_offsets_device_error(template, gpu)
+    if error:
+        raise ValueError(error)
+    snapshot = live.read(gpu.slot())
+    scoped.check_live(target, snapshot)
+    state = capture_voltage_offsets(gpu, snapshot=snapshot, selection=target["values"])
     return autosave_state(action, state)
 
 
@@ -1043,6 +1093,16 @@ def preflight(gpu, state, rail=None, *, apply_curve=True):
             from . import lowpower_profiles
             lowpower_profiles.validate(state)
             return "low-power request profiles require manual loading in the owning application"
+        if state.get("scope") == "voltage_offsets":
+            from . import voltage_offset_profiles as scoped, voltage_offsets_live as live
+            data = scoped.validate(state)
+            if state.get(INCOMPLETE_KEY):
+                raise ValueError("voltage offset snapshot is incomplete")
+            error = voltage_offsets_device_error(state, gpu)
+            if error:
+                return error
+            scoped.check_live(data, live.read(gpu.slot()))
+            return None
         if state.get("scope") == "voltage_controls":
             from . import voltage_control_profiles as scoped
             data = scoped.validate(state)
@@ -1355,6 +1415,10 @@ def _restore_validated(gpu, state, apply_curve, rail, results, *, i2c_verified):
         from . import clock_vf_profiles as scoped
         return scoped.restore(gpu, scoped.validate(state))
 
+    if state.get("scope") == "voltage_offsets":
+        from . import voltage_offset_profiles as scoped
+        return scoped.restore(gpu, scoped.validate(state))
+
     if state.get("scope") == "voltage_controls":
         from . import voltage_control_profiles as scoped
         return scoped.restore(gpu, scoped.validate(state))
@@ -1535,6 +1599,13 @@ def summarize(state):
             bits.append(f"{target} request: {data['mode']}, manual apply only")
         except ValueError as exc:
             bits.append(f"invalid low-power request: {exc}")
+    if state.get("scope") == "voltage_offsets":
+        from . import voltage_offset_profiles as scoped
+        try:
+            data = scoped.validate(state)
+            bits.append(f"{len(data['values'])} voltage policy offset(s), manual apply only")
+        except ValueError as exc:
+            bits.append(f"invalid voltage offsets: {exc}")
     if state.get("scope") == "voltage_controls":
         from . import voltage_control_profiles as scoped
         try:

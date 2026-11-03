@@ -196,7 +196,7 @@ def _policy_contract(policy, *, derived_boost):
     return result
 
 
-def set_offsets(slot, values):
+def set_offsets(slot, values, before_write=None):
     """Set selected offsets through existing singleton VFE constant writes."""
     if not isinstance(values, dict) or not values:
         raise VoltageOffsetsError("Select at least one policy offset")
@@ -209,6 +209,15 @@ def set_offsets(slot, values):
         equations._uv(wanted)
         if str(available[key]["rail"]) not in initial[-2]["policy"]["rails"]:
             raise VoltageOffsetsError("Selected rail policy readback is unavailable")
+    # Validate all selected operations before capturing the state to undo.
+    _, _, original, variable, current_image, before, _ = initial
+    for key, wanted in values.items():
+        scaffold.live_contract(original, profile["before_equations"], variable, profile["requests"],
+                               current_image, before["equations"], key, wanted)
+    changed = {key: available[key]["value_uv"] for key, wanted in values.items()
+               if wanted != available[key]["value_uv"]}
+    if changed and before_write is not None:
+        before_write({"slot": slot, "values": changed})
     for key, wanted in values.items():
         gpu, _, original, variable, current_image, before, heads = _recognize(slot, profile)
         head = next((h for h in heads if h["key"] == key), None)
@@ -240,6 +249,6 @@ def set_offsets(slot, values):
     return read(slot)
 
 
-def replay(slot, profile):
+def replay(slot, profile, before_write=None):
     """Apply a previously captured policy-offset value mapping."""
-    return set_offsets(slot, profile)
+    return set_offsets(slot, profile, before_write=before_write)
