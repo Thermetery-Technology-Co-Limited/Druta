@@ -10445,8 +10445,18 @@ deliberately does not put behind a button."""
             elif getattr(self, "_profile_save_scope", None) == "lowpower_requests":
                 from . import lowpower_profiles
                 state = lowpower_profiles.capture(self, self._profile_save_kind, self._profile_save_index)
+            elif getattr(self, "_profile_save_scope", None) == "tuning_action":
+                state = profiles.capture_tuning_action(self.gpu, self._profile_save_kind, self._profile_save_index)
+            elif getattr(self, "_profile_save_scope", None) == "power_action":
+                state = profiles.capture_power_action(self.gpu)
+            elif getattr(self, "_profile_save_scope", None) == "fan":
+                state = profiles.capture_fan(self.gpu)
             else:
                 state = profiles.capture(self.gpu, self.rail)
+            if getattr(self, "_profile_save_scope", None) in ("tuning_action", "power_action", "fan"):
+                missing = profiles.incomplete(state)
+                if missing:
+                    raise ValueError("; ".join(missing))
             path = profiles.save(name, state)
         except Exception as e:
             self.log(f"save profile '{name}': {e}", False)
@@ -10456,6 +10466,44 @@ deliberately does not put behind a button."""
         self.log(f"saved '{os.path.basename(path)}' - "
                  f"{profiles.summarize(state)}", True)
         self.refresh_profile_list()
+
+    def ordinary_profile_contents(self):
+        """Build choices using the same capability and label sources as the sliders."""
+        choices = {"Full tune": (None, None, None),
+                   "Memory offset": ("tuning_action", "memory", None),
+                   "Voltage boost": ("tuning_action", "boost", None),
+                   "Fan policy": ("fan", None, None),
+                   "Coupled power/current requests": ("power_action", None, None)}
+        try:
+            try:
+                rows = (self.gpu.read() or {}).get("clk_domains")
+            except Exception:
+                rows = None
+            controls = set(self.gpu.clkdom_controls_for_ui(rows))
+            domains = set(self.gpu.clkdom_domains())
+            for knob in self.DOMAIN_KNOBS:
+                if (knob.ctrl in controls and knob.ctrl in domains
+                        and self.gpu.clkdom_offset_slider_offered(knob.ctrl)):
+                    label = self.domain_knob_label(knob, rows)[0]
+                    if label in choices:
+                        label = f"{label} (control {knob.ctrl})"
+                    choices[label] = ("tuning_action", "domain", knob.ctrl)
+        except Exception as exc:
+            self.log(f"Could not list clock-domain profile contents: {exc}", False)
+        return choices
+
+    def select_profile_contents(self, sender=None, app_data=None, user_data=None):
+        choices = getattr(self, "_ordinary_profile_contents", {})
+        selection = choices.get(app_data, choices.get("Full tune", (None, None, None)))
+        self._profile_save_scope, self._profile_save_kind, self._profile_save_index = selection
+        if dpg.does_item_exist("prof_save_description"):
+            dpg.configure_item("prof_save_description", show=selection[0] is None)
+            dpg.configure_item("prof_save_ordinary_description", show=selection[0] is not None)
+        if selection[0] is not None and dpg.does_item_exist("prof_save_ordinary_description"):
+            dpg.set_value("prof_save_ordinary_description",
+                          f"Saves current applied settings for {app_data}. Staged edits are not saved. "
+                          "Load manually from Profiles; no startup or post-reset replay. "
+                          "Saving writes nothing to the GPU.")
 
     def open_save_profile(self, sender=None, app_data=None, user_data=None):
         if not self.profile_capture_ready():
@@ -10470,8 +10518,17 @@ deliberately does not put behind a button."""
             self._profile_save_kind = user_data
         if isinstance(user_data, tuple) and len(user_data) == 3 and user_data[0] == "lowpower_requests":
             self._profile_save_scope, self._profile_save_kind, self._profile_save_index = user_data
+        ordinary = self._profile_save_scope is None
+        if ordinary:
+            self._ordinary_profile_contents = self.ordinary_profile_contents()
+        if dpg.does_item_exist("prof_save_contents"):
+            dpg.configure_item("prof_save_contents", show=ordinary,
+                               items=list(self._ordinary_profile_contents) if ordinary else [])
+            if ordinary:
+                dpg.set_value("prof_save_contents", "Full tune")
         if dpg.does_item_exist("prof_save_description"):
-            dpg.configure_item("prof_save_description", show=self._profile_save_scope is None)
+            dpg.configure_item("prof_save_ordinary_description", show=False)
+            dpg.configure_item("prof_save_description", show=ordinary)
             dpg.configure_item("prof_save_requests_description", show=self._profile_save_scope == "voltage_requests")
             dpg.configure_item("prof_save_controls_description", show=self._profile_save_scope == "voltage_controls")
             dpg.configure_item("prof_save_lowpower_description", show=self._profile_save_scope == "lowpower_requests")
@@ -10575,7 +10632,7 @@ deliberately does not put behind a button."""
                         dpg.add_button(label="Load", tag=tag, width=-1,
                                        user_data=name,
                                        callback=lambda s, a, u: self.load_profile(u))
-                        if not is_auto and state.get("scope") not in ("combined", "voltage_requests", "voltage_controls", "lowpower_requests", "clock_vf", "voltage_offsets", "tuning_action", "power_action"):
+                        if not is_auto and state.get("scope") not in ("fan", "combined", "voltage_requests", "voltage_controls", "lowpower_requests", "clock_vf", "voltage_offsets", "tuning_action", "power_action"):
                             dpg.add_button(label="Load at startup", width=-1,
                                            user_data=name,
                                            callback=lambda s, a, u: self.set_startup_profile(u))
@@ -10755,7 +10812,7 @@ deliberately does not put behind a button."""
                     self._multi_state_offset_failure((False, "profile load-state offset restore failed"))
             if scope == 'lowpower_requests':
                 self.refresh_lowpower_profile(child)
-            elif scope in ('voltage_requests', 'voltage_controls', 'clock_vf', 'voltage_offsets', 'tuning_action', 'power_action'):
+            elif scope in ('fan', 'voltage_requests', 'voltage_controls', 'clock_vf', 'voltage_offsets', 'tuning_action', 'power_action'):
                 self.refresh_scoped_profile(child)
             else:
                 self.refresh_full_profile(child)
@@ -10779,7 +10836,7 @@ deliberately does not put behind a button."""
             self.set_pending_load(None)
             self.begin_lowpower_profile_load(name, state)
             return
-        if state.get("scope") in ("voltage_offsets", "tuning_action", "power_action"):
+        if state.get("scope") in ("fan", "voltage_offsets", "tuning_action", "power_action"):
             self.set_pending_load(None)
             self.begin_voltage_request_profile_load(name, state)
             return
@@ -10802,13 +10859,16 @@ deliberately does not put behind a button."""
         self.begin_profile_load(name, state)
 
     def begin_profile_load(self, name, state, automatic=False):
+        if automatic and state.get("scope") == "fan":
+            self.profile_failure("fan policy profiles require manual loading", True)
+            return
         if state.get("scope") == "combined":
             self.begin_combined_profile_load(name, state, automatic)
             return
         if state.get("scope") == "lowpower_requests":
             self.begin_lowpower_profile_load(name, state, automatic)
             return
-        if state.get("scope") in ("voltage_requests", "voltage_controls", "clock_vf", "voltage_offsets", "tuning_action", "power_action"):
+        if state.get("scope") in ("fan", "voltage_requests", "voltage_controls", "clock_vf", "voltage_offsets", "tuning_action", "power_action"):
             self.begin_voltage_request_profile_load(name, state, automatic)
             return
         if not self.guard() or self._i2c_busy:
@@ -10849,12 +10909,12 @@ deliberately does not put behind a button."""
         scope = state.get("scope")
         options = {"scope": scope} if scope is not None else {}
         captured = self.autosave_before(f"load-{name}"[:40], **options)
-        if (automatic or scope == "fan") and not captured:
+        if automatic and not captured:
             self.profile_failure("could not capture a complete undo point", automatic)
             return
         self.log(f"restoring '{name}' ({state.get('saved_at','?')}): "
                  f"{profiles.summarize(state)}", None)
-        if state.get("schema", 1) >= 2 and scope != "fan":
+        if state.get("schema", 1) >= 2:
             for tag, value in (("xoc_mode", bool(state.get("xoc"))),
                                ("vlim_mode", bool(state.get("rail_limits_uv") or state.get("rail_limits_mv"))),
                                ("i2c_mode", bool(state.get("i2c")))):
@@ -10901,7 +10961,10 @@ deliberately does not put behind a button."""
                        else profiles.autosave_clock_vf if state.get("scope") == "clock_vf"
                        else profiles.autosave_voltage_controls if state.get("scope") == "voltage_controls"
                        else profiles.autosave_voltage_requests)
-            undo_name, _, missing = capture(self.gpu, f"load-{name}"[:40], state)
+            if state.get("scope") == "fan":
+                undo_name, _, missing = profiles.autosave(self.gpu, f"load-{name}"[:40], scope="fan")
+            else:
+                undo_name, _, missing = capture(self.gpu, f"load-{name}"[:40], state)
             if missing:
                 raise ValueError("could not capture a complete selected-field undo point")
         except Exception as exc:
@@ -10971,20 +11034,23 @@ deliberately does not put behind a button."""
         self.refresh_profile_list()
 
     def finish_profile_load(self, name, state, automatic=False):
+        if automatic and state.get("scope") == "fan":
+            self.profile_failure("fan policy profiles require manual loading", True)
+            return
         if state.get("scope") == "combined":
             self.finish_combined_profile_load(name, state, automatic)
             return
         if state.get("scope") == "lowpower_requests":
             self.finish_lowpower_profile_load(name, state, automatic)
             return
-        if automatic and state.get("scope") in ("voltage_requests", "voltage_controls", "clock_vf", "voltage_offsets", "tuning_action", "power_action"):
+        if automatic and state.get("scope") in ("fan", "voltage_requests", "voltage_controls", "clock_vf", "voltage_offsets", "tuning_action", "power_action"):
             self.profile_failure("clock V/F profiles require manual loading" if state.get("scope") == "clock_vf"
                                  else "voltage offset profiles require manual loading" if state.get("scope") == "voltage_offsets"
                                  else "voltage-request profiles require manual loading", True)
             return
         self._profile_applying = True
         try:
-            if state.get("scope") in ("voltage_requests", "voltage_controls", "clock_vf", "voltage_offsets", "tuning_action", "power_action"):
+            if state.get("scope") in ("fan", "voltage_requests", "voltage_controls", "clock_vf", "voltage_offsets", "tuning_action", "power_action"):
                 results = profiles.restore(self.gpu, state)
             else:
                 results = profiles.restore(self.gpu, state, rail=self.rail,
@@ -10993,11 +11059,11 @@ deliberately does not put behind a button."""
             results = [(False, f"profile restore failed: {e}")]
         finally:
             self._profile_applying = False
-        if state.get("scope") in ("voltage_requests", "voltage_controls", "clock_vf", "voltage_offsets", "tuning_action", "power_action"):
+        if state.get("scope") in ("fan", "voltage_requests", "voltage_controls", "clock_vf", "voltage_offsets", "tuning_action", "power_action"):
             for ok, msg in results:
                 self.log(msg, ok)
             if any(not ok for ok, _ in results):
-                self.profile_failure("one or more voltage requests failed; see the per-field results")
+                self.profile_failure("one or more profile controls failed; see the per-field results")
             else:
                 self.log(f"profile '{name}' applied", True)
             self.refresh_scoped_profile(state)
@@ -11016,7 +11082,9 @@ deliberately does not put behind a button."""
 
     def refresh_scoped_profile(self, state):
         registry_panel = getattr(self, "_registry_panel", None)
-        if state.get("scope") == "tuning_action":
+        if state.get("scope") == "fan":
+            self.refresh_fan_profile()
+        elif state.get("scope") == "tuning_action":
             self.refresh_tuning_action(state)
         elif state.get("scope") == "power_action":
             self.sync_power_slider_from_card()
@@ -11048,8 +11116,6 @@ deliberately does not put behind a button."""
     def refresh_full_profile(self, state):
         self.sync_sliders_from_gpu(state)
         self.apply_profile_policy_names(state)
-        if state.get("scope") == "fan":
-            return
         self.sync_profile_rail_sliders()
         self.refresh_volt_limits()
         # the delta table is written LAST and wins over the core offset (see
@@ -11135,6 +11201,8 @@ deliberately does not put behind a button."""
             if manager is None:
                 raise ValueError("startup manager is unavailable")
             state = profiles.load(name)
+            if state.get("scope") == "fan":
+                raise ValueError("fan policy profiles require manual loading")
             if state.get("scope") == "combined":
                 raise ValueError("combined profiles require manual loading")
             if state.get("scope") == "lowpower_requests":
@@ -11191,6 +11259,25 @@ deliberately does not put behind a button."""
         self.refresh_profile_list()
         self.load_profile(autos[0][0])
 
+    def refresh_fan_profile(self):
+        """Refresh only a common live manual fan target after restoration."""
+        if not (dpg.does_item_exist("sl_fan") or dpg.does_item_exist("in_fan")):
+            return
+        try:
+            fan_state = self.gpu.read_fan_control_state()
+            fans = (fan_state or {}).get("fans") or []
+            targets = {fan["level"] for fan in fans}
+            if fans and all(fan["manual"] for fan in fans) and len(targets) == 1:
+                value = int(targets.pop())
+                for tag in ("sl_fan", "in_fan"):
+                    if dpg.does_item_exist(tag):
+                        dpg.set_value(tag, value)
+            elif any(fan["manual"] for fan in fans):
+                self.log("fans have different targets or policies; the shared "
+                         "fan slider was left unchanged", None)
+        except Exception as e:
+            self.log(f"fan target could not be read: {e}; slider left unchanged", False)
+
     def sync_sliders_from_gpu(self, state=None):
         """Put the knobs back in step with the CARD after a restore. Read back
         rather than echoing the profile: a knob whose write the driver refused
@@ -11214,22 +11301,8 @@ deliberately does not put behind a button."""
         vb = self.gpu.read_voltage_boost()
         if vb is not None and dpg.does_item_exist("sl_volt"):
             dpg.set_value("sl_volt", max(0, min(100, int(vb))))
-        # Read the requested target after restoration. Measured duty can
-        # still be ramping; putting that transient speed in the input would
-        # make the next Apply replace the target with an unintended value.
-        # One shared slider can represent only a common manual target.
-        if state and dpg.does_item_exist("sl_fan"):
-            try:
-                fan_state = self.gpu.read_fan_control_state()
-                fans = (fan_state or {}).get("fans") or []
-                targets = {fan["level"] for fan in fans}
-                if fans and all(fan["manual"] for fan in fans) and len(targets) == 1:
-                    dpg.set_value("sl_fan", int(targets.pop()))
-                elif any(fan["manual"] for fan in fans):
-                    self.log("fans have different targets or policies; the shared "
-                             "fan slider was left unchanged", None)
-            except Exception as e:
-                self.log(f"fan target could not be read: {e}; slider left unchanged", False)
+        if state:
+            self.refresh_fan_profile()
         self.refresh_current_limits(sync=True)
         self.refresh_power_policies(sync=True)
         self.sync_knob_boxes()
@@ -11551,8 +11624,11 @@ deliberately does not put behind a button."""
             self.bind("info", "mono")
 
         with dpg.window(label="Save profile", tag="win_save", show=False,
-                        width=self.s(560), height=self.s(270),
+                        width=self.s(560), height=self.s(310),
                         pos=[self.s(200), self.s(180)]):
+            dpg.add_combo(label="Contents", tag="prof_save_contents", items=["Full tune"],
+                          default_value="Full tune", width=self.s(300), callback=self.select_profile_contents)
+            dpg.add_text("", tag="prof_save_ordinary_description", show=False, color=DIM, wrap=self.s(520))
             dpg.add_text("Snapshots clock offsets, power, voltage boost, fan policy, "
                          "confirmed per-rail limits, NVVDD offset, the I2C regulator "
                          "control and XOC mode"

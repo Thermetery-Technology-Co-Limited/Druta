@@ -101,6 +101,24 @@ snapshot cannot be saved, with a log message. Power actions can change pin
 intent even when their displayed number is unchanged, so they still save a
 snapshot. These Undo profiles are manually loaded and never replay after reset.
 
+### Named profiles for individual ordinary controls
+
+In **Profiles > Save profile**, choose **Contents** to save just the current
+memory offset, voltage boost, fan policy, coupled power/current requests, or an
+available clock-domain offset. Saving reads the applied requests; staged edits
+in the input boxes are not saved. **Full tune** retains the ordinary capture.
+
+Load these scoped profiles manually from **Profiles** or include them in a
+combined profile. Loading saves an Undo point for the selected controls first.
+Fan-only loads preserve unrelated manual voltage control and P0 holds. Fan
+profiles require the same adapter and a currently compatible fan layout;
+driver and VBIOS version strings are informational for these manual profiles.
+Scoped profiles never load at startup or after a GPU reset.
+
+The local RTX 5080 / 617.42 trial exercised named Save, changed-state Load and
+Undo for all five categories and returned each to its captured baseline.
+See [qualification](experiments/ordinary-named-profiles-20261102.json).
+
 ### Combined manual profiles
 
 Open **Profiles > Load profile**, then **Combine profiles...**. Choose saved
@@ -140,7 +158,7 @@ component; combined I2C sequencing still has offline coverage only.
 
 ### Ordinary tune profiles
 
-**Profiles > Save profile** captures the applied curve, clocks, power, fan policy,
+**Profiles > Save profile > Contents: Full tune** captures the applied curve, clocks, power, fan policy,
 confirmed per-rail limits and voltage offsets, the Additional Memory Clock
 Offset, the identified I2C regulator's offset, and (since 1.7.0) every
 writable power policy with the values set by hand and the channel notes. The

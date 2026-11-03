@@ -325,7 +325,7 @@ def capture_fan(gpu):
         _validate_fan_scope(state)
         if not callable(getattr(gpu, "restore_fan_control_state", None)):
             raise ValueError("fan control state restore unavailable")
-        error = strict_device_error(state, gpu)
+        error = fan_device_error(state, gpu)
         if error:
             raise ValueError(error)
     except Exception as exc:
@@ -803,6 +803,20 @@ def i2c_replay_needed(state, rail):
     return True
 
 
+def fan_device_error(state, gpu):
+    """Bind manual fan profiles to the selected card; versions are metadata."""
+    saved, current = state.get("device"), gpu.static
+    if not isinstance(saved, dict):
+        return "fan profile has no adapter identity"
+    key = "uuid" if saved.get("uuid") and current.get("uuid") else "slot"
+    if (not isinstance(saved.get(key), str) or not saved[key]
+            or not isinstance(current.get(key), str) or not current[key]):
+        return "fan profile has no comparable adapter identity"
+    if saved[key] != current[key]:
+        return f"fan profile {key} does not match the selected GPU"
+    return None
+
+
 def strict_device_error(state, gpu):
     """Private controls and unattended loads require the same silicon and firmware."""
     old, live = state.get("device") or {}, gpu.static
@@ -1202,7 +1216,7 @@ def preflight(gpu, state, rail=None, *, apply_curve=True):
             _validate_fan_scope(state)
             if state.get(INCOMPLETE_KEY):
                 raise ValueError("fan-only snapshot is incomplete")
-            return strict_device_error(state, gpu)
+            return fan_device_error(state, gpu)
         deltas = _validate_saved_fields(gpu, state)
         applicable = vf_applicable(gpu)
         if state.get("vf_applicable") is False and applicable:
@@ -1676,7 +1690,7 @@ def summarize(state):
         except (ValueError, TypeError, KeyError) as exc:
             return f"invalid combined profile: {exc}"
     if state.get("scope") == "power_action":
-        bits.append("board/policy requests and pin intent, manual Undo only")
+        bits.append("board/policy requests and pin intent, manual apply only")
     if state.get("scope") == "tuning_action":
         from . import tuning_profiles as scoped
         try:

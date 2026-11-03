@@ -174,6 +174,7 @@ function Get-SourceSnapshot {
         'experiments/ordinary-tuning-undo-20261102.json',
         'experiments/combined-profiles-20261102.json',
         'experiments/combined-full-profiles-20261102.json',
+        'experiments/ordinary-named-profiles-20261102.json',
         'experiments/shared-power-profile-boundary-20261102.json',
         'experiments/voltage-61742-unblocked-objectives-20261101.json',
         'experiments/runtime-rails-47212.json',
