@@ -2326,6 +2326,31 @@ This establishes the reviewed baseline layout, not physical effects, every
 request state or other viewport/DPI layouts. See the
 [capture review](experiments/ui-current-controls-capture-20261102.json).
 
+### Scoped voltage-request profiles
+
+The six live rail offsets now support field-only pre-write Undo snapshots and
+explicitly loaded named profiles. The profile stores signed integer microvolt
+offsets, native adapter identity and independently read rail identity, not opaque
+packets, boost, admission-gate state or profiler ownership counts. A single-field
+Apply captures the fresh old value under the writer's lock immediately before
+the actual SET; a no-op creates no snapshot. Snapshot failure prevents that write.
+Profile load captures only its selected fields for Undo, validates the entire
+profile before writing, uses the existing fresh-request projection and exact
+readback for each field, and stops with per-field results after a failure.
+
+Scoped requests use UUID/slot and native adapter/rail checks. Saved driver,
+VBIOS and display-name strings are informational, not compatibility gates.
+The dedicated application path leaves unrelated tuning modes and controls alone.
+Startup selection and automatic application reject this scope, including held
+startup requests; GPU reset does not schedule its reapplication.
+
+On RTX 5080 / 617.42, production callbacks changed REL from 0 to -1000 uV,
+Undo restored 0, manual profile load restored -1000 uV, and a baseline profile
+returned to 0. Four SETs verified; other rail requests, boost, gate and opaque
+request metadata matched the expected values. No workload or physical voltage
+measurement was performed. VCRIT qualification remains stored-request-only.
+[Scoped profile evidence](experiments/voltage-request-profiles-20261102.json).
+
 ### Additional live profiler controls
 
 **Live engine clock gating** adds a separate session-owned ELCG Hold disabled /

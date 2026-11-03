@@ -14,6 +14,23 @@ Druta is from Sanskrit *druta* meaning fast. In Hindu performing art, it can als
 
 ## Save a tune and load it at Windows sign-in
 
+### Manual voltage-request profiles and Undo
+
+In **Live voltage rail requests**, **Save requests profile** saves the six stored
+offsets for each available rail. Load it from **Profiles > Load profile**.
+These are separate, manually loaded profiles; ordinary tune profiles do not yet
+include this section. They never load automatically at startup or after a GPU
+driver reset. The voltage-request gate must already be enabled.
+
+Each field's **Apply** saves its previous value immediately before a real write.
+**Profiles > Undo last write** restores only that field. Loading a requests profile
+also saves an undo point covering just its fields. Saving an undo point must
+succeed before these writes proceed, and an unchanged field creates no undo point.
+Boost, clocks, gate state and unrelated requests are preserved. VCRIT values are
+stored requests; their effective thresholds remain unverified.
+
+### Ordinary tune profiles
+
 **Profiles > Save profile** captures the applied curve, clocks, power, fan policy,
 confirmed per-rail limits and voltage offsets, the Additional Memory Clock
 Offset, the identified I2C regulator's offset, and (since 1.7.0) every

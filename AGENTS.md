@@ -14,18 +14,20 @@ the implementation.
 
 # Active-goal priority
 
-Prioritize implementing and shipping all functionality in the active goal. Defer
-recovery/Undo mechanisms and saved-profile restoration/replay integration
-and address them together only after all other requested functionality for that
-goal is production-ready. Do not design, implement, extend, or validate this
-deferred work before then. It is not a prerequisite for shipping otherwise
-production-ready small feature increments.
+Prioritize implementing and shipping working functionality in the active goal.
+The user has now authorized Undo and manual saved-profile work for the qualified
+controls while unresolved control research remains parked. Implement those
+features in bounded increments using the existing verified write/readback paths;
+do not treat unresolved firmware semantics as permission to replay opaque state.
 
 New tuning controls must be session-only. A GPU driver restart is the user's
 panic/reset action: do not persist or automatically reapply tuning requests
 across it. Do not add restart-persistence validation as a functional objective.
 Releasing a live control's own request or freeing its owned API object is part
 of that control's lifecycle, not saved-profile restoration.
+Saving a profile does not authorize automatic startup or post-reset application
+of the new session-only controls. Applying their saved settings requires an
+explicit user action in the current session.
 
 # Agent collaboration
 

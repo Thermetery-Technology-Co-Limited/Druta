@@ -166,6 +166,7 @@ function Get-SourceSnapshot {
         'experiments/power-5080-20260908/MP29816-VALIDATION.md',
         'experiments/voltage-rails-20260906.json',
         'experiments/voltage-rail-knobs-20261101.json',
+        'experiments/voltage-request-profiles-20261102.json',
         'experiments/voltage-61742-unblocked-objectives-20261101.json',
         'experiments/runtime-rails-47212.json',
         'experiments/runtime-rails-56636.json',

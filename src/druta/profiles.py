@@ -68,7 +68,11 @@ def incomplete(state):
     miss = list(state.get(INCOMPLETE_KEY) or [])
     if state.get("scope") is not None:
         try:
-            _validate_fan_scope(state)
+            if state.get("scope") == "voltage_requests":
+                from . import voltage_request_profiles
+                voltage_request_profiles.validate(state)
+            else:
+                _validate_fan_scope(state)
         except ValueError as exc:
             if str(exc) not in miss:
                 miss.append(str(exc))
@@ -307,6 +311,61 @@ def capture_fan(gpu):
         state[INCOMPLETE_KEY].append(f"Fan policy NOT captured ({exc})")
     return state
 
+
+
+def capture_voltage_requests(gpu, *, snapshot=None, selection=None):
+    """Capture only understood request words, never gate or opaque packets."""
+    from . import voltage_request_profiles as scoped, voltage_requests_live as live
+    now = time.time()
+    state = {"schema": SCHEMA, "scope": "voltage_requests",
+             "saved_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)),
+             "saved_ts": now, "device": {key: gpu.static.get(key)
+                 for key in ("name", "vbios", "driver", "uuid", "slot")},
+             INCOMPLETE_KEY: []}
+    snapshot = live.read(gpu) if snapshot is None else snapshot
+    state["voltage_requests"] = scoped.capture(snapshot, selection)
+    scoped.validate(state)
+    error = voltage_requests_device_error(state, gpu)
+    if error:
+        raise ValueError(error)
+    return state
+
+
+def voltage_requests_device_error(state, gpu):
+    """Bind scoped requests to the card and currently selected native slot."""
+    device = state.get("device")
+    if not isinstance(device, dict):
+        return "voltage request profile has invalid device metadata"
+    saved_uuid, current_uuid = device.get("uuid"), gpu.static.get("uuid")
+    if saved_uuid and current_uuid and saved_uuid != current_uuid:
+        return "voltage request profile belongs to a different GPU UUID"
+    try:
+        slot = gpu.slot()
+        native_slot = state["voltage_requests"]["identity"]["slot"]
+    except (AttributeError, KeyError, TypeError):
+        return "voltage request profile has no valid selected adapter slot"
+    if not slot or slot != native_slot:
+        return "voltage request profile belongs to a different adapter slot"
+    return None
+
+
+def autosave_voltage_requests(gpu, action, template):
+    """Capture exactly the fields a scoped profile is about to change."""
+    from . import voltage_request_profiles as scoped
+    target = scoped.validate(template)
+    state = capture_voltage_requests(gpu)
+    live = state["voltage_requests"]
+    if live["identity"] != target["identity"]:
+        raise ValueError("voltage request adapter identity changed")
+    selected = {}
+    for rail, row in target["rails"].items():
+        current = live["rails"].get(rail)
+        if current is None or current["identity"] != row["identity"]:
+            raise ValueError(f"rail {rail} is missing or its identity changed")
+        selected[rail] = {"identity": current["identity"], "offsets_uv": {
+            field: current["offsets_uv"][field] for field in row["offsets_uv"]}}
+    live["rails"] = selected
+    return autosave_state(action, state)
 
 def rail_identity(rail):
     """Pin bus addressing AND the complete, locally validated regulator recipe."""
@@ -851,6 +910,16 @@ def preflight(gpu, state, rail=None, *, apply_curve=True):
             or state.get("schema", 1) not in (1, SCHEMA)):
         return "unsupported profile format"
     try:
+        if state.get("scope") == "voltage_requests":
+            from . import voltage_request_profiles as scoped, voltage_requests_live as live
+            data = scoped.validate(state)
+            if state.get(INCOMPLETE_KEY):
+                raise ValueError("voltage request snapshot is incomplete")
+            error = voltage_requests_device_error(state, gpu)
+            if error:
+                return error
+            scoped.check_live(data, live.read(gpu))
+            return None
         if state.get("scope") is not None:
             _validate_fan_scope(state)
             if state.get(INCOMPLETE_KEY):
@@ -1051,16 +1120,23 @@ def autosave(gpu, action, rail=None, *, scope=None):
     in the same second for the same action produced the same name, and the
     second one silently overwrote the first - losing the earlier state, which
     is the one 'undo twice' needs."""
-    t = time.time()
-    stamp = (time.strftime("%Y%m%d-%H%M%S", time.localtime(t))
-             + f".{int((t % 1) * 1000):03d}")
-    name = f"{AUTOSAVE_PREFIX}{_slug(action)}-{stamp}"
     if scope is None:
         state = capture(gpu, rail)
     elif scope == "fan":
         state = capture_fan(gpu)
+    elif scope == "voltage_requests":
+        state = capture_voltage_requests(gpu)
     else:
         raise ValueError("unsupported autosave scope")
+    return autosave_state(action, state)
+
+
+def autosave_state(action, state):
+    """Save and prune an already captured undo snapshot."""
+    t = time.time()
+    stamp = (time.strftime("%Y%m%d-%H%M%S", time.localtime(t))
+             + f".{int((t % 1) * 1000):03d}")
+    name = f"{AUTOSAVE_PREFIX}{_slug(action)}-{stamp}"
     p = save(name, state)
     autos = [r for r in list_profiles() if r[3]]
     for _n, old, _w, _a in autos[KEEP_AUTOSAVES:]:
@@ -1131,6 +1207,10 @@ def _restore_validated(gpu, state, apply_curve, rail, results, *, i2c_verified):
             ok, msg = False, f"{label}: {e}"
         results.append((ok, msg))
         return ok
+
+    if state.get("scope") == "voltage_requests":
+        from . import voltage_request_profiles as scoped
+        return scoped.restore(gpu, scoped.validate(state))
 
     if state.get("scope") == "fan":
         step("fan", lambda: gpu.restore_fan_control_state(state["fan_control_state"]))
@@ -1289,6 +1369,14 @@ def _restore_validated(gpu, state, apply_curve, rail, results, *, i2c_verified):
 def summarize(state):
     """One-line description for a menu row or a confirmation banner."""
     bits = []
+    if state.get("scope") == "voltage_requests":
+        from . import voltage_request_profiles as scoped
+        try:
+            data = scoped.validate(state)
+            count = sum(len(row["offsets_uv"]) for row in data["rails"].values())
+            bits.append(f"{count} voltage rail request fields (VCRIT thresholds unverified)")
+        except ValueError as exc:
+            bits.append(f"invalid voltage requests: {exc}")
     if state.get("scope") == "fan":
         bits.append("fan policy only (P0 hold unchanged)")
     co = state.get("core_off_mhz")

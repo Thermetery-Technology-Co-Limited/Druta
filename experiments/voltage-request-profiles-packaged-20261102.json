@@ -1,0 +1,17 @@
+﻿{
+    "schema":  1,
+    "date":  "2026-11-02",
+    "package":  "dist/undo-profiles-review-20261102/Druta-1.9.0b-win64.zip",
+    "package_sha256":  "51e522e86d6dac8170b993551dfe061861425175345224043a7604e9793938b3",
+    "exe_sha256":  "a1c88a92adfd9ec284902b67f8edd134528d8992bde66fc46121f392915e6c40",
+    "captures_state":  "complete",
+    "captures_verified":  32,
+    "manifest_sha256":  "721c8142454bbd4fbbd3a5947ed3d2a64a82e926e28871b36dfcea21c92ad21d",
+    "bundled_modules_verified":  [
+                                     "druta.profiles",
+                                     "druta.voltage_request_profiles",
+                                     "druta.voltage_requests_live"
+                                 ],
+    "reviewed_frame":  "current-rail-requests.png",
+    "note":  "Post-build receipt, outside the packaged source snapshot. UI shows Save requests profile, field-only Undo note and manual-only loading. Original app preserved."
+}

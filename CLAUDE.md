@@ -8,6 +8,9 @@ newer standing instruction, bring the other one up to date.
 
 ## Session-only tuning
 
+Undo and manual saved-profile integration for qualified controls are now in
+scope, as recorded in AGENTS.md. Unresolved control research remains separate.
+
 Follow AGENTS.md's session-only requirement: GPU driver restart is the user's
 panic/reset action. Do not persist or automatically reapply new tuning requests
 across it, or add restart-persistence validation to the functional backlog.

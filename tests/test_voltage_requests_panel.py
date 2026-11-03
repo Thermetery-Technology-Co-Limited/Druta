@@ -1,7 +1,7 @@
 """GUI request callbacks: explicit fields, stale target protection and truthful labels."""
 
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import ANY, Mock
 
 import dearpygui.dearpygui as dpg
 import pytest
@@ -89,7 +89,7 @@ def test_apply_only_dispatches_selected_field_with_exact_uv(ui):
     dpg.set_value("voltage_requests_5_value", "-5.001")
     ui.instance.apply(user_data="VCRIT high")
     ui.write.assert_called_once_with(
-        ui.app.gpu, "1", "VCRIT high", -5001, expected=ui.snapshot, slot=ui.snapshot["slot"]
+        ui.app.gpu, "1", "VCRIT high", -5001, expected=ui.snapshot, slot=ui.snapshot["slot"], before_write=ANY
     )
     status = dpg.get_value("voltage_requests_status")
     assert "exact full request readback verified" in status and panel.requests.VCRIT_NOTE in status

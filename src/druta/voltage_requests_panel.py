@@ -6,6 +6,7 @@ from decimal import Decimal
 
 import dearpygui.dearpygui as dpg
 
+from . import profiles
 from . import voltage_requests_live as requests
 
 
@@ -32,6 +33,7 @@ class VoltageRequestsPanel:
             )
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Read requests", callback=self.refresh)
+                dpg.add_button(label="Save requests profile", callback=self.save_profile)
                 dpg.add_combo(
                     [], tag="voltage_requests_select", width=self.app.s(260), enabled=False, callback=self.select
                 )
@@ -53,6 +55,8 @@ class VoltageRequestsPanel:
                     if field.startswith("VCRIT"):
                         dpg.add_text(requests.VCRIT_NOTE)
             dpg.add_text("Read requests for the selected adapter.", tag="voltage_requests_status", wrap=self.app.s(900))
+            dpg.add_text("Apply saves a field-only undo point. Load saved requests manually from Profiles; "
+                         "they are never applied at startup or after a driver reset.", wrap=self.app.s(900))
             dpg.add_input_text(
                 tag="voltage_requests_inventory", readonly=True, multiline=True, width=-1, height=self.app.s(140)
             )
@@ -62,6 +66,9 @@ class VoltageRequestsPanel:
         if gpu is None or not gpu.slot():
             raise ValueError("Select a GPU with an adapter slot first")
         return gpu.slot()
+
+    def save_profile(self, *unused):
+        self.app.open_save_profile(user_data="voltage_requests")
 
     def _current(self):
         return bool(self.snapshot and self.gpu is self.app.gpu and self.snapshot["slot"] == self._slot())
@@ -178,7 +185,15 @@ class VoltageRequestsPanel:
             position = requests.FIELDS.index(user_data)
             value = requests.millivolts_to_uv(dpg.get_value(self._tag(position, "value")))
             gpu = self.app.gpu
-            result = requests.set_request(gpu, rail, user_data, value, expected=self.snapshot, slot=slot)
+            def save_undo(fresh):
+                state = profiles.capture_voltage_requests(gpu, snapshot=fresh, selection=(rail, user_data))
+                name, _, missing = profiles.autosave_state(f"rail-{rail}-{user_data}", state)
+                if missing:
+                    raise ValueError("Could not capture a complete voltage-request undo point")
+                self.app.log(f"Undo point saved as '{name}' — Profiles > Undo last write restores this field", None)
+
+            result = requests.set_request(gpu, rail, user_data, value, expected=self.snapshot, slot=slot,
+                                          before_write=save_undo)
             if self.app.gpu is not gpu or self._slot() != slot:
                 raise ValueError("Selected adapter changed during request apply; read requests again")
             self._show(result["snapshot"], gpu)

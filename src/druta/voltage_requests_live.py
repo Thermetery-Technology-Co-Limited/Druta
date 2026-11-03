@@ -106,7 +106,7 @@ def read(gpu, *, slot=None):
         return _snapshot(state, slot, gate=gate, gate_error=error)
 
 
-def set_request(gpu, rail, field, value_uv, *, expected, slot=None):
+def set_request(gpu, rail, field, value_uv, *, expected, slot=None, before_write=None):
     """Project one field from fresh complete requests, then verify one SET.
 
     The displayed snapshot binds the target and rail identity only. Its offsets,
@@ -152,6 +152,8 @@ def set_request(gpu, rail, field, value_uv, *, expected, slot=None):
         row[FIELDS.index(field)] = value_uv
         desired = replay.project(current, offsets_uv={rail: row})
         _slot(gpu, slot)
+        if before_write is not None:
+            before_write(_snapshot(current, slot, gate=gate))
         result = replay.replay(gpu, desired)
         _slot(gpu, slot)
         result["changed"] = True
