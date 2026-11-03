@@ -1,0 +1,81 @@
+{
+  "schema": 1,
+  "date": "2026-11-02",
+  "scope": "Ordinary tuning selected-field and coupled-power Undo; RTX 5080 / 617.42",
+  "trial_sha256": "bcbcc565e6f9aa044d9b197b81425865018380285c42907c3018ba1d64376e8d",
+  "artifact": "experiments/registry-overrides/ordinary-undo-root-20261102/trial.json",
+  "round_trips": [
+    {
+      "action": "memory",
+      "phase": "complete",
+      "apply_result": [
+        true,
+        "mem offset set to +50 MHz eff"
+      ]
+    },
+    {
+      "action": "domain",
+      "phase": "complete",
+      "apply_result": [
+        true,
+        "MEM offset +0 -> +1 MHz (requested; the driver floors to whole clock bins)"
+      ]
+    },
+    {
+      "action": "boost",
+      "phase": "complete",
+      "apply_result": [
+        true,
+        "core voltage boost set to 1% (ceiling unlock)"
+      ]
+    },
+    {
+      "action": "fan",
+      "phase": "complete",
+      "apply_result": [
+        true,
+        "fans set to manual 40%"
+      ]
+    },
+    {
+      "action": "board",
+      "phase": "complete",
+      "apply_result": [
+        true,
+        "power limit configured to 355 W"
+      ]
+    },
+    {
+      "action": "current",
+      "phase": "complete",
+      "apply_result": [
+        true,
+        "Core current set to 299 A; effective limit verified"
+      ]
+    },
+    {
+      "action": "policy",
+      "phase": "complete",
+      "apply_result": [
+        true,
+        "policy 2 set to 449 W; effective limit 360 W"
+      ]
+    }
+  ],
+  "baseline_restored": true,
+  "coverage": [
+    "Production pre-write helper and real typed restore paths for all seven actions.",
+    "Actual Profiles Undo route for memory/domain/boost and three power cases.",
+    "Fan trial uses actual profile restore directly; menu routing has offline coverage.",
+    "Power restoration verifies the board request, every captured policy request and pin intent."
+  ],
+  "limits": [
+    "Clock-domain hardware trial covered control index 2 only.",
+    "Stock and Max-all callback capture has offline coverage, not changed-state hardware qualification here.",
+    "One deliberate power restoration pass; coupled or unsupported mismatches report partial failure.",
+    "No workload, physical measurement, driver restart or registry mutation.",
+    "No automatic startup or post-reset replay was added."
+  ],
+  "offline_tests": "2620 passed, 342 subtests passed in 49.11s",
+  "tests_sha256": "36160fc4833b09b9e06379d9ee98081f886e283194fa1f46929f1ea9ef118cd1"
+}

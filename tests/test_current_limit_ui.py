@@ -23,6 +23,7 @@ class CurrentLimitUiTests(unittest.TestCase):
     def setUp(self):
         dpg.create_context()
         self.app = app = Druta.__new__(Druta)
+        self.app.write_tuning_action = lambda kind, value, writer, **kwargs: writer()
         self.rows = rows()
         app.gpu = SimpleNamespace(
             get_current_limits=Mock(side_effect=lambda: copy.deepcopy(self.rows)),

@@ -52,10 +52,10 @@ Safety model, carried over from the Tk version:
     offset Apply (it is the same table), 'Reset all to stock' and a profile
     Load - takes an undo point immediately beforehand, restorable from
     Profiles > Undo last write. Those are the writes whose previous state is
-    nowhere on screen; the single-knob applies (memory offset, power limit,
-    voltage boost, fan) do not take one, because each moves one number its
-    own slider still shows, and the clock lock cannot have one because a
-    profile does not record it - Release / Ctrl+H is its undo. A snapshot
+    nowhere on screen. Ordinary tuning actions now save scoped Undo
+    snapshots: selected clock/boost requests, complete fan policies, or
+    the coupled power requests and pin intent. The clock lock still uses
+    Release / Ctrl+H rather than profile restoration. A snapshot
     that failed to capture the curve says so and is NOT called an undo
     point (see autosave_before).
     'Reset all to stock' is the ONE exception and still arms on the first
@@ -2271,7 +2271,7 @@ class Druta:
             stock = getattr(type(self.gpu), "stock_power_policy", None)
             if callable(stock):
                 if self.guard():
-                    self.report(self.gpu.stock_power_policy(policy))
+                    self.report(self.write_tuning_action("power", "stock", lambda: self.gpu.stock_power_policy(policy)))
                     self.refresh_current_limits(sync=True)
                     # its own row in the list is a read-only mirror; the
                     # re-derived sliders follow, staged ones stay
@@ -2282,7 +2282,11 @@ class Druta:
             if row is None:
                 self.log("current limit could not be read; Stock was not applied", False)
                 return
-            return self.apply_current_limit(policy, row["default_ma"] / 1000.0)
+            if self.guard():
+                self.report(self.write_tuning_action("power", "stock",
+                                                    lambda: self.gpu.set_current_limit_ma(policy, row["default_ma"])))
+                self.refresh_current_limits(sync=True)
+            return
         if key.startswith("vlim"):
             # ONE field on ONE rail. These share a block, and resetting the
             # block put the other rail back to stock along with it - pressing
@@ -2542,7 +2546,8 @@ class Druta:
         except (TypeError, ValueError, OverflowError):
             self.log("current limit must be a finite number of amperes", False)
             return
-        self.report(self.gpu.set_current_limit_ma(policy, milliamps))
+        self.report(self.write_tuning_action("power", "current",
+                                            lambda: self.gpu.set_current_limit_ma(policy, milliamps)))
         self.refresh_current_limits(sync=True)
 
     # ---- every policy in the driver's power-policy table ----------------- #
@@ -2722,20 +2727,24 @@ class Druta:
         except (TypeError, ValueError, OverflowError) as exc:
             self.log(f"power policy {policy} input: {exc}", False)
             return
-        self.report(self.gpu.set_power_policy(policy, int(round(value * 1000))))
+        self.report(self.write_tuning_action("power", "policy",
+                                            lambda: self.gpu.set_power_policy(policy, int(round(value * 1000)))))
         self.refresh_power_policies(force=True, follow={policy})
 
     def stock_power_policy(self, policy):
         if not self.guard():
             return
-        self.report(self.gpu.stock_power_policy(policy))
+        self.report(self.write_tuning_action("power", "stock", lambda: self.gpu.stock_power_policy(policy)))
         self.refresh_power_policies(force=True, follow={policy})
         self.refresh_current_limits(sync=True)
 
     def max_all_power_policies(self):
         if not self.guard():
             return
-        steps = self.gpu.max_all_power_policies()
+        steps = self.write_tuning_action("power", "maximum", self.gpu.max_all_power_policies)
+        if isinstance(steps, tuple):
+            self.report(steps)
+            return
         for _step, ok, message in steps:
             self.log(f"max all: {message}", ok)
         top = self.gpu.static.get("pl_max_mw")
@@ -4111,7 +4120,7 @@ class Druta:
         for tag in ("sl_mem", "in_mem"):
             if dpg.does_item_exist(tag):
                 dpg.set_value(tag, value)
-        self.report(self.gpu.set_clock_offset(2, value))
+        self.report(self.write_tuning_action("memory", value, lambda: self.gpu.set_clock_offset(2, value)))
 
     def build_i2c_rail_row(self):
         """Expose identified telemetry separately from a verified offset path."""
@@ -6395,16 +6404,15 @@ class Druta:
         # this field: a +100 request runs as +90 and a -50 request runs as -60.
         # Snapping here means the number on the slider is the number the card
         # will run, instead of a request that silently becomes something else.
-        # No undo point: unlike the core offset this does NOT land in the V/F
-        # delta table - it is a separate per-domain control block, so it cannot
-        # overwrite a hand-tuned curve.
+        # Capture this domain alone; its setter preserves the V/F curve.
         step = (self.gpu.clkdom_step_mhz()
                 if self.gpu.clkdom_is_blackwell()
                 else self.step_mhz()) or self.step_mhz()
         mhz = int(math.floor(int(v) / step)) * step
         if mhz != int(v):
             dpg.set_value(f"sl_{key}", mhz)
-        self.report(self.gpu.set_clk_domain_offset(dom, mhz))
+        self.report(self.write_tuning_action("domain", mhz,
+                                            lambda: self.gpu.set_clk_domain_offset(dom, mhz), index=dom))
 
     def apply_pl(self, v):
         if self.guard():
@@ -6416,7 +6424,8 @@ class Druta:
             for tag in ("sl_pl", "in_pl"):
                 if dpg.does_item_exist(tag):
                     dpg.set_value(tag, value)
-            self.report(self.gpu.set_power_limit_mw(int(round(value * 1000))))
+            self.report(self.write_tuning_action("power", "board",
+                                                lambda: self.gpu.set_power_limit_mw(int(round(value * 1000)))))
             self.sync_power_slider_from_card()
             # the driver recalculates the limits it derives from this one
             self.refresh_current_limits(sync=True)
@@ -6447,7 +6456,7 @@ class Druta:
 
     def apply_volt(self, v):
         if self.guard():
-            ok, msg = self.gpu.set_voltage_boost(int(v))
+            ok, msg = self.write_tuning_action("boost", int(v), lambda: self.gpu.set_voltage_boost(int(v)))
             self.report((ok, msg))
             if ok:
                 # The boost contribution is part of the ceiling a hold's
@@ -6456,11 +6465,11 @@ class Druta:
 
     def apply_fan(self, v):
         if self.guard():
-            self.report(self.gpu.set_fan(int(v)))
+            self.report(self.write_tuning_action("fan", int(v), lambda: self.gpu.set_fan(int(v))))
 
     def fan_auto(self):
         if self.guard():
-            self.report(self.gpu.reset_fan())
+            self.report(self.write_tuning_action("fan", None, self.gpu.reset_fan))
 
     # ---- the opening ritual, in one click --------------------------------- #
     def oc_max(self, sender=None, app_data=None, user_data=None):
@@ -10305,6 +10314,68 @@ deliberately does not put behind a button."""
     # ====================================================================== #
     #  PROFILES                                                              #
     # ====================================================================== #
+    def write_tuning_action(self, kind, value, writer, *, index=None):
+        """Save the selected request before an ordinary control write."""
+        with self.gpu._lock:
+            try:
+                if kind == "power":
+                    state = profiles.capture_power_action(self.gpu)
+                    # A same-number action can still add/remove a session pin.
+                    same = False
+                elif kind == "fan":
+                    state = profiles.capture_fan(self.gpu)
+                    missing = profiles.incomplete(state)
+                    if missing:
+                        raise ValueError("; ".join(missing))
+                    fans = state["fan_control_state"]["fans"]
+                    same = all(not row["manual"] if value is None else
+                               row["manual"] and row["level"] == value for row in fans)
+                else:
+                    state = profiles.capture_tuning_action(self.gpu, kind, index)
+                    data = state["tuning_action"]
+                    wanted = value * data["scale"] if kind == "memory" else round(value) * 1000 if kind == "domain" else value
+                    same = data["value"] == wanted
+                if same:
+                    return True, f"{kind} request already matches; nothing written"
+                name, _, missing = profiles.autosave_state(f"tuning-{kind}", state)
+                if missing:
+                    raise ValueError("; ".join(missing))
+                self.log(f"Undo point saved as '{name}'", None)
+            except Exception as exc:
+                if kind == "power" and value == "stock":
+                    self.log(f"Could not save power Undo: {exc}; continuing the explicit Stock action", False)
+                elif kind == "fan" and value is None:
+                    self.log(f"Could not save fan Undo: {exc}; returning fan control to the driver", False)
+                else:
+                    return False, f"Could not save {kind} Undo: {exc}; nothing written"
+            try:
+                result = writer()
+                if kind == "boost" and result[0] and self.gpu.read_voltage_boost() != value:
+                    return False, "Voltage boost request readback mismatch; Undo snapshot retained"
+                return result
+            except Exception as exc:
+                return False, f"{kind} write failed: {exc}; Undo snapshot retained if captured"
+
+    def refresh_tuning_action(self, state):
+        data = state["tuning_action"]
+        try:
+            fresh = profiles.capture_tuning_action(self.gpu, data["kind"], data["index"])["tuning_action"]
+            if data["kind"] == "memory":
+                key, value = "mem", fresh["value"] / fresh["scale"]
+            elif data["kind"] == "boost":
+                key, value = "volt", fresh["value"]
+                self.sync_hold_headroom(replan=True)
+            else:
+                knob = next((k for k in self.DOMAIN_KNOBS if k.ctrl == data["index"]), None)
+                if knob is None:
+                    return
+                key, value = knob.key, fresh["value"] / 1000
+            for prefix in ("sl_", "in_"):
+                if dpg.does_item_exist(prefix + key):
+                    dpg.set_value(prefix + key, value)
+        except Exception as exc:
+            self.log(f"Could not refresh tuning request: {exc}", False)
+
     def autosave_before(self, action, *, scope=None):
         """Undo point taken IMMEDIATELY before a destructive write. This is the
         other half of single-click Apply: the banner makes the click informed,
@@ -10319,12 +10390,8 @@ deliberately does not put behind a button."""
         Re-phase is the only genuinely LOSSY write in the app (off-phase deltas
         are rounded down and the original remainders are gone, so not even
         'Reset curve to stock' can recover them).
-        The single-knob applies - memory offset, power limit, voltage boost,
-        fan - deliberately do NOT: each moves one number that its own slider
-        still shows, and putting them in the ring would evict the curve
-        snapshots that nothing else can reconstruct. The clock lock does not
-        either, and could not: profiles.capture does not record it, so an undo
-        point would silently fail to take it back. Release / Ctrl+H does.
+        Ordinary tuning actions use write_tuning_action for their scoped
+        snapshots. Clock locks retain their explicit Release action.
 
         A failed or partial snapshot does NOT block the write - three of the
         callers only ever move the card toward stock, and refusing to let
@@ -10508,7 +10575,7 @@ deliberately does not put behind a button."""
                         dpg.add_button(label="Load", tag=tag, width=-1,
                                        user_data=name,
                                        callback=lambda s, a, u: self.load_profile(u))
-                        if not is_auto and state.get("scope") not in ("voltage_requests", "voltage_controls", "lowpower_requests", "clock_vf", "voltage_offsets"):
+                        if not is_auto and state.get("scope") not in ("voltage_requests", "voltage_controls", "lowpower_requests", "clock_vf", "voltage_offsets", "tuning_action", "power_action"):
                             dpg.add_button(label="Load at startup", width=-1,
                                            user_data=name,
                                            callback=lambda s, a, u: self.set_startup_profile(u))
@@ -10565,7 +10632,7 @@ deliberately does not put behind a button."""
             self.set_pending_load(None)
             self.begin_lowpower_profile_load(name, state)
             return
-        if state.get("scope") == "voltage_offsets":
+        if state.get("scope") in ("voltage_offsets", "tuning_action", "power_action"):
             self.set_pending_load(None)
             self.begin_voltage_request_profile_load(name, state)
             return
@@ -10591,7 +10658,7 @@ deliberately does not put behind a button."""
         if state.get("scope") == "lowpower_requests":
             self.begin_lowpower_profile_load(name, state, automatic)
             return
-        if state.get("scope") in ("voltage_requests", "voltage_controls", "clock_vf", "voltage_offsets"):
+        if state.get("scope") in ("voltage_requests", "voltage_controls", "clock_vf", "voltage_offsets", "tuning_action", "power_action"):
             self.begin_voltage_request_profile_load(name, state, automatic)
             return
         if not self.guard() or self._i2c_busy:
@@ -10678,7 +10745,9 @@ deliberately does not put behind a button."""
             self.profile_failure(error)
             return
         try:
-            capture = (profiles.autosave_voltage_offsets if state.get("scope") == "voltage_offsets"
+            capture = (profiles.autosave_tuning_action if state.get("scope") == "tuning_action"
+                       else profiles.autosave_power_action if state.get("scope") == "power_action"
+                       else profiles.autosave_voltage_offsets if state.get("scope") == "voltage_offsets"
                        else profiles.autosave_clock_vf if state.get("scope") == "clock_vf"
                        else profiles.autosave_voltage_controls if state.get("scope") == "voltage_controls"
                        else profiles.autosave_voltage_requests)
@@ -10755,14 +10824,14 @@ deliberately does not put behind a button."""
         if state.get("scope") == "lowpower_requests":
             self.finish_lowpower_profile_load(name, state, automatic)
             return
-        if automatic and state.get("scope") in ("voltage_requests", "voltage_controls", "clock_vf", "voltage_offsets"):
+        if automatic and state.get("scope") in ("voltage_requests", "voltage_controls", "clock_vf", "voltage_offsets", "tuning_action", "power_action"):
             self.profile_failure("clock V/F profiles require manual loading" if state.get("scope") == "clock_vf"
                                  else "voltage offset profiles require manual loading" if state.get("scope") == "voltage_offsets"
                                  else "voltage-request profiles require manual loading", True)
             return
         self._profile_applying = True
         try:
-            if state.get("scope") in ("voltage_requests", "voltage_controls", "clock_vf", "voltage_offsets"):
+            if state.get("scope") in ("voltage_requests", "voltage_controls", "clock_vf", "voltage_offsets", "tuning_action", "power_action"):
                 results = profiles.restore(self.gpu, state)
             else:
                 results = profiles.restore(self.gpu, state, rail=self.rail,
@@ -10771,7 +10840,7 @@ deliberately does not put behind a button."""
             results = [(False, f"profile restore failed: {e}")]
         finally:
             self._profile_applying = False
-        if state.get("scope") in ("voltage_requests", "voltage_controls", "clock_vf", "voltage_offsets"):
+        if state.get("scope") in ("voltage_requests", "voltage_controls", "clock_vf", "voltage_offsets", "tuning_action", "power_action"):
             for ok, msg in results:
                 self.log(msg, ok)
             if any(not ok for ok, _ in results):
@@ -10779,7 +10848,13 @@ deliberately does not put behind a button."""
             else:
                 self.log(f"profile '{name}' applied", True)
             registry_panel = getattr(self, "_registry_panel", None)
-            if state.get("scope") == "clock_vf":
+            if state.get("scope") == "tuning_action":
+                self.refresh_tuning_action(state)
+            elif state.get("scope") == "power_action":
+                self.sync_power_slider_from_card()
+                self.refresh_current_limits(sync=True)
+                self.refresh_power_policies(sync=True)
+            elif state.get("scope") == "clock_vf":
                 if registry_panel is not None:
                     registry_panel.refresh_clock_vf_live()
                     registry_panel.invalidate()
@@ -10900,7 +10975,7 @@ deliberately does not put behind a button."""
             state = profiles.load(name)
             if state.get("scope") == "lowpower_requests":
                 raise ValueError("low-power request profiles require manual loading")
-            if state.get("scope") in ("voltage_requests", "voltage_controls", "clock_vf", "voltage_offsets"):
+            if state.get("scope") in ("voltage_requests", "voltage_controls", "clock_vf", "voltage_offsets", "tuning_action", "power_action"):
                 raise ValueError("clock V/F profiles require manual loading" if state.get("scope") == "clock_vf"
                                  else "voltage offset profiles require manual loading" if state.get("scope") == "voltage_offsets"
                                  else "voltage-request profiles require manual loading")

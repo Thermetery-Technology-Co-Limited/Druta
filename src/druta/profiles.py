@@ -68,7 +68,13 @@ def incomplete(state):
     miss = list(state.get(INCOMPLETE_KEY) or [])
     if state.get("scope") is not None:
         try:
-            if state.get("scope") == "clock_vf":
+            if state.get("scope") == "power_action":
+                from . import power_action_profiles
+                power_action_profiles.validate(state)
+            elif state.get("scope") == "tuning_action":
+                from . import tuning_profiles
+                tuning_profiles.validate(state)
+            elif state.get("scope") == "clock_vf":
                 from . import clock_vf_profiles
                 clock_vf_profiles.validate(state)
             elif state.get("scope") == "lowpower_requests":
@@ -372,6 +378,63 @@ def autosave_clock_vf(gpu, action, template):
     if state["clock_vf"]["identity"] != target["identity"]:
         raise ValueError("clock VF adapter identity changed")
     return autosave_state(action, state)
+
+
+def capture_power_action(gpu):
+    from . import power_action_profiles as scoped
+    with gpu._lock:
+        now = time.time()
+        state = {"schema": SCHEMA, "scope": "power_action", "incomplete": [],
+                 "saved_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)), "saved_ts": now,
+                 "device": {key: gpu.static.get(key) for key in ("name", "vbios", "driver", "uuid")},
+                 "power_action": scoped.capture(gpu)}
+        state["device"]["slot"] = gpu.slot()
+        error = power_action_preflight(gpu, state)
+        if error:
+            raise ValueError(error)
+        return state
+
+
+def power_action_preflight(gpu, state):
+    from . import power_action_profiles as scoped
+    try:
+        data = scoped.validate(state)
+        if state.get(INCOMPLETE_KEY):
+            raise ValueError("power action snapshot is incomplete")
+        device = state.get("device")
+        if not isinstance(device, dict) or not device.get("slot") or device["slot"] != gpu.slot():
+            raise ValueError("power action profile belongs to a different adapter slot")
+        if device.get("uuid") and gpu.static.get("uuid") and device["uuid"] != gpu.static["uuid"]:
+            raise ValueError("power action profile belongs to a different GPU UUID")
+        scoped.check_live(gpu, data)
+        return None
+    except Exception as exc:
+        return str(exc)
+
+
+def autosave_power_action(gpu, action, template):
+    with gpu._lock:
+        error = power_action_preflight(gpu, template)
+        if error:
+            raise ValueError(error)
+        return autosave_state(action, capture_power_action(gpu))
+
+
+def capture_tuning_action(gpu, kind, index=None):
+    """Capture the selected ordinary tuning request for manual Undo."""
+    from . import tuning_profiles
+    return tuning_profiles.capture(gpu, kind, index)
+
+
+def autosave_tuning_action(gpu, action, template):
+    from . import tuning_profiles
+    with gpu._lock:
+        target = tuning_profiles.validate(template)
+        error = tuning_profiles.preflight(gpu, template)
+        if error:
+            raise ValueError(error)
+        state = capture_tuning_action(gpu, target["kind"], target["index"])
+        return autosave_state(action, state)
 
 
 def capture_voltage_offsets(gpu, *, snapshot=None, selection=None):
@@ -1078,6 +1141,11 @@ def preflight(gpu, state, rail=None, *, apply_curve=True):
             or state.get("schema", 1) not in (1, SCHEMA)):
         return "unsupported profile format"
     try:
+        if state.get("scope") == "power_action":
+            return power_action_preflight(gpu, state)
+        if state.get("scope") == "tuning_action":
+            from . import tuning_profiles
+            return tuning_profiles.preflight(gpu, state)
         if state.get("scope") == "clock_vf":
             from . import clock_vf_profiles as scoped
             from .clock_vf_runtime import ClockVfController
@@ -1411,6 +1479,14 @@ def _restore_validated(gpu, state, apply_curve, rail, results, *, i2c_verified):
         results.append((ok, msg))
         return ok
 
+    if state.get("scope") == "power_action":
+        from . import power_action_profiles as scoped
+        with gpu._lock:
+            return scoped.restore(gpu, scoped.validate(state))
+    if state.get("scope") == "tuning_action":
+        from . import tuning_profiles as scoped
+        return scoped.restore(gpu, state)
+
     if state.get("scope") == "clock_vf":
         from . import clock_vf_profiles as scoped
         return scoped.restore(gpu, scoped.validate(state))
@@ -1584,6 +1660,20 @@ def _restore_validated(gpu, state, apply_curve, rail, results, *, i2c_verified):
 def summarize(state):
     """One-line description for a menu row or a confirmation banner."""
     bits = []
+    if state.get("scope") == "power_action":
+        bits.append("board/policy requests and pin intent, manual Undo only")
+    if state.get("scope") == "tuning_action":
+        from . import tuning_profiles as scoped
+        try:
+            data = scoped.validate(state)
+            if data["kind"] == "memory":
+                bits.append(f"memory offset {data['value']} driver units (scale {data['scale']:g})")
+            elif data["kind"] == "domain":
+                bits.append(f"clock control {data['index']} {data['value'] / 1000:+g} MHz")
+            else:
+                bits.append(f"voltage boost request {data['value']}%")
+        except ValueError as exc:
+            bits.append(f"invalid tuning action: {exc}")
     if state.get("scope") == "clock_vf":
         from . import clock_vf_profiles as scoped
         try:

@@ -79,6 +79,23 @@ profile round trip was not qualified. Pre-write snapshots remain available after
 a failed attempt, so Undo can be a no-op after verified automatic restoration.
 Choose an earlier autosave explicitly to return to an earlier action.
 
+### Undo for ordinary tuning actions
+
+Memory and per-domain clock offsets, voltage boost and fan changes now save an
+Undo point before writing. **Profiles > Undo last write** restores only the
+selected request, or the complete prior fan policy. Unchanged clock/boost/fan
+requests do not create a snapshot. A failed snapshot blocks Apply; Fan Auto
+still returns control to the driver and reports that Undo was unavailable.
+
+Board power, current limits, individual power-policy Apply/Stock and Max-all
+save the coupled power requests and this instance's pin choices. Undo restores
+the board request first, then supported changed policies, and verifies the full
+result. If policy coupling prevents an exact return, the log reports partial
+restoration rather than success. Explicit Stock remains available when its
+snapshot cannot be saved, with a log message. Power actions can change pin
+intent even when their displayed number is unchanged, so they still save a
+snapshot. These Undo profiles are manually loaded and never replay after reset.
+
 ### Ordinary tune profiles
 
 **Profiles > Save profile** captures the applied curve, clocks, power, fan policy,

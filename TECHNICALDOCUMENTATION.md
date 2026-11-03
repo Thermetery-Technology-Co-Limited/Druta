@@ -2422,6 +2422,40 @@ made to force acceptance. The pre-write autosave is retained after refusal, as
 with other profile operations; Undo can then restore an already-current value.
 [Clock V/F profile evidence](experiments/clock-vf-profiles-20261102.json).
 
+### Ordinary tuning action Undo
+
+`tuning_action` snapshots store one memory/domain/boost request. Memory retains
+native driver units and descriptive scale; restoration converts using the live
+scale. A domain snapshot must be exactly replayable through the existing MHz
+setter. Boost verifies percentage request readback. These snapshots carry no
+curve, rail packet or unrelated tuning fields. Fan edits reuse the existing fan
+scope and save requested policy/duty, not transient RPM. Capture and dispatch
+use the existing GPU lock. Unchanged selected requests do not add undo entries.
+
+`power_action` captures the configured board request, the complete readable
+policy table's typed requests/identities and this instance's pin map. A policy
+setter can affect peers, and Stock/Max can remove pins, so a single scalar is
+insufficient. Undo suppresses current pin reapplication, restores a changed
+board request and then changed supported policies in one pass, and compares all
+captured requests. It reinstates prior pin intent where the captured request was
+restored, even when the original pin intent differed from that original request.
+Unsupported collateral changes or coupled mismatches are reported as partial
+failure. No iterative convergence scheme or opaque packet replay is added.
+Board-only capture is restricted to an understood peer-preserving live transport
+when the policy table and NVML write path are unavailable.
+
+Scoped Load uses live capability/UUID/slot checks and bypasses descriptive
+name/VBIOS mismatch confirmation. New snapshots cannot be selected for automatic
+startup loading. Snapshot failure blocks normal Apply; Fan Auto and explicit
+power Stock can proceed with a clear warning so their release/reset actions stay
+available. Existing full-tune profile semantics remain separate.
+
+Seven local request/Undo round trips passed: memory, clock control 2, boost,
+fan, board power, named current policy 13 and policy 2. The baseline requests and
+pin map were restored. Stock/Max capture routes have offline coverage only in
+this increment. No workload or physical measurement was performed.
+[Ordinary tuning Undo evidence](experiments/ordinary-tuning-undo-20261102.json).
+
 ### Additional live profiler controls
 
 **Live engine clock gating** adds a separate session-owned ELCG Hold disabled /
