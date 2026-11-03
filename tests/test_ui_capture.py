@@ -114,6 +114,20 @@ def test_stages_real_and_synthetic_frames_then_restores_without_setters(tmp_path
     application.gpu.set_power_limit_mw.assert_not_called()
 
 
+def test_combined_dialog_capture_only_opens_and_restores_visibility(tmp_path):
+    dpg, application = FakeDpg(), app()
+    dpg.values['win_combine'] = None
+    dpg.config['win_combine'] = {'show': False}
+    application.open_combine_profiles = Mock(side_effect=lambda: dpg.configure_item('win_combine', show=True))
+    capture = UiCapture(dpg, application, tmp_path / 'combined')
+    run(capture, dpg)
+    assert capture.manifest['state'] == 'complete'
+    assert any(item['stage'] == 'combined-profiles' for item in capture.manifest['captures'])
+    application.open_combine_profiles.assert_called_once_with()
+    assert dpg.config['win_combine']['show'] is False
+    application.gpu.set_power_limit_mw.assert_not_called()
+
+
 def test_unknown_bounds_skip_synthetic_and_restore(tmp_path):
     dpg, application = FakeDpg(), app(None)
     capture = UiCapture(dpg, application, tmp_path / "new")

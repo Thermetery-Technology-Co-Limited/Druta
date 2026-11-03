@@ -172,6 +172,7 @@ function Get-SourceSnapshot {
         'experiments/clock-vf-profiles-20261102.json',
         'experiments/voltage-offset-undo-20261102.json',
         'experiments/ordinary-tuning-undo-20261102.json',
+        'experiments/combined-profiles-20261102.json',
         'experiments/voltage-61742-unblocked-objectives-20261101.json',
         'experiments/runtime-rails-47212.json',
         'experiments/runtime-rails-56636.json',

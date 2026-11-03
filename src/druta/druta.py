@@ -10575,7 +10575,7 @@ deliberately does not put behind a button."""
                         dpg.add_button(label="Load", tag=tag, width=-1,
                                        user_data=name,
                                        callback=lambda s, a, u: self.load_profile(u))
-                        if not is_auto and state.get("scope") not in ("voltage_requests", "voltage_controls", "lowpower_requests", "clock_vf", "voltage_offsets", "tuning_action", "power_action"):
+                        if not is_auto and state.get("scope") not in ("combined", "voltage_requests", "voltage_controls", "lowpower_requests", "clock_vf", "voltage_offsets", "tuning_action", "power_action"):
                             dpg.add_button(label="Load at startup", width=-1,
                                            user_data=name,
                                            callback=lambda s, a, u: self.set_startup_profile(u))
@@ -10617,6 +10617,150 @@ deliberately does not put behind a button."""
                     if all(saved.get(k) == v for k, v in profiles.rail_identity(r).items())]
         return matching[0] if len(matching) == 1 else None
 
+    def open_combine_profiles(self):
+        self._combine_states = []
+        dpg.delete_item("combine_rows", children_only=True)
+        try:
+            for name, _path, _when, _auto in profiles.list_profiles():
+                try:
+                    state = profiles.load(name)
+                    if state.get("scope") == "combined":
+                        continue
+                    index = len(self._combine_states)
+                    self._combine_states.append((name, state))
+                    with dpg.group(horizontal=True, parent="combine_rows"):
+                        dpg.add_checkbox(tag=f"combine_choice_{index}")
+                        dpg.add_text(name, wrap=self.s(250))
+                        dpg.add_text(profiles.summarize(state), wrap=self.s(420))
+                except Exception as exc:
+                    self.log(f"cannot combine '{name}': {exc}", False)
+        except Exception as exc:
+            self.log(f"profile list: {exc}", False)
+        if not self._combine_states:
+            dpg.add_text("No saved sections to combine yet. Save a profile from a control section first.",
+                         parent="combine_rows", wrap=self.s(700))
+        dpg.set_value("combine_name", time.strftime("combined-%Y%m%d-%H%M"))
+        dpg.set_value("combine_error", "")
+        self.show_win(user_data="win_combine")
+
+    def save_combined_profile(self):
+        from . import combined_profiles
+        name = (dpg.get_value("combine_name") or "").strip()
+        try:
+            if not name:
+                raise ValueError("give the profile a name first")
+            selected = [item for index, item in enumerate(self._combine_states)
+                        if dpg.get_value(f"combine_choice_{index}")]
+            state = combined_profiles.compose(selected)
+            path = profiles.save(name, state)
+        except Exception as exc:
+            self.log(f"save combined profile: {exc}", False)
+            if dpg.does_item_exist("combine_error"):
+                dpg.set_value("combine_error", str(exc))
+            return
+        dpg.configure_item("win_combine", show=False)
+        self.log(f"saved '{os.path.basename(path)}' with {len(selected)} components", True)
+        self.refresh_profile_list()
+
+    def begin_combined_profile_load(self, name, state, automatic=False):
+        from . import combined_profiles
+        if automatic:
+            self.profile_failure("combined profiles require manual loading", True)
+            return
+        if not self.guard() or self._i2c_busy:
+            self.profile_failure("profile load blocked by another operation or locked controls")
+            return
+        try:
+            items = combined_profiles.validate(state)
+            full = next((item['state'] for item in items if item['state'].get('scope') is None), None)
+            if full and full.get("i2c") and hasattr(self, "_i2c_discovery_complete") and not self._i2c_discovery_complete:
+                raise ValueError("I2C controller detection has not completed; tick I2C rail, wait for detection, then load again")
+            chosen = self.rail_for_profile(full) if full else self.rail
+            if full:
+                warn = profiles.device_mismatch(full, self.gpu)
+                if warn and (self._pending_load or (None,))[0] != name:
+                    self.set_pending_load((name, warn))
+                    return
+            self.set_pending_load(None)
+            if chosen is not self.rail:
+                self.invalidate_i2c_verification()
+                self._i2c_recovery_for = None
+                self.rail = chosen
+                self.refresh_i2c_candidates()
+            error = combined_profiles.preflight(self, state)
+            if error:
+                raise ValueError(error)
+            if full:
+                ok, message = self._finish_manual_voltage("loading a profile")
+                if not ok:
+                    raise ValueError(message)
+                error = combined_profiles.preflight(self, state)
+                if error:
+                    raise ValueError(error)
+            before = combined_profiles.capture_undo(self, state)
+            undo_name, _, missing = profiles.autosave_state(f"load-{name}"[:40], before)
+            if missing:
+                raise ValueError("could not capture a complete combined undo point")
+        except Exception as exc:
+            self.profile_failure(f"could not prepare combined profile: {exc}")
+            return
+        self.log(f"Undo point saved as '{undo_name}'", None)
+        if getattr(self, "_held_startup_request", None):
+            self._held_startup_request = None
+        if full:
+            for tag, value in (("xoc_mode", bool(full.get("xoc"))),
+                               ("vlim_mode", bool(full.get("rail_limits_uv") or full.get("rail_limits_mv"))),
+                               ("i2c_mode", bool(full.get("i2c")))):
+                dpg.set_value(tag, value)
+            self.sync_risk_ui()
+            if full.get("i2c") and not self.i2c_verified() and profiles.i2c_replay_needed(full, self.rail):
+                self.verify_i2c_rail()
+                if not self.i2c_verified():
+                    if not self._i2c_busy:
+                        self.profile_failure("I2C verification could not start")
+                        return
+                    self._profile_pending = (name, state, False)
+                    self.sync_lock_ui()
+                    for tag in ("unlock", "xoc_mode", "i2c_mode", "vlim_mode"):
+                        dpg.configure_item(tag, enabled=False)
+                    self.log("profile waits for fresh I2C verification under load", None)
+                    return
+        self.finish_profile_load(name, state, False)
+
+    def finish_combined_profile_load(self, name, state, automatic=False):
+        from . import combined_profiles
+        if automatic:
+            self.profile_failure("combined profiles require manual loading", True)
+            return
+        self._profile_applying = True
+        try:
+            results = combined_profiles.restore(self, state)
+        except Exception as exc:
+            results = [(False, f"combined profile restore failed: {exc}")]
+        finally:
+            self._profile_applying = False
+        for ok, message in results:
+            self.log(message, ok)
+        if not results or any(not ok for ok, _ in results):
+            self.profile_failure("combined profile not fully applied; see per-control results")
+        else:
+            self.log(f"profile '{name}' applied", True)
+        for item in combined_profiles.validate(state):
+            child = item['state']
+            scope = child.get('scope')
+            if scope is None:
+                if getattr(self.rail, "current_dac", False):
+                    self._current_dac_failure(self.rail, (False, "profile current-DAC restore failed"))
+                elif getattr(self.rail, "multi_state_offset", False):
+                    self._multi_state_offset_failure((False, "profile load-state offset restore failed"))
+            if scope == 'lowpower_requests':
+                self.refresh_lowpower_profile(child)
+            elif scope in ('voltage_requests', 'voltage_controls', 'clock_vf', 'voltage_offsets', 'tuning_action', 'power_action'):
+                self.refresh_scoped_profile(child)
+            else:
+                self.refresh_full_profile(child)
+        self.refresh_profile_list()
+
     def load_profile(self, name):
         """Restoring is a destructive write like any other, so it goes through
         the unlock gate, takes its own undo point first, and reports every knob
@@ -10627,6 +10771,9 @@ deliberately does not put behind a button."""
             state = profiles.load(name)
         except Exception as e:
             self.log(f"load '{name}': {e}", False)
+            return
+        if state.get("scope") == "combined":
+            self.begin_combined_profile_load(name, state)
             return
         if state.get("scope") == "lowpower_requests":
             self.set_pending_load(None)
@@ -10655,6 +10802,9 @@ deliberately does not put behind a button."""
         self.begin_profile_load(name, state)
 
     def begin_profile_load(self, name, state, automatic=False):
+        if state.get("scope") == "combined":
+            self.begin_combined_profile_load(name, state, automatic)
+            return
         if state.get("scope") == "lowpower_requests":
             self.begin_lowpower_profile_load(name, state, automatic)
             return
@@ -10821,6 +10971,9 @@ deliberately does not put behind a button."""
         self.refresh_profile_list()
 
     def finish_profile_load(self, name, state, automatic=False):
+        if state.get("scope") == "combined":
+            self.finish_combined_profile_load(name, state, automatic)
+            return
         if state.get("scope") == "lowpower_requests":
             self.finish_lowpower_profile_load(name, state, automatic)
             return
@@ -10847,35 +11000,7 @@ deliberately does not put behind a button."""
                 self.profile_failure("one or more voltage requests failed; see the per-field results")
             else:
                 self.log(f"profile '{name}' applied", True)
-            registry_panel = getattr(self, "_registry_panel", None)
-            if state.get("scope") == "tuning_action":
-                self.refresh_tuning_action(state)
-            elif state.get("scope") == "power_action":
-                self.sync_power_slider_from_card()
-                self.refresh_current_limits(sync=True)
-                self.refresh_power_policies(sync=True)
-            elif state.get("scope") == "clock_vf":
-                if registry_panel is not None:
-                    registry_panel.refresh_clock_vf_live()
-                    registry_panel.invalidate()
-            elif state.get("scope") == "voltage_offsets":
-                panel = getattr(registry_panel, "voltage_offsets_panel", None)
-                if panel is not None:
-                    panel.refresh()
-                if registry_panel is not None:
-                    registry_panel.invalidate()
-            elif state.get("scope") == "voltage_controls":
-                refresh = {
-                    "gate": "refresh_voltage_gate", "rel_bounds": "refresh_rel_live",
-                    "constants": "refresh_constants_live", "switch_delay": "refresh_voltage_devices",
-                }.get(state.get("voltage_controls", {}).get("kind"))
-                if registry_panel is not None and refresh:
-                    getattr(registry_panel, refresh)()
-            else:
-                panel = getattr(registry_panel, "voltage_requests_panel", None)
-                if panel is not None:
-                    panel.refresh()
-            self.refresh_profile_list()
+            self.refresh_scoped_profile(state)
             return
         if getattr(self.rail, "current_dac", False):
             self._current_dac_failure(self.rail, (False, "profile current-DAC restore failed"))
@@ -10887,6 +11012,40 @@ deliberately does not put behind a button."""
             self.profile_failure("one or more settings failed; see the per-control results", automatic)
         else:
             self.log(f"profile '{name}' applied", True)
+        self.refresh_full_profile(state)
+
+    def refresh_scoped_profile(self, state):
+        registry_panel = getattr(self, "_registry_panel", None)
+        if state.get("scope") == "tuning_action":
+            self.refresh_tuning_action(state)
+        elif state.get("scope") == "power_action":
+            self.sync_power_slider_from_card()
+            self.refresh_current_limits(sync=True)
+            self.refresh_power_policies(sync=True)
+        elif state.get("scope") == "clock_vf":
+            if registry_panel is not None:
+                registry_panel.refresh_clock_vf_live()
+                registry_panel.invalidate()
+        elif state.get("scope") == "voltage_offsets":
+            panel = getattr(registry_panel, "voltage_offsets_panel", None)
+            if panel is not None:
+                panel.refresh()
+            if registry_panel is not None:
+                registry_panel.invalidate()
+        elif state.get("scope") == "voltage_controls":
+            refresh = {
+                "gate": "refresh_voltage_gate", "rel_bounds": "refresh_rel_live",
+                "constants": "refresh_constants_live", "switch_delay": "refresh_voltage_devices",
+            }.get(state.get("voltage_controls", {}).get("kind"))
+            if registry_panel is not None and refresh:
+                getattr(registry_panel, refresh)()
+        else:
+            panel = getattr(registry_panel, "voltage_requests_panel", None)
+            if panel is not None:
+                panel.refresh()
+        self.refresh_profile_list()
+
+    def refresh_full_profile(self, state):
         self.sync_sliders_from_gpu(state)
         self.apply_profile_policy_names(state)
         if state.get("scope") == "fan":
@@ -10950,6 +11109,9 @@ deliberately does not put behind a button."""
             self.profile_failure("low-power request not fully applied; see the per-control result")
         else:
             self.log(f"profile '{name}' applied", True)
+        self.refresh_lowpower_profile(state)
+
+    def refresh_lowpower_profile(self, state):
         data = state.get("lowpower_requests", {})
         panel_name = {"difr": "difr_live_panel", "elpg": "gr_gating_live_panel",
                       "elcg": "engine_clock_gating_panel", "blcg": "block_clock_gating_panel",
@@ -10973,6 +11135,8 @@ deliberately does not put behind a button."""
             if manager is None:
                 raise ValueError("startup manager is unavailable")
             state = profiles.load(name)
+            if state.get("scope") == "combined":
+                raise ValueError("combined profiles require manual loading")
             if state.get("scope") == "lowpower_requests":
                 raise ValueError("low-power request profiles require manual loading")
             if state.get("scope") in ("voltage_requests", "voltage_controls", "clock_vf", "voltage_offsets", "tuning_action", "power_action"):
@@ -11430,6 +11594,17 @@ deliberately does not put behind a button."""
                                callback=lambda: dpg.configure_item(
                                    "win_save", show=False))
 
+        with dpg.window(label="Combine profiles", tag="win_combine", show=False,
+                        width=self.s(800), height=self.s(500), pos=[self.s(120), self.s(120)]):
+            dpg.add_text("Choose saved snapshots, including undo points. Combined profiles load manually.", wrap=self.s(750))
+            dpg.add_input_text(label="Name", tag="combine_name", width=self.s(350))
+            dpg.add_text("", tag="combine_error", color=BAD, wrap=self.s(750))
+            with dpg.child_window(tag="combine_rows", width=-1, height=self.s(330)):
+                pass
+            with dpg.group(horizontal=True):
+                dpg.add_button(label="Save combined profile", callback=self.save_combined_profile)
+                dpg.add_button(label="Cancel", callback=lambda: dpg.configure_item("win_combine", show=False))
+
         with dpg.window(label="Profiles", tag="win_profiles", show=False,
                         width=self.s(1080), height=self.s(560),
                         pos=[self.s(90), self.s(90)]):
@@ -11450,6 +11625,8 @@ deliberately does not put behind a button."""
                                callback=self.refresh_profile_list)
                 dpg.add_button(label="Save profile...", width=self.s(170),
                                tag="go_open_save_profile", callback=self.open_save_profile)
+                dpg.add_button(label="Combine profiles...", width=self.s(170),
+                               callback=self.open_combine_profiles)
                 dpg.add_button(label="Disable startup loading", width=self.s(210),
                                callback=self.disable_startup_profile)
             dpg.add_text("", tag="prof_warn", color=BAD, show=False,

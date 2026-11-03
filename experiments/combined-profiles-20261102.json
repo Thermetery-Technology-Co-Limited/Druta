@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "date": "2026-11-02",
+  "scope": "Combined manual profiles and one combined Undo snapshot; RTX 5080 / 617.42",
+  "artifact": "experiments/registry-overrides/combined-profiles-root-20261102/trial.json",
+  "trial_sha256": "68c4828874afd7f348b6750984492907e5a3b73422e3ea1956c14e19a544bb54",
+  "selected_requests": [
+    "memory",
+    "domain",
+    "boost",
+    "elcg"
+  ],
+  "baseline_restored": true,
+  "unrelated_power_and_fan_policy_preserved": true,
+  "coverage": [
+    "Actual save callback, manual load callback, and Undo last write route.",
+    "One combined snapshot is saved before loading selected requests.",
+    "Offline conflict rejection, stop-on-failure, owner routing and I2C pending-envelope checks.",
+    "Combined envelopes are refused by startup registration and automatic application."
+  ],
+  "limits": [
+    "No workload, physical measurement, driver restart or registry mutation.",
+    "Combined full ordinary tune/I2C flow has offline coverage, not a hardware round trip here.",
+    "No claim that every combination or every adapter is hardware-qualified.",
+    "Shared idle thresholds and adaptive policy lack complete capture and are excluded.",
+    "Existing per-control capability and request-readback restrictions remain."
+  ],
+  "offline_tests": "2638 passed, 342 subtests passed in 50.36s",
+  "tests_sha256": "87f33e31761a685c3bad219483a835ae398c4947f8d157577c88f40a00874e3c",
+  "final_dialog_followup": "132 passed, 2 subtests passed; combined UI/backend, startup and framebuffer capture"
+}

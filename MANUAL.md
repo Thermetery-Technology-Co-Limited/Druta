@@ -96,6 +96,37 @@ snapshot cannot be saved, with a log message. Power actions can change pin
 intent even when their displayed number is unchanged, so they still save a
 snapshot. These Undo profiles are manually loaded and never replay after reset.
 
+### Combined manual profiles
+
+Open **Profiles > Load profile**, then **Combine profiles...**. Choose saved
+sections or Undo snapshots, name the combination and save it. The file contains
+copies of those snapshots; changing the original files does not change it.
+Loading is always manual, including when an ordinary tune is one component.
+Combined profiles cannot be selected for startup or automatically reapplied
+after a GPU driver reset.
+
+Each component is checked before loading, and the selected current values are
+saved as one **Undo last write** snapshot. Existing I2C verification still
+applies to ordinary tunes. Active manual PMBus voltage is handed back before
+capturing the ordinary tune's Undo state, as with ordinary profile loading.
+Low-power sections restore this app's owned requests. If a component fails,
+later components stop; the log reports the result and the saved Undo remains
+available for manual loading.
+
+Overlapping targets are rejected, including a V/F curve with a separate core
+offset and voltage controls sharing an equation. Native REL/constants edits
+cannot be combined with voltage-policy offsets because they can invalidate
+the offset definitions. Gates are enabled first only when explicitly included;
+a saved gate-disable runs last. Loading does not add missing controls or change
+their existing capability requirements. Shared idle thresholds and adaptive
+policy are still excluded because a complete restorable state is unavailable.
+
+The local combined Save/Load/Undo trial covered memory offset, clock control 2,
+voltage boost and an owned ELCG inhibit together on the RTX 5080 / 617.42.
+All selected requests returned exactly to baseline; unrelated power requests
+and fan policy were preserved. Combined full-tune/I2C sequencing and conflict
+checks have offline coverage. See [qualification](experiments/combined-profiles-20261102.json).
+
 ### Ordinary tune profiles
 
 **Profiles > Save profile** captures the applied curve, clocks, power, fan policy,

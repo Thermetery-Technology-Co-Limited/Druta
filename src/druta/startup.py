@@ -261,6 +261,8 @@ class Startup:
         atomic_json(self.session_path, self.session)
 
     def enable(self, name, profile):
+        if profile.get("scope") == "combined":
+            raise ValueError("combined profiles require manual loading")
         if self.lock is None or self.failed:
             raise ValueError(self.reason or "startup state is unavailable")
         config = {"version": 1, "enabled": True, "name": name,

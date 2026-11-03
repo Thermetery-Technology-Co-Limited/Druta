@@ -68,7 +68,10 @@ def incomplete(state):
     miss = list(state.get(INCOMPLETE_KEY) or [])
     if state.get("scope") is not None:
         try:
-            if state.get("scope") == "power_action":
+            if state.get("scope") == "combined":
+                from . import combined_profiles
+                combined_profiles.validate(state)
+            elif state.get("scope") == "power_action":
                 from . import power_action_profiles
                 power_action_profiles.validate(state)
             elif state.get("scope") == "tuning_action":
@@ -1141,6 +1144,10 @@ def preflight(gpu, state, rail=None, *, apply_curve=True):
             or state.get("schema", 1) not in (1, SCHEMA)):
         return "unsupported profile format"
     try:
+        if state.get("scope") == "combined":
+            from . import combined_profiles
+            combined_profiles.validate(state)
+            return "combined profiles require manual loading in the owning application"
         if state.get("scope") == "power_action":
             return power_action_preflight(gpu, state)
         if state.get("scope") == "tuning_action":
@@ -1660,6 +1667,14 @@ def _restore_validated(gpu, state, apply_curve, rail, results, *, i2c_verified):
 def summarize(state):
     """One-line description for a menu row or a confirmation banner."""
     bits = []
+    if state.get("scope") == "combined":
+        from . import combined_profiles
+        try:
+            components = combined_profiles.validate(state)
+            return "Combined, manual only: " + "; ".join(
+                f"{item['name']} ({summarize(item['state'])})" for item in components)
+        except (ValueError, TypeError, KeyError) as exc:
+            return f"invalid combined profile: {exc}"
     if state.get("scope") == "power_action":
         bits.append("board/policy requests and pin intent, manual Undo only")
     if state.get("scope") == "tuning_action":

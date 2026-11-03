@@ -109,6 +109,9 @@ class UiCapture:
                     if dpg.does_item_exist(tag):
                         self.snapshot.setdefault("current_values", {})[tag] = dpg.get_value(tag)
                 self.stages.extend(self.current_cases)
+            if dpg.does_item_exist("win_combine") and callable(getattr(app, "open_combine_profiles", None)):
+                self.snapshot["combine_shown"] = dpg.get_item_configuration("win_combine")["show"]
+                self.stages.append("combined-profiles")
             self.stages.append("restored-display")
             self.stage = 0
             self._save()
@@ -122,6 +125,8 @@ class UiCapture:
         if self.snapshot is None:
             return
         dpg, saved = self.dpg, self.snapshot
+        if "combine_shown" in saved:
+            dpg.configure_item("win_combine", show=saved["combine_shown"])
         dpg.set_value("ctl_clocks", saved["clocks"])
         if self.panel:
             for kind in ("rel", "constants"):
@@ -223,6 +228,9 @@ class UiCapture:
 
     def _stage(self, name):
         dpg = self.dpg
+        if name == "combined-profiles":
+            self.app.open_combine_profiles()
+            return True
         if name == "live-prepare":
             if not self._prepare_live():
                 return self._stage(self.stages[self.stage])

@@ -44,6 +44,13 @@ class StartupRecovery(unittest.TestCase):
         saved = startup.read_json(manager.config_path)
         self.assertEqual(saved["profile"]["vf_deltas"], {"0": 0})
 
+    def test_combined_profile_cannot_register_for_startup(self):
+        manager, _ = self.manager()
+        with self.assertRaisesRegex(ValueError, "manual loading"):
+            manager.enable("combined", {"schema": 2, "scope": "combined"})
+        self.registrar.assert_not_called()
+        self.assertFalse(manager.config_path.exists())
+
     def test_normal_exit_and_clean_windows_boot_allow_one_attempt(self):
         self.enable()
         self.boot["id"] = "boot-2"
