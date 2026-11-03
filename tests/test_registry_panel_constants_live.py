@@ -3,7 +3,7 @@
 import copy
 import sys
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import ANY, Mock
 
 import dearpygui.dearpygui as dpg
 import pytest
@@ -63,7 +63,7 @@ def test_apply_and_restore_are_per_role_and_preserve_fractional_mv(view):
     control.set.return_value = changed
     dpg.set_value("reg_constants_live_value", "20.123")
     panel.apply_constants_live()
-    control.set.assert_called_once_with(0, "ALT", 20123)
+    control.set.assert_called_once_with(0, "ALT", 20123, before_write=ANY)
     assert enabled("reg_constants_live_restore")
     control.set.return_value = snapshot()
     panel.restore_constants_live()

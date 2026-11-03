@@ -8,7 +8,7 @@ from decimal import Decimal, InvalidOperation
 import dearpygui.dearpygui as dpg
 
 from . import registry_overrides as overrides
-from . import vbios_fields
+from . import profiles, vbios_fields
 from .perf_diagnostics import PerfDiagnosticsReader
 from .voltage_request_gate import VoltageRequestGate
 
@@ -177,6 +177,7 @@ class RegistryPanel:
             )
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Read voltage-request gate", callback=self.refresh_voltage_gate)
+                dpg.add_button(label="Save gate profile", callback=self.app.open_save_profile, user_data="gate")
                 dpg.add_checkbox(label="Allow voltage requests", tag="reg_voltage_gate_value", enabled=False)
                 dpg.add_button(
                     label="Apply gate now",
@@ -240,6 +241,7 @@ class RegistryPanel:
             )
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Read", callback=self.refresh_rel_live)
+                dpg.add_button(label="Save bounds profile", callback=self.app.open_save_profile, user_data="rel_bounds")
                 dpg.add_combo(
                     [], tag="reg_rel_live_select", width=self.app.s(220), enabled=False, callback=self.select_rel_live
                 )
@@ -273,6 +275,7 @@ class RegistryPanel:
             )
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Read", callback=self.refresh_constants_live)
+                dpg.add_button(label="Save constants profile", callback=self.app.open_save_profile, user_data="constants")
                 dpg.add_combo([], tag="reg_constants_live_select", width=self.app.s(240), enabled=False,
                               callback=self.select_constants_live)
                 dpg.add_input_text(label="Value (mV)", tag="reg_constants_live_value",
@@ -294,6 +297,7 @@ class RegistryPanel:
             )
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Read device delays", callback=self.refresh_voltage_devices)
+                dpg.add_button(label="Save delays profile", callback=self.app.open_save_profile, user_data="switch_delay")
                 dpg.add_combo(
                     [],
                     tag="reg_volt_device_select",
@@ -481,6 +485,15 @@ class RegistryPanel:
             else:
                 self._constants_live_failed(message)
 
+    def _voltage_undo_callback(self, kind, selection=None):
+        def save(snapshot):
+            state = profiles.capture_voltage_controls(self.app.gpu, kind, snapshot=snapshot, selection=selection)
+            name, _, missing = profiles.autosave_state(f"voltage-{kind}", state)
+            if missing:
+                raise ValueError("could not capture a complete voltage-control undo point")
+            self.app.log(f"Undo point saved as '{name}'", None)
+        return save
+
     def _set_constants_live(self, value):
         if not self.app.guard():
             return
@@ -491,7 +504,10 @@ class RegistryPanel:
             self._constants_live_failed("Read live values for the selected adapter first.")
             return
         try:
-            self._show_constants_live(self.constants_live_control.set(row["rail"], row["role"], value), "Applied live. ")
+            self._show_constants_live(self.constants_live_control.set(
+                row["rail"], row["role"], value,
+                before_write=self._voltage_undo_callback("constants", (row["rail"], row["role"])),
+            ), "Applied live. ")
             self.app.log("Live voltage value applied.", True)
         except Exception as exc:
             message = "Live value change failed: " + str(exc)
@@ -637,11 +653,14 @@ class RegistryPanel:
             return
         try:
             if operation == "fixed":
-                snapshot = self.rel_live_control.set_fixed(row["rail"], value)
+                snapshot = self.rel_live_control.set_fixed(
+                    row["rail"], value, before_write=self._voltage_undo_callback("rel_bounds", (row["rail"], "bounds")))
             elif operation == "restore_bounds":
-                snapshot = self.rel_live_control.restore_bounds(row["rail"])
+                snapshot = self.rel_live_control.restore_bounds(
+                    row["rail"], before_write=self._voltage_undo_callback("rel_bounds", (row["rail"], "bounds")))
             else:
-                snapshot = self.rel_live_control.set(row["rail"], value)
+                snapshot = self.rel_live_control.set(
+                    row["rail"], value, before_write=self._voltage_undo_callback("rel_bounds", (row["rail"], "upper")))
             self._show_rel_live(snapshot, "Applied live. ")
             self.app.log("Live REL equation bounds applied.", True)
         except Exception as exc:
@@ -777,6 +796,7 @@ class RegistryPanel:
                 value,
                 voltage_domain=row["voltage_domain"],
                 operation_type=row["operation_type"],
+                before_write=self._voltage_undo_callback("switch_delay", row["index"]),
             )
             self._show_voltage_devices(snapshot, "Applied live. ")
             self.app.log(f"Applied device {row['index']} switch-delay request: {value} us.", True)
@@ -926,7 +946,10 @@ class RegistryPanel:
             self._voltage_gate_failed("Read the selected adapter's gate before changing it.")
             return
         try:
-            result = self.voltage_gate.set_enabled(value, expected=self.voltage_gate_snapshot["enabled"])
+            result = self.voltage_gate.set_enabled(
+                value, expected=self.voltage_gate_snapshot["enabled"],
+                before_write=self._voltage_undo_callback("gate"),
+            )
             self._show_voltage_gate(result["readback"], "Applied and verified without a GPU restart. ")
             self.app.log("Voltage-request gate applied and verified.", True)
         except Exception as exc:

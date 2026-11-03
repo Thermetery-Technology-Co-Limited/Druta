@@ -196,7 +196,7 @@ class VoltageConstantsController:
                     last = VoltageConstantsLiveError("transient", str(exc))
             raise last
 
-    def set(self, rail, role, wanted_uv):
+    def set(self, rail, role, wanted_uv, *, before_write=None):
         if type(rail) is not int or rail not in (0, 1) or role not in ("ALT", "OV", "VMIN"):
             raise VoltageConstantsLiveError("malformed", "Select an understood voltage rail and constant role")
         try:
@@ -235,6 +235,8 @@ class VoltageConstantsController:
                     }
                 if wanted_uv == binding["current"]:
                     return self._summary(before)
+                if before_write is not None:
+                    before_write(self._summary(before))
                 equations.write_constants(self.gpu, native, on_attempt=entered)
                 active = self._capture_retry()
                 if role == "VMIN":

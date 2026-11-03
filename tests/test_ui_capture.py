@@ -200,6 +200,7 @@ def test_live_reads_selection_invalid_and_restoration_are_display_only(tmp_path,
                       reg_constants_live_value="", reg_rel_live_status="", reg_constants_live_status="")
     monkeypatch.setattr(registry_panel, "dpg", dpg)
     panel = registry_panel.RegistryPanel(application)
+    panel._voltage_undo_callback = Mock(return_value=Mock())
     panel.rel_live_choices = {}
     panel.constants_live_choices = {}
     panel._set_rel_live = Mock()
@@ -296,7 +297,9 @@ def live_panel(monkeypatch, *, maximum=900000, fail_apply=False, offset=0):
                               "maximum_uv": maximum, "equation": 9}]}
         def read(self):
             return self._summary(self._capture())
-        def set(self, rail, role, value):
+        def set(self, rail, role, value, *, before_write=None):
+            if before_write is not None and value != self.value:
+                before_write(self.read())
             self.calls.append(value)
             self.value = value
             if fail_apply and value == 805000:
@@ -304,6 +307,7 @@ def live_panel(monkeypatch, *, maximum=900000, fail_apply=False, offset=0):
             return self.read()
     monkeypatch.setattr(voltage_constants_live, "VoltageConstantsController", Control)
     panel = registry_panel.RegistryPanel(application)
+    panel._voltage_undo_callback = Mock(return_value=Mock())
     panel.rel_live_choices = {}
     application._registry_panel = panel
     return dpg, application, panel
@@ -373,11 +377,11 @@ def test_live_vmin_capture_reports_failed_restoration(tmp_path, monkeypatch):
     capture = LiveVminCapture(dpg, application, tmp_path / "new")
     control = panel.constants_live_control
     original_set = control.set
-    def failing_restore(rail, role, value):
+    def failing_restore(rail, role, value, *, before_write=None):
         if value == 800000:
             control.calls.append(value)
             raise RuntimeError("injected restore failure")
-        return original_set(rail, role, value)
+        return original_set(rail, role, value, before_write=before_write)
     control.set = failing_restore
     run(capture, dpg)
     assert control.calls == [805000, 800000]

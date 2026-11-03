@@ -29,6 +29,22 @@ succeed before these writes proceed, and an unchanged field creates no undo poin
 Boost, clocks, gate state and unrelated requests are preserved. VCRIT values are
 stored requests; their effective thresholds remain unverified.
 
+### Manual voltage-control profiles
+
+The voltage gate, live REL bounds, live constants and switch-delay sections each
+have a **Save ... profile** button. It captures the available controls in that
+section for manual loading from **Profiles**. These profiles do not enable other
+sections or load at startup or after a GPU reset.
+
+Applying or restoring one of these controls saves its previous selected values
+for **Undo last write**. An upper-bound edit saves only the upper bound; a
+both-bounds edit saves the pair. Constants and delays save only the selected
+rail/role or device. A profile load saves the fields it will change first.
+If a later write fails, the log identifies it and remaining writes stop; Undo
+can restore the captured pre-load values. Driver-reported values still have to
+pass each control's existing verification. Not every whole-microvolt value is
+accepted, and these requests are not physical voltage or latency measurements.
+
 ### Ordinary tune profiles
 
 **Profiles > Save profile** captures the applied curve, clocks, power, fan policy,

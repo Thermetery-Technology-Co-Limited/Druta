@@ -10371,6 +10371,8 @@ deliberately does not put behind a button."""
         try:
             if getattr(self, "_profile_save_scope", None) == "voltage_requests":
                 state = profiles.capture_voltage_requests(self.gpu)
+            elif getattr(self, "_profile_save_scope", None) == "voltage_controls":
+                state = profiles.capture_voltage_controls(self.gpu, self._profile_save_kind)
             else:
                 state = profiles.capture(self.gpu, self.rail)
             path = profiles.save(name, state)
@@ -10387,9 +10389,14 @@ deliberately does not put behind a button."""
         if not self.profile_capture_ready():
             return
         self._profile_save_scope = "voltage_requests" if user_data == "voltage_requests" else None
+        self._profile_save_kind = None
+        if user_data in ("gate", "rel_bounds", "constants", "switch_delay"):
+            self._profile_save_scope = "voltage_controls"
+            self._profile_save_kind = user_data
         if dpg.does_item_exist("prof_save_description"):
             dpg.configure_item("prof_save_description", show=self._profile_save_scope is None)
-            dpg.configure_item("prof_save_requests_description", show=self._profile_save_scope is not None)
+            dpg.configure_item("prof_save_requests_description", show=self._profile_save_scope == "voltage_requests")
+            dpg.configure_item("prof_save_controls_description", show=self._profile_save_scope == "voltage_controls")
         # seeded with a timestamp so the box is never empty: profiles are
         # slugged onto disk by name, so an unnamed one would be "unnamed.json"
         # and the next save would silently overwrite it
@@ -10489,7 +10496,7 @@ deliberately does not put behind a button."""
                         dpg.add_button(label="Load", tag=tag, width=-1,
                                        user_data=name,
                                        callback=lambda s, a, u: self.load_profile(u))
-                        if not is_auto and state.get("scope") != "voltage_requests":
+                        if not is_auto and state.get("scope") not in ("voltage_requests", "voltage_controls"):
                             dpg.add_button(label="Load at startup", width=-1,
                                            user_data=name,
                                            callback=lambda s, a, u: self.set_startup_profile(u))
@@ -10561,7 +10568,7 @@ deliberately does not put behind a button."""
         self.begin_profile_load(name, state)
 
     def begin_profile_load(self, name, state, automatic=False):
-        if state.get("scope") == "voltage_requests":
+        if state.get("scope") in ("voltage_requests", "voltage_controls"):
             self.begin_voltage_request_profile_load(name, state, automatic)
             return
         if not self.guard() or self._i2c_busy:
@@ -10646,7 +10653,9 @@ deliberately does not put behind a button."""
             self.profile_failure(error)
             return
         try:
-            undo_name, _, missing = profiles.autosave_voltage_requests(self.gpu, f"load-{name}"[:40], state)
+            capture = (profiles.autosave_voltage_controls if state.get("scope") == "voltage_controls"
+                       else profiles.autosave_voltage_requests)
+            undo_name, _, missing = capture(self.gpu, f"load-{name}"[:40], state)
             if missing:
                 raise ValueError("could not capture a complete voltage-request undo point")
         except Exception as exc:
@@ -10689,12 +10698,12 @@ deliberately does not put behind a button."""
         self.refresh_profile_list()
 
     def finish_profile_load(self, name, state, automatic=False):
-        if automatic and state.get("scope") == "voltage_requests":
+        if automatic and state.get("scope") in ("voltage_requests", "voltage_controls"):
             self.profile_failure("voltage-request profiles require manual loading", True)
             return
         self._profile_applying = True
         try:
-            if state.get("scope") == "voltage_requests":
+            if state.get("scope") in ("voltage_requests", "voltage_controls"):
                 results = profiles.restore(self.gpu, state)
             else:
                 results = profiles.restore(self.gpu, state, rail=self.rail,
@@ -10703,16 +10712,25 @@ deliberately does not put behind a button."""
             results = [(False, f"profile restore failed: {e}")]
         finally:
             self._profile_applying = False
-        if state.get("scope") == "voltage_requests":
+        if state.get("scope") in ("voltage_requests", "voltage_controls"):
             for ok, msg in results:
                 self.log(msg, ok)
             if any(not ok for ok, _ in results):
                 self.profile_failure("one or more voltage requests failed; see the per-field results")
             else:
                 self.log(f"profile '{name}' applied", True)
-            panel = getattr(getattr(self, "_registry_panel", None), "voltage_requests_panel", None)
-            if panel is not None:
-                panel.refresh()
+            registry_panel = getattr(self, "_registry_panel", None)
+            if state.get("scope") == "voltage_controls":
+                refresh = {
+                    "gate": "refresh_voltage_gate", "rel_bounds": "refresh_rel_live",
+                    "constants": "refresh_constants_live", "switch_delay": "refresh_voltage_devices",
+                }.get(state.get("voltage_controls", {}).get("kind"))
+                if registry_panel is not None and refresh:
+                    getattr(registry_panel, refresh)()
+            else:
+                panel = getattr(registry_panel, "voltage_requests_panel", None)
+                if panel is not None:
+                    panel.refresh()
             self.refresh_profile_list()
             return
         if getattr(self.rail, "current_dac", False):
@@ -10781,7 +10799,7 @@ deliberately does not put behind a button."""
             if manager is None:
                 raise ValueError("startup manager is unavailable")
             state = profiles.load(name)
-            if state.get("scope") == "voltage_requests":
+            if state.get("scope") in ("voltage_requests", "voltage_controls"):
                 raise ValueError("voltage-request profiles require manual loading")
             error = profiles.preflight(self.gpu, state, self.rail_for_profile(state))
             error = error or profiles.strict_device_error(state, self.gpu)
@@ -11205,6 +11223,10 @@ deliberately does not put behind a button."""
                          "other settings are unchanged. VCRIT effective thresholds remain unverified. "
                          "Startup and post-reset application are disabled for these profiles.",
                          tag="prof_save_requests_description", show=False, color=DIM, wrap=self.s(520))
+            dpg.add_text("Saves the available values in this voltage-control section. "
+                         "Load manually from Profiles; these settings are never applied at startup "
+                         "or after a GPU reset. Saved values are control requests, not measured voltage or latency.",
+                         tag="prof_save_controls_description", show=False, color=DIM, wrap=self.s(520))
             dpg.add_spacer(height=self.s(6))
             # on_enter as well as the button: this box is a name prompt, and
             # Enter is what a name prompt is expected to take. typing() names

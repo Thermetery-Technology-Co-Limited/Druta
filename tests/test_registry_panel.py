@@ -3,7 +3,7 @@
 import copy
 import threading
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import ANY, Mock
 
 import dearpygui.dearpygui as dpg
 import pytest
@@ -57,6 +57,7 @@ def harness(monkeypatch):
         gpu=SimpleNamespace(slot=lambda: "0000:09:03.0"),
         s=lambda value: value,
         log=Mock(),
+        open_save_profile=Mock(),
         _closing=False,
         _stop=threading.Event(),
     )
@@ -215,7 +216,7 @@ def gate_reader(h, monkeypatch, initial=True):
     }
     reader = SimpleNamespace(gpu=h.app.gpu, read=Mock(return_value=copy.deepcopy(snapshot)))
 
-    def change(value, *, expected):
+    def change(value, *, expected, before_write):
         assert expected is snapshot["enabled"]
         snapshot["enabled"] = value
         reader.read.return_value = copy.deepcopy(snapshot)
@@ -237,13 +238,13 @@ def test_voltage_gate_read_apply_and_restore_initial(harness, monkeypatch):
     reader.set_enabled.assert_not_called()
     dpg.set_value("reg_voltage_gate_value", False)
     h.panel.apply_voltage_gate()
-    reader.set_enabled.assert_called_once_with(False, expected=True)
+    reader.set_enabled.assert_called_once_with(False, expected=True, before_write=ANY)
     assert enabled("reg_voltage_gate_restore")
     h.panel.refresh_voltage_gate()
     assert h.panel.voltage_gate_initial is True
     h.panel.restore_voltage_gate()
     assert reader.set_enabled.call_args.args == (True,)
-    assert reader.set_enabled.call_args.kwargs == {"expected": False}
+    assert reader.set_enabled.call_args.kwargs == {"expected": False, "before_write": ANY}
     assert not enabled("reg_voltage_gate_restore")
     assert "without a GPU restart" in dpg.get_value("reg_voltage_gate_status")
     factory.assert_called_once_with(h.app.gpu)
@@ -1349,3 +1350,35 @@ def test_read_only_numeric_fields_keep_display_units(harness):
     assert "325.0" in texts
     assert "Board maximum (W)" in texts
     assert "325000.0" not in texts
+
+
+@pytest.mark.parametrize("kind,selection", [
+    ("gate", None), ("rel_bounds", (1, "bounds")),
+    ("constants", (0, "ALT")), ("switch_delay", 5),
+])
+def test_voltage_undo_callback_saves_selected_fresh_snapshot(monkeypatch, kind, selection):
+    app = SimpleNamespace(gpu=object(), log=Mock())
+    panel = panel_module.RegistryPanel(app)
+    snapshot = {"fresh": object()}
+    state = {"captured": True}
+    capture = Mock(return_value=state)
+    save = Mock(return_value=("undo", "path", []))
+    monkeypatch.setattr(panel_module.profiles, "capture_voltage_controls", capture, raising=False)
+    monkeypatch.setattr(panel_module.profiles, "autosave_state", save)
+    panel._voltage_undo_callback(kind, selection)(snapshot)
+    capture.assert_called_once_with(app.gpu, kind, snapshot=snapshot, selection=selection)
+    save.assert_called_once_with(f"voltage-{kind}", state)
+
+
+def test_failed_voltage_undo_prevents_hooked_write(monkeypatch):
+    app = SimpleNamespace(gpu=object(), log=Mock())
+    panel = panel_module.RegistryPanel(app)
+    monkeypatch.setattr(panel_module.profiles, "capture_voltage_controls", Mock(return_value={}), raising=False)
+    monkeypatch.setattr(panel_module.profiles, "autosave_state", Mock(side_effect=OSError("disk full")))
+    writes = []
+    def setter(*, before_write):
+        before_write({"fresh": True})
+        writes.append(True)
+    with pytest.raises(OSError, match="disk full"):
+        setter(before_write=panel._voltage_undo_callback("gate"))
+    assert not writes

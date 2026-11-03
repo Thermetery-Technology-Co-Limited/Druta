@@ -166,3 +166,19 @@ def test_second_rail_can_be_fixed_independently(monkeypatch):
     assert summary["rows"][0]["fixed_status"] == "unsupported"
     assert summary["rows"][1]["fixed_status"] == "ready"
     assert summary["rows"][1]["lower_uv"] == 1050000 and writes == [False]
+
+
+def test_exact_bounds_callback_and_failure_before_write(bounds):
+    c = bounds.controller
+    prior = c.read()
+    captured = []
+    row = c.set_bounds(0, 950000, 1100000, before_write=captured.append)["rows"][0]
+    assert captured == [prior]
+    assert (row["lower_uv"], row["upper_uv"]) == (950000, 1100000)
+    c.set_bounds(0, 950000, 1100000, before_write=lambda _: pytest.fail("no-op callback"))
+    with pytest.raises(live.VoltageRelLiveError, match="callback failed"):
+        c.set_bounds(0, 960000, 1100000, before_write=lambda _: (_ for _ in ()).throw(ValueError("callback failed")))
+    assert bounds.calls == [False]
+    with pytest.raises(live.VoltageRelLiveError):
+        c.set_bounds(0, 1200000, 1100000)
+    assert bounds.calls == [False]

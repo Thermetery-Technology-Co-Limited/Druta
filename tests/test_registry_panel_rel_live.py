@@ -2,7 +2,7 @@
 
 import sys
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import ANY, Mock
 
 import dearpygui.dearpygui as dpg
 import pytest
@@ -122,7 +122,7 @@ def test_fractional_input_apply_and_restore_initial(view):
     controller.set.return_value = updated
     dpg.set_value("reg_rel_live_value", "1035.123")
     panel.apply_rel_live()
-    controller.set.assert_called_once_with(0, 1035123)
+    controller.set.assert_called_once_with(0, 1035123, before_write=ANY)
     assert enabled("reg_rel_live_restore")
     controller.set.return_value = snapshot()
     panel.restore_rel_live()
@@ -194,7 +194,7 @@ def test_fixed_bounds_and_bios_restore_use_distinct_actions(view):
     controller.set_fixed.return_value = updated
     dpg.set_value("reg_rel_live_value", "1045")
     panel.fix_rel_live()
-    controller.set_fixed.assert_called_once_with(0, 1045000)
+    controller.set_fixed.assert_called_once_with(0, 1045000, before_write=ANY)
     controller.set.assert_not_called()
     assert enabled("reg_rel_live_restore_bounds")
     inventory = dpg.get_value("reg_rel_live_inventory")
@@ -202,7 +202,7 @@ def test_fixed_bounds_and_bios_restore_use_distinct_actions(view):
     assert "stored bounds 900 to 1120 mV" in inventory
     controller.restore_bounds.return_value = snapshot()
     panel.restore_rel_live_bounds()
-    controller.restore_bounds.assert_called_once_with(0)
+    controller.restore_bounds.assert_called_once_with(0, before_write=ANY)
     assert not enabled("reg_rel_live_restore_bounds")
 
 

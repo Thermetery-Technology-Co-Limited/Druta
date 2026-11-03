@@ -314,3 +314,19 @@ def test_vmin_peer_mismatch_attempts_one_restore(vmin_scenario, monkeypatch):
     with pytest.raises(live.VoltageConstantsLiveError) as exc:
         s.controller.set(s.rail, "VMIN", 805000)
     assert exc.value.attempted and exc.value.rollback["verified"] and s.calls == [False, True]
+
+
+def test_before_write_callback_receives_prior_and_can_abort(scenario):
+    c, role = scenario.controller, scenario.role
+    prior = c.read()
+    value = row(prior, role)["value_uv"]
+    c.set(0, role, value, before_write=lambda _: pytest.fail("no-op callback"))
+    captured = []
+    with pytest.raises(live.VoltageConstantsLiveError, match="callback failed"):
+        def fail(summary):
+            captured.append(summary)
+            raise ValueError("callback failed")
+        c.set(0, role, value - 5000, before_write=fail)
+    assert captured == [prior] and not scenario.calls
+    c.set(0, role, value - 5000, before_write=captured.append)
+    assert captured == [prior, prior] and scenario.calls == [False]

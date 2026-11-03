@@ -214,19 +214,27 @@ class VoltageRelController:
                     last = VoltageRelLiveError("transient", str(exc))
             raise last
 
-    def set(self, rail, wanted_uv):
+    def set(self, rail, wanted_uv, *, before_write=None):
         """Change the loaded upper bound."""
-        return self._set_bounds(rail, wanted_uv, mode="upper")
+        return self._set_bounds(rail, wanted_uv, mode="upper", before_write=before_write)
 
-    def set_fixed(self, rail, wanted_uv):
+    def set_fixed(self, rail, wanted_uv, *, before_write=None):
         """Set both loaded bounds to the requested whole-microvolt value."""
-        return self._set_bounds(rail, wanted_uv, mode="fixed")
+        return self._set_bounds(rail, wanted_uv, mode="fixed", before_write=before_write)
 
-    def restore_bounds(self, rail):
+    def restore_bounds(self, rail, *, before_write=None):
         """Restore both loaded bounds to the current ROM definition."""
-        return self._set_bounds(rail, None, mode="restore")
+        return self._set_bounds(rail, None, mode="restore", before_write=before_write)
 
-    def _set_bounds(self, rail, wanted_uv, *, mode):
+    def set_bounds(self, rail, lower_uv, upper_uv, *, before_write=None):
+        """Set an exact pair of loaded bounds on the current REL graph."""
+        try:
+            equations._clamp_uv(lower_uv)
+        except (TypeError, ValueError, RuntimeError) as exc:
+            raise VoltageRelLiveError("malformed", str(exc)) from exc
+        return self._set_bounds(rail, upper_uv, mode="bounds", lower_uv=lower_uv, before_write=before_write)
+
+    def _set_bounds(self, rail, wanted_uv, *, mode, lower_uv=None, before_write=None):
         """Write once, verify requests, and compensate once after dispatched errors."""
         if type(rail) is not int or rail not in (0, 1):
             raise VoltageRelLiveError("malformed", "Select an understood REL rail")
@@ -248,9 +256,12 @@ class VoltageRelController:
                 field = next(field for field in before["inspection"]["fields"] if field["key"] == key)
                 binding, stored_upper = _loaded_binding(field, before["voltage"])
                 current = binding["upper_clamp_binding"]
-                if mode == "restore":
-                    wanted_uv = stored_upper
-                    wanted_lower = field["upper_clamp_binding"]["lower_uv"]
+                if mode in ("restore", "bounds"):
+                    if mode == "restore":
+                        wanted_uv = stored_upper
+                        wanted_lower = field["upper_clamp_binding"]["lower_uv"]
+                    else:
+                        wanted_lower = lower_uv
                     # Apply the same policy and affected-root prerequisites as a fixed edit.
                     rel._derive(before["voltage"], {key: binding}, {key: wanted_uv})
                     selections = {key: {**current, "after_uv": wanted_uv, "after_lower_uv": wanted_lower}}
@@ -267,14 +278,16 @@ class VoltageRelController:
                     "after": after,
                     "native": rel._native_reference(native),
                 }
-                if mode != "restore":
+                if mode not in ("restore", "bounds"):
                     rel.validate_contracts({key: wanted_uv}, saved)
                 if wanted_uv == binding["current"] and wanted_lower == current["lower_uv"]:
                     return self._summary(before)
+                if before_write is not None:
+                    before_write(self._summary(before))
                 writer = equations.write_upper_clamps if mode == "upper" else equations.write_voltage_bounds
                 writer(self.gpu, native, on_attempt=entered)
                 active = self._capture_retry()
-                if mode == "restore":
+                if mode in ("restore", "bounds"):
                     _verify_restored_bounds(active["voltage"], saved, native)
                 else:
                     rel.verify(active["voltage"], saved)
@@ -298,7 +311,7 @@ class VoltageRelController:
                 for number in range(8):
                     try:
                         final = self._capture()
-                        if mode == "restore":
+                        if mode in ("restore", "bounds"):
                             _verify_restored_bounds(final["voltage"], saved, native, restore=True)
                         else:
                             rel.verify(final["voltage"], saved, restore=True)

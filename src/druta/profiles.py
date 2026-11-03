@@ -68,7 +68,10 @@ def incomplete(state):
     miss = list(state.get(INCOMPLETE_KEY) or [])
     if state.get("scope") is not None:
         try:
-            if state.get("scope") == "voltage_requests":
+            if state.get("scope") == "voltage_controls":
+                from . import voltage_control_profiles
+                voltage_control_profiles.validate(state)
+            elif state.get("scope") == "voltage_requests":
                 from . import voltage_request_profiles
                 voltage_request_profiles.validate(state)
             else:
@@ -329,6 +332,66 @@ def capture_voltage_requests(gpu, *, snapshot=None, selection=None):
     if error:
         raise ValueError(error)
     return state
+
+
+def capture_voltage_controls(gpu, kind, *, snapshot=None, selection=None):
+    """Capture only one explicitly selected family of live voltage controls."""
+    from . import voltage_control_profiles as scoped
+    now = time.time()
+    state = {"schema": SCHEMA, "scope": "voltage_controls",
+             "saved_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)),
+             "saved_ts": now, "device": {key: gpu.static.get(key)
+                 for key in ("name", "vbios", "driver", "uuid", "slot")},
+             INCOMPLETE_KEY: []}
+    if snapshot is None:
+        snapshot = scoped.controller(gpu, kind).read()
+    state["voltage_controls"] = scoped.capture(snapshot, kind, selection)
+    scoped.validate(state)
+    error = voltage_controls_device_error(state, gpu)
+    if error:
+        raise ValueError(error)
+    return state
+
+
+def voltage_controls_device_error(state, gpu):
+    device = state.get("device")
+    if not isinstance(device, dict):
+        return "voltage control profile has invalid device metadata"
+    saved_uuid, current_uuid = device.get("uuid"), gpu.static.get("uuid")
+    if saved_uuid and current_uuid and saved_uuid != current_uuid:
+        return "voltage control profile belongs to a different GPU UUID"
+    try:
+        slot = gpu.slot()
+        native_slot = state["voltage_controls"]["identity"]["slot"]
+    except (AttributeError, KeyError, TypeError):
+        return "voltage control profile has no valid selected adapter slot"
+    if not slot or slot != native_slot:
+        return "voltage control profile belongs to a different adapter slot"
+    return None
+
+
+def autosave_voltage_controls(gpu, action, template):
+    """Capture exactly the fields a scoped profile is about to change."""
+    from . import voltage_control_profiles as scoped
+    target = scoped.validate(template)
+    ctl = scoped.controller(gpu, target["kind"])
+    snapshot = ctl.read()
+    scoped.check_live(target, snapshot)
+    rows = []
+    first_selection = None
+    for row in target["rows"]:
+        kind = target["kind"]
+        selection = ((row["rail"], "bounds" if "lower_uv" in row else "upper")
+                     if kind == "rel_bounds" else
+                     (row["rail"], row["role"]) if kind == "constants" else
+                     row["index"] if kind == "switch_delay" else None)
+        if not rows:
+            first_selection = selection
+        rows.extend(scoped.capture(snapshot, kind, selection)["rows"])
+    state = capture_voltage_controls(gpu, target["kind"], snapshot=snapshot, selection=first_selection)
+    state["voltage_controls"]["rows"] = rows
+    scoped.validate(state)
+    return autosave_state(action, state)
 
 
 def voltage_requests_device_error(state, gpu):
@@ -910,6 +973,16 @@ def preflight(gpu, state, rail=None, *, apply_curve=True):
             or state.get("schema", 1) not in (1, SCHEMA)):
         return "unsupported profile format"
     try:
+        if state.get("scope") == "voltage_controls":
+            from . import voltage_control_profiles as scoped
+            data = scoped.validate(state)
+            if state.get(INCOMPLETE_KEY):
+                raise ValueError("voltage control snapshot is incomplete")
+            error = voltage_controls_device_error(state, gpu)
+            if error:
+                return error
+            scoped.check_live(data, scoped.controller(gpu, data["kind"]).read())
+            return None
         if state.get("scope") == "voltage_requests":
             from . import voltage_request_profiles as scoped, voltage_requests_live as live
             data = scoped.validate(state)
@@ -1208,6 +1281,10 @@ def _restore_validated(gpu, state, apply_curve, rail, results, *, i2c_verified):
         results.append((ok, msg))
         return ok
 
+    if state.get("scope") == "voltage_controls":
+        from . import voltage_control_profiles as scoped
+        return scoped.restore(gpu, scoped.validate(state))
+
     if state.get("scope") == "voltage_requests":
         from . import voltage_request_profiles as scoped
         return scoped.restore(gpu, scoped.validate(state))
@@ -1369,6 +1446,13 @@ def _restore_validated(gpu, state, apply_curve, rail, results, *, i2c_verified):
 def summarize(state):
     """One-line description for a menu row or a confirmation banner."""
     bits = []
+    if state.get("scope") == "voltage_controls":
+        from . import voltage_control_profiles as scoped
+        try:
+            data = scoped.validate(state)
+            bits.append(f"voltage {data['kind']}: {len(data['rows'])} row(s), manual apply only")
+        except ValueError as exc:
+            bits.append(f"invalid voltage controls: {exc}")
     if state.get("scope") == "voltage_requests":
         from . import voltage_request_profiles as scoped
         try:

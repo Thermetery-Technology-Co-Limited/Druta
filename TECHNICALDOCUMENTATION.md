@@ -2351,6 +2351,27 @@ request metadata matched the expected values. No workload or physical voltage
 measurement was performed. VCRIT qualification remains stored-request-only.
 [Scoped profile evidence](experiments/voltage-request-profiles-20261102.json).
 
+### Manual profiles for other verified voltage controls
+
+The `voltage_controls` scope stores one control family: the admission Boolean,
+REL bounds, typed ALT/OV/VMIN constants, or PWM switch-delay requests. It retains
+adapter identity and the selected rail/equation or device/domain/operation
+identity, without serializing opaque native packets. Descriptive driver and
+VBIOS labels do not gate loading. Each existing controller captures its fresh
+pre-write state through a callback under the GPU lock; a failed undo save aborts
+before dispatch. No-op requests create no undo point.
+
+Upper-only REL edits preserve the current lower bound during Undo; edits to both
+bounds restore the exact pair through the existing native bounds writer. Named
+profiles include independently ready controls, including upper-only REL support.
+Manual loading preflights typed values and all identities, saves only affected
+fields, and stops on the first failed write with per-control results. Each setter
+retains its existing live policy validation and compensating write behavior.
+The UI blocks automatic application and startup selection of this scope.
+
+Hardware round-trip evidence and limitations are recorded in
+[voltage-control profile qualification](experiments/voltage-control-profiles-20261102.json).
+
 ### Additional live profiler controls
 
 **Live engine clock gating** adds a separate session-owned ELCG Hold disabled /
