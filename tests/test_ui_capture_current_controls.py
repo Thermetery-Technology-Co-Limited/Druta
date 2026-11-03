@@ -37,6 +37,9 @@ def test_current_control_frames_use_readbacks_and_restore_display(tmp_path):
                 dpg.values.update({tag: 'driver readback' for tag in pending_rails})
             elif _name == 'request-gate':
                 dpg.values['reg_voltage_gate_value'] = False
+            elif _name == 'vf-policies':
+                dpg.values['reg_vf_live_monotonicity'] = True
+                dpg.values['reg_vf_live_smoothening'] = False
         setattr(target, method, Mock(side_effect=read))
         for writer in ('hold', 'enable', 'apply', 'release'):
             setattr(target, writer, Mock(side_effect=AssertionError('writer invoked')))
@@ -46,6 +49,8 @@ def test_current_control_frames_use_readbacks_and_restore_display(tmp_path):
         dpg.values[f'individual_power_gating_{index}_status'] = 'not read'
         dpg.values[f'individual_power_gating_{index}_readback'] = ''
     dpg.values['reg_voltage_gate_value'] = True
+    dpg.values['reg_vf_live_monotonicity'] = False
+    dpg.values['reg_vf_live_smoothening'] = True
     panel.voltage_requests_panel.select = Mock(
         side_effect=lambda: dpg.values.update({tag: 'selected readback' for tag in pending_rails}))
     panel.voltage_requests_panel.choices = {"original rail": 0}
@@ -61,8 +66,9 @@ def test_current_control_frames_use_readbacks_and_restore_display(tmp_path):
         capture.tick()
     assert capture.manifest['state'] == 'complete'
     cases = {item['stage']: item for item in capture.manifest['captures'] if item['stage'].startswith('current-')}
-    assert len(cases) == 17
+    assert len(cases) == 18
     expected = {
+        'current-vf-policies': ('reg_vf_live_header', 'reg_vf_live_monotonicity'),
         'current-rail-requests': ('voltage_requests_header', 'voltage_requests_inventory'),
         'current-request-gate': ('reg_voltage_gate_header', 'reg_voltage_gate_value'),
         'current-elpg': ('reg_gr_gating_live_header', 'gr_gating_live_readback'),
@@ -98,6 +104,8 @@ def test_current_control_frames_use_readbacks_and_restore_display(tmp_path):
     assert dpg.values['voltage_requests_select'] == 'original rail'
     assert dpg.values['gr_idle_threshold_value'] == 'original threshold'
     assert dpg.values['reg_voltage_gate_value'] is True
+    assert dpg.values['reg_vf_live_monotonicity'] is False
+    assert dpg.values['reg_vf_live_smoothening'] is True
     assert {tag: dpg.values[tag] for tag in pending_rails} == pending_rails
     assert all(dpg.values[header] is False for _, header, *_ in _CURRENT_CONTROLS)
 

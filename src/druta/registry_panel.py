@@ -194,7 +194,7 @@ class RegistryPanel:
             dpg.add_text(
                 "Read the current gate before changing it.", tag="reg_voltage_gate_status", wrap=self.app.s(900)
             )
-        with dpg.collapsing_header(label="Runtime VF policy control"):
+        with dpg.collapsing_header(label="Runtime VF policy control", tag="reg_vf_live_header"):
             dpg.add_text(
                 "Change the driver's active VF checks without restarting the GPU. "
                 "Some startup modes reject disabling a check; use the registry setting first in that case. "
@@ -204,6 +204,7 @@ class RegistryPanel:
             )
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Read VF policies", callback=self.refresh_clock_vf_live)
+                dpg.add_button(label="Save VF policies profile", callback=self.app.open_save_profile, user_data="clock_vf")
                 dpg.add_checkbox(label="Enforce monotonicity", tag="reg_vf_live_monotonicity", enabled=False)
                 dpg.add_checkbox(label="Enforce smoothing", tag="reg_vf_live_smoothening", enabled=False)
             with dpg.group(horizontal=True):
@@ -880,7 +881,15 @@ class RegistryPanel:
             self._clock_vf_live_failed("Read the selected adapter's VF policies before changing them.")
             return
         try:
-            snapshot = self.clock_vf_control.set(changes)
+            def save_undo(before):
+                selected = [key for key, member, _ in _VF_LIVE_FIELDS
+                            if key in changes and changes[key] != before[member]]
+                state = profiles.capture_clock_vf(self.app.gpu, snapshot=before, selection=selected)
+                name, _, missing = profiles.autosave_state("live-vf-policies", state)
+                if missing:
+                    raise ValueError("could not capture complete V/F policy undo state")
+                self.app.log(f"Undo point saved as '{name}'", None)
+            snapshot = self.clock_vf_control.set(changes, before_write=save_undo)
             self._show_clock_vf_live(snapshot, "Applied live. ")
             self.invalidate()
             self.app.log("Applied live VF policies; startup mode and registry settings retained.", True)

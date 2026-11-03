@@ -324,3 +324,23 @@ def test_keyboard_interrupt_after_dispatch_also_compensates():
     assert caught.value.rollback["verified"]
     assert bytes(gpu.raw) == raw_header()
     assert len(gpu.writes) == 2
+
+
+def test_before_write_receives_fresh_snapshot_and_failure_blocks_dispatch():
+    gpu = FakeGPU()
+    snapshots = []
+
+    def fail(snapshot):
+        snapshots.append(snapshot)
+        raise OSError("save failed")
+
+    with pytest.raises(OSError, match="save failed"):
+        runtime.ClockVfController(gpu).set({MONO: False}, before_write=fail)
+    assert snapshots[0]["vf_monotonicity_enforced"] is True
+    assert not gpu.writes
+
+
+def test_noop_skips_before_write():
+    gpu = FakeGPU()
+    runtime.ClockVfController(gpu).set({MONO: True}, before_write=lambda _: pytest.fail("unexpected save"))
+    assert not gpu.writes

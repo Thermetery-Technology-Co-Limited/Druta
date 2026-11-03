@@ -65,6 +65,20 @@ Idle thresholds and shared adaptive policy are not included: changing either
 can affect the other, and their current getters cannot establish a complete
 restorable state. Saved request ownership is distinct from those shared values.
 
+### Manual V/F policy profiles
+
+**Save VF policies profile** captures the live monotonicity and smoothing flags.
+Load it manually from **Profiles**. Applying either flag saves just the changed
+fields for **Undo last write**; loading a profile saves its selected fields first.
+The startup processing mode, curve and registry settings are not saved or changed
+by these profiles. Automatic startup and post-reset loading are unavailable.
+
+The existing driver restrictions still apply. In the current local startup mode,
+disabling monotonicity was refused; exact restoration was verified, but a changed
+profile round trip was not qualified. Pre-write snapshots remain available after
+a failed attempt, so Undo can be a no-op after verified automatic restoration.
+Choose an earlier autosave explicitly to return to an earlier action.
+
 ### Ordinary tune profiles
 
 **Profiles > Save profile** captures the applied curve, clocks, power, fan policy,

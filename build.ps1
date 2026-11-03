@@ -169,6 +169,7 @@ function Get-SourceSnapshot {
         'experiments/voltage-request-profiles-20261102.json',
         'experiments/voltage-control-profiles-20261102.json',
         'experiments/lowpower-request-profiles-20261102.json',
+        'experiments/clock-vf-profiles-20261102.json',
         'experiments/voltage-61742-unblocked-objectives-20261101.json',
         'experiments/runtime-rails-47212.json',
         'experiments/runtime-rails-56636.json',

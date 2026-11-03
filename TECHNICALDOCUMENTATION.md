@@ -2403,6 +2403,25 @@ Adaptive `enabled` is aggregate rather than owned request state, and its setter
 can change threshold values. The current interfaces do not prove full-state Undo
 for either operation, so these values are not silently included in owned profiles.
 
+### Manual Clock V/F policy profiles
+
+The schema-2 `clock_vf` scope contains only selected Boolean monotonicity and
+smoothing policies plus adapter identity. The live setter supplies its fresh
+pre-write snapshot under the GPU lock; Apply saves only changed fields and a
+failed save prevents dispatch. Profiles never serialize the opaque header,
+startup mode or curve. Loading uses the existing typed setter and preserves
+all unselected fields. UUID/native identity are checked; descriptive driver and
+VBIOS metadata do not restrict compatibility. Automatic loading is refused.
+
+The local RTX 5080 / 617.42 trial captured the profile and a field-specific undo
+point, but the first monotonicity-disable request returned RM 0x56 in the current
+startup mode. The full original header was restored and verified. Consequently
+this trial does not qualify changed-state Undo or profile replay on hardware;
+those routes have offline coverage only. No restart or registry adjustment was
+made to force acceptance. The pre-write autosave is retained after refusal, as
+with other profile operations; Undo can then restore an already-current value.
+[Clock V/F profile evidence](experiments/clock-vf-profiles-20261102.json).
+
 ### Additional live profiler controls
 
 **Live engine clock gating** adds a separate session-owned ELCG Hold disabled /

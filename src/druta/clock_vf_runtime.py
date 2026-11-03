@@ -168,7 +168,7 @@ class ClockVfController:
         result["error"] = "; ".join(errors) or None
         return result
 
-    def set(self, changes):
+    def set(self, changes, *, before_write=None):
         """Set named Boolean policies and return exact fresh host readback.
 
         An identity request only reads. A dispatched error or mismatched
@@ -190,6 +190,8 @@ class ClockVfController:
             wanted["header_hex"] = raw.hex()
             if _same_state(before, wanted):
                 return before
+            if before_write is not None:
+                before_write(copy.deepcopy(before))
             write = _Write()
             try:
                 self._set_once(transport, before["identity"], bytes(raw), write)

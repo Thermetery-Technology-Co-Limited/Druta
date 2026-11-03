@@ -68,7 +68,10 @@ def incomplete(state):
     miss = list(state.get(INCOMPLETE_KEY) or [])
     if state.get("scope") is not None:
         try:
-            if state.get("scope") == "lowpower_requests":
+            if state.get("scope") == "clock_vf":
+                from . import clock_vf_profiles
+                clock_vf_profiles.validate(state)
+            elif state.get("scope") == "lowpower_requests":
                 from . import lowpower_profiles
                 lowpower_profiles.validate(state)
             elif state.get("scope") == "voltage_controls":
@@ -317,6 +320,55 @@ def capture_fan(gpu):
         state[INCOMPLETE_KEY].append(f"Fan policy NOT captured ({exc})")
     return state
 
+
+
+def capture_clock_vf(gpu, *, snapshot=None, selection=None):
+    """Capture only selected Boolean policies, never opaque packet state."""
+    from . import clock_vf_profiles as scoped
+    from .clock_vf_runtime import ClockVfController
+    now = time.time()
+    state = {"schema": SCHEMA, "scope": "clock_vf",
+             "saved_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)),
+             "saved_ts": now, "device": {key: gpu.static.get(key)
+                 for key in ("name", "vbios", "driver", "uuid", "slot")},
+             INCOMPLETE_KEY: []}
+    snapshot = ClockVfController(gpu).read() if snapshot is None else snapshot
+    state["clock_vf"] = scoped.capture(snapshot, selection)
+    scoped.validate(state)
+    error = clock_vf_device_error(state, gpu)
+    if error:
+        raise ValueError(error)
+    return state
+
+
+def clock_vf_device_error(state, gpu):
+    device = state.get("device")
+    if not isinstance(device, dict):
+        return "clock VF profile has invalid device metadata"
+    saved_uuid, current_uuid = device.get("uuid"), gpu.static.get("uuid")
+    if saved_uuid and current_uuid and saved_uuid != current_uuid:
+        return "clock VF profile belongs to a different GPU UUID"
+    try:
+        slot = gpu.slot()
+        native_slot = state["clock_vf"]["identity"]["slot"]
+    except (AttributeError, KeyError, TypeError):
+        return "clock VF profile has no valid selected adapter slot"
+    if not slot or slot != native_slot:
+        return "clock VF profile belongs to a different adapter slot"
+    return None
+
+
+def autosave_clock_vf(gpu, action, template):
+    """Capture the fields a clock VF profile will change."""
+    from . import clock_vf_profiles as scoped
+    target = scoped.validate(template)
+    error = clock_vf_device_error(template, gpu)
+    if error:
+        raise ValueError(error)
+    state = capture_clock_vf(gpu, selection=target["policies"])
+    if state["clock_vf"]["identity"] != target["identity"]:
+        raise ValueError("clock VF adapter identity changed")
+    return autosave_state(action, state)
 
 
 def capture_voltage_requests(gpu, *, snapshot=None, selection=None):
@@ -976,6 +1028,17 @@ def preflight(gpu, state, rail=None, *, apply_curve=True):
             or state.get("schema", 1) not in (1, SCHEMA)):
         return "unsupported profile format"
     try:
+        if state.get("scope") == "clock_vf":
+            from . import clock_vf_profiles as scoped
+            from .clock_vf_runtime import ClockVfController
+            data = scoped.validate(state)
+            if state.get(INCOMPLETE_KEY):
+                raise ValueError("clock VF snapshot is incomplete")
+            error = clock_vf_device_error(state, gpu)
+            if error:
+                return error
+            scoped.check_live(data, ClockVfController(gpu).read())
+            return None
         if state.get("scope") == "lowpower_requests":
             from . import lowpower_profiles
             lowpower_profiles.validate(state)
@@ -1288,6 +1351,10 @@ def _restore_validated(gpu, state, apply_curve, rail, results, *, i2c_verified):
         results.append((ok, msg))
         return ok
 
+    if state.get("scope") == "clock_vf":
+        from . import clock_vf_profiles as scoped
+        return scoped.restore(gpu, scoped.validate(state))
+
     if state.get("scope") == "voltage_controls":
         from . import voltage_control_profiles as scoped
         return scoped.restore(gpu, scoped.validate(state))
@@ -1453,6 +1520,13 @@ def _restore_validated(gpu, state, apply_curve, rail, results, *, i2c_verified):
 def summarize(state):
     """One-line description for a menu row or a confirmation banner."""
     bits = []
+    if state.get("scope") == "clock_vf":
+        from . import clock_vf_profiles as scoped
+        try:
+            data = scoped.validate(state)
+            bits.append(f"{len(data['policies'])} clock VF policy field(s), manual apply only")
+        except ValueError as exc:
+            bits.append(f"invalid clock VF policies: {exc}")
     if state.get("scope") == "lowpower_requests":
         from . import lowpower_profiles
         try:
