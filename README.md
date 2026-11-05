@@ -1,8 +1,42 @@
 # Druta
 
-**Version 1.9.05 prerelease** — [release notes](RELEASE-NOTES-1.9.05.md).
-Supersedes published 1.9.03 and includes the Turing power-control work from the
-unpublished 1.9.04 build. Clock offsets can use the validated Pstates20 fallback
+**Version 1.9.07 prerelease** — [release notes](RELEASE-NOTES-1.9.07.md).
+Supersedes 1.9.06. A role INFO GET refused for its size no longer removes
+live power and the current sliders: that GET now negotiates its size, and the
+native policy record stride is derived from the size it accepts rather than
+carried as a constant. Qualified on the same GTX 1060 under driver 572.83,
+whose policy record is 216 bytes rather than 228. The RM26 packet families
+are also no longer gated to Turing, which is all that stood between the same
+card on 472.12 and an interface Druta already described in full. A transport
+is now identified by its command as well as its packet sizes, because the
+same geometry means different records under different families, and a wrong
+size is recognised whether the driver refuses it with RM `0x1F` or `0x3A`.
+With XOC ticked, Max All asks for the extended envelope rather than the
+nominal maximum. Qualified on four drivers on one GTX 1060:
+[576.80](experiments/pascal-gp106-live-power-20261102.md),
+[572.83](experiments/pascal-gp106-driver57283-20261102.md),
+[472.12](experiments/pascal-gp106-driver47212-20261102.md) and
+[516.94](experiments/pascal-gp106-driver51694-20261102.md).
+
+Under load on 472.12, the binding constraint on that board was **core
+current** at its 95 A ceiling, not board power — raising the power request
+does not move it, because effective limits settle at the firmware maximum
+whatever is requested.
+
+1.9.06 — [release notes](RELEASE-NOTES-1.9.06.md).
+Superseded 1.9.05 and carried its Turing work forward. The XOC power-limit
+slider now extends on Pascal, and core current limits work there too: a
+captured power-GET transport is no longer withheld because the driver's
+current-policy record layout is unrecognized, Pascal may take the smaller
+client-power group, and that driver's measured current-policy layout is now
+described. A Gigabyte GTX 1060 6GB on 576.80 accepted idle 201 W and 250 W
+requests above its 200 W reported maximum with exact readback and full
+restoration, reads Core current at 1/86.8/95 A, and reports a 185.625 W native
+effective limit. Physical enforcement is unmeasured. See the
+[Pascal evidence](experiments/pascal-gp106-live-power-20261102.md).
+
+Carried forward from 1.9.05: clock offsets can use the validated Pstates20
+fallback
 when an exported NVML setter reports that the capability is unsupported.
 Rejected or unmatched power requests return the slider to configured readback;
 unavailable readback stays explicitly unverified. The control view distinguishes
@@ -127,7 +161,7 @@ python -m pip install -r requirements.txt
 ```
 
 The local build produces `dist\Druta\Druta.exe` and
-`dist\Druta-1.9.05-win64.zip`. Distribute the
+`dist\Druta-1.9.07-win64.zip`. Distribute the
 whole `Druta` folder or ZIP: the EXE needs its adjacent `_internal` folder.
 
 `dist\Druta\source\` contains the matching working-tree source, including

@@ -1,5 +1,117 @@
 # Driver compatibility: runtime rail detection and legacy controls
 
+## 1.9.07 A refused role GET no longer removes live power and current
+
+The role INFO GET `2080A61C` carries a 4-byte semantic selector followed by
+exactly one native policy INFO record, so its accepted size fixes that
+record's stride. 1.9.06 carried the stride as a per-table constant and did not
+negotiate the role size at all, so a driver whose record is 216 bytes failed
+at the first role request and lost both the extended power ceiling and the
+current sliders.
+
+The role GET now negotiates its size on a refusal **for its size**, exactly as
+the client and native INFO GETs already do; a transient error still selects
+nothing. The stride is derived from the accepted size and must still bind the
+role definition to exactly one occupied native policy before anything uses it.
+
+The same Gigabyte GTX 1060 6GB (GP106, VBIOS `86.06.4b.00.32`) qualified at
+idle on driver 572.83. Three of its five blocks are identical to the 576.80
+entry and two are not:
+
+| Tested driver | Captured power transport | Client INFO / CONTROL / role | Native INFO (record) / CONTROL / STATUS | Status header / stride |
+| --- | --- | --- | --- | --- |
+| 576.80 | `2080A612`, 11740/11672 | 1160 / 392 / 232 | 8620 (228) / 4432 / 171048 | `0x68` / `0x1434` |
+| 572.83 | `2080A612`, 3676/3608 | 1160 / 392 / **220** | **8236 (216)** / 4432 / 171048 | `0x68` / `0x1434` |
+
+Requests of 190 W, 201 W and 250 W each passed exact readback and complete
+restoration to the captured 200 W baseline. Core current policy 13 reads
+1/86.8/95 A; a reversible trial set 94.2 A with the effective limit verified,
+refused 95.001 A without changing state, and restored 95 A. The native
+effective power limit reads 200000 mW. Physical enforcement under load remains
+unmeasured. See the
+[572.83 evidence](experiments/pascal-gp106-driver57283-20261102.md).
+
+Driver **472.12** on the same board needed no new geometry at all. It presents
+the `20802612` RM26 transport at 3548/3480 bytes, and every block matched the
+existing table on the first try — client INFO 900, role INFO 136, native INFO
+5520 (record 132 at base `0x3C`), native CONTROL 2124, native STATUS 69148 —
+each confirmed by sweep to be the only accepted size. The sole blocker was a
+generation gate reading "This client-power RM26 ABI requires Turing", which
+becomes `RM26_ARCHITECTURES`, now `(4, 6)`. It stays separate from the client
+group's `(4, 6, 7)`, because a generation qualified against one packet family
+is not thereby qualified against the other.
+
+The same idle trials passed against its captured 180 W baseline, with core
+current moving 86.8 → 86 A and back. See the
+[472.12 evidence](experiments/pascal-gp106-driver47212-20261102.md).
+
+Driver **516.94** then showed that the same packet geometry can mean two
+different layouts. It presents 3548/3480 under the **A612** command family,
+answering `2080A6xx` while using the compact record shape, and its records
+differ from the 26xx entry of identical size:
+
+| Transport | Commands | Role | Native INFO (record) | Native STATUS (record) |
+| --- | --- | ---: | ---: | --- |
+| `20802612` 3548/3480 | `2080_26xx` | 136 | 5520 (132) | 69148, `0x64`/`0x828` |
+| `2080A612` 3548/3480 | `2080_A6xx` | 132 | 5392 (128) | 70684, `0x64`/`0x858` |
+
+The layout table is therefore keyed on the transport's command as well as its
+sizes. 69148 is refused outright on 516.94, so the two are not
+interchangeable.
+
+**Correction.** The 472.12 entry above originally attributed RM `0x3A` to the
+RM26 families, contrasted with `0x1F` on the A6xx families. 516.94 returns
+`0x3A` on the A612 family, so the refusal code belongs to the driver, not the
+family. Both are now treated as the definite wrong-size answer — which is what
+516.94's detection required. See the
+[516.94 evidence](experiments/pascal-gp106-driver51694-20261102.md).
+
+## 1.9.06 Pascal live power and the transport/record-layout split
+
+Druta borrows a paired RM transport from an unmodified power getter. Keying
+the current-policy *record* layout off that getter's packet geometry is a
+separate question from whether the transport itself is usable, and the two are
+no longer answered together. The transport is validated as an envelope; a
+parameter size no recorded layout describes now removes only the current (A)
+sliders, reported as an unsupported interface rather than a failed read. Live
+power (W) rides on the transport with packet sizes the client group negotiates
+for itself.
+
+A fifth record layout is added for the geometry below. It shares the 8620-byte
+info and 4432-byte control blocks with the 11748/11680 entry but **not** its
+status block, which this driver refuses: 172080 returns RM `0x1F` and 171048
+is the only size accepted across a 140000..210000 sweep. Its header and record
+stride were solved from live data rather than carried over. Two blocks
+agreeing is not evidence that the third does.
+
+Pascal is also now eligible for the fallback from the modern client group to
+the smaller one, which previously admitted only Turing and Ampere. Acceptance
+still selects the group; generation only decides whether the semantics are
+understood.
+
+A Gigabyte GTX 1060 6GB (GP106, VBIOS `86.06.4b.00.32`) on driver 576.80
+qualified at idle.
+
+| Tested driver | Captured power transport, packet/parameters | Client INFO / CONTROL / role bytes | Native INFO / CONTROL / STATUS bytes | Status header / stride | Ordinary range |
+| --- | --- | --- | --- | --- | --- |
+| 576.80 | `2080A612`, 11740/11672 | 1160 / 392 / 232 | 8620 / 4432 / 171048 | `0x68` / `0x1434` | 90/180/200 W |
+
+Role 1 uniquely bound existing FE client row 0 to native policy 2. Requests of
+190 W (inside the range), 201 W and 250 W (above the reported maximum, behind
+XOC) each passed exact request readback and complete client/native restoration
+to the captured 180 W baseline. Test points were derived from the adapter's
+reported bounds, not fixed.
+
+Core current policy 13 reads at 1/86.8/95 A, type `0x0B` channel 11. A
+reversible trial set 86 A with the effective limit verified, refused 95.001 A
+against the reported maximum without changing state, and restored 86.8 A. The
+native effective power limit reads 185.625 W against a configured 180 W.
+
+These are idle software observations on one adapter and one driver; physical
+enforcement under load is unmeasured, and the 1999 W XOC range remains a
+software request envelope. See the
+[Pascal evidence](experiments/pascal-gp106-live-power-20261102.md).
+
 ## 1.9.05 Turing compatibility and power readback
 
 Clock offsets use NVML when its setter is available. If that setter returns

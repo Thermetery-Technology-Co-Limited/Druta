@@ -114,6 +114,13 @@ class FakeGpu:
             )
         return ({},)
 
+    def _rm_power_transport(self):
+        # The real backend captures the paired transport without requiring a
+        # known current-policy record layout; the fake keeps the capture and
+        # its fault injection in one place.
+        self._current_limit_transport_layouts()
+        return self._current_limit_transport
+
     def _status(self):
         raw = bytearray(cp.SIZES[cp.NATIVE_STATUS])
         put(raw, 4, self.native_mask)

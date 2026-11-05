@@ -203,6 +203,38 @@ class PolicyListTests(unittest.TestCase):
                 self.assertEqual(r["requested"], r["maximum"], p)
         self.assertEqual(self.gpu._power_policy_pins, {})
 
+    def test_max_all_asks_for_the_xoc_envelope_when_xoc_is_on(self):
+        """The board row should reach the ceiling its own knob allows.
+
+        Accepting the request is not the same as the board enforcing it: the
+        effective limit can still settle at the firmware maximum.
+        """
+        self.gpu.power_limit_bounds_mw = Mock(return_value=(1, 1999000))
+        self.gpu.set_power_limit_mw = Mock(return_value=(True, "ok"))
+        self.gpu.voltage_xoc_enabled = True
+        self.gpu.max_all_power_policies()
+        self.gpu.set_power_limit_mw.assert_any_call(1999000)
+
+    def test_max_all_without_xoc_still_asks_only_for_the_nominal_maximum(self):
+        self.gpu.power_limit_bounds_mw = Mock(return_value=(1, 1999000))
+        self.gpu.set_power_limit_mw = Mock(return_value=(True, "ok"))
+        self.gpu.max_all_power_policies()
+        self.gpu.set_power_limit_mw.assert_any_call(320000)
+
+    @patch.object(n.GPU, "power_limit_bounds_mw", side_effect=ValueError("no live interface"))
+    def test_max_all_never_lowers_the_board_row_when_the_envelope_is_unreadable(self, _bounds):
+        self.gpu.set_power_limit_mw = Mock(return_value=(True, "ok"))
+        self.gpu.voltage_xoc_enabled = True
+        self.gpu.max_all_power_policies()
+        self.gpu.set_power_limit_mw.assert_any_call(320000)
+
+    def test_max_all_keeps_the_nominal_top_when_the_envelope_is_no_wider(self):
+        self.gpu.power_limit_bounds_mw = Mock(return_value=(100000, 320000))
+        self.gpu.set_power_limit_mw = Mock(return_value=(True, "ok"))
+        self.gpu.voltage_xoc_enabled = True
+        self.gpu.max_all_power_policies()
+        self.gpu.set_power_limit_mw.assert_any_call(320000)
+
     def test_the_board_and_named_current_limits_are_not_written_here(self):
         before = list(self.card.sets)
         self.assertIn("Power limit slider", self.gpu.set_power_policy(2, 300000)[1])

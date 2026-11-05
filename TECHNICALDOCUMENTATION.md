@@ -2779,14 +2779,133 @@ not infer the active registry selection from a voltage number.
 
 ## Live client power requests
 
-When the modern INFO packet is rejected with INVALID_ARGUMENT, an Ampere or
-Turing adapter may expose a smaller 32-row client layout. Druta tries that known
+When the modern INFO packet is rejected with INVALID_ARGUMENT, a Pascal,
+Turing or Ampere adapter may expose a smaller 32-row client layout. Druta tries
+that known
 read-only layout and requires an exact semantic-role/native-INFO binding, a
 stable restorable FE request, matching native CONTROL, and PCI pairing before
 enabling a SET. Packet sizes are capability checks, not driver-version or
 device-ID allowlists. Ada's smaller INFO packet has an independent trace, but
 the 184-byte native CONTROL rows and SET have been validated here on the
 RTX 3070 Ti; packet rejection remains an independent unsupported result.
+
+`LEGACY_GROUP_ARCHITECTURES` lists the generations whose client power-policy
+semantics have been validated against a live adapter and may therefore take
+this fallback. Generation decides whether the semantics are understood at all;
+*which* group a card speaks is still decided by read-only INFO acceptance and
+exact readback. Widening that list is a hardware-validation result, never
+something a refused modern INFO infers on its own.
+
+### The captured transport and the current-policy record layout are separate
+
+Druta borrows a paired RM transport from an unmodified power getter and reuses
+its handles. `_CURRENT_LIMIT_LAYOUTS` separately maps that getter's packet and
+parameter sizes to a *current-policy record* layout — the A618/A619/A61A/E61B
+sizes, bases and strides behind the current (A) sliders.
+
+`GPU._rm_power_transport` answers only the first question. It validates the
+envelope it has to reuse: a 17-word header of a known command family whose
+packet length is its parameter length plus the 68-byte prologue.
+`GPU._current_limit_transport_layouts` then selects the record layout on top
+of it, and a parameter size no entry describes raises
+`CurrentLimitUnsupported` without discarding the captured transport.
+
+The client-power group does not consult that table at all, because it selects
+its own packet sizes by read-only INFO acceptance. So a driver whose
+current-policy records are unknown loses the current (A) sliders and keeps
+live power (W). The loss is reported as an unsupported interface rather than a
+failed read, so profiles stay complete and "Reset all to stock" does not fail.
+PERF diagnostics keep their own independent transport restrictions.
+
+A Gigabyte GTX 1060 6GB (GP106) on driver 576.80 presents an A612 transport of
+11740/11672 bytes, which no earlier entry described, and reaches the same
+1160-byte client group and 124-byte native controls as Turing 581.42. Role 1
+uniquely bound client row 0 to native policy 2 with 90/180/200 W bounds. Idle
+190/201/250 W requests, the latter two above the reported maximum and behind
+XOC, passed exact readback and full restoration of the captured 180 W state.
+See the [Pascal evidence](experiments/pascal-gp106-live-power-20261102.md) and
+its sanitized report. These are idle software observations on one adapter and
+one driver; they do not establish physical enforcement under load.
+
+### Generation lists are per packet family, and stay separate
+
+Two constants record which GPU generations have had their client power-policy
+semantics qualified against a live adapter: `LEGACY_GROUP_ARCHITECTURES` for
+the smaller A6xx client group and `RM26_ARCHITECTURES` for the `20802612`
+families. They are `(4, 6, 7)` and `(4, 6)` and are deliberately not merged —
+a generation qualified against one packet family is not thereby qualified
+against the other, and merging would silently claim Ampere on RM26.
+
+Generation decides only whether a family's policy semantics are understood at
+all. Which packet sizes a card speaks is still decided by read-only
+acceptance and validated by exact binding and readback.
+
+### A wrong parameter size is refused with RM 0x1F or RM 0x3A
+
+Which one a driver uses is a property of **that driver**, not of the command
+family: 516.94 returns `0x3A` on the A612 family that 572.83 and 576.80
+answer with `0x1F`. `SIZE_REFUSALS` carries both, and both select the next
+candidate size; anything else stays transient and selects nothing.
+
+### A transport's identity is its command and its packet geometry
+
+`_CURRENT_LIMIT_LAYOUTS` is keyed on `(command, packet_bytes,
+parameter_bytes)`. 3548/3480 is one record layout under `20802612` and a
+different one under `2080A612` — different role, native INFO and native
+STATUS records — so size alone cannot identify a layout.
+
+For the same reason the client group tracks its command family (`_rm26`,
+which selects the 26xx wire commands) separately from its record layout
+(`_rm26_records`, which selects the compact bases, strides and mask words).
+The 26xx transports imply both; `A612_COMPACT_SIZES` is a driver that answers
+the A612 family with compact records.
+
+### The role GET size fixes the native policy record stride
+
+`2080A61C` returns a 4-byte semantic selector followed by exactly one native
+policy INFO record, so the size it accepts fixes that record's stride:
+264/260, 232/228, 220/216, 136/132 and 120/116 across every ABI measured.
+`_definition_stride` therefore derives the stride from the accepted role size
+instead of carrying it per table, and `_native_geometry` records it on the
+binding as `native_info_stride` only when it differs from that layout's usual
+record size, so bindings captured on previously supported ABIs stay
+byte-identical.
+
+The derived value is never trusted on its own. The role definition must still
+bind to exactly one occupied native policy, which is the check a wrong stride
+fails. The role GET also negotiates its size: a refusal with RM `0x1F` — a
+definite answer about the request's shape — tries the one other understood
+small-group record size, while a transient error selects nothing, matching
+the existing client and native INFO fallbacks.
+
+A GP106 on driver 572.83 presents an A612 transport of 3676/3608 bytes with a
+220-byte role GET and an 8236-byte native INFO block of 216-byte records,
+while sharing the 1160-byte client group, the 4432-byte native CONTROL and
+the 171048-byte native STATUS with the 11740/11672 transport. See the
+[572.83 evidence](experiments/pascal-gp106-driver57283-20261102.md).
+
+### A shared info and control block does not imply a shared status block
+
+The 11740/11672 entry added for that adapter shares the 8620-byte info and
+4432-byte control blocks, and their headers and strides, with the 11748/11680
+entry. It does not share the status block. This driver refuses the 172080-byte
+status GET with RM `0x1F`; 171048 is the only size it accepts across a
+140000..210000 sweep at 4-byte steps.
+
+The record geometry was solved from live data rather than carried over. With
+the mask at word 1 the driver populates the block; across every `(base,
+stride)` with base 0..2048 and stride up to 12000 at 4-byte steps, exactly one
+pair makes all ten occupied policies' status type bytes equal their info type
+bytes and puts every effective value inside that policy's own info bounds:
+base `0x68`, stride `0x1434`, against Turing's `0x70` and `0x1454`.
+
+This matters because `_current_limit_state` reads the status record for three
+things a wrong stride would silently corrupt: the type cross-check, the
+effective limit, and the live value. `set_current_limit_ma` then gates on the
+effective limit before writing and verifies it after, so the status block is
+load-bearing for writes and not merely telemetry. `tests/
+test_current_limits_pascal_status.py` asserts one case per status field that
+carrying the Turing value over breaks the read.
 
 Turing is also eligible to probe the smaller client layout. After explicit
 RM INVALID_ARGUMENT rejection of the 8632-byte native INFO, the controller

@@ -630,6 +630,14 @@ details and original-BIOS-range coloring may be unavailable independently of
 the live request control. The reported limit is not a measurement of actual
 power draw.
 
+Pascal adapters can expose this interface too. A Gigabyte GTX 1060 6GB on
+driver 576.80 reported a 90/180/200 W ordinary range and accepted idle 201 W
+and 250 W configured requests above that maximum with XOC, each read back
+exactly and restored to its captured 180 W setting. Its Core current slider
+reads 1/86.8/95 A on the same driver, and its native effective power limit
+reports 185.625 W against a configured 180 W. Nothing here measures actual
+power draw, and a card can still enforce a lower limit.
+
 Turing adapters can expose several understood packet layouts. On one Gigabyte
 RTX 2080 SUPER AORUS Xtreme, driver 581.42 used 124-byte native controls,
 431.60 used the smaller `26xx` interface, and 621.01 used larger modern packets
