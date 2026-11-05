@@ -101,7 +101,7 @@ from .nvbackend import (GPU, EVENT_REASONS, PERF_DECREASE_BITS, VF_STEP_KHZ, VF_
                         PRIV_LIKELY, PRIV_N_DOMAINS, PRIV_PCIE_GEN, PRIV_SLOT,
                         PRIV_UNNAMED, PRIV_UNPOPULATED)
 
-__version__ = "1.8.1"
+__version__ = "1.9.05"
 
 # ---- palette (ImGui takes 0-255 RGBA) ------------------------------------- #
 TEXT = (230, 232, 236)
@@ -173,7 +173,9 @@ RISK_BAND_TEXT = {
 RISK_FEATURE_TEXT = {
     "xoc": (
         "XOC: expanded voltage and clock ranges; current limits use the "
-        "API ceilings."),
+        "API ceilings. Supported GPUs also expose live extended power requests; "
+        "the 1999 W software request cap does not raise firmware limits. "
+        "Native policy limits can wrap at high requests."),
     "volt_limits": (
         "RAIL LIMITS: the driver-held per-rail voltage ceilings are being "
         "written directly. EXPERIMENTAL."),
@@ -3111,6 +3113,7 @@ class Druta:
         # is the call that puts the knobs BACK when XOC is unticked, and behind
         # the return it would run on every state except the one that needs it.
         self.ov_carryover(self.gpu.read_volt_rail_limits())
+        self.refresh_power_request_range()
         self.refresh_current_limits()
         self.sync_slider_ranges("xoc" in live)
 
@@ -3425,12 +3428,7 @@ class Druta:
                                 with dpg.table(header_row=False, no_host_extendX=True,
                                                policy=dpg.mvTable_SizingFixedFit):
                                     self.knob_cols()
-                                    if all(k in st for k in ("pl_min_mw", "pl_max_mw", "pl_def_mw")):
-                                        self.slider_row("pl", "Power limit (W)",
-                                                        st["pl_min_mw"] / 1000,
-                                                        st["pl_max_mw"] / 1000,
-                                                        st["pl_def_mw"] / 1000, self.apply_pl,
-                                                        extra=("Stock", lambda: self.stock_knob("pl")))
+                                    self.build_power_limit_row(st)
 
                                     self.build_current_limits_rows()
 
@@ -3451,6 +3449,9 @@ class Druta:
                                     self.slider_row("fan", "Fan duty (%)", fan_floor, 100,
                                                     fan_floor, self.apply_fan,
                                                     extra=("Auto", self.fan_auto))
+                                if dpg.does_item_exist("sl_pl"):
+                                    dpg.add_text("", tag="power_request_status", color=DIM,
+                                                 wrap=self.knob_col_width() - self.s(20))
 
                         with dpg.group(width=self.knob_col_width()):
                             # RAILS GET THEIR OWN SECTION. The tab had grown past a screen and
@@ -3514,6 +3515,10 @@ class Druta:
                     with dpg.collapsing_header(label="Power policies", tag="power_policy_header",
                                                default_open=False):
                         self.build_power_policy_section()
+                with dpg.collapsing_header(label="Registry / BIOS overrides", default_open=False):
+                    from .registry_panel import RegistryPanel
+                    self._registry_panel = RegistryPanel(self)
+                    self._registry_panel.build()
                 if railctl is not None:
                     with dpg.collapsing_header(label="I2C regulator", tag="i2c_regulator_header",
                                                default_open=bool(getattr(self, "_rail_candidates", []))):
@@ -3804,6 +3809,8 @@ class Druta:
             self.log(f"{key} input: {exc}", False)
         finally:
             self._knob_sync = False
+        if key == "pl":
+            self.refresh_power_slider_style()
 
     def knob_typed(self, key):
         """Typed value -> slider. Clamped here as well as by the widget: DPG
@@ -3833,6 +3840,94 @@ class Druta:
                 self._icx_armed.add(key)
         finally:
             self._knob_sync = False
+        if key == "pl":
+            self.refresh_power_slider_style()
+
+    def build_power_limit_row(self, state):
+        required = ("pl_min_mw", "pl_max_mw", "pl_def_mw")
+        if not all(state.get(key) is not None for key in required):
+            reader = getattr(self.gpu, "read_live_power_request", None)
+            if callable(reader):
+                reader()
+        if not all(state.get(key) is not None for key in required):
+            return False
+        self.slider_row("pl", "Power limit (W)", state["pl_min_mw"] / 1000,
+                        state["pl_max_mw"] / 1000, state["pl_def_mw"] / 1000,
+                        self.apply_pl, extra=("Stock", lambda: self.stock_knob("pl")))
+        self.refresh_power_request_range()
+        self.sync_power_slider_from_card()
+        self.setup_power_slider_style()
+        return True
+
+    def power_request_carryover(self, mw):
+        """Retain only an observed extended request when XOC is switched off."""
+        ranges = getattr(self, "_slider_ranges", {})
+        r = ranges.get("pl")
+        if r is None or type(mw) is not int or mw <= 0:
+            return False
+        lower = getattr(self, "_carryover_lo", {})
+        upper = self._carryover_hi
+        previous = (lower.get("pl"), upper.get("pl"))
+        value = mw / 1000
+        if value < r.lo:
+            lower["pl"] = value
+        else:
+            lower.pop("pl", None)
+        if value > r.hi:
+            upper["pl"] = value
+        else:
+            upper.pop("pl", None)
+        self._carryover_lo = lower
+        return previous != (lower.get("pl"), upper.get("pl"))
+
+    def refresh_power_request_range(self):
+        """Probe live extensions independently of the normal power control."""
+        r = getattr(self, "_slider_ranges", {}).get("pl")
+        bounds = getattr(self.gpu, "power_limit_bounds_mw", None)
+        if r is None or not callable(bounds):
+            return
+        try:
+            low, high = bounds(xoc=True)
+            self._slider_ranges["pl"] = r._replace(xoc_lo=low / 1000, xoc_hi=high / 1000)
+            self.power_request_carryover(self.gpu.read_power_limit_mw())
+        except Exception as exc:
+            self.log("Live power request range unavailable: " + str(exc), False)
+
+    def setup_power_slider_style(self):
+        """Keep the original BIOS range visible inside an expanded power knob."""
+        from . import power_range_baseline
+        from .power_slider_style import PowerSliderStyle
+
+        try:
+            baseline = power_range_baseline.read(self.gpu)
+        except Exception as exc:
+            baseline = {"minimum_mw": None, "maximum_mw": None, "source": "unavailable", "reason": str(exc)}
+        self._power_slider_baseline = baseline
+        minimum, maximum = baseline.get("minimum_mw"), baseline.get("maximum_mw")
+        bounds = ((minimum / 1000, maximum / 1000)
+                  if type(minimum) is int and type(maximum) is int and minimum <= maximum else None)
+        old = getattr(self, "_power_slider_style", None)
+        if old is not None:
+            old.close()
+        self._power_slider_style = PowerSliderStyle(
+            slider="sl_pl", input_item="in_pl", original_bounds=bounds,
+            amber=WARN, normal_text=TEXT)
+        with dpg.tooltip("sl_pl"):
+            if bounds is None:
+                message = "Original BIOS power range unavailable; extension coloring could not be determined."
+                if baseline.get("reason"):
+                    message += " " + str(baseline["reason"])
+            else:
+                message = (f"Original BIOS range: {bounds[0]:g}..{bounds[1]:g} W. "
+                           "Amber marks the added range and numbers outside the original range. "
+                           "XOC enables live extended requests on supported GPUs. "
+                           "Other power and current limits can still apply.")
+            dpg.add_text(message, wrap=self.s(420))
+
+    def refresh_power_slider_style(self):
+        style = getattr(self, "_power_slider_style", None)
+        if style is not None:
+            style.refresh()
 
     def sync_knob_boxes(self):
         """Put every text box back in step with its slider.
@@ -3860,6 +3955,7 @@ class Druta:
                     dpg.set_value(box, v)
         finally:
             self._knob_sync = False
+        self.refresh_power_slider_style()
 
     def sync_slider_ranges(self, xoc=None):
         """Move every knob's bounds to match the risk state, both ways.
@@ -6317,13 +6413,57 @@ class Druta:
             except (TypeError, ValueError, OverflowError) as exc:
                 self.log(f"power limit input: {exc}", False)
                 return
-            for tag in ("sl_pl", "in_pl"):
-                if dpg.does_item_exist(tag):
-                    dpg.set_value(tag, value)
-            self.report(self.gpu.set_power_limit_mw(int(round(value * 1000))))
+            requested = int(round(value * 1000))
+            # Capture a verified fallback before dispatch. A typed/dragged
+            # value is a proposal, not evidence that the driver accepted it.
+            self.sync_power_slider_from_card()
+            self._power_request_feedback = None
+            try:
+                ok, message = self.gpu.set_power_limit_mw(requested)
+            except Exception as exc:                                   # noqa: BLE001
+                ok, message = False, f"power request failed: {exc}"
+            got = self.sync_power_slider_from_card()
+            if got is None:
+                previous = getattr(self, "_verified_power_request", None)
+                warning = "Current configured power request is unverified: readback unavailable."
+                if previous is not None and previous[0] is self.gpu:
+                    self.show_power_request_mw(previous[1])
+                    warning += (f" Slider shows last verified {previous[1] / 1000:g} W, "
+                                "not a confirmed current setting.")
+                else:
+                    warning += " Slider value is an unverified proposal."
+                self._power_request_feedback = (self.gpu, "unverified", warning)
+                ok, message = False, f"{message}; {warning}"
+            elif got != requested:
+                warning = (f"Requested {requested / 1000:g} W did not match configured "
+                           f"readback {got / 1000:g} W; slider returned to readback.")
+                self._power_request_feedback = (self.gpu, "mismatch", warning)
+                ok, message = False, f"{message}; {warning}"
+            power = {}
+            reader = getattr(self.gpu, "_read_power", None)
+            if callable(reader):
+                try:
+                    reader(power)
+                except Exception:                                      # noqa: BLE001
+                    pass
+            enforced = power.get("pl_now_mw")
+            if (type(got) is int and type(enforced) is int and 0 < enforced < (1 << 32)
+                    and got != enforced):
+                message += (f"; configured request {got / 1000:g} W, NVML-reported "
+                            f"enforced limit {enforced / 1000:g} W. "
+                            "These differ; actual power draw is not verified.")
+            native = self.native_power_limit_for_ui()
+            if (type(got) is int and native is not None and native < got):
+                message += (f"; native effective limit {native / 1000:g} W is below "
+                            f"configured request {got / 1000:g} W; downstream limits may apply.")
+            self.refresh_power_request_status(got, enforced, native)
+            self.report((ok, message))
             # the driver recalculates the limits it derives from this one
             self.refresh_current_limits(sync=True)
             self.refresh_power_policies(force=True)
+            panel = getattr(self, "_registry_panel", None)
+            if panel is not None:
+                panel.refresh_arbitration()
 
     def sync_power_slider_from_card(self):
         """Show the board limit the card is configured with, whatever a write's
@@ -6334,12 +6474,71 @@ class Druta:
             got = self.gpu.read_power_limit_mw()
         except Exception:                                               # noqa: BLE001
             got = None
-        if not got:
+        if type(got) is not int or not 0 < got < (1 << 32):
             return None
+        self._verified_power_request = (self.gpu, got)
+        self.show_power_request_mw(got)
+        return got
+
+    def show_power_request_mw(self, got):
+        """Display an observed request; its verification status is separate."""
+        self.power_request_carryover(got)
+        if "pl" in getattr(self, "_slider_ranges", {}):
+            self.sync_slider_ranges(self._xoc_bounds)
         for tag in ("sl_pl", "in_pl"):
             if dpg.does_item_exist(tag):
                 dpg.set_value(tag, got / 1000)
-        return got
+        self.refresh_power_slider_style()
+
+    def native_power_limit_for_ui(self):
+        """An unavailable native diagnostic must not disable the ordinary knob."""
+        reader = getattr(self.gpu, "read_native_power_limit_mw", None)
+        if callable(reader):
+            try:
+                value, _error = reader()
+                if type(value) is int and 0 <= value < 0xFFFFFFFF:
+                    return value
+            except Exception:                                          # noqa: BLE001
+                pass
+        return None
+
+    def refresh_power_request_status(self, requested, enforced=None, native=None):
+        """Keep configured readback, NVML and native effective status distinct."""
+        valid = type(requested) is int and 0 < requested < (1 << 32)
+        feedback = getattr(self, "_power_request_feedback", None)
+        if feedback is not None and feedback[0] is not self.gpu:
+            self._power_request_feedback = feedback = None
+        if valid:
+            self._verified_power_request = (self.gpu, requested)
+            if feedback is not None and feedback[1] == "unverified":
+                self.show_power_request_mw(requested)
+                self._power_request_feedback = feedback = None
+        if not dpg.does_item_exist("power_request_status"):
+            return
+        text = (f"Configured request: {requested / 1000:g} W."
+                if valid else "Configured power request unverified: readback unavailable.")
+        valid_enforced = type(enforced) is int and 0 < enforced < (1 << 32)
+        different = valid_enforced and valid and enforced != requested
+        if valid_enforced:
+            text += f" NVML-reported enforced limit: {enforced / 1000:g} W."
+            if different:
+                text += (" Below configured request; downstream limits may apply."
+                         if enforced < requested else " Differs from configured request.")
+        else:
+            text += " NVML enforced limit unavailable."
+        valid_native = type(native) is int and 0 <= native < 0xFFFFFFFF
+        native_below = valid_native and valid and native < requested
+        if valid_native:
+            text += f" Native effective limit: {native / 1000:g} W."
+            if native_below:
+                text += " Native limit is below configured request; downstream limits may apply."
+        else:
+            text += " Native effective limit unavailable; NVML readback does not verify it."
+        if feedback is not None:
+            text += " " + feedback[2]
+        dpg.set_value("power_request_status", text)
+        dpg.configure_item("power_request_status",
+                           color=WARN if not valid or different or native_below or feedback else DIM)
 
     def apply_volt(self, v):
         if self.guard():
@@ -8039,6 +8238,16 @@ class Druta:
                     dpg.set_value(f"vlim_txt{r}", cells[1])
 
     def refresh_control(self, d):
+        requested = d.get("pl_requested_mw")
+        if requested is None and "pl" in getattr(self, "_slider_ranges", {}):
+            try:
+                requested = self.gpu.read_power_limit_mw()
+            except Exception:                                          # noqa: BLE001
+                requested = None
+        if self.power_request_carryover(requested):
+            self.sync_slider_ranges(self._xoc_bounds)
+        self.refresh_power_request_status(requested, d.get("pl_now_mw"),
+                                          self.native_power_limit_for_ui())
         c_t = d.get("core_p0max", "?")
         m_t = self.mem_fmt(d.get("mem_p0max"))[0]
         self.refresh_rail_live()
@@ -13800,6 +14009,10 @@ deliberately does not put behind a button."""
         records the ids it created outside the tree, and the next one deletes
         exactly those. Anything a future build method creates unparented is
         covered without being enumerated here."""
+        style = getattr(self, "_power_slider_style", None)
+        if style is not None:
+            style.close()
+            self._power_slider_style = None
         for i in self._orphans:
             if dpg.does_item_exist(i):
                 dpg.delete_item(i)
@@ -14119,6 +14332,7 @@ deliberately does not put behind a button."""
                     # from growing a scrollbar.
                     self.layout_torn_pages()
                     self.update_vf_corner()
+                    self.refresh_power_slider_style()
                     self.clear_once("corner")
                 except Exception as e:
                     self.log_once("corner", f"plot corner: {e}")
@@ -14185,6 +14399,18 @@ def main(argv=None):
     The slot spelling is nvtune's and NVML's, so the three tools can be pointed
     at one card with one copied string."""
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "--registry-overrides":
+        from . import registry_overrides
+        return registry_overrides.cli(argv[1:], _tell)
+    if argv and argv[0] == "--registry-recover":
+        from . import registry_overrides
+        return registry_overrides.recovery_cli(argv[1:], _tell)
+    if argv and argv[0] == "--registry-snapshot":
+        from . import registry_overrides
+        return registry_overrides.snapshot_cli(argv[1:])
+    if argv and argv[0] == "--voltage-replay-worker":
+        from . import voltage_replay_worker
+        return voltage_replay_worker.worker_cli(argv[1:])
     if argv and argv[0] == "--restart-gpu":
         return devicerecovery.cli(argv[1:], _tell)
     slot = None
@@ -14224,6 +14450,7 @@ def main(argv=None):
                   "  --version    print the Druta version\n\n"
                   "  --restart-gpu SLOT  restart that GPU through Windows PnP, then reopen\n"
                   "                      requires admin; never reboots the computer\n\n"
+                  "  --registry-recover SLOT  undo saved registry overrides without a live GPU backend\n\n"
                   "  --startup-profile  apply the opted-in sign-in profile after shutdown checks\n\n"
                   "With no --gpu, Druta opens on the lowest PCI slot.\n"
                   "Device > Card switches cards in a running window.")
@@ -14262,6 +14489,7 @@ def main(argv=None):
             app._startup_request = None
         if not app.gpu.available():
             _tell("No GPU backend: " + app.gpu.status_line()
+                  + "\nSaved registry undo can run independently: Druta --registry-recover " + app.gpu.slot()
                   + ("\n\nDevice recovery: " + app._recovery_result["message"]
                      if app._recovery_result else "")
                   + ("\n\ncards present:\n" + "\n".join(

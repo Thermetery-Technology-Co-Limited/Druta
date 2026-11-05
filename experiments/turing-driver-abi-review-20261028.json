@@ -1,0 +1,367 @@
+{
+  "date": "2026-10-28",
+  "scope": "Offline x64 PE instruction comparison only; inspected binaries were not loaded or installed",
+  "tools": {
+    "pefile": "2024.8.26",
+    "capstone": "5.0.7"
+  },
+  "method": "Locate contiguous mov dword ptr [rsp+0x28], parameter_size; mov r9d, RM_command instructions in executable PE sections. Decode both instructions independently. For A612 also inspect its mov r9d followed by a size store. RVAs are relative to the PE image base, not process addresses.",
+  "runtime_tested_driver": "581.42",
+  "role_info_limitation": "No literal A61C/261C reference found in the inspected executable sections. This is not proof of absence: the A61C role GET was validated live on 581.42 despite the same lack of a literal. No role size is inferred for 431.60 or 621.01.",
+  "binaries": [
+    {
+      "release": "431.60",
+      "file": "nvapi64.dll",
+      "file_version": "26.21.14.3160",
+      "bytes": 5087208,
+      "sha256": "2c4650297cedce0c572165c78c87f8bec40df898fe4371579c95f13380c09348",
+      "image_base": "0x180000000",
+      "dispatch": [
+        {
+          "operation": "power_info_transport",
+          "command": "0x20802612",
+          "parameter_bytes": 2456,
+          "size_instruction_rva": "0x8FB92",
+          "command_instruction_rva": "0x8FB9A",
+          "instruction_bytes": "c74424289809000041b912268020",
+          "instructions": [
+            "mov dword ptr [rsp + 0x28], 0x998",
+            "mov r9d, 0x20802612"
+          ]
+        },
+        {
+          "operation": "native_info",
+          "command": "0x20802618",
+          "parameter_bytes": 5008,
+          "size_instruction_rva": "0x8FBC8",
+          "command_instruction_rva": "0x8FBD0",
+          "instruction_bytes": "c74424289013000041b918268020",
+          "instructions": [
+            "mov dword ptr [rsp + 0x28], 0x1390",
+            "mov r9d, 0x20802618"
+          ]
+        },
+        {
+          "operation": "native_status",
+          "command": "0x20802619",
+          "parameter_bytes": 14148,
+          "size_instruction_rva": "0x8FBDB",
+          "command_instruction_rva": "0x8FBE3",
+          "instruction_bytes": "c74424284437000041b919268020",
+          "instructions": [
+            "mov dword ptr [rsp + 0x28], 0x3744",
+            "mov r9d, 0x20802619"
+          ]
+        },
+        {
+          "operation": "native_control_get",
+          "command": "0x2080261A",
+          "parameter_bytes": 2108,
+          "size_instruction_rva": "0x8FBEE",
+          "command_instruction_rva": "0x8FBF6",
+          "instruction_bytes": "c74424283c08000041b91a268020",
+          "instructions": [
+            "mov dword ptr [rsp + 0x28], 0x83c",
+            "mov r9d, 0x2080261a"
+          ]
+        },
+        {
+          "operation": "native_control_set",
+          "command": "0x2080261B",
+          "parameter_bytes": 2108,
+          "size_instruction_rva": "0x8FC01",
+          "command_instruction_rva": "0x8FC09",
+          "instruction_bytes": "c74424283c08000041b91b268020",
+          "instructions": [
+            "mov dword ptr [rsp + 0x28], 0x83c",
+            "mov r9d, 0x2080261b"
+          ]
+        },
+        {
+          "operation": "client_info",
+          "command": "0x20802630",
+          "parameter_bytes": 644,
+          "size_instruction_rva": "0x8FC14",
+          "command_instruction_rva": "0x8FC1C",
+          "instruction_bytes": "c74424288402000041b930268020",
+          "instructions": [
+            "mov dword ptr [rsp + 0x28], 0x284",
+            "mov r9d, 0x20802630"
+          ]
+        },
+        {
+          "operation": "client_control_get",
+          "command": "0x20802632",
+          "parameter_bytes": 388,
+          "size_instruction_rva": "0x8FC3A",
+          "command_instruction_rva": "0x8FC42",
+          "instruction_bytes": "c74424288401000041b932268020",
+          "instructions": [
+            "mov dword ptr [rsp + 0x28], 0x184",
+            "mov r9d, 0x20802632"
+          ]
+        },
+        {
+          "operation": "client_control_set",
+          "command": "0x20802633",
+          "parameter_bytes": 388,
+          "size_instruction_rva": "0x8FC4D",
+          "command_instruction_rva": "0x8FC55",
+          "instruction_bytes": "c74424288401000041b933268020",
+          "instructions": [
+            "mov dword ptr [rsp + 0x28], 0x184",
+            "mov r9d, 0x20802633"
+          ]
+        }
+      ],
+      "role_command_literal_counts_in_executable_sections": {
+        "0x2080261C": 0,
+        "0x2080A61C": 0
+      }
+    },
+    {
+      "release": "581.42",
+      "file": "nvapi64.dll",
+      "file_version": "32.0.15.8142",
+      "bytes": 5625544,
+      "sha256": "75c7d7366fc44d827e5a452e47929f3c9abe1e5467484d716d300192f2d470e1",
+      "image_base": "0x180000000",
+      "dispatch": [
+        {
+          "operation": "native_info",
+          "command": "0x2080A618",
+          "parameter_bytes": 8620,
+          "size_instruction_rva": "0x52CB6",
+          "command_instruction_rva": "0x52CBE",
+          "instruction_bytes": "c7442428ac21000041b918a68020",
+          "instructions": [
+            "mov dword ptr [rsp + 0x28], 0x21ac",
+            "mov r9d, 0x2080a618"
+          ]
+        },
+        {
+          "operation": "native_status",
+          "command": "0x2080A619",
+          "parameter_bytes": 172080,
+          "size_instruction_rva": "0x52CC9",
+          "command_instruction_rva": "0x52CD1",
+          "instruction_bytes": "c744242830a0020041b919a68020",
+          "instructions": [
+            "mov dword ptr [rsp + 0x28], 0x2a030",
+            "mov r9d, 0x2080a619"
+          ]
+        },
+        {
+          "operation": "native_control_get",
+          "command": "0x2080A61A",
+          "parameter_bytes": 4432,
+          "size_instruction_rva": "0x52CDC",
+          "command_instruction_rva": "0x52CE4",
+          "instruction_bytes": "c74424285011000041b91aa68020",
+          "instructions": [
+            "mov dword ptr [rsp + 0x28], 0x1150",
+            "mov r9d, 0x2080a61a"
+          ]
+        },
+        {
+          "operation": "client_info",
+          "command": "0x2080A630",
+          "parameter_bytes": 1160,
+          "size_instruction_rva": "0x52D61",
+          "command_instruction_rva": "0x52D69",
+          "instruction_bytes": "c74424288804000041b930a68020",
+          "instructions": [
+            "mov dword ptr [rsp + 0x28], 0x488",
+            "mov r9d, 0x2080a630"
+          ]
+        },
+        {
+          "operation": "client_control_get",
+          "command": "0x2080A632",
+          "parameter_bytes": 392,
+          "size_instruction_rva": "0x52D87",
+          "command_instruction_rva": "0x52D8F",
+          "instruction_bytes": "c74424288801000041b932a68020",
+          "instructions": [
+            "mov dword ptr [rsp + 0x28], 0x188",
+            "mov r9d, 0x2080a632"
+          ]
+        },
+        {
+          "operation": "native_control_set",
+          "command": "0x2080E61B",
+          "parameter_bytes": 4432,
+          "size_instruction_rva": "0x52DE6",
+          "command_instruction_rva": "0x52DEE",
+          "instruction_bytes": "c74424285011000041b91be68020",
+          "instructions": [
+            "mov dword ptr [rsp + 0x28], 0x1150",
+            "mov r9d, 0x2080e61b"
+          ]
+        },
+        {
+          "operation": "client_control_set",
+          "command": "0x2080E633",
+          "parameter_bytes": 392,
+          "size_instruction_rva": "0x52E48",
+          "command_instruction_rva": "0x52E50",
+          "instruction_bytes": "c74424288801000041b933e68020",
+          "instructions": [
+            "mov dword ptr [rsp + 0x28], 0x188",
+            "mov r9d, 0x2080e633"
+          ]
+        },
+        {
+          "operation": "power_info_transport",
+          "command": "0x2080A612",
+          "parameter_bytes": 11680,
+          "command_instruction_rva": "0x52A34",
+          "size_instruction_rva": "0x52A43",
+          "instruction_bytes": "41b912a6802048895c2468488d5f38c7442428a02d0000",
+          "instructions": [
+            "mov r9d, 0x2080a612",
+            "mov qword ptr [rsp + 0x68], rbx",
+            "lea rbx, [rdi + 0x38]",
+            "mov dword ptr [rsp + 0x28], 0x2da0"
+          ]
+        }
+      ],
+      "role_command_literal_counts_in_executable_sections": {
+        "0x2080261C": 0,
+        "0x2080A61C": 0
+      }
+    },
+    {
+      "release": "621.01",
+      "file": "nvapi64.dll",
+      "file_version": "32.0.16.2101",
+      "bytes": 560200,
+      "sha256": "24b2bd04ad44855a92f541b42970eeb345ecb9bb9a542c8201faa3e165a0403a",
+      "image_base": "0x180000000",
+      "dispatch": [],
+      "role_command_literal_counts_in_executable_sections": {
+        "0x2080261C": 0,
+        "0x2080A61C": 0
+      }
+    },
+    {
+      "release": "621.01",
+      "file": "nvapi64_impl.dll",
+      "file_version": "32.0.16.2101",
+      "bytes": 5688528,
+      "sha256": "46586752524af6075736eb655bb3a1da4030dfa42e6b6872afab400d50f249e7",
+      "image_base": "0x180000000",
+      "dispatch": [
+        {
+          "operation": "native_info",
+          "command": "0x2080A618",
+          "parameter_bytes": 20512,
+          "size_instruction_rva": "0x5530D",
+          "command_instruction_rva": "0x55315",
+          "instruction_bytes": "c74424282050000041b918a68020",
+          "instructions": [
+            "mov dword ptr [rsp + 0x28], 0x5020",
+            "mov r9d, 0x2080a618"
+          ]
+        },
+        {
+          "operation": "native_status",
+          "command": "0x2080A619",
+          "parameter_bytes": 397048,
+          "size_instruction_rva": "0x55320",
+          "command_instruction_rva": "0x55328",
+          "instruction_bytes": "c7442428f80e060041b919a68020",
+          "instructions": [
+            "mov dword ptr [rsp + 0x28], 0x60ef8",
+            "mov r9d, 0x2080a619"
+          ]
+        },
+        {
+          "operation": "native_control_get",
+          "command": "0x2080A61A",
+          "parameter_bytes": 13876,
+          "size_instruction_rva": "0x55333",
+          "command_instruction_rva": "0x5533B",
+          "instruction_bytes": "c74424283436000041b91aa68020",
+          "instructions": [
+            "mov dword ptr [rsp + 0x28], 0x3634",
+            "mov r9d, 0x2080a61a"
+          ]
+        },
+        {
+          "operation": "client_info",
+          "command": "0x2080A630",
+          "parameter_bytes": 2340,
+          "size_instruction_rva": "0x553B8",
+          "command_instruction_rva": "0x553C0",
+          "instruction_bytes": "c74424282409000041b930a68020",
+          "instructions": [
+            "mov dword ptr [rsp + 0x28], 0x924",
+            "mov r9d, 0x2080a630"
+          ]
+        },
+        {
+          "operation": "client_control_get",
+          "command": "0x2080A632",
+          "parameter_bytes": 808,
+          "size_instruction_rva": "0x553DE",
+          "command_instruction_rva": "0x553E6",
+          "instruction_bytes": "c74424282803000041b932a68020",
+          "instructions": [
+            "mov dword ptr [rsp + 0x28], 0x328",
+            "mov r9d, 0x2080a632"
+          ]
+        },
+        {
+          "operation": "native_control_set",
+          "command": "0x2080E61B",
+          "parameter_bytes": 13876,
+          "size_instruction_rva": "0x55450",
+          "command_instruction_rva": "0x55458",
+          "instruction_bytes": "c74424283436000041b91be68020",
+          "instructions": [
+            "mov dword ptr [rsp + 0x28], 0x3634",
+            "mov r9d, 0x2080e61b"
+          ]
+        },
+        {
+          "operation": "client_control_set",
+          "command": "0x2080E633",
+          "parameter_bytes": 808,
+          "size_instruction_rva": "0x554B2",
+          "command_instruction_rva": "0x554BA",
+          "instruction_bytes": "c74424282803000041b933e68020",
+          "instructions": [
+            "mov dword ptr [rsp + 0x28], 0x328",
+            "mov r9d, 0x2080e633"
+          ]
+        },
+        {
+          "operation": "power_info_transport",
+          "command": "0x2080A612",
+          "parameter_bytes": 54352,
+          "command_instruction_rva": "0x54C84",
+          "size_instruction_rva": "0x54C93",
+          "instruction_bytes": "41b912a6802048897c2468488d7b38c744242850d40000",
+          "instructions": [
+            "mov r9d, 0x2080a612",
+            "mov qword ptr [rsp + 0x68], rdi",
+            "lea rdi, [rbx + 0x38]",
+            "mov dword ptr [rsp + 0x28], 0xd450"
+          ]
+        }
+      ],
+      "role_command_literal_counts_in_executable_sections": {
+        "0x2080261C": 0,
+        "0x2080A61C": 0
+      }
+    }
+  ],
+  "limitations": [
+    "Dispatch parameter sizes describe these exact user-mode wrapper binaries, not a GPU-generation-wide ABI.",
+    "No 431.60 or 621.01 runtime acceptance, kernel support, row layout, restoration or physical enforcement was tested.",
+    "No Windows registry key, ROM patch class mapping or persistent override semantics were established.",
+    "No GPU commands, register accesses, driver installation, restart, load/unload or power-state changes were performed for this comparison.",
+    "The active board's existing 1062.5 mV V/F hold and current driver were outside this offline work."
+  ]
+}

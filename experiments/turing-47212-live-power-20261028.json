@@ -1,0 +1,2730 @@
+{
+  "date": "2026-10-28",
+  "identity": {
+    "name": "NVIDIA GeForce RTX 2080 SUPER",
+    "driver": "472.12",
+    "vbios": "90.04.7a.40.3d",
+    "slot": "0000:0a:00.0"
+  },
+  "existing_p0_hold": {
+    "domain": 6,
+    "lockMode": 3,
+    "volt_uV": 1062500,
+    "volt_mv": 1062.5,
+    "count": 7
+  },
+  "board_note": "Owner reports imperfect 16 GB VRAM modification; P5/P8 must be avoided",
+  "pci_identity": {
+    "slot": "0000:0a:00.0",
+    "architecture": 6,
+    "device_id": 7809,
+    "subsystem_id": 1072960600
+  },
+  "baseline": {
+    "binding": {
+      "client_index": 0,
+      "native_index": 2,
+      "semantic_role": 1,
+      "client": 254,
+      "units": "mW",
+      "minimum_mw": 105000,
+      "rated_mw": 250000,
+      "maximum_mw": 350000,
+      "layout": "rm26",
+      "native_layout": "rm26_extended"
+    },
+    "requested_mw": 250000,
+    "policies": [
+      {
+        "index": 0,
+        "type": 11,
+        "channel": 11,
+        "unit": 0,
+        "requested": 5001000,
+        "minimum": 1,
+        "rated": 5001000,
+        "maximum": 5001000
+      },
+      {
+        "index": 1,
+        "type": 3,
+        "channel": 8,
+        "unit": 0,
+        "requested": 1001000,
+        "minimum": 1,
+        "rated": 1001000,
+        "maximum": 1001000
+      },
+      {
+        "index": 2,
+        "type": 0,
+        "channel": 9,
+        "unit": 0,
+        "requested": 250000,
+        "minimum": 105000,
+        "rated": 250000,
+        "maximum": 350000
+      },
+      {
+        "index": 3,
+        "type": 3,
+        "channel": 3,
+        "unit": 0,
+        "requested": 63000,
+        "minimum": 1000,
+        "rated": 63000,
+        "maximum": 74000
+      },
+      {
+        "index": 4,
+        "type": 3,
+        "channel": 4,
+        "unit": 0,
+        "requested": 143000,
+        "minimum": 1000,
+        "rated": 143000,
+        "maximum": 167000
+      },
+      {
+        "index": 5,
+        "type": 3,
+        "channel": 5,
+        "unit": 0,
+        "requested": 143000,
+        "minimum": 1000,
+        "rated": 143000,
+        "maximum": 167000
+      },
+      {
+        "index": 7,
+        "type": 4,
+        "channel": 3,
+        "unit": 1,
+        "requested": 11000,
+        "minimum": 1000,
+        "rated": 11000,
+        "maximum": 16500
+      },
+      {
+        "index": 8,
+        "type": 4,
+        "channel": 4,
+        "unit": 1,
+        "requested": 22500,
+        "minimum": 1000,
+        "rated": 22500,
+        "maximum": 33750
+      },
+      {
+        "index": 9,
+        "type": 4,
+        "channel": 5,
+        "unit": 1,
+        "requested": 22500,
+        "minimum": 1000,
+        "rated": 22500,
+        "maximum": 33750
+      },
+      {
+        "index": 11,
+        "type": 9,
+        "channel": 0,
+        "unit": 0,
+        "requested": 0,
+        "minimum": 0,
+        "rated": 0,
+        "maximum": 0
+      },
+      {
+        "index": 13,
+        "type": 11,
+        "channel": 19,
+        "unit": 1,
+        "requested": 324000,
+        "minimum": 1000,
+        "rated": 324000,
+        "maximum": 360000
+      },
+      {
+        "index": 14,
+        "type": 11,
+        "channel": 11,
+        "unit": 0,
+        "requested": 5001000,
+        "minimum": 1,
+        "rated": 5001000,
+        "maximum": 5001000
+      },
+      {
+        "index": 15,
+        "type": 11,
+        "channel": 11,
+        "unit": 0,
+        "requested": 5001000,
+        "minimum": 1,
+        "rated": 5001000,
+        "maximum": 5001000
+      }
+    ],
+    "buffers": {
+      "info_hex": {
+        "bytes": 900,
+        "sha256": "1517d502eba5c0952dde4b069b7ac356caee30b0cc50de2a6da3d78005ec5a60"
+      },
+      "role_info_hex": {
+        "bytes": 136,
+        "sha256": "9d6f625edba92cdf1048bd9e37e150a6a26dbdfbfd4f3ac8c92b862582cef0ff"
+      },
+      "native_info_hex": {
+        "bytes": 5520,
+        "sha256": "e9483df7da4fcb706d1c8910f08cd0c8915904227b939a7a195ec931f7fea2a6"
+      },
+      "control_hex": {
+        "bytes": 388,
+        "sha256": "0c4032e56a89002c2c38b6066109961406e221d7e3f45ff7ccf2c1e36a1aae9e"
+      },
+      "native_control_hex": {
+        "bytes": 2124,
+        "sha256": "1f21700ee2711219a4127a16e2a0c86dff2f61f9bde95375cb06429ecc434457"
+      }
+    }
+  },
+  "trials": [
+    {
+      "label": "client_in_range",
+      "target_mw": 349000,
+      "idle_before": {
+        "pstate": 0,
+        "util_gpu": 0,
+        "power_w": 51.334,
+        "temp_edge": 55,
+        "pl_requested_mw": 250000,
+        "pl_now_mw": 250000
+      },
+      "after": {
+        "binding": {
+          "client_index": 0,
+          "native_index": 2,
+          "semantic_role": 1,
+          "client": 254,
+          "units": "mW",
+          "minimum_mw": 105000,
+          "rated_mw": 250000,
+          "maximum_mw": 350000,
+          "layout": "rm26",
+          "native_layout": "rm26_extended"
+        },
+        "requested_mw": 349000,
+        "policies": [
+          {
+            "index": 0,
+            "type": 11,
+            "channel": 11,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          },
+          {
+            "index": 1,
+            "type": 3,
+            "channel": 8,
+            "unit": 0,
+            "requested": 1001000,
+            "minimum": 1,
+            "rated": 1001000,
+            "maximum": 1001000
+          },
+          {
+            "index": 2,
+            "type": 0,
+            "channel": 9,
+            "unit": 0,
+            "requested": 349000,
+            "minimum": 105000,
+            "rated": 250000,
+            "maximum": 350000
+          },
+          {
+            "index": 3,
+            "type": 3,
+            "channel": 3,
+            "unit": 0,
+            "requested": 73890,
+            "minimum": 1000,
+            "rated": 63000,
+            "maximum": 74000
+          },
+          {
+            "index": 4,
+            "type": 3,
+            "channel": 4,
+            "unit": 0,
+            "requested": 166760,
+            "minimum": 1000,
+            "rated": 143000,
+            "maximum": 167000
+          },
+          {
+            "index": 5,
+            "type": 3,
+            "channel": 5,
+            "unit": 0,
+            "requested": 166760,
+            "minimum": 1000,
+            "rated": 143000,
+            "maximum": 167000
+          },
+          {
+            "index": 7,
+            "type": 4,
+            "channel": 3,
+            "unit": 1,
+            "requested": 16445,
+            "minimum": 1000,
+            "rated": 11000,
+            "maximum": 16500
+          },
+          {
+            "index": 8,
+            "type": 4,
+            "channel": 4,
+            "unit": 1,
+            "requested": 33637,
+            "minimum": 1000,
+            "rated": 22500,
+            "maximum": 33750
+          },
+          {
+            "index": 9,
+            "type": 4,
+            "channel": 5,
+            "unit": 1,
+            "requested": 33637,
+            "minimum": 1000,
+            "rated": 22500,
+            "maximum": 33750
+          },
+          {
+            "index": 11,
+            "type": 9,
+            "channel": 0,
+            "unit": 0,
+            "requested": 0,
+            "minimum": 0,
+            "rated": 0,
+            "maximum": 0
+          },
+          {
+            "index": 13,
+            "type": 11,
+            "channel": 19,
+            "unit": 1,
+            "requested": 359640,
+            "minimum": 1000,
+            "rated": 324000,
+            "maximum": 360000
+          },
+          {
+            "index": 14,
+            "type": 11,
+            "channel": 11,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          },
+          {
+            "index": 15,
+            "type": 11,
+            "channel": 11,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          }
+        ],
+        "buffers": {
+          "info_hex": {
+            "bytes": 900,
+            "sha256": "1517d502eba5c0952dde4b069b7ac356caee30b0cc50de2a6da3d78005ec5a60"
+          },
+          "role_info_hex": {
+            "bytes": 136,
+            "sha256": "9d6f625edba92cdf1048bd9e37e150a6a26dbdfbfd4f3ac8c92b862582cef0ff"
+          },
+          "native_info_hex": {
+            "bytes": 5520,
+            "sha256": "e9483df7da4fcb706d1c8910f08cd0c8915904227b939a7a195ec931f7fea2a6"
+          },
+          "control_hex": {
+            "bytes": 388,
+            "sha256": "edd4617c39f7007db1952daf5269b64df0c6f607badedda1c564ab6341b1f3a3"
+          },
+          "native_control_hex": {
+            "bytes": 2124,
+            "sha256": "a1f596e26fa191e918258820a2df72e9a108097d6aaeca028042662272bf3141"
+          }
+        }
+      },
+      "samples": [
+        {
+          "at": 1793201921.7357287,
+          "configured_mw": 349000,
+          "native_effective_mw": 349000,
+          "native_effective_error": null,
+          "native_status": {
+            "0": {
+              "type": 11,
+              "effective": 141677
+            },
+            "1": {
+              "type": 3,
+              "effective": 1001000
+            },
+            "2": {
+              "type": 0,
+              "effective": 359906
+            },
+            "3": {
+              "type": 3,
+              "effective": 73890
+            },
+            "4": {
+              "type": 3,
+              "effective": 166760
+            },
+            "5": {
+              "type": 3,
+              "effective": 166760
+            },
+            "7": {
+              "type": 4,
+              "effective": 16445
+            },
+            "8": {
+              "type": 4,
+              "effective": 33637
+            },
+            "9": {
+              "type": 4,
+              "effective": 33637
+            },
+            "11": {
+              "type": 9,
+              "effective": 0
+            },
+            "13": {
+              "type": 11,
+              "effective": 359640
+            },
+            "14": {
+              "type": 11,
+              "effective": 5001000
+            },
+            "15": {
+              "type": 11,
+              "effective": 5001000
+            }
+          },
+          "idle": {
+            "pstate": 0,
+            "util_gpu": 0,
+            "power_w": 52.873,
+            "temp_edge": 55,
+            "pl_requested_mw": 349000,
+            "pl_now_mw": 349000
+          }
+        },
+        {
+          "at": 1793201922.041743,
+          "configured_mw": 349000,
+          "native_effective_mw": 359906,
+          "native_effective_error": null,
+          "native_status": {
+            "0": {
+              "type": 11,
+              "effective": 143513
+            },
+            "1": {
+              "type": 3,
+              "effective": 1001000
+            },
+            "2": {
+              "type": 0,
+              "effective": 359906
+            },
+            "3": {
+              "type": 3,
+              "effective": 73890
+            },
+            "4": {
+              "type": 3,
+              "effective": 166760
+            },
+            "5": {
+              "type": 3,
+              "effective": 166760
+            },
+            "7": {
+              "type": 4,
+              "effective": 16445
+            },
+            "8": {
+              "type": 4,
+              "effective": 33637
+            },
+            "9": {
+              "type": 4,
+              "effective": 33637
+            },
+            "11": {
+              "type": 9,
+              "effective": 0
+            },
+            "13": {
+              "type": 11,
+              "effective": 359640
+            },
+            "14": {
+              "type": 11,
+              "effective": 5001000
+            },
+            "15": {
+              "type": 11,
+              "effective": 5001000
+            }
+          },
+          "idle": {
+            "pstate": 0,
+            "util_gpu": 0,
+            "power_w": 51.924,
+            "temp_edge": 55,
+            "pl_requested_mw": 349000,
+            "pl_now_mw": 349000
+          }
+        },
+        {
+          "at": 1793201922.347957,
+          "configured_mw": 349000,
+          "native_effective_mw": 359906,
+          "native_effective_error": null,
+          "native_status": {
+            "0": {
+              "type": 11,
+              "effective": 137442
+            },
+            "1": {
+              "type": 3,
+              "effective": 1001000
+            },
+            "2": {
+              "type": 0,
+              "effective": 359906
+            },
+            "3": {
+              "type": 3,
+              "effective": 73890
+            },
+            "4": {
+              "type": 3,
+              "effective": 166760
+            },
+            "5": {
+              "type": 3,
+              "effective": 166760
+            },
+            "7": {
+              "type": 4,
+              "effective": 16445
+            },
+            "8": {
+              "type": 4,
+              "effective": 33637
+            },
+            "9": {
+              "type": 4,
+              "effective": 33637
+            },
+            "11": {
+              "type": 9,
+              "effective": 0
+            },
+            "13": {
+              "type": 11,
+              "effective": 359640
+            },
+            "14": {
+              "type": 11,
+              "effective": 5001000
+            },
+            "15": {
+              "type": 11,
+              "effective": 5001000
+            }
+          },
+          "idle": {
+            "pstate": 0,
+            "util_gpu": 0,
+            "power_w": 51.046,
+            "temp_edge": 55,
+            "pl_requested_mw": 349000,
+            "pl_now_mw": 349000
+          }
+        },
+        {
+          "at": 1793201922.6560667,
+          "configured_mw": 349000,
+          "native_effective_mw": 359906,
+          "native_effective_error": null,
+          "native_status": {
+            "0": {
+              "type": 11,
+              "effective": 137590
+            },
+            "1": {
+              "type": 3,
+              "effective": 1001000
+            },
+            "2": {
+              "type": 0,
+              "effective": 359906
+            },
+            "3": {
+              "type": 3,
+              "effective": 73890
+            },
+            "4": {
+              "type": 3,
+              "effective": 166760
+            },
+            "5": {
+              "type": 3,
+              "effective": 166760
+            },
+            "7": {
+              "type": 4,
+              "effective": 16445
+            },
+            "8": {
+              "type": 4,
+              "effective": 33637
+            },
+            "9": {
+              "type": 4,
+              "effective": 33637
+            },
+            "11": {
+              "type": 9,
+              "effective": 0
+            },
+            "13": {
+              "type": 11,
+              "effective": 359640
+            },
+            "14": {
+              "type": 11,
+              "effective": 5001000
+            },
+            "15": {
+              "type": 11,
+              "effective": 5001000
+            }
+          },
+          "idle": {
+            "pstate": 0,
+            "util_gpu": 0,
+            "power_w": 50.897,
+            "temp_edge": 55,
+            "pl_requested_mw": 349000,
+            "pl_now_mw": 349000
+          }
+        },
+        {
+          "at": 1793201922.969155,
+          "configured_mw": 349000,
+          "native_effective_mw": 359906,
+          "native_effective_error": null,
+          "native_status": {
+            "0": {
+              "type": 11,
+              "effective": 138013
+            },
+            "1": {
+              "type": 3,
+              "effective": 1001000
+            },
+            "2": {
+              "type": 0,
+              "effective": 359906
+            },
+            "3": {
+              "type": 3,
+              "effective": 73890
+            },
+            "4": {
+              "type": 3,
+              "effective": 166760
+            },
+            "5": {
+              "type": 3,
+              "effective": 166760
+            },
+            "7": {
+              "type": 4,
+              "effective": 16445
+            },
+            "8": {
+              "type": 4,
+              "effective": 33637
+            },
+            "9": {
+              "type": 4,
+              "effective": 33637
+            },
+            "11": {
+              "type": 9,
+              "effective": 0
+            },
+            "13": {
+              "type": 11,
+              "effective": 359640
+            },
+            "14": {
+              "type": 11,
+              "effective": 5001000
+            },
+            "15": {
+              "type": 11,
+              "effective": 5001000
+            }
+          },
+          "idle": {
+            "pstate": 0,
+            "util_gpu": 0,
+            "power_w": 50.749,
+            "temp_edge": 55,
+            "pl_requested_mw": 349000,
+            "pl_now_mw": 349000
+          }
+        }
+      ],
+      "current_limits": [
+        {
+          "policy": 13,
+          "label": "Core current",
+          "channel": 19,
+          "minimum_ma": 1000,
+          "maximum_ma": 360000,
+          "normal_maximum_ma": 360000,
+          "default_ma": 324000,
+          "limit_ma": 359640,
+          "requested_ma": 359640,
+          "value_ma": 9734
+        }
+      ],
+      "current_error": "",
+      "restoration": {
+        "attempted": true,
+        "verified": true,
+        "error": null
+      }
+    },
+    {
+      "label": "client_above_maximum",
+      "target_mw": 351000,
+      "idle_before": {
+        "pstate": 0,
+        "util_gpu": 0,
+        "power_w": 52.472,
+        "temp_edge": 55,
+        "pl_requested_mw": 250000,
+        "pl_now_mw": 250000
+      },
+      "after": {
+        "binding": {
+          "client_index": 0,
+          "native_index": 2,
+          "semantic_role": 1,
+          "client": 254,
+          "units": "mW",
+          "minimum_mw": 105000,
+          "rated_mw": 250000,
+          "maximum_mw": 350000,
+          "layout": "rm26",
+          "native_layout": "rm26_extended"
+        },
+        "requested_mw": 351000,
+        "policies": [
+          {
+            "index": 0,
+            "type": 11,
+            "channel": 11,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          },
+          {
+            "index": 1,
+            "type": 3,
+            "channel": 8,
+            "unit": 0,
+            "requested": 1001000,
+            "minimum": 1,
+            "rated": 1001000,
+            "maximum": 1001000
+          },
+          {
+            "index": 2,
+            "type": 0,
+            "channel": 9,
+            "unit": 0,
+            "requested": 351000,
+            "minimum": 105000,
+            "rated": 250000,
+            "maximum": 350000
+          },
+          {
+            "index": 3,
+            "type": 3,
+            "channel": 3,
+            "unit": 0,
+            "requested": 74110,
+            "minimum": 1000,
+            "rated": 63000,
+            "maximum": 74000
+          },
+          {
+            "index": 4,
+            "type": 3,
+            "channel": 4,
+            "unit": 0,
+            "requested": 167240,
+            "minimum": 1000,
+            "rated": 143000,
+            "maximum": 167000
+          },
+          {
+            "index": 5,
+            "type": 3,
+            "channel": 5,
+            "unit": 0,
+            "requested": 167240,
+            "minimum": 1000,
+            "rated": 143000,
+            "maximum": 167000
+          },
+          {
+            "index": 7,
+            "type": 4,
+            "channel": 3,
+            "unit": 1,
+            "requested": 16555,
+            "minimum": 1000,
+            "rated": 11000,
+            "maximum": 16500
+          },
+          {
+            "index": 8,
+            "type": 4,
+            "channel": 4,
+            "unit": 1,
+            "requested": 33863,
+            "minimum": 1000,
+            "rated": 22500,
+            "maximum": 33750
+          },
+          {
+            "index": 9,
+            "type": 4,
+            "channel": 5,
+            "unit": 1,
+            "requested": 33863,
+            "minimum": 1000,
+            "rated": 22500,
+            "maximum": 33750
+          },
+          {
+            "index": 11,
+            "type": 9,
+            "channel": 0,
+            "unit": 0,
+            "requested": 0,
+            "minimum": 0,
+            "rated": 0,
+            "maximum": 0
+          },
+          {
+            "index": 13,
+            "type": 11,
+            "channel": 19,
+            "unit": 1,
+            "requested": 360360,
+            "minimum": 1000,
+            "rated": 324000,
+            "maximum": 360000
+          },
+          {
+            "index": 14,
+            "type": 11,
+            "channel": 11,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          },
+          {
+            "index": 15,
+            "type": 11,
+            "channel": 11,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          }
+        ],
+        "buffers": {
+          "info_hex": {
+            "bytes": 900,
+            "sha256": "1517d502eba5c0952dde4b069b7ac356caee30b0cc50de2a6da3d78005ec5a60"
+          },
+          "role_info_hex": {
+            "bytes": 136,
+            "sha256": "9d6f625edba92cdf1048bd9e37e150a6a26dbdfbfd4f3ac8c92b862582cef0ff"
+          },
+          "native_info_hex": {
+            "bytes": 5520,
+            "sha256": "e9483df7da4fcb706d1c8910f08cd0c8915904227b939a7a195ec931f7fea2a6"
+          },
+          "control_hex": {
+            "bytes": 388,
+            "sha256": "629223ba238561dec03d6012dd5d418d7864716764ed1ba40cec77cd5cb51927"
+          },
+          "native_control_hex": {
+            "bytes": 2124,
+            "sha256": "acc2ca39d53370ea7282cd4737ad9a45c9807369780266701f644611d9754975"
+          }
+        }
+      },
+      "samples": [
+        {
+          "at": 1793201923.4980352,
+          "configured_mw": 351000,
+          "native_effective_mw": 350000,
+          "native_effective_error": null,
+          "native_status": {
+            "0": {
+              "type": 11,
+              "effective": 141939
+            },
+            "1": {
+              "type": 3,
+              "effective": 1001000
+            },
+            "2": {
+              "type": 0,
+              "effective": 360938
+            },
+            "3": {
+              "type": 3,
+              "effective": 74000
+            },
+            "4": {
+              "type": 3,
+              "effective": 167000
+            },
+            "5": {
+              "type": 3,
+              "effective": 167000
+            },
+            "7": {
+              "type": 4,
+              "effective": 16500
+            },
+            "8": {
+              "type": 4,
+              "effective": 33750
+            },
+            "9": {
+              "type": 4,
+              "effective": 33750
+            },
+            "11": {
+              "type": 9,
+              "effective": 0
+            },
+            "13": {
+              "type": 11,
+              "effective": 360000
+            },
+            "14": {
+              "type": 11,
+              "effective": 5001000
+            },
+            "15": {
+              "type": 11,
+              "effective": 5001000
+            }
+          },
+          "idle": {
+            "pstate": 0,
+            "util_gpu": 0,
+            "power_w": 54.127,
+            "temp_edge": 55,
+            "pl_requested_mw": 351000,
+            "pl_now_mw": 351000
+          }
+        },
+        {
+          "at": 1793201923.803673,
+          "configured_mw": 351000,
+          "native_effective_mw": 360938,
+          "native_effective_error": null,
+          "native_status": {
+            "0": {
+              "type": 11,
+              "effective": 145302
+            },
+            "1": {
+              "type": 3,
+              "effective": 1001000
+            },
+            "2": {
+              "type": 0,
+              "effective": 360938
+            },
+            "3": {
+              "type": 3,
+              "effective": 74000
+            },
+            "4": {
+              "type": 3,
+              "effective": 167000
+            },
+            "5": {
+              "type": 3,
+              "effective": 167000
+            },
+            "7": {
+              "type": 4,
+              "effective": 16500
+            },
+            "8": {
+              "type": 4,
+              "effective": 33750
+            },
+            "9": {
+              "type": 4,
+              "effective": 33750
+            },
+            "11": {
+              "type": 9,
+              "effective": 0
+            },
+            "13": {
+              "type": 11,
+              "effective": 360000
+            },
+            "14": {
+              "type": 11,
+              "effective": 5001000
+            },
+            "15": {
+              "type": 11,
+              "effective": 5001000
+            }
+          },
+          "idle": {
+            "pstate": 0,
+            "util_gpu": 0,
+            "power_w": 51.649,
+            "temp_edge": 55,
+            "pl_requested_mw": 351000,
+            "pl_now_mw": 351000
+          }
+        },
+        {
+          "at": 1793201924.1077895,
+          "configured_mw": 351000,
+          "native_effective_mw": 360938,
+          "native_effective_error": null,
+          "native_status": {
+            "0": {
+              "type": 11,
+              "effective": 137450
+            },
+            "1": {
+              "type": 3,
+              "effective": 1001000
+            },
+            "2": {
+              "type": 0,
+              "effective": 360938
+            },
+            "3": {
+              "type": 3,
+              "effective": 74000
+            },
+            "4": {
+              "type": 3,
+              "effective": 167000
+            },
+            "5": {
+              "type": 3,
+              "effective": 167000
+            },
+            "7": {
+              "type": 4,
+              "effective": 16500
+            },
+            "8": {
+              "type": 4,
+              "effective": 33750
+            },
+            "9": {
+              "type": 4,
+              "effective": 33750
+            },
+            "11": {
+              "type": 9,
+              "effective": 0
+            },
+            "13": {
+              "type": 11,
+              "effective": 360000
+            },
+            "14": {
+              "type": 11,
+              "effective": 5001000
+            },
+            "15": {
+              "type": 11,
+              "effective": 5001000
+            }
+          },
+          "idle": {
+            "pstate": 0,
+            "util_gpu": 0,
+            "power_w": 51.104,
+            "temp_edge": 55,
+            "pl_requested_mw": 351000,
+            "pl_now_mw": 351000
+          }
+        },
+        {
+          "at": 1793201924.4134731,
+          "configured_mw": 351000,
+          "native_effective_mw": 360938,
+          "native_effective_error": null,
+          "native_status": {
+            "0": {
+              "type": 11,
+              "effective": 138222
+            },
+            "1": {
+              "type": 3,
+              "effective": 1001000
+            },
+            "2": {
+              "type": 0,
+              "effective": 360938
+            },
+            "3": {
+              "type": 3,
+              "effective": 74000
+            },
+            "4": {
+              "type": 3,
+              "effective": 167000
+            },
+            "5": {
+              "type": 3,
+              "effective": 167000
+            },
+            "7": {
+              "type": 4,
+              "effective": 16500
+            },
+            "8": {
+              "type": 4,
+              "effective": 33750
+            },
+            "9": {
+              "type": 4,
+              "effective": 33750
+            },
+            "11": {
+              "type": 9,
+              "effective": 0
+            },
+            "13": {
+              "type": 11,
+              "effective": 360000
+            },
+            "14": {
+              "type": 11,
+              "effective": 5001000
+            },
+            "15": {
+              "type": 11,
+              "effective": 5001000
+            }
+          },
+          "idle": {
+            "pstate": 0,
+            "util_gpu": 0,
+            "power_w": 50.92,
+            "temp_edge": 55,
+            "pl_requested_mw": 351000,
+            "pl_now_mw": 351000
+          }
+        },
+        {
+          "at": 1793201924.7196538,
+          "configured_mw": 351000,
+          "native_effective_mw": 360938,
+          "native_effective_error": null,
+          "native_status": {
+            "0": {
+              "type": 11,
+              "effective": 136793
+            },
+            "1": {
+              "type": 3,
+              "effective": 1001000
+            },
+            "2": {
+              "type": 0,
+              "effective": 360938
+            },
+            "3": {
+              "type": 3,
+              "effective": 74000
+            },
+            "4": {
+              "type": 3,
+              "effective": 167000
+            },
+            "5": {
+              "type": 3,
+              "effective": 167000
+            },
+            "7": {
+              "type": 4,
+              "effective": 16500
+            },
+            "8": {
+              "type": 4,
+              "effective": 33750
+            },
+            "9": {
+              "type": 4,
+              "effective": 33750
+            },
+            "11": {
+              "type": 9,
+              "effective": 0
+            },
+            "13": {
+              "type": 11,
+              "effective": 360000
+            },
+            "14": {
+              "type": 11,
+              "effective": 5001000
+            },
+            "15": {
+              "type": 11,
+              "effective": 5001000
+            }
+          },
+          "idle": {
+            "pstate": 0,
+            "util_gpu": 0,
+            "power_w": 50.867,
+            "temp_edge": 55,
+            "pl_requested_mw": 351000,
+            "pl_now_mw": 351000
+          }
+        }
+      ],
+      "current_limits": [
+        {
+          "policy": 13,
+          "label": "Core current",
+          "channel": 19,
+          "minimum_ma": 1000,
+          "maximum_ma": 360000,
+          "normal_maximum_ma": 360000,
+          "default_ma": 324000,
+          "limit_ma": 360000,
+          "requested_ma": 360360,
+          "value_ma": 9734
+        }
+      ],
+      "current_error": "",
+      "restoration": {
+        "attempted": true,
+        "verified": true,
+        "error": null
+      }
+    },
+    {
+      "label": "client_400w",
+      "target_mw": 400000,
+      "idle_before": {
+        "pstate": 0,
+        "util_gpu": 0,
+        "power_w": 52.754,
+        "temp_edge": 55,
+        "pl_requested_mw": 250000,
+        "pl_now_mw": 250000
+      },
+      "after": {
+        "binding": {
+          "client_index": 0,
+          "native_index": 2,
+          "semantic_role": 1,
+          "client": 254,
+          "units": "mW",
+          "minimum_mw": 105000,
+          "rated_mw": 250000,
+          "maximum_mw": 350000,
+          "layout": "rm26",
+          "native_layout": "rm26_extended"
+        },
+        "requested_mw": 400000,
+        "policies": [
+          {
+            "index": 0,
+            "type": 11,
+            "channel": 11,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          },
+          {
+            "index": 1,
+            "type": 3,
+            "channel": 8,
+            "unit": 0,
+            "requested": 1001000,
+            "minimum": 1,
+            "rated": 1001000,
+            "maximum": 1001000
+          },
+          {
+            "index": 2,
+            "type": 0,
+            "channel": 9,
+            "unit": 0,
+            "requested": 400000,
+            "minimum": 105000,
+            "rated": 250000,
+            "maximum": 350000
+          },
+          {
+            "index": 3,
+            "type": 3,
+            "channel": 3,
+            "unit": 0,
+            "requested": 79500,
+            "minimum": 1000,
+            "rated": 63000,
+            "maximum": 74000
+          },
+          {
+            "index": 4,
+            "type": 3,
+            "channel": 4,
+            "unit": 0,
+            "requested": 179000,
+            "minimum": 1000,
+            "rated": 143000,
+            "maximum": 167000
+          },
+          {
+            "index": 5,
+            "type": 3,
+            "channel": 5,
+            "unit": 0,
+            "requested": 179000,
+            "minimum": 1000,
+            "rated": 143000,
+            "maximum": 167000
+          },
+          {
+            "index": 7,
+            "type": 4,
+            "channel": 3,
+            "unit": 1,
+            "requested": 19250,
+            "minimum": 1000,
+            "rated": 11000,
+            "maximum": 16500
+          },
+          {
+            "index": 8,
+            "type": 4,
+            "channel": 4,
+            "unit": 1,
+            "requested": 39375,
+            "minimum": 1000,
+            "rated": 22500,
+            "maximum": 33750
+          },
+          {
+            "index": 9,
+            "type": 4,
+            "channel": 5,
+            "unit": 1,
+            "requested": 39375,
+            "minimum": 1000,
+            "rated": 22500,
+            "maximum": 33750
+          },
+          {
+            "index": 11,
+            "type": 9,
+            "channel": 0,
+            "unit": 0,
+            "requested": 0,
+            "minimum": 0,
+            "rated": 0,
+            "maximum": 0
+          },
+          {
+            "index": 13,
+            "type": 11,
+            "channel": 19,
+            "unit": 1,
+            "requested": 378000,
+            "minimum": 1000,
+            "rated": 324000,
+            "maximum": 360000
+          },
+          {
+            "index": 14,
+            "type": 11,
+            "channel": 11,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          },
+          {
+            "index": 15,
+            "type": 11,
+            "channel": 11,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          }
+        ],
+        "buffers": {
+          "info_hex": {
+            "bytes": 900,
+            "sha256": "1517d502eba5c0952dde4b069b7ac356caee30b0cc50de2a6da3d78005ec5a60"
+          },
+          "role_info_hex": {
+            "bytes": 136,
+            "sha256": "9d6f625edba92cdf1048bd9e37e150a6a26dbdfbfd4f3ac8c92b862582cef0ff"
+          },
+          "native_info_hex": {
+            "bytes": 5520,
+            "sha256": "e9483df7da4fcb706d1c8910f08cd0c8915904227b939a7a195ec931f7fea2a6"
+          },
+          "control_hex": {
+            "bytes": 388,
+            "sha256": "49790d87848a34f0463ee923a913cdd308f6b2da101729eca006b8c2d5bb5fe2"
+          },
+          "native_control_hex": {
+            "bytes": 2124,
+            "sha256": "fcd6f451eb9e59fba567025118a39f09503c4be7d9d374a24c211b259c8c34cc"
+          }
+        }
+      },
+      "samples": [
+        {
+          "at": 1793201925.2617543,
+          "configured_mw": 400000,
+          "native_effective_mw": 350000,
+          "native_effective_error": null,
+          "native_status": {
+            "0": {
+              "type": 11,
+              "effective": 141581
+            },
+            "1": {
+              "type": 3,
+              "effective": 1001000
+            },
+            "2": {
+              "type": 0,
+              "effective": 360938
+            },
+            "3": {
+              "type": 3,
+              "effective": 74000
+            },
+            "4": {
+              "type": 3,
+              "effective": 167000
+            },
+            "5": {
+              "type": 3,
+              "effective": 167000
+            },
+            "7": {
+              "type": 4,
+              "effective": 16500
+            },
+            "8": {
+              "type": 4,
+              "effective": 33750
+            },
+            "9": {
+              "type": 4,
+              "effective": 33750
+            },
+            "11": {
+              "type": 9,
+              "effective": 0
+            },
+            "13": {
+              "type": 11,
+              "effective": 360000
+            },
+            "14": {
+              "type": 11,
+              "effective": 5001000
+            },
+            "15": {
+              "type": 11,
+              "effective": 5001000
+            }
+          },
+          "idle": {
+            "pstate": 0,
+            "util_gpu": 0,
+            "power_w": 53.335,
+            "temp_edge": 55,
+            "pl_requested_mw": 400000,
+            "pl_now_mw": 400000
+          }
+        },
+        {
+          "at": 1793201925.5675488,
+          "configured_mw": 400000,
+          "native_effective_mw": 360938,
+          "native_effective_error": null,
+          "native_status": {
+            "0": {
+              "type": 11,
+              "effective": 143768
+            },
+            "1": {
+              "type": 3,
+              "effective": 1001000
+            },
+            "2": {
+              "type": 0,
+              "effective": 360938
+            },
+            "3": {
+              "type": 3,
+              "effective": 74000
+            },
+            "4": {
+              "type": 3,
+              "effective": 167000
+            },
+            "5": {
+              "type": 3,
+              "effective": 167000
+            },
+            "7": {
+              "type": 4,
+              "effective": 16500
+            },
+            "8": {
+              "type": 4,
+              "effective": 33750
+            },
+            "9": {
+              "type": 4,
+              "effective": 33750
+            },
+            "11": {
+              "type": 9,
+              "effective": 0
+            },
+            "13": {
+              "type": 11,
+              "effective": 360000
+            },
+            "14": {
+              "type": 11,
+              "effective": 5001000
+            },
+            "15": {
+              "type": 11,
+              "effective": 5001000
+            }
+          },
+          "idle": {
+            "pstate": 0,
+            "util_gpu": 0,
+            "power_w": 52.09,
+            "temp_edge": 55,
+            "pl_requested_mw": 400000,
+            "pl_now_mw": 400000
+          }
+        },
+        {
+          "at": 1793201925.8725405,
+          "configured_mw": 400000,
+          "native_effective_mw": 360938,
+          "native_effective_error": null,
+          "native_status": {
+            "0": {
+              "type": 11,
+              "effective": 138614
+            },
+            "1": {
+              "type": 3,
+              "effective": 1001000
+            },
+            "2": {
+              "type": 0,
+              "effective": 360938
+            },
+            "3": {
+              "type": 3,
+              "effective": 74000
+            },
+            "4": {
+              "type": 3,
+              "effective": 167000
+            },
+            "5": {
+              "type": 3,
+              "effective": 167000
+            },
+            "7": {
+              "type": 4,
+              "effective": 16500
+            },
+            "8": {
+              "type": 4,
+              "effective": 33750
+            },
+            "9": {
+              "type": 4,
+              "effective": 33750
+            },
+            "11": {
+              "type": 9,
+              "effective": 0
+            },
+            "13": {
+              "type": 11,
+              "effective": 360000
+            },
+            "14": {
+              "type": 11,
+              "effective": 5001000
+            },
+            "15": {
+              "type": 11,
+              "effective": 5001000
+            }
+          },
+          "idle": {
+            "pstate": 0,
+            "util_gpu": 0,
+            "power_w": 50.856,
+            "temp_edge": 55,
+            "pl_requested_mw": 400000,
+            "pl_now_mw": 400000
+          }
+        },
+        {
+          "at": 1793201926.1786518,
+          "configured_mw": 400000,
+          "native_effective_mw": 360938,
+          "native_effective_error": null,
+          "native_status": {
+            "0": {
+              "type": 11,
+              "effective": 136865
+            },
+            "1": {
+              "type": 3,
+              "effective": 1001000
+            },
+            "2": {
+              "type": 0,
+              "effective": 360938
+            },
+            "3": {
+              "type": 3,
+              "effective": 74000
+            },
+            "4": {
+              "type": 3,
+              "effective": 167000
+            },
+            "5": {
+              "type": 3,
+              "effective": 167000
+            },
+            "7": {
+              "type": 4,
+              "effective": 16500
+            },
+            "8": {
+              "type": 4,
+              "effective": 33750
+            },
+            "9": {
+              "type": 4,
+              "effective": 33750
+            },
+            "11": {
+              "type": 9,
+              "effective": 0
+            },
+            "13": {
+              "type": 11,
+              "effective": 360000
+            },
+            "14": {
+              "type": 11,
+              "effective": 5001000
+            },
+            "15": {
+              "type": 11,
+              "effective": 5001000
+            }
+          },
+          "idle": {
+            "pstate": 0,
+            "util_gpu": 0,
+            "power_w": 51.117,
+            "temp_edge": 55,
+            "pl_requested_mw": 400000,
+            "pl_now_mw": 400000
+          }
+        },
+        {
+          "at": 1793201926.4869432,
+          "configured_mw": 400000,
+          "native_effective_mw": 360938,
+          "native_effective_error": null,
+          "native_status": {
+            "0": {
+              "type": 11,
+              "effective": 141805
+            },
+            "1": {
+              "type": 3,
+              "effective": 1001000
+            },
+            "2": {
+              "type": 0,
+              "effective": 360938
+            },
+            "3": {
+              "type": 3,
+              "effective": 74000
+            },
+            "4": {
+              "type": 3,
+              "effective": 167000
+            },
+            "5": {
+              "type": 3,
+              "effective": 167000
+            },
+            "7": {
+              "type": 4,
+              "effective": 16500
+            },
+            "8": {
+              "type": 4,
+              "effective": 33750
+            },
+            "9": {
+              "type": 4,
+              "effective": 33750
+            },
+            "11": {
+              "type": 9,
+              "effective": 0
+            },
+            "13": {
+              "type": 11,
+              "effective": 360000
+            },
+            "14": {
+              "type": 11,
+              "effective": 5001000
+            },
+            "15": {
+              "type": 11,
+              "effective": 5001000
+            }
+          },
+          "idle": {
+            "pstate": 0,
+            "util_gpu": 0,
+            "power_w": 51.098,
+            "temp_edge": 55,
+            "pl_requested_mw": 400000,
+            "pl_now_mw": 400000
+          }
+        }
+      ],
+      "current_limits": [
+        {
+          "policy": 13,
+          "label": "Core current",
+          "channel": 19,
+          "minimum_ma": 1000,
+          "maximum_ma": 360000,
+          "normal_maximum_ma": 360000,
+          "default_ma": 324000,
+          "limit_ma": 360000,
+          "requested_ma": 378000,
+          "value_ma": 9742
+        }
+      ],
+      "current_error": "",
+      "restoration": {
+        "attempted": true,
+        "verified": true,
+        "error": null
+      }
+    },
+    {
+      "label": "production_backend_with_current_pin",
+      "target_mw": 351000,
+      "idle_before": {
+        "pstate": 0,
+        "util_gpu": 0,
+        "power_w": 52.171,
+        "temp_edge": 55,
+        "pl_requested_mw": 250000,
+        "pl_now_mw": 250000
+      },
+      "production_message": "power request configured to 351 W; the driver may recalculate other policies; downstream power/current limits can be lower",
+      "after": {
+        "binding": {
+          "client_index": 0,
+          "native_index": 2,
+          "semantic_role": 1,
+          "client": 254,
+          "units": "mW",
+          "minimum_mw": 105000,
+          "rated_mw": 250000,
+          "maximum_mw": 350000,
+          "layout": "rm26",
+          "native_layout": "rm26_extended"
+        },
+        "requested_mw": 351000,
+        "policies": [
+          {
+            "index": 0,
+            "type": 11,
+            "channel": 11,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          },
+          {
+            "index": 1,
+            "type": 3,
+            "channel": 8,
+            "unit": 0,
+            "requested": 1001000,
+            "minimum": 1,
+            "rated": 1001000,
+            "maximum": 1001000
+          },
+          {
+            "index": 2,
+            "type": 0,
+            "channel": 9,
+            "unit": 0,
+            "requested": 351000,
+            "minimum": 105000,
+            "rated": 250000,
+            "maximum": 350000
+          },
+          {
+            "index": 3,
+            "type": 3,
+            "channel": 3,
+            "unit": 0,
+            "requested": 74110,
+            "minimum": 1000,
+            "rated": 63000,
+            "maximum": 74000
+          },
+          {
+            "index": 4,
+            "type": 3,
+            "channel": 4,
+            "unit": 0,
+            "requested": 167240,
+            "minimum": 1000,
+            "rated": 143000,
+            "maximum": 167000
+          },
+          {
+            "index": 5,
+            "type": 3,
+            "channel": 5,
+            "unit": 0,
+            "requested": 167240,
+            "minimum": 1000,
+            "rated": 143000,
+            "maximum": 167000
+          },
+          {
+            "index": 7,
+            "type": 4,
+            "channel": 3,
+            "unit": 1,
+            "requested": 16555,
+            "minimum": 1000,
+            "rated": 11000,
+            "maximum": 16500
+          },
+          {
+            "index": 8,
+            "type": 4,
+            "channel": 4,
+            "unit": 1,
+            "requested": 33863,
+            "minimum": 1000,
+            "rated": 22500,
+            "maximum": 33750
+          },
+          {
+            "index": 9,
+            "type": 4,
+            "channel": 5,
+            "unit": 1,
+            "requested": 33863,
+            "minimum": 1000,
+            "rated": 22500,
+            "maximum": 33750
+          },
+          {
+            "index": 11,
+            "type": 9,
+            "channel": 0,
+            "unit": 0,
+            "requested": 0,
+            "minimum": 0,
+            "rated": 0,
+            "maximum": 0
+          },
+          {
+            "index": 13,
+            "type": 11,
+            "channel": 19,
+            "unit": 1,
+            "requested": 360360,
+            "minimum": 1000,
+            "rated": 324000,
+            "maximum": 360000
+          },
+          {
+            "index": 14,
+            "type": 11,
+            "channel": 11,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          },
+          {
+            "index": 15,
+            "type": 11,
+            "channel": 11,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          }
+        ],
+        "buffers": {
+          "info_hex": {
+            "bytes": 900,
+            "sha256": "1517d502eba5c0952dde4b069b7ac356caee30b0cc50de2a6da3d78005ec5a60"
+          },
+          "role_info_hex": {
+            "bytes": 136,
+            "sha256": "9d6f625edba92cdf1048bd9e37e150a6a26dbdfbfd4f3ac8c92b862582cef0ff"
+          },
+          "native_info_hex": {
+            "bytes": 5520,
+            "sha256": "e9483df7da4fcb706d1c8910f08cd0c8915904227b939a7a195ec931f7fea2a6"
+          },
+          "control_hex": {
+            "bytes": 388,
+            "sha256": "629223ba238561dec03d6012dd5d418d7864716764ed1ba40cec77cd5cb51927"
+          },
+          "native_control_hex": {
+            "bytes": 2124,
+            "sha256": "acc2ca39d53370ea7282cd4737ad9a45c9807369780266701f644611d9754975"
+          }
+        }
+      },
+      "samples": [
+        {
+          "at": 1793201927.0294464,
+          "configured_mw": 351000,
+          "native_effective_mw": 350000,
+          "native_effective_error": null,
+          "native_status": {
+            "0": {
+              "type": 11,
+              "effective": 142857
+            },
+            "1": {
+              "type": 3,
+              "effective": 1001000
+            },
+            "2": {
+              "type": 0,
+              "effective": 360938
+            },
+            "3": {
+              "type": 3,
+              "effective": 74000
+            },
+            "4": {
+              "type": 3,
+              "effective": 167000
+            },
+            "5": {
+              "type": 3,
+              "effective": 167000
+            },
+            "7": {
+              "type": 4,
+              "effective": 16500
+            },
+            "8": {
+              "type": 4,
+              "effective": 33750
+            },
+            "9": {
+              "type": 4,
+              "effective": 33750
+            },
+            "11": {
+              "type": 9,
+              "effective": 0
+            },
+            "13": {
+              "type": 11,
+              "effective": 360000
+            },
+            "14": {
+              "type": 11,
+              "effective": 5001000
+            },
+            "15": {
+              "type": 11,
+              "effective": 5001000
+            }
+          },
+          "idle": {
+            "pstate": 0,
+            "util_gpu": 0,
+            "power_w": 56.086,
+            "temp_edge": 55,
+            "pl_requested_mw": 351000,
+            "pl_now_mw": 351000
+          }
+        },
+        {
+          "at": 1793201927.335089,
+          "configured_mw": 351000,
+          "native_effective_mw": 360938,
+          "native_effective_error": null,
+          "native_status": {
+            "0": {
+              "type": 11,
+              "effective": 146387
+            },
+            "1": {
+              "type": 3,
+              "effective": 1001000
+            },
+            "2": {
+              "type": 0,
+              "effective": 360938
+            },
+            "3": {
+              "type": 3,
+              "effective": 74000
+            },
+            "4": {
+              "type": 3,
+              "effective": 167000
+            },
+            "5": {
+              "type": 3,
+              "effective": 167000
+            },
+            "7": {
+              "type": 4,
+              "effective": 16500
+            },
+            "8": {
+              "type": 4,
+              "effective": 33750
+            },
+            "9": {
+              "type": 4,
+              "effective": 33750
+            },
+            "11": {
+              "type": 9,
+              "effective": 0
+            },
+            "13": {
+              "type": 11,
+              "effective": 360000
+            },
+            "14": {
+              "type": 11,
+              "effective": 5001000
+            },
+            "15": {
+              "type": 11,
+              "effective": 5001000
+            }
+          },
+          "idle": {
+            "pstate": 0,
+            "util_gpu": 0,
+            "power_w": 51.535,
+            "temp_edge": 55,
+            "pl_requested_mw": 351000,
+            "pl_now_mw": 351000
+          }
+        },
+        {
+          "at": 1793201927.6400127,
+          "configured_mw": 351000,
+          "native_effective_mw": 360938,
+          "native_effective_error": null,
+          "native_status": {
+            "0": {
+              "type": 11,
+              "effective": 138696
+            },
+            "1": {
+              "type": 3,
+              "effective": 1001000
+            },
+            "2": {
+              "type": 0,
+              "effective": 360938
+            },
+            "3": {
+              "type": 3,
+              "effective": 74000
+            },
+            "4": {
+              "type": 3,
+              "effective": 167000
+            },
+            "5": {
+              "type": 3,
+              "effective": 167000
+            },
+            "7": {
+              "type": 4,
+              "effective": 16500
+            },
+            "8": {
+              "type": 4,
+              "effective": 33750
+            },
+            "9": {
+              "type": 4,
+              "effective": 33750
+            },
+            "11": {
+              "type": 9,
+              "effective": 0
+            },
+            "13": {
+              "type": 11,
+              "effective": 360000
+            },
+            "14": {
+              "type": 11,
+              "effective": 5001000
+            },
+            "15": {
+              "type": 11,
+              "effective": 5001000
+            }
+          },
+          "idle": {
+            "pstate": 0,
+            "util_gpu": 0,
+            "power_w": 50.865,
+            "temp_edge": 55,
+            "pl_requested_mw": 351000,
+            "pl_now_mw": 351000
+          }
+        },
+        {
+          "at": 1793201927.945787,
+          "configured_mw": 351000,
+          "native_effective_mw": 360938,
+          "native_effective_error": null,
+          "native_status": {
+            "0": {
+              "type": 11,
+              "effective": 137013
+            },
+            "1": {
+              "type": 3,
+              "effective": 1001000
+            },
+            "2": {
+              "type": 0,
+              "effective": 360938
+            },
+            "3": {
+              "type": 3,
+              "effective": 74000
+            },
+            "4": {
+              "type": 3,
+              "effective": 167000
+            },
+            "5": {
+              "type": 3,
+              "effective": 167000
+            },
+            "7": {
+              "type": 4,
+              "effective": 16500
+            },
+            "8": {
+              "type": 4,
+              "effective": 33750
+            },
+            "9": {
+              "type": 4,
+              "effective": 33750
+            },
+            "11": {
+              "type": 9,
+              "effective": 0
+            },
+            "13": {
+              "type": 11,
+              "effective": 360000
+            },
+            "14": {
+              "type": 11,
+              "effective": 5001000
+            },
+            "15": {
+              "type": 11,
+              "effective": 5001000
+            }
+          },
+          "idle": {
+            "pstate": 0,
+            "util_gpu": 0,
+            "power_w": 50.908,
+            "temp_edge": 55,
+            "pl_requested_mw": 351000,
+            "pl_now_mw": 351000
+          }
+        },
+        {
+          "at": 1793201928.2516687,
+          "configured_mw": 351000,
+          "native_effective_mw": 360938,
+          "native_effective_error": null,
+          "native_status": {
+            "0": {
+              "type": 11,
+              "effective": 137228
+            },
+            "1": {
+              "type": 3,
+              "effective": 1001000
+            },
+            "2": {
+              "type": 0,
+              "effective": 360938
+            },
+            "3": {
+              "type": 3,
+              "effective": 74000
+            },
+            "4": {
+              "type": 3,
+              "effective": 167000
+            },
+            "5": {
+              "type": 3,
+              "effective": 167000
+            },
+            "7": {
+              "type": 4,
+              "effective": 16500
+            },
+            "8": {
+              "type": 4,
+              "effective": 33750
+            },
+            "9": {
+              "type": 4,
+              "effective": 33750
+            },
+            "11": {
+              "type": 9,
+              "effective": 0
+            },
+            "13": {
+              "type": 11,
+              "effective": 360000
+            },
+            "14": {
+              "type": 11,
+              "effective": 5001000
+            },
+            "15": {
+              "type": 11,
+              "effective": 5001000
+            }
+          },
+          "idle": {
+            "pstate": 0,
+            "util_gpu": 0,
+            "power_w": 50.776,
+            "temp_edge": 55,
+            "pl_requested_mw": 351000,
+            "pl_now_mw": 351000
+          }
+        }
+      ],
+      "current_limits": [
+        {
+          "policy": 13,
+          "label": "Core current",
+          "channel": 19,
+          "minimum_ma": 1000,
+          "maximum_ma": 360000,
+          "normal_maximum_ma": 360000,
+          "default_ma": 324000,
+          "limit_ma": 360000,
+          "requested_ma": 360360,
+          "value_ma": 9742
+        }
+      ],
+      "current_error": "",
+      "current_pin_ma": 350000,
+      "after_repeated_board_request": {
+        "binding": {
+          "client_index": 0,
+          "native_index": 2,
+          "semantic_role": 1,
+          "client": 254,
+          "units": "mW",
+          "minimum_mw": 105000,
+          "rated_mw": 250000,
+          "maximum_mw": 350000,
+          "layout": "rm26",
+          "native_layout": "rm26_extended"
+        },
+        "requested_mw": 351000,
+        "policies": [
+          {
+            "index": 0,
+            "type": 11,
+            "channel": 11,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          },
+          {
+            "index": 1,
+            "type": 3,
+            "channel": 8,
+            "unit": 0,
+            "requested": 1001000,
+            "minimum": 1,
+            "rated": 1001000,
+            "maximum": 1001000
+          },
+          {
+            "index": 2,
+            "type": 0,
+            "channel": 9,
+            "unit": 0,
+            "requested": 351000,
+            "minimum": 105000,
+            "rated": 250000,
+            "maximum": 350000
+          },
+          {
+            "index": 3,
+            "type": 3,
+            "channel": 3,
+            "unit": 0,
+            "requested": 74110,
+            "minimum": 1000,
+            "rated": 63000,
+            "maximum": 74000
+          },
+          {
+            "index": 4,
+            "type": 3,
+            "channel": 4,
+            "unit": 0,
+            "requested": 167240,
+            "minimum": 1000,
+            "rated": 143000,
+            "maximum": 167000
+          },
+          {
+            "index": 5,
+            "type": 3,
+            "channel": 5,
+            "unit": 0,
+            "requested": 167240,
+            "minimum": 1000,
+            "rated": 143000,
+            "maximum": 167000
+          },
+          {
+            "index": 7,
+            "type": 4,
+            "channel": 3,
+            "unit": 1,
+            "requested": 16555,
+            "minimum": 1000,
+            "rated": 11000,
+            "maximum": 16500
+          },
+          {
+            "index": 8,
+            "type": 4,
+            "channel": 4,
+            "unit": 1,
+            "requested": 33863,
+            "minimum": 1000,
+            "rated": 22500,
+            "maximum": 33750
+          },
+          {
+            "index": 9,
+            "type": 4,
+            "channel": 5,
+            "unit": 1,
+            "requested": 33863,
+            "minimum": 1000,
+            "rated": 22500,
+            "maximum": 33750
+          },
+          {
+            "index": 11,
+            "type": 9,
+            "channel": 0,
+            "unit": 0,
+            "requested": 0,
+            "minimum": 0,
+            "rated": 0,
+            "maximum": 0
+          },
+          {
+            "index": 13,
+            "type": 11,
+            "channel": 19,
+            "unit": 1,
+            "requested": 350000,
+            "minimum": 1000,
+            "rated": 324000,
+            "maximum": 360000
+          },
+          {
+            "index": 14,
+            "type": 11,
+            "channel": 11,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          },
+          {
+            "index": 15,
+            "type": 11,
+            "channel": 11,
+            "unit": 0,
+            "requested": 5001000,
+            "minimum": 1,
+            "rated": 5001000,
+            "maximum": 5001000
+          }
+        ],
+        "buffers": {
+          "info_hex": {
+            "bytes": 900,
+            "sha256": "1517d502eba5c0952dde4b069b7ac356caee30b0cc50de2a6da3d78005ec5a60"
+          },
+          "role_info_hex": {
+            "bytes": 136,
+            "sha256": "9d6f625edba92cdf1048bd9e37e150a6a26dbdfbfd4f3ac8c92b862582cef0ff"
+          },
+          "native_info_hex": {
+            "bytes": 5520,
+            "sha256": "e9483df7da4fcb706d1c8910f08cd0c8915904227b939a7a195ec931f7fea2a6"
+          },
+          "control_hex": {
+            "bytes": 388,
+            "sha256": "629223ba238561dec03d6012dd5d418d7864716764ed1ba40cec77cd5cb51927"
+          },
+          "native_control_hex": {
+            "bytes": 2124,
+            "sha256": "f166d9de06e71737b53eaa17f7f8f9c9568317e1079000df9168fd5801a63536"
+          }
+        }
+      },
+      "pinned_current_readback": [
+        {
+          "policy": 13,
+          "label": "Core current",
+          "channel": 19,
+          "minimum_ma": 1000,
+          "maximum_ma": 360000,
+          "normal_maximum_ma": 360000,
+          "default_ma": 324000,
+          "limit_ma": 350000,
+          "requested_ma": 350000,
+          "value_ma": 9750
+        }
+      ],
+      "above_maximum_current_rejected": "Core current must be between 1 and 360 A in the current mode",
+      "restoration": {
+        "attempted": true,
+        "verified": true,
+        "error": null
+      }
+    }
+  ],
+  "scope": "Idle software request acceptance and restoration; physical enforcement unmeasured",
+  "final": {
+    "binding": {
+      "client_index": 0,
+      "native_index": 2,
+      "semantic_role": 1,
+      "client": 254,
+      "units": "mW",
+      "minimum_mw": 105000,
+      "rated_mw": 250000,
+      "maximum_mw": 350000,
+      "layout": "rm26",
+      "native_layout": "rm26_extended"
+    },
+    "requested_mw": 250000,
+    "policies": [
+      {
+        "index": 0,
+        "type": 11,
+        "channel": 11,
+        "unit": 0,
+        "requested": 5001000,
+        "minimum": 1,
+        "rated": 5001000,
+        "maximum": 5001000
+      },
+      {
+        "index": 1,
+        "type": 3,
+        "channel": 8,
+        "unit": 0,
+        "requested": 1001000,
+        "minimum": 1,
+        "rated": 1001000,
+        "maximum": 1001000
+      },
+      {
+        "index": 2,
+        "type": 0,
+        "channel": 9,
+        "unit": 0,
+        "requested": 250000,
+        "minimum": 105000,
+        "rated": 250000,
+        "maximum": 350000
+      },
+      {
+        "index": 3,
+        "type": 3,
+        "channel": 3,
+        "unit": 0,
+        "requested": 63000,
+        "minimum": 1000,
+        "rated": 63000,
+        "maximum": 74000
+      },
+      {
+        "index": 4,
+        "type": 3,
+        "channel": 4,
+        "unit": 0,
+        "requested": 143000,
+        "minimum": 1000,
+        "rated": 143000,
+        "maximum": 167000
+      },
+      {
+        "index": 5,
+        "type": 3,
+        "channel": 5,
+        "unit": 0,
+        "requested": 143000,
+        "minimum": 1000,
+        "rated": 143000,
+        "maximum": 167000
+      },
+      {
+        "index": 7,
+        "type": 4,
+        "channel": 3,
+        "unit": 1,
+        "requested": 11000,
+        "minimum": 1000,
+        "rated": 11000,
+        "maximum": 16500
+      },
+      {
+        "index": 8,
+        "type": 4,
+        "channel": 4,
+        "unit": 1,
+        "requested": 22500,
+        "minimum": 1000,
+        "rated": 22500,
+        "maximum": 33750
+      },
+      {
+        "index": 9,
+        "type": 4,
+        "channel": 5,
+        "unit": 1,
+        "requested": 22500,
+        "minimum": 1000,
+        "rated": 22500,
+        "maximum": 33750
+      },
+      {
+        "index": 11,
+        "type": 9,
+        "channel": 0,
+        "unit": 0,
+        "requested": 0,
+        "minimum": 0,
+        "rated": 0,
+        "maximum": 0
+      },
+      {
+        "index": 13,
+        "type": 11,
+        "channel": 19,
+        "unit": 1,
+        "requested": 324000,
+        "minimum": 1000,
+        "rated": 324000,
+        "maximum": 360000
+      },
+      {
+        "index": 14,
+        "type": 11,
+        "channel": 11,
+        "unit": 0,
+        "requested": 5001000,
+        "minimum": 1,
+        "rated": 5001000,
+        "maximum": 5001000
+      },
+      {
+        "index": 15,
+        "type": 11,
+        "channel": 11,
+        "unit": 0,
+        "requested": 5001000,
+        "minimum": 1,
+        "rated": 5001000,
+        "maximum": 5001000
+      }
+    ],
+    "buffers": {
+      "info_hex": {
+        "bytes": 900,
+        "sha256": "1517d502eba5c0952dde4b069b7ac356caee30b0cc50de2a6da3d78005ec5a60"
+      },
+      "role_info_hex": {
+        "bytes": 136,
+        "sha256": "9d6f625edba92cdf1048bd9e37e150a6a26dbdfbfd4f3ac8c92b862582cef0ff"
+      },
+      "native_info_hex": {
+        "bytes": 5520,
+        "sha256": "e9483df7da4fcb706d1c8910f08cd0c8915904227b939a7a195ec931f7fea2a6"
+      },
+      "control_hex": {
+        "bytes": 388,
+        "sha256": "0c4032e56a89002c2c38b6066109961406e221d7e3f45ff7ccf2c1e36a1aae9e"
+      },
+      "native_control_hex": {
+        "bytes": 2124,
+        "sha256": "1f21700ee2711219a4127a16e2a0c86dff2f61f9bde95375cb06429ecc434457"
+      }
+    }
+  },
+  "final_p0_hold": {
+    "domain": 6,
+    "lockMode": 3,
+    "volt_uV": 1062500,
+    "volt_mv": 1062.5,
+    "count": 7
+  },
+  "full_baseline_restored": true
+}
