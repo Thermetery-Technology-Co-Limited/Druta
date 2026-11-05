@@ -1137,6 +1137,10 @@ numbers remain numeric until their roles are established. These reads do not
 change settings; a failed refresh labels any retained result as historical.
 The fields are read sequentially, and firmware votes can lag a recent change.
 Refresh again before concluding that a request has propagated to dependent limits.
+The [relationship arithmetic investigation](experiments/power-relationship-formula-5080-20261105.md)
+explains the endpoint interpolation and rounding found in saved 5080 captures.
+Its exact numerical fit does not establish the PMU producer or a live weight
+setter; Druta continues to show returned limits rather than calculated substitutes.
 
 **Driver policy diagnostics > Read driver policies** shows registered performance
 limit slots, feedback-controller flags and registry-selected feedback policies.
