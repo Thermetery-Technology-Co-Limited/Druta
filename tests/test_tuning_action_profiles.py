@@ -146,3 +146,98 @@ def test_unreplayable_memory_capture_blocks_ui_write(reason):
     writer.assert_not_called()
     with pytest.raises(ValueError, match="range|representable"):
         profiles.capture_tuning_action(gpu, "memory")
+
+class RailGPU(GPU):
+    RAIL_OFFSET_MAX_MV = 200
+    RAIL_OFFSET_XOC_MAX_MV = 500
+
+    def __init__(self):
+        super().__init__()
+        self.offset_uv = 12501
+        self.available = True
+        self.voltage_xoc_enabled = False
+
+    def rail_offset_capability(self, rail, domain):
+        assert (rail, domain) == (0, 0)
+        return {'available': self.available, 'value_mv': self.offset_uv / 1000}
+
+    def set_rail_offset_mv(self, value, domain):
+        assert domain == 0
+        self.calls.append(('rail_offset', value))
+        self.offset_uv = round(value * 1000)
+        return True, 'ok'
+
+
+def test_rail_offset_exact_selected_capture_and_restore():
+    gpu = RailGPU()
+    gpu.read_clk_domain_offsets = lambda: (_ for _ in ()).throw(AssertionError('unrelated read'))
+    state = profiles.capture_tuning_action(gpu, 'rail_offset')
+    assert state['tuning_action']['value'] == 12501
+    gpu.offset_uv = 0
+    assert profiles.restore(gpu, state) == [(True, 'ok')]
+    assert gpu.offset_uv == 12501
+    assert 'NVVDD offset +12.501 mV' in profiles.summarize(state)
+    gpu.available = False
+    with pytest.raises(ValueError, match='readback unavailable'):
+        profiles.capture_tuning_action(gpu, 'rail_offset')
+
+
+def test_rail_offset_restore_respects_live_bounds_and_readback():
+    gpu = RailGPU()
+    state = profiles.capture_tuning_action(gpu, 'rail_offset')
+    state['tuning_action']['value'] = 250000
+    assert 'bounds' in profiles.preflight(gpu, state)
+    assert not gpu.calls
+    gpu.voltage_xoc_enabled = True
+    assert profiles.restore(gpu, state)[0][0]
+    gpu.voltage_xoc_enabled = False
+    state['tuning_action']['value'] = 225000
+    assert profiles.restore(gpu, state)[0][0]  # lower an existing out-of-normal request
+    gpu.set_rail_offset_mv = lambda *a: (True, 'accepted')
+    state['tuning_action']['value'] = 20000
+    assert 'mismatch' in profiles.restore(gpu, state)[0][1]
+
+
+def test_rail_offset_action_undo_noop_and_capture_failure(monkeypatch):
+    gpu = RailGPU()
+    app = Druta.__new__(Druta)
+    app.gpu = gpu
+    app.log = lambda *a: None
+    saved = []
+    monkeypatch.setattr(profiles, 'autosave_state', lambda name, state: (saved.append(copy.deepcopy(state)) or ('undo', '', [])))
+    def writer():
+        return gpu.set_rail_offset_mv(25.125, 0)
+    assert app.write_tuning_action('rail_offset', 12.501, writer)[0]
+    assert not saved and not gpu.calls
+    assert app.write_tuning_action('rail_offset', 25.125, writer)[0]
+    assert saved[0]['tuning_action']['value'] == 12501
+    assert gpu.offset_uv == 25125
+    gpu.available = False
+    assert not app.write_tuning_action('rail_offset', 30, writer)[0]
+    assert gpu.offset_uv == 25125
+    gpu.available = True
+    monkeypatch.setattr(profiles, 'autosave_state', lambda *a: (_ for _ in ()).throw(OSError('failed')))
+    assert not app.write_tuning_action('rail_offset', 30, writer)[0]
+    assert gpu.offset_uv == 25125
+
+
+def test_nvvdd_apply_keeps_hold_warning_and_undo(monkeypatch):
+    from unittest.mock import patch
+    gpu = RailGPU()
+    gpu.read_vf_lock = lambda: {'volt_mv': 900}
+    app = Druta.__new__(Druta)
+    app.gpu = gpu
+    app.guard = lambda: True
+    app.knob_input_value = lambda key, value: value
+    app.log = lambda *a: None
+    results = []
+    app.report = results.append
+    snapshots = []
+    monkeypatch.setattr(profiles, 'autosave_state', lambda name, state: (snapshots.append(state) or ('undo', '', [])))
+    with patch('druta.druta.dpg.does_item_exist', return_value=False):
+        app.apply_rail(25.125)
+    assert gpu.offset_uv == 25125
+    assert snapshots[0]['tuning_action']['value'] == 12501
+    assert results[0][0] and 'pinning this rail' in results[0][1]
+    assert profiles.restore(gpu, snapshots[0])[0][0]
+    assert gpu.offset_uv == 12501

@@ -1794,6 +1794,8 @@ def summarize(state):
             data = scoped.validate(state)
             if data["kind"] == "memory":
                 bits.append(f"memory offset {data['value']} driver units (scale {data['scale']:g})")
+            elif data["kind"] == "rail_offset":
+                bits.append(f"NVVDD offset {data['value'] / 1000:+g} mV")
             elif data["kind"] == "domain":
                 bits.append(f"clock control {data['index']} {data['value'] / 1000:+g} MHz")
             else:

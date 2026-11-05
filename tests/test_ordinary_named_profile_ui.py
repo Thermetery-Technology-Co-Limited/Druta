@@ -116,3 +116,25 @@ def test_scoped_capture_routing(app, scope, kind, index, helper, args):
         app.save_profile()
     capture.assert_called_once_with(app.gpu, *args)
     save.assert_called_once_with('named', snapshot)
+
+
+def test_nvvdd_named_choice_and_saved_value(app):
+    from tests.test_tuning_action_profiles import RailGPU
+    app.gpu = RailGPU()
+    assert app.ordinary_profile_contents()['NVVDD offset'] == ('tuning_action', 'rail_offset', None)
+    app._profile_save_scope, app._profile_save_kind, app._profile_save_index = 'tuning_action', 'rail_offset', None
+    with (patch('druta.druta.dpg.get_value', return_value='named'),
+          patch('druta.druta.dpg.does_item_exist', return_value=False),
+          patch('druta.druta.profiles.save', return_value='named.json') as save):
+        app.save_profile()
+    assert save.call_args.args[1]['tuning_action']['value'] == 12501
+    assert not app.gpu.calls
+    app.gpu.available = False
+    assert 'NVVDD offset' not in app.ordinary_profile_contents()
+
+
+@pytest.mark.parametrize('entry', ['begin_profile_load', 'finish_profile_load'])
+def test_nvvdd_automatic_load_refused(app, entry):
+    app.profile_failure = Mock()
+    getattr(app, entry)('named', {'scope': 'tuning_action', 'tuning_action': {'kind': 'rail_offset'}}, automatic=True)
+    app.profile_failure.assert_called_once()

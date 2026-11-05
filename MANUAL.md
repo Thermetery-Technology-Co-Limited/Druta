@@ -14,6 +14,18 @@ Druta is from Sanskrit *druta* meaning fast. In Hindu performing art, it can als
 
 ## Manual profiles and Undo
 
+### NVVDD offset profiles and Undo
+
+On supported adapters, **Profiles > Save profile > NVVDD offset** saves the
+current core rail offset request in exact microvolts. Apply saves the previous
+request for **Undo last write**; unchanged requests create no Undo point.
+A failed selected capture or Undo save prevents the write. Named and combined
+profiles require explicit loading in the current session. Their bounds use the
+current XOC mode, and request readback does not measure physical voltage.
+The local [NVVDD profile trial](experiments/nvvdd-offset-profiles-20261105.md)
+verified a +1.25 mV stored request, selected Undo, named and combined loading,
+and exact restoration of the compared native requests.
+
 ### Manual voltage-request profiles and Undo
 
 In **Live voltage rail requests**, **Save requests profile** saves the six stored

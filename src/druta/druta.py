@@ -6419,8 +6419,8 @@ class Druta:
             for pre in ("sl_", "in_"):
                 if dpg.does_item_exist(pre + "rail"):
                     dpg.set_value(pre + "rail", v)
-            self.autosave_before("core-rail-offset")
-            ok, msg = self.gpu.set_rail_offset_mv(v, 0)
+            ok, msg = self.write_tuning_action(
+                "rail_offset", v, lambda: self.gpu.set_rail_offset_mv(v, 0))
             # A held V/F point PINS the voltage, so the write lands in the
             # control block and the rail does not move at all. Reporting a bare
             # success for that reads as "applied" and is how a working knob got
@@ -10375,7 +10375,8 @@ deliberately does not put behind a button."""
                 else:
                     state = profiles.capture_tuning_action(self.gpu, kind, index)
                     data = state["tuning_action"]
-                    wanted = value * data["scale"] if kind == "memory" else round(value) * 1000 if kind == "domain" else value
+                    wanted = (value * data["scale"] if kind == "memory" else round(value) * 1000 if kind == "domain"
+                              else round(value * 1000) if kind == "rail_offset" else value)
                     same = data["value"] == wanted
                 if same:
                     return True, f"{kind} request already matches; nothing written"
@@ -10404,6 +10405,8 @@ deliberately does not put behind a button."""
             fresh = profiles.capture_tuning_action(self.gpu, data["kind"], data["index"])["tuning_action"]
             if data["kind"] == "memory":
                 key, value = "mem", fresh["value"] / fresh["scale"]
+            elif data["kind"] == "rail_offset":
+                key, value = "rail", fresh["value"] / 1000
             elif data["kind"] == "boost":
                 key, value = "volt", fresh["value"]
                 self.sync_hold_headroom(replan=True)
@@ -10525,6 +10528,11 @@ deliberately does not put behind a button."""
                    "Power-policy feedback bounds": ("power_integral", None, None),
                    "PCIe speed": ("pcie_speed", None, None),
                    "Coupled power/current requests": ("power_action", None, None)}
+        try:
+            profiles.capture_tuning_action(self.gpu, "rail_offset")
+            choices["NVVDD offset"] = ("tuning_action", "rail_offset", None)
+        except Exception:
+            pass
         try:
             try:
                 rows = (self.gpu.read() or {}).get("clk_domains")

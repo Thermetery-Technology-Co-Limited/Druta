@@ -13,7 +13,7 @@ def _slot(gpu):
 
 
 def _selection(kind, index):
-    if kind not in ('memory', 'domain', 'boost'):
+    if kind not in ('memory', 'domain', 'boost', 'rail_offset'):
         raise ValueError('unknown tuning action kind')
     if kind == 'domain':
         if type(index) is not int or not 0 <= index < 32:
@@ -102,6 +102,17 @@ def _read(gpu, kind, index):
             raise ValueError(error or 'selected clock control readback unavailable')
         value = _integer(rows[index].get('freq_khz'), 'clock control offset')
         return {'kind': kind, 'index': index, 'value': value}
+    if kind == 'rail_offset':
+        if not (gpu.clkdom_ok() and getattr(gpu.nvapi, 'ClkDomCtlSet', None)):
+            raise ValueError('NVVDD offset setter unavailable')
+        capability = gpu.rail_offset_capability(rail=0, domain=0)
+        mv = capability.get('value_mv')
+        if not capability.get('available') or type(mv) not in (int, float) or not math.isfinite(mv):
+            raise ValueError('NVVDD offset readback unavailable')
+        uv = round(mv * 1000)
+        if abs(mv * 1000 - uv) > 0.000001:
+            raise ValueError('NVVDD offset is not representable in microvolts')
+        return {'kind': kind, 'index': index, 'value': _integer(uv, 'NVVDD offset')}
     api = gpu.nvapi
     if not (api.ok and getattr(api, 'VoltCtrlGet', None) and getattr(api, 'VoltCtrlSet', None)):
         raise ValueError('voltage boost control unavailable')
@@ -150,6 +161,13 @@ def preflight(gpu, state):
             step = gpu.memory_offset_step_units() if callable(getattr(gpu, 'memory_offset_step_units', None)) else 1
             if type(step) is not int or step <= 0 or data['value'] % step:
                 raise ValueError('saved memory offset is not representable by this control')
+        elif data['kind'] == 'rail_offset':
+            current = live['value'] / 1000
+            xoc = bool(getattr(gpu, 'voltage_xoc_enabled', False))
+            lower = min(-500 if xoc else -100, current)
+            upper = max(gpu.RAIL_OFFSET_XOC_MAX_MV if xoc else gpu.RAIL_OFFSET_MAX_MV, current)
+            if not lower <= data['value'] / 1000 <= upper:
+                raise ValueError('saved NVVDD offset is outside the current control bounds')
         return None
     except Exception as exc:
         return str(exc)
@@ -166,6 +184,10 @@ def restore(gpu, state):
                 result = gpu.set_clock_offset(2, data['value'] / gpu.mem_offset_scale()[0])
             elif data['kind'] == 'domain':
                 result = gpu.set_clk_domain_offset(data['index'], data['value'] // 1000)
+            elif data['kind'] == 'rail_offset':
+                result = gpu.set_rail_offset_mv(data['value'] / 1000, 0)
+                if result[0] and _read(gpu, 'rail_offset', None)['value'] != data['value']:
+                    return [(False, 'NVVDD offset request readback mismatch')]
             else:
                 result = gpu.set_voltage_boost(data['value'])
                 if result[0]:

@@ -175,3 +175,11 @@ def test_unavailable_later_component_prevents_all_writes(monkeypatch):
     result = combined.restore(SimpleNamespace(), bundle)
     assert not writes
     assert result == [(False, 'combined profile not applied: two: unavailable')]
+
+
+def test_full_nvvdd_and_scoped_offset_overlap():
+    full = {'schema': 2, 'vf_applicable': False, 'nvvdd_offset_mv': 12.5}
+    with pytest.raises(ValueError, match='overlapping'):
+        combined.compose([('full', full), ('NVVDD', tune('rail_offset', None, 12500))])
+    combined.compose([('full', {'schema': 2, 'vf_applicable': False}),
+                      ('NVVDD', tune('rail_offset', None, 12500))])

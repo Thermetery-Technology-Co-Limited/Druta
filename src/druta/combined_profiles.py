@@ -75,6 +75,8 @@ def _targets(state):
         targets.add(('tuning', 'memory', None))
     if state.get('core_off_mhz') is not None or state.get('vf_deltas'):
         targets.add(('tuning', 'domain', 0))
+    if state.get('nvvdd_offset_mv') is not None:
+        targets.add(('tuning', 'rail_offset', None))
     if state.get('volt_boost_pct') is not None:
         targets.add(('tuning', 'boost', None))
     for index in state.get('clock_domain_offsets_mhz', {}):

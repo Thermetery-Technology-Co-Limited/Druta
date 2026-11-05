@@ -107,6 +107,8 @@ function Get-SourceSnapshot {
         'experiments/power-relationship-info-20261105.json',
         'experiments/power-explicit-source-20261105.md',
         'experiments/power-explicit-source-20261105.json',
+        'experiments/nvvdd-offset-profiles-20261105.md',
+        'experiments/nvvdd-offset-profiles-20261105.json',
         'experiments/power-v30-class1-20261028.json',
         'experiments/power-v30-short-row-20261029.json',
         'experiments/validate_short_power_override.py',
