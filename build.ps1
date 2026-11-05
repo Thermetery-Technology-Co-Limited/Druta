@@ -115,6 +115,8 @@ function Get-SourceSnapshot {
         'experiments/power-weight-override-5080-61742-20261105.json',
         'experiments/linked-current-weight-composition-5080-61742-20261105.md',
         'experiments/linked-current-weight-composition-5080-61742-20261105.json',
+        'experiments/power-type33-relationship-ranges-20261105.md',
+        'experiments/power-type33-relationship-ranges-20261105.json',
         'experiments/power-v30-class1-20261028.json',
         'experiments/power-v30-short-row-20261029.json',
         'experiments/validate_short_power_override.py',

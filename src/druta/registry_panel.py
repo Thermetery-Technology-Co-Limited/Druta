@@ -1035,6 +1035,16 @@ class RegistryPanel:
             else:
                 lines.append(f"Source policy {policy} -> configured relationship {relationship}: unavailable "
                              f"({source.get('reason') or 'unknown reason'})")
+        for source in report.get("range_references", []):
+            policy, first, last = source["policy"], source["first"], source["last"]
+            label = f"Source policy {policy} -> configured relationship range {first}..{last}"
+            if not source.get("available"):
+                lines.append(f"{label}: unavailable ({source.get('reason') or 'unknown reason'})")
+            elif not source["relationships"]:
+                lines.append(f"{label}: empty")
+            else:
+                indices = ", ".join(str(index) for index in source["relationships"])
+                lines.append(f"{label}: {indices}")
         uninterpreted = report.get("source_uninterpreted_policies", [])
         if uninterpreted:
             lines.append("Source mapping uninterpreted for policy types at indices: "

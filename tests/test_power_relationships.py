@@ -1,4 +1,4 @@
-﻿"""Offline tests of the configured relationship INFO decoder."""
+"""Offline tests of the configured relationship INFO decoder."""
 
 import copy
 import struct
@@ -38,6 +38,7 @@ def test_saved_relation_target_and_unity_weight():
         "relationship_mask": 1 << 9,
         "source_references": [],
         "linked_references": [],
+        "range_references": [],
         "source_uninterpreted_policies": [9],
         "relationships": [{
             "index": 9, "type": 0, "target": 9, "weight_raw": 4096,
@@ -246,3 +247,82 @@ def test_bad_link_is_local_unavailable(problem):
     assert result["linked_references"][0]["reason"]
     assert 7 not in result["source_uninterpreted_policies"]
     assert any(item["index"] == 9 and item["target_metadata"] for item in result["relationships"])
+
+
+def range_policy(raw, first=2, last=4, *, index=7, kind=33, version=0x40):
+    struct.pack_into("<I", raw, 4, struct.unpack_from("<I", raw, 4)[0] | (1 << index))
+    at = 0xCC + index * 0x104
+    struct.pack_into("<5I", raw, at, version, kind, 1, 100, 200)
+    struct.pack_into("<HH", raw, at + 0x34, first, last)
+    return at
+
+
+def range_packet():
+    layout, raw = packet()
+    range_policy(raw)
+    targets = (9, 11, 12)
+    struct.pack_into("<I", raw, 4, struct.unpack_from("<I", raw, 4)[0] | (1 << 11) | (1 << 12))
+    for index in (11, 12):
+        struct.pack_into("<5I", raw, 0xCC + index * 0x104, 0x40, 30 | (1 << 16), 1, 100, 200)
+    struct.pack_into("<I", raw, 0x41CC, sum(1 << index for index in (2, 3, 4, 9)))
+    for index, target in zip((2, 3, 4), targets, strict=True):
+        raw[0x41D0 + index * 0x24:0x41D0 + index * 0x24 + 2] = bytes((0, target))
+    return layout, raw
+
+
+def test_type33_range_joins_distinct_targets_and_displays():
+    from druta.registry_panel import RegistryPanel
+
+    layout, raw = range_packet()
+    before = bytes(raw)
+    result = decode_raw(layout, raw)
+    assert result["range_references"] == [{
+        "policy": 7, "first": 2, "last": 4, "relationships": [2, 3, 4],
+        "available": True, "reason": None,
+    }]
+    assert [r["target"] for r in result["relationships"] if r["index"] in (2, 3, 4)] == [9, 11, 12]
+    assert "Source policy 7 -> configured relationship range 2..4: 2, 3, 4" in RegistryPanel.relationship_lines(result)
+    assert raw == before
+
+
+@pytest.mark.parametrize("first,last", [(4, 2), (0xFFFF, 0), (32, 31)])
+def test_type33_reversed_range_is_empty_without_lookup(first, last):
+    from druta.registry_panel import RegistryPanel
+
+    layout, raw = packet()
+    range_policy(raw, first, last)
+    result = decode_raw(layout, raw)
+    row = result["range_references"][0]
+    assert row["available"] and row["relationships"] == []
+    assert f"Source policy 7 -> configured relationship range {first}..{last}: empty" in RegistryPanel.relationship_lines(result)
+
+
+@pytest.mark.parametrize("problem", ["gap", "unknown_relation", "missing_target", "version", "capacity", "sentinel"])
+def test_type33_invalid_or_unavailable_range_is_visible(problem):
+    from druta.registry_panel import RegistryPanel
+
+    layout, raw = range_packet()
+    at = 0xCC + 7 * 0x104
+    if problem == "gap":
+        struct.pack_into("<I", raw, 0x41CC, (1 << 2) | (1 << 4) | (1 << 9))
+    elif problem == "unknown_relation":
+        raw[0x41D0 + 3 * 0x24] = 9
+    elif problem == "missing_target":
+        raw[0x41D0 + 3 * 0x24 + 1] = 8
+    elif problem == "version":
+        raw[at] = 0x30
+    else:
+        struct.pack_into("<HH", raw, at + 0x34, 0, 0xFFFF if problem == "sentinel" else 32)
+    result = decode_raw(layout, raw)
+    row = result["range_references"][0]
+    assert not row["available"] and row["reason"] and row["relationships"] == []
+    assert any("Source policy 7 -> configured relationship range" in line and "unavailable" in line
+               for line in RegistryPanel.relationship_lines(result))
+    assert result["available"] and 7 not in result["source_uninterpreted_policies"]
+
+
+def test_type3_is_not_type33_range():
+    layout, raw = packet()
+    range_policy(raw, kind=3)
+    result = decode_raw(layout, raw)
+    assert result["range_references"] == [] and 7 in result["source_uninterpreted_policies"]

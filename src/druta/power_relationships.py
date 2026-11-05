@@ -5,7 +5,8 @@
 This is a read-only interpretation of the known V4 INFO geometry. Relationship
 records identify targets; separate policy fields identify configured source
 references. Neither identifies arbitration clients or proves runtime execution.
-Evidence: experiments/power-relationship-info-20261105.md. No device identity
+Evidence: experiments/power-relationship-info-20261105.md and
+experiments/power-type33-relationship-ranges-20261105.md. No device identity
 or driver version selects this layout.
 """
 
@@ -87,12 +88,35 @@ def decode(layout, info):
     by_index = {record["index"]: record for record in result["relationships"]}
     result["source_references"] = []
     result["linked_references"] = []
+    result["range_references"] = []
     result["source_uninterpreted_policies"] = []
     for index in range(_CAPACITY):
         if not policy_mask >> index & 1:
             continue
         at = _POLICY_BASE + index * _POLICY_STRIDE
         kind = raw[at + 4]
+        if kind == 33:
+            first, last = struct.unpack_from("<HH", raw, at + 0x34)
+            source = {"policy": index, "first": first, "last": last,
+                      "relationships": [], "available": False, "reason": None}
+            if raw[at] != 0x40:
+                source["reason"] = "The source policy row format is not understood."
+            elif first > last:
+                # The host skips a reversed range before looking up any index,
+                # including a possible 0xFFFF endpoint; do not invent a sentinel.
+                source["available"] = True
+            elif last >= _CAPACITY:
+                source["reason"] = "The source relationship range exceeds INFO capacity."
+            else:
+                indices = list(range(first, last + 1))
+                if any(i not in by_index or by_index[i]["type"] != 0
+                       or by_index[i]["target_metadata"] is None for i in indices):
+                    source["reason"] = "A referenced relationship or target is unavailable."
+                else:
+                    source["relationships"] = indices
+                    source["available"] = True
+            result["range_references"].append(source)
+            continue
         if kind == 32:
             relation = struct.unpack_from("<H", raw, at + 0x34)[0]
             record = by_index.get(relation)

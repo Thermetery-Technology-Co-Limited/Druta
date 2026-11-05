@@ -1201,12 +1201,18 @@ setter; Druta continues to show returned limits rather than calculated substitut
 
 **Read relationships** in the same panel shows configured relationship targets,
 reported weights, and each understood target's minimum, nominal and maximum.
-It also shows understood type-0 source ranges and type-32 linked references.
-The latter select a relationship record, which is then joined to its target
-policy; the two indices are not interchangeable. Other source-policy types
+It also shows understood type-0 source ranges, type-32 linked references and
+type-33 inclusive relationship ranges.
+Type-32 fields select one relationship record; type-33 fields select a range.
+Each relationship is joined to its target policy; relationship and policy
+indices are not interchangeable. Other source-policy types
 remain explicitly uninterpreted. These records explain configured dependencies,
 not which firmware client produced a vote. This view does not predict or apply
 limits. See the [INFO source and live-read evidence](experiments/power-relationship-info-20261105.md).
+The [type-33 host traces](experiments/power-type33-relationship-ranges-20261105.md)
+establish those range fields independently in the examined 617 and 621 host
+drivers. Reversed ranges display as empty; missing relationships, unsupported
+types and absent targets display as unavailable rather than inferred links.
 
 **BIOS fields > Power / current > Relationship weight** edits qualified weights
 through the existing registry override preview. Enter a multiplier, where 1 is
