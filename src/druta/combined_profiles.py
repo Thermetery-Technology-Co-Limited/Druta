@@ -8,6 +8,7 @@ import time
 from . import (
     clock_vf_profiles,
     lowpower_profiles,
+    pcie_speed_profiles,
     power_action_profiles,
     power_integral_profiles,
     profiles,
@@ -25,6 +26,7 @@ _VALIDATORS = {
     'voltage_controls': voltage_control_profiles.validate, 'voltage_offsets': voltage_offset_profiles.validate,
     'voltage_requests': voltage_request_profiles.validate, 'fan': profiles._validate_fan_scope,
     'rail_limits': rail_limit_profiles.validate, 'power_integral': power_integral_profiles.validate,
+    'pcie_speed': pcie_speed_profiles.validate,
 }
 
 
@@ -46,6 +48,8 @@ def _targets(state):
     if scope == 'power_integral':
         return {('power_integral', row['policy'], field)
                 for row in data['policies'] for field in row['values']}
+    if scope == 'pcie_speed':
+        return {('pcie_speed',)}
     if scope == 'fan':
         return {('fan',)}
     if scope == 'clock_vf':
@@ -253,6 +257,8 @@ def _capture(app, child):
         data = power_integral_profiles.validate(child)
         selection = {row['policy']: tuple(row['values']) for row in data['policies']}
         return profiles.capture_power_integral(gpu, selection)
+    if scope == 'pcie_speed':
+        return profiles.capture_pcie_speed(gpu)
     if scope == 'rail_limits':
         return profiles.capture_rail_limits(gpu, {rail: tuple(fields) for rail, fields in child[scope].items()})
     if scope == 'fan':

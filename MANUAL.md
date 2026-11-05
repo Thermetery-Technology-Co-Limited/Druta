@@ -1104,11 +1104,26 @@ later change speed through its own power management.
 
 Request previous speed explicitly requests the target captured before the last
 verified change in this panel. It does not restore every internal driver state.
-These requests use no registry entry, require no restart, and are never saved or
-automatically reapplied at startup or after a driver restart. The local
-[Gen 1 / Gen 2 trial](experiments/pcie-speed-5080-61742-20261105.md) verified
-both the change and return to the original observed state; it did not measure
-power savings or throughput. ASPM L1 and LTR are separate controls.
+Each changed panel request saves a PCIe-only Undo point first; a no-op saves
+nothing. A failed Undo capture prevents the request.
+
+Use **Save PCIe speed profile**, or **Profiles > Save profile > Contents: PCIe
+speed**, to save the currently applied target. A staged selection is not saved.
+The profile contains the target generation and adapter identity, without a raw
+register image, link-width setting or captured negotiated speed. Manual loading
+checks current capabilities and saves Undo before requesting the saved target.
+Combined profiles may include one PCIe speed component alongside other controls.
+An accepted request whose target/link readback does not match is reported as
+unverified, not as a successfully loaded profile.
+
+These requests use no registry entry and require no restart. Saved PCIe profiles
+must be loaded manually and never replay at startup or after a driver restart.
+The local [Gen 1 / Gen 2 trial](experiments/pcie-speed-5080-61742-20261105.md)
+verified both the change and return to the original observed state. The
+[profile callback trial](experiments/pcie-speed-profiles-20261105.json) verified
+named save/load, selected Undo and a single-component combined profile with an
+isolated profile directory. Neither trial measured power savings or throughput.
+ASPM L1 and LTR are separate controls.
 
 **Runtime VF policy control** reads the active monotonicity and smoothing checks.
 After **Read VF policies**, use **Apply policies now** to change either check

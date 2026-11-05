@@ -19,6 +19,8 @@ class PcieSpeedPanel:
             "the driver may change the link later. Refresh to see current readback.", wrap=self.app.s(900))
         with dpg.group(horizontal=True):
             dpg.add_button(label="Refresh", tag="pcie_speed_refresh", callback=self.read)
+            dpg.add_button(label="Save PCIe speed profile", tag="pcie_speed_save_profile",
+                           callback=self.app.open_save_profile, user_data=("pcie_speed", None, None))
             dpg.add_combo([], tag="pcie_speed_generation", width=self.app.s(120), enabled=False,
                           callback=self._selection_changed)
             dpg.add_button(label="Request speed", tag="pcie_speed_request", callback=self.request, enabled=False)
@@ -129,7 +131,26 @@ class PcieSpeedPanel:
         gpu = self.app.gpu
         identity = self.snapshot["identity"]
         try:
-            result = self._controller(gpu).set_generation(generation, expected_identity=identity)
+            controller = self._controller(gpu)
+            fresh = controller.read()
+            if (gpu is not self.app.gpu or fresh.get("identity") != identity or not fresh.get("available")
+                    or generation not in fresh.get("allowed_generations", [])):
+                raise ValueError("adapter identity or capabilities changed; refresh required")
+            if (fresh.get("target_generation") == generation and fresh.get("generation") == generation
+                    and fresh.get("root_generation") == generation):
+                self._show(fresh, gpu, f"Gen {generation} already matches the readback; nothing written.")
+                return
+            from . import profiles
+            template = profiles.capture_pcie_speed(gpu)
+            captured = template.get("pcie_speed", {})
+            if (gpu is not self.app.gpu or captured.get("identity") != identity
+                    or captured.get("target_generation") != fresh.get("target_generation")):
+                raise ValueError("adapter or target changed while capturing Undo; refresh required")
+            name, _, missing = profiles.autosave_pcie_speed(gpu, "pcie-speed", template)
+            if missing:
+                raise ValueError("could not capture a complete selected-field Undo point")
+            self.app.log(f"Undo point saved as '{name}'", None)
+            result = controller.set_generation(generation, expected_identity=identity)
             if result.get("identity") != identity:
                 raise ValueError("readback identity changed")
             verification = result.get("verification")

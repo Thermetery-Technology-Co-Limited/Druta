@@ -80,6 +80,9 @@ def incomplete(state):
             elif state.get("scope") == "power_integral":
                 from . import power_integral_profiles
                 power_integral_profiles.validate(state)
+            elif state.get("scope") == "pcie_speed":
+                from . import pcie_speed_profiles
+                pcie_speed_profiles.validate(state)
             elif state.get("scope") == "tuning_action":
                 from . import tuning_profiles
                 tuning_profiles.validate(state)
@@ -433,6 +436,20 @@ def capture_power_integral(gpu, selection=None):
     """Capture selected integral policy bounds for manual replay."""
     from . import power_integral_profiles
     return power_integral_profiles.capture(gpu, selection)
+
+
+def capture_pcie_speed(gpu):
+    from . import pcie_speed_profiles
+    return pcie_speed_profiles.capture(gpu)
+
+
+def autosave_pcie_speed(gpu, action, template):
+    from . import pcie_speed_profiles
+    with gpu._lock:
+        error = pcie_speed_profiles.preflight(gpu, template)
+        if error:
+            raise ValueError(error)
+        return autosave_state(action, capture_pcie_speed(gpu))
 
 
 def autosave_power_integral(gpu, action, template):
@@ -1210,6 +1227,9 @@ def preflight(gpu, state, rail=None, *, apply_curve=True):
         if state.get("scope") == "power_integral":
             from . import power_integral_profiles
             return power_integral_profiles.preflight(gpu, state)
+        if state.get("scope") == "pcie_speed":
+            from . import pcie_speed_profiles
+            return pcie_speed_profiles.preflight(gpu, state)
         if state.get("scope") == "tuning_action":
             from . import tuning_profiles
             return tuning_profiles.preflight(gpu, state)
@@ -1556,6 +1576,9 @@ def _restore_validated(gpu, state, apply_curve, rail, results, *, i2c_verified):
     if state.get("scope") == "power_integral":
         from . import power_integral_profiles as scoped
         return scoped.restore(gpu, state)
+    if state.get("scope") == "pcie_speed":
+        from . import pcie_speed_profiles as scoped
+        return scoped.restore(gpu, state)
     if state.get("scope") == "tuning_action":
         from . import tuning_profiles as scoped
         return scoped.restore(gpu, state)
@@ -1751,6 +1774,13 @@ def summarize(state):
             bits.append(f"{count} power integral bound(s), manual apply only")
         except ValueError as exc:
             bits.append(f"invalid power integral profile: {exc}")
+    if state.get("scope") == "pcie_speed":
+        from . import pcie_speed_profiles as scoped
+        try:
+            data = scoped.validate(state)
+            bits.append(f"PCIe Gen{data['target_generation']} target, manual apply only")
+        except ValueError as exc:
+            bits.append(f"invalid PCIe speed profile: {exc}")
     if state.get("scope") == "rail_limits":
         from . import rail_limit_profiles as scoped
         try:

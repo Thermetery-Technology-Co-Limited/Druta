@@ -102,6 +102,7 @@ function Get-SourceSnapshot {
         'experiments/pcie-speed-5080-61742-20261105.json',
         'experiments/pcie-and-idle-boundaries-61742-20261105.md',
         'experiments/pcie-and-idle-boundaries-61742-20261105.json',
+        'experiments/pcie-speed-profiles-20261105.json',
         'experiments/power-v30-class1-20261028.json',
         'experiments/power-v30-short-row-20261029.json',
         'experiments/validate_short_power_override.py',

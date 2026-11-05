@@ -261,7 +261,7 @@ class Startup:
         atomic_json(self.session_path, self.session)
 
     def enable(self, name, profile):
-        if profile.get("scope") in ("combined", "fan", "rail_limits", "power_integral"):
+        if profile.get("scope") in ("combined", "fan", "rail_limits", "power_integral", "pcie_speed"):
             raise ValueError(f"{profile['scope']} profiles require manual loading")
         if self.lock is None or self.failed:
             raise ValueError(self.reason or "startup state is unavailable")

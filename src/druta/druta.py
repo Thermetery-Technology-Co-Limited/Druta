@@ -10490,6 +10490,8 @@ deliberately does not put behind a button."""
                 state = profiles.capture_tuning_action(self.gpu, self._profile_save_kind, self._profile_save_index)
             elif getattr(self, "_profile_save_scope", None) == "power_action":
                 state = profiles.capture_power_action(self.gpu)
+            elif getattr(self, "_profile_save_scope", None) == "pcie_speed":
+                state = profiles.capture_pcie_speed(self.gpu)
             elif getattr(self, "_profile_save_scope", None) == "power_integral":
                 state = profiles.capture_power_integral(self.gpu)
             elif getattr(self, "_profile_save_scope", None) == "rail_limits":
@@ -10498,7 +10500,7 @@ deliberately does not put behind a button."""
                 state = profiles.capture_fan(self.gpu)
             else:
                 state = profiles.capture(self.gpu, self.rail)
-            if getattr(self, "_profile_save_scope", None) in ("tuning_action", "power_action", "power_integral", "rail_limits", "fan"):
+            if getattr(self, "_profile_save_scope", None) in ("tuning_action", "power_action", "power_integral", "pcie_speed", "rail_limits", "fan"):
                 missing = profiles.incomplete(state)
                 if missing:
                     raise ValueError("; ".join(missing))
@@ -10520,6 +10522,7 @@ deliberately does not put behind a button."""
                    "Rail limits": ("rail_limits", None, None),
                    "Fan policy": ("fan", None, None),
                    "Power-policy feedback bounds": ("power_integral", None, None),
+                   "PCIe speed": ("pcie_speed", None, None),
                    "Coupled power/current requests": ("power_action", None, None)}
         try:
             try:
@@ -10563,7 +10566,7 @@ deliberately does not put behind a button."""
         if user_data in ("gate", "rel_bounds", "constants", "switch_delay"):
             self._profile_save_scope = "voltage_controls"
             self._profile_save_kind = user_data
-        if isinstance(user_data, tuple) and len(user_data) == 3 and user_data[0] == "lowpower_requests":
+        if isinstance(user_data, tuple) and len(user_data) == 3 and user_data[0] in ("lowpower_requests", "pcie_speed"):
             self._profile_save_scope, self._profile_save_kind, self._profile_save_index = user_data
         ordinary = self._profile_save_scope is None
         if ordinary:
@@ -10574,7 +10577,9 @@ deliberately does not put behind a button."""
             if ordinary:
                 dpg.set_value("prof_save_contents", "Full tune")
         if dpg.does_item_exist("prof_save_description"):
-            dpg.configure_item("prof_save_ordinary_description", show=False)
+            dpg.configure_item("prof_save_ordinary_description", show=self._profile_save_scope == "pcie_speed")
+            if self._profile_save_scope == "pcie_speed":
+                dpg.set_value("prof_save_ordinary_description", "Saves the current PCIe target. Load manually; no startup or post-reset replay.")
             dpg.configure_item("prof_save_description", show=ordinary)
             dpg.configure_item("prof_save_requests_description", show=self._profile_save_scope == "voltage_requests")
             dpg.configure_item("prof_save_controls_description", show=self._profile_save_scope == "voltage_controls")
@@ -10679,7 +10684,7 @@ deliberately does not put behind a button."""
                         dpg.add_button(label="Load", tag=tag, width=-1,
                                        user_data=name,
                                        callback=lambda s, a, u: self.load_profile(u))
-                        if not is_auto and state.get("scope") not in ("fan", "combined", "voltage_requests", "voltage_controls", "lowpower_requests", "clock_vf", "voltage_offsets", "tuning_action", "power_action", "power_integral", "rail_limits"):
+                        if not is_auto and state.get("scope") not in ("fan", "combined", "voltage_requests", "voltage_controls", "lowpower_requests", "clock_vf", "voltage_offsets", "tuning_action", "power_action", "power_integral", "pcie_speed", "rail_limits"):
                             dpg.add_button(label="Load at startup", width=-1,
                                            user_data=name,
                                            callback=lambda s, a, u: self.set_startup_profile(u))
@@ -10862,7 +10867,7 @@ deliberately does not put behind a button."""
                     self._multi_state_offset_failure((False, "profile load-state offset restore failed"))
             if scope == 'lowpower_requests':
                 self.refresh_lowpower_profile(child)
-            elif scope in ('fan', 'voltage_requests', 'voltage_controls', 'clock_vf', 'voltage_offsets', 'tuning_action', 'power_action', 'power_integral', 'rail_limits'):
+            elif scope in ('fan', 'voltage_requests', 'voltage_controls', 'clock_vf', 'voltage_offsets', 'tuning_action', 'power_action', 'power_integral', 'pcie_speed', 'rail_limits'):
                 self.refresh_scoped_profile(child)
             else:
                 self.refresh_full_profile(child)
@@ -10886,7 +10891,7 @@ deliberately does not put behind a button."""
             self.set_pending_load(None)
             self.begin_lowpower_profile_load(name, state)
             return
-        if state.get("scope") in ("fan", "voltage_offsets", "tuning_action", "power_action", "power_integral", "rail_limits"):
+        if state.get("scope") in ("fan", "voltage_offsets", "tuning_action", "power_action", "power_integral", "pcie_speed", "rail_limits"):
             self.set_pending_load(None)
             self.begin_voltage_request_profile_load(name, state)
             return
@@ -10918,7 +10923,7 @@ deliberately does not put behind a button."""
         if state.get("scope") == "lowpower_requests":
             self.begin_lowpower_profile_load(name, state, automatic)
             return
-        if state.get("scope") in ("fan", "voltage_requests", "voltage_controls", "clock_vf", "voltage_offsets", "tuning_action", "power_action", "power_integral", "rail_limits"):
+        if state.get("scope") in ("fan", "voltage_requests", "voltage_controls", "clock_vf", "voltage_offsets", "tuning_action", "power_action", "power_integral", "pcie_speed", "rail_limits"):
             self.begin_voltage_request_profile_load(name, state, automatic)
             return
         if not self.guard() or self._i2c_busy:
@@ -10993,7 +10998,8 @@ deliberately does not put behind a button."""
 
     def begin_voltage_request_profile_load(self, name, state, automatic=False):
         if automatic:
-            self.profile_failure("power-policy feedback profiles require manual loading" if state.get("scope") == "power_integral"
+            self.profile_failure("PCIe speed profiles require manual loading" if state.get("scope") == "pcie_speed"
+                                 else "power-policy feedback profiles require manual loading" if state.get("scope") == "power_integral"
                                  else "clock V/F profiles require manual loading" if state.get("scope") == "clock_vf"
                                  else "voltage offset profiles require manual loading" if state.get("scope") == "voltage_offsets"
                                  else "voltage-request profiles require manual loading", True)
@@ -11006,7 +11012,8 @@ deliberately does not put behind a button."""
             self.profile_failure(error)
             return
         try:
-            capture = (profiles.autosave_tuning_action if state.get("scope") == "tuning_action"
+            capture = (profiles.autosave_pcie_speed if state.get("scope") == "pcie_speed"
+                       else profiles.autosave_tuning_action if state.get("scope") == "tuning_action"
                        else profiles.autosave_rail_limits if state.get("scope") == "rail_limits"
                        else profiles.autosave_power_integral if state.get("scope") == "power_integral"
                        else profiles.autosave_power_action if state.get("scope") == "power_action"
@@ -11096,15 +11103,16 @@ deliberately does not put behind a button."""
         if state.get("scope") == "lowpower_requests":
             self.finish_lowpower_profile_load(name, state, automatic)
             return
-        if automatic and state.get("scope") in ("fan", "voltage_requests", "voltage_controls", "clock_vf", "voltage_offsets", "tuning_action", "power_action", "power_integral", "rail_limits"):
-            self.profile_failure("power-policy feedback profiles require manual loading" if state.get("scope") == "power_integral"
+        if automatic and state.get("scope") in ("fan", "voltage_requests", "voltage_controls", "clock_vf", "voltage_offsets", "tuning_action", "power_action", "power_integral", "pcie_speed", "rail_limits"):
+            self.profile_failure("PCIe speed profiles require manual loading" if state.get("scope") == "pcie_speed"
+                                 else "power-policy feedback profiles require manual loading" if state.get("scope") == "power_integral"
                                  else "clock V/F profiles require manual loading" if state.get("scope") == "clock_vf"
                                  else "voltage offset profiles require manual loading" if state.get("scope") == "voltage_offsets"
                                  else "voltage-request profiles require manual loading", True)
             return
         self._profile_applying = True
         try:
-            if state.get("scope") in ("fan", "voltage_requests", "voltage_controls", "clock_vf", "voltage_offsets", "tuning_action", "power_action", "power_integral", "rail_limits"):
+            if state.get("scope") in ("fan", "voltage_requests", "voltage_controls", "clock_vf", "voltage_offsets", "tuning_action", "power_action", "power_integral", "pcie_speed", "rail_limits"):
                 results = profiles.restore(self.gpu, state)
             else:
                 results = profiles.restore(self.gpu, state, rail=self.rail,
@@ -11113,7 +11121,7 @@ deliberately does not put behind a button."""
             results = [(False, f"profile restore failed: {e}")]
         finally:
             self._profile_applying = False
-        if state.get("scope") in ("fan", "voltage_requests", "voltage_controls", "clock_vf", "voltage_offsets", "tuning_action", "power_action", "power_integral", "rail_limits"):
+        if state.get("scope") in ("fan", "voltage_requests", "voltage_controls", "clock_vf", "voltage_offsets", "tuning_action", "power_action", "power_integral", "pcie_speed", "rail_limits"):
             for ok, msg in results:
                 self.log(msg, ok)
             if any(not ok for ok, _ in results):
@@ -11143,6 +11151,10 @@ deliberately does not put behind a button."""
             self.sync_hold_headroom(replan=True)
         elif state.get("scope") == "tuning_action":
             self.refresh_tuning_action(state)
+        elif state.get("scope") == "pcie_speed":
+            panel = getattr(registry_panel, "pcie_speed_panel", None)
+            if panel is not None:
+                panel.read()
         elif state.get("scope") == "power_integral":
             panel = getattr(self, "_power_integral_panel", None)
             if panel is not None:
@@ -11268,8 +11280,9 @@ deliberately does not put behind a button."""
                 raise ValueError("combined profiles require manual loading")
             if state.get("scope") == "lowpower_requests":
                 raise ValueError("low-power request profiles require manual loading")
-            if state.get("scope") in ("voltage_requests", "voltage_controls", "clock_vf", "voltage_offsets", "tuning_action", "power_action", "power_integral", "rail_limits"):
-                raise ValueError("power-policy feedback profiles require manual loading" if state.get("scope") == "power_integral"
+            if state.get("scope") in ("voltage_requests", "voltage_controls", "clock_vf", "voltage_offsets", "tuning_action", "power_action", "power_integral", "pcie_speed", "rail_limits"):
+                raise ValueError("PCIe speed profiles require manual loading" if state.get("scope") == "pcie_speed"
+                                 else "power-policy feedback profiles require manual loading" if state.get("scope") == "power_integral"
                                  else "clock V/F profiles require manual loading" if state.get("scope") == "clock_vf"
                                  else "voltage offset profiles require manual loading" if state.get("scope") == "voltage_offsets"
                                  else "voltage-request profiles require manual loading")

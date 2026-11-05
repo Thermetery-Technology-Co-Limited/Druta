@@ -28,8 +28,15 @@ def panel(monkeypatch):
         def set_generation(self, generation, expected_identity=None):
             return state.set(generation, expected_identity=expected_identity)
     monkeypatch.setitem(sys.modules, "druta.pcie_speed_live", SimpleNamespace(PcieSpeedController=Controller))
+    from druta import profiles
+    state.capture = Mock(side_effect=lambda gpu: {"pcie_speed": {"identity": state.read.return_value["identity"],
+                           "target_generation": state.read.return_value["target_generation"]}})
+    state.autosave = Mock(return_value=("undo", "path", []))
+    monkeypatch.setattr(profiles, "capture_pcie_speed", state.capture, raising=False)
+    monkeypatch.setattr(profiles, "autosave_pcie_speed", state.autosave, raising=False)
     dpg.create_context()
-    app = SimpleNamespace(gpu=object(), s=lambda n: n, guard=Mock(return_value=True), log=Mock())
+    app = SimpleNamespace(gpu=object(), s=lambda n: n, guard=Mock(return_value=True), log=Mock(),
+                          open_save_profile=Mock())
     instance = PcieSpeedPanel(app)
     with dpg.window():
         instance.build()
@@ -104,11 +111,13 @@ def test_manual_previous_request_requires_verified_changed_target(panel):
     dpg.set_value("pcie_speed_generation", "Gen 2")
     p.request()
     assert enabled("previous")
+    state.read.return_value = snapshot(target=2)
     unchanged = snapshot(target=2)
     unchanged.update(request_accepted=False, verification="already_matches", before=snapshot(target=2))
     state.set.return_value = unchanged
     p.request()
     assert enabled("previous")
+    assert state.autosave.call_count == 1
     restored = snapshot(target=1)
     restored.update(request_accepted=True, verification="target_and_link", before=snapshot(target=2))
     state.set.return_value = restored
@@ -118,3 +127,19 @@ def test_manual_previous_request_requires_verified_changed_target(panel):
     state.read.return_value = snapshot(identity="gpu-b")
     p.read()
     assert not enabled("previous")
+
+
+def test_undo_capture_failure_prevents_request(panel):
+    p, state = panel
+    p.read()
+    state.autosave.side_effect = OSError("disk full")
+    dpg.set_value("pcie_speed_generation", "Gen 2")
+    p.request()
+    state.set.assert_not_called()
+    assert "disk full" in dpg.get_value("pcie_speed_status")
+
+
+def test_save_button_selects_pcie_scope(panel):
+    p, _ = panel
+    assert dpg.get_item_callback("pcie_speed_save_profile") == p.app.open_save_profile
+    assert dpg.get_item_user_data("pcie_speed_save_profile") == ("pcie_speed", None, None)
