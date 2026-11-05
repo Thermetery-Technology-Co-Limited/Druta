@@ -88,6 +88,29 @@ def owner_valid(value, owner):
     return value is None or (type(value) is int and value == owner)
 
 
+def perf_header_evidence(parsed):
+    """Evidence for a non-v70 PERF table, or None when its declared header is
+    not a bounded table header. Its row layout is untraced, so only the header
+    is fingerprinted; loaded selectors come from the live P-state reply, which
+    each contract checks against its BIOS model."""
+    at = parsed.pointer("P", 0)
+    header_size = parsed.span(at, 2)[1]
+    owner = table_owner(parsed, 0x0E)
+    if header_size < 4 or parsed.own(at, header_size, 0x0E) != owner:
+        return None
+    header = parsed.span(at, header_size)
+    return {"offset": at, "owner": owner, "header_hex": header.hex(), "row_first_hex": "",
+            "table_sha256": hashlib.sha256(header).hexdigest()}
+
+
+def perf_header_end(perf, header):
+    """Image end of saved non-v70 PERF evidence, or None when it differs."""
+    if (header[1] != len(header) or perf["row_first_hex"] != ""
+            or perf["table_sha256"] != hashlib.sha256(header).hexdigest()):
+        return None
+    return perf["offset"] + len(header)
+
+
 def index_route(index, selector, byte):
     """Feature slot for one loaded selector, or None when its rows lack that byte.
 

@@ -21,11 +21,12 @@ from tests.test_lpwr_runtime import controller
 from tests.test_vbios_fields import extend
 
 
-def image(flags=(0x31, 0x31, 0x31)):
-    data = bytearray(7 + 16 * len(flags))
-    data[:4] = bytes((16, 7, 16, len(flags)))
+def image(flags=(0x31, 0x31, 0x31), row_size=16):
+    # Other row sizes fill unread bytes with noise, so a wrong step reads wrong flags.
+    data = bytearray([0 if row_size == 16 else 0xEE]) * (7 + row_size * len(flags))
+    data[:4] = bytes((16, 7, row_size, len(flags)))
     for i, flag in enumerate(flags):
-        struct.pack_into("<I", data, 7 + 16 * i, flag)
+        struct.pack_into("<I", data, 7 + row_size * i, flag)
     result = bytearray(extend(gr_bios(), [(0x84, 0x3A, 0x4A00, data)]))
     # Existing test image has three LPWR index rows at 0x4500.
     for i in range(3):
@@ -170,9 +171,9 @@ def test_unavailable_unrelated_controller_is_preserved(monkeypatch):
     assert ms.verify(actual(saved), saved)
 
 
-def partial_image(flags=(0x77D, 0x401, 0x401), difr_flags=0x31):
-    difr = bytearray(11 + 18)
-    difr[:4] = bytes((0x10, 11, 18, 1))
+def partial_image(flags=(0x77D, 0x401, 0x401), difr_flags=0x31, difr_row=18):
+    difr = bytearray(11 + difr_row)
+    difr[:4] = bytes((0x10, 11, difr_row, 1))
     struct.pack_into("<I", difr, 11, difr_flags)
     return extend(image(flags), [(0xE8, 0x8E, 0x4B00, difr)])
 
@@ -562,3 +563,42 @@ def test_schema4_prior_loss04_serialized_receipt_remains_valid(monkeypatch):
     saved = json.loads(json.dumps(ms.contracts(None, schema4_image(), changes)))
     ms.validate_contracts(changes, saved)
     assert saved["after"]["main"]["features"]["4"]["value"] == 0x020910CC
+
+
+@pytest.mark.parametrize("row_size", [15, 20])
+def test_shutdown_steps_ms_rows_by_their_declared_size(monkeypatch, row_size):
+    # Pre-Blackwell ROMs declare 15-byte MS rows; flags stay at row+0.
+    changes = {f"lpwr.ms.{i}.enabled": False for i in range(3)}
+    expected = prepare(monkeypatch, changes)
+    saved = prepare(monkeypatch, changes, img=image(row_size=row_size))
+    assert saved["after"] == expected["after"]
+    assert [saved["selected"][f"lpwr.ms.{i}.enabled"]["offset"] for i in range(3)] == [
+        0x4A07 + row_size * i for i in range(3)]
+    assert ms.verify(actual(saved), saved)
+    ms.validate_contracts(changes, json.loads(json.dumps(saved)))
+
+
+def test_ms_rows_too_short_for_the_selector_are_refused(monkeypatch):
+    with pytest.raises((ms.MsError, ValueError)):
+        prepare(monkeypatch, img=image(row_size=8))
+
+
+def test_difr_witness_rows_by_declared_size(monkeypatch):
+    expected = prepare(monkeypatch, img=partial_image(), obs=partial_observation())
+    saved = prepare(monkeypatch, img=partial_image(difr_row=17), obs=partial_observation())
+    assert saved["schema"] == 2 and saved["after"] == expected["after"]
+    ms.validate_contracts({"lpwr.ms.0.enabled": False}, json.loads(json.dumps(saved)))
+
+
+def test_legacy_table_rom_ms_contract(monkeypatch):
+    # No object directory, 15-byte MS rows and PERF v60, as on an Ampere ROM.
+    changes = {f"lpwr.ms.{i}.enabled": False for i in range(3)}
+    expected = prepare(monkeypatch, changes)
+    img = bytearray(image(row_size=15))
+    img[0x2000:0x2002] = b"\x00\x00"
+    img[0x4800] = 0x60
+    saved = prepare(monkeypatch, changes, img=bytes(img))
+    assert {saved["tables"][name]["owner"] for name in ("index", "ms", "perf")} == {None}
+    assert saved["tables"]["perf"]["row_first_hex"] == ""
+    assert saved["after"] == expected["after"]
+    ms.validate_contracts(changes, json.loads(json.dumps(saved)))

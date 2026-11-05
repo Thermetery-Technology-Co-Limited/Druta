@@ -5188,7 +5188,10 @@ an outcome. A valid zero mask is distinct from an unavailable query. Previously
 prepared image-only receipts may remain undoable; new semantic edits require a
 fresh typed preview.
 
-The MS v10 table at BIT P+0x84/object 0x3A supplies six runtime slots. The loaded
+The MS v10 table at BIT P+0x84/object 0x3A supplies six runtime slots. Its rows are
+stepped by their declared size: 16 bytes on the 5080 ROM, 15 on the RTX 3090 Ti
+Kingpin's legacy-table ROM, which has no object owner; flags stay at row+0 and the
+selector at row+8. The DIFR witness is read the same way. The loaded
 P-state LPWR index selects byte 2 of its index row, with slot 5
 as fallback. Controller support, configured P-state masks, type-1 role 1 and
 type-7 role 1 are separate outcomes. The qualified projections require the

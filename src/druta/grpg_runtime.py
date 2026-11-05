@@ -321,17 +321,11 @@ def _tables(image):
             "raw_hex": parsed.span(table["offset"], table["size"]).hex(),
         }
     at = parsed.pointer("P", 0)
-    version, header_size = parsed.span(at, 2)
-    if version != 0x70:
-        # Other PERF versions have an untraced row layout, so only their declared
-        # header is checked and fingerprinted. The loaded selectors come from the
-        # driver's live P-state reply, which every contract checks against the
-        # BIOS model; the whole image is fingerprinted separately.
-        if header_size < 4 or parsed.own(at, header_size, 0x0E) != lp.table_owner(parsed, 0x0E):
+    if parsed.span(at, 1)[0] != 0x70:
+        perf = lp.perf_header_evidence(parsed)
+        if perf is None:
             raise GrpgError("PERF table header is not understood")
-        header = parsed.span(at, header_size)
-        result["perf"] = {"offset": at, "owner": lp.table_owner(parsed, 0x0E), "header_hex": header.hex(),
-                          "row_first_hex": "", "table_sha256": hashlib.sha256(header).hexdigest()}
+        result["perf"] = perf
         _table_data(result)
         return result
     header = parsed.span(at, 14)
@@ -388,10 +382,10 @@ def _table_data(tables):
         raise GrpgError("Malformed PERF aggregation evidence")
     header = lp._hex(text, len(text) // 2)
     if header[0] != 0x70:
-        if (header[1] != len(header) or perf["row_first_hex"] != ""
-                or perf["table_sha256"] != hashlib.sha256(header).hexdigest()):
+        end = lp.perf_header_end(perf, header)
+        if end is None:
             raise GrpgError("PERF header fingerprint differs")
-        spans.append((at, at + len(header)))
+        spans.append((at, end))
     else:
         if len(header) != 14 or header[:2] != b"\x70\x0e" or not header[2] or not header[3]:
             raise GrpgError("PERF v70 composite geometry is not understood")

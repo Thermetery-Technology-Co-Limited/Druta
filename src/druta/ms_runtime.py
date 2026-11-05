@@ -16,6 +16,16 @@ from . import vbios_fields
 from .registry_flags import _same_state
 
 KEY = re.compile(r"lpwr\.ms\.(0|[1-9][0-9]*)\.enabled\Z")
+# MS and DIFR-witness rows are stepped by the size each table declares. The
+# parser reads the u32 flags at row+0 and, for MS, the selector at row+8.
+_MS_SHAPES = tuple((0x10, 7, stride) for stride in range(9, 256))
+_DIFR_SHAPES = tuple((0x10, 11, stride) for stride in range(4, 256))
+
+
+def _rows_valid(raw, header, minimum):
+    """A complete v10 table whose declared rows are at least `minimum` bytes."""
+    return (len(raw) >= 4 and raw[0] == 0x10 and raw[1] == header and raw[2] >= minimum
+            and 0 < raw[3] < 6 and len(raw) == header + raw[2] * raw[3])
 
 
 class MsError(RuntimeError):
@@ -98,7 +108,7 @@ def _tables(image, include_difr=False):
     parsed = vbios_fields._Image(image)
     tables = {}
     for name, ptr, owner, shapes in (("index", lp.INDEX_POINTER, lp.INDEX_OWNER, lp.INDEX_SHAPES),
-                                     ("ms", 0x84, 0x3A, ((0x10, 7, 16),))):
+                                     ("ms", 0x84, 0x3A, _MS_SHAPES)):
         table = parsed.table("lpwr_" + name, "P", ptr, shapes, owner)
         if table["object_id"] != lp.table_owner(parsed, owner) or not 0 < table["count"] < 6:
             raise MsError("MS table ownership or row count is not understood")
@@ -108,12 +118,19 @@ def _tables(image, include_difr=False):
             "raw_hex": parsed.span(table["offset"], table["size"]).hex(),
         }
     if include_difr:
-        table = parsed.table("lpwr_difr", "P", 0xE8, ((0x10, 11, 18),), 0x8E)
+        table = parsed.table("lpwr_difr", "P", 0xE8, _DIFR_SHAPES, 0x8E)
         if table["object_id"] != lp.table_owner(parsed, 0x8E) or not 0 < table["count"] < 6:
             raise MsError("DIFR witness ownership or row count is not understood")
         tables["difr"] = {"offset": table["offset"], "owner": table["object_id"],
                           "raw_hex": parsed.span(table["offset"], table["size"]).hex()}
     at = parsed.pointer("P", 0)
+    if parsed.span(at, 1)[0] != 0x70:
+        perf = lp.perf_header_evidence(parsed)
+        if perf is None:
+            raise MsError("PERF table header is not understood")
+        tables["perf"] = perf
+        _table_data(tables, schema=2 if include_difr else 1)
+        return tables
     header = parsed.span(at, 14)
     if header[:2] != b"\x70\x0e" or not header[2] or not header[3]:
         raise MsError("MS requires the populated PERF v70 aggregation path")
@@ -138,8 +155,8 @@ def _table_data(tables, schema=1):
     if not isinstance(tables, dict) or set(tables) != expected:
         raise MsError("Missing MS table evidence")
     data, spans = {}, []
-    # A None stride means the table declares its own row size (the LPWR index).
-    for name, owner, hs, stride in (("index", lp.INDEX_OWNER, lp.INDEX_HEADER, None), ("ms", 0x3A, 7, 16)):
+    # A None stride means the table declares its own row size.
+    for name, owner, hs, stride in (("index", lp.INDEX_OWNER, lp.INDEX_HEADER, None), ("ms", 0x3A, 7, None)):
         item = tables[name]
         if not isinstance(item, dict) or set(item) != {"offset", "owner", "raw_hex"} or not lp.owner_valid(item["owner"], owner):
             raise MsError("Malformed MS table evidence")
@@ -152,7 +169,7 @@ def _table_data(tables, schema=1):
         except (ValueError, lp.LpwrError) as exc:
             raise MsError("Malformed MS table bytes") from exc
         if stride is None:
-            if not lp.index_rows_valid(raw):
+            if not (lp.index_rows_valid(raw) if name == "index" else _rows_valid(raw, hs, 9)):
                 raise MsError("MS table geometry differs")
         elif (
             len(raw) < hs
@@ -169,10 +186,10 @@ def _table_data(tables, schema=1):
             raise MsError("Malformed DIFR table witness")
         at = lp._int(item["offset"], 0, 16 * 1024 * 1024)
         text = item["raw_hex"]
-        if not isinstance(text, str) or not 22 <= len(text) <= 2 * (11 + 5 * 18):
+        if not isinstance(text, str) or not 22 <= len(text) <= 2 * (11 + 5 * 255):
             raise MsError("Malformed DIFR table witness")
         raw = lp._hex(text, len(text) // 2)
-        if raw[:3] != bytes((0x10, 11, 18)) or not 0 < raw[3] < 6 or len(raw) != 11 + 18 * raw[3]:
+        if not _rows_valid(raw, 11, 4):
             raise MsError("DIFR witness geometry differs")
         data["difr"] = raw
         spans.append((at, at + len(raw)))
@@ -184,17 +201,24 @@ def _table_data(tables, schema=1):
     ):
         raise MsError("Malformed PERF table evidence")
     at = lp._int(perf["offset"], 0, 16 * 1024 * 1024)
-    header = lp._hex(perf["header_hex"], 14)
-    if header[:2] != b"\x70\x0e" or not header[2] or not header[3]:
-        raise MsError("Unsupported PERF table")
-    first = lp._hex(perf["row_first_hex"], header[3])
-    if (
-        all(v == 255 for v in first)
-        or not isinstance(perf["table_sha256"], str)
-        or not lp._HEX256.fullmatch(perf["table_sha256"])
-    ):
-        raise MsError("Missing populated PERF evidence")
-    spans.append((at, at + 14 + (header[2] + header[4] * header[5]) * header[3]))
+    text = perf["header_hex"]
+    header = lp._hex(text, len(text) // 2 if isinstance(text, str) and len(text) >= 8 else 14)
+    if header[0] != 0x70:
+        end = lp.perf_header_end(perf, header)
+        if end is None:
+            raise MsError("PERF header fingerprint differs")
+        spans.append((at, end))
+    else:
+        if len(header) != 14 or header[:2] != b"\x70\x0e" or not header[2] or not header[3]:
+            raise MsError("Unsupported PERF table")
+        first = lp._hex(perf["row_first_hex"], header[3])
+        if (
+            all(v == 255 for v in first)
+            or not isinstance(perf["table_sha256"], str)
+            or not lp._HEX256.fullmatch(perf["table_sha256"])
+        ):
+            raise MsError("Missing populated PERF evidence")
+        spans.append((at, at + 14 + (header[2] + header[4] * header[5]) * header[3]))
     spans.sort()
     if any(end > 16 * 1024 * 1024 for _, end in spans) or any(
         a[1] > b[0] for a, b in zip(spans, spans[1:], strict=False)
@@ -235,7 +259,7 @@ def _derive(changes, before, tables, schema=1):
     if not ctr["4"]["available"] or ctr["4"]["supported"] is not True or not ctr["4"]["states_available"]:
         raise MsError("MS controller 4 support and mask are required")
     raw, index = data["ms"], data["index"]
-    flags = [struct.unpack_from("<I", raw, 7 + 16 * i)[0] for i in range(raw[3])]
+    flags = [struct.unpack_from("<I", raw, 7 + raw[2] * i)[0] for i in range(raw[3])]
     bindings, disabled = {}, set()
     for key in requested:
         i = int(KEY.fullmatch(key)[1])
@@ -244,7 +268,7 @@ def _derive(changes, before, tables, schema=1):
         disabled.add(i)
         bindings[key] = {
             "index": i,
-            "offset": tables["ms"]["offset"] + 7 + 16 * i,
+            "offset": tables["ms"]["offset"] + 7 + raw[2] * i,
             "before": flags[i],
             "after": flags[i] & ~1,
         }
@@ -266,7 +290,7 @@ def _derive(changes, before, tables, schema=1):
         if shutdown or not lost or (schema == 4 and not _mapped_loss(lost)) or (schema != 4 and (lost & ~0x37C or not lost & 0x10)):
             raise MsError("Partial MS aggregate loss is not understood")
         difr = data["difr"]
-        difr_flags = [struct.unpack_from("<I", difr, 11 + i * 18)[0] for i in range(difr[3])]
+        difr_flags = [struct.unpack_from("<I", difr, 11 + i * difr[2])[0] for i in range(difr[3])]
         if schema in (2, 4) and not any(flag & 0x31 == 0x31 for flag in difr_flags):
             raise MsError("Independent DIFR witness is unavailable")
         if schema == 3 and ((lost & 0x60) != 0x60 or any(flag & 1 for flag in difr_flags)):
@@ -275,7 +299,7 @@ def _derive(changes, before, tables, schema=1):
             removed_selectors = retained_selectors = 0
             for i, flag in enumerate(flags):
                 if flag & 0x11 == 0x11:
-                    selector = raw[7 + 16 * i + 8]
+                    selector = raw[7 + raw[2] * i + 8]
                     if i in disabled:
                         removed_selectors |= selector
                     else:
@@ -420,7 +444,7 @@ def contracts(gpu, image, changes):
         return {}
     tables = _tables(image)
     raw = _table_data(tables)["ms"]
-    flags = [struct.unpack_from("<I", raw, 7 + 16 * i)[0] for i in range(raw[3])]
+    flags = [struct.unpack_from("<I", raw, 7 + raw[2] * i)[0] for i in range(raw[3])]
     requested = selected(changes)
     disabled = {int(KEY.fullmatch(key)[1]) for key in requested}
     old_union = new_union = 0
@@ -441,7 +465,7 @@ def contracts(gpu, image, changes):
         except vbios_fields.FormatError as exc:
             raise MsError("Partial MS aggregate flags need an understood DIFR witness") from exc
         difr = _table_data(tables, schema=2)["difr"]
-        if schema != 4 and not any(struct.unpack_from("<I", difr, 11 + i * 18)[0] & 1 for i in range(difr[3])):
+        if schema != 4 and not any(struct.unpack_from("<I", difr, 11 + i * difr[2])[0] & 1 for i in range(difr[3])):
             schema = 3
     before, error = read(gpu, mapping=True) if schema == 4 else read(gpu)
     if error or before is None:
