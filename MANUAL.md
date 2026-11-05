@@ -1211,6 +1211,13 @@ details and original-BIOS-range coloring may be unavailable independently of
 the live request control. The reported limit is not a measurement of actual
 power draw.
 
+A pinned policy value preserves its configured request, not a guaranteed
+effective limit. In the local [source-pin crossover trial](experiments/power-explicit-source-20261105.md),
+policy 2 stayed requested at 350 W while the board request moved from 365 W
+to 345 W. Its firmware arbitration output nevertheless fell from 350 W to
+345 W, and policy 9's derived vote fell with it. An explicit request therefore
+did not detach that policy from the other limits in this tested configuration.
+
 Very high requests can produce a lower native effective limit. On one RTX
 3070 Ti, a 1,024 W request reported a 7.424 W native board limit, while a
 1,999 W request reported 1,012.893 W; NVML retained the complete requests and

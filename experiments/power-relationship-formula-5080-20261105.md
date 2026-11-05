@@ -10,11 +10,13 @@ this investigation.
 
 ## Captured relationship and coefficient
 
-On the captured RTX 5080 / VBIOS 98.03.3b.c0.6f, the configured graph includes
-policy 8 to policies 2 and 7, policy 2 through relationship 9 to policy 9, and
-a separate policy-7 linked-current path to policy 9. Numeric PMU client IDs
-must not be treated as universal policy indices solely because they match
-these edges.
+On the captured RTX 5080 / VBIOS 98.03.3b.c0.6f, source-bound configured
+references connect policies 2 and 7 through relationship 9 to policy 9. The
+earlier policy-8 links to policies 2 and 7 are candidate joins only: its
+two serialized fields contain 7 and 8, but their general selector/range
+semantics have not been bound to a current consumer or schema. Numeric PMU
+client IDs must not be treated as universal policy indices solely because
+they match configured references or candidate joins.
 
 The saved 621.01 host parser carries relationship 9's ROM parameter 4096 into
 the class-0 relationship object's coefficient. Its INFO getter exposes that

@@ -2705,9 +2705,10 @@ class Druta:
             dpg.add_button(label="Max all", tag="pp_max_all", width=self.s(110),
                            callback=lambda: self.max_all_power_policies())
         self._ctl_widgets.append("pp_max_all")
-        dpg.add_text("The driver sets several of these from the board power limit and "
-                     "recalculates them whenever it changes; a value you set here is re-applied "
-                     "after that and marked *. Stock hands a policy back to the driver. Note a "
+        dpg.add_text("Changing the board power limit can recalculate other requests. Values you "
+                     "set here are marked * and re-applied if recalculated. This preserves the "
+                     "request; the effective limit can still be lower because of other votes. "
+                     "Stock hands a policy back to the driver. Note a "
                      "channel by its connector, or 'others' for your own words; a current row on a "
                      "connector shows its current per 12 V wire, coloured: to 5 A white, 10 A "
                      "yellow, 13 A red, above that crimson. The slot (PCIE) is judged as a whole: "
