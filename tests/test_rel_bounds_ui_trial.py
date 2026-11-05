@@ -60,14 +60,14 @@ def setup(monkeypatch):
         def read(self):
             return self._summary(self._capture())
 
-        def set_fixed(self, rail, value):
+        def set_fixed(self, rail, value, *, before_write=None):
             self.calls.append(("fixed", rail, value))
             self.bounds = (value, value)
             if self.fail_fixed:
                 raise RuntimeError("injected fixed failure")
             return self.read()
 
-        def restore_bounds(self, rail):
+        def restore_bounds(self, rail, *, before_write=None):
             self.calls.append(("restore", rail))
             if self.fail_restore:
                 raise RuntimeError("injected restore failure")

@@ -46,6 +46,8 @@ class VoltageDevicePanelTests(unittest.TestCase):
         self.controller = self.factory.return_value
         self.controller.gpu = self.gpu
         self.controller.read.return_value = observation()
+        # Stand-in Undo hook naming the device it was bound to.
+        self.panel._voltage_undo_callback = lambda kind, selection=None: ("undo", kind, selection)
 
     def patch(self, value):
         result = value.start()
@@ -73,7 +75,8 @@ class VoltageDevicePanelTests(unittest.TestCase):
         self.values["reg_volt_device_delay"] = "96"
         self.controller.set.return_value = observation(first=96)
         self.panel.apply_voltage_device_delay()
-        self.controller.set.assert_called_once_with(4, 96, voltage_domain=1, operation_type=1)
+        self.controller.set.assert_called_once_with(4, 96, voltage_domain=1, operation_type=1,
+                                                    before_write=("undo", "switch_delay", 4))
         self.assertEqual(self.values["reg_volt_device_delay"], "96")
         self.assertTrue(self.enabled["reg_volt_device_restore"])
         self.assertIn("Applied live", self.values["reg_volt_device_status"])
@@ -86,11 +89,13 @@ class VoltageDevicePanelTests(unittest.TestCase):
         self.values["reg_volt_device_delay"] = "181"
         self.controller.set.return_value = observation(second=181)
         self.panel.apply_voltage_device_delay()
-        self.controller.set.assert_called_once_with(17, 181, voltage_domain=3, operation_type=4)
+        self.controller.set.assert_called_once_with(17, 181, voltage_domain=3, operation_type=4,
+                                                    before_write=("undo", "switch_delay", 17))
         self.controller.set.reset_mock()
         self.controller.set.return_value = observation()
         self.panel.restore_voltage_device_delay()
-        self.controller.set.assert_called_once_with(17, 180, voltage_domain=3, operation_type=4)
+        self.controller.set.assert_called_once_with(17, 180, voltage_domain=3, operation_type=4,
+                                                    before_write=("undo", "switch_delay", 17))
         self.assertFalse(self.enabled["reg_volt_device_restore"])
 
     def test_uint32_max_is_not_lost_through_signed_dpg_integer_widget(self):
@@ -98,7 +103,8 @@ class VoltageDevicePanelTests(unittest.TestCase):
         self.values["reg_volt_device_delay"] = "4294967295"
         self.controller.set.return_value = observation(first=0xFFFFFFFF)
         self.panel.apply_voltage_device_delay()
-        self.controller.set.assert_called_once_with(4, 0xFFFFFFFF, voltage_domain=1, operation_type=1)
+        self.controller.set.assert_called_once_with(4, 0xFFFFFFFF, voltage_domain=1, operation_type=1,
+                                                    before_write=("undo", "switch_delay", 4))
 
     def test_invalid_input_does_not_call_controller_or_discard_valid_read(self):
         self.read()
@@ -122,7 +128,8 @@ class VoltageDevicePanelTests(unittest.TestCase):
         self.assertTrue(self.enabled["reg_volt_device_restore"])
         self.controller.set.return_value = observation()
         self.panel.restore_voltage_device_delay()
-        self.controller.set.assert_called_once_with(4, 95, voltage_domain=1, operation_type=1)
+        self.controller.set.assert_called_once_with(4, 95, voltage_domain=1, operation_type=1,
+                                                    before_write=("undo", "switch_delay", 4))
 
     def test_adapter_switch_requires_new_read_and_independent_initial_capture(self):
         self.read()

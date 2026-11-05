@@ -15,7 +15,7 @@ from tests.test_voltage_startup_runtime import observation, policy_offsets
 
 @pytest.fixture(autouse=True)
 def fake_policy(monkeypatch):
-    monkeypatch.setattr(runtime.requests.voltage, "read", lambda gpu: gpu.policy())
+    monkeypatch.setattr(runtime.requests.voltage, "read", lambda gpu, *, request_identities=None: gpu.policy())
     monkeypatch.setattr(ro.time, "sleep", lambda seconds: None)
 
 

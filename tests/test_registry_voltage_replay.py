@@ -29,6 +29,8 @@ def request_capture(combined):
         at = replay.controls.ROW_OFFSET + int(index) * replay.controls.ROW_STRIDE
         nat = replay.HEADER + int(index) * replay.CONTROL_STRIDE
         info[replay.HEADER + int(index) * replay.INFO_STRIDE] = 5
+        # Domain selector: the rail identity replay pairs with the policy type.
+        info[replay.HEADER + int(index) * replay.INFO_STRIDE + 0x33] = row["type"]
         native[nat], native[nat + 1], native[nat + 28] = 5, 0xC8, 1
         native[nat + 4 : nat + 28] = raw[at + 4 : at + 28]
         public[index] = raw.hex()
