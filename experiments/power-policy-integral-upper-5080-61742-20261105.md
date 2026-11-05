@@ -60,8 +60,9 @@ This initial trial identified and locally qualified the live upper-adjustment
 control path. The subsequent [production qualification](power-integral-production-20261105.json)
 also exercised the new backend at 4178 and 4260, below and above the reported
 default, with exact restoration; the manual control is now in the Power
-policies UI. Minimum ratio, sample counts and mode
-changes were not tested. Arbitrary ratio ranges and other devices remain
+policies UI. The later [lower-bound trial](power-integral-lower-5080-61742-20261105.md)
+qualified a retained lower setting and documented a failed past-count change;
+future-count and mode changes remain untested. Arbitrary ratio ranges and other devices remain
 unqualified. Any integration must use current reported capabilities and
 preserve opaque fields, with explicit manual application and no startup or
 post-reset replay.

@@ -1191,15 +1191,16 @@ limited by another power or current policy.
 ### Power-policy feedback adjustment
 
 Under **Power policies**, **Power-policy feedback adjustment** exposes the
-active upper adjustment bound for understood integral-control policies.
-Press **Read**, select a policy, enter **Upper adjustment (%)**, and press
-**Apply now**. **Use reported default** reapplies that policy's reported
-default upper bound. The active value and the default are displayed separately.
+active lower and upper adjustment bounds for understood integral-control
+policies. Press **Read**, select a policy, enter **Lower adjustment (%)** or
+**Upper adjustment (%)**, and press its **Apply now** button. Each **Use reported
+default** button reapplies the corresponding reported default. Active values
+and defaults are displayed separately; sample counts are read-only.
 
-100% means a 1x bound relative to the policy's current limit. This is a
-feedback-controller bound, not a guaranteed constant multiplier or a change
-to the main board power request. The lower bound is read-only; the driver must
-retain an entered upper value at or above it. Percentages are rounded to the
+100% means a 1x bound relative to the policy's current limit. These are
+feedback-controller bounds, not guaranteed constant multipliers or changes
+to the main board power request. The lower bound cannot exceed the active
+upper bound, and the upper must be positive. Percentages are rounded to the
 nearest representable step of 100/4096 percentage points, and the exact active
 value is shown after readback. A successful request does not prove physical
 power consumption or remove other firmware limits.
@@ -1213,5 +1214,8 @@ this additional interface is unavailable.
 
 The local [upper-bound qualification](experiments/power-policy-integral-upper-5080-61742-20261105.md)
 records a changed reported effective limit and exact restoration on one RTX
-5080. Other policy modes, minimum-ratio writes and sample-count changes are
-not exposed by this control.
+5080. The [lower-bound trial](experiments/power-integral-lower-5080-61742-20261105.md)
+verified a retained configuration change and exact restoration, with no change
+to the effective limit at idle; its effect under load remains unmeasured.
+Sample-count and mode writes are not exposed. A past-count trial failed and
+temporarily disrupted policy reads; future-count writes were not attempted.

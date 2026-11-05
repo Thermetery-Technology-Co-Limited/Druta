@@ -240,3 +240,55 @@ def test_invalid_default_block_is_not_offered():
     bounds_offset = default_offset + 1
     gpu.info[bounds_offset] = 0
     assert not c.read()["policies"][0]["available"]
+
+
+def test_lower_zero_bounds_default_and_whole_packet_preservation():
+    gpu = GPU()
+    c = controller(gpu)
+    before_info, before_control = gpu.info.copy(), gpu.control.copy()
+    row = c.read()["policies"][0]
+    assert (row["past_samples"], row["next_samples"], row["default_past_samples"], row["default_next_samples"]) == (
+        3,
+        4,
+        3,
+        4,
+    )
+    assert c.set_lower(4, 1000)["policies"][0]["lower_raw"] == 1000
+    assert gpu.sets == 0
+    result = c.set_lower(4, 0, expected_identity=IDENTITY)["policies"][0]
+    assert result["lower_raw"] == 0 and result["upper_raw"] == 4200
+    expected = bytearray(struct.pack(f"<{len(before_control)}I", *before_control))
+    struct.pack_into("<H", expected, 20 + 4 * 196 + 12, 0)
+    assert bytes(expected) == struct.pack(f"<{len(gpu.control)}I", *gpu.control)
+    assert gpu.info == before_info
+    for value in (-1, 4201, 65536, True, 1.5):
+        with pytest.raises(PowerIntegralError):
+            c.set_lower(4, value)
+    assert gpu.sets == 1
+    c.set_upper(4, 5000)
+    row = c.set_lower(4, 4500)["policies"][0]
+    assert (row["lower_raw"], row["upper_raw"], row["default_upper_raw"]) == (4500, 5000, 4300)
+
+
+def test_lower_partial_failure_restores_only_selected_halfword():
+    gpu = GPU()
+    c = controller(gpu)
+    original = gpu._current_limit_rm
+    offset = (20 + 4 * 196 + 8) // 4
+
+    def call(command, *args, **kwargs):
+        if command == SET and gpu.raise_after:
+            try:
+                return original(command, *args, **kwargs)
+            finally:
+                gpu.control[offset] ^= 0x01000000
+        return original(command, *args, **kwargs)
+
+    gpu._current_limit_rm = call
+    gpu.raise_after = True
+    with pytest.raises(PowerIntegralError) as exc:
+        c.set_lower(4, 1100)
+    assert exc.value.rollback["verified"]
+    row = c.read()["policies"][0]
+    assert (row["lower_raw"], row["upper_raw"], row["past_samples"], row["next_samples"]) == (1000, 4200, 3, 4)
+    assert gpu.control[offset] >> 24 == (91 ^ 1)

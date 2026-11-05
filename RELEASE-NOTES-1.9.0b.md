@@ -66,13 +66,17 @@ adjacent files together. Python and the NVIDIA App are not required.
 
 ## Post-release branch continuation
 
-The **Power policies** section adds a manual upper feedback-adjustment control
+The **Power policies** section adds manual lower and upper feedback-adjustment controls
 for policies reporting the understood integral-controller layout. It displays
 active and default bounds separately, preserves other request fields, and
 checks exact readback. The percentage is a controller bound relative to the
 policy limit; it does not change the board request or promise physical
-power. This control is session-only and is not included in existing profiles.
+power. These controls are session-only and are not included in existing profiles or Undo.
 See the [local qualification](experiments/power-policy-integral-upper-5080-61742-20261105.md).
+The [lower-bound trial](experiments/power-integral-lower-5080-61742-20261105.md)
+verified retained configuration and exact restoration without changing the idle
+effective limit. Sample counts are read-only after a failed past-count probe;
+future-count and mode writes remain unqualified.
 
 Independent signed REL/ALT/OV/VMIN offsets now use added VFE constant heads,
 with CLI and Controls-panel capture and explicit replay. A captured RTX 5080

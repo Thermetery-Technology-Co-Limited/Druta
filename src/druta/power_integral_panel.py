@@ -26,12 +26,17 @@ class PowerIntegralPanel:
         with dpg.group(horizontal=True):
             dpg.add_button(label="Read", tag="integral_read", callback=self.read)
             dpg.add_combo([], tag="integral_policy", width=self.app.s(220), callback=self._selection_changed)
+        with dpg.group(horizontal=True):
             dpg.add_input_text(label="Upper adjustment (%)", tag="integral_input", width=self.app.s(130))
             dpg.add_button(label="Apply now", tag="integral_apply", callback=self.apply, enabled=False)
             dpg.add_button(label="Use reported default", tag="integral_default", callback=self.use_default, enabled=False)
+        with dpg.group(horizontal=True):
+            dpg.add_input_text(label="Lower adjustment (%)", tag="integral_lower_input", width=self.app.s(130))
+            dpg.add_button(label="Apply now", tag="integral_lower_apply", callback=self.apply_lower, enabled=False)
+            dpg.add_button(label="Use reported default", tag="integral_lower_default", callback=self.use_lower_default, enabled=False)
         dpg.add_text("Read to select an available policy.", tag="integral_status", wrap=self.app.s(900))
         dpg.add_input_text(tag="integral_readback", readonly=True, multiline=True,
-                           width=-1, height=self.app.s(70))
+                           width=-1, height=self.app.s(100))
 
     def _controller(self):
         if self.controller_gpu is not self.app.gpu:
@@ -54,6 +59,8 @@ class PowerIntegralPanel:
         enabled = self._eligible()
         dpg.configure_item("integral_apply", enabled=enabled)
         dpg.configure_item("integral_default", enabled=enabled)
+        dpg.configure_item("integral_lower_apply", enabled=enabled)
+        dpg.configure_item("integral_lower_default", enabled=enabled)
 
     @staticmethod
     def _format(row):
@@ -66,10 +73,13 @@ class PowerIntegralPanel:
             return f"{scaled} {unit}"
         return (f"Current upper: {raw_to_percent(row['upper_raw'])}%  |  "
                 f"Reported default upper: {raw_to_percent(row['default_upper_raw'])}%  |  "
-                f"Lower bound: {raw_to_percent(row['lower_raw'])}%\n"
+                f"Current lower: {raw_to_percent(row['lower_raw'])}%  |  "
+                f"Reported default lower: {raw_to_percent(row['default_lower_raw'])}%\n"
                 f"Requested: {amount(row.get('requested'))}  |  "
                 f"PMU output: {amount(row.get('pmu_output'))}  |  "
-                f"Effective limit: {amount(row.get('effective'))}")
+                f"Effective limit: {amount(row.get('effective'))}\n"
+                f"Past samples: {row.get('past_samples', '--')} (default {row.get('default_past_samples', '--')})  |  "
+                f"Next samples: {row.get('next_samples', '--')} (default {row.get('default_next_samples', '--')})")
 
     def _render(self):
         row = self._row()
@@ -82,6 +92,7 @@ class PowerIntegralPanel:
         if row and self._eligible():
             from .power_integral_runtime import raw_to_percent
             dpg.set_value("integral_input", raw_to_percent(row["upper_raw"]))
+            dpg.set_value("integral_lower_input", raw_to_percent(row["lower_raw"]))
 
     def _show(self, snapshot, gpu, message):
         if gpu is not self.app.gpu or not snapshot.get("identity"):
@@ -119,11 +130,14 @@ class PowerIntegralPanel:
                 if not dpg.get_value("integral_input"):
                     from .power_integral_runtime import raw_to_percent
                     dpg.set_value("integral_input", raw_to_percent(self._row()["upper_raw"]))
+                if not dpg.get_value("integral_lower_input"):
+                    from .power_integral_runtime import raw_to_percent
+                    dpg.set_value("integral_lower_input", raw_to_percent(self._row()["lower_raw"]))
                 self.initial_input_checked = True
         except Exception as exc:  # noqa: BLE001
             self._failed("read", exc)
 
-    def _request(self, use_default):
+    def _request(self, use_default, lower=False):
         if not self._eligible():
             if self.snapshot_gpu is not self.app.gpu:
                 self._failed("selection", ValueError("selected adapter changed"))
@@ -136,7 +150,8 @@ class PowerIntegralPanel:
         policy = self._row()['policy']
         try:
             from .power_integral_runtime import percent_to_raw
-            raw = None if use_default else percent_to_raw(dpg.get_value("integral_input"))
+            input_tag = "integral_lower_input" if lower else "integral_input"
+            raw = None if use_default else percent_to_raw(dpg.get_value(input_tag))
             controller = self._controller()
             fresh = controller.read()
             if gpu is not self.app.gpu or fresh.get('identity') != identity:
@@ -145,8 +160,9 @@ class PowerIntegralPanel:
             if row is None or row.get('policy') != policy:
                 raise ValueError("selected policy is no longer available")
             if use_default:
-                raw = row['default_upper_raw']
-            result = controller.set_upper(policy, raw, expected_identity=identity)
+                raw = row['default_lower_raw' if lower else 'default_upper_raw']
+            setter = controller.set_lower if lower else controller.set_upper
+            result = setter(policy, raw, expected_identity=identity)
             self._show(result, gpu, "Adjustment applied and read back.")
             self.app.log("Power-policy feedback adjustment applied.", True)
         except Exception as exc:  # noqa: BLE001
@@ -157,3 +173,9 @@ class PowerIntegralPanel:
 
     def use_default(self, sender=None, app_data=None, user_data=None):
         self._request(True)
+
+    def apply_lower(self, sender=None, app_data=None, user_data=None):
+        self._request(False, lower=True)
+
+    def use_lower_default(self, sender=None, app_data=None, user_data=None):
+        self._request(True, lower=True)

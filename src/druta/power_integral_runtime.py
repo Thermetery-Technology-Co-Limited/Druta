@@ -1,6 +1,6 @@
 # Copyright (C) 2026 Thermetery Technology Co Limited
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Session-only power-policy integral upper bound, with exact readback."""
+"""Session-only power-policy integral bounds, with exact readback."""
 
 import struct
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation, localcontext
@@ -150,6 +150,10 @@ class PowerIntegralController:
                     "upper_raw": upper,
                     "default_lower_raw": dlow,
                     "default_upper_raw": dup,
+                    "past_samples": past,
+                    "next_samples": nxt,
+                    "default_past_samples": default_past,
+                    "default_next_samples": default_next,
                     "requested": request,
                     "effective": diag.get("effective"),
                     "pmu_output": pmu.get("output") if pmu.get("available") else None,
@@ -162,8 +166,20 @@ class PowerIntegralController:
             return self._report(self._capture())
 
     def set_upper(self, policy, raw, *, expected_identity=None):
-        if type(policy) is not int or not 0 <= policy < 32 or type(raw) is not int or not 0 < raw <= 65535:
-            raise PowerIntegralError("invalid", "Policy and upper ratio must be valid unsigned integers")
+        return self._set_ratio(policy, raw, "upper", expected_identity)
+
+    def set_lower(self, policy, raw, *, expected_identity=None):
+        return self._set_ratio(policy, raw, "lower", expected_identity)
+
+    def _set_ratio(self, policy, raw, field, expected_identity):
+        if field not in ("lower", "upper"):
+            raise ValueError("Unsupported ratio field")
+        if type(policy) is not int or not 0 <= policy < 32 or type(raw) is not int or not 0 <= raw <= 65535:
+            raise PowerIntegralError("invalid", "Policy and ratio must be valid unsigned integers")
+        if field == "upper" and raw == 0:
+            raise PowerIntegralError("invalid", "Upper ratio must be positive")
+        key = f"{field}_raw"
+        offset = 12 if field == "lower" else 14
         with self.gpu._lock:
             before = self._capture()
             report = self._report(before)
@@ -172,12 +188,14 @@ class PowerIntegralController:
             row = next((r for r in report["policies"] if r["policy"] == policy), None)
             if row is None or not row["available"]:
                 raise PowerIntegralError("unsupported", row["reason"] if row else "Policy is absent")
-            if raw < row["lower_raw"]:
+            if field == "upper" and raw < row["lower_raw"]:
                 raise PowerIntegralError("invalid", "Upper ratio must be at least the active lower ratio")
-            if raw == row["upper_raw"]:
+            if field == "lower" and raw > row["upper_raw"]:
+                raise PowerIntegralError("invalid", "Lower ratio must not exceed the active upper ratio")
+            if raw == row[key]:
                 return report
             projected = bytearray(before[5])
-            struct.pack_into("<H", projected, 0x14 + policy * 0xC4 + 14, raw)
+            struct.pack_into("<H", projected, 0x14 + policy * 0xC4 + offset, raw)
             request = list(struct.unpack(f"<{len(projected) // 4}I", projected))
             request[4] = 1 << policy
             if self._binding() != before[0]:
@@ -197,7 +215,7 @@ class PowerIntegralController:
                     if current[0] != before[0] or not current[1] or not current[2][1] >> policy & 1:
                         raise PowerIntegralError("identity", "Original policy is no longer bound")
                     restore = bytearray(current[5])
-                    struct.pack_into("<H", restore, 0x14 + policy * 0xC4 + 14, row["upper_raw"])
+                    struct.pack_into("<H", restore, 0x14 + policy * 0xC4 + offset, row[key])
                     words = list(struct.unpack(f"<{len(restore) // 4}I", restore))
                     words[4] = 1 << policy
                     rollback["attempted"] = True
@@ -209,9 +227,9 @@ class PowerIntegralController:
                 except BaseException as restore_exc:
                     rollback["error"] = str(restore_exc)
                 detail = (
-                    "Original upper restored and verified"
+                    f"Original {field} restored and verified"
                     if rollback["verified"]
-                    else "Original upper restoration was not verified"
+                    else f"Original {field} restoration was not verified"
                 )
                 if not isinstance(exc, Exception):
                     exc.add_note(detail)
