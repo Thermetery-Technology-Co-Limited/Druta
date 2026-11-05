@@ -1177,6 +1177,11 @@ physical switching latency and firmware scheduling remain unmeasured. The
 separate power-up/down delay words are not controlled here. A missing or
 unrecognized peer device does not remove an independently supported control.
 
+Intermediate voltage-policy delay is a separate interface. The tested RTX
+5080 / 617.42 inventory contained only type 5, without the type 2/4 delay
+handlers; no policy-delay control was added. See the scoped
+[source and inventory result](experiments/policy-intermediate-delay-5080-61742-20261105.md).
+
 **Power/current arbitration > Read arbitration** separates the requested limit,
 host votes, firmware votes and effective limit for each understood policy. A
 lower firmware vote can keep the effective limit below the host request. Client
