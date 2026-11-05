@@ -1,0 +1,89 @@
+{
+  "schema": 1,
+  "date": "2026-11-05",
+  "scope": "Ordinary rail-limit selected Undo and manual named profiles, local source callbacks",
+  "device": {
+    "name": "NVIDIA GeForce RTX 5080",
+    "driver": "617.42",
+    "vbios": "98.03.3b.c0.6f"
+  },
+  "trial_sha256": "44c9739fc698ab10b0e7aaae9258dba256e0b5f3436af35cba95febfe1b27373",
+  "harness_sha256": "36dd5da5fcd003511fcdd90ecf815eff05de8953e4b9fd5365363409dcb9987b",
+  "fields": [
+    {
+      "rail": 0,
+      "field": "reliability",
+      "before_uv": 0,
+      "active_uv": -3125,
+      "undo_uv": 0
+    },
+    {
+      "rail": 0,
+      "field": "alt_reliability",
+      "before_uv": 0,
+      "active_uv": -3125,
+      "undo_uv": 0
+    },
+    {
+      "rail": 0,
+      "field": "overvoltage",
+      "before_uv": 0,
+      "active_uv": -3125,
+      "undo_uv": 0
+    },
+    {
+      "rail": 0,
+      "field": "vmin",
+      "before_uv": 0,
+      "active_uv": 1250,
+      "undo_uv": 0
+    },
+    {
+      "rail": 1,
+      "field": "reliability",
+      "before_uv": -50000,
+      "active_uv": -53125,
+      "undo_uv": -50000
+    },
+    {
+      "rail": 1,
+      "field": "alt_reliability",
+      "before_uv": 0,
+      "active_uv": -3125,
+      "undo_uv": 0
+    },
+    {
+      "rail": 1,
+      "field": "overvoltage",
+      "before_uv": 0,
+      "active_uv": -3125,
+      "undo_uv": 0
+    },
+    {
+      "rail": 1,
+      "field": "vmin",
+      "before_uv": 0,
+      "active_uv": 1250,
+      "undo_uv": 0
+    }
+  ],
+  "additional_verified_routes": [
+    "Linked reliability pair Apply and selected pair Undo",
+    "Single-field Stock and Undo to immediately previous request",
+    "Reset all and Undo across both rails",
+    "Named Save captures current requests despite staged text; named Load and Undo"
+  ],
+  "all_raw_requests_and_boost_restored": true,
+  "fallback_cleanup_needed": false,
+  "regression": {
+    "passed": 2892,
+    "subtests_passed": 398,
+    "suite_sha256": "e72d3a01193dac16051f1b1da60323b70d047d5c55c0d15c39559eb9b6aaf6d0",
+    "log_sha256": "d6708ec33645cedaa12403665b54032b5564dca575fa56c6a9c277ca4854e356"
+  },
+  "limitations": [
+    "No physical voltage claim, workload, restart, registry mutation or other-adapter access.",
+    "Display refreshes stubbed in the source callback harness; active hold-headroom projection has offline coverage.",
+    "New rail-limit combined-profile integration has offline coverage; combined hardware trials from earlier increments remain separately scoped."
+  ]
+}

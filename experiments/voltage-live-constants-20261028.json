@@ -1,0 +1,217 @@
+{
+  "schema": 1,
+  "date_utc": "2026-10-28",
+  "scope": "Source-product live typed OV/ALT constants, tested on one RTX 5080 / driver 621.01 / VBIOS 98.03.3b.c0.6f at idle. Observed ordinals and identities are evidence, not compatibility gates.",
+  "status": "Live OV constants and ALT addends are exposed independently by rail with exact reported-policy verification and recovery. Arbitrary voltage-offset replay remains unresolved.",
+  "mechanism": {
+    "native_set_command": "0x2080E0B7",
+    "native_type": 3,
+    "bios_type": 1,
+    "control_bytes": 1049608,
+    "header_bytes": 1032,
+    "row_bytes": 128,
+    "selected_mask_bytes": 1024,
+    "selected_row_changes": [
+      "float32 low bound at +4",
+      "float32 high bound at +8",
+      "float32 c0 at +16"
+    ],
+    "preserved": "Entire INFO, other CONTROL bytes, higher coefficients, graph metadata, other rows, complete legacy rail CONTROL, voltage boost request and readable clock requests.",
+    "binding": "Current loaded constant is bound to the independently parsed stored graph, rail/role, next equation, variable and output units. The stored value is displayed separately; repeated edits use the current loaded value.",
+    "alt": "ALT is an addend to the linked complete REL equation, not the absolute reported ALT limit. Verification uses the observed reported ALT plus the addend delta and retains the shared boost request.",
+    "dispatch": "One selected-row SET, exact independent fresh INFO/CONTROL and policy verification; no write retry. An entered error invokes one original-row compensation and bounded GET-only full-state recovery."
+  },
+  "ui": {
+    "panel": "Controls / Live OV and ALT values",
+    "actions": [
+      "Read",
+      "Apply now",
+      "Restore initial value"
+    ],
+    "units": "mV input with whole-microvolt precision",
+    "separate_values": [
+      "current loaded constant",
+      "stored value",
+      "reported ALT or OV"
+    ],
+    "restore_binding": "First observed session value keyed by adapter identity, image hash, rail, role and equation.",
+    "lifetime": "Driver session; use BIOS fields for persistence."
+  },
+  "successful_trials": [
+    {
+      "rail": 0,
+      "label": "NVVDD",
+      "role": "ALT",
+      "observed_equation_index": 6,
+      "loaded_constant_before_uv": 20000,
+      "loaded_constant_active_uv": 15000,
+      "reported_limit_before_uv": 1060000,
+      "reported_limit_active_uv": 1055000,
+      "active_samples": 8,
+      "last_capture_after_product_return_seconds": 20.778545,
+      "full_info_and_projected_control_exact": true,
+      "all_configured_peers_exact": true,
+      "full_raw_rail_requests_unchanged": true,
+      "active_curve_equal_to_original": [
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "explicit_restore_set_count": 1,
+      "full_original_state_restored": true,
+      "private_journal_sha256": "57cb9d604d65114be9efc7bba2450c42b91ece02ead75712d2b96a512203b93e"
+    },
+    {
+      "rail": 0,
+      "label": "NVVDD",
+      "role": "OV",
+      "observed_equation_index": 8,
+      "loaded_constant_before_uv": 1200000,
+      "loaded_constant_active_uv": 1195000,
+      "reported_limit_before_uv": 1200000,
+      "reported_limit_active_uv": 1195000,
+      "active_samples": 8,
+      "last_capture_after_product_return_seconds": 20.762984,
+      "full_info_and_projected_control_exact": true,
+      "all_configured_peers_exact": true,
+      "full_raw_rail_requests_unchanged": true,
+      "active_curve_equal_to_original": [
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "explicit_restore_set_count": 1,
+      "full_original_state_restored": true,
+      "private_journal_sha256": "5543bc19b4cc9d7237f103b12006772891ecd657d5fd009d08b7aaec248c851a"
+    },
+    {
+      "rail": 1,
+      "label": "MSVDD",
+      "role": "ALT",
+      "observed_equation_index": 268,
+      "loaded_constant_before_uv": 20000,
+      "loaded_constant_active_uv": 15000,
+      "reported_limit_before_uv": 1060000,
+      "reported_limit_active_uv": 1055000,
+      "active_samples": 8,
+      "last_capture_after_product_return_seconds": 20.780507,
+      "full_info_and_projected_control_exact": true,
+      "all_configured_peers_exact": true,
+      "full_raw_rail_requests_unchanged": true,
+      "active_curve_equal_to_original": [
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "explicit_restore_set_count": 1,
+      "full_original_state_restored": true,
+      "private_journal_sha256": "bd74c9661577fff225b83b9871e2ea2faf7ddbc6894cd18e40ad687536965812"
+    },
+    {
+      "rail": 1,
+      "label": "MSVDD",
+      "role": "OV",
+      "observed_equation_index": 270,
+      "loaded_constant_before_uv": 1200000,
+      "loaded_constant_active_uv": 1195000,
+      "reported_limit_before_uv": 1200000,
+      "reported_limit_active_uv": 1195000,
+      "active_samples": 8,
+      "last_capture_after_product_return_seconds": 20.742112,
+      "full_info_and_projected_control_exact": true,
+      "all_configured_peers_exact": true,
+      "full_raw_rail_requests_unchanged": true,
+      "active_curve_equal_to_original": [
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "explicit_restore_set_count": 1,
+      "full_original_state_restored": true,
+      "private_journal_sha256": "0d113f8834c675753c2b71ea6d770dfb7b3a403edeae8ccaa306e06ecbcea676"
+    }
+  ],
+  "rounding_recovery_trial": {
+    "rail": 0,
+    "role": "OV",
+    "loaded_before_uv": 1200000,
+    "requested_and_loaded_uv": 1199000,
+    "reported_active_uv": 1195000,
+    "error_kind": "verify",
+    "rejected_after_dispatch": true,
+    "automatic_original_row_compensations": 1,
+    "full_original_state_restored": true,
+    "rollback_verified": true,
+    "total_set_count": 2,
+    "private_journal_sha256": "12d0e823541a5d1b629a6862e37f1b4a4df02b58b16263ac8d6ab4cbac8bd797",
+    "limit": "This one rounding observation is not a universal voltage step or a physical voltage measurement."
+  },
+  "retained_six_signed_request_words_uv": {
+    "NVVDD": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "MSVDD": [
+      -50000,
+      0,
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  "hardware_requested_boost_percent": 0,
+  "curve_observation": "The first active evaluated curve snapshot differed in all four positive trials; the second and later snapshots matched. Recovery included the complete original curve. This bounds a transient, not its exact time or mechanism.",
+  "validation": {
+    "full_regression_tests_passed": 6420,
+    "full_suite_seconds": 115.1,
+    "focused_tests_passed": 481,
+    "new_offline_cases": 45,
+    "ruff_passed": true,
+    "coverage": "Synthetic tests cover alternate identities, independent partial capabilities, nonzero retained boost, repeated edits, unknown/peer preservation, transient getters, one compensation and failed recovery. Hardware trials used zero requested boost.",
+    "independent_saved_evidence_audits": [
+      "first-trials-audit.json",
+      "remaining-trials-audit.json"
+    ],
+    "private_driver_capture_bytes_in_this_file": false
+  },
+  "experiment_actions": {
+    "registry_write": false,
+    "gpu_driver_restart": false,
+    "windows_reboot": false,
+    "nvidia_app_installation": false,
+    "workload_started": false,
+    "physical_voltage_measurement": false
+  },
+  "remaining": [
+    "Physical regulator-voltage response and enforcement under load.",
+    "Broader adapter/generation and nonzero-boost hardware validation.",
+    "Arbitrary six-word voltage request replay and recovery.",
+    "Nonzero variable operand representation, units and consumed meaning.",
+    "Actual PERF post-group callback identity and modern F219 field/firmware semantics."
+  ]
+}

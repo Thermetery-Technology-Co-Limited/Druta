@@ -1,0 +1,315 @@
+{
+  "schema": 1,
+  "date": "2026-11-02",
+  "scope": "Manual typed voltage-control profiles and pre-write Undo on RTX 5080 / driver 617.42; no workload or physical measurement",
+  "trials": [
+    {
+      "artifact": "experiments/registry-overrides/voltage-controls-profile-root-20261102/trial.json",
+      "sha256": "3a9b03b0b25e5290fe397b6f57f5eb76ea7c5efeca1431adb0e19812cfcfce53",
+      "phase": "error",
+      "error": "VoltageConstantsLiveError('Reported constant voltage limit, retained offsets or peer limits differ')",
+      "exact_requests_restored": true,
+      "cases": [
+        {
+          "kind": "gate",
+          "selection": null,
+          "phase": "complete",
+          "undo_verified": true,
+          "manual_load_verified": true,
+          "baseline_load_verified": true,
+          "active_rows": [
+            {
+              "enabled": false
+            }
+          ]
+        },
+        {
+          "kind": "rel_bounds",
+          "selection": [
+            0,
+            "upper"
+          ],
+          "phase": "complete",
+          "undo_verified": true,
+          "manual_load_verified": true,
+          "baseline_load_verified": true,
+          "active_rows": [
+            {
+              "rail": 0,
+              "equation": 3,
+              "upper_uv": 1119000,
+              "lower_uv": 900000
+            },
+            {
+              "rail": 1,
+              "equation": 265,
+              "upper_uv": 1120000,
+              "lower_uv": 900000
+            }
+          ]
+        },
+        {
+          "kind": "rel_bounds",
+          "selection": [
+            0,
+            "bounds"
+          ],
+          "phase": "complete",
+          "undo_verified": true,
+          "manual_load_verified": true,
+          "baseline_load_verified": true,
+          "active_rows": [
+            {
+              "rail": 0,
+              "equation": 3,
+              "upper_uv": 1119000,
+              "lower_uv": 901000
+            },
+            {
+              "rail": 1,
+              "equation": 265,
+              "upper_uv": 1120000,
+              "lower_uv": 900000
+            }
+          ]
+        },
+        {
+          "kind": "constants",
+          "selection": [
+            0,
+            "ALT"
+          ],
+          "phase": "apply",
+          "undo_verified": false,
+          "manual_load_verified": false,
+          "baseline_load_verified": false,
+          "active_rows": null
+        }
+      ]
+    },
+    {
+      "artifact": "experiments/registry-overrides/voltage-controls-profile-root-20261102/vmin-delay/trial.json",
+      "sha256": "46174a3ce26f36e6ab4d62a154b843d5f478a30616d4724fccf31469eff0206a",
+      "phase": "complete",
+      "error": null,
+      "exact_requests_restored": true,
+      "cases": [
+        {
+          "kind": "constants",
+          "selection": [
+            0,
+            "VMIN"
+          ],
+          "phase": "complete",
+          "undo_verified": true,
+          "manual_load_verified": true,
+          "baseline_load_verified": true,
+          "active_rows": [
+            {
+              "rail": 0,
+              "role": "ALT",
+              "equation": 6,
+              "value_uv": 20000
+            },
+            {
+              "rail": 0,
+              "role": "OV",
+              "equation": 8,
+              "value_uv": 1200000
+            },
+            {
+              "rail": 0,
+              "role": "VMIN",
+              "equation": 9,
+              "value_uv": 805000
+            },
+            {
+              "rail": 1,
+              "role": "ALT",
+              "equation": 268,
+              "value_uv": 20000
+            },
+            {
+              "rail": 1,
+              "role": "OV",
+              "equation": 270,
+              "value_uv": 1200000
+            },
+            {
+              "rail": 1,
+              "role": "VMIN",
+              "equation": 271,
+              "value_uv": 800000
+            }
+          ]
+        },
+        {
+          "kind": "switch_delay",
+          "selection": 0,
+          "phase": "complete",
+          "undo_verified": true,
+          "manual_load_verified": true,
+          "baseline_load_verified": true,
+          "active_rows": [
+            {
+              "index": 0,
+              "type": 3,
+              "voltage_domain": 1,
+              "operation_type": 1,
+              "i2c_device_index": 255,
+              "switch_delay_us": 129
+            },
+            {
+              "index": 1,
+              "type": 3,
+              "voltage_domain": 1,
+              "operation_type": 4,
+              "i2c_device_index": 255,
+              "switch_delay_us": 128
+            },
+            {
+              "index": 2,
+              "type": 3,
+              "voltage_domain": 3,
+              "operation_type": 1,
+              "i2c_device_index": 255,
+              "switch_delay_us": 128
+            },
+            {
+              "index": 3,
+              "type": 3,
+              "voltage_domain": 3,
+              "operation_type": 4,
+              "i2c_device_index": 255,
+              "switch_delay_us": 128
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "artifact": "experiments/registry-overrides/voltage-controls-profile-root-20261102/alt-ov/trial.json",
+      "sha256": "2c7a6c563a71bdf64b92698f0c74fd865b6c48ad5aac4e4529146b003ba5026b",
+      "phase": "complete",
+      "error": null,
+      "exact_requests_restored": true,
+      "cases": [
+        {
+          "kind": "constants",
+          "selection": [
+            0,
+            "ALT"
+          ],
+          "phase": "complete",
+          "undo_verified": true,
+          "manual_load_verified": true,
+          "baseline_load_verified": true,
+          "active_rows": [
+            {
+              "rail": 0,
+              "role": "ALT",
+              "equation": 6,
+              "value_uv": 15000
+            },
+            {
+              "rail": 0,
+              "role": "OV",
+              "equation": 8,
+              "value_uv": 1200000
+            },
+            {
+              "rail": 0,
+              "role": "VMIN",
+              "equation": 9,
+              "value_uv": 800000
+            },
+            {
+              "rail": 1,
+              "role": "ALT",
+              "equation": 268,
+              "value_uv": 20000
+            },
+            {
+              "rail": 1,
+              "role": "OV",
+              "equation": 270,
+              "value_uv": 1200000
+            },
+            {
+              "rail": 1,
+              "role": "VMIN",
+              "equation": 271,
+              "value_uv": 800000
+            }
+          ]
+        },
+        {
+          "kind": "constants",
+          "selection": [
+            0,
+            "OV"
+          ],
+          "phase": "complete",
+          "undo_verified": true,
+          "manual_load_verified": true,
+          "baseline_load_verified": true,
+          "active_rows": [
+            {
+              "rail": 0,
+              "role": "ALT",
+              "equation": 6,
+              "value_uv": 20000
+            },
+            {
+              "rail": 0,
+              "role": "OV",
+              "equation": 8,
+              "value_uv": 1195000
+            },
+            {
+              "rail": 0,
+              "role": "VMIN",
+              "equation": 9,
+              "value_uv": 800000
+            },
+            {
+              "rail": 1,
+              "role": "ALT",
+              "equation": 268,
+              "value_uv": 20000
+            },
+            {
+              "rail": 1,
+              "role": "OV",
+              "equation": 270,
+              "value_uv": 1200000
+            },
+            {
+              "rail": 1,
+              "role": "VMIN",
+              "equation": 271,
+              "value_uv": 800000
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "qualified_round_trips": 7,
+  "limitations": [
+    "ALT 20000 to 19000 uV passed native equation verification but failed reported policy verification and was compensated. Failed active policy was not retained; exact cause not established.",
+    "ALT 20000 to 15000, OV 1200000 to 1195000 and VMIN 800000 to 805000 uV all passed round trips. This does not establish an arbitrary per-device step.",
+    "No automatic startup or post-driver-reset replay; ordinary tune profiles remain separate.",
+    "All original typed controls, legacy rail requests, boost and opaque legacy request metadata restored; existing setters verify their own native packet preservation."
+  ],
+  "source_sha256": {
+    "src/druta/druta.py": "8cc3ab742a46c8aedfccc30ff0a59faba352951758fd33f85576c3816e413040",
+    "src/druta/profiles.py": "dc9135d4f1acc6928d1e896eb53529f4cdec83a65b95dd44fec48b9831a97f47",
+    "src/druta/registry_panel.py": "81b3f8616e420335e93085f4b5414d4a84bf2e50ae9a65994a599a4c18c666ad",
+    "src/druta/voltage_control_profiles.py": "8fd87736aec006fe17f5c9ddcbc4ae392233707a963e7284c3b2d3f47eb727a1",
+    "src/druta/voltage_request_gate.py": "a0de07b8ab75ba704b29d4d0bb9a2483e246427e50c46469beb5a9eacedd9a1f",
+    "src/druta/voltage_constants_live.py": "f371e93ded21b5a34a4e6d8ac28b0cc5209dc5733c6bd8a095a265970c0c7ebc",
+    "src/druta/voltage_rel_live.py": "e6066945ab548498b72ca7662fb0b9fcd58b87cdce62f6835335ecd488e9eed3",
+    "src/druta/voltage_device_runtime.py": "2045f19b94220cb7bb1e6b774b9b39b7ef121461b99bbed70990732b6c3366b4"
+  }
+}

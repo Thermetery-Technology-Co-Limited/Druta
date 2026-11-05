@@ -1,0 +1,225 @@
+{
+    "schema":  1,
+    "date":  "2026-11-02",
+    "scope":  "Source-run baseline layout review on RTX 5080 / 617.42; no new hardware-effect qualification",
+    "capture_directory":  "experiments/registry-overrides/ui-current-controls-final-20261102",
+    "manifest_sha256":  "81ea869ea4c9c56561b9d29d5aef35582e0a6d16d7b009c19967f9b24513f31b",
+    "state":  "complete",
+    "skipped":  [
+
+                ],
+    "errors":  [
+
+               ],
+    "viewport":  [
+                     1528,
+                     1261
+                 ],
+    "captures":  [
+                     {
+                         "stage":  "control-actual",
+                         "path":  "control-actual.png",
+                         "sha256":  "6c0bec51ad6629e11187d75f32010e6c38fde6deed6ab0913102a8ad1929f8a8"
+                     },
+                     {
+                         "stage":  "original-upper",
+                         "path":  "original-upper.png",
+                         "sha256":  "1886bb87b75b63260635e6cb9bd9b188a9125d0306bcc3b504d284fd97064e5c"
+                     },
+                     {
+                         "stage":  "extended-in-range",
+                         "path":  "extended-in-range.png",
+                         "sha256":  "12f41734d70d57024bb85f7ef1b49d381520991b0289fd80d9152988d3da4d3c"
+                     },
+                     {
+                         "stage":  "extended-above",
+                         "path":  "extended-above.png",
+                         "sha256":  "fdf669b8da20220b305b371f17eb9892fd615ad2dff391b739e9609a727245b9"
+                     },
+                     {
+                         "stage":  "live-rel-0",
+                         "path":  "live-rel-0.png",
+                         "sha256":  "b5ce4b7eaacb33a86bcb59ec90a6c5931dc9dd173ff7ba168320b4a2a822bc18"
+                     },
+                     {
+                         "stage":  "live-rel-1",
+                         "path":  "live-rel-1.png",
+                         "sha256":  "65868e5dad55ce23a9af8b0a65e9bc3f1553216bd49efc11af8039b0b8548cc5"
+                     },
+                     {
+                         "stage":  "live-constants-0-ov",
+                         "path":  "live-constants-0-ov.png",
+                         "sha256":  "c464c1599f603dc8b2416e6aadfc71024d1f11b65aeb9ca2cee58ad6b5b97da6"
+                     },
+                     {
+                         "stage":  "live-constants-1-ov",
+                         "path":  "live-constants-1-ov.png",
+                         "sha256":  "409ab837a840720c1d48a793f160e4226beacd5446982667d5a24643770d28f3"
+                     },
+                     {
+                         "stage":  "live-constants-0-alt",
+                         "path":  "live-constants-0-alt.png",
+                         "sha256":  "89b6b0b50fa0ffb20a1cbd504d97b1d1e35805ad4d77f6e5ffa3de16d508372e"
+                     },
+                     {
+                         "stage":  "live-constants-1-alt",
+                         "path":  "live-constants-1-alt.png",
+                         "sha256":  "78ce3024df8fea5171e19fce7057b2381a09650cfbaba101055a11a50318507e"
+                     },
+                     {
+                         "stage":  "live-constants-0-vmin",
+                         "path":  "live-constants-0-vmin.png",
+                         "sha256":  "40932b0988d0116d214ff0d88350ffa3f0970551c95fbf52311e23f12d047e23"
+                     },
+                     {
+                         "stage":  "live-constants-1-vmin",
+                         "path":  "live-constants-1-vmin.png",
+                         "sha256":  "8e9bea37daffc233d2c2a923e8b182206545f69a07bffd080d098fcef9b3477c"
+                     },
+                     {
+                         "stage":  "live-rel-invalid",
+                         "path":  "live-rel-invalid.png",
+                         "sha256":  "be7c807d48988f6dd834f6d5a7eba0b65c0b18d180c5ac2adacf621cd4fdfdd5"
+                     },
+                     {
+                         "stage":  "live-constants-invalid",
+                         "path":  "live-constants-invalid.png",
+                         "sha256":  "f332462b6fb0142a4cdf24db4e6ef673dc84f6d068cab1641744108f7973e14a"
+                     },
+                     {
+                         "stage":  "current-rail-requests",
+                         "path":  "current-rail-requests.png",
+                         "sha256":  "a29e6da4158056d4b554809ce99bf2d70ae500bab59c8ab1d3bcd205b0937ac5"
+                     },
+                     {
+                         "stage":  "current-request-gate",
+                         "path":  "current-request-gate.png",
+                         "sha256":  "b2e09380df85f90843056bb022b5d8ac9acabbada710c0119431fad259e5f4ed"
+                     },
+                     {
+                         "stage":  "current-elpg",
+                         "path":  "current-elpg.png",
+                         "sha256":  "b10c1e0a66baac358c8fe8420e7287a962932dc4cfd43126e98ee06aca030f1f"
+                     },
+                     {
+                         "stage":  "current-difr",
+                         "path":  "current-difr.png",
+                         "sha256":  "f952813a3e87fb023bd922526d33015a3125498530e824c70e4319c9f282f3fe"
+                     },
+                     {
+                         "stage":  "current-elcg",
+                         "path":  "current-elcg.png",
+                         "sha256":  "b07d265a4d1845f4db3b7e4be84381735435e2eba31e3d5cbd0e2ca15a229b39"
+                     },
+                     {
+                         "stage":  "current-blcg",
+                         "path":  "current-blcg.png",
+                         "sha256":  "dc93cc3dea49c679cc416cf085e5cbdb0c6905fefeb6ff039f889bba9e5c7191"
+                     },
+                     {
+                         "stage":  "current-slcg",
+                         "path":  "current-slcg.png",
+                         "sha256":  "67ccbf5a28749d3488698eb1d75f0cec6a628871f5c8953dca4e85110b2e426b"
+                     },
+                     {
+                         "stage":  "current-individual-0",
+                         "path":  "current-individual-0.png",
+                         "sha256":  "67337d74d0cca8f28a425ff09b301c31743894d6d3a0cc6da4a2315cb6ff8f27"
+                     },
+                     {
+                         "stage":  "current-individual-4",
+                         "path":  "current-individual-4.png",
+                         "sha256":  "1edda375a0aeed38d00d1b0b39019b6ea31d66aed57492a72d530a72eff89888"
+                     },
+                     {
+                         "stage":  "current-individual-10",
+                         "path":  "current-individual-10.png",
+                         "sha256":  "1637dd69d662a2e4f124c6916e2262145b045c0ff1edc4fa0a5006b0c65eb1f2"
+                     },
+                     {
+                         "stage":  "current-individual-11",
+                         "path":  "current-individual-11.png",
+                         "sha256":  "1266a35de86e09b994db1bc11094766c5e567671b83bfa9189c02e4f6585c0da"
+                     },
+                     {
+                         "stage":  "current-individual-12",
+                         "path":  "current-individual-12.png",
+                         "sha256":  "187ab0e5ec4269d8d3a2b2a4fc5911eccc632f551ffedeae422c238ed0d96792"
+                     },
+                     {
+                         "stage":  "current-individual-13",
+                         "path":  "current-individual-13.png",
+                         "sha256":  "0aba60e49a54389dd36e374076e0c4e8f5011612ad54fa690c712d6ac3ad3037"
+                     },
+                     {
+                         "stage":  "current-individual-14",
+                         "path":  "current-individual-14.png",
+                         "sha256":  "83eb4d0817d6a53907270fab610becc140df4d7fa814680dfd19c343d376fc2a"
+                     },
+                     {
+                         "stage":  "current-individual-15",
+                         "path":  "current-individual-15.png",
+                         "sha256":  "d78a6fec6abeeb18e96076d75ff74898ca22ed357b568448230c540e8efb2d80"
+                     },
+                     {
+                         "stage":  "current-idle-thresholds",
+                         "path":  "current-idle-thresholds.png",
+                         "sha256":  "0d1a34ab1b333bb6643f3a47eba068962c47b6218cd695a2ee4b98bac2f37b7b"
+                     },
+                     {
+                         "stage":  "current-adaptive-policy",
+                         "path":  "current-adaptive-policy.png",
+                         "sha256":  "2a7005ffc672b44c5d3ac79018f7ce7562da44bbbe568d0656d049fdec06489a"
+                     },
+                     {
+                         "stage":  "restored-display",
+                         "path":  "restored-display.png",
+                         "sha256":  "6c0bec51ad6629e11187d75f32010e6c38fde6deed6ab0913102a8ad1929f8a8"
+                     }
+                 ],
+    "current_stages":  [
+                           "current-rail-requests",
+                           "current-request-gate",
+                           "current-elpg",
+                           "current-difr",
+                           "current-elcg",
+                           "current-blcg",
+                           "current-slcg",
+                           "current-individual-0",
+                           "current-individual-4",
+                           "current-individual-10",
+                           "current-individual-11",
+                           "current-individual-12",
+                           "current-individual-13",
+                           "current-individual-14",
+                           "current-individual-15",
+                           "current-idle-thresholds",
+                           "current-adaptive-policy"
+                       ],
+    "review":  [
+                   "Selected headings, action buttons and readback text visible across current-control frames.",
+                   "Eight individual rows have stable heading anchors.",
+                   "VCRIT is labeled stored request; effective threshold unverified.",
+                   "Partial SLCG readback remains explicitly partial.",
+                   "Original and extended power-range coloring are synthetic display checks.",
+                   "Read callbacks only for new stages; existing invalid-input Apply stages reject at parser.",
+                   "Original packaged process 12268 remained running during source review."
+               ],
+    "tests":  {
+                  "command":  "python -m pytest tests/test_ui_capture.py tests/test_ui_capture_current_controls.py tests/test_individual_power_gating_panel.py -q --tb=short",
+                  "includes":  "Final pending-input preservation regression, after the source screenshot run",
+                  "passed":  110
+              },
+    "limitations":  [
+                        "App-owned framebuffer works; native Windows capture fails with Class not registered.",
+                        "No physical voltage, gating residency, power savings or latency conclusions.",
+                        "Other viewport/DPI layouts and non-baseline request states were not visually qualified.",
+                        "Source screenshots predate the pending-input preservation fix; final packaged run is a separate check."
+                    ],
+    "source_sha256":  {
+                          "src/druta/ui_capture.py":  "6ff2c2f0a23fcb05ff41e019395effbf76ed1a45821519bfa2d34c80d8772804",
+                          "src/druta/individual_power_gating_panel.py":  "822ea61a6d13465ab897a253998ffcc007cd5dabb9b4d67350d40f422e310207",
+                          "src/druta/registry_panel.py":  "33f9cf97175c87da5c0cde4dc59be8cfbd635e5c02974dcd784a8313dbfbd28f",
+                          "tests/test_ui_capture_current_controls.py":  "09fd3e29bb8d13abb0f6ff881870e7a15133d1a61d0555b8147240370a0e16c7"
+                      }
+}

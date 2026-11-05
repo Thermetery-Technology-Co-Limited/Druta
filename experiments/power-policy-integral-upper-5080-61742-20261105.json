@@ -1,0 +1,255 @@
+{
+  "schema": 1,
+  "scope": {
+    "name": "NVIDIA GeForce RTX 5080",
+    "driver": "617.42",
+    "vbios": "98.03.3b.c0.6f"
+  },
+  "operation": {
+    "policy": 2,
+    "control_row_offset": 14,
+    "encoding": "little-endian u16, candidate UFXP4.12 upper ratio",
+    "before": 4219,
+    "changed": 4178,
+    "restored": 4219,
+    "main_board_request_mw": 360000,
+    "main_request_unchanged": true
+  },
+  "verified": {
+    "exact_selected_halfword_and_mask_only": true,
+    "all_other_native_and_client_request_state_unchanged": true,
+    "default_info_unchanged": true,
+    "complete_request_state_restored": true,
+    "reported_effective_limit_changed_and_returned": true
+  },
+  "observations": [
+    {
+      "policy": 0,
+      "unit": "mW",
+      "requested": 5001000,
+      "effective_before": 365656,
+      "effective_samples": [
+        362547,
+        361721,
+        361976
+      ],
+      "effective_restored": 366001
+    },
+    {
+      "policy": 1,
+      "unit": "mW",
+      "requested": 1001000,
+      "effective_before": 1001000,
+      "effective_samples": [
+        1001000,
+        1001000,
+        1001000
+      ],
+      "effective_restored": 1001000
+    },
+    {
+      "policy": 2,
+      "unit": "mW",
+      "requested": 450000,
+      "effective_before": 370811,
+      "effective_samples": [
+        367207,
+        367207,
+        367207
+      ],
+      "effective_restored": 370811
+    },
+    {
+      "policy": 3,
+      "unit": "mW",
+      "requested": 5001000,
+      "effective_before": 5001000,
+      "effective_samples": [
+        5001000,
+        5001000,
+        5001000
+      ],
+      "effective_restored": 5001000
+    },
+    {
+      "policy": 4,
+      "unit": "mW",
+      "requested": 5001000,
+      "effective_before": 5001000,
+      "effective_samples": [
+        5001000,
+        5001000,
+        5001000
+      ],
+      "effective_restored": 5001000
+    },
+    {
+      "policy": 5,
+      "unit": "mW",
+      "requested": 5001000,
+      "effective_before": 5001000,
+      "effective_samples": [
+        5001000,
+        5001000,
+        5001000
+      ],
+      "effective_restored": 5001000
+    },
+    {
+      "policy": 6,
+      "unit": "mW",
+      "requested": 5001000,
+      "effective_before": 5001000,
+      "effective_samples": [
+        5001000,
+        5001000,
+        5001000
+      ],
+      "effective_restored": 5001000
+    },
+    {
+      "policy": 7,
+      "unit": "mW",
+      "requested": 450000,
+      "effective_before": 360000,
+      "effective_samples": [
+        360000,
+        360000,
+        360000
+      ],
+      "effective_restored": 360000
+    },
+    {
+      "policy": 8,
+      "unit": "mW",
+      "requested": 360000,
+      "effective_before": 360000,
+      "effective_samples": [
+        360000,
+        360000,
+        360000
+      ],
+      "effective_restored": 360000
+    },
+    {
+      "policy": 9,
+      "unit": "mA",
+      "requested": 45000,
+      "effective_before": 36002,
+      "effective_samples": [
+        36002,
+        36002,
+        36002
+      ],
+      "effective_restored": 36002
+    },
+    {
+      "policy": 10,
+      "unit": "mA",
+      "requested": 5001000,
+      "effective_before": 5001000,
+      "effective_samples": [
+        5001000,
+        5001000,
+        5001000
+      ],
+      "effective_restored": 5001000
+    },
+    {
+      "policy": 11,
+      "unit": "mA",
+      "requested": 5001000,
+      "effective_before": 5001000,
+      "effective_samples": [
+        5001000,
+        5001000,
+        5001000
+      ],
+      "effective_restored": 5001000
+    },
+    {
+      "policy": 12,
+      "unit": "mA",
+      "requested": 5001000,
+      "effective_before": 5001000,
+      "effective_samples": [
+        5001000,
+        5001000,
+        5001000
+      ],
+      "effective_restored": 5001000
+    },
+    {
+      "policy": 13,
+      "unit": "mA",
+      "requested": 300000,
+      "effective_before": 300000,
+      "effective_samples": [
+        300000,
+        300000,
+        300000
+      ],
+      "effective_restored": 300000
+    },
+    {
+      "policy": 14,
+      "unit": "mA",
+      "requested": 120000,
+      "effective_before": 120000,
+      "effective_samples": [
+        120000,
+        120000,
+        120000
+      ],
+      "effective_restored": 120000
+    },
+    {
+      "policy": 15,
+      "unit": "mW",
+      "requested": 50010000,
+      "effective_before": 50010000,
+      "effective_samples": [
+        50010000,
+        50010000,
+        50010000
+      ],
+      "effective_restored": 50010000
+    },
+    {
+      "policy": 16,
+      "unit": "mW",
+      "requested": 50010000,
+      "effective_before": 50010000,
+      "effective_samples": [
+        50010000,
+        50010000,
+        50010000
+      ],
+      "effective_restored": 50010000
+    },
+    {
+      "policy": 17,
+      "unit": "mW",
+      "requested": 1000000,
+      "effective_before": 1000000,
+      "effective_samples": [
+        1000000,
+        1000000,
+        1000000
+      ],
+      "effective_restored": 1000000
+    }
+  ],
+  "policy2_pmu_output_mw": 360000,
+  "candidate_relation": "floor((PMU_output_mW * active_upper_u16 + 2048) / 4096)",
+  "limitations": [
+    "Reported software limits; no physical power measurement or workload",
+    "Does not prove the PMU algorithm, tie rounding, or behavior away from these states",
+    "Only the upper ratio was changed; minimum ratio, counts and modes remain unqualified",
+    "No firmware, registry, driver restart, or persistence operation"
+  ],
+  "source_sha256": {
+    "trial.json": "272aab79f09ceaacd0a767343072d1c0eb7f7f25b8b150eb909aa751c89da792",
+    "trial.py": "7e4e8319f6fa5aa65583da0a386d70a1f773fe187119f41745b44cb0cb89169c"
+  }
+}

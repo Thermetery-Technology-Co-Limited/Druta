@@ -1,0 +1,98 @@
+{
+  "schema": 1,
+  "date": "2026-11-05",
+  "capture": {
+    "driver": "617.42",
+    "command": "0x2080A618",
+    "size": 20512,
+    "get_count": 1,
+    "ntstatus": 0,
+    "rm_status": 0,
+    "completion": 1,
+    "zeroed_request_payload": true,
+    "decoded_packet_and_ui_agree": true,
+    "policy_mask": 262143,
+    "relationship_mask": 31743
+  },
+  "type33_ranges": [
+    {
+      "policy": 8,
+      "first": 7,
+      "last": 8,
+      "joins": [
+        {
+          "relationship": 7,
+          "target_policy": 7,
+          "weight_raw": 4096
+        },
+        {
+          "relationship": 8,
+          "target_policy": 2,
+          "weight_raw": 4096
+        }
+      ]
+    },
+    {
+      "policy": 15,
+      "first": 6,
+      "last": 7,
+      "joins": [
+        {
+          "relationship": 6,
+          "target_policy": 16,
+          "weight_raw": 4096
+        },
+        {
+          "relationship": 7,
+          "target_policy": 7,
+          "weight_raw": 4096
+        }
+      ]
+    }
+  ],
+  "additional_configured_joins": [
+    {
+      "policy": 2,
+      "relationship": 9,
+      "target_policy": 9
+    },
+    {
+      "policy": 7,
+      "relationship": 9,
+      "target_policy": 9
+    }
+  ],
+  "rendered_lines": [
+    "Source policy 2 -> configured relationships: 9",
+    "Source policy 7 -> configured relationship 9 -> target policy 9",
+    "Source policy 8 -> configured relationship range 7..8: 7, 8",
+    "Source policy 15 -> configured relationship range 6..7: 6, 7"
+  ],
+  "source": {
+    "driver_617_sha256": "db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b",
+    "driver_621_sha256": "3f8d33495cabeb2fa11ebdcf0b12705e9ccfb4e53005324bcd86e9dea8ba2ab4",
+    "explanation": "Saved 617 and 621 host constructors, INFO serializers, guarded inclusive lookups and relationship target lookups; source analysis does not prove invocation in this capture.",
+    "file_sha256": {
+      "live-info.json": "c9bbb7762d9c65e49033e30812dfc7a4f6785648fc242d1dc41a52fdbe87ee29",
+      "read_live.py": "f3a036ee8bd30399060b364ce04fb8430a3a1aaf524e018ddf185c6bb14d6512",
+      "host.md": "b955b0912d0a702b048563fa90559e9972b17072161243b6e03c8a64db721c71",
+      "root-621-traversal.txt": "f624c14c024ec4fa15fb02b516ae072278c7e821e2d065337fd4dff2295d7d49",
+      "621-traverse-9159f0.txt": "c7cea98caa7817bdd74a2378ddeddab3308e481d795591bfe71ce2d04b5a28aa",
+      "621-predicate-910160.txt": "586f4089b71edc16dae6300262a55e252d49a0427ce20d41acd5eaac2f8d24d9",
+      "621-predicate-c385d0.txt": "e881b2dad933296da039113890578687728def7def6c9f31bd07469b71eda96c",
+      "617-8db830-full.txt": "810e5fedd0b559cc6bc96a9d72aab00dde0b72522886828577d7d6f3fa5b4bd4",
+      "617-8db6a0-full.txt": "69c264d74d3e6c261dd083a7b383071b620cbef05a82321af621d1f7cdbe8898",
+      "617-8e0d10-full.txt": "4709a8be9aa1d947cd9bf1a7cb631849118d96c56ab8f0536d9070a367f98af0",
+      "617-predicate.txt": "a61162c49cb601ba0c09cfbbacb254808001a3242a406a75084cd8d630007b7b",
+      "617-parent-predicate.txt": "83ee75445bdf84a52c1cb8fc7f722a58064289370c1ef009b1e82b54fab4491b",
+      "617-info-groups.txt": "231860e27dc4bb99a3d0fb1ec3fc68e5a0014cac48f822360aff7293f3131c9a",
+      "root-617-traversal.txt": "8a53b56e7d43e004ea0ccb81459040e1d7793a47cd334a400864eab97bb83961",
+      "audit.py": "a04373047abaeea5f363d797daf893b375810a0c43a78404769173b85e4161c2",
+      "earlier-621-constructor": "59ef84a156fb3e5e459a4c618c315ad76dc529d825cd085789cbd8dcb9ac3b9c",
+      "earlier-621-info": "5d247bccedc942cde36f93a1bd41c538c8b44b7c236ef697a95d8c3bc6c1ae8d",
+      "decoder": "a1b60006ee0a1244c53bdd4d6878c0cedb377b27141bd38e0b52ccf1b41dbd80",
+      "renderer": "5a13e3b37e8d5824c77e75a9e6ebac3c79f4ec494b3e1bad8235c2ccaf49879b"
+    }
+  },
+  "limitations": "Configured graph for understood INFO layout; no proof of execution, PMU client identity, arithmetic, enabled flag for type 33, or physical effect."
+}

@@ -1,0 +1,756 @@
+"""Offline public SET, full native inventory, and uncertain-write recovery data."""
+
+import copy
+import ctypes
+import struct
+import threading
+from types import SimpleNamespace
+
+import pytest
+
+from druta import voltage_request_replay as replay
+from tests.test_voltage_rail_control_runtime import policy
+
+_real_policy_read = replay.voltage.read
+
+
+class Gpu:
+    def __init__(self, rails=(0, 1), *, extra=(), wire_types=None, **ident):
+        self.policy_data = policy(rails, **ident)
+        self.identity = self.policy_data["identity"]
+        self.offsets = {str(i): [-12345 - i, 23456, -34567, 45678, -987654, 0x12345678] for i in rails}
+        self.boost = 37
+        self.wire_types = {str(i): (3, 5, 5) for i in rails}
+        if wire_types is not None:
+            self.wire_types.update(wire_types)
+        self.info = bytearray(replay.INFO_SIZE)
+        self.info[0], self.info[3], self.info[-1] = 255, 0xCF, 0xD9
+        struct.pack_into("<I", self.info, 4, sum(1 << i for i in (*rails, *extra)))
+        for i in (*rails, *extra):
+            self.info[12 + i * 76] = self.wire_types.get(str(i), (3, 5, 5))[1]
+            self.info[12 + i * 76 + 0x33] = {0: 1, 1: 3}.get(i, 1)
+        self.native_opaque = 0xB4
+        self.public_opaque = 0xD2
+        self._lock = threading.RLock()
+        self.pairing_error = ""
+        self.calls, self.set_calls = [], []
+        self.get_fault = self.native_fault = self.set_fault = None
+        self.setter_available = True
+        selection = {
+            "slot": self.identity["slot"],
+            "handle": 123456,
+            "devid": self.identity["device_id"],
+            "subsys": self.identity["subsystem_id"],
+        }
+        self.nvapi = SimpleNamespace(
+            ok=True,
+            gpu=123456,
+            selected=selection,
+            VoltRailsCtlGet=self.get,
+            VoltCtrlGet=self.boost_get,
+            _i=self.export,
+        )
+        self.nvml = SimpleNamespace(selected=dict(selection))
+        envelope = [0] * 17
+        for index, value in replay.clock._ENVELOPE.items():
+            envelope[index] = value
+        envelope[14], envelope[15], envelope[2] = 0x2080A612, 0x414, 68 + 0x414
+        self._current_limit_transport = (
+            tuple(envelope),
+            {"hAdapter": 19, "hDevice": 23, "Type": 0, "Flags": 0, "hContext": 0},
+        )
+
+    def slot(self):
+        return self.identity["slot"]
+
+    def arch(self):
+        return self.identity["architecture"]
+
+    def _current_limit_transport_layouts(self):
+        return ()
+
+    def policy(self):
+        result = copy.deepcopy(self.policy_data)
+        for index, row in result["rails"].items():
+            row["control_type"] = self.wire_types[index][0]
+            row["offsets_uv"] = dict(zip(replay.voltage._OFFSETS, self.offsets[index][:4], strict=True))
+            row["boost_uv"] += self.boost * 100
+        return result, None
+
+    def export(self, export, *args):
+        assert export == replay.SET_EXPORT
+        return self.set if self.setter_available else None
+
+    def get(self, handle, pointer):
+        assert handle == self.nvapi.gpu
+        data = (ctypes.c_ubyte * replay.controls.SIZE).from_address(ctypes.cast(pointer, ctypes.c_void_p).value)
+        version, mask = struct.unpack_from("<II", data)
+        assert version == replay.controls.V2 and not any(data[8:])
+        index = str(mask.bit_length() - 1)
+        assert mask == 1 << int(index) and index in self.offsets
+        self.calls.append(("public", index))
+        data[8], data[9], data[-1] = self.boost, 0xA7, self.public_opaque
+        at = 72 + int(index) * 84
+        struct.pack_into("<I6i", data, at, self.wire_types[index][0], *self.offsets[index])
+        data[at + 41] = 0xF2
+        return self.get_fault(self, index, data) if self.get_fault else 0
+
+    def boost_get(self, handle, pointer):
+        data = (ctypes.c_ubyte * 40).from_address(ctypes.cast(pointer, ctypes.c_void_p).value)
+        assert struct.unpack_from("<I", data)[0] == 0x10028
+        data[4] = self.boost
+        return 0
+
+    def _legacy_clk_escape(self, packet, fields):
+        command = packet[14]
+        assert fields == self._current_limit_transport[1]
+        assert command in (replay.INFO_COMMAND, replay.CONTROL_COMMAND)
+        self.calls.append(("native", command))
+        data = (ctypes.c_ubyte * packet[15]).from_address(ctypes.addressof(packet) + 68)
+        if command == replay.INFO_COMMAND:
+            ctypes.memmove(ctypes.addressof(data), bytes(self.info), len(self.info))
+        else:
+            mask = struct.unpack_from("<I", data, 4)[0]
+            assert mask and not mask & ~sum(1 << int(i) for i in self.offsets)
+            data[0], data[3], data[8], data[-1] = 255, 0xB8, self.boost, self.native_opaque
+            for index, offsets in self.offsets.items():
+                if not mask & (1 << int(index)):
+                    continue
+                at = 12 + int(index) * 32
+                data[at], data[at + 1], data[at + 28], data[at + 29] = self.wire_types[index][2], 0xC8, 1, 0xE7
+                struct.pack_into("<6i", data, at + 4, *offsets)
+        packet[11] = 1
+        return self.native_fault(self, command, data, packet) if self.native_fault else 0
+
+    def set(self, handle, pointer):
+        assert handle == self.nvapi.gpu
+        data = (ctypes.c_ubyte * replay.controls.SIZE).from_address(ctypes.cast(pointer, ctypes.c_void_p).value)
+        raw = bytes(data)
+        self.set_calls.append(raw)
+        version, mask = struct.unpack_from("<II", raw)
+        assert version == replay.controls.V2
+        expected = bytearray(len(raw))
+        struct.pack_into("<II", expected, 0, version, mask)
+        expected[8] = raw[8]
+        for i in range(32):
+            if mask & (1 << i):
+                at = 72 + i * 84
+                expected[at] = self.wire_types[str(i)][0]
+                expected[at + 4 : at + 28] = raw[at + 4 : at + 28]
+        assert raw == bytes(expected), "SET must not copy public/native GET-only opaque bytes"
+        if self.set_fault:
+            return self.set_fault(self, data)
+        self.apply(data)
+        return 0
+
+    def apply(self, data, *, first_only=False):
+        self.boost = data[8]
+        for index in self.offsets:
+            self.offsets[index] = list(struct.unpack_from("<6i", data, 72 + int(index) * 84 + 4))
+            if first_only:
+                break
+
+
+@pytest.fixture(autouse=True)
+def fake_policy(monkeypatch):
+    monkeypatch.setattr(replay.voltage, "read", lambda gpu, **kwargs: gpu.policy())
+
+
+def test_request_capture_uses_actual_policy_read_for_alternate_info_identities(monkeypatch):
+    monkeypatch.setattr(replay.voltage, "read", _real_policy_read)
+    gpu = Gpu(wire_types={"0": (0, 2, 2), "1": (2, 4, 4)})
+    gpu.info[12 + 0x33], gpu.info[12 + 76 + 0x33] = 8, 2
+
+    def status():
+        return {
+            i: {"type": identity, "_boost_mv": 0, **dict.fromkeys(replay.voltage._FIELDS, 1000)}
+            for i, identity in ((0, 8), (1, 2))
+        }
+
+    def deltas():
+        return {
+            int(i): {"type": gpu.wire_types[i][0], **dict(zip(replay.voltage._OFFSETS, (v / 1000 for v in values[:4]), strict=True))}
+            for i, values in gpu.offsets.items()
+        }
+
+    gpu.read_volt_rail_state, gpu._read_volt_rail_deltas = status, deltas
+    state = capture(gpu)
+    assert state["complete"]
+    assert [state["rail_identity"][str(i)]["name"] for i in (0, 1)] == ["Rail 0", "Rail 1"]
+    assert [state["rail_identity"][str(i)]["policy_type"] for i in (0, 1)] == [8, 2]
+    assert [state["rail_identity"][str(i)]["control_type"] for i in (0, 1)] == [0, 2]
+    with pytest.raises(replay.voltage.VoltageBiosError):
+        replay.voltage.validate_policy(state["policy"])
+    offsets = {"0": [1, -2, 3, -4, 5, -6], "1": [-7, 8, -9, 10, -11, 12]}
+    result = replay.replay(gpu, replay.project(state, offsets_uv=offsets))
+    assert result["verified"] and gpu.offsets == offsets
+    assert [result["after"]["rail_identity"][str(i)]["name"] for i in (0, 1)] == ["Rail 0", "Rail 1"]
+    gpu.set_calls.clear()
+
+    gpu.info[12 + 76 + 0x33] = 0
+    partial = capture(gpu)
+    assert set(partial["public"]) == {"0"} and partial["missing_indices"] == [1]
+    with pytest.raises(replay.ReplayError, match="every active"):
+        replay.replay(gpu, partial)
+    assert not gpu.set_calls
+    gpu.info[12 + 76 + 0x33] = 3
+    assert capture(gpu)["missing_indices"] == [1]
+
+
+@pytest.mark.parametrize("identity", [0, 9, True])
+def test_request_policy_rejects_invalid_or_boolean_identity(identity):
+    state = capture(Gpu((0,)))
+    state["policy"]["rails"]["0"]["type"] = identity
+    state["rail_identity"]["0"]["policy_type"] = identity
+    with pytest.raises(replay.ReplayError):
+        replay.validate(state)
+
+
+def test_request_policy_requires_matching_same_row_info_identity():
+    state = capture(Gpu((0,)))
+    raw = bytearray.fromhex(state["info_hex"])
+    raw[12 + 0x33] = 2
+    state["info_hex"] = raw.hex()
+    with pytest.raises(replay.ReplayError):
+        replay.validate(state)
+
+
+def capture(gpu):
+    state, error = replay.read(gpu)
+    assert error is None
+    return state
+
+
+@pytest.mark.parametrize("public_type,native_type", [(0, 2), (2, 4)])
+def test_new_type_pair_singleton_capture(public_type, native_type):
+    gpu = Gpu((0,), wire_types={"0": (public_type, native_type, native_type)})
+    state = capture(gpu)
+    assert state["complete"] and state["rail_identity"]["0"]["control_type"] == public_type
+    assert bytes.fromhex(state["info_hex"])[12] == native_type
+    assert bytes.fromhex(state["native_hex"])[12] == native_type
+    assert replay._six(bytes.fromhex(state["public"]["0"]), 72) == gpu.offsets["0"]
+
+
+@pytest.mark.parametrize(
+    "left,right", [((0, 2, 2), (3, 5, 5)), ((0, 2, 2), (2, 4, 4)), ((2, 4, 4), (3, 5, 5))]
+)
+def test_mixed_types_compose_set_and_preserve_opaque_readback(left, right):
+    gpu = Gpu(wire_types={"0": left, "1": right})
+    before = capture(gpu)
+    offsets = {"0": [1, -2, 3, -4, 5, -6], "1": [-7, 8, -9, 10, -11, 12]}
+    result = replay.replay(gpu, replay.project(before, offsets_uv=offsets))
+    assert result["verified"] and gpu.offsets == offsets
+    packet = gpu.set_calls[0]
+    assert struct.unpack_from("<I", packet, 72)[0] == left[0]
+    assert struct.unpack_from("<I", packet, 72 + 84)[0] == right[0]
+    assert list(struct.unpack_from("<6i", packet, 76)) == offsets["0"]
+    assert list(struct.unpack_from("<6i", packet, 76 + 84)) == offsets["1"]
+    assert replay._opaque(result["after"]) == replay._opaque(before)
+
+
+@pytest.mark.parametrize("field", ["public", "info", "native", "policy"])
+@pytest.mark.parametrize("public_type,native_type", [(0, 2), (2, 4)])
+def test_new_type_pair_rejects_crossed_types(field, public_type, native_type):
+    state = capture(Gpu((0,), wire_types={"0": (public_type, native_type, native_type)}))
+    if field == "policy":
+        state["policy"]["rails"]["0"]["control_type"] = 3
+    else:
+        key = {"public": "public", "info": "info_hex", "native": "native_hex"}[field]
+        raw = bytearray.fromhex(state[key]["0"] if field == "public" else state[key])
+        raw[72 if field == "public" else 12] = 3 if field == "public" else 5
+        if field == "public":
+            state[key]["0"] = raw.hex()
+        else:
+            state[key] = raw.hex()
+    with pytest.raises(replay.ReplayError):
+        replay.validate(state)
+
+
+def test_public_zero_unsupported_peer_stays_partial_and_cannot_set():
+    gpu = Gpu(wire_types={"0": (0, 2, 2), "1": (3, 4, 5)})
+    state = capture(gpu)
+    assert set(state["public"]) == {"0"} and state["missing_indices"] == [1]
+    with pytest.raises(replay.ReplayError, match="every active"):
+        replay.replay(gpu, state)
+    assert not gpu.set_calls
+
+
+@pytest.mark.parametrize("public_type,native_type", [(0, 2), (2, 4)])
+def test_new_type_pair_ignored_set_fails_independent_readback(public_type, native_type):
+    gpu = Gpu((0,), wire_types={"0": (public_type, native_type, native_type)})
+    desired = replay.project(capture(gpu), offsets_uv={"0": [1, 2, 3, 4, 5, 6]})
+    gpu.set_fault = lambda *_: 0
+    with pytest.raises(replay.ReplayError) as error:
+        replay.replay(gpu, desired)
+    assert error.value.attempted and not error.value.result["verified"]
+    assert "unchanged from before" in error.value.result["readback_error"]
+
+
+def test_noop_sets_once_and_keeps_all_requests_and_opaque_state():
+    gpu = Gpu()
+    state = capture(gpu)
+    result = replay.replay(gpu, state)
+    assert result["verified"] and result["attempted"] and result["status"] == 0
+    assert result["before"] == result["after"] == state
+    assert len(gpu.set_calls) == 1
+    assert bytes.fromhex(state["native_hex"])[0] == 255 and state["complete"]
+    assert set(state["rail_identity"]) == {"0", "1"}
+
+
+def test_read_checked_returns_same_observation_and_holds_lock_for_capture():
+    gpu = Gpu()
+    expected = capture(gpu)
+    ownership = []
+
+    def check_lock(gpu, index, data):
+        ownership.append(gpu._lock._is_owned())
+        return 0
+
+    gpu.get_fault = check_lock
+    assert replay.read_checked(gpu) == expected
+    assert ownership and all(ownership) and not gpu._lock._is_owned()
+
+
+@pytest.mark.parametrize("kind", ["identity", "malformed", "unsupported", "transient"])
+def test_read_checked_preserves_error_categories(kind):
+    gpu = Gpu()
+    if kind == "identity":
+        gpu.nvapi.selected["handle"] += 1
+    elif kind == "malformed":
+
+        def bad_type(gpu, index, data):
+            data[72 + int(index) * 84] = 4
+            return 0
+
+        gpu.get_fault = bad_type
+    else:
+        gpu.get_fault = lambda *args: -104 if kind == "unsupported" else -1
+    with pytest.raises(replay.ReplayError) as error:
+        replay.read_checked(gpu)
+    assert error.value.kind == kind and not error.value.attempted
+    assert not gpu._lock._is_owned() and not gpu.set_calls
+
+
+def test_read_delegates_to_typed_entry_point(monkeypatch):
+    expected = {"sentinel": object()}
+    calls = []
+
+    def checked(gpu):
+        calls.append(gpu)
+        return expected
+
+    monkeypatch.setattr(replay, "read_checked", checked)
+    gpu = object()
+    assert replay.read(gpu) == (expected, None) and calls == [gpu]
+
+    def failed(gpu):
+        raise replay.ReplayError("identity", "Adapter pairing changed")
+
+    monkeypatch.setattr(replay, "read_checked", failed)
+    assert replay.read(gpu) == (None, "Adapter pairing changed")
+
+
+def test_read_checked_converts_transport_setup_category(monkeypatch):
+    gpu = Gpu()
+
+    def setup_failure(gpu):
+        raise replay.PerfDiagnosticError("unsupported", "Transport geometry unavailable")
+
+    monkeypatch.setattr(replay, "PerfDiagnosticsReader", setup_failure)
+    with pytest.raises(replay.ReplayError, match="Transport geometry") as error:
+        replay.read_checked(gpu)
+    assert error.value.kind == "unsupported" and isinstance(error.value.__cause__, replay.PerfDiagnosticError)
+    assert not gpu._lock._is_owned()
+
+
+@pytest.mark.parametrize("rails", [(0,), (1,), (0, 1)])
+@pytest.mark.parametrize("arch", [4, 8, 9, 10])
+def test_alternate_identity_missing_unrelated_rail_and_six_word_restore(rails, arch):
+    gpu = Gpu(rails, architecture=arch, device_id=14, subsystem_id=0xDEADBEEF, slot="0000:03:00.1")
+    baseline = capture(gpu)
+    offsets = {str(i): [-(2**31), 2**31 - 1, 1024, -1024, -1048576, 1048576] for i in rails}
+    desired = replay.project(baseline, offsets_uv=offsets, boost_percent=100)
+    result = replay.replay(gpu, desired)
+    assert result["verified"] and gpu.offsets == offsets and gpu.boost == 100
+    restored = replay.replay(gpu, baseline)
+    assert restored["after"] == baseline and len(gpu.set_calls) == 2
+    assert {i for kind, i in gpu.calls if kind == "public"} == {str(i) for i in rails}
+
+
+def test_new_handles_after_restart_are_reacquired():
+    original = Gpu()
+    saved = capture(original)
+    fresh = Gpu()
+    fresh.nvapi.gpu = fresh.nvapi.selected["handle"] = fresh.nvml.selected["handle"] = 987654
+    fresh.offsets = {i: [0] * 6 for i in fresh.offsets}
+    fresh.boost = 0
+    result = replay.replay(fresh, saved)
+    assert result["verified"] and fresh.offsets == original.offsets and fresh.boost == original.boost
+    assert result["after"]["info_hex"] == saved["info_hex"]
+    assert result["after"]["info_hex"] == result["before"]["info_hex"]
+
+
+def test_full_info_uncaptured_rail_is_reported_but_never_replayed():
+    gpu = Gpu((1,), extra=(9,))
+    state = capture(gpu)
+    assert not state["complete"] and state["missing_indices"] == [9]
+    with pytest.raises(replay.ReplayError, match="every active") as error:
+        replay.replay(gpu, state)
+    assert not error.value.attempted and gpu.set_calls == []
+
+
+def test_unsupported_peer_type_preserves_supported_read_only_capability():
+    gpu = Gpu()
+    gpu.info[12] = 4
+    state = capture(gpu)
+    assert set(state["public"]) == {"1"} and state["missing_indices"] == [0]
+    assert not state["complete"]
+    with pytest.raises(replay.ReplayError, match="every active"):
+        replay.replay(gpu, state)
+    assert not gpu.set_calls
+
+
+@pytest.mark.parametrize("target", ["identity", "native_opaque", "public_opaque", "inventory", "setter", "info"])
+def test_preflight_failure_never_attempts_set(target):
+    gpu = Gpu()
+    saved = capture(gpu)
+    if target == "identity":
+        saved["identity"]["device_id"] += 1
+        saved["policy"]["identity"]["device_id"] += 1
+    elif target == "native_opaque":
+        gpu.native_opaque ^= 1
+    elif target == "public_opaque":
+        gpu.public_opaque ^= 1
+    elif target == "inventory":
+        struct.pack_into("<I", gpu.info, 4, 7)
+    elif target == "info":
+        gpu.info[30] ^= 1
+    else:
+        gpu.setter_available = False
+    with pytest.raises(replay.ReplayError) as error:
+        replay.replay(gpu, saved)
+    assert not error.value.attempted and not gpu.set_calls
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "ignored",
+        "rounded",
+        "partial_status",
+        "exception",
+        "input_mutation",
+        "guard",
+        "peer_opaque",
+        "info",
+        "identity",
+        "bool_status",
+    ],
+)
+def test_failed_or_partial_write_records_after_state_without_retry(failure):
+    gpu = Gpu()
+    baseline = capture(gpu)
+    desired = replay.project(
+        baseline, offsets_uv={"0": [1, 2, 3, 4, 5, 6], "1": [7, 8, 9, 10, 11, 12]}, boost_percent=1
+    )
+
+    def fault(gpu, data):
+        if failure == "ignored":
+            return 0
+        gpu.apply(data, first_only=failure == "partial_status")
+        if failure == "rounded":
+            gpu.offsets["1"][5] += 1
+        elif failure == "partial_status":
+            return -1
+        elif failure == "exception":
+            raise RuntimeError("ambiguous return after write")
+        elif failure == "input_mutation":
+            data[10] ^= 1
+        elif failure == "guard":
+            ctypes.c_ubyte.from_address(ctypes.addressof(data) - 1).value = 0
+        elif failure == "peer_opaque":
+            gpu.native_opaque ^= 1
+        elif failure == "info":
+            gpu.info[30] ^= 1
+        elif failure == "identity":
+            gpu.nvapi.selected["handle"] += 1
+        elif failure == "bool_status":
+            return False
+        return 0
+
+    gpu.set_fault = fault
+    with pytest.raises(replay.ReplayError) as error:
+        replay.replay(gpu, desired)
+    result = error.value.result
+    assert error.value.attempted and result["attempted"] and not result["verified"]
+    assert result["write_error"] or result["readback_error"]
+    assert len(gpu.set_calls) == 1
+    if failure != "identity":
+        assert result["after"] is not None
+
+
+def test_nonzero_status_remains_failure_even_if_all_requests_applied():
+    gpu = Gpu()
+    saved = capture(gpu)
+
+    def fail_after_all(gpu, data):
+        gpu.apply(data)
+        return -104
+
+    gpu.set_fault = fail_after_all
+    with pytest.raises(replay.ReplayError) as error:
+        replay.replay(gpu, saved)
+    assert error.value.result["after"] == saved
+    assert error.value.result["write_error"] and not error.value.result["verified"]
+
+
+def test_ignored_offsets_with_applied_boost_identifies_each_unchanged_word():
+    gpu = Gpu()
+    before = capture(gpu)
+    desired = replay.project(before, offsets_uv={"0": [1, 2, 3, 4, 5, 6]}, boost_percent=1)
+
+    def fault(gpu, data):
+        gpu.boost = data[8]
+        return 0
+
+    gpu.set_fault = fault
+    with pytest.raises(replay.ReplayError) as error:
+        replay.replay(gpu, desired)
+    message = error.value.result["readback_error"]
+    assert error.value.kind == "partial" and len(gpu.set_calls) == 1
+    assert before["rail_identity"]["0"]["name"] in message
+    assert "reliability: requested 1 uV, observed -12345 uV (SET returned 0; unchanged from before)" in message
+    assert "vcrit_low: requested 5 uV, observed -987654 uV" in message
+    assert "boost:" not in message
+
+
+def test_partial_change_identifies_only_ignored_word_and_boost():
+    gpu = Gpu()
+    before = capture(gpu)
+    desired = replay.project(before, offsets_uv={"0": [1, 2, 3, 4, 5, 6]}, boost_percent=1)
+
+    def fault(gpu, data):
+        old, boost = gpu.offsets["0"][2], gpu.boost
+        gpu.apply(data)
+        gpu.offsets["0"][2], gpu.boost = old, boost
+        return 0
+
+    gpu.set_fault = fault
+    with pytest.raises(replay.ReplayError) as error:
+        replay.replay(gpu, desired)
+    message = error.value.result["readback_error"]
+    assert "overvoltage: requested 3 uV, observed -34567 uV (SET returned 0; unchanged from before)" in message
+    assert "boost: requested 1%, observed 37% (SET returned 0; unchanged from before)" in message
+    assert "minimum_voltage:" not in message and len(gpu.set_calls) == 1
+
+
+@pytest.mark.parametrize("offset_mismatch", [False, True])
+def test_readback_reports_opaque_mismatch_alongside_owned_mismatch(offset_mismatch):
+    gpu = Gpu()
+    before = capture(gpu)
+    desired = replay.project(before, offsets_uv={"0": [1, 2, 3, 4, 5, 6]})
+
+    def fault(gpu, data):
+        old = gpu.offsets["0"][0]
+        gpu.apply(data)
+        if offset_mismatch:
+            gpu.offsets["0"][0] = old
+        gpu.native_opaque ^= 1
+        return 0
+
+    gpu.set_fault = fault
+    with pytest.raises(replay.ReplayError) as error:
+        replay.replay(gpu, desired)
+    message = error.value.result["readback_error"]
+    assert "routing, INFO, inventory or opaque metadata differs" in message
+    assert ("reliability:" in message) is offset_mismatch
+    assert len(gpu.set_calls) == 1
+
+
+def test_restore_diagnostic_uses_signed_saved_vcrit_values():
+    gpu = Gpu()
+    saved = capture(gpu)
+    gpu.offsets["0"] = [0] * 6
+
+    def fault(gpu, data):
+        gpu.apply(data)
+        gpu.offsets["0"][4:] = [0, -7]
+        return 0
+
+    gpu.set_fault = fault
+    with pytest.raises(replay.ReplayError) as error:
+        replay.replay(gpu, saved)
+    message = error.value.result["readback_error"]
+    assert "vcrit_low: requested -987654 uV, observed 0 uV (SET returned 0; unchanged from before)" in message
+    assert "vcrit_high: requested 305419896 uV, observed -7 uV" in message
+    assert len(gpu.set_calls) == 1
+
+
+def test_interruption_still_performs_readback_then_propagates():
+    gpu = Gpu()
+    saved = capture(gpu)
+    count = []
+
+    def interrupt(gpu, data):
+        count.append(len(gpu.calls))
+        raise KeyboardInterrupt
+
+    gpu.set_fault = interrupt
+    with pytest.raises(KeyboardInterrupt) as error:
+        replay.replay(gpu, saved)
+    assert len(gpu.set_calls) == 1 and len(gpu.calls) > count[0]
+    assert error.value.attempted and error.value.result["after"] == saved
+
+
+@pytest.mark.parametrize("field", ["architecture", "device_id", "subsystem_id"])
+def test_identity_does_not_accept_equal_float_values(field):
+    gpu = Gpu()
+    saved = capture(gpu)
+    saved["identity"][field] = float(saved["identity"][field])
+    with pytest.raises(replay.ReplayError):
+        replay.replay(gpu, saved)
+    assert not gpu.set_calls
+
+
+@pytest.mark.parametrize("failure", ["guard", "envelope", "mask", "type", "offset", "boost", "identity"])
+def test_malformed_native_readback_fails_before_write(failure):
+    gpu = Gpu()
+
+    def native_fault(gpu, command, data, packet):
+        if command != replay.CONTROL_COMMAND:
+            return 0
+        if failure == "guard":
+            ctypes.c_ubyte.from_address(ctypes.addressof(packet) - 1).value = 0
+        elif failure == "envelope":
+            packet[11] = 2
+        elif failure == "mask":
+            data[4] ^= 1
+        elif failure == "type":
+            data[12] = 4
+        elif failure == "offset":
+            data[16] ^= 1
+        elif failure == "boost":
+            data[8] += 1
+        else:
+            gpu.nvapi.selected["handle"] += 1
+        return 0
+
+    gpu.native_fault = native_fault
+    state, error = replay.read(gpu)
+    assert state is None and error and not gpu.set_calls
+
+
+def test_transient_get_retries_reads_only_and_rejects_v1():
+    gpu = Gpu()
+    failures = [True]
+
+    def transient(gpu, index, data):
+        return -1 if failures.pop() else 0
+
+    gpu.get_fault = lambda gpu, index, data: transient(gpu, index, data) if failures else 0
+    assert capture(gpu)["complete"] and not gpu.set_calls
+    gpu.get_fault = lambda *args: -9
+    state, error = replay.read(gpu)
+    assert state is None and error and not gpu.set_calls
+
+
+@pytest.mark.parametrize("where", ["policy_public", "public_native", "boost"])
+def test_sequential_request_race_gets_bounded_read_only_recovery(where):
+    gpu = Gpu()
+    faulted = []
+    if where == "policy_public":
+
+        def public_fault(gpu, index, data):
+            if not faulted:
+                faulted.append(True)
+                gpu.offsets[index][0] += 1
+                struct.pack_into("<i", data, 72 + int(index) * 84 + 4, gpu.offsets[index][0])
+            return 0
+
+        gpu.get_fault = public_fault
+    else:
+
+        def native_fault(gpu, command, data, packet):
+            if command == replay.CONTROL_COMMAND and not faulted:
+                faulted.append(True)
+                if where == "boost":
+                    gpu.boost += 1
+                else:
+                    gpu.offsets["0"][5] += 1
+                    struct.pack_into("<i", data, 12 + 24, gpu.offsets["0"][5])
+            return 0
+
+        gpu.native_fault = native_fault
+    assert capture(gpu)["complete"] and faulted and not gpu.set_calls
+
+
+def test_read_only_native_helper_rejects_any_set_command_without_transport():
+    gpu = Gpu()
+    with pytest.raises(replay.ReplayError, match="read-only"):
+        replay._native_get(gpu, object(), 0x2080F214, replay.CONTROL_SIZE)
+    assert not gpu.calls and not gpu.set_calls
+
+
+@pytest.mark.parametrize("value", [True, -1, 101, 1.5, "1"])
+def test_invalid_boost_projection(value):
+    with pytest.raises(replay.ReplayError):
+        replay.project(capture(Gpu()), boost_percent=value)
+
+
+@pytest.mark.parametrize("value", [[], [1] * 5, [1] * 7, [True] * 6, [2**31] * 6, [-(2**31) - 1] * 6, [1.0] * 6])
+def test_invalid_six_word_projection(value):
+    with pytest.raises(replay.ReplayError):
+        replay.project(capture(Gpu()), offsets_uv={"0": value})
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "schema",
+        "complete",
+        "missing",
+        "hex",
+        "native_mask",
+        "public_version",
+        "type",
+        "policy_type",
+        "rail_id",
+        "native_request",
+        "boost",
+        "extra",
+    ],
+)
+def test_pure_tampered_observations_cannot_be_replayed(field):
+    gpu = Gpu()
+    saved = capture(gpu)
+    if field == "schema":
+        saved["schema"] = True
+    elif field == "complete":
+        saved["complete"] = 1
+    elif field == "missing":
+        saved["missing_indices"] = [True]
+    elif field == "hex":
+        saved["info_hex"] = saved["info_hex"].upper()
+    elif field == "native_mask":
+        raw = bytearray.fromhex(saved["native_hex"])
+        raw[4] = 1
+        saved["native_hex"] = raw.hex()
+    elif field == "public_version":
+        raw = bytearray.fromhex(saved["public"]["0"])
+        struct.pack_into("<I", raw, 0, replay.controls.V1)
+        saved["public"]["0"] = raw.hex()
+    elif field in ("type", "policy_type"):
+        saved["rail_identity"]["0"]["control_type" if field == "type" else "policy_type"] = True
+    elif field == "rail_id":
+        saved["public"][0] = saved["public"].pop("0")
+    elif field == "native_request":
+        raw = bytearray.fromhex(saved["native_hex"])
+        raw[16] ^= 1
+        saved["native_hex"] = raw.hex()
+    elif field == "boost":
+        saved["boost_percent"] += 1
+    else:
+        saved["extra"] = 1
+    with pytest.raises(replay.ReplayError):
+        replay.replay(gpu, saved)
+    assert not gpu.set_calls

@@ -23,7 +23,9 @@ def offset_gpu():
 
     def get(_mask):
         buf = (ctypes.c_ubyte * gpu._CLKDOM_BUF)()
-        ctypes.cast(buf, ctypes.POINTER(i32))[dw] = current[0]
+        words = ctypes.cast(buf, ctypes.POINTER(i32))
+        words[0], words[layout.mask_dword] = layout.version, _mask
+        words[dw] = current[0]
         return 0, buf
 
     def write(_handle, buf):

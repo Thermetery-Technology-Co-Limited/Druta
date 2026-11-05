@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "date": "2026-11-02",
+  "tests": {
+    "passed": 2154,
+    "log_sha256": "6c669f4793178040fd8505d51d1154742d3198f6bc274c1220435474f6d40eaf"
+  },
+  "source_files_verified": 540,
+  "package_sha256": "22b98213caa32c550a60bfb920a7d618e1f0f471c828d01aec6d8b069277176e",
+  "exe_sha256": "1fa79dd2f80498ef5281bce2efe5294bea64277b70fdef5c8ee84cda80792c0f",
+  "zip_crc": "passed",
+  "native_controller_modules_bundled": 6,
+  "captures_verified": 32,
+  "capture_errors": [],
+  "reviewed_frames": [
+    "current-elpg.png",
+    "current-difr.png",
+    "current-elcg.png",
+    "current-blcg.png",
+    "current-slcg.png",
+    "current-individual-0.png"
+  ],
+  "note": "Post-build receipt outside packaged source snapshot. Source and executable hashes verified, all six control-family Save buttons visually reviewed. Original app preserved."
+}

@@ -1,0 +1,255 @@
+{
+  "schema": 1,
+  "date": "2026-11-01",
+  "scope": "Four named profiler requests on one RTX 5080 / 617.42 configuration. Software masks and request responses; no measured physical gating.",
+  "public_contract": "https://github.com/NVIDIA/open-gpu-kernel-modules/blob/main/src/common/sdk/nvidia/inc/ctrl/ctrlb0cc/ctrlb0ccpower.h",
+  "driver_sha256": "db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b",
+  "results": {
+    "elcg": {
+      "response": {
+        "global_status": 0,
+        "feature_status": 0,
+        "request_mask": 1,
+        "status_mask": 4294966272
+      },
+      "release_accepted": true,
+      "freed": true,
+      "voltage_unchanged": true,
+      "configured_lpwr_unchanged": true,
+      "lpwr_reason_masks_restored": true,
+      "before": {
+        "supported": "0x0000000033204c0b",
+        "eligible": "0x0000000033204c0b"
+      },
+      "active": {
+        "supported": "0x0000000033204c0b",
+        "eligible": "0x0000000033000000"
+      },
+      "after": {
+        "supported": "0x0000000033204c0b",
+        "eligible": "0x0000000033204c0b"
+      },
+      "shipped": true
+    },
+    "blcg": {
+      "response": {
+        "global_status": 0,
+        "feature_status": 0,
+        "request_mask": 4,
+        "status_mask": 4294966272
+      },
+      "release_accepted": true,
+      "freed": true,
+      "voltage_unchanged": true,
+      "configured_lpwr_unchanged": true,
+      "lpwr_reason_masks_restored": true,
+      "before": {
+        "supported": "0x0000000033204c0b",
+        "eligible": "0x0000000033204c0b"
+      },
+      "active": {
+        "supported": "0x0000000033204c0b",
+        "eligible": "0x0000000033204c0b"
+      },
+      "after": {
+        "supported": "0x0000000033204c0b",
+        "eligible": "0x0000000033204c0b"
+      },
+      "shipped": false
+    },
+    "slcg": {
+      "response": {
+        "global_status": 0,
+        "feature_status": 0,
+        "request_mask": 16,
+        "status_mask": 4294966272
+      },
+      "release_accepted": true,
+      "freed": true,
+      "voltage_unchanged": true,
+      "configured_lpwr_unchanged": true,
+      "lpwr_reason_masks_restored": true,
+      "before": {
+        "supported": "0x0000000033204c0b",
+        "eligible": "0x0000000033204c0b"
+      },
+      "active": {
+        "supported": "0x0000000033204c0b",
+        "eligible": "0x0000000033204c0b"
+      },
+      "after": {
+        "supported": "0x0000000033204c0b",
+        "eligible": "0x0000000033204c0b"
+      },
+      "shipped": false
+    },
+    "idle": {
+      "response": {
+        "global_status": 0,
+        "feature_status": 0,
+        "request_mask": 256,
+        "status_mask": 4294966272
+      },
+      "release_accepted": true,
+      "freed": true,
+      "voltage_unchanged": true,
+      "configured_lpwr_unchanged": true,
+      "lpwr_reason_masks_restored": true,
+      "before": {
+        "supported": "0x0000000033204c0b",
+        "eligible": "0x0000000033204c0b"
+      },
+      "active": {
+        "supported": "0x0000000033204c0b",
+        "eligible": "0x0000000033204c0b"
+      },
+      "after": {
+        "supported": "0x0000000033204c0b",
+        "eligible": "0x0000000033204c0b"
+      },
+      "shipped": false
+    }
+  },
+  "static_findings": {
+    "scope": "Offline static evidence for one Windows 617.42 binary; no general compatibility or observed hardware result implied",
+    "callback": {
+      "leaf": "0x84dae0 handles the feature5/7 branch; its unsupported behavior for other feature values does not describe the separate SLCG dispatch.",
+      "concurrency": "Generic counted manager invokes callback at aggregate zero-to-nonzero and final release; successful requests can overlap without new physical or bitmap transition",
+      "feature2": "jump case 0x42b90e returns zero without feature operation",
+      "initializer": "0x42c1f0; callback 0x42b350",
+      "features_5_7": "jump case0x42b43c builds and filters an engine bitset, then calls0x84dae0",
+      "feature19": "compressed jump index3 routes to0x42b6fc; OBJHWPM+108 supplies routing to675360, then LPWRgroup+100 is invoked. Internal action results are not propagated as full effect verification."
+    },
+    "elcg": {
+      "request": "0x84dd8d ->0x755830 ->0x754910 sets reason bit2 at object+0x290+0x24*engine index and increments word counter +0x28c",
+      "qualifier": "A801 type10 routes GPU+0x2550 then +0x12d8 to 0x7558e0. Support and no-disable-reason predicate, not ownership or measured residency. Attr0x802 per-engine equivalent lacks apparent support/index validation.",
+      "readback": "A801 type10 attr1 returns supported engine bitmap; attr0x801 returns bitmap of supported engines whose reason mask is zero; both input u32 at item+0xc selects 32-bit chunk 0 or 1",
+      "release": "0x755870 ->0x754a10 decrements counter and clears bit2 when zero"
+    },
+    "blcg": {
+      "readback": "No independently qualified live getter found in bounded trace.",
+      "action": "0x84dc0c follows hardware-specific virtual method at object+0x1030; bookkeeping 0x350cc0"
+    },
+    "slcg": {
+      "action": "compressed jump index3 routes to0x42b6fc; OBJHWPM+108 supplies routing to675360, then LPWRgroup+100 is invoked. Internal action results are not propagated as full effect verification.",
+      "readback": "Original ELCG/LPWR getter trial did not independently witness SLCG. This is not evidence that no register change occurred."
+    },
+    "idle": {
+      "readback": "No independently qualified live getter found; do not infer effective operation from status.",
+      "action": "feature2 callback returns zero without a feature action on this path"
+    },
+    "limit": "0x34fe00 is policy selector rather than ownership/effective-state readback. Other RM users can interfere; no source-qualified complete engine coverage."
+  },
+  "production_qualification": {
+    "duplicate_engine_hold_no_write": true,
+    "independent_release_verified": true,
+    "voltage_unchanged": true,
+    "configured_lpwr_unchanged": true,
+    "engine_masks_restored": true,
+    "power_masks_restored": true,
+    "source_sha256": {
+      "engine_clock_gating_live.py": "df79fc29150bb73c193762960ac102ca0cb0eda350bff58298060736f19b19eb",
+      "gr_gating_live.py": "25316e089906f5bd1d7225d66f98580dc90239848b52ba19d629f0315cca8238",
+      "nvbackend.py": "ac6995578ed751e34b691fc92a135b6881616e5bb8f2136af6aa238421182293"
+    },
+    "observed_engine_indices": [
+      0,
+      1,
+      3,
+      10,
+      11,
+      14,
+      21
+    ],
+    "native_mutation_count": 8
+  },
+  "validation": {
+    "targeted_tests_passed": 697,
+    "new_ELCG_tests": 29,
+    "physical_ui_input": false,
+    "driver_restart_test": false
+  },
+  "limits": [
+    "ELCG bitmap change is a partial independent witness; supported engine bits do not establish complete profiler group membership or ownership.",
+    "Other clients can hide a new transition; zero-eligible/no-transition requests cannot qualify Hold.",
+    "BLCG is unverified, not proven inert. ELCG and LPWR getters are not BLCG status.",
+    "SLCG and idle-slowdown successful responses do not establish effective changes. Static paths are configuration-specific evidence, not universal compatibility gates.",
+    "No registry write, workload, physical measurement, driver restart or Windows reboot. No persistence or automatic replay was added."
+  ],
+  "local_artifacts": [
+    {
+      "path": "experiments/registry-overrides/profiler-more-root-20261101/probe.py",
+      "bytes": 4028,
+      "sha256": "6f019049924b636ad6fe007e70371cc3ee444691fa10c4d1cc31349b864edf26"
+    },
+    {
+      "path": "experiments/registry-overrides/profiler-more-root-20261101/product_smoke.py",
+      "bytes": 4205,
+      "sha256": "194b1f20adf5313d0a864cc5a6e3431294cee107debb939be37c990b406d1ba9"
+    },
+    {
+      "path": "experiments/registry-overrides/profiler-more-root-20261101/elcg-trial.json",
+      "bytes": 173534,
+      "sha256": "5d95f7902515149a5169fa03f51258e8410b88d3db55bff06aceceace6f671c0"
+    },
+    {
+      "path": "experiments/registry-overrides/profiler-more-root-20261101/blcg-trial.json",
+      "bytes": 173537,
+      "sha256": "de7165dba03df9c2e11aa455cc4bd614435ea3ec61e9d9ae87c79894c70ca550"
+    },
+    {
+      "path": "experiments/registry-overrides/profiler-more-root-20261101/slcg-trial.json",
+      "bytes": 173540,
+      "sha256": "c58c7c39b24ee367bde7b0edd2b9a3b49e35f13c2c512086a2b305a465046b20"
+    },
+    {
+      "path": "experiments/registry-overrides/profiler-more-root-20261101/idle-trial.json",
+      "bytes": 173545,
+      "sha256": "c9d4d889c7c8fff2ceede0aff5df6d072b5c68cc1a9bb43c86982d8be6a3cf40"
+    },
+    {
+      "path": "experiments/registry-overrides/profiler-more-root-20261101/product-source.json",
+      "bytes": 166207,
+      "sha256": "cc85be73b9c3109a5a92649425b07ad7f40951512ef1efc642489343338a92f5"
+    },
+    {
+      "path": "experiments/registry-overrides/profiler-more-terra-20261101/profiler-more-static-61742.json",
+      "bytes": 2784,
+      "sha256": "6ae0460bad3d65ce54e8f3a6df2ece249a23e754c09dc852c98e3053bda661e2"
+    },
+    {
+      "path": "experiments/registry-overrides/profiler-more-terra-20261101/blcg-delegated-61742.json",
+      "bytes": 4047,
+      "sha256": "e18a514a60ec9db7e8236596a67ff0787756426c122a0ce361caa764bb185a39"
+    },
+    {
+      "path": "experiments/registry-overrides/profiler-getters-sol-20261101/source-getter-assessment.json",
+      "bytes": 6432,
+      "sha256": "3bebe717d36c29f84094d78507dd408d74371675ca4f47eeb6b6aa88b3acabee"
+    },
+    {
+      "path": "experiments/registry-overrides/profiler-more-terra-20261101/blcg-receiver-61742.json",
+      "bytes": 8397,
+      "sha256": "10ba863146f32a9c634cc167867f13f422d5c20835c0aa2af96e1ef05edc6191"
+    },
+    {
+      "path": "experiments/registry-overrides/profiler-more-root-20261101/blcg-static-audit.json",
+      "bytes": 3229,
+      "sha256": "feda0fcc0d247ddbefae742ec0960e0c3b98c3ec98a1f01d3cc08bb14fa709a0"
+    }
+  ],
+  "blcg_followup": {
+    "scope": "Offline inspected-driver trace only; no new hardware calls or product feature",
+    "driver_sha256": "db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b",
+    "receiver": "Selected graphics object from GPU+2268 array; BLCG dispatch calls its +1030 method. HAL initializer assigns RVA381810, A31410 or A3F8C0. Active target not observed.",
+    "reason_state": "A3F8C0 conditionally reaches 73DBE0: per-entry record at group+DD8+280h*index, reason bitmap +4 and reason-zero count +C. Hardware programming uses table-supplied offsets and values.",
+    "getter_limit": "Adjacent +1038 methods perform actions or initialization. A801 type10 reads a separate ELCG reason state; delegated attrs803/804/809 have no qualified relationship to this BLCG state. No external BLCG getter established.",
+    "next_prerequisite": "Bind an externally readable state to the BLCG action before a further effect-verification trial or product toggle.",
+    "root_verified_windows": 15
+  },
+  "slcg_dispatch_correction": "Feature19 uses compressed jump-table index3 ->42B6FC, not common5/7 branch42B43C. Earlier SLCG unsupported-leaf attribution was wrong. No prior trial results changed.",
+  "subsequent_qualification": {
+    "blcg": "live-block-clock-gating-20261101.json supersedes accepted-only BLCG observations and earlier getter blocker.",
+    "slcg": "live-second-level-clock-gating-20261101.json corrects the dispatch attribution and adds independently observed partial register transitions. Original trial observations retained."
+  }
+}

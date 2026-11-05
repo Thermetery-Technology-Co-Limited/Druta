@@ -1,0 +1,66 @@
+{
+  "schema": 1,
+  "date": "2026-11-05",
+  "scope": {
+    "name": "NVIDIA GeForce RTX 5080",
+    "driver": "617.42",
+    "vbios": "98.03.3b.c0.6f"
+  },
+  "path": "PowerIntegralController.set_lower through negotiated native policy transport",
+  "policy": 2,
+  "lower_before": 3072,
+  "lower_requested": 3113,
+  "upper_unchanged": 4219,
+  "past_unchanged": 43,
+  "next_unchanged": 7,
+  "board_request_mw": 360000,
+  "policy_request_mw": 450000,
+  "effective_before_mw": 370811,
+  "effective_samples_mw": [
+    370811,
+    370811,
+    370811
+  ],
+  "pmu_samples_mw": [
+    360000,
+    360000,
+    360000
+  ],
+  "effective_restored_mw": 370811,
+  "selected_halfword_only": true,
+  "full_request_state_exactly_restored": true,
+  "workload_started": false,
+  "registry_write": false,
+  "driver_restart": false,
+  "validation": {
+    "focused_tests_passed": 324,
+    "ruff": "passed",
+    "independent_review": "no concrete code defects",
+    "full_source_app_read_only_render": {
+      "state": "complete",
+      "error": null,
+      "scope": "Full source app rendering; new panel Read callback only; no Apply",
+      "status": "Read complete.",
+      "input": "103.0029296875",
+      "lower_input": "75",
+      "lower_apply_enabled": true,
+      "readback": "Current upper: 103.0029296875%  |  Reported default upper: 103.0029296875%  |  Current lower: 75%  |  Reported default lower: 75%\nRequested: 450 W  |  PMU output: 360 W  |  Effective limit: 370.811 W\nPast samples: 43 (default 43)  |  Next samples: 7 (default 7)",
+      "apply_enabled": true,
+      "image_sha256": "e827a8b78e95330b18711260db3edacf5129d88f2a8cbff34c84ec059c9c3ba1"
+    }
+  },
+  "limits": [
+    "Retained configuration at one idle point; lower-bound effect under load unmeasured",
+    "Zero is encoding-valid and covered offline, not tested on hardware",
+    "Sample counts are read-only; this trial made no count or mode writes",
+    "Manual session-only application, not integrated with saved profiles or Undo"
+  ],
+  "sha256": {
+    "trial.py": "02aaa2f822fe76cf6518b7f7c119ce306b5ed327bfc39f784d85b2afb76e0062",
+    "trial.json": "b5dc5d9a1f3d41e5fc7f1b915b5e214a4ef18868bc18455772c929d20a356588"
+  },
+  "source_sha256": {
+    "power_integral_runtime.py": "421f4af3f244a0faba96e054c9940899e89811142e37397d976a3452bd929b0c",
+    "power_integral_panel.py": "98a22fbfcb3cdbb39e43f11479660b28c30eb3fb5d0e05f3bd8021f3f6b6a5da"
+  }
+}

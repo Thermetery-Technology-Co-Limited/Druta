@@ -1,0 +1,259 @@
+{
+  "schema": 1,
+  "date": "2026-11-05",
+  "device": {
+    "name": "NVIDIA GeForce RTX 5080",
+    "driver": "617.42",
+    "vbios": "98.03.3b.c0.6f"
+  },
+  "source_sha256": {
+    "trial": "685c915aaa4a77ae1922c75b68429334b6fceada5b590460b0d737e461e5b8ea",
+    "harness": "86ba0be32363171c673529289c7e363875cbb894be4f5809c61b703cee5330af",
+    "audit": "97f8ea8a89727cedd48ff4d4f35101633da8db0c6afd35c2782b057211bac53d"
+  },
+  "layout": {
+    "size": 24996,
+    "header": 292,
+    "stride": 772,
+    "mask": 511,
+    "selected_byte_offset": 572
+  },
+  "observations": [
+    {
+      "label": "baseline",
+      "request_uv": 0,
+      "full_mask_raw_matches_projection": true,
+      "raw_sha256": "a7e2f17f5b5f040097b58abf943f2c83acb4bfb5dddc1bb15bac5ec9dc7bdedf",
+      "boost_vf_lock_power_match_baseline": true
+    },
+    {
+      "label": "apply",
+      "request_uv": 1250,
+      "full_mask_raw_matches_projection": true,
+      "raw_sha256": "0ea2245395180d5e9649b7f56d4863d7ac03f72a639590f8f0373ba564f589cd",
+      "boost_vf_lock_power_match_baseline": true
+    },
+    {
+      "label": "no-op",
+      "request_uv": 1250,
+      "full_mask_raw_matches_projection": true,
+      "raw_sha256": "0ea2245395180d5e9649b7f56d4863d7ac03f72a639590f8f0373ba564f589cd",
+      "boost_vf_lock_power_match_baseline": true
+    },
+    {
+      "label": "action-undo",
+      "request_uv": 0,
+      "full_mask_raw_matches_projection": true,
+      "raw_sha256": "a7e2f17f5b5f040097b58abf943f2c83acb4bfb5dddc1bb15bac5ec9dc7bdedf",
+      "boost_vf_lock_power_match_baseline": true
+    },
+    {
+      "label": "named-load",
+      "request_uv": 1250,
+      "full_mask_raw_matches_projection": true,
+      "raw_sha256": "0ea2245395180d5e9649b7f56d4863d7ac03f72a639590f8f0373ba564f589cd",
+      "boost_vf_lock_power_match_baseline": true
+    },
+    {
+      "label": "named-undo",
+      "request_uv": 0,
+      "full_mask_raw_matches_projection": true,
+      "raw_sha256": "a7e2f17f5b5f040097b58abf943f2c83acb4bfb5dddc1bb15bac5ec9dc7bdedf",
+      "boost_vf_lock_power_match_baseline": true
+    },
+    {
+      "label": "combined-load",
+      "request_uv": 1250,
+      "full_mask_raw_matches_projection": true,
+      "raw_sha256": "0ea2245395180d5e9649b7f56d4863d7ac03f72a639590f8f0373ba564f589cd",
+      "boost_vf_lock_power_match_baseline": true
+    },
+    {
+      "label": "combined-undo",
+      "request_uv": 0,
+      "full_mask_raw_matches_projection": true,
+      "raw_sha256": "a7e2f17f5b5f040097b58abf943f2c83acb4bfb5dddc1bb15bac5ec9dc7bdedf",
+      "boost_vf_lock_power_match_baseline": true
+    },
+    {
+      "label": "final",
+      "request_uv": 0,
+      "full_mask_raw_matches_projection": true,
+      "raw_sha256": "a7e2f17f5b5f040097b58abf943f2c83acb4bfb5dddc1bb15bac5ec9dc7bdedf",
+      "boost_vf_lock_power_match_baseline": true
+    }
+  ],
+  "native_sets": [
+    {
+      "request_uv": 1250,
+      "mask": 1,
+      "status": 0,
+      "response_equals_request": true,
+      "different_byte_offsets_vs_full_mask_baseline": [
+        8,
+        9,
+        572,
+        573,
+        1064,
+        1836,
+        2608,
+        3380,
+        4152,
+        4924,
+        5696,
+        6468
+      ],
+      "request_sha256": "0d3520d0559050ca80c2469bd183ab89abb77d6de00a07c431c9ef98ee9c3996"
+    },
+    {
+      "request_uv": 0,
+      "mask": 1,
+      "status": 0,
+      "response_equals_request": true,
+      "different_byte_offsets_vs_full_mask_baseline": [
+        8,
+        9,
+        1064,
+        1836,
+        2608,
+        3380,
+        4152,
+        4924,
+        5696,
+        6468
+      ],
+      "request_sha256": "4cbb08f7dd6de018486967b2aebe4b7fd8dedc3115cac411d6d0197e45be5598"
+    },
+    {
+      "request_uv": 1250,
+      "mask": 1,
+      "status": 0,
+      "response_equals_request": true,
+      "different_byte_offsets_vs_full_mask_baseline": [
+        8,
+        9,
+        572,
+        573,
+        1064,
+        1836,
+        2608,
+        3380,
+        4152,
+        4924,
+        5696,
+        6468
+      ],
+      "request_sha256": "0d3520d0559050ca80c2469bd183ab89abb77d6de00a07c431c9ef98ee9c3996"
+    },
+    {
+      "request_uv": 0,
+      "mask": 1,
+      "status": 0,
+      "response_equals_request": true,
+      "different_byte_offsets_vs_full_mask_baseline": [
+        8,
+        9,
+        1064,
+        1836,
+        2608,
+        3380,
+        4152,
+        4924,
+        5696,
+        6468
+      ],
+      "request_sha256": "4cbb08f7dd6de018486967b2aebe4b7fd8dedc3115cac411d6d0197e45be5598"
+    },
+    {
+      "request_uv": 1250,
+      "mask": 1,
+      "status": 0,
+      "response_equals_request": true,
+      "different_byte_offsets_vs_full_mask_baseline": [
+        8,
+        9,
+        572,
+        573,
+        1064,
+        1836,
+        2608,
+        3380,
+        4152,
+        4924,
+        5696,
+        6468
+      ],
+      "request_sha256": "0d3520d0559050ca80c2469bd183ab89abb77d6de00a07c431c9ef98ee9c3996"
+    },
+    {
+      "request_uv": 0,
+      "mask": 1,
+      "status": 0,
+      "response_equals_request": true,
+      "different_byte_offsets_vs_full_mask_baseline": [
+        8,
+        9,
+        1064,
+        1836,
+        2608,
+        3380,
+        4152,
+        4924,
+        5696,
+        6468
+      ],
+      "request_sha256": "4cbb08f7dd6de018486967b2aebe4b7fd8dedc3115cac411d6d0197e45be5598"
+    }
+  ],
+  "unselected_row_mode_words": [
+    {
+      "row": 1,
+      "offset": 1064,
+      "baseline_mode_word": 15
+    },
+    {
+      "row": 2,
+      "offset": 1836,
+      "baseline_mode_word": 15
+    },
+    {
+      "row": 3,
+      "offset": 2608,
+      "baseline_mode_word": 15
+    },
+    {
+      "row": 4,
+      "offset": 3380,
+      "baseline_mode_word": 15
+    },
+    {
+      "row": 5,
+      "offset": 4152,
+      "baseline_mode_word": 15
+    },
+    {
+      "row": 6,
+      "offset": 4924,
+      "baseline_mode_word": 15
+    },
+    {
+      "row": 7,
+      "offset": 5696,
+      "baseline_mode_word": 15
+    },
+    {
+      "row": 8,
+      "offset": 6468,
+      "baseline_mode_word": 15
+    }
+  ],
+  "set_comparison_note": "SETs have mask 1 and differ from each other only in selected signed microvolts. The saved GET baseline has mask 511; comparison to it also changes unselected row mode words. No same-mask baseline GET was saved.",
+  "no_op_note": "The harness asserts no SET and no new Undo point on repeated Apply; those pre/post counters are not separately stored.",
+  "outcome": {
+    "qualified": true,
+    "full_request_restored": true,
+    "boost_vf_lock_power_unchanged": true,
+    "manual_load_only": true
+  },
+  "limits": "One device and operating point. This verifies stored requests and profile behavior, not physical rail voltage or a universal device effect."
+}

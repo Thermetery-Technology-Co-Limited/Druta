@@ -12,9 +12,179 @@ Druta is from Sanskrit *druta* meaning fast. In Hindu performing art, it can als
 
 # II. A couple useful functions:
 
-## Save a tune and load it at Windows sign-in
+## Manual profiles and Undo
 
-**Profiles > Save profile** captures the applied curve, clocks, power, fan policy,
+### NVVDD offset profiles and Undo
+
+On supported adapters, **Profiles > Save profile > NVVDD offset** saves the
+current core rail offset request in exact microvolts. Apply saves the previous
+request for **Undo last write**; unchanged requests create no Undo point.
+A failed selected capture or Undo save prevents the write. Named and combined
+profiles require explicit loading in the current session. Their bounds use the
+current XOC mode, and request readback does not measure physical voltage.
+The local [NVVDD profile trial](experiments/nvvdd-offset-profiles-20261105.md)
+verified a +1.25 mV stored request, selected Undo, named and combined loading,
+and exact restoration of the compared native requests.
+
+### Manual voltage-request profiles and Undo
+
+In **Live voltage rail requests**, **Save requests profile** saves the six stored
+offsets for each available rail. Load it from **Profiles > Load profile**.
+These are separate, manually loaded profiles; ordinary tune profiles do not yet
+include this section. They never load automatically at startup or after a GPU
+driver reset. The voltage-request gate must already be enabled.
+
+Each field's **Apply** saves its previous value immediately before a real write.
+**Profiles > Undo last write** restores only that field. Loading a requests profile
+also saves an undo point covering just its fields. Saving an undo point must
+succeed before these writes proceed, and an unchanged field creates no undo point.
+Boost, clocks, gate state and unrelated requests are preserved. VCRIT values are
+stored requests; their effective thresholds remain unverified.
+
+### Manual voltage-control profiles
+
+The voltage gate, live REL bounds, live constants and switch-delay sections each
+have a **Save ... profile** button. It captures the available controls in that
+section for manual loading from **Profiles**. These profiles do not enable other
+sections or load at startup or after a GPU reset.
+
+Applying or restoring one of these controls saves its previous selected values
+for **Undo last write**. An upper-bound edit saves only the upper bound; a
+both-bounds edit saves the pair. Constants and delays save only the selected
+rail/role or device. A profile load saves the fields it will change first.
+If a later write fails, the log identifies it and remaining writes stop; Undo
+can restore the captured pre-load values. Driver-reported values still have to
+pass each control's existing verification. Not every whole-microvolt value is
+accepted, and these requests are not physical voltage or latency measurements.
+
+### Manual low-power request profiles
+
+DIFR, grouped ELPG, ELCG, BLCG, SLCG and each individual engine inhibit now have
+**Save request profile**. The profile records only this Druta instance's request:
+released, held disabled, or held enabled where the control supports it. Loading
+uses this instance's live controller; it never takes ownership of another
+client's requests. Profiles are applied manually, never at startup or after reset.
+
+Changing a request saves its previous intent for **Undo last write**. Loading a
+different enabled/disabled mode releases this instance's old request before
+acquiring the new one. A failed acquisition is reported; Undo can attempt to
+restore the saved intent. This does not promise restoration of global gating
+state. Release remains available if an undo snapshot cannot be saved, with an
+explicit log message. Normal exit and GPU-switch cleanup keep their existing
+behavior; DIFR still requires explicit release.
+
+Idle thresholds and shared adaptive policy are not included: changing either
+can affect the other, and their current getters cannot establish a complete
+restorable state. Saved request ownership is distinct from those shared values.
+The examined threshold setter can set a separate shared reason bit that numeric
+threshold restoration does not clear. The adaptive getter exposes only an
+aggregate Boolean; its setter changes a different bit. Neither an old number
+nor that Boolean is a complete Undo snapshot. See the
+[readback boundary](experiments/shared-power-profile-boundary-20261102.json).
+
+### Manual V/F policy profiles
+
+**Save VF policies profile** captures the live monotonicity and smoothing flags.
+Load it manually from **Profiles**. Applying either flag saves just the changed
+fields for **Undo last write**; loading a profile saves its selected fields first.
+The startup processing mode, curve and registry settings are not saved or changed
+by these profiles. Automatic startup and post-reset loading are unavailable.
+
+The existing driver restrictions still apply. In the current local startup mode,
+disabling monotonicity and a separate smoothing attempt were refused; exact restoration was verified, but a changed
+profile round trip was not qualified. Pre-write snapshots remain available after
+a failed attempt, so Undo can be a no-op after verified automatic restoration.
+Choose an earlier autosave explicitly to return to an earlier action.
+The [separate smoothing trial](experiments/clock-vf-smoothing-profile-20261105.json)
+returned RM 0x56 on the RTX 5080 / 617.42 and verified the exact original header.
+
+### Undo for ordinary tuning actions
+
+Memory and per-domain clock offsets, voltage boost and fan changes now save an
+Undo point before writing. **Profiles > Undo last write** restores only the
+selected request, or the complete prior fan policy. Unchanged clock/boost/fan
+requests do not create a snapshot. A failed snapshot blocks Apply; Fan Auto
+still returns control to the driver and reports that Undo was unavailable.
+
+Board power, current limits, individual power-policy Apply/Stock and Max-all
+save the coupled power requests and this instance's pin choices. Undo restores
+the board request first, then supported changed policies, and verifies the full
+result. If policy coupling prevents an exact return, the log reports partial
+restoration rather than success. Explicit Stock remains available when its
+snapshot cannot be saved, with a log message. Power actions can change pin
+intent even when their displayed number is unchanged, so they still save a
+snapshot. These Undo profiles are manually loaded and never replay after reset.
+
+Ordinary rail-limit **Apply** now saves only the selected fields; linked
+reliability edits save both fields. Each field's **Stock** saves its preceding
+value, and **Reset all** captures all affected rail fields. These resets restore
+the session's first-read values, which may already include tuning. Undo returns
+to the values immediately before the action. Temporary V/F hold headroom is
+excluded from the saved user requests and replanned for a retained hold.
+For a hold owned by this Druta window, explicitly applying or restoring a value
+equal to its temporary raise makes that value your chosen request. Profile
+capture retains the choice, and releasing the hold restores only the other
+temporary values. Failed readback does not change the recorded user choice.
+
+An unchanged Apply creates no Undo point. If saving fails, Apply stops; an
+explicit Stock/reset remains available and logs that Undo could not be saved.
+The [local rail trial](experiments/rail-limit-profiles-20261105.json) covered all
+eight fields across NVVDD and MSVDD, linked edits, Stock, Reset all and manual
+profile loading. Every original request and voltage boost matched afterward.
+
+### Named profiles for individual ordinary controls
+
+In **Profiles > Save profile**, choose **Contents** to save just the current
+memory offset, voltage boost, rail limits, fan policy, coupled power/current requests,
+power-policy feedback bounds, or an
+available clock-domain offset. Saving reads the applied requests; staged edits
+in the input boxes are not saved. **Full tune** retains the ordinary capture.
+
+Load these scoped profiles manually from **Profiles** or include them in a
+combined profile. Loading saves an Undo point for the selected controls first.
+Fan-only loads preserve unrelated manual voltage control and P0 holds. Fan
+profiles require the same adapter and a currently compatible fan layout;
+driver and VBIOS version strings are informational for these manual profiles.
+Scoped profiles never load at startup or after a GPU reset.
+Rail-limit profiles use the existing **Rail limits** write gate and current
+voltage bounds; loading does not enable that gate or XOC automatically.
+
+Local qualification covers [named ordinary profiles](experiments/ordinary-named-profiles-20261102.json)
+and [rail-limit profiles](experiments/rail-limit-profiles-20261105.json).
+
+### Combined manual profiles
+
+Open **Profiles > Load profile**, then **Combine profiles...**. Choose saved
+sections or Undo snapshots, name the combination and save it. The file contains
+copies of those snapshots; changing the original files does not change it.
+Loading is always manual, including when an ordinary tune is one component.
+Combined profiles cannot be selected for startup or automatically reapplied
+after a GPU driver reset.
+
+Each component is checked before loading, and the selected current values are
+saved as one **Undo last write** snapshot. Existing I2C verification still
+applies to ordinary tunes. Active manual PMBus voltage is handed back before
+capturing the ordinary tune's Undo state, as with ordinary profile loading.
+Low-power sections restore this app's owned requests. If a component fails,
+later components stop; the log reports the result and the saved Undo remains
+available for manual loading.
+
+Overlapping targets are rejected, including a V/F curve with a separate core
+offset and voltage controls sharing an equation. Native REL/constants edits
+cannot be combined with voltage-policy offsets because they can invalidate
+the offset definitions. Gates are enabled first only when explicitly included;
+a saved gate-disable runs last. Loading does not add missing controls or change
+their existing capability requirements. Shared idle thresholds and adaptive
+policy are still excluded because a complete restorable state is unavailable.
+
+Local trials cover [combined scoped profiles](experiments/combined-profiles-20261102.json)
+and a [combined full tune](experiments/combined-full-profiles-20261102.json).
+They do not establish arbitrary voltage replay; combined I2C sequencing has
+offline coverage only.
+
+### Ordinary tune profiles
+
+**Profiles > Save profile > Contents: Full tune** captures the applied curve, clocks, power, fan policy,
 confirmed per-rail limits and voltage offsets, the Additional Memory Clock
 Offset, the identified I2C regulator's offset, and (since 1.7.0) every
 writable power policy with the values set by hand and the channel notes. The
@@ -35,7 +205,8 @@ I2C requests use the identified controller's step. Core offsets snap to the
 card's physical frequency bin on Apply, and the displayed result can be
 reapplied without moving to another bin.
 
-Choose **Load at startup** beside a named profile to apply a saved copy at
+Only ordinary full-tune profiles support startup loading. For one of these,
+choose **Load at startup** beside its named profile to apply a saved copy at
 Windows sign-in. Configure this while running Druta as administrator. Selecting
 it again updates that copy; **Disable startup loading** turns it off. The card,
 VBIOS and driver must still match. After changing drivers, save a fresh profile.
@@ -301,3 +472,787 @@ authorize Apply, and a failed restoration leaves the session marked unclean for
 automatic startup loading. A forced process termination or power loss cannot
 run this cleanup. Ordinary reboot does not necessarily clear I2C settings;
 use the controller's Stock/Auto action or a full power cycle as appropriate.
+
+## Registry and BIOS overrides
+
+Open **Controls > Registry / BIOS overrides**, then **Read current fields**.
+The panel shows understood BIOS fields and sensed silicon-model inputs for the
+selected adapter. Direct Speedo and IDDQ substitutions are writable when their
+live input identity, range and effective readback are available. IDDQ values
+are raw model integers; their physical units remain unresolved. They are not
+current-limit settings or measured current.
+
+Edit values, choose **Preview changes**, and review the saved transaction before
+**Apply and restart GPU**. Apply closes Druta, stages the selected adapter's
+registry values, restarts that GPU through Windows PnP, and reopens Druta with
+fresh driver handles. It never restarts Windows or reapplies a startup tuning
+profile. Changes persist across application exits until restored.
+New BIOS patch transactions preserve the existing GPU-firmware selector.
+
+**Restore previous registry settings** undoes the latest transaction. Undo keeps
+the original value types and absence of values, preserves unrelated external
+changes, and reports conflicts instead of replacing externally changed values.
+Receipts are stored under `%LOCALAPPDATA%\Druta\registry-overrides`. If the GPU
+backend cannot start, run the independent recovery command as administrator:
+
+```powershell
+.\Druta.exe --registry-recover 0000:01:00.0
+```
+
+Use your adapter's PCI slot. The saved Windows device identity must still match.
+The helper can restore registry values without a live NVAPI/NVML connection;
+success also requires the GPU to restart and the selected readbacks to return.
+
+BIOS activation is checked against the exact expected running image. Understood
+power/current policy metadata, core/memory offset ranges, fan duty/RPM bounds, PWM frequency and
+the operating temperature limit also require matching driver readback. Some
+Blackwell power/current policies derive their active maximum from the default
+limit; the preview explains this relationship and rejects ineffective maximum
+edits. Fan bounds use the driver's underlying duty/RPM fields; its public
+30-100 percent range can remain unchanged. PWM readback verifies the loaded Hz
+setting; the hardware derives an integer period, so it is not an electrical
+frequency measurement. The operating-temperature
+control accepts whole Celsius values and currently supports lowering the limit;
+supported slowdown and shutdown thresholds must remain unchanged. Other decoded
+BIOS fields are experimental: loading their bytes does not establish a physical
+effect. Increasing a board-power maximum does not automatically increase every
+other power/current policy or prove that the board draws the requested wattage.
+Speedo and IDDQ change software model inputs while the raw hardware fuses stay
+intact. IDDQ transactions also verify the other model inputs and configuration;
+an ignored, rounded or otherwise mismatched value triggers undo.
+
+Minimum, rated and maximum edits are supported for full class 1 in the shorter
+v30 power table when its native-policy binding is available. Other classes in
+that table remain read-only; activation and recovery on the RTX 3070 Ti remain
+unqualified.
+
+Numeric power/current fields use the displayed W or A units in both the
+input and Preview. Raising a policy maximum leaves the configured request
+separate: on the tested RTX 5080, a 450 -> 455 W board maximum and its Undo
+preserved the 360 W request and all other power control records. This verifies
+the panel workflow and loaded definition, not physical enforcement under load.
+[Numeric workflow evidence](experiments/ui-registry-power-qualified-20261029.json).
+
+**Memory subsystem (MS), NVDEC, NVENC, OFA and NVJPG entry disables** use
+**Idle power management** fields. Apply changes for one engine at a time.
+Preview describes the configured P-state eligibility and support changes; Apply
+and Undo verify the selected controller, related support and captured peers.
+A supported controller may have an empty configured mask, whereas an
+unsupported controller has an unavailable mask. Unavailable support queries do
+not prove an empty group mask.
+
+MS supports qualified partial disables, complete enabled-entry shutdown and
+understood shared-feature or mapped-capability losses. Depending on the captured
+profile, a shared MS support query can remain readable and true or false, or a
+dependent auxiliary group's queries can become unavailable. NVDEC requires
+controller 12 supported and controller 17 independently unsupported. Partial
+NVDEC and media disables preserve aggregate flags. A full NVDEC, NVENC, OFA or
+NVJPG shutdown may remove support; if it removes the last valid type-4 role,
+all eleven support queries must become unavailable and the selected controller's
+support, mask and features must match the preview. Other dependency profiles and
+physical residency or power savings remain unverified.
+
+Evidence: [MS configuration](experiments/ms-configured-qualified-20261029.json),
+[MS mapped capability](experiments/ms-mapping-loss04-qualified-20261030.json),
+[additional MS cases](experiments/ms-mapping-neighbors-qualified-20261030.json),
+[NVDEC](experiments/nvdec-configured-qualified-20261029.json),
+[media](experiments/media-lpwr-configured-qualified-20261029.json),
+[last-role qualification](experiments/media-type4-last-role-qualified-20261029.json),
+and [LPWR panel callbacks](experiments/ui-lpwr-configured-qualified-20261029.json).
+These cover the stated configurations, not all dependency profiles or physical
+input. A packaged schema3 callback remains unqualified. A later OFA trial's
+final observations matched its expected state, but early request differences
+leave immediate settling unestablished.
+
+**Linked base current** configures a base current carried by another power
+policy. Druta resolves the BIOS relationship to its target policy and verifies
+the loaded cache and firmware-reported base value after a GPU restart. Other power
+definitions and requests must remain exact. The base request, weighted contribution
+and target's effective limit are separate values; a lower competing vote can keep
+the effective limit unchanged when this base request changes. Apply these separately from other registry
+controls. Undo checks the original cache, reported value and requests; an
+unverified restoration stays marked **recovery required**. These checks do not
+measure physical overcurrent protection or enforcement under load.
+The [weight and base-current composition trial](experiments/linked-current-weight-composition-5080-61742-20261105.md)
+documents a changed base request with a non-unity weight. Restoring the current
+edit retained the weight override; restoring that override then recovered the
+original configuration.
+
+**Driver behavior > Cache limit-conversion results** controls reuse of cached limit
+calculations. Disabling it requests recalculation; it does not disable power-limit
+enforcement. Its selected value, peer flags and registered limit inventory must
+agree with fresh driver readback after activation and undo.
+
+**Skip driver performance-limit updates** suppresses host-initiated updates.
+The active switch and exact undo have been verified; its effect on autonomous
+firmware enforcement remains unverified. Both driver-behavior controls require
+a GPU restart and can be changed independently or together.
+
+**Expose all-P-state overclocking editability** enables the driver's override for
+supported non-P0 clock domains. Clearing it removes the override and requires
+fresh readback to show disabled editability; if the driver default remains
+enabled, the transaction rolls back. The override itself changes no offset.
+Reported editability does not establish that every state-specific setter works.
+Apply this control separately from BIOS clock-range edits. Underlying offsets,
+ranges, peer metadata and adapter identity are checked after activation and undo.
+
+**Enforce VF curve monotonicity** and **Enforce VF curve smoothing** control two
+driver policy flags through `RMClkVfOverride`. Apply restarts the selected GPU
+and verifies both flags and the other returned configuration fields. Disabling
+either also changes a derived VF processing mode. These controls do not write
+a curve or request a voltage. Their effect on the firmware's curve-processing
+algorithm remains uncharacterized. Apply them separately from BIOS clock-range
+edits; **Restore previous registry settings** restores the captured flags.
+
+**Constant VMIN** changes an understood, unshared BIOS minimum-voltage equation
+for the selected rail. Preview requires agreement with its independently
+reported effective VMIN and retains existing voltage offsets. The target must
+fit the rail's current reported upper limits. After restart, the effective VMIN
+must match exactly and the other captured rail policies must remain unchanged.
+If the driver rounds to another voltage step, Druta restores the previous
+settings. The supported step is device-specific; the current upper limits do
+not establish behavior at every operating point or measure physical voltage.
+
+**OV constants and ALT addends** change understood constant voltage equations.
+OV is an absolute BIOS constant, with the current rail offset retained. ALT is
+an addend to that rail's complete REL equation; its displayed value is not an
+absolute ceiling. Druta edits all three constant words together and checks the
+entire loaded equation configuration after a GPU restart. The selected reported
+limit must match exactly; rounding or an unexpected change triggers undo.
+Complete rail-control requests must read back unchanged. When complete request
+replay is available, Druta restores the captured rail offsets and voltage-boost
+percentage after each GPU restart, including Undo and rollback. Each replay is
+verified independently. If complete replay is unavailable, set boost to 0% before
+applying OV, ALT or REL BIOS changes. Arbitrary legacy rail-request replay is
+not yet qualified: a driver can report SET success while leaving an offset unchanged.
+Druta reports the rail, affected field, requested and observed values, and any
+separate boost or metadata discrepancy. An ignored request fails verification;
+if the captured requests cannot be restored, recovery remains required.
+
+**Live voltage constants** changes loaded constants without restarting the
+GPU. Read the available rails and select an **OV constant**, **ALT addend** or
+**VMIN constant**. Enter a value in mV and choose **Apply now**. The panel shows
+the current constant, stored value and independently reported limit separately.
+For example, changing an ALT addend from 20 to 15 mV can change a reported ALT
+limit from 1060 to 1055 mV. **Restore initial value** returns that rail and role
+to the value first read for this adapter and image in the current Druta session.
+Live values last for the driver session; use BIOS fields for persistent changes.
+Voltage boost, rail offsets and readable clock requests are retained. A rounded
+reported value or unexpected peer change fails verification and attempts one
+restoration of the original constant, with the recovery result shown. The
+supported voltage step is device-specific.
+
+VMIN also shows the maximum input allowed by that rail's currently reported
+upper limits and retained signed VMIN offset. Druta checks the loaded constant
+against the reported minimum before changing it. The new reported VMIN must
+match exactly, while other policy values and requests remain unchanged.
+
+**Voltage policy offsets** adds a separate signed offset to each supported
+rail's REL, ALT, OV and VMIN policy. **Enable offsets and restart GPU** installs
+zero offsets and reopens Druta after restarting the selected GPU. Windows stays
+running. Activation requires understood BIOS/equation layouts and available
+unused equation slots; unsupported roles remain listed separately. An active
+registry transaction must be completed before enabling offsets.
+
+After activation, **Read offsets** shows live values and reported limits. Select
+a rail and role, enter a signed mV offset, and choose **Apply now**. These changes
+take effect without restarting the GPU. **Save offset profile** captures the current
+offsets; **Load and apply offset profile** explicitly replays them for the selected
+adapter. A GPU driver restart reloads zero offsets; saved values are not applied
+automatically. These files are separate from ordinary clock/tuning profiles.
+
+Before **Apply now** or **Load and apply offset profile** changes any offset,
+Druta saves the selected prior values for **Profiles > Undo last write**. An
+unchanged request adds no undo point. If saving fails, no offset is written.
+Undo uses the existing live offset definitions; it does not enable offsets,
+change registry settings, restart the GPU or apply anything automatically.
+A partial failure leaves its pre-write snapshot available for manual Undo.
+
+Command-line access uses an explicit PCI slot and signed microvolts:
+
+```text
+Druta.exe --voltage-offsets --gpu 0000:01:00.0 enable
+Druta.exe --voltage-offsets --gpu 0000:01:00.0 set --offset 0:REL=-5000 --offset 1:ALT=5000
+Druta.exe --voltage-offsets --gpu 0000:01:00.0 capture --out offsets.json
+Druta.exe --voltage-offsets --gpu 0000:01:00.0 read
+Druta.exe --voltage-offsets --gpu 0000:01:00.0 replay --profile offsets.json
+```
+
+Offsets must be signed 32-bit microvolt values exactly representable by the
+driver's float32 constant format. That numerical range is not a measured
+operating range. Each write checks the exact equation definition and reported
+policy change while preserving other direct policies and rail requests. The
+effective limit remains a separately reported firmware result. Tests on one
+RTX 5080 verified +5 and -5 mV independently for all eight roles and a mixed
+profile replay after a driver restart. These results establish reported policy
+control at the captured operating point, not physical regulator voltage or
+support on every GPU. The original six-word rail-request path remains separate
+and unqualified for arbitrary replay.
+
+**Live REL equation bounds** changes the loaded REL equation without restarting
+the GPU. Read the supported rails and enter a value in mV. **Apply upper**
+changes only its upper bound. **Fix both bounds** sets its lower and upper
+bounds to the entered value, preserving the equation's terms and links.
+The panel shows loaded and stored bounds separately from reported REL, ALT and
+effective limits. A fixed equation head does not fix the entire chained policy
+or measured rail voltage.
+**Restore BIOS bounds** restores both bounds from the currently loaded BIOS.
+**Restore initial upper** restores only the upper value first read for this
+adapter and image in the current Druta session. Use **Restore BIOS bounds** to
+remove a changed lower bound as well.
+Live edits last for the driver session; use the BIOS fields for persistent edits.
+The evaluated V/F curve can briefly refresh after a write. A timed research
+trial returned to its original curve without a second SET. Retained voltage and
+readable clock requests are verified independently; unavailable optional
+readbacks are listed. Failed dispatched changes attempt one restoration of the equation bounds
+captured before the write and report whether recovery was verified. Arbitrary legacy
+rail-request replay remains unqualified; independent voltage offsets use the
+separate controls above.
+
+The opt-in developer command `--ui-capture-live-rel-bounds RAIL VALUE_UV DIRECTORY`
+exercises the packaged panel's Fix both bounds and Restore BIOS bounds callbacks
+and records four frames. RAIL is 0 or 1, VALUE_UV is a positive integer in
+microvolts, and DIRECTORY must be new with an existing parent. It cannot be
+combined with another capture, startup-profile mode or recovery relaunch. It
+performs real live edits, attempts restoration before exiting and records any
+restoration failure. Ordinary launch does not run this trial.
+Two packaged trials on the captured RTX5080 configuration verified both rails
+after an independently observed original baseline. This covers programmatic
+callbacks; physical input and failure/recovery walkthroughs remain pending.
+
+For a read-only capture of an existing recovery-result relaunch, run
+`Druta --ui-capture-recovery NEW_DIRECTORY --recovery-result RECEIPT`.
+The receipt must be accepted for the selected GPU. `NEW_DIRECTORY` must not
+exist, and its parent directory must already exist. This mode cannot be combined
+with another capture mode, a startup profile, or a registry trial. It captures
+two frames—the saved Undo state in the Registry panel and the existing Control
+log—then restores the display and exits. It does not apply or undo registry
+settings, restart the GPU, or create or inject a failure. The displayed
+`Last device recovery (historical)` result may remain visible after the registry
+is restored; it does not mean recovery is still pending. Undo availability
+comes from the current saved receipt.
+
+To capture a missing or unreadable receipt error from the helper, use:
+`Druta --registry-overrides MISSING_RECEIPT --parent-pid PID --expected-slot
+SLOT --ui-capture-recovery NEW_DIRECTORY`.
+`NEW_DIRECTORY` must be new, with an existing parent. The helper waits for
+`PID` to exit before reading the receipt, checks its target against `SLOT` when
+the receipt loads, and relaunches the GUI on that slot with the helper result.
+A missing or unreadable receipt is reported as the actual helper error; the
+helper returns 1 without executing a registry transaction. This does not inject
+a native/device failure. The capture flag itself does not apply settings or
+restart the GPU, but a valid receipt still runs through the ordinary helper
+action (default `apply`; use `--action restore` for restore) and can change
+registry state and restart the GPU.
+
+To exercise the real Undo callback, run the separate opt-in trial:
+`Druta --ui-capture-recovery-undo NEW_DIRECTORY --recovery-result RESULT`.
+`NEW_DIRECTORY` must be new, with an existing parent. `RESULT` must be accepted
+for the selected GPU, and its Details path must match the active same-adapter
+recovery-required receipt with Undo available. The trial captures the pending
+panel and log, calls the Registry panel's ordinary **Restore previous registry
+settings** action, and follows the existing helper/relaunch path. After the
+helper and readback verification succeed, it captures the restored panel and
+log. This changes the registry and restarts the selected GPU; it does not
+reboot Windows. It cannot be combined with a startup profile or another
+capture/trial mode. This exercises the callback programmatically; it does not
+qualify physical input or broader failure/recovery handling.
+
+Changing ALT can change the shared boost contribution and the computed REL and
+effective limits on both rails. OV can change the selected rail's effective
+limit. These computed outputs are recorded without assuming a firmware formula.
+This checks loaded settings and reported limits, not measured regulator voltage
+or enforcement under load. Apply these separately from other registry controls.
+
+**REL upper clamps** change the maximum of an understood multivariate voltage
+equation. Druta checks the complete loaded definition and changes only its upper
+clamp; the lower bound, coefficients and linked equations stay unchanged.
+The reported REL can remain below the clamp or be rounded to a voltage step.
+Linked ALT limits and effective limits can change. With 0% requested boost,
+unrelated rail limits and the boost contribution must stay unchanged. A missing
+readback for an affected rail prevents applying; an unrelated missing rail does
+not. Apply REL separately from other BIOS or registry controls. Undo restores
+the captured definition and reported state. These checks establish loaded
+configuration, without measuring physical voltage or enforcement under load.
+
+**Fixed REL equation bounds** set the selected equation's lower and upper bounds
+to the same value. Check **Set** to include this control in the preview; editing
+its number alone does not select it. The initial number is the stored upper
+bound, and the preview shows both original bounds. Polynomial terms, linked
+equations and rail offsets are retained, so the reported REL can differ from
+this equation value. Druta verifies both loaded bounds exactly and records the
+reported result separately. Apply and Undo use the same request preservation
+and GPU restart checks as the REL upper clamp.
+
+**Startup REL adjustment** selects an explicit driver startup setting for the
+currently affected rails. **Force -50 mV startup adjustment** requests that REL
+offset; **Suppress startup adjustment** requests zero. **Leave unchanged** keeps
+the current registry selection. An inherited setting is not labeled enabled or
+disabled from its current offset alone.
+
+Apply this separately from other controls. After GPU restart, Druta checks the
+startup effect before replaying captured rail requests and boost. Undo restores
+the exact previous registry value or absence and verifies the original requests.
+Current drivers can ignore runtime offset writes; if a captured custom offset
+cannot be restored, the transaction stays marked **recovery required**. A saved
+registry value alone is not reported as complete restoration.
+
+**Fan curves and zero-RPM thresholds** use the driver's current per-policy
+configuration for readback. Temperatures use steps of 1/32 C; duty coordinates
+use whole percent and RPM coordinates use whole RPM. The preview identifies a
+stored coordinate that is inactive in the current RPM or duty mode.
+Druta binds each policy to its reported cooler routes and preserves other
+curve points, stop flags, duty/RPM values, cooler bounds and PWM settings.
+Zero-RPM thresholds require an already supported and enabled stop policy.
+A final curve point derived from a thermal-table limit cannot be changed
+through its unused stored temperature. Temperatures and curve coordinates can
+be changed together; apply them separately from zero-RPM enablement and
+cooler-setting changes. These checks
+verify loaded configuration; they do not measure physical fan response or
+identify which of several routed policies currently controls fan speed.
+
+**Global zero-RPM enablement** changes the support and enable flags in every
+affected fan policy. Preview requires an understood binding for every edited
+policy. Apply verifies the full loaded policy, routing and cooler configuration;
+unsupported activation or any unexpected change triggers undo. Apply this
+separately from fan-curve, threshold and cooler edits. This verifies the loaded
+configuration; physical fan-stop behavior remains dependent on the active policy.
+
+**Clock offset ranges** on understood v50 BIOS tables also use the driver's
+typed domain table. This covers auxiliary domains such as XBAR, SYS and video
+when their current bindings are available. Apply preserves other domain metadata
+and current user-clock requests, and requires exact bound readback after restart.
+Changing a range does not itself request a new clock offset.
+
+**Factory clock offsets** change the loaded core or memory factory delta on
+understood v10 factory/v50 clock tables. Apply checks the exact factory delta
+after the GPU restart, including the core offset copied to an eligible XBAR
+domain. Existing per-domain offsets, VF tuning requests and other clock metadata
+are preserved. Zero disables the selected factory record. Apply factory offsets
+separately from other registry or BIOS controls. Evaluated VF and P-state
+frequencies can change; readback verifies the loaded configuration, without
+establishing clock behavior under load.
+
+**Rated base/boost clocks** change the stored absolute core frequency on
+understood v10 factory/v50 clock tables. Apply one rated clock per transaction,
+in whole MHz. A stored value of zero means that record is inactive; enter a
+positive value to enable it and use **Restore** to undo the saved change.
+After the GPU restart, Druta checks the public rated-clock query and both loaded
+copies of every affected record. It derives linked-record changes from the
+original frequencies reported by the current adapter, while preserving existing
+clock offsets and VF tuning requests. These values describe rated metadata;
+they do not force an operating frequency or prove a performance increase.
+
+**GR power-gating entry disables** use **Idle power management** fields in a
+separate transaction. Preview shows configured P-state eligibility and the
+predicted dependency changes. Apply checks the selected memberships, routing,
+support, available controller masks and features, and captured peers; Restore
+checks the original configuration. Ordinary disables require enabled entries
+consumed by the loaded P-state map.
+
+Supported contracts cover ordinary disables, loss of qualified shared auxiliary
+capabilities, and disabling all enabled entries, including entries unused by the
+loaded map. Depending on the captured configuration, shutdown can make main GR
+controller 0, auxiliary support queries or a shared group unavailable; GRRG
+controller 2 or MSCG controller 4 support can also be lost. Other peer changes
+fail verification and trigger restoration. Preview distinguishes a valid empty
+mask from an unavailable group. A surviving role can retain support with a
+contracted mask. Some auxiliary roles have support, P-state mask and feature
+readback; another has no established separate per-P-state mask and is checked
+through support-query availability. The type-4 path checks unavailable replies
+without claiming an independently read empty support mask. Conditional dependency losses and broader
+hardware qualification remain open; configured eligibility does not measure
+physical residency or power savings. See [no-peer configuration](experiments/grpg-bit4-no-peer-qualified-20261029.json)
+and [type-4 availability](experiments/grpg-bit1-availability-qualified-20261029.json).
+
+**DIFR entry disables** use the existing **Idle power management** registry
+fields. Disable a currently enabled DIFR entry in its own transaction, preview,
+then apply with a GPU restart. The supported path checks the loaded P-state to
+LPWR routing and the resulting configured DFPR/MS DIFR support and state masks.
+**Restore previous registry settings** restores the captured original entry and
+verifies its original configuration. Enabling an originally disabled entry
+remains unavailable because its captured bytes do not establish support.
+For a captured enabled entry, DFPR, MS DIFR SW-ASR, and CG subfeatures can also
+be disabled. Preview reports the expected support, routed-state, and feature
+result for each controller. Child-flag changes use a separate transaction from
+a whole-row disable. Originally disabled rows or subfeatures remain read-only
+because their captured bytes do not establish support. These configured
+readbacks do not measure physical residency. Disabling DFPR may also remove
+supported SW-ASR and CG; disabling SW-ASR also removes CG. Preview lists the
+complete outcomes it can validate, and Apply verifies one complete outcome
+after the GPU restart.
+
+**DIFR configured state > Read DIFR configuration** shows the loaded mapping
+and controller support. A supported controller with a zero mask has no configured
+P-states; an unsupported controller has an unavailable mask. These are distinct
+results. The read does not measure the executing P-state, feature residency or
+physical power savings. Table layouts and routing that cannot be qualified are
+reported before a DIFR write; unrelated controls retain their own capabilities.
+
+**Live DIFR disable request** holds one counted request for this Druta instance.
+Use **Read** to see request support and the separate driver-enabled readback;
+that readback does not report feature residency. **Hold disable request** adds
+this instance's request, and **Release this request** removes a request held by
+this instance. This control does not enable originally disabled entries and
+does not require a GPU restart. Release the request before switching GPUs or
+closing Druta; it is not released automatically.
+
+**Live engine-level power gating (ELPG)**, **Live engine clock gating (ELCG)**, **Live block
+clock gating (BLCG)** and **Live second-level clock gating (SLCG)** provide
+separate **Refresh**, **Hold disabled** and
+**Release** controls. Hold adds this application's request to disable the named
+mechanism; Release drops that request. Each requires independent evidence
+before reporting a verified hold. BLCG checks a supported register layout
+through NVIDIA's read-only register operations; an inaccessible or unknown layout
+does not enable Hold. The readbacks are partial configuration witnesses, not
+measurements of physical gating, residency or power savings.
+The ELPG request applies to a group chosen by the driver, which can include
+graphics and media controllers. That panel does not select individual controllers. While
+held, each supported controller reports whether a new request transition was
+observed; an overall verified hold does not prove every controller changed.
+
+Turing, Ampere and Ada BLCG use separate five-register layouts. Hold requires readable values
+containing only understood bits and at least one nonzero value, then checks that
+all five words become zero. Release checks their return to the captured starting
+values. A native policy mismatch is reported as a verification failure. The
+Turing, Ampere and Ada paths have offline coverage; hardware qualification remains pending.
+
+SLCG shows unavailable registers separately. Ampere, Ada and Blackwell Hold
+needs at least one readable register and a compatible zero baseline; it verifies
+the expected disable values and their return to zero on Release. Turing uses a
+single source-bound register with a required 1 -> 0 -> 1 transition. Its named
+request also changes 15 other source-table registers whose prior values and
+transitions remain unverified; the panel identifies this limitation. These are
+partial witnesses, not checks of every GPU subunit. Turing, Ampere and Ada have
+offline coverage; their hardware qualification remains pending.
+
+SLCG also provides **Hold enabled**. It checks the source-defined enabled values
+and verifies rejection of a conflicting request on a separate temporary profiler
+object. Enabled values may already match before the request; the UI reports this
+arbitration check separately from actual register changes. Release before
+switching between enabled and disabled holds. Other driver mechanisms can still
+interfere, and this does not prove physical gating or residency.
+
+ELCG also provides **Hold enabled** when every supported engine reports no
+active disable reason. It holds an ENABLE request against conflicting profiler
+requests; it does not force an engine past other driver restrictions. The panel
+reports the arbitration check separately from changes to engine eligibility.
+If other disable reasons are active, Hold enabled remains unavailable. Release
+before changing modes. BLCG and ELPG currently offer Hold disabled and Release;
+their ENABLE callbacks are not qualified as independent controls.
+
+These four requests last only for the current session. Druta releases its own
+requests on normal exit or GPU switch and never reapplies them after a driver
+restart. They can be held independently; releasing one does not release the
+others. No registry change or GPU restart is needed to use them.
+
+**Individual engine power gating** provides separate **Refresh**, **Hold disabled**
+and **Release** controls for Graphics (GR), Memory subsystem (MS), MS DIFR
+SW-ASR, MS DIFR CG, NVDEC, NVENC, OFA and NVJPG. Each checks its own
+availability, so an unsupported engine does not disable the others. Hold
+adds one counted inhibit for the selected controller and checks its reason bit;
+Release removes this instance's one request. Another client's request can keep
+the inhibit active after release. Release a grouped ELPG hold before acquiring
+an individual hold if it already sets that controller's reason bit.
+
+The Graphics control changes the graphics controller's individual request,
+whereas grouped ELPG asks the driver to inhibit a group that can include media.
+Driver callbacks can reevaluate dependencies; an individual request does not
+guarantee effects are physically confined to that one engine.
+
+MS is available on the source-qualified Ampere, Ada and Blackwell layouts.
+Turing MS remains unavailable because it has an additional unqualified path;
+this does not disable other supported controls. The SW-ASR and CG requests
+target separate DIFR subcontrollers and can coexist with the existing live DIFR
+switch. They report driver requests, not measured memory power or residency.
+
+These controls do not need a registry change or GPU restart. Druta releases its
+own requests on normal exit or GPU switch and does not save or reapply them
+after a driver restart. Readback confirms the driver's request state, not
+physical gating, residency or power savings.
+
+To validate an individual control on another adapter from a source checkout,
+use `experiments/individual_power_gating_validation.py`. Read-only inventory is
+the default; substitute the intended adapter's PCI slot in these commands:
+
+```powershell
+python experiments/individual_power_gating_validation.py --gpu <PCI-slot> --out individual-read.json
+python experiments/individual_power_gating_validation.py --gpu <PCI-slot> --controller 4 --trial --out ms-trial.json
+```
+
+The trial selects one controller: 0 Graphics, 4 MS, 10 SW-ASR, 11 DIFR CG,
+12 NVDEC, 13 NVENC, 14 OFA or 15 NVJPG. Each output must be a new file. The
+JSON separates the selected request result from peer coverage; unreadable peers
+remain unverified. No workload, registry change or restart is performed.
+
+**Idle threshold** provides **Refresh** and **Apply** for Graphics (GR),
+Memory subsystem (MS), MS DIFR SW-ASR, MS DIFR CG, NVDEC, NVENC, OFA and
+NVJPG. Choose a controller and refresh its current state before entering a
+positive integer in microseconds.
+Changing the selection clears the entered value and readback, so refresh the new
+selection before applying. Druta displays the driver's applied value, which may
+be quantized.
+
+Each controller is checked independently. Apply requires a source-qualified
+Blackwell layout, selected controller support, both raw threshold words and a
+unique conversion scale. A failed or ambiguous read prevents Apply for that
+selection without disabling other controllers.
+
+The value is a driver request: actual gating latency, residency and power are
+not measured. Druta checks the other threshold word after Apply and reports a
+verification failure if it changed. The request is session-only and is not
+saved or reapplied after a driver restart. The microsecond label follows the
+driver's threshold names and source dataflow; it is not a physical timing
+measurement.
+
+For some GR, MS and media requests, the driver may also set a separate
+reason bit associated with adaptive power and send a firmware request. Returning the
+threshold number to its earlier value does not establish that the separate bit
+was cleared. The source-defined construction for the two MS DIFR controllers
+skips this auxiliary callback.
+
+**Live adaptive power policy** provides **Refresh**, **Allow** and **Disable**
+for Graphics (GR), Memory subsystem (MS), NVDEC, NVENC, NVJPG and OFA, where
+the selected role reports support. Refresh each selection before requesting a
+change. Unavailable roles do not disable the supported controls.
+
+Disable requests a shared adaptive-policy disable bit; Allow clears that bit.
+Other driver reasons can keep the aggregate policy disabled. Druta distinguishes
+an observed aggregate transition from an accepted request whose effect cannot
+be independently verified. This is shared driver policy, not an owned hold or
+a measurement of physical gating, residency or power savings.
+
+The driver may also change idle thresholds. In the local trial, Disable changed
+the selected first threshold from 100 to 70,000 microseconds; Allow did not
+immediately return every threshold to its previous number. Refresh **Idle
+threshold** for current values. Allow does not clear the separate reason that
+manual idle-threshold requests may set. These controls use no registry changes
+and are not saved or reapplied after a driver restart.
+
+When a change in either of these two panels can affect the other panel's
+selected controller, Druta marks that readback stale and requires **Refresh**
+before another change there. Any typed idle-threshold value is preserved.
+This does not issue another tuning request or restore an earlier setting.
+
+**Manual PCIe speed request** provides **Refresh**, **Request speed** and
+**Request previous speed**. Refresh to read the programmed target, both endpoints'
+negotiated generation and width, and their maximum generations. Available choices
+come from the current adapter and link capabilities on the understood Blackwell
+register layout.
+
+A request asks the driver to retrain the link; it is not a permanent speed lock.
+Druta reports a verified change only when the target and both endpoint speeds
+match, width is preserved, and unrelated target-register bits remain unchanged.
+An accepted command without that readback remains unverified. The driver may
+later change speed through its own power management.
+
+Request previous speed explicitly requests the target captured before the last
+verified change in this panel. It does not restore every internal driver state.
+Each changed panel request saves a PCIe-only Undo point first; a no-op saves
+nothing. A failed Undo capture prevents the request.
+
+Use **Save PCIe speed profile**, or **Profiles > Save profile > Contents: PCIe
+speed**, to save the currently applied target. A staged selection is not saved.
+The profile contains the target generation and adapter identity, without a raw
+register image, link-width setting or captured negotiated speed. Manual loading
+checks current capabilities and saves Undo before requesting the saved target.
+Combined profiles may include one PCIe speed component alongside other controls.
+An accepted request whose target/link readback does not match is reported as
+unverified, not as a successfully loaded profile.
+
+These requests use no registry entry and require no restart. Saved PCIe profiles
+must be loaded manually and never replay at startup or after a driver restart.
+The local [Gen 1 / Gen 2 trial](experiments/pcie-speed-5080-61742-20261105.md)
+verified both the change and return to the original observed state. The
+[profile callback trial](experiments/pcie-speed-profiles-20261105.json) verified
+named save/load, selected Undo and a single-component combined profile with an
+isolated profile directory. Neither trial measured power savings or throughput.
+ASPM L1 and LTR are separate controls.
+
+**Runtime VF policy control** reads the active monotonicity and smoothing checks.
+After **Read VF policies**, use **Apply policies now** to change either check
+without restarting the GPU. **Restore initial policies** restores the values
+from the first successful read for this adapter in the current application
+session. A failed change attempts to restore the immediately preceding values
+and reports whether that restoration was verified.
+
+Some startup modes reject disabling these checks. In that case, apply the
+corresponding registry setting with a GPU restart first. A live change retains
+the startup processing mode and leaves the stored registry settings unchanged;
+restarting the driver reloads the registry policies. Restore the initial live
+values before using registry Undo. The controls verify
+the driver's active policy flags. They do not write a VF curve or request a
+voltage, and physical firmware enforcement remains unmeasured.
+
+**Runtime voltage-request control** reads the driver's current admission switch.
+After reading it, **Apply gate now** allows or suppresses driver voltage requests
+immediately. **Restore initial gate** returns to the state captured by the first
+successful read for this adapter in the application session. Each change checks
+fresh readback; a failed change attempts to restore the state immediately
+preceding it. This switch does
+not request a voltage or raise a voltage ceiling. It uses no registry entry and
+does not restart the GPU. A failed read disables its Apply action until a fresh
+read succeeds.
+
+**Voltage switch-delay requests** reads the supported PWM devices and their
+current delay requests in microseconds. Select the device by its displayed
+domain and operation, enter a positive whole number, then use **Apply delay
+now**. DEFAULT and IPC_VMIN are separate device roles. **Restore initial delay**
+returns the selected device to the value from its first successful read in this
+application session. Other devices' requests are preserved; a failed write
+attempts an exact restoration and reports its verified result.
+
+These live changes use no registry entry or GPU restart and are reloaded when
+the driver restarts. The field is a positive 32-bit request; its representable
+range is not a measured timing range. Readback verifies configuration, while
+physical switching latency and firmware scheduling remain unmeasured. The
+separate power-up/down delay words are not controlled here. A missing or
+unrecognized peer device does not remove an independently supported control.
+
+Intermediate voltage-policy delay is a separate interface. The tested RTX
+5080 / 617.42 inventory contained only type 5, without the type 2/4 delay
+handlers; no policy-delay control was added. See the scoped
+[source and inventory result](experiments/policy-intermediate-delay-5080-61742-20261105.md).
+
+**Power/current arbitration > Read arbitration** separates the requested limit,
+host votes, firmware votes and effective limit for each understood policy. A
+lower firmware vote can keep the effective limit below the host request. Client
+numbers remain numeric until their roles are established. These reads do not
+change settings; a failed refresh labels any retained result as historical.
+The fields are read sequentially, and firmware votes can lag a recent change.
+Refresh again before concluding that a request has propagated to dependent limits.
+The [relationship arithmetic investigation](experiments/power-relationship-formula-5080-20261105.md)
+explains the endpoint interpolation and rounding found in saved 5080 captures.
+Its exact numerical fit does not establish the PMU producer or a live weight
+setter; Druta continues to show returned limits rather than calculated substitutes.
+
+**Read relationships** in the same panel shows configured relationship targets,
+reported weights, and each understood target's minimum, nominal and maximum.
+It also shows understood type-0 source ranges, type-32 linked references and
+type-33 inclusive relationship ranges.
+Type-32 fields select one relationship record; type-33 fields select a range.
+Each relationship is joined to its target policy; relationship and policy
+indices are not interchangeable. Other source-policy types
+remain explicitly uninterpreted. These records explain configured dependencies,
+not which firmware client produced a vote. This view does not predict or apply
+limits. See the [INFO source and live-read evidence](experiments/power-relationship-info-20261105.md).
+The [type-33 host traces](experiments/power-type33-relationship-ranges-20261105.md)
+establish those range fields independently in the examined 617 and 621 host
+drivers. Reversed ranges display as empty; missing relationships, unsupported
+types and absent targets display as unavailable rather than inferred links.
+
+**BIOS fields > Power / current > Relationship weight** edits qualified weights
+through the existing registry override preview. Enter a multiplier, where 1 is
+unity, in exact steps of 1/4096 (0.000244140625). Apply refreshes the GPU driver;
+this BIOS-override exception persists until changed or restored. It does not
+change ordinary tuning controls' session-only behavior. The selected weight,
+target identity and all other INFO bytes must match after refresh. A shared
+relationship can affect multiple contributions to a limit, so its weight is
+not a direct multiplier of the final effective limit. See the
+[changed-weight trial](experiments/power-weight-override-5080-61742-20261105.md)
+for the tested request and its driver-reported effect; no physical enforcement
+or universal accepted range is implied.
+
+**Driver policy diagnostics > Read driver policies** shows registered performance
+limit slots, feedback-controller flags and registry-selected feedback policies.
+Registered slots are an inventory; their presence does not show that they are
+currently limiting the GPU. Unknown flags stay labeled as raw values. Each group
+is read independently, and retained values after a failed refresh are labeled
+historical.
+
+## Power slider extensions
+
+On GPUs exposing the live client-power interface, **XOC** extends the same
+slider to positive requests up to 1999 W (or the current BIOS maximum if
+higher). This is a software request range. It does not change BIOS limits,
+and firmware can still enforce a lower limit. Ordinary requests keep the
+existing driver path. Extended requests take effect without restarting the
+GPU or Windows. The configured request and measured draw remain separate;
+**Registry / BIOS overrides > Power/current arbitration** shows host and
+firmware votes and effective limits.
+
+On adapters using the older client-power layout, changing the board request can
+also recalculate other power and current requests. Druta checks the resulting
+control records and re-applies values pinned in this session. Arbitration-vote
+details and original-BIOS-range coloring may be unavailable independently of
+the live request control. The reported limit is not a measurement of actual
+power draw.
+
+A pinned policy value preserves its configured request, not a guaranteed
+effective limit. In the local [source-pin crossover trial](experiments/power-explicit-source-20261105.md),
+policy 2 stayed requested at 350 W while the board request moved from 365 W
+to 345 W. Its firmware arbitration output nevertheless fell from 350 W to
+345 W, and policy 9's derived vote fell with it. An explicit request therefore
+did not detach that policy from the other limits in this tested configuration.
+
+Very high requests can produce a lower native effective limit. On one RTX
+3070 Ti, a 1,024 W request reported a 7.424 W native board limit, while a
+1,999 W request reported 1,012.893 W; NVML retained the complete requests and
+the linked current limits kept increasing. These observations fit a wrap in
+the native status path. Raising the request therefore does not guarantee a
+higher effective limit. See the measured policy table in
+`experiments/ampere-live-client-power-20261027.md` for scope and details.
+
+Turning XOC off retains an already configured extended request and allows
+movement back toward the normal range. Profiles that capture such a request
+carry XOC for replay. Stock beside Power limit restores its rated request.
+Stock beside another power policy restores that policy's default while
+retaining an extended board request; its result states that host-derived
+limits were not recomputed.
+
+The existing **Power limit (W)** slider keeps the original BIOS range in its
+usual color. When a BIOS override extends the range, the added portion is tinted
+amber. The number in the adjacent input box also turns amber whenever it is
+outside the original range; values exactly on the original endpoints keep the
+normal color. Typing, dragging, profile updates and Stock use the same rule.
+
+Druta reads the original limits from its saved original BIOS when an override is
+active. If the original image cannot be established, the slider tooltip explains
+that extension coloring is unavailable. A higher requested value can still be
+limited by another power or current policy.
+
+### Power-policy feedback adjustment
+
+Under **Power policies**, **Power-policy feedback adjustment** exposes the
+active lower and upper adjustment bounds for understood integral-control
+policies. Press **Read**, select a policy, enter **Lower adjustment (%)** or
+**Upper adjustment (%)**, and press its **Apply now** button. Each **Use reported
+default** button reapplies the corresponding reported default. Active values
+and defaults are displayed separately; sample counts are read-only.
+
+100% means a 1x bound relative to the policy's current limit. These are
+feedback-controller bounds, not guaranteed constant multipliers or changes
+to the main board power request. The lower bound cannot exceed the active
+upper bound, and the upper must be positive. Percentages are rounded to the
+nearest representable step of 100/4096 percentage points, and the exact active
+value is shown after readback. A successful request does not prove physical
+power consumption or remove other firmware limits.
+
+The panel preserves the mode, sample counts, other limits and opaque fields.
+Changes require explicit application in the current session. Each bound action
+saves a selected-field Undo point before writing; a no-op saves nothing.
+Choose **Profiles > Save profile > Contents: Power-policy feedback bounds**
+to save the currently applied bounds of all available integral policies.
+Staged input, sample counts, modes and ordinary board/policy requests are not
+included. Loading is manual, saves Undo first, and checks the current adapter
+and policy identities. These profiles never replay at startup or after a reset.
+Combined profiles may include separate lower and upper snapshots; the loader
+validates their final pair and orders writes without inverting the bounds.
+If a later write fails, the results identify earlier verified changes. A failed read marks retained values stale and disables
+Apply until another read succeeds. Other power controls remain available if
+this additional interface is unavailable.
+
+The local [upper-bound qualification](experiments/power-policy-integral-upper-5080-61742-20261105.md)
+records a changed reported effective limit and exact restoration on one RTX
+5080. The [lower-bound trial](experiments/power-integral-lower-5080-61742-20261105.md)
+verified a retained configuration change and exact restoration, with no change
+to the effective limit at idle; its effect under load remains unmeasured.
+Sample-count and mode writes are not exposed. The
+[past-count failure investigation](experiments/power-integral-count-failure-20261105.md)
+records a timeout, invalid-client errors and a driver TDR recovery sequence.
+Future-count writes were not attempted; accepted count ranges and the active
+receiver's update requirements remain unproved.
+
+The [manual profile qualification](experiments/power-integral-profiles-20261105.json)
+records saved-pair loading, pair Undo and upper-only Undo preserving a changed
+lower bound, with exact final request-state restoration.

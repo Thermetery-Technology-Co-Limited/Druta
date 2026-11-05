@@ -161,8 +161,11 @@ class VoltageModeTests(unittest.TestCase):
         current = [0]
         dw = (layout.header + layout.nvvdd_uv) // 4
 
-        def get(_mask):
+        def get(mask):
             buf = (ctypes.c_ubyte * gpu._CLKDOM_BUF)()
+            words = ctypes.cast(buf, ctypes.POINTER(i32))
+            words[0] = layout.version
+            words[2] = mask
             ctypes.cast(buf, ctypes.POINTER(i32))[dw] = current[0]
             return 0, buf
 

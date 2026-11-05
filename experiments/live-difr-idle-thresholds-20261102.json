@@ -1,0 +1,529 @@
+{
+  "scope": "Selected DIFR first idle requests on local RTX5080/617.42; no physical timing, power or residency measurement.",
+  "hardware": {
+    "gpu": "RTX 5080",
+    "slot": "0000:01:00.0",
+    "driver": "617.42"
+  },
+  "driver_sha256": "db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b",
+  "source_judgment": "The named controller identity, first-default-pair position, common live first-field conversion/index forwarding and common raw provider qualify driver-requested idle threshold semantics. Missing registry-to-parent copying limits initialization provenance, not this live control. This is a source-based naming/unit inference; physical effects remain unmeasured.",
+  "source_audits": [
+    {
+      "scope": "Offline bounded DIFR controller10/11 first-threshold source audit. No hardware, registry or product mutations.",
+      "driver_sha256": "db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b",
+      "findings": [
+        "734600 registry selector switch names controller10 RMLpwrMsDifrSwAsrIdleThresholdUs and controller11 RMLpwrMsDifrCgIdleThresholdUs, writing the per-controller group field group+124+index*108: +B74 and +C7C respectively. No path copying those group fields into parent+974/+978 was established.",
+        "B98010 constructor uses parent RDX; EBp=0x96 at B982D2 and writes both parent+974 and parent+978 from EBP at B988AA/B0, giving 150 for both on that constructor path.",
+        "A distinct producer is 5E3490: it loads parent=[GPU+2550] into R15, then passes its input object and stack buffer to parser helper 1881D0 at 5E3547. On successful return 5E358E..5E35A1 copies buffer DWORDs [RBP+17] and [RBP+1B] into parent+974 and +978, respectively. Caller 5E1AC0 obtains a value via 183F30, checks version byte 0x10 through 187E50, then passes that input object and value to 5E3490. Exact primary definition and units of the parsed fields remain unbound.",
+        "737120 index10 and index11 select parent+974 and +978, respectively, as the first default-generator input before the same mode-dependent conversion used in the established GR path. E802 3A constructs the first live field for a selected controller. These are numeric associations; they do not alone prove that the two registry-named group values feed those parent fields or that the BIOS-like parsed values have a particular unit.",
+        "Do not claim the complete registry-name to first-live-field naming/unit join for 10/11 without the missing group-to-parent consumer, authoritative definition of parsed input fields, or another concrete equivalent source. This conclusion does not state that no other such path exists."
+      ],
+      "windows": [
+        {
+          "label": "registry_selector_table",
+          "rva": "0x734a50",
+          "length": 88,
+          "bytes_hex": "5a467300384a7300b84673001f4a7300234773008748730069487300384a7300384a7300c3487300e1487300ff4873001d4973003b497300594973007749730095497300b3497300ce497300e9497300044a7300a5487300",
+          "sha256": "67314576087db79677b5c96019ca15b8e1bbae0713dc279e7e2a08233cd7bd1e"
+        },
+        {
+          "label": "difr_registry_literals_and_reads",
+          "rva": "0x7348e1",
+          "length": 56,
+          "bytes_hex": "0faee84c8d8724010000488bcb488d15db2d5e00e8d661a3ffe9390100000faee84c8d8724010000488bcb488d15ed2d5e00e8b861a3ffe9",
+          "sha256": "721061275c07d2ede71841f8ebe71812df5b3b1bdfb64999b1f9e39b5244dcd6"
+        },
+        {
+          "label": "source_input_version_dispatch",
+          "rva": "0x5e1ac0",
+          "length": 123,
+          "bytes_hex": "48895c2418574883ec30488b05af7ebb004833c44889442428488bda488bf9488bcb488d542420e84424baff85c07407b856000000eb6c8b542420488bcbe84d63baff3c107424440fb6c0ba00101202b946afe40ee876f1afffb913020000e8dcf3b2ffb840000000eb38448b442420488bd3488bcfe855190000",
+          "sha256": "fb518e5e8bf8a1d46a6ab85a1df9c731b20e9d606bbe49c2e89c4cbcd9539b4b"
+        },
+        {
+          "label": "parent_and_input_binding",
+          "rva": "0x5e3490",
+          "length": 163,
+          "bytes_hex": "40555657415441564157488d6c24d14881ecb8000000488b05d364bb004833c44889451f4c8bb950250000488d3d9e0c7300448945af4c8bf2488955c7488bf148894db748897da74d85ff74094d8ba7d0120000eb034533e433c94c8965bf894df70f57c00f57c90f1145ff0f11450f0f114dd70f114de74d85ff7523ba00004016b946afe40ee874d7afffb941160000e8dad9b2ffb856000000e9f00300004533c9",
+          "sha256": "a08c20fcaee8229c8acd2dd48778c96f69cce695aadf172f74ea800a46188baa"
+        },
+        {
+          "label": "parser_read_and_difr_field_copies",
+          "rva": "0x5e3533",
+          "length": 114,
+          "bytes_hex": "48899c2408010000488d55ff48897c2420498bcee8844cbaff8bd885c07423448bc0ba00104e16b946afe40ee82cd7afffb94f160000e892d9b2ff8bc3e9a30300000fb6450f4188876c090000694513e8030000418987700900008b4517418987740900008b451b418987780900008b4d0b",
+          "sha256": "a84c822723290beec2fcb91a29e25e942df7b62b2fa3c63e86efcc78cb601951"
+        },
+        {
+          "label": "versioned_parser_helper",
+          "rva": "0x1881d0",
+          "length": 122,
+          "bytes_hex": "48895c240848896c24104889742418574883ec30498bf9418bf0488bea488bd94885c97407488b89f0000000e81f36f9ff807b58007416ba00004d09b99578df0ee87a8af5ffb86d000000eb18488b5424604c8bcd448bc648897c2420488bc8e80bc74400488b5c2440488b6c2448488b7424504883c4305fc3",
+          "sha256": "ddd6172017be5627ce8b1349546a8064f9ef12d6b1c65deba4bb4fc799ee9842"
+        },
+        {
+          "label": "constructor_inputs",
+          "rva": "0xb98010",
+          "length": 80,
+          "bytes_hex": "48895c240848896c2410488974241848897c24204154415641574883ec204c8b91582300004533f6c682750300000141bce8030000664489a2e0020000488bdac682f104000001488bf9c68225040000",
+          "sha256": "778ab9bf24956f3eb076c55bfc54e706d16bbdca32db17d3d2595c337fe3c012"
+        },
+        {
+          "label": "constructor_constant_150",
+          "rva": "0xb982cc",
+          "length": 16,
+          "bytes_hex": "88b2b6030000bd96000000c782c80300",
+          "sha256": "919118d9428bfc6b944f468e8320a877c1768d86d90a531605d93ff01dbb87f5"
+        },
+        {
+          "label": "constructor_defaults",
+          "rva": "0xb98887",
+          "length": 47,
+          "bytes_hex": "0fb683f20400004803c066898cc392080000c6836c09000005c7837009000040420f0089ab7409000089ab78090000",
+          "sha256": "552d32ffffe0841e92750c1723ac09868ac3160aa49d7c900308f5bd996d73a8"
+        },
+        {
+          "label": "default_generator_and_selector",
+          "rva": "0x737120",
+          "length": 552,
+          "bytes_hex": "48895c240848896c24104889742418574883ec20488bb950250000498bf1488ba9b0230000bb701101004d85c9750ab81f000000e98001000080b99609000000741441c701f0d2000041c7410440420f00e96101000080b94653000000741441c701e803000041c7410400093d00e9440100004183f8150f8784000000488d155c8e8cff418bc08b8c82f07273004803caffe18b9f7c030000eb7f8b9fd4030000eb77bb64000000eb708b9f2c040000eb688b9fec080000eb60bbb8880000eb598b9f70090000eb518b9f74090000eb498b9f78090000eb418b9f600e0000eb398b9fbc0a0000eb318b9ff80a0000eb298b9f340b0000eb218b9f700b0000eb19ba00103d15b9329b890ee8609a9affb93e150000e8c69c9dff4885ed0f849400000080bd55060000008bc3744f8b8f1413000049b977be9f1a2fdd2406480fafc8498bc148f7e1498bc1482bca48d1e94803ca48c1e909890e8b8f141300004c69c140420f0049f7e04c2bc249d1e84c03c249c1e80944894604eb3a8b8d280e000049b8db34b6d782de1b43480fafc8498bc048f7e1498bc048c1ea1289168b8d280e00004869d140420f0048f7e248c1ea1289560433c0488b5c2430488b6c2438488b7424404883c4205fc36690b3717300c3717300bb71730021727300ca717300d2717300ca717300c3717300c3717300e1717300e9717300f171730001727300097273001172730019727300f9717300017273000972730011727300c3717300da717300",
+          "sha256": "4dbfa3214515f465e34acdf05e91647cd29a5e00005bef2e3c8562afc6d0aa0a"
+        },
+        {
+          "label": "common_first_field_set",
+          "rva": "0x738200",
+          "length": 224,
+          "bytes_hex": "4053555657415641574883ec48488b056c17a6004833c448894424304c8bb950250000498bf9458bf0488bea488bf14d85c90f840401000041833900750b41837904000f84f300000033d2488d4c242041b810000000e895779aff8b0749ba77be9f1a2fdd240641bb0100000085c0742c458b8f181300004c0fafc8498bc249f7e14c2bca49d1e94c03ca49c1e9094585c9450f44cb44894c2420eb05448b4c24208b4f0485c9742c458b8718130000498bc24c0fafc149f7e04c2bc249d1e84c03c249c1e8094585c0450f44c34489442424eb05448b442424488b96b02300",
+          "sha256": "8c60cb8e617f756695a6b02ee6b797a1d17d9b130ffc57d047a5bc60a83ab9e6"
+        }
+      ]
+    },
+    {
+      "scope": "Offline 617.42 indexed DIFR first-field semantic qualification; no hardware or product edits.",
+      "driver_sha256": "db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b",
+      "findings": [
+        "Missing direct copy from registry group+B74/C7C to parent+974/+978 is an initialization-provenance gap. It is not by itself evidence that live controller10/11 first fields differ from controller0/4/12..15.",
+        "DIFR controller identities are established separately by their source literals RMLpwrMsDifrSwAsrIdleThresholdUs and RMLpwrMsDifrCgIdleThresholdUs and existing individual-controller work. Default-generator switch 7372F0 selects parent+974 for index10 and +978 for index11; 737120 sends the selected value through the first member of its common converted pair, the same position used for other previously named controllers.",
+        "E802 3A case 738B1F..B81 takes a single caller value, puts it in first pair member, zeros the second, and passes selected index r14d to 738200. 738200 uses the shared LPWR factor and checks the selected group row+F1 plus PMU capability before 73ACC0 transmits the same selected index and pair. There is an additional branch based on the selected row+F2 and associated callback; therefore this audit does not claim every controller takes identical auxiliary behavior.",
+        "For the previously source-bound Blackwell provider, 738040 passes index unchanged to group virtual+98 -> B8FB80. That method reads each selected row hardware-ID byte at group+F0+index*108, rejects ID FF, and reads first and second indexed register-array DWORDs at 8F7100+4*ID and 8F7180+4*ID. It has no host index10/11 special-case for the two array selections. This is common host field routing, not proof of firmware receiver semantics or physical timing.",
+        "Together the controller identity, common first-default-pair position, common selected-index 3A route and common raw provider support treating 10/11 first fields as the corresponding driver-requested DIFR idle thresholds under the same naming judgment used for other shipped controllers. This is an inference from source routing and names, not an independent specification of microseconds or a guarantee of firmware or physical behavior. Validate current support, hardware-ID/provider status, unique factor and exact selected/peer before-and-after readback on each adapter."
+      ],
+      "windows": [
+        {
+          "label": "controller_name_registry",
+          "rva": "0x7348e1",
+          "length": 56,
+          "bytes_hex": "0faee84c8d8724010000488bcb488d15db2d5e00e8d661a3ffe9390100000faee84c8d8724010000488bcb488d15ed2d5e00e8b861a3ffe9",
+          "sha256": "721061275c07d2ede71841f8ebe71812df5b3b1bdfb64999b1f9e39b5244dcd6"
+        },
+        {
+          "label": "group_parent_field_init",
+          "rva": "0xb98887",
+          "length": 47,
+          "bytes_hex": "0fb683f20400004803c066898cc392080000c6836c09000005c7837009000040420f0089ab7409000089ab78090000",
+          "sha256": "552d32ffffe0841e92750c1723ac09868ac3160aa49d7c900308f5bd996d73a8"
+        },
+        {
+          "label": "controller_10_11_default_switch",
+          "rva": "0x7371e1",
+          "length": 24,
+          "bytes_hex": "8b9f70090000eb518b9f74090000eb498b9f78090000eb41",
+          "sha256": "a4b824111eeb79cad38ea86d4e989e410467381b0ed748983ab614bd8595c26c"
+        },
+        {
+          "label": "default_selector_table",
+          "rva": "0x7372f0",
+          "length": 88,
+          "bytes_hex": "b3717300c3717300bb71730021727300ca717300d2717300ca717300c3717300c3717300e1717300e9717300f171730001727300097273001172730019727300f9717300017273000972730011727300c3717300da717300",
+          "sha256": "0d21351151793a6c0aaf47812370ea01de830ac4336c962613b0ecd882618e84"
+        },
+        {
+          "label": "e802_first_field_case",
+          "rva": "0x738b1f",
+          "length": 105,
+          "bytes_hex": "4d85ff743a440fb686f2000000498bd7488bcfe849ce1b0084c07423440fb686f200000041b902000000498bd7488bcfe89cd11b008bd885c00f85f6000000418b45084c8d4c2430458bc689442430488bd5c744243400000000488bcfe87ff6ffff8bd8e9cc000000",
+          "sha256": "39111db1bea6580888022d521296eac402badd77a645d7663ae85e1ea92bf52c"
+        },
+        {
+          "label": "common_conversion_and_guard",
+          "rva": "0x738200",
+          "length": 293,
+          "bytes_hex": "4053555657415641574883ec48488b056c17a6004833c448894424304c8bb950250000498bf9458bf0488bea488bf14d85c90f840401000041833900750b41837904000f84f300000033d2488d4c242041b810000000e895779aff8b0749ba77be9f1a2fdd240641bb0100000085c0742c458b8f181300004c0fafc8498bc249f7e14c2bca49d1e94c03ca49c1e9094585c9450f44cb44894c2420eb05448b4c24208b4f0485c9742c458b8718130000498bc24c0fafc149f7e04c2bc249d1e84c03c249c1e8094585c0450f44c34489442424eb05448b442424488b96b02300004969ce0801000080bc29f1000000007507b855000000eb484585c975054585c074394885d2741e80ba3e0600000074154c8d4c2420458bc6488bd5488bcee89c290000eb",
+          "sha256": "d1d9a4c1e92e95a96dac1c5e836356347f4e7ad67b7326a3a45fffdaa14c3c7b"
+        },
+        {
+          "label": "firmware_selected_index",
+          "rva": "0x73acc0",
+          "length": 148,
+          "bytes_hex": "48895c24105556574883ec70488b05adeca5004833c44889442468488bb150250000418bd8488be941b828000000488d4c244033d2498bf9e8f34c9aff41b910000000895c2450418bd1488d4c24544c8bc7e8a94a9aff33d2488d4c244041b810000000e8c74c9aff488b95b02300004c8d44244033c966c74424410304c64424400241b9240000000fb68629130000488b9238",
+          "sha256": "73421ae431dbe3326b5a96e450787dc0bbd304051d73fb14c9ff574f75df7832"
+        },
+        {
+          "label": "native_raw_getter",
+          "rva": "0x738040",
+          "length": 106,
+          "bytes_hex": "48895c240848896c24104889742418574883ec30498bd9418bf0488bfa488be94d85c97507b81f000000eb2933d241b810000000488bcbe874799aff488b87980000004c8bcb448bc6488bd7488bcdff1513aa6c00488b5c2440488b6c2448488b7424504883c4305fc3",
+          "sha256": "4d870f122798dcb45395c598463e6988c79bb5b0d0eb4b07633c96bc097e8aad"
+        },
+        {
+          "label": "blackwell_indexed_raw_pair",
+          "rva": "0xb8fb80",
+          "length": 211,
+          "bytes_hex": "4889742410574883ec30418bc0498bf14869f8080100004803fa0fb687f00000003cff7529ba00008a00b92717bd0ee8dc1055ffb98a000000e8020557ffb8ffff0000488b7424484883c4305fc348895c2440448d0c8500718f00488d991044000048c744242000000000488bcb4533c033d2e8586a59ff89064533c0440fb68ff000000033d2488bcb48c744242000000000468d0c8d80718f00e8306a59ff833e00488b5c24408946047719ba00009000b92717bd0ee8541055ffb990000000e87a0457ff488b74244833c04883c4305fc3",
+          "sha256": "604f3ee9fed983334df21cd6516339dd56c9e89b32263785a9770eb47890570f"
+        }
+      ]
+    },
+    {
+      "scope": "Offline bounded 3A auxiliary callback and controller row metadata audit; no hardware or product edits.",
+      "driver_sha256": "db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b",
+      "findings": [
+        "7388E0 obtains auxiliary object from [GPU+2550]+12C8 and selected row group+index*108. 738B1F calls 8F5980(aux,row+F2) when aux exists, then calls 8F5CF0(aux,row+F2,2) only if predicate succeeds before converting and sending 3A.",
+        "8F5980 returns false for auxiliary index >=11, otherwise tests that bit in aux+5C. 8F5CF0 rejects absent/disabled entries, sets reason bit2 at aux+index*80+68, and if the prior reason DWORD was zero calls B9C340 to send firmware request 00/03/0D; for index1 there is also a virtual +598 invocation before that send. If reason DWORD was already nonzero, bit2 is set without that first-transition firmware send. Threshold restore alone does not establish that this auxiliary bit was cleared.",
+        "736DB0 initializes controller row+F0 DWORD to 040B00FF, so byte F2 starts 0B. Its indexed switch cases for controller10 at 736FA3 and 11 at 736FBF do not replace byte+F2; 8F5980 rejects 0B, hence the source-defined initialized route for 10/11 skips this callback. This conclusion is scoped to the inspected construction and known handler paths, not a claim of immutable state forever. By contrast selected construction assigns index0->0, index4->2, index12->4, index13->5, index14->7, index15->6. Their callback depends on aux existence and presence bitmap; do not assume it is absent.",
+        "8F59B0 creates the auxiliary object via 17F6850 and stores it at parent+12C8. Constructor trampoline 17F66B0 maps to metadata class ID 2B76B1; no authoritative class name was found. Same initializer reads literal RMAdaptivePwrDebug into object+60 and intersects it with object+5C, supporting an adaptive-power association but not a complete policy/firmware meaning.",
+        "A801 type3 getter 738410..7387F4 and inspected delegated 738E20 do not directly expose row+F2 or the auxiliary reason DWORD. No independent getter or universal proof against future writers is claimed."
+      ],
+      "windows": [
+        {
+          "label": "setter_object_and_row",
+          "rva": "0x7388e0",
+          "length": 81,
+          "bytes_hex": "405355565741544155415641574883ec68488b058810a6004833c448894424504c8bb9502500004d8be94c8ba108220000488bea458bf0488bf94969f6080100004803f24d85ff74074d8bbfc812000041",
+          "sha256": "388c9dd6204a25cd024e8060e57988ac79a00cea3d8a8351401ae0c9cdcdc572"
+        },
+        {
+          "label": "setter_3a_aux_and_pair",
+          "rva": "0x738b1f",
+          "length": 105,
+          "bytes_hex": "4d85ff743a440fb686f2000000498bd7488bcfe849ce1b0084c07423440fb686f200000041b902000000498bd7488bcfe89cd11b008bd885c00f85f6000000418b45084c8d4c2430458bc689442430488bd5c744243400000000488bcfe87ff6ffff8bd8e9cc000000",
+          "sha256": "39111db1bea6580888022d521296eac402badd77a645d7663ae85e1ea92bf52c"
+        },
+        {
+          "label": "row_init",
+          "rva": "0x736dc8",
+          "length": 98,
+          "bytes_hex": "4c8bb150250000488d9af00000004533ff418bf04c69ce08010000488bfa488be94903d94c897b70c703ff000b044c897b0c44897b384c897b40c7432402000000c643040344897b08e8ead7ffff448bc6488bd7488bcde81c45000083fe150f8774",
+          "sha256": "b7c4bfb56eb70b6dd4f74832fb6fbc3370c49f5ff56e7e899dd24d83398882fe"
+        },
+        {
+          "label": "row_switch",
+          "rva": "0x7370bc",
+          "length": 88,
+          "bytes_hex": "406e7300c96e73009c6e7300a1707300d86e7300296f7300f76e7300176f73006f6f7300816f7300a36f7300bf6f7300d46f7300ed6f7300067073001c70730032707300447073005a7073007070730086707300456f7300",
+          "sha256": "91fb2674ea9bfe8457466554d4380b6754e626f2caef44663c0e37b515629cab"
+        },
+        {
+          "label": "row0_4",
+          "rva": "0x736e40",
+          "length": 167,
+          "bytes_hex": "0faee86644897b0244887b044438bfe10000007504834b0810c74348be9ffc534438bfe500000074190faee8488b87c0000000448bc6488bd7488bcdff1526bc6c0041f786c0020000000100000f84fd010000834b0804e9f40100000faee8c6430203448bc6c6437901488bd7c74348e1e7afed488bcd488b87c0000000ff15e4bb6c00e9c70100000faee8c7434800040000e9b80100000faee866c74302020141b801000000",
+          "sha256": "ef42c6ae0c22368f059ade29d0265981eb7561d222cc98d42bbb624ae03cd1bd"
+        },
+        {
+          "label": "row10_15",
+          "rva": "0x736fa3",
+          "length": 143,
+          "bytes_hex": "0faee8814b080008000041b801000000c74348fe402b07e9d40000000faee8c743480db1e00041b801000000e9bf0000000faee8c643020441b803000000c743480fe00300e9a60000000faee8c643020541b803000000c74348f0e00300e98d0000000faee8c643020741b803000000c7434800e10300eb770faee8c643020641b803000000c7434800fe0300eb61",
+          "sha256": "005fc7a6782f4dd1944a8685e5f29f5e36e9d95d91a4438bd6522813c4c5c619"
+        },
+        {
+          "label": "aux_presence_and_reasons",
+          "rva": "0x8f5960",
+          "length": 55,
+          "bytes_hex": "4180f80b7311410fb6c048c1e007837c1068000f94c0c332c0c3cccccccccccc4180f80b730e8b425c410fb6c80fa3c80f92c0c332c0c3",
+          "sha256": "0e036654a4a959f4b075211ebe9e7c3d04aee52cbca400dd996214f47b709d06"
+        },
+        {
+          "label": "aux_allocation_and_initial_reasons",
+          "rva": "0x8f59b0",
+          "length": 114,
+          "bytes_hex": "48895c24184889742420574883ec30488b05ba3f8a004833c4488944242833c0488bfa4885d24889442420488bf1488d4c2420480f44d04533c0e8610ef0008bd885c07416ba00003800b9ac08c50ee88cb27eff8bc3e9c3020000488b442420488987c812000083486801488b4424208388",
+          "sha256": "cf494d5845ba4ced8d875368cc2f2aac3384efc215eda0524f28ddb0bdd52bb5"
+        },
+        {
+          "label": "aux_debug_registry_name",
+          "rva": "0x8f5caf",
+          "length": 29,
+          "bytes_hex": "4c8d4360488bce488d1583664200e80e4e87ff85c075068b435c214360",
+          "sha256": "1e3afcc8f4a91210fff9229d908dee3d60bf8b2203e1337f79703c0ed4fcb587"
+        },
+        {
+          "label": "aux_class_metadata",
+          "rva": "0xfdcd88",
+          "length": 32,
+          "bytes_hex": "e8050000b1762b005018e54001000000b0667f4101000000b0cdfd4001000000",
+          "sha256": "bc94fb58c55b05d426140ed52de5a0b7b4a3f7e237304d3cc7fc0ed9610de658"
+        },
+        {
+          "label": "aux_class_trampoline",
+          "rva": "0x17f66b0",
+          "length": 5,
+          "bytes_hex": "e99b010000",
+          "sha256": "3f7fc768a0cac61811726a662a37524e886ef735fe545ad4f68806d6efcd4aa3"
+        },
+        {
+          "label": "aux_transition",
+          "rva": "0x8f5cf0",
+          "length": 205,
+          "bytes_hex": "48895c240848896c2410488974241857415641574883ec204c8bb920210000458bf1410fb6f8488bea8bdf488bf148c1e3074803da4885d27475440fb6c7e84dfcffff84c0746880bbe0000000007507b8ffff0000eb5d440fb6c7488bd5488bcee80afcffff84c08b43687437440fabf08943684080ff017519498b879805000041b8e8030000498bd7488bceff1525cd5000440fb6c7488bd5488bcee8ae652a00eb10440fabf089436833c0eb05b856000000488b5c2440488b6c2448488b7424504883c420415f415e5fc3",
+          "sha256": "e193a9d0c5933e94bec2ef3a46198ae637a5f75c6dc66fb35b7fdc85ad470485"
+        },
+        {
+          "label": "aux_firmware_request",
+          "rva": "0xb9c340",
+          "length": 221,
+          "bytes_hex": "48895c24104889742420574883ec60488b052ad65f004833c44889442458488bb950250000410fb6d8488bf141b818000000488d4c244033d2e8723654ff33d2885c245041b810000000488d4c2440e85c3654ff488b96b02300004c8d44244033c966c7442441030dc64424400041b9140000000fb68729130000488b92381000008844243048894c242866894c2420488bcee8087b7bff8bd885c0741e448bc0ba00101201b9cc50b20ee8a04854ffb913010000e8064b57ff8bc3488b4c24584833cce857181500488b5c2478488bb424880000004883c4605fc3cc",
+          "sha256": "066616a30c54ec0e9123db734fdc202001e5948b7e00cbfb8b7782f6398bb2d2"
+        }
+      ]
+    }
+  ],
+  "auxiliary_limit": "The source-defined DIFR10/11 initializer leaves auxiliary index11, rejected by the callback predicate. Some existing GR/MS/media routes use valid indices and can set a separate reason bit2, with a firmware request on the first reason transition. Threshold-number restoration alone does not clear or measure that policy bit. No adaptive policy restore is added.",
+  "readonly_inventory": {
+    "raw_pairs": {
+      "10": [
+        16200,
+        108000000
+      ],
+      "11": [
+        16200,
+        108000000
+      ]
+    },
+    "factor_intervals": {
+      "10": [
+        108000,
+        108000
+      ],
+      "11": [
+        108000,
+        108000
+      ]
+    },
+    "mutations": 0
+  },
+  "individual_trials": {
+    "10": {
+      "original": 150,
+      "target": 151,
+      "expected_raw": 16308,
+      "scale": 108000,
+      "qualified_trial": true,
+      "selected_transition_and_all_raw_peers_unchanged": true,
+      "exact_threshold_restoration": true,
+      "voltage_unchanged": true,
+      "lpwr_unchanged": true
+    },
+    "11": {
+      "original": 150,
+      "target": 151,
+      "expected_raw": 16308,
+      "scale": 108000,
+      "qualified_trial": true,
+      "selected_transition_and_all_raw_peers_unchanged": true,
+      "exact_threshold_restoration": true,
+      "voltage_unchanged": true,
+      "lpwr_unchanged": true
+    }
+  },
+  "production_panel_trial": {
+    "selected_indices": [
+      10,
+      11
+    ],
+    "requested_values": [
+      150,
+      151,
+      150
+    ],
+    "mutation_count": 4,
+    "coexisting_requests_verified": true,
+    "exact_threshold_restoration": true,
+    "voltage_unchanged": true,
+    "lpwr_unchanged": true,
+    "active_steps": [
+      {
+        "index": 10,
+        "raw_pairs": {
+          "0": [
+            10800,
+            108000000
+          ],
+          "4": [
+            16200,
+            108000000
+          ],
+          "10": [
+            16308,
+            108000000
+          ],
+          "11": [
+            16200,
+            108000000
+          ],
+          "12": [
+            10800,
+            108000000
+          ],
+          "13": [
+            10800,
+            108000000
+          ],
+          "14": [
+            10800,
+            108000000
+          ],
+          "15": [
+            10800,
+            108000000
+          ]
+        },
+        "all_peers_match": true
+      },
+      {
+        "index": 11,
+        "raw_pairs": {
+          "0": [
+            10800,
+            108000000
+          ],
+          "4": [
+            16200,
+            108000000
+          ],
+          "10": [
+            16308,
+            108000000
+          ],
+          "11": [
+            16308,
+            108000000
+          ],
+          "12": [
+            10800,
+            108000000
+          ],
+          "13": [
+            10800,
+            108000000
+          ],
+          "14": [
+            10800,
+            108000000
+          ],
+          "15": [
+            10800,
+            108000000
+          ]
+        },
+        "all_peers_match": true
+      }
+    ],
+    "restore_steps": [
+      {
+        "index": 11,
+        "raw_pairs": {
+          "0": [
+            10800,
+            108000000
+          ],
+          "4": [
+            16200,
+            108000000
+          ],
+          "10": [
+            16308,
+            108000000
+          ],
+          "11": [
+            16200,
+            108000000
+          ],
+          "12": [
+            10800,
+            108000000
+          ],
+          "13": [
+            10800,
+            108000000
+          ],
+          "14": [
+            10800,
+            108000000
+          ],
+          "15": [
+            10800,
+            108000000
+          ]
+        },
+        "all_peers_match": true
+      },
+      {
+        "index": 10,
+        "raw_pairs": {
+          "0": [
+            10800,
+            108000000
+          ],
+          "4": [
+            16200,
+            108000000
+          ],
+          "10": [
+            16200,
+            108000000
+          ],
+          "11": [
+            16200,
+            108000000
+          ],
+          "12": [
+            10800,
+            108000000
+          ],
+          "13": [
+            10800,
+            108000000
+          ],
+          "14": [
+            10800,
+            108000000
+          ],
+          "15": [
+            10800,
+            108000000
+          ]
+        },
+        "all_peers_match": true
+      }
+    ],
+    "scope_limit": "Comparison covers exact threshold pairs/scaled attributes, voltage requests and configured LPWR, not auxiliary policy state."
+  },
+  "validation": {
+    "focused_tests_passed": 294,
+    "ruff": "passed"
+  },
+  "private_audit_sha256": {
+    "experiments\\registry-overrides\\difr-idle-thresholds-terra-20261102\\difr-first-threshold-source-61742.json": "455e07a1d579f6453f145b9c371d70c3b5872dc9dd30290b2da03d535ad911e1",
+    "experiments\\registry-overrides\\difr-idle-thresholds-terra-20261102\\difr-live-first-field-common-route-61742.json": "79a02e68821fbde6c4f86aff8aed182eb916d00cfc1440ab132659dc4fb1c83a",
+    "experiments\\registry-overrides\\difr-idle-thresholds-terra-20261102\\threshold-auxiliary-callback-61742.json": "7b338b14bedb25f81d6e0a2c5515db34f256683e8bced19735b34bf497ea8c81",
+    "experiments\\registry-overrides\\profiler-more-root-20261101\\difr-idle-thresholds-product-trial-20261102.json": "3b6ff3c522ee001c95606bb53ef58d5fdf183c3339d93b2d6deed4d78d0c40a2",
+    "experiments\\registry-overrides\\profiler-more-root-20261101\\idle-threshold-10-trial-20261102.json": "beac80b3f79897ca94a55db4cc137e6a0c2f710d2ade66e2115ff4eb70b484c4",
+    "experiments\\registry-overrides\\profiler-more-root-20261101\\idle-threshold-11-trial-20261102.json": "330cd5a5c4401d1791d0ed2638b199874dda4f08c6ce69e0a40980412272dda9",
+    "experiments\\registry-overrides\\gr-second-threshold-terra-20261102\\published-swref-check.json": "c41db806e0a029c5ed2be9f07cfd9bf57742d9112a2def539e0636f48e1a4bd7"
+  },
+  "second_field_public_header_check": {
+    "source": "https://github.com/NVIDIA/open-gpu-kernel-modules",
+    "tree_sha": "ca2d03e6fafd4d4b56b383497d931c25b283bfcf",
+    "files_checked": 35,
+    "target_terms": [
+      "8f7180",
+      "8f7100",
+      "ppuidlefilth",
+      "post_powerup_idle"
+    ],
+    "scope": "Finite full-text scan of official published Ada AD102, Blackwell GB102 and GB202 SWREF headers for exact two current register bases and historical named field; no hardware or proprietary source.",
+    "result": "No match in these published headers; not a universal absence claim. Second-field meaning remains unqualified."
+  }
+}

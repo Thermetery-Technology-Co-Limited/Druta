@@ -11,6 +11,7 @@ from druta.druta import Druta, KnobRange
 class MemoryOffsetUiTests(unittest.TestCase):
     def setUp(self):
         self.app = Druta.__new__(Druta)
+        self.app.write_tuning_action = lambda kind, value, writer, **kwargs: writer()
         self.app.gpu = SimpleNamespace(
             mem_offset_scale=lambda: (8, "MHz true"),
             set_clock_offset=Mock(return_value=(True, "set")),

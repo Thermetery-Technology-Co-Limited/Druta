@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "date": "2026-11-05",
+  "source_files_verified": 567,
+  "executable_sha256": "29a62552971d914aa58686a94ded4d62e8b7804fd631b0b673bf6df0df387d48",
+  "zip_sha256": "69faa017daf8f69f92afd7e32d26812d85b05e21396955aa594676366b96ac0f",
+  "zip_crc": "passed",
+  "qualification": "experiments/rail-limit-profiles-20261105.json",
+  "qualification_sha256": "9b7adb830144bd8b6575f00b528998ee1ba9c60d29a3a801de6803248245981a",
+  "packaged_capture": {
+    "frames": 35,
+    "manifest_sha256": "f21a18e021988cd5b4fe29508786a345e40cc2826c66ccf28c9f878dcbf3bc9c",
+    "skipped": [
+      "current-voltage-offsets: Could not read offsets: No readable offset scaffold profile for this adapter"
+    ]
+  },
+  "note": "Read-only packaged UI smoke walkthrough; rail-limit Apply/Undo and named profile qualification is source-level. This post-build receipt is not bundled."
+}

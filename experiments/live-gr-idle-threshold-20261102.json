@@ -1,0 +1,218 @@
+{
+  "scope": "Bounded local raw E802 trial and source qualification for the GR idle request; no physical timing measurement.",
+  "driver_sha256": "db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b",
+  "source_unit_interpretation": "The RMLpwrGrIdleThresholdUs literal is conditionally copied through GR row+124 to LPWR parent+37C, whose ordinary controller0 default path feeds the first threshold field. The selected equal-scale conversion matches the first live 3A input, with documented rounding limitations. The microsecond request label is an inference from this name and source chain, not independently documented live-field units or a physical timing measurement.",
+  "source_windows_verified": [
+    {
+      "label": "registry_name",
+      "rva": "0xd17520",
+      "length": 25,
+      "bytes_hex": "524d4c707772477249646c655468726573686f6c64557300cc",
+      "sha256": "4bfeef718b387c55974cfb7f7370eca144f9fa6bd2594ee6aaf0035fa8bcb0d5"
+    },
+    {
+      "label": "registry_gr_call",
+      "rva": "0x73465a",
+      "length": 25,
+      "bytes_hex": "0faee84c8d8724010000488bcb488d15b22e5e00e85d64a3ff",
+      "sha256": "6850972c82d936fdf7368147e6318b500cc73d8c519d11663f85c4e30b64cec0"
+    },
+    {
+      "label": "group_and_parent_binding",
+      "rva": "0xb98ac0",
+      "length": 120,
+      "bytes_hex": "488bc4535741574881ec00010000488968e0488bda488b9158230000488bf9488970d84c8960d04c8968c84c8970c0488b81202100004889442478488b814825000048898424c000000048899424c80000004885db744a488b83d8120000488babc8120000488b8bd0120000488bb3c01200004c8ba3f012",
+      "sha256": "6f9c670382200626de5d992a885f30a44e8a07b615a41c3a1cb445a784daf5aa"
+    },
+    {
+      "label": "supported_nonzero_registry_to_parent",
+      "rva": "0xb9abcf",
+      "length": 45,
+      "bytes_hex": "4885f60f844a0300004533c0488bd6488bcfe80ad8b9ff84c074328b862401000085c0742889837c0300004885",
+      "sha256": "1d24ba0b7c90d3cd58f1922ff3cc56d9cd36858c5828f8025da36e1e92b6b37c"
+    },
+    {
+      "label": "parent_default_initializer",
+      "rva": "0xb98257",
+      "length": 28,
+      "bytes_hex": "c6827803000005c7827c03000070110100c78280030000dc050000c7",
+      "sha256": "39fc207f0442e1036f3c2a0ca321defc171b5bc4b0bd175dcc767a9357ec5da4"
+    },
+    {
+      "label": "alternate_default_initializer",
+      "rva": "0xaa8150",
+      "length": 16,
+      "bytes_hex": "48895c2408c7827c0300007011010048",
+      "sha256": "d3c82a541b10262921f2bc1822d13e93e4f346272f783a9cf0cafad28e1b7ab3"
+    },
+    {
+      "label": "parent_threshold_default_generator",
+      "rva": "0x737120",
+      "length": 462,
+      "bytes_hex": "48895c240848896c24104889742418574883ec20488bb950250000498bf1488ba9b0230000bb701101004d85c9750ab81f000000e98001000080b99609000000741441c701f0d2000041c7410440420f00e96101000080b94653000000741441c701e803000041c7410400093d00e9440100004183f8150f8784000000488d155c8e8cff418bc08b8c82f07273004803caffe18b9f7c030000eb7f8b9fd4030000eb77bb64000000eb708b9f2c040000eb688b9fec080000eb60bbb8880000eb598b9f70090000eb518b9f74090000eb498b9f78090000eb418b9f600e0000eb398b9fbc0a0000eb318b9ff80a0000eb298b9f340b0000eb218b9f700b0000eb19ba00103d15b9329b890ee8609a9affb93e150000e8c69c9dff4885ed0f849400000080bd55060000008bc3744f8b8f1413000049b977be9f1a2fdd2406480fafc8498bc148f7e1498bc1482bca48d1e94803ca48c1e909890e8b8f141300004c69c140420f0049f7e04c2bc249d1e84c03c249c1e80944894604eb3a8b8d280e000049b8db34b6d782de1b43480fafc8498bc048f7e1498bc048c1ea1289168b8d280e00004869d140420f0048f7e248c1ea1289560433c0488b5c2430488b6c2438488b7424404883c4205fc3",
+      "sha256": "448b36c05bf94aa3d3e5b030edb8ce5afaa459f56bcbabcbca21ee9752211028"
+    },
+    {
+      "label": "E802_scaled_pair",
+      "rva": "0x738200",
+      "length": 224,
+      "bytes_hex": "4053555657415641574883ec48488b056c17a6004833c448894424304c8bb950250000498bf9458bf0488bea488bf14d85c90f840401000041833900750b41837904000f84f300000033d2488d4c242041b810000000e895779aff8b0749ba77be9f1a2fdd240641bb0100000085c0742c458b8f181300004c0fafc8498bc249f7e14c2bca49d1e94c03ca49c1e9094585c9450f44cb44894c2420eb05448b4c24208b4f0485c9742c458b8718130000498bc24c0fafc149f7e04c2bc249d1e84c03c249c1e8094585c0450f44c34489442424eb05448b442424488b96b02300",
+      "sha256": "8c60cb8e617f756695a6b02ee6b797a1d17d9b130ffc57d047a5bc60a83ab9e6"
+    },
+    {
+      "label": "scale_mode",
+      "rva": "0x772de5",
+      "length": 45,
+      "bytes_hex": "4180be5506000000740e8b8714130000898718130000eb15b8d34d621041f7a6280e0000c1ea06899718130000",
+      "sha256": "38e4a3683408fab1d2bcc68fcbab15b6eddfd050b107b74e9c5669d0c35e2298"
+    }
+  ],
+  "raw_getter": "20801706 selectors 1 and 2 return first and second raw words for the selected controller, in separately sampled entries. Local guarded pointer transport succeeded; unsupported entries can be silently skipped and must be detected.",
+  "local_read": {
+    "raw": [
+      10800,
+      108000000
+    ],
+    "scaled_first": 100,
+    "scaled_second": 1000000,
+    "guards_unchanged": true,
+    "unchanged_after": true
+  },
+  "local_trial": {
+    "platform": "One local RTX 5080 on driver 617.42; this is not a generation-wide physical claim.",
+    "scale": 108000,
+    "requested_before": 100,
+    "requested_trial": 101,
+    "gr_raw_before": [
+      10800,
+      108000000
+    ],
+    "gr_raw_trial": [
+      10908,
+      108000000
+    ],
+    "gr_raw_final": [
+      10800,
+      108000000
+    ],
+    "all_sampled_controller_raw_pairs_unchanged_except_selected": true,
+    "restored_exactly": true,
+    "voltage_unchanged": true,
+    "lpwr_unchanged": true
+  },
+  "limits": "Receiver zero-peer rule is not source-proven generally; the observed peer remained unchanged on this trial, and the controller checks the exact peer after each apply. The second field and BLCG ENABLE remain unresolved. First idle thresholds for MS4 and media12..15 were qualified subsequently in experiments/live-additional-idle-thresholds-20261102.json.",
+  "private_audit_sha256": {
+    "experiments\\registry-overrides\\profiler-more-terra-20261101\\lpwr-gr-threshold-registry-parent-join-61742.json": "bb1f1d460984d73f6b03021afe9b1e50bb908c5659538a73a5b8151a662bad9d",
+    "experiments\\registry-overrides\\profiler-more-root-20261101\\threshold-raw-pair-read-20261102.json": "3a357d9e45fd103b4040d9cb78f4b65cf5e91e62ed652892922052d7cd4e9188",
+    "experiments\\registry-overrides\\profiler-more-root-20261101\\gr-idle-threshold-trial-20261102.json": "b9a25218a0bf65c53b0b44b00de906d8691fec560144df4e47bad6a86bd2cd90",
+    "experiments\\registry-overrides\\profiler-more-root-20261101\\gr-idle-threshold-product-trial-20261102.json": "e403c9d12fdacc94df2d7cbcedc812b8f969d1bfc7501e96922a887797e3dc0c",
+    "experiments\\registry-overrides\\functional-backlog-audit-terra-20261101\\lpwr-raw-pair-20801706-61742.json": "9f255dea898035902194d512e7d4211837f50f9ff7fb9e5856cb4cd069c08e09"
+  },
+  "production_panel_trial": {
+    "scope": "Actual GrIdleThresholdPanel read/apply callbacks with production controller on local RTX 5080, no workload or driver restart.",
+    "requested_values": [
+      100,
+      101,
+      100
+    ],
+    "raw_gr_pairs": [
+      [
+        10800,
+        108000000
+      ],
+      [
+        10908,
+        108000000
+      ],
+      [
+        10800,
+        108000000
+      ]
+    ],
+    "all_sampled_raw_peers_unchanged": true,
+    "final_raw_pairs_restored": true,
+    "voltage_unchanged": true,
+    "lpwr_unchanged": true,
+    "panel_callbacks_verified": true
+  },
+  "raw_getter_source_windows_verified": [
+    {
+      "name": "native_descriptor",
+      "rva": "0xe65af0",
+      "length": 32,
+      "bytes": "f0454f40010000004800000000000000061780201000000090b0e64001000000"
+    },
+    {
+      "name": "top_handler",
+      "rva": "0x4f45f0",
+      "length": 169,
+      "bytes": "4883ec38488b81600100004c8bc2488b88e80000004d8b5008488b91502500004885d27528ba00006c07b9865bca0ee86cc6beffba6c070000b904000000e87d1bb1ffb8560000004883c438c380ba83020000007527448b899c0e0000ba00117307448b81980e0000b9865bca0ee82dc6beffb8560000004883c438c3458b084585c9741a4d85d27415488b82c00100004d8bc2ff151ee490004883c438c3b81f0000004883c438c3"
+    },
+    {
+      "name": "rm_variant_method_selection",
+      "rva": "0x17adafb",
+      "length": 53,
+      "bytes": "83ff2073218bc783e01f83f8027517488d056f59d4fe498982c0010000488d05515cd4feeb2b488d0558528efe498982c001000083"
+    },
+    {
+      "name": "support_and_selector_dispatch",
+      "rva": "0x4f3480",
+      "length": 201,
+      "bytes": "48895c242055565741544155415641574883ec50488b05e564ca004833c448894424484c89442430458be14c8bea4c8bf94885d20f843e0200004c8bb2c01200004d85f60f842e02000033ed4585c90f842302000033ff660f1f840000000000488d0c6d00000000498bd64803cd418b748804498d1c88448bc6498bcfe8ee4e240084c00f84a0010000448b0b418bc14181f9000200000f871d0100000f846a010000ffc883f82a0f87c1010000488d15cbcab0ff0fb6840244374f008b8c8220374f004803caffe1"
+    },
+    {
+      "name": "raw_pair_selectors",
+      "rva": "0x4f3549",
+      "length": 64,
+      "bytes": "4c8d4c2438448bc6498bd6498bcfe8e44a24008b4c2438894b08e93c0100004c8d4c2438448bc6498bd6498bcfe8c54a24008bf88b44243c894308e91d010000"
+    },
+    {
+      "name": "selector_targets",
+      "rva": "0x4f3720",
+      "length": 36,
+      "bytes": "49354f0068354f0089354f008d364f00a6354f0020364f00b2354f0003364f00ef364f00"
+    },
+    {
+      "name": "selector_map",
+      "rva": "0x4f3744",
+      "length": 43,
+      "bytes": "00010808020303040808080808050808080806080708080808080808080808080303080808030303030303"
+    },
+    {
+      "name": "raw_pair_helper",
+      "rva": "0x738040",
+      "length": 106,
+      "bytes": "48895c240848896c24104889742418574883ec30498bd9418bf0488bfa488be94d85c97507b81f000000eb2933d241b810000000488bcbe874799aff488b87980000004c8bcb448bc6488bd7488bcdff1513aa6c00488b5c2440488b6c2448488b7424504883c4305fc3"
+    },
+    {
+      "name": "gb_plus98_selection",
+      "rva": "0x17e191d",
+      "length": 33,
+      "bytes": "418bc9418bc0d3e0a9fe3000000f84e3000000488d0549e23aff49898298000000"
+    },
+    {
+      "name": "gb_pair_provider",
+      "rva": "0xb8fb80",
+      "length": 211,
+      "bytes": "4889742410574883ec30418bc0498bf14869f8080100004803fa0fb687f00000003cff7529ba00008a00b92717bd0ee8dc1055ffb98a000000e8020557ffb8ffff0000488b7424484883c4305fc348895c2440448d0c8500718f00488d991044000048c744242000000000488bcb4533c033d2e8586a59ff89064533c0440fb68ff000000033d2488bcb48c744242000000000468d0c8d80718f00e8306a59ff833e00488b5c24408946047719ba00009000b92717bd0ee8541055ffb990000000e87a0457ff488b74244833c04883c4305fc3"
+    },
+    {
+      "name": "gb_plus90_selection",
+      "rva": "0x17e18be",
+      "length": 33,
+      "bytes": "418bc183e01fffc883f8060f87c4000000488d051ae23aff49898290000000eb3e"
+    },
+    {
+      "name": "gb_plus90_not_id_getter",
+      "rva": "0xb8faf0",
+      "length": 135,
+      "bytes": "4883ec38418bc04c69d0080100004c03d2418bd183ea40743f83ea01742883fa01741c458bc1ba0010f900b92717bd0ee86b1155ffb9fa000000e8d11358ff33c04883c438c3450fb68af0000000468d0c8d807e8f00eb10450fb68af0000000468d0c8d407e8f004533c048c74424200000000033d24881c110440000e8de6a59ff4883c438c3"
+    }
+  ],
+  "validation": {
+    "focused_tests_passed": 266,
+    "ruff": "passed",
+    "scope": "New backend and panel, registry panel integration, individual power gating and LPWR runtime tests."
+  },
+  "auxiliary_policy_followup": "Later source audit found a conditional auxiliary reason-bit2 change in the GR/manual threshold path. Captured threshold/voltage/LPWR equality does not assert auxiliary-policy restoration. See experiments/live-difr-idle-thresholds-20261102.json."
+}

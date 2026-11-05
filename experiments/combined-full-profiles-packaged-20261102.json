@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "date": "2026-11-02",
+  "source_files_verified": 560,
+  "executable_sha256": "734aef2ed927efe2e14f5557984c41b21fdfd836fd66474333704aee97a45f62",
+  "zip_sha256": "bc83f93c5ce68d2becc8edbd3cdd7c09e3d1bce8636a957621f7a232a7676088",
+  "zip_crc": "passed",
+  "qualification": "experiments/combined-full-profiles-20261102.json",
+  "qualification_sha256": "a70971d2405df2c8a423f5db0ab795c6facacf43fad66ac749443dac30d0a6b4",
+  "note": "Documentation/evidence packaging update; product code unchanged from 536f02a. This receipt is generated after packaging and is not bundled."
+}

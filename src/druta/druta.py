@@ -52,10 +52,10 @@ Safety model, carried over from the Tk version:
     offset Apply (it is the same table), 'Reset all to stock' and a profile
     Load - takes an undo point immediately beforehand, restorable from
     Profiles > Undo last write. Those are the writes whose previous state is
-    nowhere on screen; the single-knob applies (memory offset, power limit,
-    voltage boost, fan) do not take one, because each moves one number its
-    own slider still shows, and the clock lock cannot have one because a
-    profile does not record it - Release / Ctrl+H is its undo. A snapshot
+    nowhere on screen. Ordinary tuning actions now save scoped Undo
+    snapshots: selected clock/boost requests, complete fan policies, or
+    the coupled power requests and pin intent. The clock lock still uses
+    Release / Ctrl+H rather than profile restoration. A snapshot
     that failed to capture the curve says so and is NOT called an undo
     point (see autosave_before).
     'Reset all to stock' is the ONE exception and still arms on the first
@@ -101,7 +101,7 @@ from .nvbackend import (GPU, EVENT_REASONS, PERF_DECREASE_BITS, VF_STEP_KHZ, VF_
                         PRIV_LIKELY, PRIV_N_DOMAINS, PRIV_PCIE_GEN, PRIV_SLOT,
                         PRIV_UNNAMED, PRIV_UNPOPULATED)
 
-__version__ = "1.8.1"
+__version__ = "1.9.0b"
 
 # ---- palette (ImGui takes 0-255 RGBA) ------------------------------------- #
 TEXT = (230, 232, 236)
@@ -173,7 +173,9 @@ RISK_BAND_TEXT = {
 RISK_FEATURE_TEXT = {
     "xoc": (
         "XOC: expanded voltage and clock ranges; current limits use the "
-        "API ceilings."),
+        "API ceilings. Supported GPUs also expose live extended power requests; "
+        "the 1999 W software request cap does not raise firmware limits. "
+        "Native policy limits can wrap at high requests."),
     "volt_limits": (
         "RAIL LIMITS: the driver-held per-rail voltage ceilings are being "
         "written directly. EXPERIMENTAL."),
@@ -2195,7 +2197,9 @@ class Druta:
             if len(named) == 1:
                 limits = dict(limits, **{k: limits[named[0]]
                                          for k in self.VLIM_LINKED})
-        ok, msg = self.gpu.set_volt_rail_limits(rail, **limits)
+        ok, msg = self.write_rail_limit_action(
+            {rail: tuple(limits)}, lambda: self.gpu.set_volt_rail_limits(rail, **limits),
+            limits={rail: limits})
         self.log(msg, ok)
         if ok and rail == 1:
             live = self.gpu.read_rail_live_mv(1)
@@ -2269,7 +2273,7 @@ class Druta:
             stock = getattr(type(self.gpu), "stock_power_policy", None)
             if callable(stock):
                 if self.guard():
-                    self.report(self.gpu.stock_power_policy(policy))
+                    self.report(self.write_tuning_action("power", "stock", lambda: self.gpu.stock_power_policy(policy)))
                     self.refresh_current_limits(sync=True)
                     # its own row in the list is a read-only mirror; the
                     # re-derived sliders follow, staged ones stay
@@ -2280,7 +2284,11 @@ class Druta:
             if row is None:
                 self.log("current limit could not be read; Stock was not applied", False)
                 return
-            return self.apply_current_limit(policy, row["default_ma"] / 1000.0)
+            if self.guard():
+                self.report(self.write_tuning_action("power", "stock",
+                                                    lambda: self.gpu.set_current_limit_ma(policy, row["default_ma"])))
+                self.refresh_current_limits(sync=True)
+            return
         if key.startswith("vlim"):
             # ONE field on ONE rail. These share a block, and resetting the
             # block put the other rail back to stock along with it - pressing
@@ -2288,8 +2296,9 @@ class Druta:
             rail = 1 if key.startswith("vlim1") else 0
             field = {"rel": "reliability", "alt": "alt_reliability",
                      "ov": "overvoltage", "lo": "vmin"}[key.rsplit("_", 1)[1]]
-            ok, msg = self.gpu.reset_volt_rail_limits(rail=rail,
-                                                      fields=(field,))
+            ok, msg = self.write_rail_limit_action(
+                {rail: (field,)}, lambda: self.gpu.reset_volt_rail_limits(rail=rail, fields=(field,)),
+                reset=True)
             self.log(msg, ok)
             self.refresh_volt_limits()
             # a Stock reset can drop a hold's headroom record outright; a hold
@@ -2309,10 +2318,41 @@ class Druta:
     def apply_vlim_reset(self):
         if getattr(self, "_profile_pending", None) or getattr(self, "_i2c_busy", False):
             return
-        ok, msg = self.gpu.reset_volt_rail_limits()
+        ok, msg = self.write_rail_limit_action(None, self.gpu.reset_volt_rail_limits, reset=True)
         self.log(msg, ok)
         self.refresh_volt_limits()
         self.sync_hold_headroom(replan=True)
+
+    def write_rail_limit_action(self, selection, writer, *, limits=None, reset=False):
+        """Save only the user requests this rail action can replace."""
+        with self.gpu._lock:
+            try:
+                if reset and selection is None:
+                    self.gpu.read_volt_rail_limits()
+                    initial = (self.gpu._volt_rail_profile() or {}).get("poweron", {})
+                    selection = {rail: self.gpu.VOLT_LIMIT_FIELDS for rail in initial}
+                    if not selection:
+                        raise ValueError("initial rail fields are unavailable")
+                state = profiles.capture_rail_limits(self.gpu, selection)
+                if limits is not None:
+                    current = self.gpu.read_volt_rail_limits() or {}
+                    wanted = {str(rail): {field: round((value - current[rail]["_base_mv"][field]) * 1000)
+                                          for field, value in fields.items()}
+                              for rail, fields in limits.items()}
+                    if state["rail_limits"] == wanted:
+                        return True, "Rail limit requests already match; nothing written"
+                name, _, missing = profiles.autosave_state("rail-limits-reset" if reset else "rail-limits", state)
+                if missing:
+                    raise ValueError("; ".join(missing))
+                self.log(f"Undo point saved as '{name}'", None)
+            except Exception as exc:
+                if not reset:
+                    return False, f"Could not save rail-limit Undo: {exc}; nothing written"
+                self.log(f"Could not save rail-limit Undo: {exc}; continuing the explicit first-read reset", False)
+            try:
+                return writer()
+            except Exception as exc:
+                return False, f"Rail-limit write failed: {exc}; Undo snapshot retained if captured"
 
     def refresh_volt_limits(self):
         """Put the knobs and the readout back onto what the card reports.
@@ -2540,7 +2580,8 @@ class Druta:
         except (TypeError, ValueError, OverflowError):
             self.log("current limit must be a finite number of amperes", False)
             return
-        self.report(self.gpu.set_current_limit_ma(policy, milliamps))
+        self.report(self.write_tuning_action("power", "current",
+                                            lambda: self.gpu.set_current_limit_ma(policy, milliamps)))
         self.refresh_current_limits(sync=True)
 
     # ---- every policy in the driver's power-policy table ----------------- #
@@ -2657,15 +2698,17 @@ class Druta:
         self.gpu.power_policy_names = dict(self._policy_names)
         if error:
             dpg.add_text(f"Power policies unavailable: {error}", color=DIM, wrap=self.s(900))
+            self.build_power_integral_panel()
             return
         with dpg.group(horizontal=True):
             dpg.add_text("Beware of your PSU's rating as you change power limit.", color=WARN)
             dpg.add_button(label="Max all", tag="pp_max_all", width=self.s(110),
                            callback=lambda: self.max_all_power_policies())
         self._ctl_widgets.append("pp_max_all")
-        dpg.add_text("The driver sets several of these from the board power limit and "
-                     "recalculates them whenever it changes; a value you set here is re-applied "
-                     "after that and marked *. Stock hands a policy back to the driver. Note a "
+        dpg.add_text("Changing the board power limit can recalculate other requests. Values you "
+                     "set here are marked * and re-applied if recalculated. This preserves the "
+                     "request; the effective limit can still be lower because of other votes. "
+                     "Stock hands a policy back to the driver. Note a "
                      "channel by its connector, or 'others' for your own words; a current row on a "
                      "connector shows its current per 12 V wire, coloured: to 5 A white, 10 A "
                      "yellow, 13 A red, above that crimson. The slot (PCIE) is judged as a whole: "
@@ -2677,6 +2720,12 @@ class Druta:
             for row in rows:
                 self.power_policy_row(row)
         self.refresh_power_policies(sync=True)
+        self.build_power_integral_panel()
+
+    def build_power_integral_panel(self):
+        from .power_integral_panel import PowerIntegralPanel
+        self._power_integral_panel = PowerIntegralPanel(self)
+        self._power_integral_panel.build()
 
     def power_policy_row(self, row):
         policy = row["policy"]
@@ -2720,20 +2769,24 @@ class Druta:
         except (TypeError, ValueError, OverflowError) as exc:
             self.log(f"power policy {policy} input: {exc}", False)
             return
-        self.report(self.gpu.set_power_policy(policy, int(round(value * 1000))))
+        self.report(self.write_tuning_action("power", "policy",
+                                            lambda: self.gpu.set_power_policy(policy, int(round(value * 1000)))))
         self.refresh_power_policies(force=True, follow={policy})
 
     def stock_power_policy(self, policy):
         if not self.guard():
             return
-        self.report(self.gpu.stock_power_policy(policy))
+        self.report(self.write_tuning_action("power", "stock", lambda: self.gpu.stock_power_policy(policy)))
         self.refresh_power_policies(force=True, follow={policy})
         self.refresh_current_limits(sync=True)
 
     def max_all_power_policies(self):
         if not self.guard():
             return
-        steps = self.gpu.max_all_power_policies()
+        steps = self.write_tuning_action("power", "maximum", self.gpu.max_all_power_policies)
+        if isinstance(steps, tuple):
+            self.report(steps)
+            return
         for _step, ok, message in steps:
             self.log(f"max all: {message}", ok)
         top = self.gpu.static.get("pl_max_mw")
@@ -3111,6 +3164,7 @@ class Druta:
         # is the call that puts the knobs BACK when XOC is unticked, and behind
         # the return it would run on every state except the one that needs it.
         self.ov_carryover(self.gpu.read_volt_rail_limits())
+        self.refresh_power_request_range()
         self.refresh_current_limits()
         self.sync_slider_ranges("xoc" in live)
 
@@ -3425,12 +3479,7 @@ class Druta:
                                 with dpg.table(header_row=False, no_host_extendX=True,
                                                policy=dpg.mvTable_SizingFixedFit):
                                     self.knob_cols()
-                                    if all(k in st for k in ("pl_min_mw", "pl_max_mw", "pl_def_mw")):
-                                        self.slider_row("pl", "Power limit (W)",
-                                                        st["pl_min_mw"] / 1000,
-                                                        st["pl_max_mw"] / 1000,
-                                                        st["pl_def_mw"] / 1000, self.apply_pl,
-                                                        extra=("Stock", lambda: self.stock_knob("pl")))
+                                    self.build_power_limit_row(st)
 
                                     self.build_current_limits_rows()
 
@@ -3451,6 +3500,9 @@ class Druta:
                                     self.slider_row("fan", "Fan duty (%)", fan_floor, 100,
                                                     fan_floor, self.apply_fan,
                                                     extra=("Auto", self.fan_auto))
+                                if dpg.does_item_exist("sl_pl"):
+                                    dpg.add_text("", tag="power_request_status", color=DIM,
+                                                 wrap=self.knob_col_width() - self.s(20))
 
                         with dpg.group(width=self.knob_col_width()):
                             # RAILS GET THEIR OWN SECTION. The tab had grown past a screen and
@@ -3514,6 +3566,10 @@ class Druta:
                     with dpg.collapsing_header(label="Power policies", tag="power_policy_header",
                                                default_open=False):
                         self.build_power_policy_section()
+                with dpg.collapsing_header(label="Registry / BIOS overrides", tag="registry_header", default_open=False):
+                    from .registry_panel import RegistryPanel
+                    self._registry_panel = RegistryPanel(self)
+                    self._registry_panel.build()
                 if railctl is not None:
                     with dpg.collapsing_header(label="I2C regulator", tag="i2c_regulator_header",
                                                default_open=bool(getattr(self, "_rail_candidates", []))):
@@ -3804,6 +3860,8 @@ class Druta:
             self.log(f"{key} input: {exc}", False)
         finally:
             self._knob_sync = False
+        if key == "pl":
+            self.refresh_power_slider_style()
 
     def knob_typed(self, key):
         """Typed value -> slider. Clamped here as well as by the widget: DPG
@@ -3833,6 +3891,94 @@ class Druta:
                 self._icx_armed.add(key)
         finally:
             self._knob_sync = False
+        if key == "pl":
+            self.refresh_power_slider_style()
+
+    def build_power_limit_row(self, state):
+        required = ("pl_min_mw", "pl_max_mw", "pl_def_mw")
+        if not all(state.get(key) is not None for key in required):
+            reader = getattr(self.gpu, "read_live_power_request", None)
+            if callable(reader):
+                reader()
+        if not all(state.get(key) is not None for key in required):
+            return False
+        self.slider_row("pl", "Power limit (W)", state["pl_min_mw"] / 1000,
+                        state["pl_max_mw"] / 1000, state["pl_def_mw"] / 1000,
+                        self.apply_pl, extra=("Stock", lambda: self.stock_knob("pl")))
+        self.refresh_power_request_range()
+        self.sync_power_slider_from_card()
+        self.setup_power_slider_style()
+        return True
+
+    def power_request_carryover(self, mw):
+        """Retain only an observed extended request when XOC is switched off."""
+        ranges = getattr(self, "_slider_ranges", {})
+        r = ranges.get("pl")
+        if r is None or type(mw) is not int or mw <= 0:
+            return False
+        lower = getattr(self, "_carryover_lo", {})
+        upper = self._carryover_hi
+        previous = (lower.get("pl"), upper.get("pl"))
+        value = mw / 1000
+        if value < r.lo:
+            lower["pl"] = value
+        else:
+            lower.pop("pl", None)
+        if value > r.hi:
+            upper["pl"] = value
+        else:
+            upper.pop("pl", None)
+        self._carryover_lo = lower
+        return previous != (lower.get("pl"), upper.get("pl"))
+
+    def refresh_power_request_range(self):
+        """Probe live extensions independently of the normal power control."""
+        r = getattr(self, "_slider_ranges", {}).get("pl")
+        bounds = getattr(self.gpu, "power_limit_bounds_mw", None)
+        if r is None or not callable(bounds):
+            return
+        try:
+            low, high = bounds(xoc=True)
+            self._slider_ranges["pl"] = r._replace(xoc_lo=low / 1000, xoc_hi=high / 1000)
+            self.power_request_carryover(self.gpu.read_power_limit_mw())
+        except Exception as exc:
+            self.log("Live power request range unavailable: " + str(exc), False)
+
+    def setup_power_slider_style(self):
+        """Keep the original BIOS range visible inside an expanded power knob."""
+        from . import power_range_baseline
+        from .power_slider_style import PowerSliderStyle
+
+        try:
+            baseline = power_range_baseline.read(self.gpu)
+        except Exception as exc:
+            baseline = {"minimum_mw": None, "maximum_mw": None, "source": "unavailable", "reason": str(exc)}
+        self._power_slider_baseline = baseline
+        minimum, maximum = baseline.get("minimum_mw"), baseline.get("maximum_mw")
+        bounds = ((minimum / 1000, maximum / 1000)
+                  if type(minimum) is int and type(maximum) is int and minimum <= maximum else None)
+        old = getattr(self, "_power_slider_style", None)
+        if old is not None:
+            old.close()
+        self._power_slider_style = PowerSliderStyle(
+            slider="sl_pl", input_item="in_pl", original_bounds=bounds,
+            amber=WARN, normal_text=TEXT)
+        with dpg.tooltip("sl_pl"):
+            if bounds is None:
+                message = "Original BIOS power range unavailable; extension coloring could not be determined."
+                if baseline.get("reason"):
+                    message += " " + str(baseline["reason"])
+            else:
+                message = (f"Original BIOS range: {bounds[0]:g}..{bounds[1]:g} W. "
+                           "Amber marks the added range and numbers outside the original range. "
+                           "XOC enables live extended requests on supported GPUs. "
+                           "Other power and current limits can still apply.")
+            dpg.add_text(message, wrap=self.s(420))
+
+    def refresh_power_slider_style(self):
+        style = getattr(self, "_power_slider_style", None)
+        if style is not None:
+            style.refresh()
 
     def sync_knob_boxes(self):
         """Put every text box back in step with its slider.
@@ -3860,6 +4006,7 @@ class Druta:
                     dpg.set_value(box, v)
         finally:
             self._knob_sync = False
+        self.refresh_power_slider_style()
 
     def sync_slider_ranges(self, xoc=None):
         """Move every knob's bounds to match the risk state, both ways.
@@ -4015,7 +4162,7 @@ class Druta:
         for tag in ("sl_mem", "in_mem"):
             if dpg.does_item_exist(tag):
                 dpg.set_value(tag, value)
-        self.report(self.gpu.set_clock_offset(2, value))
+        self.report(self.write_tuning_action("memory", value, lambda: self.gpu.set_clock_offset(2, value)))
 
     def build_i2c_rail_row(self):
         """Expose identified telemetry separately from a verified offset path."""
@@ -6272,8 +6419,8 @@ class Druta:
             for pre in ("sl_", "in_"):
                 if dpg.does_item_exist(pre + "rail"):
                     dpg.set_value(pre + "rail", v)
-            self.autosave_before("core-rail-offset")
-            ok, msg = self.gpu.set_rail_offset_mv(v, 0)
+            ok, msg = self.write_tuning_action(
+                "rail_offset", v, lambda: self.gpu.set_rail_offset_mv(v, 0))
             # A held V/F point PINS the voltage, so the write lands in the
             # control block and the rail does not move at all. Reporting a bare
             # success for that reads as "applied" and is how a working knob got
@@ -6299,16 +6446,15 @@ class Druta:
         # this field: a +100 request runs as +90 and a -50 request runs as -60.
         # Snapping here means the number on the slider is the number the card
         # will run, instead of a request that silently becomes something else.
-        # No undo point: unlike the core offset this does NOT land in the V/F
-        # delta table - it is a separate per-domain control block, so it cannot
-        # overwrite a hand-tuned curve.
+        # Capture this domain alone; its setter preserves the V/F curve.
         step = (self.gpu.clkdom_step_mhz()
                 if self.gpu.clkdom_is_blackwell()
                 else self.step_mhz()) or self.step_mhz()
         mhz = int(math.floor(int(v) / step)) * step
         if mhz != int(v):
             dpg.set_value(f"sl_{key}", mhz)
-        self.report(self.gpu.set_clk_domain_offset(dom, mhz))
+        self.report(self.write_tuning_action("domain", mhz,
+                                            lambda: self.gpu.set_clk_domain_offset(dom, mhz), index=dom))
 
     def apply_pl(self, v):
         if self.guard():
@@ -6320,10 +6466,15 @@ class Druta:
             for tag in ("sl_pl", "in_pl"):
                 if dpg.does_item_exist(tag):
                     dpg.set_value(tag, value)
-            self.report(self.gpu.set_power_limit_mw(int(round(value * 1000))))
+            self.report(self.write_tuning_action("power", "board",
+                                                lambda: self.gpu.set_power_limit_mw(int(round(value * 1000)))))
+            self.sync_power_slider_from_card()
             # the driver recalculates the limits it derives from this one
             self.refresh_current_limits(sync=True)
             self.refresh_power_policies(force=True)
+            panel = getattr(self, "_registry_panel", None)
+            if panel is not None:
+                panel.refresh_arbitration()
 
     def sync_power_slider_from_card(self):
         """Show the board limit the card is configured with, whatever a write's
@@ -6336,14 +6487,18 @@ class Druta:
             got = None
         if not got:
             return None
+        self.power_request_carryover(got)
+        if "pl" in getattr(self, "_slider_ranges", {}):
+            self.sync_slider_ranges(self._xoc_bounds)
         for tag in ("sl_pl", "in_pl"):
             if dpg.does_item_exist(tag):
                 dpg.set_value(tag, got / 1000)
+        self.refresh_power_slider_style()
         return got
 
     def apply_volt(self, v):
         if self.guard():
-            ok, msg = self.gpu.set_voltage_boost(int(v))
+            ok, msg = self.write_tuning_action("boost", int(v), lambda: self.gpu.set_voltage_boost(int(v)))
             self.report((ok, msg))
             if ok:
                 # The boost contribution is part of the ceiling a hold's
@@ -6352,11 +6507,11 @@ class Druta:
 
     def apply_fan(self, v):
         if self.guard():
-            self.report(self.gpu.set_fan(int(v)))
+            self.report(self.write_tuning_action("fan", int(v), lambda: self.gpu.set_fan(int(v))))
 
     def fan_auto(self):
         if self.guard():
-            self.report(self.gpu.reset_fan())
+            self.report(self.write_tuning_action("fan", None, self.gpu.reset_fan))
 
     # ---- the opening ritual, in one click --------------------------------- #
     def oc_max(self, sender=None, app_data=None, user_data=None):
@@ -6794,6 +6949,24 @@ class Druta:
             return
         self.sync_hold_headroom(replan=True)
 
+    def _close_live_gating_requests(self, gpu=None):
+        """Release this window's live gating requests; never replay a saved setting."""
+        complete = True
+        for name in ("_gr_gating_live_controllers", "_individual_power_gating_controllers", "_engine_clock_gating_controllers",
+                     "_block_clock_gating_controllers", "_second_level_clock_gating_controllers"):
+            controllers = getattr(self, name, {})
+            for key, controller in list(controllers.items()):
+                if gpu is not None and controller.gpu is not gpu:
+                    continue
+                try:
+                    controller.close()
+                except Exception as exc:                          # noqa: BLE001
+                    complete = False
+                    self.log(f"Live gating request cleanup failed: {exc}", False)
+                else:
+                    controllers.pop(key, None)
+        return complete
+
     def release_on_exit(self):
         """Drop whichever lock THIS app is still holding, as the window closes.
         A lock is the one write here that outlives the process: it sits in the
@@ -6817,6 +6990,7 @@ class Druta:
 
         Printed as well as logged: no frame renders after the loop exits, so the
         log widget is written for consistency and never appears on screen."""
+        self._close_live_gating_requests()
         # Headroom first, while any V/F lock still holds the point. If it cannot
         # be taken off, the V/F lock is KEPT: an idle card held in P0 costs
         # power, but an unpinned card under a raised ceiling can run above the
@@ -8008,6 +8182,16 @@ class Druta:
                     dpg.set_value(f"vlim_txt{r}", cells[1])
 
     def refresh_control(self, d):
+        requested = d.get("pl_requested_mw")
+        if requested is None and "pl" in getattr(self, "_slider_ranges", {}):
+            requested = self.gpu.read_power_limit_mw()
+        if self.power_request_carryover(requested):
+            self.sync_slider_ranges(self._xoc_bounds)
+        if dpg.does_item_exist("power_request_status"):
+            text = (f"Configured request: {requested / 1000:g} W. "
+                    "Firmware limits: Registry / BIOS overrides > Power/current arbitration."
+                    if type(requested) is int and requested > 0 else "Configured power request unavailable.")
+            dpg.set_value("power_request_status", text)
         c_t = d.get("core_p0max", "?")
         m_t = self.mem_fmt(d.get("mem_p0max"))[0]
         self.refresh_rail_live()
@@ -10172,6 +10356,71 @@ deliberately does not put behind a button."""
     # ====================================================================== #
     #  PROFILES                                                              #
     # ====================================================================== #
+    def write_tuning_action(self, kind, value, writer, *, index=None):
+        """Save the selected request before an ordinary control write."""
+        with self.gpu._lock:
+            try:
+                if kind == "power":
+                    state = profiles.capture_power_action(self.gpu)
+                    # A same-number action can still add/remove a session pin.
+                    same = False
+                elif kind == "fan":
+                    state = profiles.capture_fan(self.gpu)
+                    missing = profiles.incomplete(state)
+                    if missing:
+                        raise ValueError("; ".join(missing))
+                    fans = state["fan_control_state"]["fans"]
+                    same = all(not row["manual"] if value is None else
+                               row["manual"] and row["level"] == value for row in fans)
+                else:
+                    state = profiles.capture_tuning_action(self.gpu, kind, index)
+                    data = state["tuning_action"]
+                    wanted = (value * data["scale"] if kind == "memory" else round(value) * 1000 if kind == "domain"
+                              else round(value * 1000) if kind == "rail_offset" else value)
+                    same = data["value"] == wanted
+                if same:
+                    return True, f"{kind} request already matches; nothing written"
+                name, _, missing = profiles.autosave_state(f"tuning-{kind}", state)
+                if missing:
+                    raise ValueError("; ".join(missing))
+                self.log(f"Undo point saved as '{name}'", None)
+            except Exception as exc:
+                if kind == "power" and value == "stock":
+                    self.log(f"Could not save power Undo: {exc}; continuing the explicit Stock action", False)
+                elif kind == "fan" and value is None:
+                    self.log(f"Could not save fan Undo: {exc}; returning fan control to the driver", False)
+                else:
+                    return False, f"Could not save {kind} Undo: {exc}; nothing written"
+            try:
+                result = writer()
+                if kind == "boost" and result[0] and self.gpu.read_voltage_boost() != value:
+                    return False, "Voltage boost request readback mismatch; Undo snapshot retained"
+                return result
+            except Exception as exc:
+                return False, f"{kind} write failed: {exc}; Undo snapshot retained if captured"
+
+    def refresh_tuning_action(self, state):
+        data = state["tuning_action"]
+        try:
+            fresh = profiles.capture_tuning_action(self.gpu, data["kind"], data["index"])["tuning_action"]
+            if data["kind"] == "memory":
+                key, value = "mem", fresh["value"] / fresh["scale"]
+            elif data["kind"] == "rail_offset":
+                key, value = "rail", fresh["value"] / 1000
+            elif data["kind"] == "boost":
+                key, value = "volt", fresh["value"]
+                self.sync_hold_headroom(replan=True)
+            else:
+                knob = next((k for k in self.DOMAIN_KNOBS if k.ctrl == data["index"]), None)
+                if knob is None:
+                    return
+                key, value = knob.key, fresh["value"] / 1000
+            for prefix in ("sl_", "in_"):
+                if dpg.does_item_exist(prefix + key):
+                    dpg.set_value(prefix + key, value)
+        except Exception as exc:
+            self.log(f"Could not refresh tuning request: {exc}", False)
+
     def autosave_before(self, action, *, scope=None):
         """Undo point taken IMMEDIATELY before a destructive write. This is the
         other half of single-click Apply: the banner makes the click informed,
@@ -10186,12 +10435,8 @@ deliberately does not put behind a button."""
         Re-phase is the only genuinely LOSSY write in the app (off-phase deltas
         are rounded down and the original remainders are gone, so not even
         'Reset curve to stock' can recover them).
-        The single-knob applies - memory offset, power limit, voltage boost,
-        fan - deliberately do NOT: each moves one number that its own slider
-        still shows, and putting them in the ring would evict the curve
-        snapshots that nothing else can reconstruct. The clock lock does not
-        either, and could not: profiles.capture does not record it, so an undo
-        point would silently fail to take it back. Release / Ctrl+H does.
+        Ordinary tuning actions use write_tuning_action for their scoped
+        snapshots. Clock locks retain their explicit Release action.
 
         A failed or partial snapshot does NOT block the write - three of the
         callers only ever move the card toward stock, and refusing to let
@@ -10236,7 +10481,33 @@ deliberately does not put behind a button."""
             self.log("give the profile a name first", False)
             return
         try:
-            state = profiles.capture(self.gpu, self.rail)
+            if getattr(self, "_profile_save_scope", None) == "voltage_requests":
+                state = profiles.capture_voltage_requests(self.gpu)
+            elif getattr(self, "_profile_save_scope", None) == "voltage_controls":
+                state = profiles.capture_voltage_controls(self.gpu, self._profile_save_kind)
+            elif getattr(self, "_profile_save_scope", None) == "clock_vf":
+                state = profiles.capture_clock_vf(self.gpu)
+            elif getattr(self, "_profile_save_scope", None) == "lowpower_requests":
+                from . import lowpower_profiles
+                state = lowpower_profiles.capture(self, self._profile_save_kind, self._profile_save_index)
+            elif getattr(self, "_profile_save_scope", None) == "tuning_action":
+                state = profiles.capture_tuning_action(self.gpu, self._profile_save_kind, self._profile_save_index)
+            elif getattr(self, "_profile_save_scope", None) == "power_action":
+                state = profiles.capture_power_action(self.gpu)
+            elif getattr(self, "_profile_save_scope", None) == "pcie_speed":
+                state = profiles.capture_pcie_speed(self.gpu)
+            elif getattr(self, "_profile_save_scope", None) == "power_integral":
+                state = profiles.capture_power_integral(self.gpu)
+            elif getattr(self, "_profile_save_scope", None) == "rail_limits":
+                state = profiles.capture_rail_limits(self.gpu)
+            elif getattr(self, "_profile_save_scope", None) == "fan":
+                state = profiles.capture_fan(self.gpu)
+            else:
+                state = profiles.capture(self.gpu, self.rail)
+            if getattr(self, "_profile_save_scope", None) in ("tuning_action", "power_action", "power_integral", "pcie_speed", "rail_limits", "fan"):
+                missing = profiles.incomplete(state)
+                if missing:
+                    raise ValueError("; ".join(missing))
             path = profiles.save(name, state)
         except Exception as e:
             self.log(f"save profile '{name}': {e}", False)
@@ -10247,9 +10518,82 @@ deliberately does not put behind a button."""
                  f"{profiles.summarize(state)}", True)
         self.refresh_profile_list()
 
+    def ordinary_profile_contents(self):
+        """Build choices using the same capability and label sources as the sliders."""
+        choices = {"Full tune": (None, None, None),
+                   "Memory offset": ("tuning_action", "memory", None),
+                   "Voltage boost": ("tuning_action", "boost", None),
+                   "Rail limits": ("rail_limits", None, None),
+                   "Fan policy": ("fan", None, None),
+                   "Power-policy feedback bounds": ("power_integral", None, None),
+                   "PCIe speed": ("pcie_speed", None, None),
+                   "Coupled power/current requests": ("power_action", None, None)}
+        try:
+            profiles.capture_tuning_action(self.gpu, "rail_offset")
+            choices["NVVDD offset"] = ("tuning_action", "rail_offset", None)
+        except Exception:
+            pass
+        try:
+            try:
+                rows = (self.gpu.read() or {}).get("clk_domains")
+            except Exception:
+                rows = None
+            controls = set(self.gpu.clkdom_controls_for_ui(rows))
+            domains = set(self.gpu.clkdom_domains())
+            for knob in self.DOMAIN_KNOBS:
+                if (knob.ctrl in controls and knob.ctrl in domains
+                        and self.gpu.clkdom_offset_slider_offered(knob.ctrl)):
+                    label = self.domain_knob_label(knob, rows)[0]
+                    if label in choices:
+                        label = f"{label} (control {knob.ctrl})"
+                    choices[label] = ("tuning_action", "domain", knob.ctrl)
+        except Exception as exc:
+            self.log(f"Could not list clock-domain profile contents: {exc}", False)
+        return choices
+
+    def select_profile_contents(self, sender=None, app_data=None, user_data=None):
+        choices = getattr(self, "_ordinary_profile_contents", {})
+        selection = choices.get(app_data, choices.get("Full tune", (None, None, None)))
+        self._profile_save_scope, self._profile_save_kind, self._profile_save_index = selection
+        if dpg.does_item_exist("prof_save_description"):
+            dpg.configure_item("prof_save_description", show=selection[0] is None)
+            dpg.configure_item("prof_save_ordinary_description", show=selection[0] is not None)
+        if selection[0] is not None and dpg.does_item_exist("prof_save_ordinary_description"):
+            dpg.set_value("prof_save_ordinary_description",
+                          f"Saves current applied settings for {app_data}. Staged edits are not saved. "
+                          "Load manually from Profiles; no startup or post-reset replay. "
+                          "Saving writes nothing to the GPU.")
+
     def open_save_profile(self, sender=None, app_data=None, user_data=None):
         if not self.profile_capture_ready():
             return
+        self._profile_save_scope = "voltage_requests" if user_data == "voltage_requests" else None
+        if user_data == "clock_vf":
+            self._profile_save_scope = "clock_vf"
+        self._profile_save_kind = None
+        self._profile_save_index = None
+        if user_data in ("gate", "rel_bounds", "constants", "switch_delay"):
+            self._profile_save_scope = "voltage_controls"
+            self._profile_save_kind = user_data
+        if isinstance(user_data, tuple) and len(user_data) == 3 and user_data[0] in ("lowpower_requests", "pcie_speed"):
+            self._profile_save_scope, self._profile_save_kind, self._profile_save_index = user_data
+        ordinary = self._profile_save_scope is None
+        if ordinary:
+            self._ordinary_profile_contents = self.ordinary_profile_contents()
+        if dpg.does_item_exist("prof_save_contents"):
+            dpg.configure_item("prof_save_contents", show=ordinary,
+                               items=list(self._ordinary_profile_contents) if ordinary else [])
+            if ordinary:
+                dpg.set_value("prof_save_contents", "Full tune")
+        if dpg.does_item_exist("prof_save_description"):
+            dpg.configure_item("prof_save_ordinary_description", show=self._profile_save_scope == "pcie_speed")
+            if self._profile_save_scope == "pcie_speed":
+                dpg.set_value("prof_save_ordinary_description", "Saves the current PCIe target. Load manually; no startup or post-reset replay.")
+            dpg.configure_item("prof_save_description", show=ordinary)
+            dpg.configure_item("prof_save_requests_description", show=self._profile_save_scope == "voltage_requests")
+            dpg.configure_item("prof_save_controls_description", show=self._profile_save_scope == "voltage_controls")
+            dpg.configure_item("prof_save_lowpower_description", show=self._profile_save_scope == "lowpower_requests")
+            dpg.configure_item("prof_save_vf_description", show=self._profile_save_scope == "clock_vf")
         # seeded with a timestamp so the box is never empty: profiles are
         # slugged onto disk by name, so an unnamed one would be "unnamed.json"
         # and the next save would silently overwrite it
@@ -10349,7 +10693,7 @@ deliberately does not put behind a button."""
                         dpg.add_button(label="Load", tag=tag, width=-1,
                                        user_data=name,
                                        callback=lambda s, a, u: self.load_profile(u))
-                        if not is_auto:
+                        if not is_auto and state.get("scope") not in ("fan", "combined", "voltage_requests", "voltage_controls", "lowpower_requests", "clock_vf", "voltage_offsets", "tuning_action", "power_action", "power_integral", "pcie_speed", "rail_limits"):
                             dpg.add_button(label="Load at startup", width=-1,
                                            user_data=name,
                                            callback=lambda s, a, u: self.set_startup_profile(u))
@@ -10391,6 +10735,153 @@ deliberately does not put behind a button."""
                     if all(saved.get(k) == v for k, v in profiles.rail_identity(r).items())]
         return matching[0] if len(matching) == 1 else None
 
+    def open_combine_profiles(self):
+        self._combine_states = []
+        dpg.delete_item("combine_rows", children_only=True)
+        try:
+            for name, _path, _when, _auto in profiles.list_profiles():
+                try:
+                    state = profiles.load(name)
+                    if state.get("scope") == "combined":
+                        continue
+                    index = len(self._combine_states)
+                    self._combine_states.append((name, state))
+                    with dpg.group(horizontal=True, parent="combine_rows"):
+                        dpg.add_checkbox(tag=f"combine_choice_{index}")
+                        dpg.add_text(name, wrap=self.s(250))
+                        dpg.add_text(profiles.summarize(state), wrap=self.s(420))
+                except Exception as exc:
+                    self.log(f"cannot combine '{name}': {exc}", False)
+        except Exception as exc:
+            self.log(f"profile list: {exc}", False)
+        if not self._combine_states:
+            dpg.add_text("No saved sections to combine yet. Save a profile from a control section first.",
+                         parent="combine_rows", wrap=self.s(700))
+        dpg.set_value("combine_name", time.strftime("combined-%Y%m%d-%H%M"))
+        dpg.set_value("combine_error", "")
+        self.show_win(user_data="win_combine")
+
+    def save_combined_profile(self):
+        from . import combined_profiles
+        name = (dpg.get_value("combine_name") or "").strip()
+        try:
+            if not name:
+                raise ValueError("give the profile a name first")
+            selected = [item for index, item in enumerate(self._combine_states)
+                        if dpg.get_value(f"combine_choice_{index}")]
+            state = combined_profiles.compose(selected)
+            path = profiles.save(name, state)
+        except Exception as exc:
+            self.log(f"save combined profile: {exc}", False)
+            if dpg.does_item_exist("combine_error"):
+                dpg.set_value("combine_error", str(exc))
+            return
+        dpg.configure_item("win_combine", show=False)
+        self.log(f"saved '{os.path.basename(path)}' with {len(selected)} components", True)
+        self.refresh_profile_list()
+
+    def begin_combined_profile_load(self, name, state, automatic=False):
+        from . import combined_profiles
+        if automatic:
+            self.profile_failure("combined profiles require manual loading", True)
+            return
+        if not self.guard() or self._i2c_busy:
+            self.profile_failure("profile load blocked by another operation or locked controls")
+            return
+        try:
+            items = combined_profiles.validate(state)
+            full = next((item['state'] for item in items if item['state'].get('scope') is None), None)
+            if full and full.get("i2c") and hasattr(self, "_i2c_discovery_complete") and not self._i2c_discovery_complete:
+                raise ValueError("I2C controller detection has not completed; tick I2C rail, wait for detection, then load again")
+            chosen = self.rail_for_profile(full) if full else self.rail
+            if full:
+                warn = profiles.device_mismatch(full, self.gpu)
+                if warn and (self._pending_load or (None,))[0] != name:
+                    self.set_pending_load((name, warn))
+                    return
+            self.set_pending_load(None)
+            if chosen is not self.rail:
+                self.invalidate_i2c_verification()
+                self._i2c_recovery_for = None
+                self.rail = chosen
+                self.refresh_i2c_candidates()
+            error = combined_profiles.preflight(self, state)
+            if error:
+                raise ValueError(error)
+            if full:
+                ok, message = self._finish_manual_voltage("loading a profile")
+                if not ok:
+                    raise ValueError(message)
+                error = combined_profiles.preflight(self, state)
+                if error:
+                    raise ValueError(error)
+            before = combined_profiles.capture_undo(self, state)
+            undo_name, _, missing = profiles.autosave_state(f"load-{name}"[:40], before)
+            if missing:
+                raise ValueError("could not capture a complete combined undo point")
+        except Exception as exc:
+            self.profile_failure(f"could not prepare combined profile: {exc}")
+            return
+        self.log(f"Undo point saved as '{undo_name}'", None)
+        if getattr(self, "_held_startup_request", None):
+            self._held_startup_request = None
+        if full:
+            rail_mode = bool(full.get("rail_limits_uv") or full.get("rail_limits_mv"))
+            if not rail_mode and any(item['state'].get('scope') == 'rail_limits' for item in items):
+                rail_mode = bool(dpg.get_value("vlim_mode"))
+            for tag, value in (("xoc_mode", bool(full.get("xoc"))),
+                               ("vlim_mode", rail_mode),
+                               ("i2c_mode", bool(full.get("i2c")))):
+                dpg.set_value(tag, value)
+            self.sync_risk_ui()
+            if full.get("i2c") and not self.i2c_verified() and profiles.i2c_replay_needed(full, self.rail):
+                self.verify_i2c_rail()
+                if not self.i2c_verified():
+                    if not self._i2c_busy:
+                        self.profile_failure("I2C verification could not start")
+                        return
+                    self._profile_pending = (name, state, False)
+                    self.sync_lock_ui()
+                    for tag in ("unlock", "xoc_mode", "i2c_mode", "vlim_mode"):
+                        dpg.configure_item(tag, enabled=False)
+                    self.log("profile waits for fresh I2C verification under load", None)
+                    return
+        self.finish_profile_load(name, state, False)
+
+    def finish_combined_profile_load(self, name, state, automatic=False):
+        from . import combined_profiles
+        if automatic:
+            self.profile_failure("combined profiles require manual loading", True)
+            return
+        self._profile_applying = True
+        try:
+            results = combined_profiles.restore(self, state)
+        except Exception as exc:
+            results = [(False, f"combined profile restore failed: {exc}")]
+        finally:
+            self._profile_applying = False
+        for ok, message in results:
+            self.log(message, ok)
+        if not results or any(not ok for ok, _ in results):
+            self.profile_failure("combined profile not fully applied; see per-control results")
+        else:
+            self.log(f"profile '{name}' applied", True)
+        for item in combined_profiles.validate(state):
+            child = item['state']
+            scope = child.get('scope')
+            if scope is None:
+                if getattr(self.rail, "current_dac", False):
+                    self._current_dac_failure(self.rail, (False, "profile current-DAC restore failed"))
+                elif getattr(self.rail, "multi_state_offset", False):
+                    self._multi_state_offset_failure((False, "profile load-state offset restore failed"))
+            if scope == 'lowpower_requests':
+                self.refresh_lowpower_profile(child)
+            elif scope in ('fan', 'voltage_requests', 'voltage_controls', 'clock_vf', 'voltage_offsets', 'tuning_action', 'power_action', 'power_integral', 'pcie_speed', 'rail_limits'):
+                self.refresh_scoped_profile(child)
+            else:
+                self.refresh_full_profile(child)
+        self.refresh_profile_list()
+
     def load_profile(self, name):
         """Restoring is a destructive write like any other, so it goes through
         the unlock gate, takes its own undo point first, and reports every knob
@@ -10401,6 +10892,17 @@ deliberately does not put behind a button."""
             state = profiles.load(name)
         except Exception as e:
             self.log(f"load '{name}': {e}", False)
+            return
+        if state.get("scope") == "combined":
+            self.begin_combined_profile_load(name, state)
+            return
+        if state.get("scope") == "lowpower_requests":
+            self.set_pending_load(None)
+            self.begin_lowpower_profile_load(name, state)
+            return
+        if state.get("scope") in ("fan", "voltage_offsets", "tuning_action", "power_action", "power_integral", "pcie_speed", "rail_limits"):
+            self.set_pending_load(None)
+            self.begin_voltage_request_profile_load(name, state)
             return
         if (state.get("i2c") and hasattr(self, "_i2c_discovery_complete")
                 and not self._i2c_discovery_complete):
@@ -10421,6 +10923,18 @@ deliberately does not put behind a button."""
         self.begin_profile_load(name, state)
 
     def begin_profile_load(self, name, state, automatic=False):
+        if automatic and state.get("scope") == "fan":
+            self.profile_failure("fan policy profiles require manual loading", True)
+            return
+        if state.get("scope") == "combined":
+            self.begin_combined_profile_load(name, state, automatic)
+            return
+        if state.get("scope") == "lowpower_requests":
+            self.begin_lowpower_profile_load(name, state, automatic)
+            return
+        if state.get("scope") in ("fan", "voltage_requests", "voltage_controls", "clock_vf", "voltage_offsets", "tuning_action", "power_action", "power_integral", "pcie_speed", "rail_limits"):
+            self.begin_voltage_request_profile_load(name, state, automatic)
+            return
         if not self.guard() or self._i2c_busy:
             self.profile_failure("profile load blocked by another operation or locked controls", automatic)
             return
@@ -10459,12 +10973,12 @@ deliberately does not put behind a button."""
         scope = state.get("scope")
         options = {"scope": scope} if scope is not None else {}
         captured = self.autosave_before(f"load-{name}"[:40], **options)
-        if (automatic or scope == "fan") and not captured:
+        if automatic and not captured:
             self.profile_failure("could not capture a complete undo point", automatic)
             return
         self.log(f"restoring '{name}' ({state.get('saved_at','?')}): "
                  f"{profiles.summarize(state)}", None)
-        if state.get("schema", 1) >= 2 and scope != "fan":
+        if state.get("schema", 1) >= 2:
             for tag, value in (("xoc_mode", bool(state.get("xoc"))),
                                ("vlim_mode", bool(state.get("rail_limits_uv") or state.get("rail_limits_mv"))),
                                ("i2c_mode", bool(state.get("i2c")))):
@@ -10490,6 +11004,73 @@ deliberately does not put behind a button."""
             self.log("profile waits for fresh I2C verification under load", None)
             return
         self.finish_profile_load(name, state, automatic)
+
+    def begin_voltage_request_profile_load(self, name, state, automatic=False):
+        if automatic:
+            self.profile_failure("PCIe speed profiles require manual loading" if state.get("scope") == "pcie_speed"
+                                 else "power-policy feedback profiles require manual loading" if state.get("scope") == "power_integral"
+                                 else "clock V/F profiles require manual loading" if state.get("scope") == "clock_vf"
+                                 else "voltage offset profiles require manual loading" if state.get("scope") == "voltage_offsets"
+                                 else "voltage-request profiles require manual loading", True)
+            return
+        if not self.guard() or self._i2c_busy:
+            self.profile_failure("profile load blocked by another operation or locked controls")
+            return
+        error = profiles.preflight(self.gpu, state)
+        if error:
+            self.profile_failure(error)
+            return
+        try:
+            capture = (profiles.autosave_pcie_speed if state.get("scope") == "pcie_speed"
+                       else profiles.autosave_tuning_action if state.get("scope") == "tuning_action"
+                       else profiles.autosave_rail_limits if state.get("scope") == "rail_limits"
+                       else profiles.autosave_power_integral if state.get("scope") == "power_integral"
+                       else profiles.autosave_power_action if state.get("scope") == "power_action"
+                       else profiles.autosave_voltage_offsets if state.get("scope") == "voltage_offsets"
+                       else profiles.autosave_clock_vf if state.get("scope") == "clock_vf"
+                       else profiles.autosave_voltage_controls if state.get("scope") == "voltage_controls"
+                       else profiles.autosave_voltage_requests)
+            if state.get("scope") == "fan":
+                undo_name, _, missing = profiles.autosave(self.gpu, f"load-{name}"[:40], scope="fan")
+            else:
+                undo_name, _, missing = capture(self.gpu, f"load-{name}"[:40], state)
+            if missing:
+                raise ValueError("could not capture a complete selected-field undo point")
+        except Exception as exc:
+            self.profile_failure(f"could not save undo state: {exc}; nothing changed")
+            return
+        if getattr(self, "_held_startup_request", None):
+            self._held_startup_request = None
+            self.log("Held startup profile canceled by manual profile load", None)
+        self.log(f"Undo point saved as '{undo_name}'", None)
+        self.finish_profile_load(name, state, False)
+
+    def begin_lowpower_profile_load(self, name, state, automatic=False):
+        from . import lowpower_profiles
+        if automatic:
+            self.profile_failure("low-power request profiles require manual loading", True)
+            return
+        if not self.guard() or self._i2c_busy:
+            self.profile_failure("profile load blocked by another operation or locked controls")
+            return
+        error = lowpower_profiles.preflight(self, state)
+        if error:
+            self.profile_failure(error)
+            return
+        try:
+            target = lowpower_profiles.validate(state)
+            before = lowpower_profiles.capture(self, target["kind"], target["index"])
+            undo_name, _, missing = profiles.autosave_state(f"load-{name}"[:40], before)
+            if missing:
+                raise ValueError("could not capture a complete low-power request undo point")
+        except Exception as exc:
+            self.profile_failure(f"could not save undo state: {exc}; nothing changed")
+            return
+        if getattr(self, "_held_startup_request", None):
+            self._held_startup_request = None
+            self.log("Held startup profile canceled by manual profile load", None)
+        self.log(f"Undo point saved as '{undo_name}'", None)
+        self.finish_profile_load(name, state, False)
 
     def poll_profile_load(self):
         if getattr(self, "_i2c_ui_pending", False) and not self._i2c_busy:
@@ -10522,14 +11103,42 @@ deliberately does not put behind a button."""
         self.refresh_profile_list()
 
     def finish_profile_load(self, name, state, automatic=False):
+        if automatic and state.get("scope") == "fan":
+            self.profile_failure("fan policy profiles require manual loading", True)
+            return
+        if state.get("scope") == "combined":
+            self.finish_combined_profile_load(name, state, automatic)
+            return
+        if state.get("scope") == "lowpower_requests":
+            self.finish_lowpower_profile_load(name, state, automatic)
+            return
+        if automatic and state.get("scope") in ("fan", "voltage_requests", "voltage_controls", "clock_vf", "voltage_offsets", "tuning_action", "power_action", "power_integral", "pcie_speed", "rail_limits"):
+            self.profile_failure("PCIe speed profiles require manual loading" if state.get("scope") == "pcie_speed"
+                                 else "power-policy feedback profiles require manual loading" if state.get("scope") == "power_integral"
+                                 else "clock V/F profiles require manual loading" if state.get("scope") == "clock_vf"
+                                 else "voltage offset profiles require manual loading" if state.get("scope") == "voltage_offsets"
+                                 else "voltage-request profiles require manual loading", True)
+            return
         self._profile_applying = True
         try:
-            results = profiles.restore(self.gpu, state, rail=self.rail,
-                                       i2c_verified=self.i2c_verified())
+            if state.get("scope") in ("fan", "voltage_requests", "voltage_controls", "clock_vf", "voltage_offsets", "tuning_action", "power_action", "power_integral", "pcie_speed", "rail_limits"):
+                results = profiles.restore(self.gpu, state)
+            else:
+                results = profiles.restore(self.gpu, state, rail=self.rail,
+                                           i2c_verified=self.i2c_verified())
         except Exception as e:
             results = [(False, f"profile restore failed: {e}")]
         finally:
             self._profile_applying = False
+        if state.get("scope") in ("fan", "voltage_requests", "voltage_controls", "clock_vf", "voltage_offsets", "tuning_action", "power_action", "power_integral", "pcie_speed", "rail_limits"):
+            for ok, msg in results:
+                self.log(msg, ok)
+            if any(not ok for ok, _ in results):
+                self.profile_failure("one or more profile controls failed; see the per-field results")
+            else:
+                self.log(f"profile '{name}' applied", True)
+            self.refresh_scoped_profile(state)
+            return
         if getattr(self.rail, "current_dac", False):
             self._current_dac_failure(self.rail, (False, "profile current-DAC restore failed"))
         elif getattr(self.rail, "multi_state_offset", False):
@@ -10540,10 +11149,55 @@ deliberately does not put behind a button."""
             self.profile_failure("one or more settings failed; see the per-control results", automatic)
         else:
             self.log(f"profile '{name}' applied", True)
+        self.refresh_full_profile(state)
+
+    def refresh_scoped_profile(self, state):
+        registry_panel = getattr(self, "_registry_panel", None)
+        if state.get("scope") == "fan":
+            self.refresh_fan_profile()
+        elif state.get("scope") == "rail_limits":
+            self.refresh_volt_limits()
+            self.sync_hold_headroom(replan=True)
+        elif state.get("scope") == "tuning_action":
+            self.refresh_tuning_action(state)
+        elif state.get("scope") == "pcie_speed":
+            panel = getattr(registry_panel, "pcie_speed_panel", None)
+            if panel is not None:
+                panel.read()
+        elif state.get("scope") == "power_integral":
+            panel = getattr(self, "_power_integral_panel", None)
+            if panel is not None:
+                panel.read()
+        elif state.get("scope") == "power_action":
+            self.sync_power_slider_from_card()
+            self.refresh_current_limits(sync=True)
+            self.refresh_power_policies(sync=True)
+        elif state.get("scope") == "clock_vf":
+            if registry_panel is not None:
+                registry_panel.refresh_clock_vf_live()
+                registry_panel.invalidate()
+        elif state.get("scope") == "voltage_offsets":
+            panel = getattr(registry_panel, "voltage_offsets_panel", None)
+            if panel is not None:
+                panel.refresh()
+            if registry_panel is not None:
+                registry_panel.invalidate()
+        elif state.get("scope") == "voltage_controls":
+            refresh = {
+                "gate": "refresh_voltage_gate", "rel_bounds": "refresh_rel_live",
+                "constants": "refresh_constants_live", "switch_delay": "refresh_voltage_devices",
+            }.get(state.get("voltage_controls", {}).get("kind"))
+            if registry_panel is not None and refresh:
+                getattr(registry_panel, refresh)()
+        else:
+            panel = getattr(registry_panel, "voltage_requests_panel", None)
+            if panel is not None:
+                panel.refresh()
+        self.refresh_profile_list()
+
+    def refresh_full_profile(self, state):
         self.sync_sliders_from_gpu(state)
         self.apply_profile_policy_names(state)
-        if state.get("scope") == "fan":
-            return
         self.sync_profile_rail_sliders()
         self.refresh_volt_limits()
         # the delta table is written LAST and wins over the core offset (see
@@ -10585,6 +11239,39 @@ deliberately does not put behind a button."""
         except Exception as e:
             self.log(f"rail/clock sliders could not be refreshed: {e}", False)
 
+    def finish_lowpower_profile_load(self, name, state, automatic=False):
+        from . import lowpower_profiles
+        if automatic:
+            self.profile_failure("low-power request profiles require manual loading", True)
+            return
+        self._profile_applying = True
+        try:
+            results = lowpower_profiles.restore(self, state)
+        except Exception as exc:
+            results = [(False, f"low-power profile restore failed: {exc}")]
+        finally:
+            self._profile_applying = False
+        for ok, message in results:
+            self.log(message, ok)
+        if any(not ok for ok, _ in results):
+            self.profile_failure("low-power request not fully applied; see the per-control result")
+        else:
+            self.log(f"profile '{name}' applied", True)
+        self.refresh_lowpower_profile(state)
+
+    def refresh_lowpower_profile(self, state):
+        data = state.get("lowpower_requests", {})
+        panel_name = {"difr": "difr_live_panel", "elpg": "gr_gating_live_panel",
+                      "elcg": "engine_clock_gating_panel", "blcg": "block_clock_gating_panel",
+                      "slcg": "second_level_clock_gating_panel", "individual": "individual_power_gating_panel"}.get(data.get("kind"))
+        panel = getattr(getattr(self, "_registry_panel", None), panel_name, None) if panel_name else None
+        if panel is not None:
+            if data["kind"] == "individual":
+                panel.read(user_data=data["index"])
+            else:
+                panel.read()
+        self.refresh_profile_list()
+
     def set_startup_profile(self, name):
         """Selecting this action approves the displayed tune for Windows logon."""
         if not self.guard():
@@ -10596,6 +11283,18 @@ deliberately does not put behind a button."""
             if manager is None:
                 raise ValueError("startup manager is unavailable")
             state = profiles.load(name)
+            if state.get("scope") == "fan":
+                raise ValueError("fan policy profiles require manual loading")
+            if state.get("scope") == "combined":
+                raise ValueError("combined profiles require manual loading")
+            if state.get("scope") == "lowpower_requests":
+                raise ValueError("low-power request profiles require manual loading")
+            if state.get("scope") in ("voltage_requests", "voltage_controls", "clock_vf", "voltage_offsets", "tuning_action", "power_action", "power_integral", "pcie_speed", "rail_limits"):
+                raise ValueError("PCIe speed profiles require manual loading" if state.get("scope") == "pcie_speed"
+                                 else "power-policy feedback profiles require manual loading" if state.get("scope") == "power_integral"
+                                 else "clock V/F profiles require manual loading" if state.get("scope") == "clock_vf"
+                                 else "voltage offset profiles require manual loading" if state.get("scope") == "voltage_offsets"
+                                 else "voltage-request profiles require manual loading")
             error = profiles.preflight(self.gpu, state, self.rail_for_profile(state))
             error = error or profiles.strict_device_error(state, self.gpu)
             if error:
@@ -10644,6 +11343,25 @@ deliberately does not put behind a button."""
         self.refresh_profile_list()
         self.load_profile(autos[0][0])
 
+    def refresh_fan_profile(self):
+        """Refresh only a common live manual fan target after restoration."""
+        if not (dpg.does_item_exist("sl_fan") or dpg.does_item_exist("in_fan")):
+            return
+        try:
+            fan_state = self.gpu.read_fan_control_state()
+            fans = (fan_state or {}).get("fans") or []
+            targets = {fan["level"] for fan in fans}
+            if fans and all(fan["manual"] for fan in fans) and len(targets) == 1:
+                value = int(targets.pop())
+                for tag in ("sl_fan", "in_fan"):
+                    if dpg.does_item_exist(tag):
+                        dpg.set_value(tag, value)
+            elif any(fan["manual"] for fan in fans):
+                self.log("fans have different targets or policies; the shared "
+                         "fan slider was left unchanged", None)
+        except Exception as e:
+            self.log(f"fan target could not be read: {e}; slider left unchanged", False)
+
     def sync_sliders_from_gpu(self, state=None):
         """Put the knobs back in step with the CARD after a restore. Read back
         rather than echoing the profile: a knob whose write the driver refused
@@ -10667,22 +11385,8 @@ deliberately does not put behind a button."""
         vb = self.gpu.read_voltage_boost()
         if vb is not None and dpg.does_item_exist("sl_volt"):
             dpg.set_value("sl_volt", max(0, min(100, int(vb))))
-        # Read the requested target after restoration. Measured duty can
-        # still be ramping; putting that transient speed in the input would
-        # make the next Apply replace the target with an unintended value.
-        # One shared slider can represent only a common manual target.
-        if state and dpg.does_item_exist("sl_fan"):
-            try:
-                fan_state = self.gpu.read_fan_control_state()
-                fans = (fan_state or {}).get("fans") or []
-                targets = {fan["level"] for fan in fans}
-                if fans and all(fan["manual"] for fan in fans) and len(targets) == 1:
-                    dpg.set_value("sl_fan", int(targets.pop()))
-                elif any(fan["manual"] for fan in fans):
-                    self.log("fans have different targets or policies; the shared "
-                             "fan slider was left unchanged", None)
-            except Exception as e:
-                self.log(f"fan target could not be read: {e}; slider left unchanged", False)
+        if state:
+            self.refresh_fan_profile()
         self.refresh_current_limits(sync=True)
         self.refresh_power_policies(sync=True)
         self.sync_knob_boxes()
@@ -11004,15 +11708,35 @@ deliberately does not put behind a button."""
             self.bind("info", "mono")
 
         with dpg.window(label="Save profile", tag="win_save", show=False,
-                        width=self.s(560), height=self.s(270),
+                        width=self.s(560), height=self.s(310),
                         pos=[self.s(200), self.s(180)]):
+            dpg.add_combo(label="Contents", tag="prof_save_contents", items=["Full tune"],
+                          default_value="Full tune", width=self.s(300), callback=self.select_profile_contents)
+            dpg.add_text("", tag="prof_save_ordinary_description", show=False, color=DIM, wrap=self.s(520))
             dpg.add_text("Snapshots clock offsets, power, voltage boost, fan policy, "
                          "confirmed per-rail limits, NVVDD offset, the I2C regulator "
                          "control and XOC mode"
                          + (f", plus all {self.n_vf_rows()} V/F deltas"
                             if self.vf_applicable() else "") + ", as JSON in profiles/ "
                          "next to the app. Saving writes nothing to the GPU.",
-                         color=DIM, wrap=self.s(520))
+                         tag="prof_save_description", color=DIM, wrap=self.s(520))
+            dpg.add_text("Saves the six stored voltage offsets for each available rail. "
+                         "Load this profile manually from Profiles. The gate, boost, clocks and "
+                         "other settings are unchanged. VCRIT effective thresholds remain unverified. "
+                         "Startup and post-reset application are disabled for these profiles.",
+                         tag="prof_save_requests_description", show=False, color=DIM, wrap=self.s(520))
+            dpg.add_text("Saves the available values in this voltage-control section. "
+                         "Load manually from Profiles; these settings are never applied at startup "
+                         "or after a GPU reset. Saved values are control requests, not measured voltage or latency.",
+                         tag="prof_save_controls_description", show=False, color=DIM, wrap=self.s(520))
+            dpg.add_text("Saves only this Druta instance's selected low-power request. "
+                         "Loading acquires or releases this instance's request; it does not restore other clients' "
+                         "requests or guarantee physical gating. Manual load only, with no startup or post-reset replay.",
+                         tag="prof_save_lowpower_description", show=False, color=DIM, wrap=self.s(520))
+            dpg.add_text("Saves the live V/F monotonicity and smoothing policy flags for manual loading. "
+                         "The startup processing mode, curve and registry settings are not part of this profile. "
+                         "No automatic startup or post-reset replay.",
+                         tag="prof_save_vf_description", show=False, color=DIM, wrap=self.s(520))
             dpg.add_spacer(height=self.s(6))
             # on_enter as well as the button: this box is a name prompt, and
             # Enter is what a name prompt is expected to take. typing() names
@@ -11029,6 +11753,17 @@ deliberately does not put behind a button."""
                 dpg.add_button(label="Cancel", width=self.s(130),
                                callback=lambda: dpg.configure_item(
                                    "win_save", show=False))
+
+        with dpg.window(label="Combine profiles", tag="win_combine", show=False,
+                        width=self.s(800), height=self.s(500), pos=[self.s(120), self.s(120)]):
+            dpg.add_text("Choose saved snapshots, including undo points. Combined profiles load manually.", wrap=self.s(750))
+            dpg.add_input_text(label="Name", tag="combine_name", width=self.s(350))
+            dpg.add_text("", tag="combine_error", color=BAD, wrap=self.s(750))
+            with dpg.child_window(tag="combine_rows", width=-1, height=self.s(330)):
+                pass
+            with dpg.group(horizontal=True):
+                dpg.add_button(label="Save combined profile", callback=self.save_combined_profile)
+                dpg.add_button(label="Cancel", callback=lambda: dpg.configure_item("win_combine", show=False))
 
         with dpg.window(label="Profiles", tag="win_profiles", show=False,
                         width=self.s(1080), height=self.s(560),
@@ -11050,6 +11785,8 @@ deliberately does not put behind a button."""
                                callback=self.refresh_profile_list)
                 dpg.add_button(label="Save profile...", width=self.s(170),
                                tag="go_open_save_profile", callback=self.open_save_profile)
+                dpg.add_button(label="Combine profiles...", width=self.s(170),
+                               callback=self.open_combine_profiles)
                 dpg.add_button(label="Disable startup loading", width=self.s(210),
                                callback=self.disable_startup_profile)
             dpg.add_text("", tag="prof_warn", color=BAD, show=False,
@@ -12386,6 +13123,8 @@ deliberately does not put behind a button."""
                 return False
         except Exception as exc:
             self.log(f"cannot switch to {slot}: {exc}", False)
+            return False
+        if not self._close_live_gating_requests(self.gpu):
             return False
         # Synchronize invalidation with the telemetry worker's publication.
         # Driver reads stay outside this lock so switching remains responsive.
@@ -13761,6 +14500,10 @@ deliberately does not put behind a button."""
         records the ids it created outside the tree, and the next one deletes
         exactly those. Anything a future build method creates unparented is
         covered without being enumerated here."""
+        style = getattr(self, "_power_slider_style", None)
+        if style is not None:
+            style.close()
+            self._power_slider_style = None
         for i in self._orphans:
             if dpg.does_item_exist(i):
                 dpg.delete_item(i)
@@ -13984,6 +14727,8 @@ deliberately does not put behind a button."""
         self.timings_capture()
 
         last = 0.0
+        capture = None
+        capture_pending = bool(getattr(self, "_ui_capture_dir", None) or getattr(self, "_ui_pstates_trial_dir", None))
         # try/finally, not a bare loop: the tail below is what stops this app
         # leaving the card pinned, and the lock is the ONE write that outlives
         # the process unread. Anything the loop raises - a DPG call on a
@@ -13993,6 +14738,9 @@ deliberately does not put behind a button."""
         try:
             # A startup profile may itself start verification. Protect that
             # dispatch with the same restore-before-exit finally as callbacks.
+            if getattr(self, "_ui_capture_dir", None) and self._startup_request:
+                self._startup_request = None
+                self.log("Startup profile skipped for the developer UI capture.", False)
             if self._startup_request and getattr(self, "_stale_headroom", None):
                 # Its undo point and rail replay would capture or overwrite the
                 # raised limits before the user has answered the dialog.
@@ -14015,9 +14763,19 @@ deliberately does not put behind a button."""
             while dpg.is_dearpygui_running():
                 if self._startup_manager and self._startup_manager.ending:
                     break
-                self.dispatch_callbacks()
+                if capture is None or not capture.active:
+                    self.dispatch_callbacks()
                 if not dpg.is_dearpygui_running():
                     break
+                if capture is not None and capture.active:
+                    try:
+                        self.relayout()
+                        self.refresh_power_slider_style()
+                        dpg.render_dearpygui_frame()
+                        capture.tick()
+                    except Exception as exc:
+                        capture._finish(exc)
+                    continue
                 # The polling worker may have learned a previously transient
                 # clock domain.  This is intentionally consumed here, on the
                 # UI thread, after callbacks and before normal panel drawing.
@@ -14078,11 +14836,44 @@ deliberately does not put behind a button."""
                     # from growing a scrollbar.
                     self.layout_torn_pages()
                     self.update_vf_corner()
+                    self.refresh_power_slider_style()
                     self.clear_once("corner")
                 except Exception as e:
                     self.log_once("corner", f"plot corner: {e}")
                 dpg.render_dearpygui_frame()
+                if capture_pending:
+                    capture_pending = False
+                    from .registry_ui_trial import RegistryUiTrial
+                    from .ui_capture import LiveVminCapture, UiCapture
+                    try:
+                        trial_dir = getattr(self, "_ui_pstates_trial_dir", None)
+                        if trial_dir:
+                            if getattr(self, "_ui_registry_trial_kind", "pstates") == "recovery-undo":
+                                from .recovery_undo_ui_trial import RecoveryUndoUiTrial
+                                capture = RecoveryUndoUiTrial(dpg, self, trial_dir,
+                                                              resume=getattr(self, "_ui_pstates_trial_resume", False))
+                            else:
+                                capture = RegistryUiTrial(dpg, self, trial_dir,
+                                                          resume=getattr(self, "_ui_pstates_trial_resume", False),
+                                                          kind=getattr(self, "_ui_registry_trial_kind", "pstates"),
+                                                          family=getattr(self, "_ui_lpwr_family", None),
+                                                          rows=getattr(self, "_ui_lpwr_rows", None))
+                        else:
+                            rel_bounds = getattr(self, "_ui_capture_rel_bounds", None)
+                            if getattr(self, "_ui_capture_recovery", False):
+                                from .recovery_ui_capture import RecoveryUiCapture
+                                capture = RecoveryUiCapture(dpg, self, self._ui_capture_dir)
+                            elif rel_bounds is not None:
+                                from .rel_bounds_ui_trial import LiveRelBoundsCapture
+                                capture = LiveRelBoundsCapture(dpg, self, self._ui_capture_dir, *rel_bounds)
+                            else:
+                                capture_type = LiveVminCapture if getattr(self, "_ui_capture_live_vmin", False) else UiCapture
+                                capture = capture_type(dpg, self, self._ui_capture_dir)
+                    except Exception as exc:
+                        self.log("UI capture could not start: " + str(exc), False)
         finally:
+            if capture is not None and capture.active:
+                capture._finish(RuntimeError("Capture interrupted before completion"))
             self._stop.set()
             try:
                 self.save_power_policy_names(force=True)
@@ -14144,11 +14935,35 @@ def main(argv=None):
     The slot spelling is nvtune's and NVML's, so the three tools can be pointed
     at one card with one copied string."""
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "--voltage-offsets":
+        from . import voltage_offsets_cli
+        return voltage_offsets_cli.cli(argv[1:], _tell)
+    if argv and argv[0] == "--registry-overrides":
+        from . import registry_overrides
+        return registry_overrides.cli(argv[1:], _tell)
+    if argv and argv[0] == "--registry-recover":
+        from . import registry_overrides
+        return registry_overrides.recovery_cli(argv[1:], _tell)
+    if argv and argv[0] == "--registry-snapshot":
+        from . import registry_overrides
+        return registry_overrides.snapshot_cli(argv[1:])
+    if argv and argv[0] == "--voltage-replay-worker":
+        from . import voltage_replay_worker
+        return voltage_replay_worker.worker_cli(argv[1:])
     if argv and argv[0] == "--restart-gpu":
         return devicerecovery.cli(argv[1:], _tell)
     slot = None
     automatic = False
     recovery_path = None
+    ui_capture_dir = None
+    ui_capture_live_vmin = False
+    ui_capture_rel_bounds = None
+    ui_capture_recovery = False
+    ui_pstates_trial_dir = None
+    ui_pstates_trial_resume = False
+    ui_registry_trial_kind = "pstates"
+    ui_lpwr_family = None
+    ui_lpwr_rows = None
     while argv:
         a = argv.pop(0)
         if a in ("--version", "-V"):
@@ -14166,6 +14981,53 @@ def main(argv=None):
             return 0
         if a == "--startup-profile":
             automatic = True
+        elif a == "--ui-capture-live-rel-bounds":
+            if len(argv) < 3 or ui_capture_dir is not None:
+                _tell(a + " needs RAIL VALUE_UV and one new directory")
+                return 2
+            try:
+                rail, wanted_uv = int(argv.pop(0)), int(argv.pop(0))
+            except ValueError:
+                _tell(a + " requires an integer rail and microvolt value")
+                return 2
+            if rail not in (0, 1) or not 0 < wanted_uv <= 0x7FFFFFFF:
+                _tell(a + " requires rail 0 or 1 and positive signed-32-bit microvolts")
+                return 2
+            ui_capture_dir = os.path.abspath(argv.pop(0))
+            ui_capture_rel_bounds = (rail, wanted_uv)
+        elif a in ("--ui-capture", "--ui-capture-live-vmin", "--ui-capture-recovery"):
+            if not argv or ui_capture_dir is not None:
+                _tell(a + " needs one new directory")
+                return 2
+            ui_capture_dir = os.path.abspath(argv.pop(0))
+            ui_capture_live_vmin = a == "--ui-capture-live-vmin"
+            ui_capture_recovery = a == "--ui-capture-recovery"
+        elif a in ("--ui-capture-lpwr-trial", "--ui-capture-lpwr-rows"):
+            if len(argv) < (3 if a == "--ui-capture-lpwr-rows" else 2) or ui_pstates_trial_dir is not None:
+                _tell(a + " needs a family and new directory")
+                return 2
+            ui_lpwr_family = argv.pop(0)
+            if ui_lpwr_family not in ("gr_pg", "ms", "nvdec", "nvenc", "ofa", "nvjpg"):
+                _tell("Unknown LPWR trial family")
+                return 2
+            if a == "--ui-capture-lpwr-rows":
+                parts = argv.pop(0).split(",")
+                if (not parts or any(len(part) != 1 or part not in "01234" for part in parts)
+                        or len(set(parts)) != len(parts)):
+                    _tell("LPWR rows must be distinct comma-separated indices 0 through 4")
+                    return 2
+                ui_lpwr_rows = [int(part) for part in parts]
+            ui_pstates_trial_dir = os.path.abspath(argv.pop(0))
+            ui_registry_trial_kind = "lpwr"
+        elif a in ("--ui-capture-pstates-trial", "--ui-capture-power-trial", "--ui-pstates-trial-resume",
+                    "--ui-capture-recovery-undo"):
+            if not argv or ui_pstates_trial_dir is not None:
+                _tell(a + " needs one directory")
+                return 2
+            ui_pstates_trial_dir = os.path.abspath(argv.pop(0))
+            ui_pstates_trial_resume = a == "--ui-pstates-trial-resume"
+            ui_registry_trial_kind = ("power" if a == "--ui-capture-power-trial" else
+                                      "recovery-undo" if a == "--ui-capture-recovery-undo" else "pstates")
         elif a == "--recovery-result":
             if not argv:
                 _tell("--recovery-result needs a receipt path")
@@ -14183,13 +15045,72 @@ def main(argv=None):
                   "  --version    print the Druta version\n\n"
                   "  --restart-gpu SLOT  restart that GPU through Windows PnP, then reopen\n"
                   "                      requires admin; never reboots the computer\n\n"
+                  "  --voltage-offsets --gpu SLOT enable|read|set|capture|replay\n"
+                  "                      signed voltage policy offsets; use --voltage-offsets --help\n\n"
+                  "  --registry-recover SLOT  undo saved registry overrides without a live GPU backend\n\n"
                   "  --startup-profile  apply the opted-in sign-in profile after shutdown checks\n\n"
+                  "  --ui-capture NEW_DIRECTORY  capture a display-only developer walkthrough\n"
+                  "  --ui-capture-recovery NEW_DIRECTORY  capture a recovery-result relaunch without writes\n"
+                  "  --ui-capture-recovery-undo NEW_DIRECTORY  execute saved Undo and restart the GPU\n"
+                  "  --ui-capture-live-vmin NEW_DIRECTORY  apply +5 mV to rail 0 VMIN, capture, then restore\n"
+                  "  --ui-capture-live-rel-bounds RAIL VALUE_UV NEW_DIRECTORY  fix both REL head bounds, restore, capture and exit\n"
+                  "  --ui-capture-pstates-trial NEW_DIRECTORY  preview, apply and restore the P-state gate\n"
+                  "  --ui-capture-power-trial NEW_DIRECTORY  preview, apply and restore a +5 W board maximum\n"
+                  "  --ui-capture-lpwr-trial FAMILY NEW_DIRECTORY  preview, apply and restore LPWR row 0\n"
+                  "  --ui-capture-lpwr-rows FAMILY ROWS NEW_DIRECTORY  preview, apply and restore selected LPWR rows\n\n"
                   "With no --gpu, Druta opens on the lowest PCI slot.\n"
                   "Device > Card switches cards in a running window.")
             return 0
         else:
             _tell(f"unknown argument {a!r} (try --help)")
             return 2
+    recovery_trial = ui_registry_trial_kind == "recovery-undo"
+    if ui_pstates_trial_dir and (ui_capture_dir or automatic or
+                                bool(recovery_path) != (ui_pstates_trial_resume or recovery_trial)):
+        _tell("Registry trial cannot be combined with capture or startup; resume requires a recovery result")
+        return 2
+    if ui_pstates_trial_dir and ((ui_pstates_trial_resume and not os.path.isdir(ui_pstates_trial_dir))
+                                 or (not ui_pstates_trial_resume and os.path.exists(ui_pstates_trial_dir))):
+        _tell("Registry trial directory must be new initially and exist for resume")
+        return 2
+    if ui_pstates_trial_dir and not os.path.isdir(os.path.dirname(ui_pstates_trial_dir)):
+        _tell("Registry trial requires an existing parent directory")
+        return 2
+    if ui_pstates_trial_resume:
+        try:
+            with open(os.path.join(ui_pstates_trial_dir, "trial.json"), encoding="utf-8") as stream:
+                saved_trial = json.load(stream)
+            if not isinstance(saved_trial, dict) or saved_trial.get("phase") not in ("applying", "restoring"):
+                raise ValueError("invalid trial phase")
+            if saved_trial.get("kind") == "recovery-undo":
+                if saved_trial.get("phase") != "restoring" or not isinstance(saved_trial.get("receipt"), str):
+                    raise ValueError("invalid recovery Undo trial")
+                ui_registry_trial_kind = "recovery-undo"
+            if saved_trial.get("kind") == "lpwr" and "rows" in saved_trial:
+                rows, family = saved_trial["rows"], saved_trial.get("family")
+                if (family not in ("gr_pg", "ms", "nvdec", "nvenc", "ofa", "nvjpg")
+                        or not isinstance(rows, list) or not rows
+                        or any(type(i) is not int or not 0 <= i < 5 for i in rows)
+                        or len(set(rows)) != len(rows)):
+                    raise ValueError("invalid LPWR rows")
+                fields = [f"lpwr.{family}.{i}.enabled" for i in rows]
+                if saved_trial.get("fields") != fields or saved_trial.get("field") != fields[0]:
+                    raise ValueError("LPWR rows and fields differ")
+        except (OSError, ValueError, TypeError):
+            _tell("Registry trial resume has invalid saved selection or phase")
+            return 2
+    if ui_capture_recovery and not recovery_path:
+        _tell("--ui-capture-recovery requires --recovery-result")
+        return 2
+    if ui_capture_dir and (automatic or (recovery_path and not ui_capture_recovery)):
+        _tell("--ui-capture cannot be combined with startup profile or recovery relaunch")
+        return 2
+    if ui_capture_dir and os.path.exists(ui_capture_dir):
+        _tell("--ui-capture requires a new directory")
+        return 2
+    if ui_capture_dir and not os.path.isdir(os.path.dirname(ui_capture_dir)):
+        _tell("--ui-capture requires an existing parent directory")
+        return 2
     manager = startup.Startup()
     # A recovery relaunch must never reapply the profile that may have caused
     # the failure, including if both flags are supplied by a caller.
@@ -14207,9 +15128,22 @@ def main(argv=None):
             else:
                 slot = request["profile"]["device"].get("slot")
         app = Druta(slot)
+        if ui_capture_dir:
+            app._ui_capture_dir = ui_capture_dir
+            app._ui_capture_live_vmin = ui_capture_live_vmin
+            app._ui_capture_recovery = ui_capture_recovery
+            if ui_capture_rel_bounds is not None:
+                app._ui_capture_rel_bounds = ui_capture_rel_bounds
+        if ui_pstates_trial_dir:
+            app._ui_pstates_trial_dir = ui_pstates_trial_dir
+            app._ui_pstates_trial_resume = ui_pstates_trial_resume
+            app._ui_registry_trial_kind = ui_registry_trial_kind
+            app._ui_lpwr_family = ui_lpwr_family
+            app._ui_lpwr_rows = ui_lpwr_rows
         if recovery_path:
             try:
                 app._recovery_result = devicerecovery.read_result(recovery_path, app.gpu.slot())
+                app._recovery_result_valid = True
             except (OSError, ValueError) as exc:
                 app._recovery_result = {"ok": False, "reboot_required": False,
                                         "message": f"cannot read recovery result: {exc}"}
@@ -14221,6 +15155,7 @@ def main(argv=None):
             app._startup_request = None
         if not app.gpu.available():
             _tell("No GPU backend: " + app.gpu.status_line()
+                  + "\nSaved registry undo can run independently: Druta --registry-recover " + app.gpu.slot()
                   + ("\n\nDevice recovery: " + app._recovery_result["message"]
                      if app._recovery_result else "")
                   + ("\n\ncards present:\n" + "\n".join(

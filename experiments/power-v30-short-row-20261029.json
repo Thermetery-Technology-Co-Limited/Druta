@@ -1,0 +1,68 @@
+{
+  "scope": "Signed-driver static consumer trace and source implementation with offline tests. Short-row activation/Undo and physical enforcement remain unqualified.",
+  "driver_sha256": "b3c384bf432380160189d8b031c0bf4a4bebf2cfa0613277bc69209fbabc2fc3",
+  "signature_status": "Valid",
+  "address_notation": "Hex RVAs identify evidence in this hashed binary, not compatibility gates.",
+  "geometry": "0x30/0x2C/0x47",
+  "acceptance": "5A4402-4413 selects C93E80 descriptor 2b8d3b2w1b6d1b1d for row stride >= 0x47 and < 0x4B. Row loop 5A4640-4673 passes this descriptor directly to 1856A0; no expansion to 0x4B occurs. Header version 0x30 selects C93D90 and geometry 0x30/0x2C/0x47 follows this path.",
+  "decoder": {
+    "path": "1856A0 -> 5B55E0",
+    "descriptor": "2b8d3b2w1b6d1b1d",
+    "source_bytes": 71,
+    "decoded_DWORD_slots": 24,
+    "decoded_bytes": 96,
+    "caller_buffer_capacity": 116,
+    "extent": "5B56C9-D0 checks source offset plus 0x47 against backing image extent. Failure clears output and returns 0x37; caller 5A4673-77 rejects it. Product retains stricter complete-table/row validation."
+  },
+  "fields": {
+    "full_class": "row0 low nibble | (row42 low nibble << 4)",
+    "class_binding": "Full class1 only -> runtime class0 via 5A4C01/5A5012 and 4D5B70 -> 8E60B0.",
+    "channel": "row1 -> descriptor28",
+    "units": "row0 bit4 -> descriptor2A",
+    "bounds": "Little-endian row2/6/A -> descriptor30/34/38 -> object50/9C/E8 -> native INFO row8/C/10.",
+    "preservation": "row43 DWORD is separately consumed into descriptor40 at 5A5027-46; it and every other byte remain unchanged."
+  },
+  "implementation": "Only the three minimum/rated/maximum bounds for exact shorter geometry and full class1 become editable. Other short-row classes remain read-only. Existing exact native class/channel/units/all-three-bounds contracts, image/policy verification and durable recovery remain required; no identity/version allowlist or geometry widening.",
+  "root_review": {
+    "instruction_count": 129,
+    "source_and_decoded_sizes_distinguished": true,
+    "signature_and_binary_hash_checked": true,
+    "private_instruction_report_sha256": "9e8dc545c93321ddfc26102eb5e0f534483a3742d80f324518b3e71059e22f2f"
+  },
+  "read_only_target_evidence": "ampere-provenance-qualified-20261029.json: actual RTX3070Ti ordinal2 class1/native0 channel0 mW and 100/310/380W matched. This does not prove persistent activation.",
+  "validation_helper": {
+    "path": "validate_short_power_override.py",
+    "default": "GET-only preflight; no Prepare/Apply, registry write or restart.",
+    "opt_in": "--run uses normal production preparation, durable reload, one Apply, independent maximum-only ROM/client/native-buffer projection, and one durable Undo. Bounded GET-only recovery retains every capture/traceback; failed Undo retains its receipt.",
+    "limits": "Full fresh snapshots are retained for remote review; equality of every broader configured peer is not asserted by the helper. It performs no workload, physical measurement or unrelated SET."
+  },
+  "validation": {
+    "parser_runtime_focused_tests": 129,
+    "helper_offline_tests": 5,
+    "full_source_before_helper_tests": 6566,
+    "seconds": 116.29,
+    "full_current_suite": {
+      "passed": 6571,
+      "seconds": 116.43
+    },
+    "Ruff": "passed",
+    "local_modern_refusal": {
+      "expected_0x40_geometry_refusal_before_Prepare": true,
+      "complete_client_state_unchanged": true,
+      "registry_empty": true,
+      "active_receipt": null,
+      "hardware_mutations": false,
+      "not_remote_target_preflight": true
+    }
+  },
+  "remaining": [
+    "Run default preflight and one production Apply/Undo on WIN-S21NMM0KKIR; independently review retained before/active/restored peers and publish sanitized target evidence.",
+    "Other v30 full classes remain unmapped/read-only in the shorter layout.",
+    "Physical enforcement and broader adapter/driver qualification remain unmeasured."
+  ],
+  "source_sha256": {
+    "src\\druta\\vbios_fields.py": "dfea37d8b5645b05dc89405fe1ac3a429a61092a47e6c74087b26e70ec9aaa28",
+    "src\\druta\\power_runtime.py": "3353096b3be51af9a4efbe4daaaffa98285642e75fc62818b92e566c1c90a1f2",
+    "experiments\\validate_short_power_override.py": "70bb1f712306636debe8b525a4c4e7804e16ca3c25b024c8ec8627f4511cf590"
+  }
+}

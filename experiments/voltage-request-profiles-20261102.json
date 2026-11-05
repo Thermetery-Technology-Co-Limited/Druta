@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "date": "2026-11-02",
+  "scope": "Production voltage request panel Apply, existing Undo last write, and manual scoped profile Load on local RTX5080 / 617.42",
+  "trial": "experiments/registry-overrides/voltage-request-profile-root-20261102/trial.json",
+  "trial_sha256": "28c25299d06d332d722281d139305b9c8e393f188e428b96bab4f4c045432494",
+  "qualified": true,
+  "phase": "complete",
+  "rel_uv": {
+    "before": 0,
+    "active": -1000,
+    "after_undo": 0,
+    "after_manual_load": -1000,
+    "after_baseline_load": 0,
+    "final": 0
+  },
+  "verified_sets": 4,
+  "exact_requests_restored": true,
+  "preserved": [
+    "Other rail offsets",
+    "Voltage boost request",
+    "Voltage-request admission gate",
+    "Opaque request metadata and identity"
+  ],
+  "tests": {
+    "passed": 612,
+    "scope": "Profile, startup, voltage request/gate/replay and UI capture suites"
+  },
+  "manual_only": "No startup selection or automatic application for voltage_requests scoped profiles; driver reset remains reset without replay.",
+  "limits": [
+    "VCRIT effective thresholds remain unverified.",
+    "No workloads, physical voltage measurements, registry writes or driver restart.",
+    "Ordinary tune profiles do not yet include scoped rail requests; other controls Undo/profile integration remains pending."
+  ],
+  "source_sha256": {
+    "src/druta/profiles.py": "d825ab6d3cc9ea14ed9cb7471f49262267ab2cf4dbfdb3889fa9a2f3c4e34dd9",
+    "src/druta/voltage_request_profiles.py": "d19e1aacdd8ab0465e085704b26d783579ee097d79de8bca773078d78ac37b0e",
+    "src/druta/voltage_requests_live.py": "f34d29cc08882573444b7560ee56235378d4e0b6dfd7d29c3e0e4d8c7b0961c2",
+    "src/druta/voltage_requests_panel.py": "aa8935b878aa9ddeaee1508832ff566001527953e23448ccf026b93c412ec8f6",
+    "src/druta/druta.py": "aead1d3fee95fa95770fe1fe906335fd79638a4fe21f2d5f05025b2c9e165c53"
+  }
+}

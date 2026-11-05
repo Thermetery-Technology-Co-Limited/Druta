@@ -1,0 +1,149 @@
+{
+  "schema": 1,
+  "scope": "MS configured entry disable with aggregate loss04, retained raw10 mapping coverage and independent DIFR provider",
+  "status": "qualified source Preview and normal production Apply",
+  "contract_schema": 4,
+  "tested_configuration": {
+    "adapter": "GeForce RTX 5080 GB203",
+    "driver": "621.01",
+    "identity_role": "Evidence only, not a board/driver/BIOS compatibility list"
+  },
+  "admission": [
+    "Understood MS v10/header7/stride16, LPWR index and populated PERF v70; only captured enabled rows disabled",
+    "Exactly aggregate raw04 lost, controller4 supported with mask and positive native feature predicate; controllers6/16 independently unsupported",
+    "Understood DIFR table with independent enabled0x31 contributor, full native controller/feature/type1/type4/type7 observations",
+    "A801 type1 group1/index0 and role800/index1 available1, role808/index1 positive; retained eligible raw10 selector OR covers removed OR",
+    "Same common mapping and preserved construction inputs; no driver mapping-table constants or developer hardware identity used as admission"
+  ],
+  "readback": {
+    "command": "0x2080A801",
+    "payload_bytes": 1028,
+    "rows": [
+      [
+        1,
+        0,
+        1
+      ],
+      [
+        1,
+        1,
+        2048
+      ],
+      [
+        1,
+        1,
+        2056
+      ]
+    ],
+    "before": [
+      1,
+      1,
+      13
+    ],
+    "active": [
+      1,
+      1,
+      13
+    ],
+    "meaning": "Current postfilter mapping mask; neither individual slot contribution nor physical residency"
+  },
+  "schema_compatibility": "Schemas1/2/3 retain their prior observations/projections. Only schema4 requests mapping-aware wrapper {core,mapping_hex}. A7 evaluated clock tails are retained diagnostics; stability compares normalized typed core plus full mapping packet.",
+  "temporary_setup": {
+    "offset": 253709,
+    "before": "7d",
+    "after": "79",
+    "meaning": "Clear only known raw04 on already-enabled duplicate row1; row0 retains the aggregate and both selector07 contributions"
+  },
+  "production_change": {
+    "offset": 253693,
+    "before": "7d",
+    "after": "7c",
+    "field": "lpwr.ms.0.enabled",
+    "meaning": "Clear only selected row0 enable bit; row1 preserves selector07 and mapped role support"
+  },
+  "actual": {
+    "controller4_feature": [
+      "023971ef",
+      "020910cc"
+    ],
+    "controller1_and4_masks": [
+      288,
+      0
+    ],
+    "type1_and_type7_role1_masks": [
+      288,
+      0
+    ],
+    "controller4_and_auxiliary_support": "retained",
+    "role1_mapping_mask": [
+      13,
+      13
+    ],
+    "other_LPWR_packets_and_opaque_bytes": "exact after paired transport pointer and five source-predicted DWORD changes per round",
+    "client_configuration": "all saved fields exact except separately retained variable arbitration telemetry",
+    "original_configuration_restored_exact": true
+  },
+  "broad_windows": {
+    "setup_broad": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
+    ],
+    "active_broad": [
+      false,
+      false,
+      false,
+      true,
+      true
+    ],
+    "final_broad": [
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "all_18_saved_curve_controls_exact": true,
+  "comparison_scope": "Independent raw audit and root reproduction retain every early negative and recompute saved broad booleans with the established comparator and full active receipt; no curve exclusion or recalculation cause inferred",
+  "validation": {
+    "selected_functionality_tests": 61,
+    "deferred_named_cases_deselected": 12,
+    "ruff": "clean",
+    "source_windows_reproduced": 16
+  },
+  "artifacts_sha256": {
+    "product_journal": "544455029cf298001843439b154e6a2d795adb69a01ae9d2dcf185ed0efe1033",
+    "research_journal": "80e6e9bfcb037091209361295540fe05cefbae63f834da9be5f8c5bcabe6e203",
+    "independent_product_audit": "3ada54da71e940c269d61d91a4fb87059fb4893e3311b97715990a576d82ee77",
+    "root_source_reproduction": "d0bdaaf8b8f4f867ed77d6ae00d822025e3aec4ad70c272f6cec3a6d9b1c78fd"
+  },
+  "runtime_source_sha256": {
+    "experiments\\registry-overrides\\ms-more-aggregate-root-20261030\\product_loss04_v1.py": "76d627427e270f09efdf136fe64ebfdaf00046f390065d009d387c877466f7c3",
+    "experiments\\registry-overrides\\ms-more-aggregate-root-20261030\\read_ms_mask_v1.py": "5dfe8df4852c20fbc5adf5baa7ed4d7a62ae8448c08e958ee942ce1076317853",
+    "src\\druta\\ms_runtime.py": "b02fa16a32617eee77ead8910bd0e8cf3ad37f25f208e008ef7e43a54e1e9030",
+    "src\\druta\\registry_overrides.py": "d15874d1dc7540d28508e06fc701f849a37061a47810a9dc41225007439fb11c",
+    "src\\druta\\registry_panel.py": "d275d2b0698f4e61bab073b46f6e8b1c27c4aa7a12b77d64936f9987aff24aee",
+    "src\\druta\\vbios_fields.py": "2d93f7d9061f3f7835c47b3264163368b50aa24e4721f0fc384c477ac0f512b1"
+  },
+  "logical_GPU_only_restarts": {
+    "research": 3,
+    "production_including_experiment_removal": 4,
+    "total": 7
+  },
+  "Windows_reboot": false,
+  "NVIDIA_App_install": false,
+  "workload": false,
+  "limits": [
+    "Source callbacks and normal Apply, not a packaged-helper or physical-input walkthrough",
+    "No physical gating/residency/power-savings claim",
+    "A selected-slot cleanup producing an unsupported controller fails this supported-controller profile; alternate outcomes are not accepted",
+    "Other aggregate losses, controller6/16 cascades and other layouts remain pending",
+    "Recovery/Undo development and profile restoration/replay remain deferred"
+  ]
+}

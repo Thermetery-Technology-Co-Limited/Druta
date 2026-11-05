@@ -78,6 +78,10 @@ class CoreGridUiTests(FakeUiTest):
 
 
 class CallbackBatchTests(FakeUiTest):
+    def setUp(self):
+        super().setUp()
+        self.app.write_tuning_action = lambda kind, value, writer, **kwargs: writer()
+
     def test_switch_discards_outgoing_callbacks_before_they_reach_new_card(self):
         def card():
             return SimpleNamespace(set_clock_offset=Mock(return_value=(True, "set")),

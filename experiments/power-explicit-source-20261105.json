@@ -1,0 +1,1849 @@
+{
+  "schema": 1,
+  "date": "2026-11-05",
+  "device": {
+    "name": "NVIDIA GeForce RTX 5080",
+    "driver": "617.42",
+    "vbios": "98.03.3b.c0.6f"
+  },
+  "source_sha256": {
+    "trial": "d10bcce23c93c5361ba17100e490a8c31e39ebf6083c5505849605d5c4c9d6a3",
+    "harness": "f4a3f9aa73b7dd371a9b22dec8d83bece2a25b650c295387860361fda375bc89",
+    "audit": "de46df797cb8c725e476e803439e2679cc8869ce4d6a6e5cd5117fbcb236239b"
+  },
+  "scope": "One device, session-only ordinary source and board requests; no workload or physical-current claim.",
+  "native_set_audit": [
+    {
+      "old": 450000,
+      "new": 350000,
+      "selected_mask": 4,
+      "payload_matches_full_expected": true,
+      "completion": 1,
+      "response_payload_matches_request": true,
+      "reference": "baseline",
+      "changed_bytes": [
+        {
+          "offset": 16,
+          "before": 255,
+          "after": 4
+        },
+        {
+          "offset": 17,
+          "before": 255,
+          "after": 0
+        },
+        {
+          "offset": 18,
+          "before": 3,
+          "after": 0
+        },
+        {
+          "offset": 416,
+          "before": 208,
+          "after": 48
+        },
+        {
+          "offset": 417,
+          "before": 221,
+          "after": 87
+        },
+        {
+          "offset": 418,
+          "before": 6,
+          "after": 5
+        }
+      ]
+    },
+    {
+      "old": 350000,
+      "new": 450000,
+      "selected_mask": 4,
+      "payload_matches_full_expected": true,
+      "completion": 1,
+      "response_payload_matches_request": true,
+      "reference": "baseline projected with source request 350000 after board restoration",
+      "changed_bytes": [
+        {
+          "offset": 16,
+          "before": 255,
+          "after": 4
+        },
+        {
+          "offset": 17,
+          "before": 255,
+          "after": 0
+        },
+        {
+          "offset": 18,
+          "before": 3,
+          "after": 0
+        },
+        {
+          "offset": 416,
+          "before": 48,
+          "after": 208
+        },
+        {
+          "offset": 417,
+          "before": 87,
+          "after": 221
+        },
+        {
+          "offset": 418,
+          "before": 5,
+          "after": 6
+        }
+      ]
+    }
+  ],
+  "calls": [
+    [
+      "set_power_policy",
+      [
+        2,
+        350000
+      ]
+    ],
+    [
+      "set_power_limit_mw",
+      [
+        365000
+      ]
+    ],
+    [
+      "set_power_limit_mw",
+      [
+        345000
+      ]
+    ],
+    [
+      "set_power_limit_mw",
+      [
+        360000
+      ]
+    ],
+    [
+      "set_power_policy",
+      [
+        2,
+        450000
+      ]
+    ]
+  ],
+  "observations": [
+    {
+      "phase": "baseline",
+      "sample": 0,
+      "board_request_mw": 360000,
+      "source_request_mw": 450000,
+      "policies": {
+        "2": {
+          "prefix_sha256": "eb257e3689e557c83d952cb1e00e25cb44a858e6709a19eaca5ab29335d2d6b0",
+          "type": 0,
+          "effective": 370811,
+          "value": 13463,
+          "host": {
+            "method": "minimum",
+            "output": 450000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 450000
+              }
+            ]
+          },
+          "pmu": {
+            "method": "minimum",
+            "output": 360000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 450000
+              },
+              {
+                "client": 8,
+                "value": 360000
+              }
+            ]
+          },
+          "later_decoded_effective": 370811,
+          "later_decoded_host": {
+            "method": "minimum",
+            "output": 450000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 450000
+              }
+            ]
+          },
+          "later_decoded_pmu": {
+            "method": "minimum",
+            "output": 360000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 450000
+              },
+              {
+                "client": 8,
+                "value": 360000
+              }
+            ]
+          },
+          "decoded_agrees": true
+        },
+        "9": {
+          "prefix_sha256": "1079659e80c8ecdf789429176a3e0ce47958b191ccb9db1009aad55f8a896129",
+          "type": 30,
+          "effective": 36002,
+          "value": 1086,
+          "host": {
+            "method": "minimum",
+            "output": 45000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              }
+            ]
+          },
+          "pmu": {
+            "method": "minimum",
+            "output": 36002,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              },
+              {
+                "client": 2,
+                "value": 36002
+              },
+              {
+                "client": 7,
+                "value": 45000
+              }
+            ]
+          },
+          "later_decoded_effective": 36002,
+          "later_decoded_host": {
+            "method": "minimum",
+            "output": 45000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              }
+            ]
+          },
+          "later_decoded_pmu": {
+            "method": "minimum",
+            "output": 36002,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              },
+              {
+                "client": 2,
+                "value": 36002
+              },
+              {
+                "client": 7,
+                "value": 45000
+              }
+            ]
+          },
+          "decoded_agrees": true
+        }
+      },
+      "native_control_matches_projection": true,
+      "candidate_assuming_source_pmu": 36002,
+      "client2_matches_candidate": true
+    },
+    {
+      "phase": "baseline",
+      "sample": 1,
+      "board_request_mw": 360000,
+      "source_request_mw": 450000,
+      "policies": {
+        "2": {
+          "prefix_sha256": "daa4a9cd6ef18b587f4da12a81a8cf1c5731f24352cb4f38dd400da0fb24d05b",
+          "type": 0,
+          "effective": 370811,
+          "value": 15524,
+          "host": {
+            "method": "minimum",
+            "output": 450000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 450000
+              }
+            ]
+          },
+          "pmu": {
+            "method": "minimum",
+            "output": 360000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 450000
+              },
+              {
+                "client": 8,
+                "value": 360000
+              }
+            ]
+          },
+          "later_decoded_effective": 370811,
+          "later_decoded_host": {
+            "method": "minimum",
+            "output": 450000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 450000
+              }
+            ]
+          },
+          "later_decoded_pmu": {
+            "method": "minimum",
+            "output": 360000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 450000
+              },
+              {
+                "client": 8,
+                "value": 360000
+              }
+            ]
+          },
+          "decoded_agrees": true
+        },
+        "9": {
+          "prefix_sha256": "82fdaafed5221c42d904eb26641666c6e0d705bfd6a721ba9cd1aedafc0ee789",
+          "type": 30,
+          "effective": 36002,
+          "value": 1259,
+          "host": {
+            "method": "minimum",
+            "output": 45000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              }
+            ]
+          },
+          "pmu": {
+            "method": "minimum",
+            "output": 36002,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              },
+              {
+                "client": 2,
+                "value": 36002
+              },
+              {
+                "client": 7,
+                "value": 45000
+              }
+            ]
+          },
+          "later_decoded_effective": 36002,
+          "later_decoded_host": {
+            "method": "minimum",
+            "output": 45000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              }
+            ]
+          },
+          "later_decoded_pmu": {
+            "method": "minimum",
+            "output": 36002,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              },
+              {
+                "client": 2,
+                "value": 36002
+              },
+              {
+                "client": 7,
+                "value": 45000
+              }
+            ]
+          },
+          "decoded_agrees": true
+        }
+      },
+      "native_control_matches_projection": true,
+      "candidate_assuming_source_pmu": 36002,
+      "client2_matches_candidate": true
+    },
+    {
+      "phase": "baseline",
+      "sample": 2,
+      "board_request_mw": 360000,
+      "source_request_mw": 450000,
+      "policies": {
+        "2": {
+          "prefix_sha256": "3589a058bdb7997cbfdbbc732e958cd15a0b153f450a89a05b786125c8989931",
+          "type": 0,
+          "effective": 370811,
+          "value": 14543,
+          "host": {
+            "method": "minimum",
+            "output": 450000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 450000
+              }
+            ]
+          },
+          "pmu": {
+            "method": "minimum",
+            "output": 360000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 450000
+              },
+              {
+                "client": 8,
+                "value": 360000
+              }
+            ]
+          },
+          "later_decoded_effective": 370811,
+          "later_decoded_host": {
+            "method": "minimum",
+            "output": 450000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 450000
+              }
+            ]
+          },
+          "later_decoded_pmu": {
+            "method": "minimum",
+            "output": 360000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 450000
+              },
+              {
+                "client": 8,
+                "value": 360000
+              }
+            ]
+          },
+          "decoded_agrees": true
+        },
+        "9": {
+          "prefix_sha256": "c8e8848c8aaf073b281bb14e5c92626101935e375df9ee2532a1289ec2b19625",
+          "type": 30,
+          "effective": 36002,
+          "value": 1175,
+          "host": {
+            "method": "minimum",
+            "output": 45000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              }
+            ]
+          },
+          "pmu": {
+            "method": "minimum",
+            "output": 36002,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              },
+              {
+                "client": 2,
+                "value": 36002
+              },
+              {
+                "client": 7,
+                "value": 45000
+              }
+            ]
+          },
+          "later_decoded_effective": 36002,
+          "later_decoded_host": {
+            "method": "minimum",
+            "output": 45000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              }
+            ]
+          },
+          "later_decoded_pmu": {
+            "method": "minimum",
+            "output": 36002,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              },
+              {
+                "client": 2,
+                "value": 36002
+              },
+              {
+                "client": 7,
+                "value": 45000
+              }
+            ]
+          },
+          "decoded_agrees": true
+        }
+      },
+      "native_control_matches_projection": true,
+      "candidate_assuming_source_pmu": 36002,
+      "client2_matches_candidate": true
+    },
+    {
+      "phase": "source_pinned",
+      "sample": 0,
+      "board_request_mw": 360000,
+      "source_request_mw": 350000,
+      "policies": {
+        "2": {
+          "prefix_sha256": "ff76134666169384de2dcfe73c3db7bc4244dbb6d52191c5ee34ca89718a48c9",
+          "type": 0,
+          "effective": 360510,
+          "value": 12177,
+          "host": {
+            "method": "minimum",
+            "output": 350000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 350000
+              }
+            ]
+          },
+          "pmu": {
+            "method": "minimum",
+            "output": 350000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 350000
+              },
+              {
+                "client": 8,
+                "value": 360000
+              }
+            ]
+          },
+          "later_decoded_effective": 360510,
+          "later_decoded_host": {
+            "method": "minimum",
+            "output": 350000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 350000
+              }
+            ]
+          },
+          "later_decoded_pmu": {
+            "method": "minimum",
+            "output": 350000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 350000
+              },
+              {
+                "client": 8,
+                "value": 360000
+              }
+            ]
+          },
+          "decoded_agrees": true
+        },
+        "9": {
+          "prefix_sha256": "9ebdbf38e723946ee7db3855ea6e9d88338b2acc07d50b90a182d92be6c1e277",
+          "type": 30,
+          "effective": 35003,
+          "value": 978,
+          "host": {
+            "method": "minimum",
+            "output": 45000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              }
+            ]
+          },
+          "pmu": {
+            "method": "minimum",
+            "output": 35003,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              },
+              {
+                "client": 2,
+                "value": 35003
+              },
+              {
+                "client": 7,
+                "value": 45000
+              }
+            ]
+          },
+          "later_decoded_effective": 35003,
+          "later_decoded_host": {
+            "method": "minimum",
+            "output": 45000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              }
+            ]
+          },
+          "later_decoded_pmu": {
+            "method": "minimum",
+            "output": 35003,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              },
+              {
+                "client": 2,
+                "value": 35003
+              },
+              {
+                "client": 7,
+                "value": 45000
+              }
+            ]
+          },
+          "decoded_agrees": true
+        }
+      },
+      "native_control_matches_projection": true,
+      "candidate_assuming_source_pmu": 35003,
+      "client2_matches_candidate": true
+    },
+    {
+      "phase": "source_pinned",
+      "sample": 1,
+      "board_request_mw": 360000,
+      "source_request_mw": 350000,
+      "policies": {
+        "2": {
+          "prefix_sha256": "8f0d5970b824092f949b713b9dfc44d6ef98cd46313c3912be6361155b69ecda",
+          "type": 0,
+          "effective": 360510,
+          "value": 13774,
+          "host": {
+            "method": "minimum",
+            "output": 350000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 350000
+              }
+            ]
+          },
+          "pmu": {
+            "method": "minimum",
+            "output": 350000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 350000
+              },
+              {
+                "client": 8,
+                "value": 360000
+              }
+            ]
+          },
+          "later_decoded_effective": 360510,
+          "later_decoded_host": {
+            "method": "minimum",
+            "output": 350000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 350000
+              }
+            ]
+          },
+          "later_decoded_pmu": {
+            "method": "minimum",
+            "output": 350000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 350000
+              },
+              {
+                "client": 8,
+                "value": 360000
+              }
+            ]
+          },
+          "decoded_agrees": true
+        },
+        "9": {
+          "prefix_sha256": "d3b869afab3e6055121165c7e6c8cf611ea5bd22d93ae0335abc5186031d1e5d",
+          "type": 30,
+          "effective": 35003,
+          "value": 1112,
+          "host": {
+            "method": "minimum",
+            "output": 45000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              }
+            ]
+          },
+          "pmu": {
+            "method": "minimum",
+            "output": 35003,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              },
+              {
+                "client": 2,
+                "value": 35003
+              },
+              {
+                "client": 7,
+                "value": 45000
+              }
+            ]
+          },
+          "later_decoded_effective": 35003,
+          "later_decoded_host": {
+            "method": "minimum",
+            "output": 45000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              }
+            ]
+          },
+          "later_decoded_pmu": {
+            "method": "minimum",
+            "output": 35003,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              },
+              {
+                "client": 2,
+                "value": 35003
+              },
+              {
+                "client": 7,
+                "value": 45000
+              }
+            ]
+          },
+          "decoded_agrees": true
+        }
+      },
+      "native_control_matches_projection": true,
+      "candidate_assuming_source_pmu": 35003,
+      "client2_matches_candidate": true
+    },
+    {
+      "phase": "source_pinned",
+      "sample": 2,
+      "board_request_mw": 360000,
+      "source_request_mw": 350000,
+      "policies": {
+        "2": {
+          "prefix_sha256": "b029209d051b0dbf84fcd02195cdcf13097098a1c39427ea4421b71209d79df7",
+          "type": 0,
+          "effective": 360510,
+          "value": 14211,
+          "host": {
+            "method": "minimum",
+            "output": 350000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 350000
+              }
+            ]
+          },
+          "pmu": {
+            "method": "minimum",
+            "output": 350000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 350000
+              },
+              {
+                "client": 8,
+                "value": 360000
+              }
+            ]
+          },
+          "later_decoded_effective": 360510,
+          "later_decoded_host": {
+            "method": "minimum",
+            "output": 350000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 350000
+              }
+            ]
+          },
+          "later_decoded_pmu": {
+            "method": "minimum",
+            "output": 350000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 350000
+              },
+              {
+                "client": 8,
+                "value": 360000
+              }
+            ]
+          },
+          "decoded_agrees": true
+        },
+        "9": {
+          "prefix_sha256": "b14f461a7a866a8c751f7277d557f70b3f84649fbe698b4e7a04b4e21bdfd755",
+          "type": 30,
+          "effective": 35003,
+          "value": 1148,
+          "host": {
+            "method": "minimum",
+            "output": 45000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              }
+            ]
+          },
+          "pmu": {
+            "method": "minimum",
+            "output": 35003,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              },
+              {
+                "client": 2,
+                "value": 35003
+              },
+              {
+                "client": 7,
+                "value": 45000
+              }
+            ]
+          },
+          "later_decoded_effective": 35003,
+          "later_decoded_host": {
+            "method": "minimum",
+            "output": 45000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              }
+            ]
+          },
+          "later_decoded_pmu": {
+            "method": "minimum",
+            "output": 35003,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              },
+              {
+                "client": 2,
+                "value": 35003
+              },
+              {
+                "client": 7,
+                "value": 45000
+              }
+            ]
+          },
+          "decoded_agrees": true
+        }
+      },
+      "native_control_matches_projection": true,
+      "candidate_assuming_source_pmu": 35003,
+      "client2_matches_candidate": true
+    },
+    {
+      "phase": "board_moved",
+      "sample": 0,
+      "board_request_mw": 365000,
+      "source_request_mw": 350000,
+      "policies": {
+        "2": {
+          "prefix_sha256": "1ccf93baa7a7a2775ccebbabb80a2349ab8312515e2649cebc214fcac14a01e8",
+          "type": 0,
+          "effective": 360510,
+          "value": 13437,
+          "host": {
+            "method": "minimum",
+            "output": 350000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 350000
+              }
+            ]
+          },
+          "pmu": {
+            "method": "minimum",
+            "output": 350000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 350000
+              },
+              {
+                "client": 8,
+                "value": 365000
+              }
+            ]
+          },
+          "later_decoded_effective": 360510,
+          "later_decoded_host": {
+            "method": "minimum",
+            "output": 350000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 350000
+              }
+            ]
+          },
+          "later_decoded_pmu": {
+            "method": "minimum",
+            "output": 350000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 350000
+              },
+              {
+                "client": 8,
+                "value": 365000
+              }
+            ]
+          },
+          "decoded_agrees": true
+        },
+        "9": {
+          "prefix_sha256": "93b5e8c4ca89f3636b77011b2cfa3195a87cc5e4465932a0ac19c537a0cb2889",
+          "type": 30,
+          "effective": 35003,
+          "value": 1084,
+          "host": {
+            "method": "minimum",
+            "output": 45000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              }
+            ]
+          },
+          "pmu": {
+            "method": "minimum",
+            "output": 35003,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              },
+              {
+                "client": 2,
+                "value": 35003
+              },
+              {
+                "client": 7,
+                "value": 45000
+              }
+            ]
+          },
+          "later_decoded_effective": 35003,
+          "later_decoded_host": {
+            "method": "minimum",
+            "output": 45000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              }
+            ]
+          },
+          "later_decoded_pmu": {
+            "method": "minimum",
+            "output": 35003,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              },
+              {
+                "client": 2,
+                "value": 35003
+              },
+              {
+                "client": 7,
+                "value": 45000
+              }
+            ]
+          },
+          "decoded_agrees": true
+        }
+      },
+      "native_control_matches_projection": true,
+      "candidate_assuming_source_pmu": 35003,
+      "client2_matches_candidate": true
+    },
+    {
+      "phase": "board_moved",
+      "sample": 1,
+      "board_request_mw": 365000,
+      "source_request_mw": 350000,
+      "policies": {
+        "2": {
+          "prefix_sha256": "6b6f9b33fd251696caebd45074f27febe902fe00d82b03092a21ace5235e6b24",
+          "type": 0,
+          "effective": 360510,
+          "value": 15455,
+          "host": {
+            "method": "minimum",
+            "output": 350000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 350000
+              }
+            ]
+          },
+          "pmu": {
+            "method": "minimum",
+            "output": 350000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 350000
+              },
+              {
+                "client": 8,
+                "value": 365000
+              }
+            ]
+          },
+          "later_decoded_effective": 360510,
+          "later_decoded_host": {
+            "method": "minimum",
+            "output": 350000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 350000
+              }
+            ]
+          },
+          "later_decoded_pmu": {
+            "method": "minimum",
+            "output": 350000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 350000
+              },
+              {
+                "client": 8,
+                "value": 365000
+              }
+            ]
+          },
+          "decoded_agrees": true
+        },
+        "9": {
+          "prefix_sha256": "2dae88e4503ba0b8738283e80a397d31fbdd2517c766903fdae683973e5699dd",
+          "type": 30,
+          "effective": 35003,
+          "value": 1253,
+          "host": {
+            "method": "minimum",
+            "output": 45000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              }
+            ]
+          },
+          "pmu": {
+            "method": "minimum",
+            "output": 35003,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              },
+              {
+                "client": 2,
+                "value": 35003
+              },
+              {
+                "client": 7,
+                "value": 45000
+              }
+            ]
+          },
+          "later_decoded_effective": 35003,
+          "later_decoded_host": {
+            "method": "minimum",
+            "output": 45000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              }
+            ]
+          },
+          "later_decoded_pmu": {
+            "method": "minimum",
+            "output": 35003,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              },
+              {
+                "client": 2,
+                "value": 35003
+              },
+              {
+                "client": 7,
+                "value": 45000
+              }
+            ]
+          },
+          "decoded_agrees": true
+        }
+      },
+      "native_control_matches_projection": true,
+      "candidate_assuming_source_pmu": 35003,
+      "client2_matches_candidate": true
+    },
+    {
+      "phase": "board_moved",
+      "sample": 2,
+      "board_request_mw": 365000,
+      "source_request_mw": 350000,
+      "policies": {
+        "2": {
+          "prefix_sha256": "29e578f53a6c63196a1ffafe5a26c91db349e070ec05b4d906feda5ff0e5f136",
+          "type": 0,
+          "effective": 360510,
+          "value": 14061,
+          "host": {
+            "method": "minimum",
+            "output": 350000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 350000
+              }
+            ]
+          },
+          "pmu": {
+            "method": "minimum",
+            "output": 350000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 350000
+              },
+              {
+                "client": 8,
+                "value": 365000
+              }
+            ]
+          },
+          "later_decoded_effective": 360510,
+          "later_decoded_host": {
+            "method": "minimum",
+            "output": 350000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 350000
+              }
+            ]
+          },
+          "later_decoded_pmu": {
+            "method": "minimum",
+            "output": 350000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 350000
+              },
+              {
+                "client": 8,
+                "value": 365000
+              }
+            ]
+          },
+          "decoded_agrees": true
+        },
+        "9": {
+          "prefix_sha256": "41443a0d312ef5cc1c9fc46e56b8ba894eac7d81ff330b2cbd5025155fe9a395",
+          "type": 30,
+          "effective": 35003,
+          "value": 1136,
+          "host": {
+            "method": "minimum",
+            "output": 45000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              }
+            ]
+          },
+          "pmu": {
+            "method": "minimum",
+            "output": 35003,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              },
+              {
+                "client": 2,
+                "value": 35003
+              },
+              {
+                "client": 7,
+                "value": 45000
+              }
+            ]
+          },
+          "later_decoded_effective": 35003,
+          "later_decoded_host": {
+            "method": "minimum",
+            "output": 45000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              }
+            ]
+          },
+          "later_decoded_pmu": {
+            "method": "minimum",
+            "output": 35003,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              },
+              {
+                "client": 2,
+                "value": 35003
+              },
+              {
+                "client": 7,
+                "value": 45000
+              }
+            ]
+          },
+          "decoded_agrees": true
+        }
+      },
+      "native_control_matches_projection": true,
+      "candidate_assuming_source_pmu": 35003,
+      "client2_matches_candidate": true
+    },
+    {
+      "phase": "board_below_source",
+      "sample": 0,
+      "board_request_mw": 345000,
+      "source_request_mw": 350000,
+      "policies": {
+        "2": {
+          "prefix_sha256": "3581a10b91f6ad905725c8d78dabfaee4ea74cc1057092757845240bd68bf322",
+          "type": 0,
+          "effective": 355360,
+          "value": 13842,
+          "host": {
+            "method": "minimum",
+            "output": 350000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 350000
+              }
+            ]
+          },
+          "pmu": {
+            "method": "minimum",
+            "output": 345000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 350000
+              },
+              {
+                "client": 8,
+                "value": 345000
+              }
+            ]
+          },
+          "later_decoded_effective": 355360,
+          "later_decoded_host": {
+            "method": "minimum",
+            "output": 350000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 350000
+              }
+            ]
+          },
+          "later_decoded_pmu": {
+            "method": "minimum",
+            "output": 345000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 350000
+              },
+              {
+                "client": 8,
+                "value": 345000
+              }
+            ]
+          },
+          "decoded_agrees": true
+        },
+        "9": {
+          "prefix_sha256": "e65092c6ac83d51946f69fafb1e7f933259eaeafad43af2ce15c67bb24e73fda",
+          "type": 30,
+          "effective": 34497,
+          "value": 1118,
+          "host": {
+            "method": "minimum",
+            "output": 45000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              }
+            ]
+          },
+          "pmu": {
+            "method": "minimum",
+            "output": 34497,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              },
+              {
+                "client": 2,
+                "value": 34497
+              },
+              {
+                "client": 7,
+                "value": 45000
+              }
+            ]
+          },
+          "later_decoded_effective": 34497,
+          "later_decoded_host": {
+            "method": "minimum",
+            "output": 45000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              }
+            ]
+          },
+          "later_decoded_pmu": {
+            "method": "minimum",
+            "output": 34497,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              },
+              {
+                "client": 2,
+                "value": 34497
+              },
+              {
+                "client": 7,
+                "value": 45000
+              }
+            ]
+          },
+          "decoded_agrees": true
+        }
+      },
+      "native_control_matches_projection": true,
+      "candidate_assuming_source_pmu": 34497,
+      "client2_matches_candidate": true
+    },
+    {
+      "phase": "board_below_source",
+      "sample": 1,
+      "board_request_mw": 345000,
+      "source_request_mw": 350000,
+      "policies": {
+        "2": {
+          "prefix_sha256": "b311f1c7dd3372a3a5a0d6a63e0a29f993b7a59d5d02c426f8416691d9af6d8f",
+          "type": 0,
+          "effective": 355360,
+          "value": 13184,
+          "host": {
+            "method": "minimum",
+            "output": 350000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 350000
+              }
+            ]
+          },
+          "pmu": {
+            "method": "minimum",
+            "output": 345000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 350000
+              },
+              {
+                "client": 8,
+                "value": 345000
+              }
+            ]
+          },
+          "later_decoded_effective": 355360,
+          "later_decoded_host": {
+            "method": "minimum",
+            "output": 350000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 350000
+              }
+            ]
+          },
+          "later_decoded_pmu": {
+            "method": "minimum",
+            "output": 345000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 350000
+              },
+              {
+                "client": 8,
+                "value": 345000
+              }
+            ]
+          },
+          "decoded_agrees": true
+        },
+        "9": {
+          "prefix_sha256": "c055087cfa02d0f1226c3dd3bf375fef132a3c530e803db829e4921a1fd2c7fd",
+          "type": 30,
+          "effective": 34497,
+          "value": 1063,
+          "host": {
+            "method": "minimum",
+            "output": 45000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              }
+            ]
+          },
+          "pmu": {
+            "method": "minimum",
+            "output": 34497,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              },
+              {
+                "client": 2,
+                "value": 34497
+              },
+              {
+                "client": 7,
+                "value": 45000
+              }
+            ]
+          },
+          "later_decoded_effective": 34497,
+          "later_decoded_host": {
+            "method": "minimum",
+            "output": 45000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              }
+            ]
+          },
+          "later_decoded_pmu": {
+            "method": "minimum",
+            "output": 34497,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              },
+              {
+                "client": 2,
+                "value": 34497
+              },
+              {
+                "client": 7,
+                "value": 45000
+              }
+            ]
+          },
+          "decoded_agrees": true
+        }
+      },
+      "native_control_matches_projection": true,
+      "candidate_assuming_source_pmu": 34497,
+      "client2_matches_candidate": true
+    },
+    {
+      "phase": "board_below_source",
+      "sample": 2,
+      "board_request_mw": 345000,
+      "source_request_mw": 350000,
+      "policies": {
+        "2": {
+          "prefix_sha256": "d99407cee726fa80210262a7ccbfaeb285e0f9a9b0be5e56812360ee3ff274af",
+          "type": 0,
+          "effective": 355360,
+          "value": 14236,
+          "host": {
+            "method": "minimum",
+            "output": 350000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 350000
+              }
+            ]
+          },
+          "pmu": {
+            "method": "minimum",
+            "output": 345000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 350000
+              },
+              {
+                "client": 8,
+                "value": 345000
+              }
+            ]
+          },
+          "later_decoded_effective": 355360,
+          "later_decoded_host": {
+            "method": "minimum",
+            "output": 350000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 350000
+              }
+            ]
+          },
+          "later_decoded_pmu": {
+            "method": "minimum",
+            "output": 345000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 350000
+              },
+              {
+                "client": 8,
+                "value": 345000
+              }
+            ]
+          },
+          "decoded_agrees": true
+        },
+        "9": {
+          "prefix_sha256": "f7a82cd6070843556f3dc0dca53f45443fa94f073b1677c351940d99855b2c6d",
+          "type": 30,
+          "effective": 34497,
+          "value": 1149,
+          "host": {
+            "method": "minimum",
+            "output": 45000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              }
+            ]
+          },
+          "pmu": {
+            "method": "minimum",
+            "output": 34497,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              },
+              {
+                "client": 2,
+                "value": 34497
+              },
+              {
+                "client": 7,
+                "value": 45000
+              }
+            ]
+          },
+          "later_decoded_effective": 34497,
+          "later_decoded_host": {
+            "method": "minimum",
+            "output": 45000,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              }
+            ]
+          },
+          "later_decoded_pmu": {
+            "method": "minimum",
+            "output": 34497,
+            "inputs": [
+              {
+                "client": 254,
+                "value": 45000
+              },
+              {
+                "client": 2,
+                "value": 34497
+              },
+              {
+                "client": 7,
+                "value": 45000
+              }
+            ]
+          },
+          "decoded_agrees": true
+        }
+      },
+      "native_control_matches_projection": true,
+      "candidate_assuming_source_pmu": 34497,
+      "client2_matches_candidate": true
+    }
+  ],
+  "raw_later_mismatches": [],
+  "restoration": {
+    "power_action_exact": true,
+    "native_client_state_exact": true,
+    "nvml_request_mw": 360000,
+    "raw_status": {
+      "2": {
+        "prefix_sha256": "8d795b815b0469a92ae02075a89c28553e1cc4513002dc58d95697ebcc0d4b0d",
+        "type": 0,
+        "effective": 370811,
+        "value": 14470,
+        "host": {
+          "method": "minimum",
+          "output": 450000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 450000
+            }
+          ]
+        },
+        "pmu": {
+          "method": "minimum",
+          "output": 360000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 450000
+            },
+            {
+              "client": 8,
+              "value": 360000
+            }
+          ]
+        },
+        "later_decoded_effective": 370811,
+        "later_decoded_host": {
+          "method": "minimum",
+          "output": 450000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 450000
+            }
+          ]
+        },
+        "later_decoded_pmu": {
+          "method": "minimum",
+          "output": 360000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 450000
+            },
+            {
+              "client": 8,
+              "value": 360000
+            }
+          ]
+        },
+        "decoded_agrees": true
+      },
+      "9": {
+        "prefix_sha256": "4cee52a00a5091a5260651f0a00d3f78277a82ec872f2f83e3fd14aaf41c066b",
+        "type": 30,
+        "effective": 36002,
+        "value": 1169,
+        "host": {
+          "method": "minimum",
+          "output": 45000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 45000
+            }
+          ]
+        },
+        "pmu": {
+          "method": "minimum",
+          "output": 36002,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 45000
+            },
+            {
+              "client": 2,
+              "value": 36002
+            },
+            {
+              "client": 7,
+              "value": 45000
+            }
+          ]
+        },
+        "later_decoded_effective": 36002,
+        "later_decoded_host": {
+          "method": "minimum",
+          "output": 45000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 45000
+            }
+          ]
+        },
+        "later_decoded_pmu": {
+          "method": "minimum",
+          "output": 36002,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 45000
+            },
+            {
+              "client": 2,
+              "value": 36002
+            },
+            {
+              "client": 7,
+              "value": 45000
+            }
+          ]
+        },
+        "decoded_agrees": true
+      }
+    }
+  },
+  "host_source_correction": {
+    "driver_621_sha256": "3F8D33495CABEB2FA11EBDCF0B12705E9CCFB4E53005324BCD86E9DEA8BA2AB4",
+    "review_sha256": "55a6ca4f392ac259867fc670323d68adea3a32f4291cf32954d1d7f40b7acaa6",
+    "type33_constructor_sha256": "59ef84a156fb3e5e459a4c618c315ad76dc529d825cd085789cbd8dcb9ac3b9c",
+    "type33_info_sha256": "5d247bccedc942cde36f93a1bd41c538c8b44b7c236ef697a95d8c3bc6c1ae8d",
+    "limitation": "Type 33 exposes two reported u16 fields; their general selector/range semantics remain unbound."
+  },
+  "candidate": {
+    "source_is_hypothetical_p2_pmu": true,
+    "formula": "q=((450000-x)*4096+224999)//449999; y=45000-(44999*q+2048)//4096",
+    "host_350000_predicts": 35003,
+    "below_board_observed": 34497,
+    "limitation": "Empirical agreement does not identify the PMU producer, establish a physical current, or prove a general formula."
+  }
+}

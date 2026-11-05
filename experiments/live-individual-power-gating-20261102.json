@@ -1,0 +1,177 @@
+{
+  "schema": 1,
+  "date_utc": "2026-11-02",
+  "scope": "Individual GR controller reason0 request, distinct from grouped ELPG; no claim that physical effects are confined to GR.",
+  "hardware": {
+    "gpu": "RTX5080",
+    "driver": "617.42",
+    "slot": "0000:01:00.0"
+  },
+  "source_audit": {
+    "driver_sha256": "db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b",
+    "scope": "GR controller reason0 inhibit; callbacks may reevaluate other controllers, no GR-only physical claim",
+    "method": "Read-only offline analysis of the pinned Windows 617.42 binary and existing source artifacts; no GPU calls or product changes.",
+    "findings": {
+      "direct_request": "E802 type3 attr37 index0 selects row0 (row stride0x108). Input0 calls736b60, increments only selected row+10c and sets selected row+110 bit0. Input1 decrements the selected shared count when positive, clears only its reason0 bit when zero, then invokes group+50. It is a balanced shared reference, not B2CC object ownership or a per-client count getter.",
+      "grouped_profiler_distinction": "The shipped B2CC feature6 callback42b784 operates nonempty group0 else group1 and group3 independently through7522a0/752340, with a separate parallel-object branch. Direct E802 index0 does not traverse those group membership masks or that feature6 dispatch; it selects only controller0 for the reason-count update. Controller0 constructor736e40 reaches737090 (r8d=0) and737093->752430, registering it in group0 when supported; construction is not proof of current membership.",
+      "index0_special_cases": "No index0-specific branch occurs in the complete736b60 selected inhibit helper or attr37 setter. The explicit additional setter special case is index4 (3628a0), which index0 does not take. Controller0 has its own constructor flags and descriptor0x53fc9fbe; that does not establish GR-only physical effects.",
+      "selected_lower_request": "736b60 derives selected row=index*0x108, tests its +f1/+110/+114 state, and passes the selected index to73a680. That lower helper embeds the index at payload+16 in its header02/03/03 request. Its firmware behavior is not decoded here.",
+      "shared_resource_dependency": "Under row+15c and group+e4 guards,736b60 calls306470 with selected index and row+160 resource mask. On this disable/removal branch30656c clears only the selected controller bit from each chosen shared-resource mask. It cancels the associated resource handle only when the resulting membership mask is zero; remaining controller bits are preserved. This is shared bookkeeping beyond the selected reason mask, not evidence of another controller reason-count increment.",
+      "bookkeeping_tail": "736b60 always reaches305c30. It conditionally calls16aa30 using group+1950/+1954, then zeroes those8 bytes. There is no controller iteration in this tail; exact lower helper meaning is not established here.",
+      "release_dependency": "When selected by the RM runtime variant,7377f0 schedules7345b0 once via group+1958 or marks a GPU bit in the resolved object.7345b0 calls305b00, which iterates all supported controllers. Its primary73a1f0 path requires full row+110 reason mask zero, +f1 and active +114 before lower state transitions; an optional737b80 path separately considers +11c/+120. This can reevaluate other controllers without adding their reason0 holds. It prevents a strict GR-only physical-effect claim.",
+      "common_limits": "The common optional group+e6 PG logging notification73aef0 has no selected-controller payload. Release callback selection depends on RM runtime mode, not native generation alone; the0x56 callback stub can fail after host decrement/bit cleanup. A callback failure must remain a failed/uncertain operation even if masks clear. No driver-version or tested-board compatibility rule follows.",
+      "bounded_trial_justification": "A known supported index0 single-reference trial is source-distinct from grouped ELPG and justified for the scoped GR controller reason0 inhibit contract. This does not justify sweeping arbitrary controllers or promising physical GR-only effects.",
+      "observable_contract": "Capture stable A80139/48/49 for supported observed controllers; require controller0 supported and its48bit0 clear. Send exactly one E802 type3 index0 attr37 value0 with exact flags1-only acknowledgement. Require controller0 attr48==baseline|1, selected49 unchanged, all observed peer48/49 unchanged, and a positive selected transition. Balance at most one acquired reference with value1 and check the observed inventory returns to baseline. Runtime failure after count change must retain evidence and must not trigger blind repeated decrements. A801 masks cannot prove hidden counts, complete policy state, physical gating or absence of asynchronous reevaluation."
+    },
+    "references": [
+      "src/druta/gr_gating_live.py",
+      "experiments/registry-overrides/functional-backlog-audit-terra-20261101/elpg-attr37-61742.json",
+      "experiments/registry-overrides/functional-backlog-audit-terra-20261101/elpg-enable-coverage-61742.json",
+      "experiments/registry-overrides/functional-backlog-audit-terra-20261101/nvdec-elpg-group3-61742.json"
+    ],
+    "windows": [
+      {
+        "label": "selected_inhibit_helper_complete",
+        "rva": "0x736b60",
+        "length": 486,
+        "bytes_hex": "40535557415441564883ec50488b050d2ea6004833c448894424384c8ba150250000488bea458bf0488bd94969fe080100004803fa80bff1000000000f847e01000083bf10010000000f85710100004c897c24404532ff48c744243000000000e84b10a1ff84c0740d33d2488bcb41b701e8ca3aa1ff488bd3488d4c2430e82d2b9fff85c07421458bc6ba00109816b9329b890ee897a09affb999160000e8fda29dffe904010000488b4424308b4848f6c1087421458bc6ba0010a116b9329b890ee869a09affb9a2160000e8cfa29dffe9d60000008b8b340d00004889742448e85aab9cff84c07519ba0000a816b9329b890ee837a09affb9a8160000e85d949cff8b871401000083f8020f849500000085c0751e458bc6488bd5488bcbe8fc39000085c0757fc7871401000001000000eb0583f801752d41b902000000c6442420014c8d8714010000498bd4488bcbe8cac1030085c0740cb9cd100000e83ca29dffeb4183bf5c01000000753180bde4000000007428448b8f60010000458bc6488bd5c644242000488bcbe87ef7bcff85c0740ab951170000e800a29dff838f5c01000001488b7424484584ff4c8b7c2440740ab201488bcbe88039a1ff488bd5488bcbe805efbcff33c0488b4c24384833cce8266f5b004883c450415e415c5f5d5bc3",
+        "sha256": "6a65f0dedd4621a1ca251d261c540d09d97b4235e406d59da42d5e746b5e7539"
+      },
+      {
+        "label": "selected_controller_lower_request",
+        "rva": "0x73a680",
+        "length": 219,
+        "bytes_hex": "48895c24104889742420574883ec60488b05eaf2a5004833c44889442458488bb950250000418bd8488bf141b818000000488d4c244033d2e833539aff33d2895c245041b810000000488d4c2440e81d539aff488b96b02300004c8d44244033c966c74424410303c64424400241b9140000000fb68729130000488b92381000008844243048894c242866894c2420488bcee8c997c1ff8bd885c0741e448bc0ba0010bd00b9b476e50ee861659affb9be000000e8c7679dff8bc3488b4c24584833cce818355b00488b5c2478488bb424880000004883c4605fc3",
+        "sha256": "d1828c616f09228c39da4aef3eb1d1dd013c5143f15334d8adf8e91728770c38"
+      },
+      {
+        "label": "shared_resource_membership_helper",
+        "rva": "0x306470",
+        "length": 304,
+        "bytes_hex": "488bc44889581855574155415641574883ec5033ed4c8db910440000418bd9458bf04c8bea8bfd81e3ff0300000f84f70000004c896010440fb6a424a000000048897008f6c3010f84d10000008bc7488d88bd000000488d0c88488d14cd000000004903d5488b4a20488d72208b42084584e40f8483000000440fabf08942084885c90f8595000000488b42104533c948897424484533c04889542440498bcf4889442438488b421848894424308b4204894424288b02ba0b00000089442420e88be6ffff8be885c07453b932020000e8bba9e0ff488bb424800000008bc54c8ba42488000000488b9c24900000004883c450415f415e415d5f5dc3440fb3f08942084885c9741685c07512488bd1498bcfe8c9e9ffff48c70600000000ffc7d1eb0f851cffffffebab8bc5ebb9cccc",
+        "sha256": "bf0b842ec9faa4958e8813825d28b90d2b0755379e7c0bc3b6d475406ba6394e"
+      },
+      {
+        "label": "group_bookkeeping_tail",
+        "rva": "0x305c30",
+        "length": 49,
+        "bytes_hex": "40534883ec20488d9a501900008b1385d27409448b4304e8e44de6ff33d241b808000000488bcb4883c4205be98f9dddff",
+        "sha256": "530a8f44143efdc7731f286fc8bcde11d5f628595a9b033ecd1ef8ee190df402"
+      },
+      {
+        "label": "controller0_constructor_case",
+        "rva": "0x736e40",
+        "length": 92,
+        "bytes_hex": "0faee86644897b0244887b044438bfe10000007504834b0810c74348be9ffc534438bfe500000074190faee8488b87c0000000448bc6488bd7488bcdff1526bc6c0041f786c0020000000100000f84fd010000834b0804e9f4010000",
+        "sha256": "58027c7fb8a805d0d4365715d236680b60a52bb6e0aa723407d3527d7425ac8e"
+      },
+      {
+        "label": "group0_registration_tail",
+        "rva": "0x737090",
+        "length": 43,
+        "bytes_hex": "4533c0448bce488bd7488bcde88fb30100488b5c2440488b6c2448488b7424504883c420415f415e5fc366",
+        "sha256": "a81084828b92f04086f692257d4626881e622ed56aa65c3003d00d65882b618a"
+      }
+    ],
+    "reused_existing_windows": {
+      "elpg-enable-coverage-61742.json": [
+        "callback_extra_action",
+        "deferred_callback",
+        "all_supported_iteration",
+        "primary_policy_gate"
+      ],
+      "elpg-attr37-61742.json": [
+        "attr37_case",
+        "group_side_callback",
+        "rmhal_release_callback_selection"
+      ]
+    }
+  },
+  "source_audit_sha256": "818301e8aa5a2b787d51adbf82686ede2155de5b225240f21698eeb5b79502cf",
+  "prior_common_contract": "live-media-power-gating-20261102.json",
+  "raw_trial": {
+    "record_sha256": "f2f2ca9b4946fc250ec56d8b9ba5a16f7d39b9fa443f379d7294447c04a3cac6",
+    "mutations": 2,
+    "before": {
+      "available": true,
+      "supported": true,
+      "enabled_predicate": true,
+      "reason_masks": {
+        "72": 0,
+        "73": 0
+      }
+    },
+    "held": {
+      "available": true,
+      "supported": true,
+      "enabled_predicate": false,
+      "reason_masks": {
+        "72": 1,
+        "73": 0
+      }
+    },
+    "after": {
+      "available": true,
+      "supported": true,
+      "enabled_predicate": true,
+      "reason_masks": {
+        "72": 0,
+        "73": 0
+      }
+    },
+    "checks": {
+      "selected_transition_and_peers_unchanged": true,
+      "released_once": true,
+      "masks_restored": true,
+      "voltage_unchanged": true,
+      "lpwr_unchanged": true
+    }
+  },
+  "production_trial": {
+    "record_sha256": "de57b69ef991630b9f11a9fc9676d22eeef5b55102e181b11e09797d9cd59a2a",
+    "backend_sha256": "af0945e7fc4ab724fd1e34766dbe647cf3cce27d7dc50f8ea3e59935675bc525",
+    "mutations": 30,
+    "checks": {
+      "all_individual_controllers_and_duplicate_no_write": true,
+      "graphics_release_preserves_media": true,
+      "shared_reference_release_verified": true,
+      "independent_release_verified": true,
+      "masks_restored": true,
+      "voltage_unchanged": true,
+      "lpwr_unchanged": true,
+      "clock_controls_restored": true
+    },
+    "graphics_release": {
+      "architecture": {
+        "architecture": 432,
+        "implementation": 3,
+        "revision": 161,
+        "raw_auxiliary": 1
+      },
+      "support": true,
+      "available": true,
+      "reason_masks": {
+        "72": 0,
+        "73": 0
+      },
+      "status": "available",
+      "index": 0,
+      "name": "Graphics (GR)",
+      "owned_request": false,
+      "uncertain_outcome": false,
+      "release_attempted": true,
+      "state": "idle",
+      "verification_scope": "selected shared reason0 reference; no unique ownership or physical power-gating claim",
+      "last_verification_error": null
+    },
+    "close_errors": [],
+    "coexistence": "Individual0,12,13,14,15 held alongside ELCG/SLCG ENABLE and BLCG DISABLE. Releasing GR preserved media reasons. An extra root NVDEC reference remained after product release and was independently balanced."
+  },
+  "validation": {
+    "focused_tests_passed": 346,
+    "ruff": "passed affected backend/panel, tests and registry panel"
+  },
+  "registry_changes": false,
+  "driver_restart": false,
+  "workload": false
+}
