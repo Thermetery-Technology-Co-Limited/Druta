@@ -394,3 +394,19 @@ def test_interruption_after_dispatch_also_restores():
         set_delay(gpu)
     assert caught.value.rollback["verified"] and bytes(gpu.control) == original
     assert len(gpu.writes) == 2
+
+
+def test_before_write_receives_prior_and_aborts():
+    gpu = FakeGPU()
+    c = vd.VoltageDeviceController(gpu)
+    prior = c.read()
+    seen = []
+    def fail(snapshot):
+        seen.append(snapshot)
+        raise ValueError("callback failed")
+    with pytest.raises(ValueError, match="callback failed"):
+        c.set(5, 38, voltage_domain=3, operation_type=4, before_write=fail)
+    assert seen == [prior] and not gpu.writes
+    c.set(5, 37, voltage_domain=3, operation_type=4, before_write=lambda _: pytest.fail("no-op callback"))
+    c.set(5, 38, voltage_domain=3, operation_type=4, before_write=seen.append)
+    assert seen == [prior, prior] and len(gpu.writes) == 1

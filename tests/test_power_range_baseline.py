@@ -88,7 +88,7 @@ def env(monkeypatch, tmp_path):
             "id": ident,
             "path": str(path),
             "state": "active",
-            "target": asdict(target),
+            "target": asdict(state.target),
             "before": old,
             "after": new,
             "parent": parent["path"] if parent else None,
@@ -99,7 +99,7 @@ def env(monkeypatch, tmp_path):
         path.write_text(json.dumps(item), encoding="utf-8")
         if image:
             path.with_suffix(".rom").write_bytes(before)
-        overrides._active_path(target).write_text(json.dumps({"receipt": str(path)}), encoding="utf-8")
+        overrides._active_path(state.target).write_text(json.dumps({"receipt": str(path)}), encoding="utf-8")
         state.registry, state.image = new, after
         return item
 
@@ -355,3 +355,165 @@ def test_ordinary_metadata_still_requires_exact_uint32_values(env, value):
     live = observation(env.image)
     live["binding"]["minimum_mw"] = value
     unavailable(baseline.read(env.gpu, live))
+
+
+def legacy_observation(image, *, index=5, client_index=2, slot="0000:02:00.0"):
+    result = observation(image, index=index, client_index=client_index, slot=slot)
+    old = bytes.fromhex(result["native_info_hex"])
+    old_row = old[client.NATIVE_INFO_BASE + index * client.NATIVE_INFO_STRIDE :][:228]
+    native = bytearray(client.LEGACY_SIZES[client.NATIVE_INFO])
+    struct.pack_into("<I", native, 4, 1 << index)
+    at = 88 + index * 228
+    native[at : at + 228] = old_row
+    native[at] = 0x30
+    role = struct.pack("<I", client.ROLE) + native[at : at + 228]
+    old_public = bytes.fromhex(result["info_hex"])
+    public = bytearray(client.LEGACY_SIZES[client.INFO])
+    struct.pack_into("<I", public, 4, 1 << client_index)
+    at_public = 8 + client_index * client.INFO_STRIDE
+    src = client.INFO_BASE + client_index * client.INFO_STRIDE
+    public[at_public : at_public + client.INFO_STRIDE] = old_public[src : src + client.INFO_STRIDE]
+    result.update(native_info_hex=native.hex(), role_info_hex=role.hex(), info_hex=public.hex())
+    result["binding"]["layout"] = "legacy32"
+    return result
+
+
+def test_legacy_layout_binds_original_bios_without_modern_packets(env):
+    live = legacy_observation(env.image)
+    assert baseline.read(env.gpu, live) == {
+        "minimum_mw": 100000,
+        "maximum_mw": 450000,
+        "source": "live-bios",
+        "reason": None,
+    }
+
+
+def test_legacy_layout_recovers_earliest_receipt_original(env):
+    original = env.image
+    env.receipt(original, changed(original, maximum=700000))
+    live = legacy_observation(env.image)
+    assert baseline.read(env.gpu, live)["maximum_mw"] == 450000
+    assert baseline.read(env.gpu, live)["source"] == "receipt-original"
+
+
+@pytest.mark.parametrize("fault", ["role", "native", "size", "layout", "external"])
+def test_legacy_layout_refuses_unproved_bindings_and_external_override(env, fault):
+    live = legacy_observation(env.image)
+    if fault == "external":
+        env.registry["vbios"] = {"type": 3, "value": "00"}
+    elif fault == "layout":
+        live["binding"]["layout"] = "unrecognized"
+    elif fault == "size":
+        live["info_hex"] = live["info_hex"][:-2]
+    elif fault == "role":
+        raw = bytearray.fromhex(live["role_info_hex"])
+        raw[12] ^= 1
+        live["role_info_hex"] = raw.hex()
+    else:
+        raw = bytearray.fromhex(live["native_info_hex"])
+        raw[88 + 5 * 228] = 0x40
+        live["native_info_hex"] = raw.hex()
+    unavailable(baseline.read(env.gpu, live))
+
+
+def test_legacy_layout_does_not_infer_unknown_bios_class(env, monkeypatch):
+    live = legacy_observation(env.image)
+    inspect = vbios_fields.inspect
+
+    def unknown_class(image):
+        result = inspect(image)
+        for field in result["fields"]:
+            if field.get("key", "").startswith("power.5."):
+                field["runtime_binding"]["runtime_type"] = None
+        return result
+
+    monkeypatch.setattr(vbios_fields, "inspect", unknown_class)
+    unavailable(baseline.read(env.gpu, live))
+
+
+@pytest.mark.parametrize("header,stride", [(0x2C, 0x4B), (0x32, 0x53), (0x34, 0x5B)])
+def test_v30_original_range_from_verified_legacy_metadata(env, header, stride):
+    from tests.test_vbios_fields import v30_power_fixture
+
+    env.image = v30_power_fixture(header, stride)
+    live = legacy_observation(env.image, index=0)
+    assert baseline.read(env.gpu, live) == {
+        "minimum_mw": 100000,
+        "maximum_mw": 380000,
+        "source": "live-bios",
+        "reason": None,
+    }
+    env.ordinal = 0
+    original = env.image
+    env.receipt(original, changed(original, index=0, maximum=400000))
+    live = legacy_observation(env.image, index=0)
+    assert baseline.read(env.gpu, live)["maximum_mw"] == 380000
+    assert baseline.read(env.gpu, live)["source"] == "receipt-original"
+
+
+@pytest.mark.parametrize("header,stride", [(0x2C, 0x47), (0x2C, 0x4B), (0x32, 0x53), (0x34, 0x5B)])
+@pytest.mark.parametrize("fault", ["extended", "unit", "channel", "index", "limits", "external", "geometry"])
+def test_v30_provenance_rejects_incompatible_evidence(env, fault, header, stride):
+    from tests.test_vbios_fields import v30_power_fixture
+
+    env.image = v30_power_fixture(header, stride)
+    live = legacy_observation(env.image, index=0)
+    if fault == "extended":
+        raw = bytearray(env.image)
+        raw[0x3800 + header + 0x42] = 1
+        env.image = bytes(raw)
+    elif fault == "unit":
+        raw = bytearray(env.image)
+        raw[0x3800 + header] |= 0x10
+        env.image = bytes(raw)
+    elif fault == "channel":
+        raw = bytearray(env.image)
+        raw[0x3800 + header + 1] += 1
+        env.image = bytes(raw)
+    elif fault == "index":
+        live["binding"]["native_index"] = 1
+    elif fault == "limits":
+        raw = bytearray(env.image)
+        struct.pack_into("<I", raw, 0x3800 + header + 10, 390000)
+        env.image = bytes(raw)
+    elif fault == "external":
+        env.registry["vbios"] = {"type": 3, "value": "00"}
+    elif fault == "geometry":
+        raw = bytearray(env.image)
+        raw[0x3800 + 1] = 0x2D
+        env.image = bytes(raw)
+    unavailable(baseline.read(env.gpu, live))
+
+
+def test_short_v30_range_uses_selected_row_and_verified_receipt_with_alternate_identity(env):
+    from tests.test_vbios_fields import v30_power_fixture
+
+    slot = "0001:09:00.0"
+    env.target = overrides.Target(slot, r"PCI\VEN_10DE&DEV_BEEF&SUBSYS_A1B2C3D4\alternate", r"driver\0034")
+    raw = bytearray(v30_power_fixture(stride=0x47, device=0xBEEF, count=3, extension=0xA0))
+    # Unknown and current-unit peers must not substitute for the chosen row.
+    raw[0x3800 + 0x2C + 0x42] = 0xA1
+    raw[0x3800 + 0x2C + 0x47] |= 0x10
+    selected = 0x3800 + 0x2C + 2 * 0x47
+    struct.pack_into("<III", raw, selected + 2, 75000, 280000, 365000)
+    env.image = bytes(raw)
+    live = legacy_observation(env.image, index=2, client_index=19, slot=slot)
+    assert baseline.read(env.gpu, live) == {
+        "minimum_mw": 75000,
+        "maximum_mw": 365000,
+        "source": "live-bios",
+        "reason": None,
+    }
+    original = env.image
+    # Simulate a pre-existing receipt entirely offline. The product planner
+    # deliberately cannot generate a write for this inspection-only layout.
+    struct.pack_into("<I", raw, selected + 10, 400000)
+    env.ordinal = 2
+    env.receipt(original, bytes(raw))
+    live = legacy_observation(env.image, index=2, client_index=19, slot=slot)
+    assert baseline.read(env.gpu, live) == {
+        "minimum_mw": 75000,
+        "maximum_mw": 365000,
+        "source": "receipt-original",
+        "reason": None,
+    }

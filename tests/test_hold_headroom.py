@@ -2124,7 +2124,8 @@ class ReleaseReviewAppTests(AppTestCase):
         app.autosave_before = Mock(return_value=True)
         app.log, app.profile_failure, app.finish_profile_load = Mock(), Mock(), Mock()
         app._held_startup_request = {"name": "sign-in", "profile": {"schema": 2}}
-        with patch("druta.druta.profiles.preflight", return_value=None):
+        with patch("druta.druta.profiles.preflight", return_value=None), \
+                patch("druta.druta.profiles.autosave", return_value=("fan-undo", "unused", [])):
             app.begin_profile_load("mine", {"schema": 2, "scope": "fan"})
         self.assertIsNone(app._held_startup_request)
         app.begin_profile_load = Mock()

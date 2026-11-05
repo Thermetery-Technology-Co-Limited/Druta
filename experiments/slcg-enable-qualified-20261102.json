@@ -1,0 +1,161 @@
+{
+  "schema": 1,
+  "date_utc": "2026-11-02",
+  "scope": "Session-owned SLCG ENABLE request qualified on one RTX5080/617.42 configuration through source enabled values and independent opposing-profiler conflict behavior; no physical gating claim.",
+  "driver_sha256": "db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b",
+  "protocol": {
+    "class": "0xB2CC",
+    "request_command": "0xB0CC0301",
+    "enable_mask": "0x20",
+    "disable_mask": "0x10",
+    "release_command": "0xB0CC0302",
+    "release_mask": "0x30",
+    "expected_conflict_global_status": "0x63",
+    "expected_conflict_selected_status": 1,
+    "public_header": "https://github.com/NVIDIA/open-gpu-kernel-modules/blob/ca2d03e6fafd4d4b56b383497d931c25b283bfcf/src/common/sdk/nvidia/inc/ctrl/ctrlb0cc/ctrlb0ccpower.h"
+  },
+  "native_source": {
+    "summary": [
+      "Public ctrlb0ccpower.h defines SLCG bits5:4, enable2=>0x20, disable1=>0x10, release3=>0x30. ENABLE is separately owned and reference-counted; conflicting requests are rejected.",
+      "436837..857 translates the SLCG input field, and 42E3A3..D9 maps that field to feature19. 42E4A1..C8 maps field2 to state1, field1 to state2, release3 to state0. 42E527 selects manager+C00.",
+      "6A4690 checks existing request count and manager state at +94/+90; incompatible state without override returns 0x63. 42E5DC..ED maps 0x63 to selected status 1 (rejected); 42E663..674 only changes owner field when manager status is zero. A rejected second-object request therefore does not acquire this feature.",
+      "42E4C8..E3 also rejects state1 if 34FE00 returns1, so an ENABLE rejection alone is not proof of another owner. An independent successful DISABLE and observed table transition after release helps distinguish a functioning arbitration path from an unconditional reject or no-op.",
+      "6A4450 removes the specified owner count and calls the callback with new state0 on final release. 42B399..A9 chooses selector3 for state1 and state0, selector1 for state2. Thus enable and release can leave already-enabled readback unchanged; a differential conflict witness is needed.",
+      "This proves the conditional behavior of the native code, not actual runtime capability, identity pairing, arbitration result, or physical gating. Any probe must use independent objects, exact global and selected statuses, readback and cleanup of its own objects."
+    ],
+    "root_verified_windows": 11,
+    "windows": [
+      {
+        "label": "profiler_field_translation",
+        "rva": "0x436837",
+        "length": 35,
+        "bytes_hex": "83e203741883ea01740c83fa01755cba20000000eb0aba10000000eb03418bd083e0cf",
+        "sha256": "e8127ebdfe8b4527c52d2d176beea3ff19b1e91f47d1e0c1e569cbbe812a4dc1"
+      },
+      {
+        "label": "feature19_selection",
+        "rva": "0x42e3a3",
+        "length": 56,
+        "bytes_hex": "418bdbc1eb0483e3038bfb742b4183e3cfc1e80444895c245841be1300000041b800650bed83e0037507bd30000000eb7f8be8c1e504eb78",
+        "sha256": "0b626bc3b555b2c9f5c3612d5faa009d4575c8e46f9ce82bd1e97d425837d517"
+      },
+      {
+        "label": "state_and_policy_mapping",
+        "rva": "0x42e453",
+        "length": 149,
+        "bytes_hex": "83fb0341b900000000418bc9410f44f984d2740ab9ffff0000e94301000085db0f84440100003bd80f843301000083fb03750d85c00f842f010000418bf1eb3585c0740ab93f000000e9130100008bc383e801741b83e801740f83f80174dcb91f000000e9f8000000be01000000eb05be02000000488b4c2448418bd6e82b19f2ff83f801750e3bf0750ab963000000e9c2000000",
+        "sha256": "1b487266542b0e52bffbcf79cc0dcb803a5b6a4469d7e76fd09719e0bf51c173"
+      },
+      {
+        "label": "feature19_manager_select",
+        "rva": "0x42e4e8",
+        "length": 192,
+        "bytes_hex": "418bce83e902745b83e903744d83e901743f83e901743183f90c7423ba00003206b97a7ec00ee87d27cbffb932060000e8a31bcdffb91f000000e983000000498b8d000c0000eb35498b8df80b0000eb2c498b8d080c0000eb23498b8df00b0000eb1a488b4424484883b808230000000f8473020000498b8d100c00004885c97520ba00003b06b97a7ec00ee81727cbffb93b060000e83d1bcdffb940000000eb20488b54245085f6750a41b001e8d5602700eb0b4533c9448bc6e8e8602700",
+        "sha256": "e07b15b5fc629b36b9433593de40a4839ea08c7778f31f76b9b1514efece7edf"
+      },
+      {
+        "label": "conflict_status_mapping",
+        "rva": "0x42e5ca",
+        "length": 67,
+        "bytes_hex": "4c0f45c085c9743b83f91f742883f956741383f963751e41b90100000041ba00010000eb2441b9020000008bf041ba00020000eb1441b90300000041ba00030000eb06",
+        "sha256": "fae6c00d9d4081f3d23cf04a47a4c43ac0ad03fdda2d2adaf078a902d7bce67e"
+      },
+      {
+        "label": "owned_field_update",
+        "rva": "0x42e663",
+        "length": 48,
+        "bytes_hex": "85c97510418b07c1e70433f883e73033f841893f4d85c00f84c8000000418b0083e0cf41c1e104440bc8458908e9b300",
+        "sha256": "50df3a160e7254899c9df691f7467ab6e3e8478fcc1b498818eb701f53090850"
+      },
+      {
+        "label": "manager_conflict_count",
+        "rva": "0x6a4690",
+        "length": 128,
+        "bytes_hex": "40535557415441574883ec50488b05dd52af004833c448894424384032ed418d40ff458bf84c8be2488bf983f801760abb1f000000e9c00100008b819000000083f803750abb40000000e9ab01000083b99400000000761b443bf874164584c9744333d2e8b70100008bd885c00f85870100004889742448488d4f684c897424",
+        "sha256": "a5f5c8d930eab947a647df307c15e5e7a6d67f6d9acbe18969f45deccd78e9d4"
+      },
+      {
+        "label": "manager_owner_increment",
+        "rva": "0x6a4851",
+        "length": 21,
+        "bytes_hex": "40b501ff06ff879400000033db4489bf9000000048",
+        "sha256": "bbf51838c68c8969f71cce9e8e1faa6b6d8f5828ca55a7d3728655f70a2c6142"
+      },
+      {
+        "label": "manager_owner_release",
+        "rva": "0x6a449c",
+        "length": 288,
+        "bytes_hex": "48895c24604883c1684c89742468e8818ebcff488b4f6884c07417488b19498bd4488d4f68e84a89bcff488bc8488bc3eb05488b0133c9ff15cfe57500488bd84885c00f84d20000008b084084ed750e33c0ba0100000085c90f45c28bc88b87940000003bc1720c2bc1898794000000290beb28ba0000db01b9444c300ee871c7a3ffb9db010000e897bba5ffc7879000000003000000be40000000833b007510488bd3488d4f68e8b793bcff41c60701448b87900000004585c0746383bf9400000000755a4584ed7555488b87980000004885c07438488b57584533c9488bcfff1525e575008bd885c07422448b8790000000448bc8ba0011f701b9444c300ee8eec6a3ff85f60f45de8bf3eb11c7879000000000000000eb05be16000000",
+        "sha256": "b97cf43b2771e409a65406700e82ae0bbee53278af9b7fdae5580f3892b88988"
+      },
+      {
+        "label": "callback_selector",
+        "rva": "0x42b372",
+        "length": 58,
+        "bytes_hex": "488bc233f64885d2418bd94c8be1895de7480f44c6488d154a84ab00488bc8e8ca28ceff4c8bf083fb02b803000000b9010000000f44c18945cb",
+        "sha256": "1562ce934c9797bc007d1cbe41cca8fd59a0bd8bac482eca5f4d3e6f16bb5d9a"
+      },
+      {
+        "label": "release_handler",
+        "rva": "0x435f80",
+        "length": 304,
+        "bytes_hex": "48895c241048896c2418565741564883ec40488b05e739d6004833c44889442438488b8130010000488bda488bf9488ba8e8000000488b81180100004c8bb5082600004c8b4850498b01418b71108b405048c1e020480bf04d85f67528ba0000d507b9935c130ee8a4accaffbad5070000b904000000e8b501bdffb840000000e91c01000033d2488d4c243041b804000000e8d999caff8b138bc283e003740983f80375738bc8eb0233c98b44243083e0fc0bc18bca8944243083e10c740783f90c7554eb0233c983e0f30bc18bca8944243083e130740783f930753beb0233c983e0cf448bc20bc1b9c0000000894424304423c17407443bc17404eb1a33c9253fffffff0bc1b9000300008944243023d174313bd1742fbb1f000000ba0010d807448bc3b9935c130ee8e1abcaff41",
+        "sha256": "f0b8a88e24192402b8b0bb6cc29cde51e3021e2a39350c321560da1089cc6070"
+      }
+    ]
+  },
+  "bounded_research_trial": {
+    "path": "experiments/registry-overrides/profiler-more-root-20261101/slcg-enable-arbitration-trial-20261102.json",
+    "sha256": "e072fd1ff61cc9ca83d201fc34da83a1bfd8c264492fcd5d87f29f81aaf2d0ee",
+    "sequence": "ENABLE fulfilled; separate DISABLE rejected; rejected object freed; ENABLE released/freed; subsequent DISABLE observed exact register transition and was released/freed.",
+    "checks": {
+      "enable_accepted": true,
+      "exact_conflict_rejection": true,
+      "differential_arbitration_verified": true,
+      "registers_unchanged_after_trial": true,
+      "voltage_unchanged": true,
+      "configured_lpwr_unchanged": true
+    },
+    "mutations": 11
+  },
+  "production_trial": {
+    "path": "experiments/registry-overrides/profiler-more-root-20261101/slcg-enable-product-source-20261102.json",
+    "sha256": "ea1bd692a070b2b46c5a67ca7534ca8a71b9a9fa6942be16e444a3f6ad2b3857",
+    "checks": {
+      "duplicate_subunit_hold_no_write": true,
+      "duplicate_block_hold_no_write": true,
+      "duplicate_engine_hold_no_write": true,
+      "independent_subunit_release_verified": true,
+      "post_enable_release_disable_transition": true,
+      "independent_block_release_verified": true,
+      "independent_release_verified": true,
+      "voltage_unchanged": true,
+      "configured_lpwr_unchanged": true,
+      "engine_masks_restored": true,
+      "subunit_registers_restored": true,
+      "block_registers_restored": true,
+      "power_masks_restored": true
+    },
+    "mutations": 23,
+    "enable_observed_registers": [],
+    "enable_arbitration_verified": true,
+    "closed_objects_without_errors": true,
+    "scope": "SLCG ENABLE coexisted with BLCG/ELCG/ELPG DISABLE, released independently, then SLCG DISABLE produced a positive transition. Final voltage/configuration/register/mask comparisons matched."
+  },
+  "product_contract": [
+    "Known source enabled/disabled values, stable layout and register availability are required before ENABLE.",
+    "Source enabled values and exact conflicting DISABLE rejection on a separate temporary owned object are required. The probe is freed and enabled values are checked again.",
+    "Register transitions are recorded separately from arbitration evidence; already-enabled baseline need not change.",
+    "Duplicate same-mode Hold rereads without writes; opposite modes require explicit Release.",
+    "Release/free affects only owned objects, with no registry writes, restart persistence or saved-profile replay.",
+    "Arbitration is between profiler objects; it does not prove exclusive ownership or prevent other RM/control mechanisms from interfering.",
+    "Turing retains its single 24A124 witness and fifteen explicitly unverified source peers. Other-adapter ENABLE hardware qualification remains pending."
+  ],
+  "validation": {
+    "targeted_tests_passed": 307,
+    "gr_transport_tests": 25,
+    "slcg_backend_tests": 105,
+    "slcg_panel_tests": 10,
+    "ruff_passed": true
+  }
+}

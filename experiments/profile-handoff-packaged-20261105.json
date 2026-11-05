@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "date": "2026-11-05",
+  "scope": "Documentation handoff; executable behavior unchanged from 13f8495",
+  "source_files_verified": 569,
+  "executable_sha256": "c97facc75335a3075c9ccb569fe584a8c1044f3c50940cac495aa7f1771e0c23",
+  "zip_sha256": "9da77133e86004e4b1a8fb3ed6fe818c33c162adb1a506cdbb20b2b494e25202",
+  "zip_crc": "passed",
+  "documentation_evidence_links": "All experiments links in MANUAL.md and RELEASE-NOTES-1.9.0b.md exist in the source bundle.",
+  "regression_receipt": "experiments/rail-limit-held-intent-20261105.json",
+  "regression_receipt_sha256": "85d2be9d72c3010c0f3304cc9137e3f5ddf5b517d3cd7d88b463e192ce942b9f",
+  "note": "Documentation-only update; no repeated hardware trial or regression suite. This post-build receipt is not bundled."
+}

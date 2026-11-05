@@ -37,8 +37,12 @@ from . import (
     grpg_runtime,
     linked_current_runtime,
     lpwr_runtime,
+    media_lpwr_runtime,
     model_registry,
+    ms_runtime,
+    nvdec_runtime,
     power_runtime,
+    power_weight_runtime,
     rated_clock_runtime,
     registry_flags,
     startup,
@@ -738,7 +742,7 @@ def _validate_startup_receipt(receipt, target):
 def _lpwr_separate(changes, **other_changes):
     selected = {key: value for key, value in changes.items() if lpwr_runtime.KEY.fullmatch(key)}
     if selected and (len(selected) != len(changes) or any(other_changes.values())):
-        raise OverrideError("Apply DIFR entry disables separately from other controls")
+        raise OverrideError("Apply DIFR entry or subfeature disables separately from other controls")
     return selected
 
 
@@ -811,6 +815,121 @@ def _validate_grpg_receipt(receipt, target, *, restore=False):
     return saved
 
 
+def _ms_separate(changes, **other_changes):
+    selected = {key: value for key, value in changes.items() if ms_runtime.KEY.fullmatch(key)}
+    if selected and (len(selected) != len(changes) or any(other_changes.values())):
+        raise OverrideError("Apply MS entry disables separately from other controls")
+    return selected
+
+
+def _validate_ms_receipt(receipt, target, *, restore=False):
+    """Require fresh MS runtime contracts while retaining legacy image-only Undo."""
+    names = {"ms_contract_version", "ms_contracts"}
+    selected = {key: value for key, value in receipt["changes"].items() if ms_runtime.KEY.fullmatch(key)}
+    if not names.intersection(receipt):
+        if selected and not restore:
+            raise OverrideError("This MS preview needs fresh runtime contracts; prepare it again")
+        return {}
+    if not names.issubset(receipt) or not registry_flags._same_state(receipt["ms_contract_version"], 1):
+        raise OverrideError("Missing or unrecognized MS contracts")
+    saved = receipt["ms_contracts"]
+    ms_runtime.validate_contracts(receipt["changes"], saved)
+    if not saved:
+        return {}
+    _ms_separate(
+        receipt["changes"],
+        **{
+            name: receipt.get(name)
+            for name in ("named_changes", "flag_changes", "pstate_changes", "clock_vf_changes", "startup_changes")
+        },
+    )
+    core = saved["before"]["core"] if saved["schema"] == 4 else saved["before"]
+    if core["identity"]["slot"] != target.slot:
+        raise OverrideError("Saved MS contract does not match the selected GPU")
+    if (
+        not receipt.get("verify_bios", bool(receipt["plan"]["patches"]))
+        or saved["before_image_sha256"] != receipt["before_image_sha256"]
+    ):
+        raise OverrideError("Saved MS contract does not match the captured BIOS image")
+    return saved
+
+
+def _nvdec_separate(changes, **other_changes):
+    selected = {key: value for key, value in changes.items() if nvdec_runtime.KEY.fullmatch(key)}
+    if selected and (len(selected) != len(changes) or any(other_changes.values())):
+        raise OverrideError("Apply NVDEC entry disables separately from other controls")
+    return selected
+
+
+def _validate_nvdec_receipt(receipt, target, *, restore=False):
+    """Require fresh NVDEC runtime contracts while retaining legacy image-only Undo."""
+    names = {"nvdec_contract_version", "nvdec_contracts"}
+    selected = {key: value for key, value in receipt["changes"].items() if nvdec_runtime.KEY.fullmatch(key)}
+    if not names.intersection(receipt):
+        if selected and not restore:
+            raise OverrideError("This NVDEC preview needs fresh runtime contracts; prepare it again")
+        return {}
+    if not names.issubset(receipt) or not registry_flags._same_state(receipt["nvdec_contract_version"], 1):
+        raise OverrideError("Missing or unrecognized NVDEC contracts")
+    saved = receipt["nvdec_contracts"]
+    nvdec_runtime.validate_contracts(receipt["changes"], saved)
+    if not saved:
+        return {}
+    _nvdec_separate(
+        receipt["changes"],
+        **{
+            name: receipt.get(name)
+            for name in ("named_changes", "flag_changes", "pstate_changes", "clock_vf_changes", "startup_changes")
+        },
+    )
+    if saved["before"]["identity"]["slot"] != target.slot:
+        raise OverrideError("Saved NVDEC contract does not match the selected GPU")
+    if (
+        not receipt.get("verify_bios", bool(receipt["plan"]["patches"]))
+        or saved["before_image_sha256"] != receipt["before_image_sha256"]
+    ):
+        raise OverrideError("Saved NVDEC contract does not match the captured BIOS image")
+    return saved
+
+
+def _media_separate(changes, **other_changes):
+    selected = {key: value for key, value in changes.items() if media_lpwr_runtime.KEY.fullmatch(key)}
+    if selected and (len(selected) != len(changes) or any(other_changes.values())):
+        raise OverrideError("Apply Media LPWR entry disables separately from other controls")
+    return selected
+
+
+def _validate_media_receipt(receipt, target, *, restore=False):
+    """Require fresh Media LPWR runtime contracts while retaining legacy image-only Undo."""
+    names = {"media_contract_version", "media_contracts"}
+    selected = {key: value for key, value in receipt["changes"].items() if media_lpwr_runtime.KEY.fullmatch(key)}
+    if not names.intersection(receipt):
+        if selected and not restore:
+            raise OverrideError("This Media LPWR preview needs fresh runtime contracts; prepare it again")
+        return {}
+    if not names.issubset(receipt) or not registry_flags._same_state(receipt["media_contract_version"], 1):
+        raise OverrideError("Missing or unrecognized Media LPWR contracts")
+    saved = receipt["media_contracts"]
+    media_lpwr_runtime.validate_contracts(receipt["changes"], saved)
+    if not saved:
+        return {}
+    _media_separate(
+        receipt["changes"],
+        **{
+            name: receipt.get(name)
+            for name in ("named_changes", "flag_changes", "pstate_changes", "clock_vf_changes", "startup_changes")
+        },
+    )
+    if saved["before"]["identity"]["slot"] != target.slot:
+        raise OverrideError("Saved Media LPWR contract does not match the selected GPU")
+    if (
+        not receipt.get("verify_bios", bool(receipt["plan"]["patches"]))
+        or saved["before_image_sha256"] != receipt["before_image_sha256"]
+    ):
+        raise OverrideError("Saved Media LPWR contract does not match the captured BIOS image")
+    return saved
+
+
 def prepare(
     gpu,
     changes,
@@ -840,6 +959,30 @@ def prepare(
         startup_changes=startup_changes,
     )
     _grpg_separate(
+        changes,
+        named_changes=named_changes,
+        flag_changes=flag_changes,
+        pstate_changes=pstate_changes,
+        clock_vf_changes=clock_vf_changes,
+        startup_changes=startup_changes,
+    )
+    _ms_separate(
+        changes,
+        named_changes=named_changes,
+        flag_changes=flag_changes,
+        pstate_changes=pstate_changes,
+        clock_vf_changes=clock_vf_changes,
+        startup_changes=startup_changes,
+    )
+    _nvdec_separate(
+        changes,
+        named_changes=named_changes,
+        flag_changes=flag_changes,
+        pstate_changes=pstate_changes,
+        clock_vf_changes=clock_vf_changes,
+        startup_changes=startup_changes,
+    )
+    _media_separate(
         changes,
         named_changes=named_changes,
         flag_changes=flag_changes,
@@ -890,8 +1033,16 @@ def prepare(
     ):
         raise OverrideError("Apply linked-current limits separately from other registry controls")
     linked_current = linked_current_runtime.contracts(gpu, inspection, changes)
+    if any(power_weight_runtime.KEY.fullmatch(key) for key in changes) and (
+        named_changes or flag_changes or pstate_changes or clock_vf_changes or startup_changes
+    ):
+        raise OverrideError("Apply relationship weights separately from other registry controls")
+    power_weight = power_weight_runtime.contracts(gpu, inspection, changes)
     lpwr = lpwr_runtime.contracts(gpu, image, changes)
     grpg = grpg_runtime.contracts(gpu, image, changes)
+    ms = ms_runtime.contracts(gpu, image, changes)
+    nvdec = nvdec_runtime.contracts(gpu, image, changes)
+    media = media_lpwr_runtime.contracts(gpu, image, changes)
     clocks = bios_runtime.clock_contracts(gpu, inspection, changes)
     clock_version, clock_changes = _clock_bios_scope(inspection, changes)
     clock_bios = clock_bios_runtime.contracts(gpu, inspection, changes)
@@ -1003,10 +1154,18 @@ def prepare(
         "voltage_rel_contracts": voltage_rel,
         "linked_current_contract_version": 1,
         "linked_current_contracts": linked_current,
+        "power_weight_contract_version": 1,
+        "power_weight_contracts": power_weight,
         "lpwr_contract_version": 1,
         "lpwr_contracts": lpwr,
         "grpg_contract_version": 1,
         "grpg_contracts": grpg,
+        "ms_contract_version": 1,
+        "ms_contracts": ms,
+        "nvdec_contract_version": 1,
+        "nvdec_contracts": nvdec,
+        "media_contract_version": 1,
+        "media_contracts": media,
         "voltage_replay_contract_version": 1,
         "voltage_replay_contracts": voltage_replay,
         "fan_policy_contracts": fan_policies,
@@ -1025,6 +1184,9 @@ def prepare(
     }
     _validate_lpwr_receipt(receipt, target)
     _validate_grpg_receipt(receipt, target)
+    _validate_ms_receipt(receipt, target)
+    _validate_nvdec_receipt(receipt, target)
+    _validate_media_receipt(receipt, target)
     startup.atomic_json(path, receipt)
     # The exact source image makes restoration auditable without an external ROM.
     if image is not None:
@@ -1034,7 +1196,7 @@ def prepare(
     return receipt
 
 
-def launch_helper(receipt, *, restore=False):
+def launch_helper(receipt, *, restore=False, ui_trial=None):
     command = startup.application_command(
         "--registry-overrides",
         receipt["path"],
@@ -1044,6 +1206,11 @@ def launch_helper(receipt, *, restore=False):
         str(os.getpid()),
         windowed=True,
     )
+    slot = receipt.get("target", {}).get("slot")
+    if slot:
+        command.extend(["--expected-slot", slot])
+    if ui_trial is not None:
+        command.extend(["--ui-pstates-trial-resume", str(ui_trial)])
     return subprocess.Popen(command, close_fds=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
 
 
@@ -1189,6 +1356,25 @@ def _execute(
             raise OverrideError(error)
         return observation
 
+    def power_weight_observation(gpu):
+        # Weight INFO is read only for a transaction that needs it.
+        if isinstance(gpu, dict):
+            if "power_weight" in gpu:
+                if gpu.get("power_weight_error"):
+                    raise OverrideError(gpu["power_weight_error"])
+                return gpu["power_weight"]
+            if gpu.get("target") != target:
+                raise OverrideError("Fresh power weight observation has no validated selected target")
+            from .nvbackend import GPU
+
+            gpu = GPU(target.slot)
+            if bind_target(gpu) != target:
+                raise OverrideError("Selected GPU or its driver mapping changed before power weight readback")
+        observation, error = power_weight_runtime.read(gpu)
+        if error:
+            raise OverrideError(error)
+        return observation
+
     def lpwr_observation(gpu):
         # LPWR is scoped to the selected DIFR transaction. It must not become
         # an unconditional dependency of normal snapshots or legacy GPUs.
@@ -1204,7 +1390,7 @@ def _execute(
             gpu = GPU(target.slot)
             if bind_target(gpu) != target:
                 raise OverrideError("Selected GPU or its driver mapping changed before LPWR readback")
-        observation, error = lpwr_runtime.read(gpu)
+        observation, error = lpwr_runtime.read(gpu, **({"features": True} if lpwr_contracts.get("schema") == 2 else {}))
         if error:
             raise OverrideError(error)
         return observation
@@ -1223,7 +1409,7 @@ def _execute(
             gpu = GPU(target.slot)
             if bind_target(gpu) != target:
                 raise OverrideError("Selected GPU or its driver mapping changed before GRPG readback")
-        if grpg_contracts["schema"] == 5:
+        if grpg_contracts["schema"] in (5, 6, 7, 8, 9, 10):
             observation, error = grpg_runtime.read(gpu, main=True)
         elif grpg_contracts["schema"] == 4:
             observation, error = grpg_runtime.read(gpu, auxiliary=True, bit1=True)
@@ -1233,6 +1419,60 @@ def _execute(
             observation, error = grpg_runtime.read(gpu, auxiliary=True)
         else:
             observation, error = grpg_runtime.read(gpu)
+        if error:
+            raise OverrideError(error)
+        return observation
+
+    def ms_observation(gpu):
+        if isinstance(gpu, dict):
+            if "ms" in gpu:
+                if gpu.get("ms_error"):
+                    raise OverrideError(gpu["ms_error"])
+                return gpu["ms"]
+            if gpu.get("target") != target:
+                raise OverrideError("Fresh MS observation has no validated selected target")
+            from .nvbackend import GPU
+
+            gpu = GPU(target.slot)
+            if bind_target(gpu) != target:
+                raise OverrideError("Selected GPU or its driver mapping changed before MS readback")
+        observation, error = ms_runtime.read(gpu, **({"mapping": True} if ms_contracts.get("schema") == 4 else {}))
+        if error:
+            raise OverrideError(error)
+        return observation
+
+    def nvdec_observation(gpu):
+        if isinstance(gpu, dict):
+            if "nvdec" in gpu:
+                if gpu.get("nvdec_error"):
+                    raise OverrideError(gpu["nvdec_error"])
+                return gpu["nvdec"]
+            if gpu.get("target") != target:
+                raise OverrideError("Fresh NVDEC observation has no validated selected target")
+            from .nvbackend import GPU
+
+            gpu = GPU(target.slot)
+            if bind_target(gpu) != target:
+                raise OverrideError("Selected GPU or its driver mapping changed before NVDEC readback")
+        observation, error = nvdec_runtime.read(gpu)
+        if error:
+            raise OverrideError(error)
+        return observation
+
+    def media_observation(gpu):
+        if isinstance(gpu, dict):
+            if "media" in gpu:
+                if gpu.get("media_error"):
+                    raise OverrideError(gpu["media_error"])
+                return gpu["media"]
+            if gpu.get("target") != target:
+                raise OverrideError("Fresh Media LPWR observation has no validated selected target")
+            from .nvbackend import GPU
+
+            gpu = GPU(target.slot)
+            if bind_target(gpu) != target:
+                raise OverrideError("Selected GPU or its driver mapping changed before Media LPWR readback")
+        observation, error = media_lpwr_runtime.read(gpu)
         if error:
             raise OverrideError(error)
         return observation
@@ -1284,6 +1524,9 @@ def _execute(
         _validate_clock_bios_receipt(receipt, target)
         lpwr_contracts = _validate_lpwr_receipt(receipt, target, restore=restore)
         grpg_contracts = _validate_grpg_receipt(receipt, target, restore=restore)
+        ms_contracts = _validate_ms_receipt(receipt, target, restore=restore)
+        nvdec_contracts = _validate_nvdec_receipt(receipt, target, restore=restore)
+        media_contracts = _validate_media_receipt(receipt, target, restore=restore)
         startup_contracts = _validate_startup_receipt(receipt, target)
         factory_contracts = receipt.get("factory_clock_contracts", {})
         factory_version = "factory_clock_contract_version" in receipt
@@ -1436,6 +1679,23 @@ def _execute(
             )
         ):
             raise OverrideError("Apply linked-current limits separately from other registry controls")
+        weight_contracts = receipt.get("power_weight_contracts", {})
+        weight_version = "power_weight_contract_version" in receipt
+        weight_selected = {key: value for key, value in receipt["changes"].items()
+                           if power_weight_runtime.KEY.fullmatch(key)}
+        if "power_weight_contracts" in receipt and not weight_version:
+            raise OverrideError("Power relationship weight contract version is missing")
+        if weight_version and (not registry_flags._same_state(receipt["power_weight_contract_version"], 1)
+                               or "power_weight_contracts" not in receipt):
+            raise OverrideError("Missing or unrecognized power relationship weight contracts")
+        if weight_version or weight_contracts or (weight_selected and not restore):
+            power_weight_runtime.validate_contracts(receipt["changes"], weight_contracts)
+            if weight_contracts and weight_contracts["before"]["identity"]["slot"] != target.slot:
+                raise OverrideError("Saved power relationship contract does not match the selected GPU")
+        if weight_selected and not restore and any(
+            receipt.get(name) for name in ("named_changes", "flag_changes", "pstate_changes", "clock_vf_changes", "startup_changes")
+        ):
+            raise OverrideError("Apply relationship weights separately from other registry controls")
         saved_requests = _validate_voltage_replay(receipt, target, (ceiling_contracts, rel_contracts))
         if startup_contracts:
             saved_requests = {"schema": 1, "before": startup_contracts["before"]["requests"]}
@@ -1497,6 +1757,8 @@ def _execute(
                     voltage_rel_runtime.validate_inspection(inspection, receipt["changes"], rel_contracts)
                 if linked_contracts:
                     linked_current_runtime.validate_inspection(inspection, receipt["changes"], linked_contracts)
+                if weight_contracts:
+                    power_weight_runtime.validate_inspection(inspection, receipt["changes"], weight_contracts)
             rebuilt = (
                 compose_records(
                     image,
@@ -1602,10 +1864,20 @@ def _execute(
                 linked_current_runtime.verify(
                     typed_observation(gpu, "linked_current", linked_current_runtime), linked_contracts, restore=True
                 )
+            if weight_contracts:
+                power_weight_runtime.verify(
+                    power_weight_observation(gpu), weight_contracts, restore=True
+                )
             if lpwr_contracts:
                 lpwr_runtime.verify(lpwr_observation(gpu), lpwr_contracts, restore=True)
             if grpg_contracts:
                 grpg_runtime.verify(grpg_observation(gpu), grpg_contracts, restore=True)
+            if ms_contracts:
+                ms_runtime.verify(ms_observation(gpu), ms_contracts, restore=True)
+            if nvdec_contracts:
+                nvdec_runtime.verify(nvdec_observation(gpu), nvdec_contracts, restore=True)
+            if media_contracts:
+                media_lpwr_runtime.verify(media_observation(gpu), media_contracts, restore=True)
             if saved_requests:
                 current_requests = voltage_request_replay.validate(capture_requests())
                 if not registry_flags._same_state(current_requests, saved_requests["before"]):
@@ -1736,6 +2008,12 @@ def _execute(
                     restore=restore,
                 )
             )
+        if weight_contracts:
+            receipt.setdefault("runtime_verified_fields", []).extend(
+                power_weight_runtime.verify(
+                    power_weight_observation(fresh), weight_contracts, restore=restore
+                )
+            )
         if lpwr_contracts:
             receipt.setdefault("runtime_verified_fields", []).extend(
                 lpwr_runtime.verify(lpwr_observation(fresh), lpwr_contracts, restore=restore)
@@ -1743,6 +2021,18 @@ def _execute(
         if grpg_contracts:
             receipt.setdefault("runtime_verified_fields", []).extend(
                 grpg_runtime.verify(grpg_observation(fresh), grpg_contracts, restore=restore)
+            )
+        if ms_contracts:
+            receipt.setdefault("runtime_verified_fields", []).extend(
+                ms_runtime.verify(ms_observation(fresh), ms_contracts, restore=restore)
+            )
+        if nvdec_contracts:
+            receipt.setdefault("runtime_verified_fields", []).extend(
+                nvdec_runtime.verify(nvdec_observation(fresh), nvdec_contracts, restore=restore)
+            )
+        if media_contracts:
+            receipt.setdefault("runtime_verified_fields", []).extend(
+                media_lpwr_runtime.verify(media_observation(fresh), media_contracts, restore=restore)
             )
         if startup_contracts:
             startup_actual = startup_observation(fresh)
@@ -1864,10 +2154,20 @@ def _execute(
                         linked_contracts,
                         restore=True,
                     )
+                if weight_contracts:
+                    power_weight_runtime.verify(
+                        power_weight_observation(rollback), weight_contracts, restore=True
+                    )
                 if lpwr_contracts:
                     lpwr_runtime.verify(lpwr_observation(rollback), lpwr_contracts, restore=True)
                 if grpg_contracts:
                     grpg_runtime.verify(grpg_observation(rollback), grpg_contracts, restore=True)
+                if ms_contracts:
+                    ms_runtime.verify(ms_observation(rollback), ms_contracts, restore=True)
+                if nvdec_contracts:
+                    nvdec_runtime.verify(nvdec_observation(rollback), nvdec_contracts, restore=True)
+                if media_contracts:
+                    media_lpwr_runtime.verify(media_observation(rollback), media_contracts, restore=True)
                 if startup_contracts:
                     voltage_startup_runtime.verify(startup_observation(rollback), startup_contracts, restore=True)
                 receipt["state"] = "rolled-back"
@@ -1893,24 +2193,68 @@ def cli(argv, notify):
     parser.add_argument("receipt")
     parser.add_argument("--action", choices=("apply", "restore"), default="apply")
     parser.add_argument("--parent-pid", type=int)
+    capture = parser.add_mutually_exclusive_group()
+    capture.add_argument("--ui-pstates-trial-resume")
+    capture.add_argument("--ui-capture-recovery")
+    parser.add_argument("--expected-slot")
     args = parser.parse_args(argv)
+    if args.expected_slot is not None:
+        try:
+            args.expected_slot = devicereset._parse_slot(args.expected_slot)[0]
+        except devicereset.DeviceResetError as exc:
+            parser.error(str(exc))
+    if args.ui_capture_recovery:
+        if not args.expected_slot:
+            parser.error("--ui-capture-recovery requires --expected-slot")
+        capture_path = os.path.abspath(args.ui_capture_recovery)
+        if os.path.exists(capture_path):
+            parser.error("--ui-capture-recovery requires a new directory")
+        if not os.path.isdir(os.path.dirname(capture_path)):
+            parser.error("--ui-capture-recovery requires an existing parent directory")
     parent_exited = args.parent_pid is None
+    execute_started = False
+
+    def mark_trial_error(message, *, relaunch_error=None):
+        if not args.ui_pstates_trial_resume:
+            return
+        try:
+            trial_path = Path(args.ui_pstates_trial_resume) / "trial.json"
+            trial = startup.read_json(trial_path)
+            if isinstance(trial, dict):
+                trial["error"] = trial.get("error") or message
+                if relaunch_error is not None:
+                    trial["relaunch_error"] = relaunch_error
+                trial["phase"] = "attention"
+                startup.atomic_json(trial_path, trial)
+        except Exception:
+            pass  # The receipt remains the recovery source if the manifest cannot be saved.
+
     try:
-        receipt = load_receipt(args.receipt)
         if args.parent_pid is not None:
             devicerecovery.wait_for_exit(args.parent_pid)
             parent_exited = True
+        receipt = load_receipt(args.receipt)
+        if args.expected_slot is not None:
+            actual_slot = devicereset._parse_slot(receipt.get("target", {}).get("slot"))[0]
+            if actual_slot != args.expected_slot:
+                raise OverrideError("Receipt target does not match the expected PCI slot")
+        execute_started = True
         result = execute(receipt, restore=args.action == "restore")
     except Exception as exc:
         result = {
-            "target": {"slot": locals().get("receipt", {}).get("target", {}).get("slot", "")},
+            "target": {"slot": args.expected_slot or locals().get("receipt", {}).get("target", {}).get("slot", "")},
             "ok": False,
             "reboot_required": False,
             "path": args.receipt,
             "message": "Override helper failed: " + str(exc),
         }
     if not parent_exited:
+        mark_trial_error(result["message"])
         notify(result["message"] + "\nThe original Druta process is still running; no second application opened.")
+        return 1
+    if args.ui_pstates_trial_resume and not execute_started:
+        mark_trial_error(result["message"])
+        notify(result["message"] + "\nThe trial did not execute; no second application opened.")
         return 1
     # Reuse the existing recovery-result UI and avoid startup-profile restoration.
     log = startup.state_dir() / "device-recovery" / (uuid.uuid4().hex + ".json")
@@ -1925,13 +2269,18 @@ def cli(argv, notify):
             },
         )
         selection = ["--gpu", result["target"]["slot"]] if result["target"]["slot"] else []
+        resume = ["--ui-pstates-trial-resume", args.ui_pstates_trial_resume] if args.ui_pstates_trial_resume else []
+        if args.ui_capture_recovery:
+            resume = ["--ui-capture-recovery", args.ui_capture_recovery]
         subprocess.Popen(
-            startup.application_command(*selection, "--recovery-result", str(log), windowed=True),
+            startup.application_command(*selection, "--recovery-result", str(log), *resume, windowed=True),
             close_fds=True,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except Exception as exc:
-        notify(result["message"] + "\nCould not reopen Druta: " + str(exc))
+        message = result["message"] + "\nCould not reopen Druta: " + str(exc)
+        mark_trial_error(message, relaunch_error=str(exc))
+        notify(message)
     return 0 if result["ok"] else 1
 
 
@@ -1947,4 +2296,4 @@ def recovery_cli(argv, notify):
     except Exception as exc:
         notify("Registry recovery unavailable: " + str(exc))
         return 1
-    return cli([receipt["path"], "--action", "restore"], notify)
+    return cli([receipt["path"], "--action", "restore", "--expected-slot", args.slot], notify)

@@ -1,0 +1,189 @@
+{
+    "schema":  1,
+    "date":  "2026-11-02",
+    "scope":  "Packaged baseline smoke and selected visual review; no successful tuning writes from capture stages",
+    "bundle":  "dist-review-20261102/Druta",
+    "executable_sha256":  "2b0d8abb45a5a7fdc26f187323e8ddbbc12f4da9187fe212038800a9a0e29dea",
+    "source_manifest_sha256":  "64ce5c0519feeaf6f2acaa38895c70f3aaf4062dff0fccc1fe41cf4f372421a9",
+    "archive":  "dist-review-20261102/Druta-1.9.0b-win64.zip",
+    "archive_sha256":  "379f802069fd2c397ef0019d212fb36ac7e3496b581a5fe33c6a4c3aeffb5d48",
+    "checks":  [
+                   "528 packaged source files match source manifest and working tree.",
+                   "Executable matches source manifest.",
+                   "587 ZIP entries passed CRC check; archived EXE and manifest match bundle.",
+                   "All 32 capture PNG hashes match manifest.",
+                   "All 17 current-control stages completed; no errors or skipped stages.",
+                   "Root visually checked packaged rail requests, individual controller 10 and SLCG frames.",
+                   "VCRIT uncertainty and partial SLCG state remain visible.",
+                   "Original app PID 12268 preserved; new packaged PID 10728 left running."
+               ],
+    "capture_directory":  "experiments/registry-overrides/ui-current-controls-packaged-20261102",
+    "capture_manifest_sha256":  "7384983dfaa827a4e44765975642ec9160d2ece1a1ecf43a917d1647c5e2016f",
+    "captures":  [
+                     {
+                         "stage":  "control-actual",
+                         "path":  "control-actual.png",
+                         "sha256":  "b5363083c42f5c95adbd46b40917717e669b784800dd0f795bf13fd3a173ab73"
+                     },
+                     {
+                         "stage":  "original-upper",
+                         "path":  "original-upper.png",
+                         "sha256":  "3e2510f960797eb44954be33bd73d44e63c41fcde4003b0eee0f9ca6a312b5bb"
+                     },
+                     {
+                         "stage":  "extended-in-range",
+                         "path":  "extended-in-range.png",
+                         "sha256":  "b6984bbf8a7b532d5b30f03f6ea79132b051a5b8845ca56fd31120aee53da37c"
+                     },
+                     {
+                         "stage":  "extended-above",
+                         "path":  "extended-above.png",
+                         "sha256":  "7a6e5b15d4546fff9dd505d4302d55b01b8a8098c0f16033794ade3c74ce8faf"
+                     },
+                     {
+                         "stage":  "live-rel-0",
+                         "path":  "live-rel-0.png",
+                         "sha256":  "a38ae1e1c165d7900adb2922ad6a840e1566b4b29301e30b228c6311137354b6"
+                     },
+                     {
+                         "stage":  "live-rel-1",
+                         "path":  "live-rel-1.png",
+                         "sha256":  "e483e6dc0f9fee040b97644a60c8e166e4d5cf121fc31f1036884abdb2151b94"
+                     },
+                     {
+                         "stage":  "live-constants-0-ov",
+                         "path":  "live-constants-0-ov.png",
+                         "sha256":  "fd78ff0c6258bd95f35b2a760e51dec8c191d2c6e095dbd5d4b9ec08f027e849"
+                     },
+                     {
+                         "stage":  "live-constants-1-ov",
+                         "path":  "live-constants-1-ov.png",
+                         "sha256":  "ccdbea6d937bf8b5402ac16e2add8f6415f5ed14d933432d792aa65560ed3069"
+                     },
+                     {
+                         "stage":  "live-constants-0-alt",
+                         "path":  "live-constants-0-alt.png",
+                         "sha256":  "566334371bc622f3f68b609588e6d6420985438d8cd6e14af9b4248c2b8fe1bd"
+                     },
+                     {
+                         "stage":  "live-constants-1-alt",
+                         "path":  "live-constants-1-alt.png",
+                         "sha256":  "f0a0d40aa20cce59cc5ade820bd2e94b7ce6122a83a2a6edf413c86cdbabc61b"
+                     },
+                     {
+                         "stage":  "live-constants-0-vmin",
+                         "path":  "live-constants-0-vmin.png",
+                         "sha256":  "184e2ad0a7d7a465c165a1c8b114dc6b7db16bbf3f04a7114f61387eeb9cb24b"
+                     },
+                     {
+                         "stage":  "live-constants-1-vmin",
+                         "path":  "live-constants-1-vmin.png",
+                         "sha256":  "cc3241afee41eb67f66d80a030004ff57c0fcbc971ce2f74febfe1abc68da763"
+                     },
+                     {
+                         "stage":  "live-rel-invalid",
+                         "path":  "live-rel-invalid.png",
+                         "sha256":  "c03ecf358dbb774032e27d6a7c9efd87d868caea589c6d2a499a998c5863d0e5"
+                     },
+                     {
+                         "stage":  "live-constants-invalid",
+                         "path":  "live-constants-invalid.png",
+                         "sha256":  "4accf3fff3fd469f07b60fe53ef69e64eec545f820a8e56a66082b17c5185d03"
+                     },
+                     {
+                         "stage":  "current-rail-requests",
+                         "path":  "current-rail-requests.png",
+                         "sha256":  "555425db67043fd0d7c3d1f496021259ec4d739625cb1c02508e665fcbd82e60"
+                     },
+                     {
+                         "stage":  "current-request-gate",
+                         "path":  "current-request-gate.png",
+                         "sha256":  "643597f311b4389a01aa87b8fa8ac6e146ca8c6efe716557215585ad86f7c814"
+                     },
+                     {
+                         "stage":  "current-elpg",
+                         "path":  "current-elpg.png",
+                         "sha256":  "16c65a2ddc62f718886443861ee207f88b1d1284d346035816f4eeb18350f9b5"
+                     },
+                     {
+                         "stage":  "current-difr",
+                         "path":  "current-difr.png",
+                         "sha256":  "726f63ea960def6ffc9b7cb6050769746685a88289ed40e3b0cbc694497f7cba"
+                     },
+                     {
+                         "stage":  "current-elcg",
+                         "path":  "current-elcg.png",
+                         "sha256":  "e8a900ca45918c9f77e05581a59e60a2296bb91101ef90535339477512e85cfd"
+                     },
+                     {
+                         "stage":  "current-blcg",
+                         "path":  "current-blcg.png",
+                         "sha256":  "870a1a2a313b68b75d38da41faa7d1de1d252aacdc2b252914b146e5d1b53863"
+                     },
+                     {
+                         "stage":  "current-slcg",
+                         "path":  "current-slcg.png",
+                         "sha256":  "da18f1b50f424c7157fa1557768dfd208f01b51b8833f846564ed2322874379a"
+                     },
+                     {
+                         "stage":  "current-individual-0",
+                         "path":  "current-individual-0.png",
+                         "sha256":  "b919f4a259c0eb67d201ecb31e164136f9efb5eafde1750e18d162fa3ec771b9"
+                     },
+                     {
+                         "stage":  "current-individual-4",
+                         "path":  "current-individual-4.png",
+                         "sha256":  "92c8e28134980350589033cc64163556143c96ed8ec80be1d7e6ab10d602a0e5"
+                     },
+                     {
+                         "stage":  "current-individual-10",
+                         "path":  "current-individual-10.png",
+                         "sha256":  "f50c5af99750ff5907bbe8a2ee8b3eb37031c46aafe33907fc086d9c5429b995"
+                     },
+                     {
+                         "stage":  "current-individual-11",
+                         "path":  "current-individual-11.png",
+                         "sha256":  "046b0f9e04593153d8006c78ff4f65ab616d6a89df0c374267ab502dbd3e1897"
+                     },
+                     {
+                         "stage":  "current-individual-12",
+                         "path":  "current-individual-12.png",
+                         "sha256":  "1ae6ef7c0cfcd6bc0deacf5db56815a8b5e0523f50c603a748eb83bca85c2791"
+                     },
+                     {
+                         "stage":  "current-individual-13",
+                         "path":  "current-individual-13.png",
+                         "sha256":  "4eaa4e676babae1fb00ef4784139f62d91505b86e3c70473c93f5d4442d9acd5"
+                     },
+                     {
+                         "stage":  "current-individual-14",
+                         "path":  "current-individual-14.png",
+                         "sha256":  "733d3fd8a6ffea805f399bde4b67cec9bcbd5da21c45520775e59420ce49b1d8"
+                     },
+                     {
+                         "stage":  "current-individual-15",
+                         "path":  "current-individual-15.png",
+                         "sha256":  "324bccddab641b79b2fea794ac21d0dfc4d5a982270c58a18d63072684bc4b18"
+                     },
+                     {
+                         "stage":  "current-idle-thresholds",
+                         "path":  "current-idle-thresholds.png",
+                         "sha256":  "2374b44f1f4fdcd34c07474808e362ac34661f9398000a06ecfef1207b2587f7"
+                     },
+                     {
+                         "stage":  "current-adaptive-policy",
+                         "path":  "current-adaptive-policy.png",
+                         "sha256":  "4a0b7aff406c3452c836b4f904368a5417955e2caa0c4a232a1e6ee86e0560ce"
+                     },
+                     {
+                         "stage":  "restored-display",
+                         "path":  "restored-display.png",
+                         "sha256":  "b5363083c42f5c95adbd46b40917717e669b784800dd0f795bf13fd3a173ab73"
+                     }
+                 ],
+    "limitations":  [
+                        "Baseline display and readbacks only; existing callback qualifications remain separate.",
+                        "No new physical-effect, alternate-DPI, workload or restart-persistence testing.",
+                        "Source snapshot was packaged before this post-build evidence file was created."
+                    ]
+}

@@ -1,0 +1,124 @@
+{
+  "schema": 1,
+  "scope": "Source application framebuffer render and display-only power-control staging. No GPU tuning or registry write is part of the capture sequence. Actual source and subsequent packaged proof are distinct.",
+  "capture_method": "Installed DearPyGUI output_frame_buffer, invoked after ordinary initial rendering. The Windows.Graphics.Capture COM failure is bypassed, not repaired.",
+  "original_bounds_mw": {
+    "minimum": 250000,
+    "maximum": 450000,
+    "source": "live-bios"
+  },
+  "source_capture": {
+    "state": "complete",
+    "errors": [],
+    "captures": [
+      {
+        "stage": "control-actual",
+        "synthetic": false,
+        "path": "control-actual.png",
+        "requested_frame": 4,
+        "width": 1528,
+        "height": 1261,
+        "sha256": "4474a5367e9c63630d947c48724f209eda9c555137e9221db1f2d77966a638e6",
+        "widget": {
+          "slider": 360.0,
+          "input": 360.0,
+          "min": 250.0,
+          "max": 450.0
+        }
+      },
+      {
+        "stage": "original-upper",
+        "synthetic": true,
+        "path": "original-upper.png",
+        "requested_frame": 9,
+        "width": 1528,
+        "height": 1261,
+        "sha256": "3d59439125b48f1d70fd131347eb34bd2a3f6b64f7e67b4d9fa5b9b93b7c8032",
+        "widget": {
+          "slider": 450.0,
+          "input": 450.0,
+          "min": 250.0,
+          "max": 450.0
+        }
+      },
+      {
+        "stage": "extended-in-range",
+        "synthetic": true,
+        "path": "extended-in-range.png",
+        "requested_frame": 14,
+        "width": 1528,
+        "height": 1261,
+        "sha256": "b5c9fe003b20e8f86c6f71286e7b62cb6f23dfe73f51bab7565fc07d3f3ce820",
+        "widget": {
+          "slider": 350.0,
+          "input": 350.0,
+          "min": 250.0,
+          "max": 460.0
+        }
+      },
+      {
+        "stage": "extended-above",
+        "synthetic": true,
+        "path": "extended-above.png",
+        "requested_frame": 19,
+        "width": 1528,
+        "height": 1261,
+        "sha256": "dca342450cccf5956a73cd9bf1d65f6cba21693a5d32809bad2a39fd2fa3c2e0",
+        "widget": {
+          "slider": 455.0,
+          "input": 455.0,
+          "min": 250.0,
+          "max": 460.0
+        }
+      },
+      {
+        "stage": "restored-display",
+        "synthetic": false,
+        "path": "restored-display.png",
+        "requested_frame": 24,
+        "width": 1528,
+        "height": 1261,
+        "sha256": "4474a5367e9c63630d947c48724f209eda9c555137e9221db1f2d77966a638e6",
+        "widget": {
+          "slider": 360.0,
+          "input": 360.0,
+          "min": 250.0,
+          "max": 450.0
+        }
+      }
+    ]
+  },
+  "source_visual_review": [
+    "The original 450 W endpoint remains normal-colored.",
+    "The displayed 455 W value above the original bound is amber; the added slider segment has an amber tint.",
+    "The 350 W in-range staged case uses normal text within an extended displayed range.",
+    "Power widgets and original clock text restore after the sequence; normal refresh resumes."
+  ],
+  "hardware_check": "Independent configured-state and complete rail-request readbacks are compared separately. Capture timestamps are bookkeeping, not GPU configuration.",
+  "packaged_verification_required": [
+    "Match the final source-manifest hashes and compiled capture integration with the development EXE.",
+    "Run the actual packaged capture and inspect the produced PNGs, not only the source run.",
+    "Verify original configured GPU requests, full rail packets, image, registry and receipt state after capture."
+  ],
+  "remaining": [
+    "Live REL and OV/ALT/VMIN panel rendering.",
+    "Remaining preview/error, Apply/Undo and recovery-dialog walkthrough.",
+    "Other DPI, viewport sizes and adapters."
+  ],
+  "qualification": "Staged widget values are synthetic display cases. They do not establish an extended GPU request, power draw, firmware enforcement or a physical safety bound.",
+  "source_hardware_readback": {
+    "listed_configured_fields_equal": true,
+    "typed_power_policy_identities_bounds_requests_equal": true,
+    "complete_rail_packets_and_six_requests_equal": true,
+    "VFE_model_inputs_variables_and_control_hash_equal": true,
+    "image_registry_and_receipt_equal": true,
+    "normalization": "Only the host-side diagnostic driver_flags.captured_at timestamp is omitted from its configuration comparison."
+  },
+  "validation": {
+    "full_tests_passed": 6466,
+    "full_test_seconds": 115.93,
+    "focused_mocked_capture_callback_tests": 12,
+    "new_capture_module_and_tests_ruff": "passed",
+    "application_entry_lint": "26 preexisting diagnostics, no new diagnostics"
+  }
+}

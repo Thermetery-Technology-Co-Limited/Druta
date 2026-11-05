@@ -55,8 +55,9 @@ but the changed observed memory clock remains under investigation. See the
 [driver comparison and reversible idle validation](experiments/turing-driver-live-comparison-20261028.md)
 and the separate [owner-reported FurMark A/B result](experiments/turing-owner-furmark-ab-20261028.md).
 Work in progress: registry-backed NVIDIA overrides, live power/VF/voltage-device
-controls, and DIFR configuration. See the release notes for explicit pending
-tasks, hardware coverage and limits before treating this as stable support.
+controls, and DIFR configuration. The release notes describe the published package; see the current
+[manual](MANUAL.md) and [draft PR #39](https://github.com/Thermetery-Technology-Co-Limited/Druta/pull/39)
+for later branch functionality and remaining qualification limits.
 
 Hardware validation: [Maxwell/Pascal](MAXWELL-PASCAL-VALIDATION.md),
 [RTX 5080 / Blackwell](BLACKWELL-VALIDATION.md) and
@@ -137,8 +138,8 @@ restarts. Use **Restore previous registry settings** to undo them; restarting
 Windows alone does not remove them. These overrides do not flash the physical VBIOS.
 The development branch supports qualified GR power-gating entry disables,
 including removal of all enabled entries, with exact configuration readback and
-Restore. Final raw bit 4 removal and broader hardware qualification remain open;
-configuration readback does not measure physical residency. See the [manual](MANUAL.md).
+Restore. Additional dependency transitions and broader hardware qualification retain
+their documented limits; configuration readback does not measure physical residency. See the [manual](MANUAL.md).
 
 - **Can hang the machine and corrupt data held in VRAM, also cleared by a reboot:** memory timing writes.
 They are volatile — the driver reprograms these registers per clock band, so an
@@ -768,6 +769,14 @@ with a suitable V/F request. Restoring the original limits restored the lower
 live voltage in two repeated cycles on each card. The former claim here that
 this cap could not be raised was disproved by that measurement. See
 [the per-rail findings](VOLTAGE-RAILS-TITAN.md) for exact conditions and scope.
+
+The Controls page also provides **Live voltage rail requests** for REL, ALT/OP,
+OV, VMIN, VCRIT low and VCRIT high. Read the current requests, choose the rail
+and field, and enter its offset in mV. Apply changes only that request and checks
+the stored result without restarting the GPU. VCRIT readback confirms the stored
+request; its effective threshold remains unverified. A driver that returns
+success without applying a changed request is reported as a readback failure.
+Availability is checked on the selected adapter, without a driver-version list.
 
 ## Contributing I2C controller support
 

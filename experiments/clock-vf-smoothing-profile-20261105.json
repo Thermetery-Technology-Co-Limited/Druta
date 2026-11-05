@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "date": "2026-11-05",
+  "scope": "Independent smoothing-disable attempt, source UI callback on RTX 5080 / 617.42",
+  "trial_sha256": "f5366e4af8fdd2ca622030d8c2304403aead6193157e4920a54f12af74b79b29",
+  "harness_sha256": "9390c18204214c6f3145bbeb60061e64b59f411c0c29895e4d1d2f02d35cd4a3",
+  "before": true,
+  "requested": false,
+  "after": true,
+  "driver_result": "RM 0x56, current startup mode refusal",
+  "exact_original_header_verified": true,
+  "changed_state_profile_replay_qualified": false,
+  "limitation": "No registry seeding, restart or workload; no claim of physical enforcement or universal driver behavior."
+}

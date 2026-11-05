@@ -165,6 +165,11 @@ def require_restartable_request(observation):
 def _binding(field, key):
     match = KEY.fullmatch(key)
     index, role = match.group(1), match.group(2).split(".")[0]
+    return _constant_binding(field, key, int(index), role)
+
+
+def _constant_binding(field, key, index, role):
+    """Validate an explicitly selected typed voltage constant binding."""
     if not isinstance(field, dict) or not _BINDING <= set(field):
         raise VoltageCeilingError(key + ": incomplete BIOS constant binding")
     value = {name: copy.deepcopy(field[name]) for name in _BINDING}
@@ -184,8 +189,8 @@ def _binding(field, key):
     for name, maximum in (("equation", 8191), ("next_equation", 65535), ("variable_index", 255)):
         if type(value[name]) is not int or not 0 <= value[name] <= maximum:
             raise VoltageCeilingError(key + ": malformed equation index or variable")
-    if role == "OV" and value["next_equation"] != 65535:
-        raise VoltageCeilingError("OV must be a terminal constant equation")
+    if role in ("OV", "VMIN") and value["next_equation"] != 65535:
+        raise VoltageCeilingError(role + " must be a terminal constant equation")
     if role == "ALT" and not 0 <= value["next_equation"] < 8192:
         raise VoltageCeilingError("ALT must add a constant to a linked REL equation")
     offsets = value["offsets"]

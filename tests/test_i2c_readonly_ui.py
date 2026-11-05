@@ -167,6 +167,7 @@ class ReadOnlyI2cUiTests(unittest.TestCase):
             self.assertTrue(dpg.does_item_exist(tag), tag)
 
     def test_link_applies_one_value_to_both_ceiling_fields_atomically(self):
+        self.app.write_rail_limit_action = Mock(side_effect=lambda selection, writer, **kwargs: writer())
         with dpg.window():
             dpg.add_checkbox(tag="vlim_link", default_value=True)
         self.app._rail_writable = {0}

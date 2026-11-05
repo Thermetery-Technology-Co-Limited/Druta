@@ -48,6 +48,22 @@ POWER_V40_RUNTIME_TYPES = {
     16: 35,
 }
 POWER_CLASS_EVIDENCE = "experiments/registry-overrides/vbios-fields/power-class-mapping.json"
+POWER_V30_CLASS_EVIDENCE = "experiments/power-v30-class1-20261028.json"
+# V30 rail type 1 / 65-byte rows: only these words are copied as VFE roots by
+# the matched rail constructor. Other row bytes remain opaque and unchanged.
+VOLTAGE_RAIL_VFE_SELECTORS = (13, 15, 17, 19, 33, 35)
+# These independently decoded bytes have an unresolved consumer namespace.
+# Treat values that name active VFE rows as possible dependencies.
+VOLTAGE_RAIL_POSSIBLE_VFE_BYTES = (21, 23)
+
+
+def power_runtime_type(version, kind):
+    """Return only independently traced BIOS-to-runtime policy classes."""
+    if version == 0x40:
+        return POWER_V40_RUNTIME_TYPES.get(kind)
+    if version == 0x30 and kind == 1:
+        return 0
+    return None
 
 
 class FormatError(ValueError):
@@ -341,13 +357,14 @@ class _Image:
         shapes = (
             ((0x40, 0x38, 0x66), (0x40, 0x3D, 0x66))
             if self.objects
-            else ((0x30, 0x32, 0x53), (0x30, 0x34, 0x5B), (0x30, 0x2C, 0x4B))
+            else ((0x30, 0x32, 0x53), (0x30, 0x34, 0x5B), (0x30, 0x2C, 0x4B), (0x30, 0x2C, 0x47))
         )
         t = self.table("power", "P", 0x2C, shapes, 0x13)
         modern = t["version"] == 0x40
         for i in range(t["count"]):
             row = t["offset"] + t["header_size"] + i * t["stride"]
-            kind = self.b[row] if modern else self.b[row] & 15
+            kind = self.b[row] if modern else (self.b[row] & 15) | ((self.b[row + 0x42] & 15) << 4)
+            inspection_only = not modern and t["stride"] == 0x47 and kind != 1
             if not kind:
                 continue
             # The common flags word has limit units in bit 0; other bits
@@ -358,6 +375,9 @@ class _Image:
             base = row + (13 if modern else 2)
             values = [self.u("I", base + k * 4) for k in range(3)]
             valid = discriminator in (0, 1) and kind in (1, 2, 3, 6, 7, 9, 11, 12, 13) and values == sorted(values)
+            reason = "" if valid else "unknown units, class, or inconsistent limits"
+            if inspection_only:
+                reason = "short v30 power class is qualified for read-only inspection only"
             meta = {
                 "policy": i,
                 "policy_type": kind,
@@ -368,8 +388,13 @@ class _Image:
                     "vbios_type": kind,
                     "channel": self.b[row + (5 if modern else 1)],
                     "units": unit,
-                    "runtime_type": POWER_V40_RUNTIME_TYPES.get(kind) if modern else None,
-                    "class_evidence": POWER_CLASS_EVIDENCE if modern else None,
+                    "table_version": t["version"],
+                    "runtime_type": power_runtime_type(t["version"], kind),
+                    "class_evidence": POWER_CLASS_EVIDENCE
+                    if modern
+                    else POWER_V30_CLASS_EVIDENCE
+                    if kind == 1
+                    else None,
                     "required": "compare PCI-paired runtime policy index, class translation, channel, units and all three limits",
                 },
             }
@@ -382,8 +407,8 @@ class _Image:
                     "I",
                     unit,
                     maximum=2147483647,
-                    editable=valid,
-                    reason="" if valid else "unknown units, class, or inconsistent limits",
+                    editable=valid and not inspection_only,
+                    reason=reason,
                     meta=meta,
                 )
             # Type13 +33 is a WORD relationship selector. Resolve the kind1
@@ -423,7 +448,7 @@ class _Image:
                     )
                 self.field(
                     f"power.{i}.linked_current",
-                    f"Policy {i} linked policy {target} current" if recognized else f"Policy {i} linked current",
+                    f"Policy {i} linked policy {target} base current" if recognized else f"Policy {i} linked base current",
                     "Power / current",
                     row + 61,
                     "I",
@@ -440,6 +465,29 @@ class _Image:
                         "linked_policy": target,
                     },
                 )
+
+        if modern:
+            try:
+                stride, count = self.span(t["offset"] + 4, 2)
+                if stride != 18:
+                    raise FormatError("unknown relationship geometry")
+                base = t["offset"] + t["size"]
+                self.own(t["offset"], t["size"] + stride * count, 0x13)
+                self.span(base, stride * count)
+                for index in range(min(count, 32)):
+                    at = base + index * stride
+                    kind, target = self.b[at] & 15, self.b[at + 1]
+                    if kind != 1 or target >= t["count"]:
+                        continue
+                    self.field(
+                        f"power_relationship.{index}.weight", f"Relationship {index} to policy {target} weight",
+                        "Power / current", at + 2, "H", "multiplier", scale=4096,
+                        meta={"relationship_index": index, "relationship_kind": kind,
+                              "relationship_stride": stride, "relationship_count": count,
+                              "relationship_offset": at, "target_policy": target},
+                    )
+            except FormatError:
+                pass  # Optional relationship fields do not suppress policy fields.
 
     def clocks(self):
         at = self.pointer("C", 8)
@@ -734,9 +782,10 @@ class _Image:
 
             def add(name=name, ptr=ptr, oid=oid, hs=hs, es=es, fmt=fmt):
                 t = self.table("lpwr_" + name, "P", ptr, ((0x10, hs, es),), oid)
+                enabled_mask = 2 if name == "nvjpg" else 1
                 for i in range(t["count"]):
                     at = t["offset"] + hs + es * i
-                    enabled = bool(self.u(fmt, at) & 1)
+                    enabled = bool(self.u(fmt, at) & enabled_mask)
                     self.field(
                         f"lpwr.{name}.{i}.enabled",
                         f"{name.upper()} entry {i} enabled",
@@ -744,13 +793,24 @@ class _Image:
                         at,
                         fmt,
                         "bool",
-                        mask=1,
+                        mask=enabled_mask,
                         editable=enabled,
                         reason="may disable this captured enabled entry; restore it from the transaction journal"
                         if enabled
                         else "disabled entry: captured bytes cannot prove it is supported when enabled",
                         meta={"disable_only": True},
                     )
+                    if name == "difr" and self.objects:
+                        for role, bit in (("dfpr", 2), ("sw_asr", 4), ("cg", 8)):
+                            active = enabled and bool(self.u(fmt, at) & bit)
+                            self.field(
+                                f"lpwr.difr.{i}.{role}_enabled",
+                                f"DIFR entry {i} {role.upper()} enabled",
+                                "Idle power management", at, fmt, "bool", mask=bit,
+                                editable=active,
+                                reason="" if active else "only enabled captured DIFR subfeatures may be disabled",
+                                meta={"disable_only": True},
+                            )
 
             self.optional("lpwr_" + name, add)
 
@@ -1138,7 +1198,7 @@ class _Image:
             clock_refs, clock_error = None, str(exc)
         selected, rail_roots = [], []
         role_names = {13: "REL", 15: "ALT", 17: "OV", 19: "VMIN", 33: "INFO_VMIN"}
-        selector_offsets = (13, 15, 17, 19, 21, 23, 29, 31, 33, 35) + tuple(range(41, 65, 2))
+        selector_offsets = VOLTAGE_RAIL_VFE_SELECTORS
         for i in range(count):
             row = rail + 5 + 65 * i
             if self.span(row, 2) != bytes((1, i + 1)):
@@ -1158,6 +1218,13 @@ class _Image:
                 for d, idx in zip(selector_offsets, indices, strict=True)
                 if idx != 65535
             ]
+            for d in VOLTAGE_RAIL_POSSIBLE_VFE_BYTES:
+                idx = self.b[row + d]
+                if idx != 255 and idx < n and self.b[base + 25 * idx]:
+                    selected.append(idx)
+                    rail_roots.append({"rail_index": i, "rail_identity": self.b[row + 1],
+                                       "role": "possible_byte", "selector_offset": row + d,
+                                       "equation": idx})
         forward, closures = {}, {}
         for target, users in (refs or {}).items():
             for user in users:
@@ -1219,7 +1286,7 @@ class _Image:
                     "sharing_graph_error": graph_error or clock_error,
                     "external_sharing_complete": clock_refs is not None,
                     "external_sharing_error": clock_error,
-                    "sharing_scope": "understood VFE edges, rail selectors and C+0C main-entry roots; other BIOS consumers unverified",
+                    "sharing_scope": "understood VFE edges, rail selectors, possible byte aliases and C+0C main-entry roots; other BIOS consumers unverified",
                     "rel_lowest_uv": rel_range[0] if rel_range else None,
                     "referenced_by": refs.get(idx, []) if refs is not None else None,
                     "clock_referenced_by": clock_refs.get(idx, []) if clock_refs is not None else None,
@@ -1310,13 +1377,15 @@ class _Image:
                         if role == "REL" and not writable
                         else "equation clamp only; unchanged coefficients and chained equations can still limit the evaluated voltage"
                         if writable
-                        else "INFO VMIN is not the evaluated VMIN"
+                        else "runtime role of rail selector 33 is unverified"
                         if role == "INFO_VMIN"
                         else "unrecognized or aliased rail equation"
                     )
                     self.field(
                         f"voltage.{i}.{role}.maximum",
-                        f"{label} {role} equation ceiling",
+                        f"{label} unclassified rail equation ceiling"
+                        if role == "INFO_VMIN"
+                        else f"{label} {role} equation ceiling",
                         "Voltage",
                         at + 7,
                         "f",
@@ -1532,6 +1601,20 @@ def plan(blob, changes):
             chunk = encoded
             if f["mask"] is not None:
                 old = f["raw_values"][index]
+                if key.startswith("lpwr.difr.") and at in writes:
+                    previous = writes[at][1]
+                    if all(k.startswith("lpwr.difr.") and fields[k]["offsets"] == f["offsets"]
+                           and not fields[k]["mask"] & f["mask"] for k in previous):
+                        old = int.from_bytes(bytes(writes.get(at + j, [b, set()])[0]
+                                                   for j, b in enumerate(struct.pack("<" + f["encoding"], old))), "little")
+                        for j in range(struct.calcsize("<" + f["encoding"])):
+                            writes.pop(at + j, None)
+                        chunks.append((at, struct.pack("<" + f["encoding"],
+                                                       old | f["mask"] if value else old & ~f["mask"])))
+                        # Restore earlier ownership when emitting the merged bytes.
+                        for j in range(struct.calcsize("<" + f["encoding"])):
+                            writes[at + j] = [chunks[-1][1][j], set(previous)]
+                        continue
                 chunk = struct.pack("<" + f["encoding"], old | f["mask"] if value else old & ~f["mask"])
             chunks.append((at, chunk))
         for at, chunk in chunks:

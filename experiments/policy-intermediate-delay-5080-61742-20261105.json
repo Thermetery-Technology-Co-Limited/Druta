@@ -1,0 +1,83 @@
+{
+  "schema": 1,
+  "date": "2026-11-05",
+  "device": {
+    "name": "NVIDIA GeForce RTX 5080",
+    "driver": "617.42",
+    "vbios": "98.03.3b.c0.6f"
+  },
+  "scope": "One paired guarded INFO GET, no SET, registry write or restart.",
+  "source_sha256": {
+    "trial": "63d0388c4b287a9deab585ce89f6f1e221158267ef631201e63e1b15b62ed048",
+    "harness": "f3aab8794476943f53aa1350f0d06413fcae134a2ad3bdd2dc474d6a5cf61b1e",
+    "host_descriptors": "eea7011ae5284560bad76fbb6cac192b4f0507467196df0c5db5d6c464b78b61",
+    "audit": "d72b5b5f07aca514e657e9a8abe6b6136b5a9179f7a449e4459944bbe7747385",
+    "host_driver": "db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b",
+    "source_windows": {
+      "info-row-mapper.txt": "6a3812a3b5847b7cb9b3ed3c3164b390edbf4b07100fa5527f2d2c0d7990e1b3",
+      "info-base-getter.txt": "68231351e9f19c5666065bca3b49e41dd6f4d929410d1f96f3db651551b19be8",
+      "info-common-header.txt": "5e32904dca722f00c29c598b81dbfc7d4408b6b3b0e84becb08aaced5027a1e0",
+      "group-constructor.txt": "c3dddb3743f32f6eec95db9b214bf4f71903d53ceae6f3218c3258d7938df6d4",
+      "type5-constructor.txt": "604a7494c75f3e3a6b2bf07ef812e877cbbdc84be4f3813d3e13636730f93d46",
+      "policy-base-constructor.txt": "ac1f16ac7c71724a995196afa82719913b5853d17aa9ae31bea781306adf8b5f",
+      "interface-base-constructor.txt": "6916d3484aae96fb2046bef8caa7341db062e12ef16abf6a5ce55573e5d6205e",
+      "base-set.txt": "6f79a9032c8a73e424de2edd2b84f7edb820bfbf756cd41f351cd72c2a68ebc6",
+      "type5-info-full.txt": "203cbbe7da175fa5843d2be09f4f21cb6efaef7cd0faf9498f1e4d5e1357bfa8"
+    }
+  },
+  "transport": {
+    "command": "0x2080b209",
+    "request_bytes": 592,
+    "payload_bytes": 524,
+    "request_payload_all_zero": true,
+    "ntstatus": 0,
+    "completion": 1,
+    "rm_status": 0,
+    "immutable_envelope_matches": true,
+    "paired_identity_and_guards_verified_by_harness": true
+  },
+  "info": {
+    "mask": 1,
+    "occupied_rows": [
+      {
+        "index": 0,
+        "type": 5,
+        "type_echo": 5,
+        "row_hex": "05050000030000000000000000000000"
+      }
+    ],
+    "delay_specific_types_2_and_4_observed": false
+  },
+  "named_descriptors": [
+    {
+      "command": "0x2080b209",
+      "handler_rva": "0x4e9a50",
+      "flags": "0x48",
+      "payload_bytes": 524
+    },
+    {
+      "command": "0x2080b211",
+      "handler_rva": "0x4e9950",
+      "flags": "0x48",
+      "payload_bytes": 520
+    },
+    {
+      "command": "0x2080f212",
+      "handler_rva": "0x4e9cd0",
+      "flags": "0x44",
+      "payload_bytes": 520
+    }
+  ],
+  "before_after": {
+    "exact_clock_control_match": true,
+    "exact_power_action_match": true,
+    "boost_match": true,
+    "boost": 0,
+    "vf_lock_status_match": true,
+    "vf_lock_status": [
+      null,
+      null
+    ]
+  },
+  "interpretation": "The captured INFO contains only type 5. Saved 617 host construction binds this type to the base SET path with no type-2/4 delay-specific copy. No B211 or F212 call was issued. This does not prove type 5 is universally unsupported or measure latency."
+}

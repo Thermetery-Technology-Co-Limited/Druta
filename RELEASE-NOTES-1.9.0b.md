@@ -52,7 +52,7 @@ unavailable with the smaller layout. Other downstream limits can still apply.
 The broader controls and their remaining limitations are described in the
 [1.9.0a notes](RELEASE-NOTES-1.9.0a.md), [manual](MANUAL.md), and
 [technical documentation](TECHNICALDOCUMENTATION.md). Physical enforcement,
-remaining power-policy and low-power semantics, arbitrary voltage-offset replay,
+remaining power-policy and low-power semantics, legacy six-word voltage-request replay,
 cross-generation validation, and the packaged UI walkthrough remain open. A
 successful request or configuration readback is not a physical measurement.
 
@@ -64,12 +64,11 @@ The source manifest records SHA-256 hashes; a ZIP checksum accompanies the
 release. Extract the complete directory and run `Druta.exe`, keeping its
 adjacent files together. Python and the NVIDIA App are not required.
 
-## Post-release branch continuation
+## Current development branch
 
-Development after this prerelease adds a qualified path for disabling all
-enabled GR power-gating entries, including unused entries. It verifies main
-controller support and mask, independent controller feature and type 7
-configuration readbacks, and a finite set of known peer outcomes; unexpected
-peer changes fail verification and invoke restoration. Final raw bit 4 BIOS
-contributor removal and broader hardware qualification remain open. These
-configuration checks do not measure physical power-gating residency.
+These notes describe the published 1.9.0b package. Later branch controls, manual
+profiles, Undo and relationship-weight editing are documented in the current
+[manual](MANUAL.md) and [technical documentation](TECHNICALDOCUMENTATION.md).
+The [draft PR #39](https://github.com/Thermetery-Technology-Co-Limited/Druta/pull/39)
+tracks current functionality, validation and unresolved work; later commits do
+not change the contents or qualification of the published prerelease.

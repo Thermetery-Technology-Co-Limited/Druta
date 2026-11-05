@@ -3,11 +3,12 @@
 """Typed BIOS-field previews and durable undo in the Controls page."""
 
 from collections import defaultdict
+from decimal import Decimal, InvalidOperation
 
 import dearpygui.dearpygui as dpg
 
 from . import registry_overrides as overrides
-from . import vbios_fields
+from . import profiles, vbios_fields
 from .perf_diagnostics import PerfDiagnosticsReader
 from .voltage_request_gate import VoltageRequestGate
 
@@ -16,6 +17,14 @@ _VF_LIVE_FIELDS = (
     ("clock_vf.smoothening", "vf_smoothening_enforced", "reg_vf_live_smoothening"),
 )
 _DIFR_LABELS = {"9": "DFPR", "10": "MS DIFR SW-ASR", "11": "MS DIFR CG"}
+_THRESHOLD_TO_ADAPTIVE = {0: 0, 4: 2, 12: 4, 13: 5, 15: 6, 14: 7}
+
+
+def _type4_queries_become_unavailable(contract):
+    before = contract["before"].get("bit1", {}).get("roles", {})
+    after = contract["after"].get("bit1", {}).get("roles", {})
+    return bool(before and after and any(row["available"] for row in before.values())
+                and all(not row["available"] for row in after.values()))
 
 
 class RegistryPanel:
@@ -30,6 +39,8 @@ class RegistryPanel:
         self.diagnostics = None
         self.arbitration = None
         self.arbitration_target = None
+        self.relationships = None
+        self.relationships_target = None
         self.voltage_gate = None
         self.voltage_gate_snapshot = None
         self.voltage_gate_initial = None
@@ -40,12 +51,35 @@ class RegistryPanel:
         self.voltage_device_snapshot = None
         self.voltage_device_choices = {}
         self.difr_readback = None
+        self.rel_live_control = None
+        self.rel_live_snapshot = None
+        self.rel_live_choices = {}
+        self.rel_live_stale = False
+        self.constants_live_control = None
+        self.constants_live_snapshot = None
+        self.constants_live_choices = {}
+        self.constants_live_stale = False
+        if not hasattr(app, "_constants_live_initial_states"):
+            app._constants_live_initial_states = {}
+        if not hasattr(app, "_rel_live_initial_states"):
+            app._rel_live_initial_states = {}
         if not hasattr(app, "_voltage_gate_initial_states"):
             app._voltage_gate_initial_states = {}
         if not hasattr(app, "_clock_vf_initial_states"):
             app._clock_vf_initial_states = {}
         if not hasattr(app, "_voltage_device_initial_states"):
             app._voltage_device_initial_states = {}
+
+    def _threshold_requested(self, gpu, index):
+        adaptive = _THRESHOLD_TO_ADAPTIVE.get(index)
+        if adaptive is not None:
+            self.adaptive_power_panel.invalidate_related(gpu, adaptive)
+
+    def _adaptive_requested(self, gpu, index):
+        for threshold, adaptive in _THRESHOLD_TO_ADAPTIVE.items():
+            if adaptive == index:
+                self.gr_idle_threshold_panel.invalidate_related(gpu, threshold)
+                break
 
     def build(self):
         dpg.add_text(
@@ -67,7 +101,8 @@ class RegistryPanel:
                 enabled=False,
             )
         dpg.add_text("Read fields to inspect this adapter.", tag="reg_status", wrap=self.app.s(900))
-        dpg.add_input_text(tag="reg_preview", readonly=True, multiline=True, width=-1, height=self.app.s(110))
+        dpg.add_text("", tag="reg_last_recovery", wrap=self.app.s(900), show=False)
+        dpg.add_input_text(tag="reg_preview", readonly=True, multiline=True, width=-1, height=self.app.s(180))
         with dpg.group(tag="reg_fields"):
             pass
         with dpg.collapsing_header(label="Driver policy diagnostics"):
@@ -82,12 +117,57 @@ class RegistryPanel:
             dpg.add_text(
                 "Read the loaded P-state to LPWR mapping and configured DFPR/MS DIFR support. "
                 "These values describe configuration, not the current P-state, residency or measured power savings. "
-                "DIFR entry disables use the registry field preview and GPU restart above.",
+                "DIFR entry and subfeature disables use the registry field preview and GPU restart above.",
                 wrap=self.app.s(900),
             )
             dpg.add_button(label="Read DIFR configuration", callback=self.refresh_difr)
             dpg.add_input_text(tag="reg_difr_readback", readonly=True, multiline=True, width=-1, height=self.app.s(190))
-        with dpg.collapsing_header(label="Power/current arbitration"):
+        from .difr_live_panel import DifrLivePanel
+
+        self.difr_live_panel = DifrLivePanel(self.app)
+        with dpg.collapsing_header(label="Live DIFR disable request", tag="reg_difr_live_header"):
+            self.difr_live_panel.build()
+        from .pcie_speed_panel import PcieSpeedPanel
+
+        self.pcie_speed_panel = PcieSpeedPanel(self.app)
+        with dpg.collapsing_header(label="Manual PCIe speed request", tag="reg_pcie_speed_header"):
+            self.pcie_speed_panel.build()
+        from .gr_gating_live_panel import GrGatingLivePanel
+
+        self.gr_gating_live_panel = GrGatingLivePanel(self.app)
+        with dpg.collapsing_header(label="Live engine-level power gating (ELPG)", tag="reg_gr_gating_live_header"):
+            self.gr_gating_live_panel.build()
+        from .individual_power_gating_panel import IndividualPowerGatingPanel
+
+        self.individual_power_gating_panel = IndividualPowerGatingPanel(self.app)
+        with dpg.collapsing_header(label="Individual engine power gating", tag="reg_individual_power_gating_header"):
+            self.individual_power_gating_panel.build()
+        from .gr_idle_threshold_panel import GrIdleThresholdPanel
+
+        self.gr_idle_threshold_panel = GrIdleThresholdPanel(self.app, self._threshold_requested)
+        with dpg.collapsing_header(label="Live idle thresholds", tag="reg_gr_idle_threshold_header"):
+            self.gr_idle_threshold_panel.build()
+        from .adaptive_power_panel import AdaptivePowerPanel
+
+        self.adaptive_power_panel = AdaptivePowerPanel(self.app, self._adaptive_requested)
+        with dpg.collapsing_header(label="Live adaptive power policy", tag="reg_adaptive_power_header"):
+            self.adaptive_power_panel.build()
+        from .engine_clock_gating_panel import EngineClockGatingPanel
+
+        self.engine_clock_gating_panel = EngineClockGatingPanel(self.app)
+        with dpg.collapsing_header(label="Live engine clock gating", tag="reg_engine_clock_gating_header"):
+            self.engine_clock_gating_panel.build()
+        from .block_clock_gating_panel import BlockClockGatingPanel
+
+        self.block_clock_gating_panel = BlockClockGatingPanel(self.app)
+        with dpg.collapsing_header(label="Live block clock gating", tag="reg_block_clock_gating_header"):
+            self.block_clock_gating_panel.build()
+        from .second_level_clock_gating_panel import SecondLevelClockGatingPanel
+
+        self.second_level_clock_gating_panel = SecondLevelClockGatingPanel(self.app)
+        with dpg.collapsing_header(label="Live second-level clock gating (SLCG)", tag="reg_second_level_clock_gating_header"):
+            self.second_level_clock_gating_panel.build()
+        with dpg.collapsing_header(label="Power/current arbitration", tag="reg_power_arbitration_header"):
             dpg.add_text(
                 "Compare each request with host votes, firmware votes, and the effective limit. "
                 "Firmware values can lag a recent change; refresh to check again. "
@@ -96,7 +176,15 @@ class RegistryPanel:
             )
             dpg.add_button(label="Read arbitration", callback=self.refresh_arbitration)
             dpg.add_input_text(tag="reg_arbitration", readonly=True, multiline=True, width=-1, height=self.app.s(260))
-        with dpg.collapsing_header(label="Runtime voltage-request control"):
+            dpg.add_text(
+                "Configured relationships describe policy targets, weights and available source-policy ranges. "
+                "This partial mapping does not establish the producer of an active vote. "
+                "Qualified weights can be edited through the BIOS field preview and require a driver refresh.", wrap=self.app.s(900),
+            )
+            dpg.add_button(label="Read relationships", tag="reg_relationships_read", callback=self.refresh_relationships)
+            dpg.add_input_text(tag="reg_relationships", readonly=True, multiline=True,
+                               width=-1, height=self.app.s(180))
+        with dpg.collapsing_header(label="Runtime voltage-request control", tag="reg_voltage_gate_header"):
             dpg.add_text(
                 "Allow or suppress the driver's voltage-request processing. Changes take effect immediately. "
                 "This switch does not set a voltage or raise a voltage ceiling.",
@@ -104,6 +192,7 @@ class RegistryPanel:
             )
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Read voltage-request gate", callback=self.refresh_voltage_gate)
+                dpg.add_button(label="Save gate profile", callback=self.app.open_save_profile, user_data="gate")
                 dpg.add_checkbox(label="Allow voltage requests", tag="reg_voltage_gate_value", enabled=False)
                 dpg.add_button(
                     label="Apply gate now",
@@ -120,7 +209,7 @@ class RegistryPanel:
             dpg.add_text(
                 "Read the current gate before changing it.", tag="reg_voltage_gate_status", wrap=self.app.s(900)
             )
-        with dpg.collapsing_header(label="Runtime VF policy control"):
+        with dpg.collapsing_header(label="Runtime VF policy control", tag="reg_vf_live_header"):
             dpg.add_text(
                 "Change the driver's active VF checks without restarting the GPU. "
                 "Some startup modes reject disabling a check; use the registry setting first in that case. "
@@ -130,6 +219,7 @@ class RegistryPanel:
             )
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Read VF policies", callback=self.refresh_clock_vf_live)
+                dpg.add_button(label="Save VF policies profile", callback=self.app.open_save_profile, user_data="clock_vf")
                 dpg.add_checkbox(label="Enforce monotonicity", tag="reg_vf_live_monotonicity", enabled=False)
                 dpg.add_checkbox(label="Enforce smoothing", tag="reg_vf_live_smoothening", enabled=False)
             with dpg.group(horizontal=True):
@@ -150,6 +240,69 @@ class RegistryPanel:
                 tag="reg_vf_live_status",
                 wrap=self.app.s(900),
             )
+        from .voltage_offsets_panel import VoltageOffsetsPanel
+
+        self.voltage_offsets_panel = VoltageOffsetsPanel(self.app)
+        self.voltage_offsets_panel.build()
+        from .voltage_requests_panel import VoltageRequestsPanel
+
+        self.voltage_requests_panel = VoltageRequestsPanel(self.app)
+        self.voltage_requests_panel.build()
+        with dpg.collapsing_header(label="Live REL equation bounds", tag="reg_rel_live_header"):
+            dpg.add_text(
+                "Change the loaded REL equation bounds for this driver session without restarting the GPU. "
+                "Fix both bounds uses the entered value for both bounds; linked equations can still affect REL and ALT. "
+                "These are equation settings, not measured rail voltage.",
+                wrap=self.app.s(900),
+            )
+            with dpg.group(horizontal=True):
+                dpg.add_button(label="Read", callback=self.refresh_rel_live)
+                dpg.add_button(label="Save bounds profile", callback=self.app.open_save_profile, user_data="rel_bounds")
+                dpg.add_combo(
+                    [], tag="reg_rel_live_select", width=self.app.s(220), enabled=False, callback=self.select_rel_live
+                )
+                dpg.add_input_text(
+                    label="Bound value (mV)", tag="reg_rel_live_value", width=self.app.s(130), enabled=False
+                )
+                dpg.add_button(label="Apply upper", tag="reg_rel_live_apply", callback=self.apply_rel_live, enabled=False)
+                dpg.add_button(
+                    label="Restore initial upper",
+                    tag="reg_rel_live_restore",
+                    callback=self.restore_rel_live,
+                    enabled=False,
+                )
+            with dpg.group(horizontal=True):
+                dpg.add_button(
+                    label="Fix both bounds", tag="reg_rel_live_fixed", callback=self.fix_rel_live, enabled=False
+                )
+                dpg.add_button(
+                    label="Restore BIOS bounds", tag="reg_rel_live_restore_bounds",
+                    callback=self.restore_rel_live_bounds, enabled=False,
+                )
+            dpg.add_text("Read live bounds before changing them.", tag="reg_rel_live_status", wrap=self.app.s(900))
+            dpg.add_input_text(
+                tag="reg_rel_live_inventory", readonly=True, multiline=True, width=-1, height=self.app.s(110)
+            )
+        with dpg.collapsing_header(label="Live voltage constants", tag="reg_constants_live_header"):
+            dpg.add_text(
+                "Change an OV or VMIN constant, or an ALT addend, for this driver session without restarting the GPU. "
+                "Reported policy values can differ. Physical enforcement has not been measured.",
+                wrap=self.app.s(900),
+            )
+            with dpg.group(horizontal=True):
+                dpg.add_button(label="Read", callback=self.refresh_constants_live)
+                dpg.add_button(label="Save constants profile", callback=self.app.open_save_profile, user_data="constants")
+                dpg.add_combo([], tag="reg_constants_live_select", width=self.app.s(240), enabled=False,
+                              callback=self.select_constants_live)
+                dpg.add_input_text(label="Value (mV)", tag="reg_constants_live_value",
+                                   width=self.app.s(130), enabled=False)
+                dpg.add_button(label="Apply now", tag="reg_constants_live_apply",
+                               callback=self.apply_constants_live, enabled=False)
+                dpg.add_button(label="Restore initial value", tag="reg_constants_live_restore",
+                               callback=self.restore_constants_live, enabled=False)
+            dpg.add_text("Read live values before changing them.", tag="reg_constants_live_status", wrap=self.app.s(900))
+            dpg.add_input_text(tag="reg_constants_live_inventory", readonly=True, multiline=True, width=-1,
+                               height=self.app.s(130))
         with dpg.collapsing_header(label="Voltage switch-delay requests"):
             dpg.add_text(
                 "Read and change a voltage device's switch-delay request in microseconds. "
@@ -160,6 +313,7 @@ class RegistryPanel:
             )
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Read device delays", callback=self.refresh_voltage_devices)
+                dpg.add_button(label="Save delays profile", callback=self.app.open_save_profile, user_data="switch_delay")
                 dpg.add_combo(
                     [],
                     tag="reg_volt_device_select",
@@ -238,6 +392,331 @@ class RegistryPanel:
             return
         self.difr_readback = observation
         dpg.set_value("reg_difr_readback", self._format_difr(observation))
+
+    @staticmethod
+    def _rel_live_key(snapshot, row):
+        identity = snapshot["identity"]
+        return (tuple(sorted(identity.items())), snapshot["image_sha256"], row["rail"], row["equation"])
+
+    @staticmethod
+    def _rel_mv(value):
+        return format(Decimal(value) / 1000, "f")
+
+    @staticmethod
+    def _parse_live_mv(text):
+        amount = Decimal(text.strip()) * 1000
+        if not amount.is_finite() or amount != amount.to_integral_value():
+            raise ValueError("not a whole microvolt")
+        return int(amount)
+
+    @staticmethod
+    def _constants_live_key(snapshot, row):
+        return (tuple(sorted(snapshot["identity"].items())), snapshot["image_sha256"],
+                row["rail"], row["role"], row["equation"])
+
+    @staticmethod
+    def _constants_live_role(role):
+        return {"ALT": "ALT addend", "OV": "OV constant", "VMIN": "VMIN constant"}.get(role, role)
+
+    def _constants_live_failed(self, message):
+        self.constants_live_snapshot = None
+        self.constants_live_choices = {}
+        self.constants_live_stale = False
+        for tag in ("reg_constants_live_select", "reg_constants_live_value", "reg_constants_live_apply",
+                    "reg_constants_live_restore"):
+            dpg.configure_item(tag, enabled=False)
+        dpg.set_value("reg_constants_live_status", message)
+        dpg.set_value("reg_constants_live_inventory", "")
+        self.app.log(message, False)
+
+    def _show_constants_live(self, snapshot, prefix=""):
+        self.constants_live_snapshot = snapshot
+        self.constants_live_stale = False
+        self.constants_live_choices = {}
+        lines = []
+        for row in snapshot["rows"]:
+            role = self._constants_live_role(row["role"])
+            label = f"{row['label']} (rail {row['rail']}) {role}"
+            if row["status"] == "ready":
+                self.constants_live_choices[label] = row
+                self.app._constants_live_initial_states.setdefault(self._constants_live_key(snapshot, row), row["value_uv"])
+                reported = row.get("reported_uv")
+                reported_text = f"{self._rel_mv(reported)} mV" if reported is not None else "unavailable"
+                detail = (f"{label}: current {self._rel_mv(row['value_uv'])} mV; "
+                          f"stored {self._rel_mv(row['stored_value_uv'])} mV; "
+                          f"reported {row['role']} {reported_text}")
+                if row["role"] == "VMIN" and row.get("maximum_uv") is not None:
+                    detail += f"; current maximum VMIN input {self._rel_mv(row['maximum_uv'])} mV"
+                lines.append(detail)
+            else:
+                lines.append(f"{label}: {row['status']}; " + "; ".join(row.get("issues", [])))
+        unavailable = snapshot.get("unavailable_peers", [])
+        if unavailable:
+            lines.append("Optional readbacks unavailable: " + ", ".join(unavailable) + ".")
+        inventory = "\n".join(lines) or "No values returned."
+        dpg.set_value("reg_constants_live_inventory", inventory)
+        if not self.constants_live_choices:
+            self._constants_live_failed(prefix + "No supported live values are available.")
+            dpg.set_value("reg_constants_live_inventory", inventory)
+            return
+        previous = dpg.get_value("reg_constants_live_select")
+        selected = previous if previous in self.constants_live_choices else next(iter(self.constants_live_choices))
+        dpg.configure_item("reg_constants_live_select", items=list(self.constants_live_choices), enabled=True)
+        dpg.set_value("reg_constants_live_select", selected)
+        self.select_constants_live()
+        if prefix:
+            dpg.set_value("reg_constants_live_status", prefix + dpg.get_value("reg_constants_live_status"))
+
+    def select_constants_live(self, *unused):
+        row = self.constants_live_choices.get(dpg.get_value("reg_constants_live_select"))
+        if row is None or self.constants_live_snapshot is None:
+            self._constants_live_failed("Read live values for the selected adapter first.")
+            return
+        dpg.set_value("reg_constants_live_value", self._rel_mv(row["value_uv"]))
+        dpg.configure_item("reg_constants_live_value", enabled=True)
+        dpg.configure_item("reg_constants_live_apply", enabled=True)
+        initial = self.app._constants_live_initial_states[self._constants_live_key(self.constants_live_snapshot, row)]
+        dpg.configure_item("reg_constants_live_restore", enabled=row["value_uv"] != initial)
+        role = self._constants_live_role(row["role"])
+        dpg.set_value("reg_constants_live_status", ("Previous read is stale. " if self.constants_live_stale else "")
+                      + f"{row['label']} {role}: {self._rel_mv(row['value_uv'])} mV.")
+
+    def refresh_constants_live(self, *unused):
+        from .voltage_constants_live import VoltageConstantsController
+
+        same = (self.constants_live_control is not None and self.constants_live_control.gpu is self.app.gpu
+                and self.constants_live_snapshot is not None
+                and self.constants_live_snapshot["identity"]["slot"] == self.app.gpu.slot())
+        try:
+            if self.constants_live_control is None or self.constants_live_control.gpu is not self.app.gpu:
+                self.constants_live_snapshot = None
+                self.constants_live_control = VoltageConstantsController(self.app.gpu)
+            self._show_constants_live(self.constants_live_control.read())
+        except Exception as exc:
+            message = "Live value read unavailable: " + str(exc)
+            if same and getattr(exc, "kind", None) == "transient":
+                self.constants_live_stale = True
+                dpg.set_value("reg_constants_live_status", message + " Previous read is stale; refresh to verify.")
+                self.app.log(message, False)
+            else:
+                self._constants_live_failed(message)
+
+    def _voltage_undo_callback(self, kind, selection=None):
+        def save(snapshot):
+            state = profiles.capture_voltage_controls(self.app.gpu, kind, snapshot=snapshot, selection=selection)
+            name, _, missing = profiles.autosave_state(f"voltage-{kind}", state)
+            if missing:
+                raise ValueError("could not capture a complete voltage-control undo point")
+            self.app.log(f"Undo point saved as '{name}'", None)
+        return save
+
+    def _set_constants_live(self, value):
+        if not self.app.guard():
+            return
+        row = self.constants_live_choices.get(dpg.get_value("reg_constants_live_select"))
+        if (self.constants_live_control is None or self.constants_live_control.gpu is not self.app.gpu
+                or self.constants_live_snapshot is None or row is None
+                or self.constants_live_snapshot["identity"]["slot"] != self.app.gpu.slot()):
+            self._constants_live_failed("Read live values for the selected adapter first.")
+            return
+        try:
+            self._show_constants_live(self.constants_live_control.set(
+                row["rail"], row["role"], value,
+                before_write=self._voltage_undo_callback("constants", (row["rail"], row["role"])),
+            ), "Applied live. ")
+            self.app.log("Live voltage value applied.", True)
+        except Exception as exc:
+            message = "Live value change failed: " + str(exc)
+            rollback = getattr(exc, "rollback", None)
+            if not getattr(exc, "attempted", False):
+                if getattr(exc, "kind", None) == "identity":
+                    self._constants_live_failed(message)
+                else:
+                    dpg.set_value("reg_constants_live_status", message)
+                    self.app.log(message, False)
+            elif isinstance(rollback, dict) and rollback.get("verified") and rollback.get("readback"):
+                self._show_constants_live(rollback["readback"], message + " Original value restored. ")
+                self.app.log(message, False)
+            else:
+                self._constants_live_failed(message + " Recovery required; read and verify the current state.")
+
+    def apply_constants_live(self, *unused):
+        try:
+            value = self._parse_live_mv(dpg.get_value("reg_constants_live_value"))
+        except (AttributeError, TypeError, ValueError, InvalidOperation):
+            dpg.set_value("reg_constants_live_status", "Enter a finite mV value with whole-microvolt precision.")
+            return
+        self._set_constants_live(value)
+
+    def restore_constants_live(self, *unused):
+        row = self.constants_live_choices.get(dpg.get_value("reg_constants_live_select"))
+        if row is not None and self.constants_live_snapshot is not None:
+            value = self.app._constants_live_initial_states.get(self._constants_live_key(self.constants_live_snapshot, row))
+            if value is not None:
+                self._set_constants_live(value)
+
+    def _rel_live_failed(self, message):
+        self.rel_live_snapshot = None
+        self.rel_live_choices = {}
+        self.rel_live_stale = False
+        for tag in ("reg_rel_live_select", "reg_rel_live_value", "reg_rel_live_apply", "reg_rel_live_restore",
+                    "reg_rel_live_fixed", "reg_rel_live_restore_bounds"):
+            dpg.configure_item(tag, enabled=False)
+        dpg.set_value("reg_rel_live_status", message)
+        dpg.set_value("reg_rel_live_inventory", "")
+        self.app.log(message, False)
+
+    def _show_rel_live(self, snapshot, prefix=""):
+        self.rel_live_snapshot = snapshot
+        self.rel_live_stale = False
+        self.rel_live_choices = {}
+        lines = []
+        for row in snapshot["rows"]:
+            label = f"{row['label']} (rail {row['rail']})"
+            if row["status"] == "ready":
+                self.rel_live_choices[label] = row
+                self.app._rel_live_initial_states.setdefault(self._rel_live_key(snapshot, row), row["upper_uv"])
+                policy = row.get("policy_uv") or {}
+                parts = [
+                    f"{name}: {self._rel_mv(policy[name])} mV"
+                    if policy.get(name) is not None
+                    else f"{name}: unavailable"
+                    for name in ("reliability", "alt_reliability", "effective")
+                ]
+                lines.append(
+                    f"{label}: loaded bounds {self._rel_mv(row['lower_uv'])} to {self._rel_mv(row['upper_uv'])} mV; "
+                    f"stored bounds {self._rel_mv(row['stored_lower_uv'])} to "
+                    f"{self._rel_mv(row['stored_upper_uv'])} mV; " + ", ".join(parts)
+                )
+                if row.get("fixed_status") != "ready":
+                    lines.append("  Fixed bounds unavailable: " + "; ".join(row.get("fixed_issues", [])))
+            else:
+                lines.append(f"{label}: {row['status']}; " + "; ".join(row.get("issues", [])))
+        unavailable = snapshot.get("unavailable_peers", [])
+        if unavailable:
+            lines.append("Optional readbacks unavailable: " + ", ".join(unavailable) + ".")
+        dpg.set_value("reg_rel_live_inventory", "\n".join(lines) or "No rails returned.")
+        if not self.rel_live_choices:
+            self._rel_live_failed(prefix + "No supported live bounds are available.")
+            dpg.set_value("reg_rel_live_inventory", "\n".join(lines) or "No rails returned.")
+            return
+        previous = dpg.get_value("reg_rel_live_select")
+        selected = previous if previous in self.rel_live_choices else next(iter(self.rel_live_choices))
+        dpg.configure_item("reg_rel_live_select", items=list(self.rel_live_choices), enabled=True)
+        dpg.set_value("reg_rel_live_select", selected)
+        self.select_rel_live()
+        if prefix:
+            dpg.set_value("reg_rel_live_status", prefix + dpg.get_value("reg_rel_live_status"))
+
+    def select_rel_live(self, *unused):
+        row = self.rel_live_choices.get(dpg.get_value("reg_rel_live_select"))
+        if row is None or self.rel_live_snapshot is None:
+            self._rel_live_failed("Read live bounds for the selected adapter first.")
+            return
+        dpg.set_value("reg_rel_live_value", self._rel_mv(row["upper_uv"]))
+        dpg.configure_item("reg_rel_live_value", enabled=True)
+        dpg.configure_item("reg_rel_live_apply", enabled=True)
+        dpg.configure_item("reg_rel_live_fixed", enabled=row.get("fixed_status") == "ready")
+        dpg.configure_item(
+            "reg_rel_live_restore_bounds",
+            enabled=row.get("fixed_status") == "ready" and
+            (row["lower_uv"], row["upper_uv"]) != (row["stored_lower_uv"], row["stored_upper_uv"]),
+        )
+        initial = self.app._rel_live_initial_states[self._rel_live_key(self.rel_live_snapshot, row)]
+        dpg.configure_item("reg_rel_live_restore", enabled=row["upper_uv"] != initial)
+        dpg.set_value(
+            "reg_rel_live_status",
+            ("Previous read is stale. " if self.rel_live_stale else "")
+            + f"{row['label']}: loaded bounds {self._rel_mv(row['lower_uv'])} "
+            + f"to {self._rel_mv(row['upper_uv'])} mV.",
+        )
+
+    def refresh_rel_live(self, *unused):
+        from .voltage_rel_live import VoltageRelController
+
+        same = (
+            self.rel_live_control is not None
+            and self.rel_live_control.gpu is self.app.gpu
+            and self.rel_live_snapshot is not None
+            and self.rel_live_snapshot["identity"]["slot"] == self.app.gpu.slot()
+        )
+        try:
+            if self.rel_live_control is None or self.rel_live_control.gpu is not self.app.gpu:
+                self.rel_live_snapshot = None
+                self.rel_live_control = VoltageRelController(self.app.gpu)
+            self._show_rel_live(self.rel_live_control.read())
+        except Exception as exc:
+            message = "Live bound read unavailable: " + str(exc)
+            if same and getattr(exc, "kind", None) == "transient":
+                self.rel_live_stale = True
+                dpg.set_value("reg_rel_live_status", message + " Previous read is stale; refresh to verify.")
+                self.app.log(message, False)
+            else:
+                self._rel_live_failed(message)
+
+    def _set_rel_live(self, value, *, operation="upper"):
+        if not self.app.guard():
+            return
+        row = self.rel_live_choices.get(dpg.get_value("reg_rel_live_select"))
+        if (
+            self.rel_live_control is None
+            or self.rel_live_control.gpu is not self.app.gpu
+            or self.rel_live_snapshot is None
+            or row is None
+            or self.rel_live_snapshot["identity"]["slot"] != self.app.gpu.slot()
+        ):
+            self._rel_live_failed("Read live bounds for the selected adapter first.")
+            return
+        try:
+            if operation == "fixed":
+                snapshot = self.rel_live_control.set_fixed(
+                    row["rail"], value, before_write=self._voltage_undo_callback("rel_bounds", (row["rail"], "bounds")))
+            elif operation == "restore_bounds":
+                snapshot = self.rel_live_control.restore_bounds(
+                    row["rail"], before_write=self._voltage_undo_callback("rel_bounds", (row["rail"], "bounds")))
+            else:
+                snapshot = self.rel_live_control.set(
+                    row["rail"], value, before_write=self._voltage_undo_callback("rel_bounds", (row["rail"], "upper")))
+            self._show_rel_live(snapshot, "Applied live. ")
+            self.app.log("Live REL equation bounds applied.", True)
+        except Exception as exc:
+            message = "Live bound change failed: " + str(exc)
+            rollback = getattr(exc, "rollback", None)
+            if not getattr(exc, "attempted", False):
+                if getattr(exc, "kind", None) == "identity":
+                    self._rel_live_failed(message)
+                else:
+                    dpg.set_value("reg_rel_live_status", message)
+                    self.app.log(message, False)
+            elif isinstance(rollback, dict) and rollback.get("verified") and rollback.get("readback"):
+                self._show_rel_live(rollback["readback"], message + " Original bounds restored. ")
+                self.app.log(message, False)
+            else:
+                self._rel_live_failed(message + " Recovery required; read and verify the current state.")
+
+    def apply_rel_live(self, *unused):
+        self._apply_rel_live_value("upper")
+
+    def fix_rel_live(self, *unused):
+        self._apply_rel_live_value("fixed")
+
+    def _apply_rel_live_value(self, operation):
+        try:
+            value = self._parse_live_mv(dpg.get_value("reg_rel_live_value"))
+        except (AttributeError, TypeError, ValueError, InvalidOperation):
+            dpg.set_value("reg_rel_live_status", "Enter a finite mV value with whole-microvolt precision.")
+            return
+        self._set_rel_live(value, operation=operation)
+
+    def restore_rel_live_bounds(self, *unused):
+        self._set_rel_live(None, operation="restore_bounds")
+
+    def restore_rel_live(self, *unused):
+        row = self.rel_live_choices.get(dpg.get_value("reg_rel_live_select"))
+        if row is not None and self.rel_live_snapshot is not None:
+            value = self.app._rel_live_initial_states.get(self._rel_live_key(self.rel_live_snapshot, row))
+            if value is not None:
+                self._set_rel_live(value)
 
     @staticmethod
     def _voltage_device_key(snapshot, row):
@@ -333,6 +812,7 @@ class RegistryPanel:
                 value,
                 voltage_domain=row["voltage_domain"],
                 operation_type=row["operation_type"],
+                before_write=self._voltage_undo_callback("switch_delay", row["index"]),
             )
             self._show_voltage_devices(snapshot, "Applied live. ")
             self.app.log(f"Applied device {row['index']} switch-delay request: {value} us.", True)
@@ -416,7 +896,15 @@ class RegistryPanel:
             self._clock_vf_live_failed("Read the selected adapter's VF policies before changing them.")
             return
         try:
-            snapshot = self.clock_vf_control.set(changes)
+            def save_undo(before):
+                selected = [key for key, member, _ in _VF_LIVE_FIELDS
+                            if key in changes and changes[key] != before[member]]
+                state = profiles.capture_clock_vf(self.app.gpu, snapshot=before, selection=selected)
+                name, _, missing = profiles.autosave_state("live-vf-policies", state)
+                if missing:
+                    raise ValueError("could not capture complete V/F policy undo state")
+                self.app.log(f"Undo point saved as '{name}'", None)
+            snapshot = self.clock_vf_control.set(changes, before_write=save_undo)
             self._show_clock_vf_live(snapshot, "Applied live. ")
             self.invalidate()
             self.app.log("Applied live VF policies; startup mode and registry settings retained.", True)
@@ -482,7 +970,10 @@ class RegistryPanel:
             self._voltage_gate_failed("Read the selected adapter's gate before changing it.")
             return
         try:
-            result = self.voltage_gate.set_enabled(value, expected=self.voltage_gate_snapshot["enabled"])
+            result = self.voltage_gate.set_enabled(
+                value, expected=self.voltage_gate_snapshot["enabled"],
+                before_write=self._voltage_undo_callback("gate"),
+            )
             self._show_voltage_gate(result["readback"], "Applied and verified without a GPU restart. ")
             self.app.log("Voltage-request gate applied and verified.", True)
         except Exception as exc:
@@ -494,6 +985,90 @@ class RegistryPanel:
     def restore_voltage_gate(self, *unused):
         if self.voltage_gate_initial is not None:
             self._set_voltage_gate(self.voltage_gate_initial)
+
+    def refresh_relationships(self, *unused):
+        target = (id(self.app.gpu), self.app.gpu.slot())
+        if self.relationships_target != target:
+            self.relationships = None
+            self.relationships_target = target
+        try:
+            report, error = self.app.gpu.read_power_relationships()
+        except Exception as exc:
+            report, error = None, str(exc)
+        lines = []
+        if report is not None and report.get("available") and not error:
+            self.relationships = report
+        else:
+            reason = error or (report or {}).get("reason") or "No decoded result"
+            lines.append("Configured relationships read unavailable: " + str(reason))
+            if self.relationships is not None:
+                lines.append("Previous successful read follows; these values are historical.")
+            report = self.relationships
+        if report is not None:
+            lines.extend(self.relationship_lines(report))
+        dpg.set_value("reg_relationships", "\n".join(lines))
+
+    @staticmethod
+    def relationship_lines(report):
+        def amount(value, unit):
+            if value == 0xFFFFFFFF:
+                return "unavailable (sentinel)"
+            if unit in ("mW", "mA"):
+                return f"{value / 1000:g} " + ("W" if unit == "mW" else "A")
+            return f"{value} {unit}"
+
+        lines = ["Configured relationships for adapter " + str(report.get("identity", {}).get("slot", "unknown"))]
+        for source in report.get("source_references", []):
+            policy = source["policy"]
+            if not source.get("available"):
+                lines.append(f"Source policy {policy}: unavailable ({source.get('reason') or 'unknown reason'})")
+            elif not source.get("enabled"):
+                lines.append(f"Source policy {policy}: configured relationship range disabled")
+            else:
+                indices = ", ".join(str(index) for index in source.get("relationships", [])) or "none"
+                lines.append(f"Source policy {policy} -> configured relationships: {indices}")
+        for source in report.get("linked_references", []):
+            policy, relationship = source["policy"], source["relationship"]
+            if source.get("available"):
+                lines.append(f"Source policy {policy} -> configured relationship {relationship} "
+                             f"-> target policy {source['target']}")
+            else:
+                lines.append(f"Source policy {policy} -> configured relationship {relationship}: unavailable "
+                             f"({source.get('reason') or 'unknown reason'})")
+        for source in report.get("range_references", []):
+            policy, first, last = source["policy"], source["first"], source["last"]
+            label = f"Source policy {policy} -> configured relationship range {first}..{last}"
+            if not source.get("available"):
+                lines.append(f"{label}: unavailable ({source.get('reason') or 'unknown reason'})")
+            elif not source["relationships"]:
+                lines.append(f"{label}: empty")
+            else:
+                indices = ", ".join(str(index) for index in source["relationships"])
+                lines.append(f"{label}: {indices}")
+        uninterpreted = report.get("source_uninterpreted_policies", [])
+        if uninterpreted:
+            lines.append("Source mapping uninterpreted for policy types at indices: "
+                         + ", ".join(str(index) for index in uninterpreted))
+        for row in report.get("relationships", []):
+            lines.append(f"Relationship {row['index']} -> target policy {row['target']} (type {row['type']})")
+            weight = row.get("weight_raw")
+            if row["type"] == 0 and type(weight) is int:
+                value = f"{weight / 4096:.12f}".rstrip("0").rstrip(".")
+                lines.append(f"  Weight: {value} (raw {weight})")
+            else:
+                lines.append("  Relationship type is uninterpreted.")
+            metadata = row.get("target_metadata")
+            if metadata is None:
+                lines.append("  Target details unavailable: " + str(row.get("target_reason") or "unknown reason"))
+                continue
+            unit = metadata.get("unit", "raw")
+            lines.append(f"  Target policy type {metadata['type']}, channel {metadata['channel']}: "
+                         f"minimum {amount(metadata['minimum'], unit)}; "
+                         f"nominal {amount(metadata['default'], unit)}; "
+                         f"maximum {amount(metadata['maximum'], unit)}")
+        if not report.get("relationships"):
+            lines.append("No configured relationships.")
+        return lines
 
     def refresh_arbitration(self, *unused):
         target = (id(self.app.gpu), self.app.gpu.slot())
@@ -608,7 +1183,13 @@ class RegistryPanel:
 
     def recover(self):
         try:
-            self.active = overrides.recovery_receipt(self.app.gpu.slot())
+            slot = self.app.gpu.slot()
+            result = getattr(self.app, "_recovery_result", None)
+            show = (isinstance(result, dict) and isinstance(result.get("slot"), str)
+                    and result["slot"].casefold() == slot.casefold() and isinstance(result.get("message"), str))
+            dpg.configure_item("reg_last_recovery", show=show)
+            dpg.set_value("reg_last_recovery", "Last device recovery (historical): " + result["message"] if show else "")
+            self.active = overrides.recovery_receipt(slot)
             dpg.configure_item("reg_restore_button", enabled=self.active is not None)
             if self.active:
                 self.status("Saved override transaction: " + self.active["state"])
@@ -626,6 +1207,12 @@ class RegistryPanel:
         unit = field["units"]
         factor = 1000 if unit in ("mW", "mA", "uV", "kHz") else 1
         return factor, {"mW": "W", "mA": "A", "uV": "mV", "kHz": "MHz"}.get(unit, unit)
+
+    @staticmethod
+    def format_field_value(field, value):
+        if field["key"].startswith("power_relationship."):
+            return f"{value:.12f}".rstrip("0").rstrip(".")
+        return f"{value:g}"
 
     def invalidate(self, *unused):
         self.preview = None
@@ -681,6 +1268,16 @@ class RegistryPanel:
         try:
             image = overrides.read_vbios(self.app.gpu)
             inspection = vbios_fields.inspect(image)
+            from . import power_weight_runtime
+            try:
+                inspection, weight_error = power_weight_runtime.annotate_fields(self.app.gpu, inspection)
+                if weight_error:
+                    errors.append("Power relationship weights: " + str(weight_error))
+            except Exception as exc:
+                for field in inspection.get("fields", []):
+                    if power_weight_runtime.KEY.fullmatch(field["key"]):
+                        field.update(capability="read-only", reason="Runtime qualification unavailable: " + str(exc))
+                errors.append("Power relationship weights: " + str(exc))
             self.inspection = inspection
             self.fields = {
                 key: field
@@ -726,6 +1323,7 @@ class RegistryPanel:
                     "This changes a software model input; hardware fuses remain unchanged."
                     + (
                         " IDDQ uses raw model integers; physical units are unresolved."
+                        " Changing an IDDQ input may also change calculated voltage limits on linked rails."
                         if name in overrides.model_registry.IDDQ_NAMES
                         else ""
                     ),
@@ -846,7 +1444,7 @@ class RegistryPanel:
         for field in self.fields.values():
             if field["key"].startswith("lpwr.difr."):
                 field["detail"] = (
-                    "Disable this captured enabled DIFR entry in a separate registry transaction. "
+                    "Disable a captured enabled DIFR entry or its selected subfeatures in a separate registry transaction. "
                     "Apply and Restore check the loaded P-state routing, configured controller support and state masks. "
                     "An unsupported controller has an unavailable mask, not a zero mask. "
                     "Physical residency and power savings are unmeasured."
@@ -854,10 +1452,17 @@ class RegistryPanel:
             elif field["key"].startswith("lpwr.gr_pg."):
                 field["detail"] = (
                     "Disable a captured enabled GR power-gating entry in a separate transaction. "
-                    "Apply and Restore verify configured P-state eligibility and preserve the other low-power controllers. "
+                    "Apply and Restore verify configured P-state eligibility and the predicted low-power controller changes. "
                     "A qualified removal of the last shared auxiliary contributor also verifies its available readbacks. "
-                    "Removing the last enabled entry or other shared contributors needs further validation. "
+                    "Preview admits understood dependency transitions and verifies the predicted related readbacks. "
                     "Physical residency and power savings are unmeasured."
+                )
+            elif field["key"].startswith("power_relationship."):
+                field["detail"] = (
+                    "Persistent BIOS registry override; apply refreshes the GPU driver. "
+                    "Weights use steps of 1/4096 (0.000244140625); 1 is nominal. "
+                    "The configured relationship weight is verified in loaded driver INFO. "
+                    "This does not establish an active vote or physical enforcement."
                 )
             groups[field["group"]].append(field)
         with dpg.group(parent="reg_fields"):
@@ -905,12 +1510,16 @@ class RegistryPanel:
                                     default_value=field["current"] / factor,
                                     width=self.app.s(135),
                                     step=0,
-                                    format="%.4f",
+                                    format="%.12f" if field["key"].startswith("power_relationship.") else "%.4f",
                                     callback=self.invalidate,
                                 )
                             else:
                                 dpg.add_text(
-                                    "unavailable" if field["current"] is None else str(field["current"] / factor)
+                                    "unavailable" if field["current"] is None else
+                                    str(bool(field["current"])) if unit == "bool" else
+                                    self.format_field_value(field, field["current"] / factor)
+                                    if field["key"].startswith("power_relationship.") else str(field["current"] / factor),
+                                    tag=tag,
                                 )
                             dpg.add_text(f"{field['label']} ({unit})")
                         if writable:
@@ -920,8 +1529,10 @@ class RegistryPanel:
                                     (
                                         "Select an explicit startup setting.\n"
                                         if field.get("choices")
-                                        else f"Stored: {field['current'] / factor:g} {unit}\n"
+                                        else f"Stored: {self.format_field_value(field, field['current'] / factor)} {unit}\n"
                                     )
+                                    + (f"Raw Q4.12: {field['raw']} / 4096\n"
+                                       if field["key"].startswith("power_relationship.") else "")
                                     + "Driver and hardware behavior may impose additional limits.",
                                     wrap=self.app.s(420),
                                 )
@@ -1018,15 +1629,118 @@ class RegistryPanel:
                 old, new = ("enabled" if state else "disabled" for state in (field["current"], value))
                 lines.append(f"{field['label']}: {old} -> {new}")
             else:
-                lines.append(f"{field['label']}: {field['current'] / factor:g} -> {value / factor:g} {unit}")
+                old = self.format_field_value(field, field["current"] / factor)
+                new = self.format_field_value(field, value / factor)
+                lines.append(f"{field['label']}: {old} -> {new} {unit}")
         if any(value is False for value in clock_vf_changes.values()):
             lines.append("Disabling either VF check also changes a derived VF processing mode.")
+        if receipt.get("power_weight_contracts"):
+            lines.append("Relationship weights: the selected multiplier and retained INFO data are checked after "
+                         "driver refresh; Restore verifies the previous configuration. This does not measure enforcement.")
         if receipt.get("lpwr_contracts"):
+            contract = receipt["lpwr_contracts"]
+
+            def difr_states(row):
+                if not row["supported"]:
+                    return "unavailable"
+                mask = row["configured_pstate_mask"]
+                return "/".join(f"P{i}" for i in range(32) if mask >> i & 1) or "none"
+
+            def feature_text(values, controller):
+                return f"0x{values[controller]:X}" if controller in values else "unavailable"
+
+            outcomes = contract.get("after_alternatives") or [
+                {"controllers": contract["after"], "features": contract.get("after_features")}
+            ]
+            if len(outcomes) > 1:
+                lines.append("Driver dependencies allow either of these complete configured outcomes:")
+            for number, outcome in enumerate(outcomes, 1):
+                if len(outcomes) > 1:
+                    lines.append(f"Possible outcome {number}:")
+                for key, label in _DIFR_LABELS.items():
+                    before = contract["before"]["controllers"][key]
+                    after = outcome["controllers"][key]
+                    support = "retained" if after["supported"] else "removed" if before["supported"] else "unavailable"
+                    lines.append(
+                        f"{label}: configured P-states {difr_states(before)} -> {difr_states(after)}; support {support}."
+                    )
+                    if outcome["features"] is not None:
+                        old = feature_text(contract["before"]["features"], key)
+                        new = feature_text(outcome["features"], key)
+                        lines.append(f"  {label} configured features: {old} -> {new}.")
             lines.append(
                 "DIFR: loaded P-state routing and configured DFPR/MS DIFR support and masks must match after GPU restart. "
                 "Unsupported controllers have unavailable state masks. Restore verifies the original configuration. "
                 "This checks configuration; physical residency and power savings remain unmeasured."
             )
+        if receipt.get("ms_contracts"):
+            contract = receipt["ms_contracts"]
+            before_state = contract["before"]["core"] if contract.get("schema") == 4 else contract["before"]
+            before = before_state["controllers"]["4"]["configured_pstate_mask"]
+            after = contract["after"]["controllers"]["4"]
+
+            def ms_states(mask):
+                return "/".join(f"P{i}" for i in range(32) if mask >> i & 1) or "none"
+
+            state = ms_states(after["configured_pstate_mask"]) if after["supported"] else "unavailable"
+            support = "retained" if after["supported"] else "removed"
+            lines.append(
+                f"Memory clock gating: configured P-states {ms_states(before)} -> {state}; support {support}. "
+                "Related low-power support and eligibility must also match after the GPU restart. "
+                "Undo verifies the original configuration. Physical residency and power savings remain unmeasured."
+            )
+            if contract.get("schema") == 2:
+                lines.append(
+                    "The shared MS support query remains readable and reports false. "
+                    "Available MS features are reduced; related DIFR support remains."
+                )
+            elif contract.get("schema") == 4:
+                lines.append(
+                    "Available MS features are reduced while the remaining mapped capability stays supported. "
+                    "Its mapping, related support and all captured peers must match the preview."
+                )
+        if receipt.get("nvdec_contracts"):
+            contract = receipt["nvdec_contracts"]
+            before = contract["before"]["controllers"]["12"]["configured_pstate_mask"]
+            after = contract["after"]["controllers"]["12"]
+
+            def nvdec_states(mask):
+                return "/".join(f"P{i}" for i in range(32) if mask >> i & 1) or "none"
+
+            state = nvdec_states(after["configured_pstate_mask"]) if after["supported"] else "unavailable"
+            support = "retained" if after["supported"] else "removed"
+            lines.append(
+                f"NVDEC low power: configured P-states {nvdec_states(before)} -> {state}; support {support}. "
+                "Related low-power support and eligibility must also match after the GPU restart. "
+                "Undo verifies the original configuration. Physical residency and power savings remain unmeasured."
+            )
+            if _type4_queries_become_unavailable(contract):
+                lines.append(
+                    "All support queries for this auxiliary group become unavailable; the selected controller's "
+                    "unsupported reply and the other captured readbacks must match the preview."
+                )
+        if receipt.get("media_contracts"):
+            contract = receipt["media_contracts"]
+            family = contract["family"]
+            controller = str({"nvenc": 13, "ofa": 14, "nvjpg": 15}[family])
+            before = contract["before"]["controllers"][controller]["configured_pstate_mask"]
+            after = contract["after"]["controllers"][controller]
+
+            def media_states(mask):
+                return "/".join(f"P{i}" for i in range(32) if mask >> i & 1) or "none"
+
+            state = media_states(after["configured_pstate_mask"]) if after["supported"] else "unavailable"
+            support = "retained" if after["supported"] else "removed"
+            lines.append(
+                f"{family.upper()} low power: configured P-states {media_states(before)} -> {state}; support {support}. "
+                "Related low-power support and eligibility must also match after the GPU restart. "
+                "Undo verifies the original configuration. Physical residency and power savings remain unmeasured."
+            )
+            if _type4_queries_become_unavailable(contract):
+                lines.append(
+                    "All support queries for this auxiliary group become unavailable; the selected controller's "
+                    "unsupported reply and the other captured readbacks must match the preview."
+                )
         if receipt.get("grpg_contracts"):
             contract = receipt["grpg_contracts"]
             before = contract["before"]["controllers"]["0"]["configured_pstate_mask"]
@@ -1034,7 +1748,7 @@ class RegistryPanel:
             def states(mask):
                 return "/".join(f"P{i}" for i in range(32) if mask >> i & 1) or "none"
 
-            if contract.get("schema") == 5:
+            if contract.get("schema") in (5, 10):
                 cleared = {index for profile in contract["after_profiles"] for index in profile["cleared"]}
                 optional = []
                 if 2 in cleared:
@@ -1052,9 +1766,66 @@ class RegistryPanel:
                     "The readback must match an accepted support and configuration profile. "
                     "Restore verifies the original configuration."
                 )
+                if contract.get("schema") == 10:
+                    profiles = contract["after_profiles"]
+                    support_absent = [all(not row["available"] for row in p["bit1"]["roles"].values()) for p in profiles]
+                    group_absent = [not p["main"]["bit4_group"]["1:0"]["available"] for p in profiles]
+                    if any(support_absent):
+                        lines.append(
+                            "All support queries for one auxiliary group become unavailable."
+                            if all(support_absent) else
+                            "Depending on the accepted profile, all support queries for one auxiliary group may become unavailable."
+                        )
+                    if any(group_absent):
+                        lines.append(
+                            "The final shared capability group becomes unavailable."
+                            if all(group_absent) else
+                            "Depending on the accepted profile, the final shared capability group may become unavailable."
+                        )
+                    lines.append(
+                        "The related auxiliary support, configured masks, features and all captured peers must match "
+                        "one complete previewed profile. Physical residency and power savings remain unmeasured."
+                    )
             else:
-                after = contract["after"]["0"]["configured_pstate_mask"]
-            if contract.get("schema") == 2:
+                after_controllers = contract["after"]["controllers"] if contract.get("schema") in (6, 7, 8, 9) else contract["after"]
+                after = after_controllers["0"]["configured_pstate_mask"]
+            support_queries_unavailable = (
+                contract.get("schema") in (7, 8, 9)
+                and all(not item["available"] for item in contract["after"]["bit1"]["roles"].values())
+            )
+            group_removed = (
+                contract.get("schema") in (6, 7)
+                and not contract["after"]["main"]["bit4_group"]["1:0"]["available"]
+            )
+            if contract.get("schema") in (8, 9):
+                shared = (
+                    "The selected auxiliary support queries all become unavailable; the main controller remains "
+                    "supported and provides a separate configured-mask and feature readback. "
+                    if support_queries_unavailable else
+                    "The selected auxiliary role's support query becomes unavailable while another supported role "
+                    "remains readable. "
+                )
+                shared += "Related support, configured masks, features and all captured peers must match the preview. "
+            elif group_removed:
+                shared = (
+                    "The last contributor to a shared capability group will be removed. "
+                    "All readbacks for that group become unavailable; the main controller remains supported "
+                    "and provides a separate configuration readback. Other selected shared-capability changes "
+                    "and all untouched peers must also match the preview. "
+                )
+            elif contract.get("schema") == 7:
+                shared = (
+                    "The last contributors to multiple shared auxiliary capabilities will be removed. "
+                    "Their support, configured masks and controller features must match the preview; "
+                    "the main controller remains supported. "
+                )
+            elif contract.get("schema") == 6:
+                shared = (
+                    "The last contributor to a shared auxiliary capability will be removed; "
+                    "its support, configured P-state mask and controller feature must clear while "
+                    "the main controller remains supported and another auxiliary role remains available. "
+                )
+            elif contract.get("schema") == 2:
                 shared = (
                     "The last contributor to one shared auxiliary role will be removed. "
                     "Its support, configured P-state mask and controller feature must match the preview; "
@@ -1073,9 +1844,14 @@ class RegistryPanel:
                     "The other role's support query must become unavailable while another supported role remains readable. "
                     "Both checks must pass; the other auxiliary roles remain unchanged. "
                 )
-            elif contract.get("schema") != 5:
+            elif contract.get("schema") not in (5, 10):
                 shared = "Shared capability flags are retained. "
-            if contract.get("schema") != 5:
+            if contract.get("schema") == 7 and support_queries_unavailable:
+                shared += (
+                    "All support queries for the selected auxiliary group also become unavailable; "
+                    "the other captured groups and peers must match the preview. "
+                )
+            if contract.get("schema") not in (5, 10):
                 lines.append(
                     f"GR power gating: configured P-state eligibility {states(before)} -> {states(after)}. "
                     "Loaded routing, controller support and the other low-power controller masks must stay unchanged. "
@@ -1091,9 +1867,10 @@ class RegistryPanel:
             )
         if receipt.get("linked_current_contracts"):
             lines.append(
-                "The linked-current cache and firmware-reported value must match after GPU restart. "
-                "Other loaded power definitions and requests must stay exact. A lower firmware vote can still "
-                "determine the effective current limit. Undo verifies the original settings. "
+                "The cached base current and its firmware readback must match after GPU restart. "
+                "Other loaded power definitions and requests must stay exact. Relationship weights and "
+                "lower firmware votes can make the target's effective limit differ from this base current. "
+                "Undo verifies the original settings. "
                 "This checks configuration and reported limits; physical enforcement is unmeasured."
             )
         if receipt.get("voltage_contracts"):
@@ -1128,7 +1905,8 @@ class RegistryPanel:
             lines.append(
                 "Evaluated model inputs and cached overrides must match after restart. "
                 "Hardware values, peer inputs and other model configuration are preserved. "
-                "IDDQ physical units remain unresolved."
+                "IDDQ physical units remain unresolved; changing an IDDQ input may also "
+                "change calculated voltage limits on linked rails."
             )
         if receipt.get("fan_policy_contracts"):
             lines.append(
@@ -1192,7 +1970,11 @@ class RegistryPanel:
             self.status("Administrator rights are required to change GPU registry settings.", False)
             return
         try:
-            overrides.launch_helper(receipt, restore=restore)
+            trial = getattr(self.app, "_registry_ui_trial", None)
+            if trial is None:
+                overrides.launch_helper(receipt, restore=restore)
+            else:
+                overrides.launch_helper(receipt, restore=restore, ui_trial=trial)
         except Exception as exc:
             self.status("Could not start override helper: " + str(exc), False)
             return

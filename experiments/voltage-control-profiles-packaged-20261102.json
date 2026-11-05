@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "date": "2026-11-02",
+  "tests": {
+    "passed": 1587,
+    "log_sha256": "2f6833766a746be91e15ade96f2994d053694e036b1b8612ebe7812dfdf272c3"
+  },
+  "source_files_verified": 536,
+  "package_sha256": "0d3c33e5871285b9293e46d9c203fb6715501bc40c0c91def31390cd379e7789",
+  "exe_sha256": "97090e287cd9a9dd52f629e6eded52112827a634721e257f76e1eaf17a454381",
+  "zip_crc": "passed",
+  "bundled_module": "druta.voltage_control_profiles",
+  "captures_verified": 32,
+  "capture_errors": [],
+  "reviewed_frames": [
+    "live-rel-0.png",
+    "live-constants-0-vmin.png",
+    "current-request-gate.png"
+  ],
+  "note": "Post-build receipt outside bundled source snapshot. New Save buttons reviewed; exact source and executable hashes verified. Original app preserved."
+}

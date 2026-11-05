@@ -1,0 +1,419 @@
+{
+  "schema": 1,
+  "date_utc": "2026-11-02",
+  "scope": "Selected MS and DIFR subcontroller shared reason0 inhibits; no physical gating, memory power or residency claim.",
+  "hardware": {
+    "gpu": "RTX5080",
+    "driver": "617.42",
+    "slot": "0000:01:00.0"
+  },
+  "source_audits": [
+    {
+      "record_sha256": "aa5a30ec9ea5b71be21fa5af19c1d99bc049ccb670be7ec12436ed3ba85e05e4",
+      "source": {
+        "driver_sha256": "db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b",
+        "scope": "Offline static controller4 E802 attr37 auxiliary path; no GPU operations.",
+        "findings": {
+          "join": "119be0..bf2 constructs GPU+2208 using class D1755E. 11d660..691 loads GPU+88 ChipHal owner; 11d844..868 passes GPU+2208 object and owner as r8 to 1725780, which reads owner+10 word. 17268f8..6959 sets object+179b=1 iff (ChipHal & ~31)==0x20 and low five bits in 5..9; otherwise 0.",
+          "families": "Prior pinned 2a9640 native mapping: Ampere native170 impl2/3/4/6/7 -> ordinals2b..2f; Ada native190 impl2/3/4/6/7 ->34..38; Blackwell native1b0 impl2/3/5/6/7 ->41..45; each has +179b=0. Turing native160 impl2/4/6/8/7 ->25..29 and +179b=1. Unknown impl/family not inferred.",
+          "effect": "3628a0 returns success before shared auxiliary count+39f4 or other state if object+179b=0. Therefore for the listed GA/AD/GB layouts controller4 attr37 follows same nonauxiliary shared reason0 counter route as media. For Turing auxiliary acquires increment+39f4 and release decrements, with 0/1-boundary firmware 00/16/0a and other state; matching public getter not established.",
+          "admission": "GA/AD/GB listed impls may use controller4 with current type3 support, valid reason-mask baseline, paired E802 requests and complete peer reason-mask validation, under the same exact request status and lifetime contract as shipped media. This proves request-mask behavior rather than physical MS residency; current one-device observation not a board allowlist. Turing is not qualified by this audit."
+        },
+        "references": [
+          "experiments/registry-overrides/functional-backlog-audit-terra-20261101/ampere-blcg-hal-61742.json",
+          "experiments/registry-overrides/functional-backlog-audit-terra-20261101/ada-blcg-hal-61742.json",
+          "experiments/registry-overrides/functional-backlog-audit-terra-20261101/turing-blcg-hal-61742.json",
+          "experiments/registry-overrides/functional-backlog-audit-terra-20261101/elpg-attr37-61742.json"
+        ],
+        "windows": [
+          {
+            "label": "gpu_object_creation_class",
+            "rva": "0x119be0",
+            "length": 34,
+            "bytes_hex": "4c8d8b082200004c8bc6ba5e75d100488bcbe8090e000085c00f85e70d000048ffc6",
+            "sha256": "cc26a3a19932c98ab55f8df990c2ef51bb770c68bec6781cd622406ef8415f60"
+          },
+          {
+            "label": "gpu_hal_owner_load",
+            "rva": "0x11d660",
+            "length": 63,
+            "bytes_hex": "48896c242056574155415641574883ec30488b0508c307014833c448894424288bfa488be94885c97410488bb1900000004c8bb988000000eb0533f6448bfe",
+            "sha256": "e16c9a6ccbd7ac424c91e0e7da94cf6b708cba0abb4739502ef24f354835cf94"
+          },
+          {
+            "label": "gpu_object_hal_initialization",
+            "rva": "0x11d844",
+            "length": 41,
+            "bytes_hex": "488b8d082200004885c9741d4d8bc7488bd6e8d5ac6001488b8d082200004d8bc7488bd6e8137f6001",
+            "sha256": "7535e28425082fac8f800776ab437658ce63f8ed0589c9a007ddbb10e353ca86"
+          },
+          {
+            "label": "chiphal_argument",
+            "rva": "0x1725780",
+            "length": 32,
+            "bytes_hex": "48895c2408440fb75a124c8bd1450fb74810418bc30fb75a1083e01f83e81041",
+            "sha256": "1d8214c5a5a2974a506e93b804bddb01dfe0a9c471d496403875edaac9116f73"
+          },
+          {
+            "label": "chiphal_179b_gate",
+            "rva": "0x17268f8",
+            "length": 113,
+            "bytes_hex": "418bc183e0e083f8207553418bc183e01f83e80583f80477454588829b170000eb4f418bc183e0e083f84075a7418bc183e01fffc883f806779a410fb6c0eb96418bc183e0e083f84075ac418bc183e01fffc883f806779f410fb6c0eb9b418bc141c6829b1700000083e0e083f820750f",
+            "sha256": "e380d9b9f95276169f8b0327ca9f4c902c4c63ae74d33951ea07a5cb4b04af0f"
+          },
+          {
+            "label": "auxiliary_early_guard",
+            "rva": "0x3628a0",
+            "length": 73,
+            "bytes_hex": "40535556574154415641574883ec50488b05ca70e3004833c44889442440488b995025000033ed450fb6e0488bf24c8bf14038aa9b1700000f8489000000488b82780c00004c8d4424",
+            "sha256": "c9574ee459c1d20b3c07b03398df1e60a64ea4368debadead7fac83b207d488f"
+          },
+          {
+            "label": "auxiliary_count_path",
+            "rva": "0x3628f3",
+            "length": 524,
+            "bytes_hex": "8b86f43900004584e40f845101000085c00f843001000083e8018986f43900000f85d30100008b963018000032c985d274420fb6c1807c0438007408ffc5888ef8390000fec10fb6c13bc272e583fd01764080bb76020000007419ba0000b700b9f4d4360ee833e3d7ffb9b7000000e859d7d9ff33c0488b4c24404833cce8eab298004883c450415f415e415c5f5e5d5bc385ed74de0fb6aef8390000488bce8bbe642d00008bd5e8d0c7ddff80be981700000074068bb8dc07000085ff74b44c8d4c2430c644242001448bc5488bd6498bcee8d52fdeff0fb69c35ec3900004c8d4c24300fb6c3c6442420000c02448bc5488bd6888435ec390000498bcee8a92fdefff6c3027419ba0000dc00b9f4d4360ee885e2d7ffb83f000000e954ffffff440fb6cdc686fa39000001448bc74488642420488bd6498bcee8fd0000008be8e98b000000ba0000ee00b9f4d4360ee847e2d7ffb9ee000000e90fffffff85c075684038aefa390000745f0fb6bef83900004533c0440fb6cf40886c2420488bd6498bcee8b20000004c8d4c2430c686fa39000000448bc7c644242001488bd6498bce8be8e8012fdeff80a437ec390000fd4c8d4c2430448bc7c644242000488bd6498bcee8e12edeffff86f439000085ed7423448bc5ba00101a01b9f4d4360ee8b5e1d7ffb91b010000e81be4daff8bc5e97dfeffff4488a6f93900008bc5e96ffeffffcccccccccc",
+            "sha256": "4467409afb7fd666052192be6957bd525343a8125cc82dce74ea63a29b18812c"
+          },
+          {
+            "label": "controller4_attr37_cases",
+            "rva": "0x738958",
+            "length": 455,
+            "bytes_hex": "413959080f84050100004183fe0475494d85e4744441b001498bd4488bcfe8259fc2ff8bd885c07430ba0000b518b9329b890ee800839aff4533c0ba0010b818b9329b890ee8ee829affb9ba180000e854859dffe9a302000080bfa0090000000f85a200000080bfa1090000000f859500000080bfa2090000000f858800000080bfb209000000757f8b8f340d0000e8b48d9cff84c07519ba00001d10b9329b890ee891829affb91d100000e8b7769cff8b860c01000085c07e0affc889860c010000eb19ba00002e10b9329b890ee864829affb92e100000e88a769cff83be0c01000000750783a610010000fe488b4550458bc6488bd5488bcfff154fa06c008bd8e9f401000033dbe9ed010000389fa0090000755d389fa10900007555389fa2090000754d389fb209000075458b8f340d0000e80e8d9cff84c07519ba00007110b9329b890ee8eb819affb971100000e811769cff458bc6488bd5488bcfe8a3e0ffffff860c0100008bd8838e100100000180bde600000000740b488bd5488bcfe8102400004183fe040f856a0100004d85e40f84610100004533c0498bd4488bcfe89f9dc2ff8bd885c00f8449010000ba0000d418b9329b890ee876819affe935010000",
+            "sha256": "2ad8c17620813986d22352aa2f01c875dc220f450c00813a6c194e597c6fc5e4"
+          }
+        ]
+      }
+    },
+    {
+      "record_sha256": "17eaaf702d142c85d12beb7ed0fce4f78f9e82b9d8b2f684f7ee458cc453b71a",
+      "source": {
+        "driver_sha256": "db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b",
+        "reviewed_product_head": "dd1763d",
+        "scope": "Offline selected-controller DIFR reason0 inhibit review; no GPU calls, product edits, physical-state claim, saved requests or persistence.",
+        "product_files_sha256": {
+          "src/druta/difr_live_control.py": "07af8591e4b847b1ed9460ef45923669a27131ebfc3b63d5e6937a73ecf49b56",
+          "src/druta/lpwr_runtime.py": "b697f9d341b2d4bc4a67caaa16bd3b21a8a0b4b48dd43c4b4762b42dc207fd64",
+          "src/druta/individual_power_gating_live.py": "1d350f5c4e2c196a4895046ce551e0c916c99b901e53887487dfab4b4c0f5e84",
+          "src/druta/gr_gating_live.py": "67f93b86172b1264484698afcba9acdfbeb85c6ad4cdf329e90a417e0674ff7c"
+        },
+        "findings": {
+          "existing_control": "DifrController sends20802801 value1 acquire/value2 release/value3 support. Current617.42 handler4f3a50 hardcodes controller9 and reason0 for every operation. It cannot choose10 or11. Its wrapper7376d0 selects the primary +10c/+110 bank when group+e3==0, or737d00 secondary +118/+11c when nonzero. Release7378e0 chooses the same two banks. A80148/49 expose those independent per-row reason masks.",
+          "direct_attr37": "E802 type3 attr37 always changes the selected row primary +10c/+110 reason0 bank, independent of group+e3; it does not route through the DIFR public wrapper. Thus selected10 or11 is a distinct reason0 axis from controller9 in either bank. Selected49 and all controller9 masks should remain unchanged in a scoped qualified trial.",
+          "controller_identities": "Current product lpwr_runtime.CONTROLLERS identifies9 DFPR,10 MS DIFR SW-ASR,11 MS DIFR CG. Constructor table7370e0 points these indices to736f81,736fa3,736fbf. Index9 sets descriptor0xf and optional0x400 flag, then returns without752430 group registration. Index10 sets0x800 flag, descriptor0x72b40fe and group index1. Index11 sets descriptor0xe0b10d and group index1. The constructors are distinct selected rows; descriptor numbers are not an exposed named-feature bit assignment.",
+          "grouped_elpg_overlap": "The grouped profiler feature6 selects nonempty group0 else group1, and group3 independently. Constructors register10/11 in group1 when supported. This creates conditional overlap with grouped ELPG when group1 is selected, not duplication of the fixed controller9 DIFR request. Direct10/11 avoids relying on current group membership or whether feature6 chooses group0 instead.",
+          "nine_not_a_new_feature": "Direct E8029 duplicates the existing controller9 primary-bank operation when group+e3 is zero. With nonzeroe3 it would address primary48 while the existing public DIFR wrapper addresses secondary49, but this is a bank distinction without a newly established separate user-facing feature meaning. Do not expose an additional9 control on this evidence or replace the existing dynamically verified DIFR routing.",
+          "ten_eleven_effect_scope": "The justified useful controls are MS DIFR SW-ASR reason0 inhibit (controller10) and MS DIFR CG reason0 inhibit (controller11). They add/remove one selected primary-bank shared reference. They do not activate disabled BIOS rows, assign a feature mask, prove physical self-refresh/clock-gating state, or independently override parent DFPR/other policy prerequisites.",
+          "selected_helper_dependencies": "No10/11-specific branch appears in the common E802attr37 setter or complete736b60 primary inhibit helper; the explicit additional setter branch is controller4. The selected row f1/full110/114 state determines lower work.73a680 carries the selected index in its lower packet; shared resource mask/tail bookkeeping and optional group+e6 logging remain common dependencies. Their root-reviewed GR0/media scope applies, rather than an unsupported promise of isolated physical effects.",
+          "release_callback_scope": "The common group+50 release callback may queue all-supported policy reevaluation, and RM runtime variants can return0x56 after the count/bit has already been decremented. This is not another controller reason0 acquire. Callback failure remains a failed/uncertain operation with observed readback, and must not trigger a second blind decrement.",
+          "bounded_trial": "For a separately selected supported10 or11 only, capture stable full observed A80139/48/49 inventory, requiring selected48bit0clear. Send one exact singleton E802 type3 attr37 value0; require flags1-only response, selected48==baseline|1 and positive transition, selected49 unchanged, controller9 banks48/49 unchanged and every observed peer mask unchanged. Balance at most one acquired reference with value1, verify selected/peer baseline or report runtime failure honestly. A trial of10 does not qualify11, and neither is a reason to sweep additional IDs.",
+          "decision": "No new source blocker was found for a bounded individual10/11 reason0 trial using the existing selected-controller shared-reference contract. Functional runtime qualification of each selected operation remains required before product expansion. Do not add9 merely to duplicate existing DIFR. No product edit follows from this source-only artifact."
+        },
+        "references": [
+          "src/druta/difr_live_control.py",
+          "src/druta/lpwr_runtime.py",
+          "src/druta/gr_gating_live.py",
+          "experiments/registry-overrides/functional-backlog-audit-terra-20261101/elpg-attr37-61742.json",
+          "experiments/registry-overrides/functional-backlog-audit-terra-20261101/gr0-attr37-61742.json",
+          "experiments/registry-overrides/functional-backlog-audit-terra-20261101/nvdec-elpg-group3-61742.json",
+          "experiments/registry-overrides/profiler-more-terra-20261101/ms-live-control-static-61742.json"
+        ],
+        "reused_existing_windows": {
+          "elpg-attr37-61742.json": [
+            "attr37_case",
+            "getter_48_49",
+            "group_side_callback",
+            "rmhal_release_callback_selection"
+          ],
+          "gr0-attr37-61742.json": [
+            "selected_inhibit_helper_complete",
+            "selected_controller_lower_request",
+            "shared_resource_membership_helper",
+            "group_bookkeeping_tail"
+          ]
+        },
+        "windows": [
+          {
+            "label": "difr_public_handler_fixed_controller9",
+            "rva": "0x4f3a50",
+            "length": 222,
+            "bytes_hex": "48895c2408574883ec20488b8160010000488bfa4c8b90e8000000498b92502500004885d20f84a3000000488b92c012000033db4885d20f84910000008b0f83e901746f83e901744f83f9017426ba00008202b9865bca0ee8e3d1beffb983020000e849d4c1ff8bc3488b5c24304883c4205fc341b809000000498bcae81e492400f6d88bc31bc983c102890f488b5c24304883c4205fc34533c941b809000000498bca488b5c24304883c4205fe9dd3d24004533c941b809000000498bca488b5c24304883c4205fe9b23b2400488b5c2430b8560000004883c4205fc3",
+            "sha256": "91952235e8b90ed56f12b91c2ec2f3a2f01c3d4d24133da54f25d2c35feb765a"
+          },
+          {
+            "label": "difr_acquire_primary_secondary_selector",
+            "rva": "0x7376d0",
+            "length": 275,
+            "bytes_hex": "48895c241048896c2418488974242041564883ec20450fb6f1488bf2418be8488bd94183f8160f83cc0000008b82e80000000fa3e80f83bd00000080bae3000000007411450fb6ce448bc5e8e0050000e9a800000048897c24304869fd080100004803fe4885db0f848000000080b9a009000000757780b9a109000000756e80b9a209000000756580b9b209000000755c8b89340d0000e834a09cff84c07519ba00007110b9329b890ee811959affb971100000e837899cff448bc5488bd6488bcbe8c9f3ffff8bd04584f67506ff870c0100008b8f100100008bc2440fabf1898f10010000488b7c2430eb10488b7c243033d28bc2eb05b856000000488b5c2438488b6c2440488b7424484883c420415ec3",
+            "sha256": "5549f17572a9d4a98acede7ef9d72c2ed79fdb3d71df062f076b7b2ecea849cc"
+          },
+          {
+            "label": "difr_release_primary_secondary_selector",
+            "rva": "0x7378e0",
+            "length": 523,
+            "bytes_hex": "48895c241048896c2418488974242041564883ec20410fb6e9488bf2458bf0488bd94183f8160f83d40100008b82e8000000440fa3f00f83c401000048897c24304969fe080100004803fa80bae3000000000f84dd0000004885c90f849801000080b9a0090000000f858b01000080b9a1090000000f857e01000080b9a2090000000f857101000080b9b2090000000f85640100008b89340d0000e8209e9cff84c07519ba0000b011b9329b890ee8fd929affb9b0110000e823879cff4084ed75368b871801000085c07e0affc8898718010000eb19ba0000bb11b9329b890ee8cb929affb9bb110000e8f1869cff83bf1801000000750f8b8f1c0100000fb3e9898f1c010000488b4650458bc6488bd6488bcbff15aeb06c00488b7c2430488b5c2438488b6c2440488b7424484883c420415ec34885db0f84bb00000080b9a0090000000f85ae00000080b9a1090000000f85a100000080b9a2090000000f859400000080b9b2090000000f85870000008b89340d0000e8439d9cff84c07519ba00001d10b9329b890ee820929affb91d100000e846869cff4084ed75468b870c01000085c07e0affc889870c010000eb19ba00002e10b9329b890ee8ee919affb92e100000e814869cff83bf0c010000000f852effffff83a710010000fee922ffffff8b8f100100000fb3e9898f10010000e90effffff33c0e91affffffb856000000e915ffffffcc",
+            "sha256": "849ebbd83e314ac413c9aefeff674c7fe5f80385e050f6ff0830009ffb171c47"
+          },
+          {
+            "label": "secondary_reason0_counter_and_mask_update",
+            "rva": "0x737ed7",
+            "length": 38,
+            "bytes_hex": "488bd6488bcbe84eddbcff4584ff7506ff87180100008b8f1c010000440fabf9898f1c010000",
+            "sha256": "e14fad57a011a6f2630b62bffaba0f7a0eb53bc74804cea412d3995022e09fa4"
+          },
+          {
+            "label": "controller9_10_11_constructor_cases",
+            "rva": "0x736f81",
+            "length": 83,
+            "bytes_hex": "c743480f000000418b86c0020000a8400f840a010000814b0800040000e9fe0000000faee8814b080008000041b801000000c74348fe402b07e9d40000000faee8c743480db1e00041b801000000e9bf000000",
+            "sha256": "5a82cc60af1517dcf3884f027b8b0c38345f100ee67486384394132217da329c"
+          },
+          {
+            "label": "controller9_10_11_jump_entries",
+            "rva": "0x7370e0",
+            "length": 12,
+            "bytes_hex": "816f7300a36f7300bf6f7300",
+            "sha256": "b9f76898f5206241e04aed568d34090ff2ac5a4c11aebd0be65462a220be01da"
+          }
+        ]
+      }
+    }
+  ],
+  "raw_trials": [
+    {
+      "index": 4,
+      "record_sha256": "17f6df6c28cc90c4bfdb8191fdd67adf720afb90e31ab1c9b09e474851250a76",
+      "before": {
+        "available": true,
+        "supported": true,
+        "enabled_predicate": true,
+        "reason_masks": {
+          "72": 0,
+          "73": 0
+        }
+      },
+      "held": {
+        "available": true,
+        "supported": true,
+        "enabled_predicate": false,
+        "reason_masks": {
+          "72": 1,
+          "73": 0
+        }
+      },
+      "after": {
+        "available": true,
+        "supported": true,
+        "enabled_predicate": true,
+        "reason_masks": {
+          "72": 0,
+          "73": 0
+        }
+      },
+      "checks": {
+        "selected_transition_and_peers_unchanged": true,
+        "released_once": true,
+        "masks_restored": true,
+        "voltage_unchanged": true,
+        "lpwr_unchanged": true
+      },
+      "mutations": 2
+    },
+    {
+      "index": 10,
+      "record_sha256": "620452335b96ce5cab8f66de2950da69c2a998ff067383486baa780d5b3dec4a",
+      "before": {
+        "available": true,
+        "supported": true,
+        "enabled_predicate": false,
+        "reason_masks": {
+          "72": 0,
+          "73": 0
+        }
+      },
+      "held": {
+        "available": true,
+        "supported": true,
+        "enabled_predicate": false,
+        "reason_masks": {
+          "72": 1,
+          "73": 0
+        }
+      },
+      "after": {
+        "available": true,
+        "supported": true,
+        "enabled_predicate": false,
+        "reason_masks": {
+          "72": 0,
+          "73": 0
+        }
+      },
+      "checks": {
+        "selected_transition_and_peers_unchanged": true,
+        "released_once": true,
+        "masks_restored": true,
+        "voltage_unchanged": true,
+        "lpwr_unchanged": true
+      },
+      "mutations": 2
+    },
+    {
+      "index": 11,
+      "record_sha256": "014eb63edd0fd3773a8a4e183549581be7c442efc5ee4b2bb1ee8fa068c9375a",
+      "before": {
+        "available": true,
+        "supported": true,
+        "enabled_predicate": false,
+        "reason_masks": {
+          "72": 0,
+          "73": 0
+        }
+      },
+      "held": {
+        "available": true,
+        "supported": true,
+        "enabled_predicate": false,
+        "reason_masks": {
+          "72": 1,
+          "73": 0
+        }
+      },
+      "after": {
+        "available": true,
+        "supported": true,
+        "enabled_predicate": false,
+        "reason_masks": {
+          "72": 0,
+          "73": 0
+        }
+      },
+      "checks": {
+        "selected_transition_and_peers_unchanged": true,
+        "released_once": true,
+        "masks_restored": true,
+        "voltage_unchanged": true,
+        "lpwr_unchanged": true
+      },
+      "mutations": 2
+    }
+  ],
+  "production_trial": {
+    "record_sha256": "c1cb79984459cc4f2974915d38c235618d1c07f5d80b2b8291dcaa8c93ea9c1f",
+    "backend_sha256": "c49618dfb710b9545be24a21365967af32139e51ce27111c190511fabe383728",
+    "mutation_count": 38,
+    "checks": {
+      "all_individual_controllers_and_duplicate_no_write": true,
+      "graphics_release_preserves_media": true,
+      "component_releases_preserve_existing_difr": true,
+      "shared_reference_release_verified": true,
+      "independent_release_verified": true,
+      "masks_restored": true,
+      "voltage_unchanged": true,
+      "lpwr_unchanged": true,
+      "clock_controls_restored": true
+    },
+    "close_errors": [],
+    "component_releases": {
+      "4": {
+        "architecture": {
+          "architecture": 432,
+          "implementation": 3,
+          "revision": 161,
+          "raw_auxiliary": 1
+        },
+        "support": true,
+        "available": true,
+        "reason_masks": {
+          "72": 0,
+          "73": 0
+        },
+        "status": "available",
+        "index": 4,
+        "name": "Memory subsystem (MS)",
+        "owned_request": false,
+        "uncertain_outcome": false,
+        "release_attempted": true,
+        "state": "idle",
+        "verification_scope": "selected shared reason0 reference; no unique ownership or physical power-gating claim",
+        "last_verification_error": null
+      },
+      "10": {
+        "architecture": {
+          "architecture": 432,
+          "implementation": 3,
+          "revision": 161,
+          "raw_auxiliary": 1
+        },
+        "support": true,
+        "available": true,
+        "reason_masks": {
+          "72": 0,
+          "73": 0
+        },
+        "status": "available",
+        "index": 10,
+        "name": "MS DIFR SW-ASR",
+        "owned_request": false,
+        "uncertain_outcome": false,
+        "release_attempted": true,
+        "state": "idle",
+        "verification_scope": "selected shared reason0 reference; no unique ownership or physical power-gating claim",
+        "last_verification_error": null
+      },
+      "11": {
+        "architecture": {
+          "architecture": 432,
+          "implementation": 3,
+          "revision": 161,
+          "raw_auxiliary": 1
+        },
+        "support": true,
+        "available": true,
+        "reason_masks": {
+          "72": 0,
+          "73": 0
+        },
+        "status": "available",
+        "index": 11,
+        "name": "MS DIFR CG",
+        "owned_request": false,
+        "uncertain_outcome": false,
+        "release_attempted": true,
+        "state": "idle",
+        "verification_scope": "selected shared reason0 reference; no unique ownership or physical power-gating claim",
+        "last_verification_error": null
+      }
+    },
+    "existing_difr_held": {
+      "support": true,
+      "enabled_predicate": true,
+      "present": true,
+      "reason_masks": {
+        "72": 0,
+        "73": 1
+      },
+      "owned_request": true,
+      "uncertain_outcome": false
+    },
+    "existing_difr_released": {
+      "support": true,
+      "enabled_predicate": true,
+      "present": true,
+      "reason_masks": {
+        "72": 0,
+        "73": 0
+      },
+      "owned_request": false,
+      "uncertain_outcome": false
+    },
+    "coexistence": "Individual0,4,10,11,12,13,14,15 with ELCG/SLCG ENABLE and BLCG DISABLE; release4/10/11 preserved the simultaneously held existing controller9 DIFR request."
+  },
+  "validation": {
+    "focused_tests_passed": 378,
+    "ruff": "passed affected backend/panel and tests"
+  },
+  "registry_changes": false,
+  "driver_restart": false,
+  "workload": false
+}

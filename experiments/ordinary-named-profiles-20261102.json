@@ -1,0 +1,1165 @@
+{
+  "schema": 1,
+  "date": "2026-11-02",
+  "scope": "Named ordinary scoped profiles, source callbacks, RTX 5080 / 617.42",
+  "device": {
+    "name": "NVIDIA GeForce RTX 5080",
+    "driver": "617.42",
+    "vbios": "98.03.3b.c0.6f"
+  },
+  "trial_sha256": "e33761c860056ea0659a22e1805d46906531a8c69dac97b1b5b88425d8f25dd5",
+  "harness_sha256": "c8156513aa67c9d1e29472fd42a5de2b35e27c143cbcf778f36921006456f641",
+  "cases": [
+    {
+      "kind": "memory",
+      "baseline": {
+        "index": null,
+        "kind": "memory",
+        "scale": 2,
+        "value": 0
+      },
+      "saved_active": {
+        "index": null,
+        "kind": "memory",
+        "scale": 2,
+        "value": 100
+      },
+      "loaded": {
+        "kind": "memory",
+        "index": null,
+        "value": 100,
+        "scale": 2
+      },
+      "undo": {
+        "kind": "memory",
+        "index": null,
+        "value": 0,
+        "scale": 2
+      }
+    },
+    {
+      "kind": "domain",
+      "baseline": {
+        "index": 2,
+        "kind": "domain",
+        "value": 0
+      },
+      "saved_active": {
+        "index": 2,
+        "kind": "domain",
+        "value": 1000
+      },
+      "loaded": {
+        "kind": "domain",
+        "index": 2,
+        "value": 1000
+      },
+      "undo": {
+        "kind": "domain",
+        "index": 2,
+        "value": 0
+      }
+    },
+    {
+      "kind": "boost",
+      "baseline": {
+        "index": null,
+        "kind": "boost",
+        "value": 0
+      },
+      "saved_active": {
+        "index": null,
+        "kind": "boost",
+        "value": 1
+      },
+      "loaded": {
+        "kind": "boost",
+        "index": null,
+        "value": 1
+      },
+      "undo": {
+        "kind": "boost",
+        "index": null,
+        "value": 0
+      }
+    },
+    {
+      "kind": "power",
+      "baseline": {
+        "board_mw": 360000,
+        "pins": {},
+        "rows": [
+          {
+            "board": false,
+            "channel": 3,
+            "consistent": true,
+            "maximum": 5001000,
+            "minimum": 1,
+            "named_current": false,
+            "policy": 0,
+            "requested": 5001000,
+            "type": 20,
+            "unit": "mW",
+            "writable": true
+          },
+          {
+            "board": false,
+            "channel": 7,
+            "consistent": true,
+            "maximum": 1001000,
+            "minimum": 1,
+            "named_current": false,
+            "policy": 1,
+            "requested": 1001000,
+            "type": 3,
+            "unit": "mW",
+            "writable": true
+          },
+          {
+            "board": false,
+            "channel": 0,
+            "consistent": true,
+            "maximum": 450000,
+            "minimum": 1,
+            "named_current": false,
+            "policy": 2,
+            "requested": 450000,
+            "type": 0,
+            "unit": "mW",
+            "writable": true
+          },
+          {
+            "board": false,
+            "channel": 4,
+            "consistent": true,
+            "maximum": 5001000,
+            "minimum": 1,
+            "named_current": false,
+            "policy": 3,
+            "requested": 5001000,
+            "type": 17,
+            "unit": "mW",
+            "writable": true
+          },
+          {
+            "board": false,
+            "channel": 5,
+            "consistent": true,
+            "maximum": 5001000,
+            "minimum": 1,
+            "named_current": false,
+            "policy": 4,
+            "requested": 5001000,
+            "type": 17,
+            "unit": "mW",
+            "writable": true
+          },
+          {
+            "board": false,
+            "channel": 4,
+            "consistent": true,
+            "maximum": 5001000,
+            "minimum": 1,
+            "named_current": false,
+            "policy": 5,
+            "requested": 5001000,
+            "type": 18,
+            "unit": "mW",
+            "writable": true
+          },
+          {
+            "board": false,
+            "channel": 5,
+            "consistent": true,
+            "maximum": 5001000,
+            "minimum": 1,
+            "named_current": false,
+            "policy": 6,
+            "requested": 5001000,
+            "type": 18,
+            "unit": "mW",
+            "writable": true
+          },
+          {
+            "board": false,
+            "channel": 0,
+            "consistent": true,
+            "maximum": 450000,
+            "minimum": 1,
+            "named_current": false,
+            "policy": 7,
+            "requested": 450000,
+            "type": 32,
+            "unit": "mW",
+            "writable": true
+          },
+          {
+            "board": true,
+            "channel": 0,
+            "consistent": true,
+            "maximum": 450000,
+            "minimum": 250000,
+            "named_current": false,
+            "policy": 8,
+            "requested": 360000,
+            "type": 33,
+            "unit": "mW",
+            "writable": false
+          },
+          {
+            "board": false,
+            "channel": 9,
+            "consistent": true,
+            "maximum": 45000,
+            "minimum": 1,
+            "named_current": false,
+            "policy": 9,
+            "requested": 45000,
+            "type": 30,
+            "unit": "mA",
+            "writable": true
+          },
+          {
+            "board": false,
+            "channel": 11,
+            "consistent": true,
+            "maximum": 5001000,
+            "minimum": 1,
+            "named_current": false,
+            "policy": 10,
+            "requested": 5001000,
+            "type": 20,
+            "unit": "mA",
+            "writable": true
+          },
+          {
+            "board": false,
+            "channel": 13,
+            "consistent": true,
+            "maximum": 5001000,
+            "minimum": 1,
+            "named_current": false,
+            "policy": 11,
+            "requested": 5001000,
+            "type": 17,
+            "unit": "mA",
+            "writable": true
+          },
+          {
+            "board": false,
+            "channel": 12,
+            "consistent": true,
+            "maximum": 5001000,
+            "minimum": 1,
+            "named_current": false,
+            "policy": 12,
+            "requested": 5001000,
+            "type": 17,
+            "unit": "mA",
+            "writable": true
+          },
+          {
+            "board": false,
+            "channel": 13,
+            "consistent": true,
+            "maximum": 5001000,
+            "minimum": 1,
+            "named_current": true,
+            "policy": 13,
+            "requested": 300000,
+            "type": 18,
+            "unit": "mA",
+            "writable": false
+          },
+          {
+            "board": false,
+            "channel": 12,
+            "consistent": true,
+            "maximum": 5001000,
+            "minimum": 1,
+            "named_current": true,
+            "policy": 14,
+            "requested": 120000,
+            "type": 18,
+            "unit": "mA",
+            "writable": false
+          },
+          {
+            "board": false,
+            "channel": 0,
+            "consistent": true,
+            "maximum": 50010000,
+            "minimum": 1,
+            "named_current": false,
+            "policy": 15,
+            "requested": 50010000,
+            "type": 33,
+            "unit": "mW",
+            "writable": true
+          },
+          {
+            "board": false,
+            "channel": 3,
+            "consistent": true,
+            "maximum": 50010000,
+            "minimum": 1,
+            "named_current": false,
+            "policy": 16,
+            "requested": 50010000,
+            "type": 20,
+            "unit": "mW",
+            "writable": true
+          },
+          {
+            "board": false,
+            "channel": 14,
+            "consistent": true,
+            "maximum": 1000000,
+            "minimum": 1,
+            "named_current": false,
+            "policy": 17,
+            "requested": 1000000,
+            "type": 4,
+            "unit": "mW",
+            "writable": true
+          }
+        ]
+      },
+      "saved_active": {
+        "board_mw": 355000,
+        "pins": {},
+        "rows": [
+          {
+            "board": false,
+            "channel": 3,
+            "consistent": true,
+            "maximum": 5001000,
+            "minimum": 1,
+            "named_current": false,
+            "policy": 0,
+            "requested": 5001000,
+            "type": 20,
+            "unit": "mW",
+            "writable": true
+          },
+          {
+            "board": false,
+            "channel": 7,
+            "consistent": true,
+            "maximum": 1001000,
+            "minimum": 1,
+            "named_current": false,
+            "policy": 1,
+            "requested": 1001000,
+            "type": 3,
+            "unit": "mW",
+            "writable": true
+          },
+          {
+            "board": false,
+            "channel": 0,
+            "consistent": true,
+            "maximum": 450000,
+            "minimum": 1,
+            "named_current": false,
+            "policy": 2,
+            "requested": 450000,
+            "type": 0,
+            "unit": "mW",
+            "writable": true
+          },
+          {
+            "board": false,
+            "channel": 4,
+            "consistent": true,
+            "maximum": 5001000,
+            "minimum": 1,
+            "named_current": false,
+            "policy": 3,
+            "requested": 5001000,
+            "type": 17,
+            "unit": "mW",
+            "writable": true
+          },
+          {
+            "board": false,
+            "channel": 5,
+            "consistent": true,
+            "maximum": 5001000,
+            "minimum": 1,
+            "named_current": false,
+            "policy": 4,
+            "requested": 5001000,
+            "type": 17,
+            "unit": "mW",
+            "writable": true
+          },
+          {
+            "board": false,
+            "channel": 4,
+            "consistent": true,
+            "maximum": 5001000,
+            "minimum": 1,
+            "named_current": false,
+            "policy": 5,
+            "requested": 5001000,
+            "type": 18,
+            "unit": "mW",
+            "writable": true
+          },
+          {
+            "board": false,
+            "channel": 5,
+            "consistent": true,
+            "maximum": 5001000,
+            "minimum": 1,
+            "named_current": false,
+            "policy": 6,
+            "requested": 5001000,
+            "type": 18,
+            "unit": "mW",
+            "writable": true
+          },
+          {
+            "board": false,
+            "channel": 0,
+            "consistent": true,
+            "maximum": 450000,
+            "minimum": 1,
+            "named_current": false,
+            "policy": 7,
+            "requested": 450000,
+            "type": 32,
+            "unit": "mW",
+            "writable": true
+          },
+          {
+            "board": true,
+            "channel": 0,
+            "consistent": true,
+            "maximum": 450000,
+            "minimum": 250000,
+            "named_current": false,
+            "policy": 8,
+            "requested": 355000,
+            "type": 33,
+            "unit": "mW",
+            "writable": false
+          },
+          {
+            "board": false,
+            "channel": 9,
+            "consistent": true,
+            "maximum": 45000,
+            "minimum": 1,
+            "named_current": false,
+            "policy": 9,
+            "requested": 45000,
+            "type": 30,
+            "unit": "mA",
+            "writable": true
+          },
+          {
+            "board": false,
+            "channel": 11,
+            "consistent": true,
+            "maximum": 5001000,
+            "minimum": 1,
+            "named_current": false,
+            "policy": 10,
+            "requested": 5001000,
+            "type": 20,
+            "unit": "mA",
+            "writable": true
+          },
+          {
+            "board": false,
+            "channel": 13,
+            "consistent": true,
+            "maximum": 5001000,
+            "minimum": 1,
+            "named_current": false,
+            "policy": 11,
+            "requested": 5001000,
+            "type": 17,
+            "unit": "mA",
+            "writable": true
+          },
+          {
+            "board": false,
+            "channel": 12,
+            "consistent": true,
+            "maximum": 5001000,
+            "minimum": 1,
+            "named_current": false,
+            "policy": 12,
+            "requested": 5001000,
+            "type": 17,
+            "unit": "mA",
+            "writable": true
+          },
+          {
+            "board": false,
+            "channel": 13,
+            "consistent": true,
+            "maximum": 5001000,
+            "minimum": 1,
+            "named_current": true,
+            "policy": 13,
+            "requested": 300000,
+            "type": 18,
+            "unit": "mA",
+            "writable": false
+          },
+          {
+            "board": false,
+            "channel": 12,
+            "consistent": true,
+            "maximum": 5001000,
+            "minimum": 1,
+            "named_current": true,
+            "policy": 14,
+            "requested": 120000,
+            "type": 18,
+            "unit": "mA",
+            "writable": false
+          },
+          {
+            "board": false,
+            "channel": 0,
+            "consistent": true,
+            "maximum": 50010000,
+            "minimum": 1,
+            "named_current": false,
+            "policy": 15,
+            "requested": 50010000,
+            "type": 33,
+            "unit": "mW",
+            "writable": true
+          },
+          {
+            "board": false,
+            "channel": 3,
+            "consistent": true,
+            "maximum": 50010000,
+            "minimum": 1,
+            "named_current": false,
+            "policy": 16,
+            "requested": 50010000,
+            "type": 20,
+            "unit": "mW",
+            "writable": true
+          },
+          {
+            "board": false,
+            "channel": 14,
+            "consistent": true,
+            "maximum": 1000000,
+            "minimum": 1,
+            "named_current": false,
+            "policy": 17,
+            "requested": 1000000,
+            "type": 4,
+            "unit": "mW",
+            "writable": true
+          }
+        ]
+      },
+      "loaded": {
+        "board_mw": 355000,
+        "rows": [
+          {
+            "policy": 0,
+            "type": 20,
+            "channel": 3,
+            "unit": "mW",
+            "minimum": 1,
+            "maximum": 5001000,
+            "requested": 5001000,
+            "board": false,
+            "named_current": false,
+            "writable": true,
+            "consistent": true
+          },
+          {
+            "policy": 1,
+            "type": 3,
+            "channel": 7,
+            "unit": "mW",
+            "minimum": 1,
+            "maximum": 1001000,
+            "requested": 1001000,
+            "board": false,
+            "named_current": false,
+            "writable": true,
+            "consistent": true
+          },
+          {
+            "policy": 2,
+            "type": 0,
+            "channel": 0,
+            "unit": "mW",
+            "minimum": 1,
+            "maximum": 450000,
+            "requested": 450000,
+            "board": false,
+            "named_current": false,
+            "writable": true,
+            "consistent": true
+          },
+          {
+            "policy": 3,
+            "type": 17,
+            "channel": 4,
+            "unit": "mW",
+            "minimum": 1,
+            "maximum": 5001000,
+            "requested": 5001000,
+            "board": false,
+            "named_current": false,
+            "writable": true,
+            "consistent": true
+          },
+          {
+            "policy": 4,
+            "type": 17,
+            "channel": 5,
+            "unit": "mW",
+            "minimum": 1,
+            "maximum": 5001000,
+            "requested": 5001000,
+            "board": false,
+            "named_current": false,
+            "writable": true,
+            "consistent": true
+          },
+          {
+            "policy": 5,
+            "type": 18,
+            "channel": 4,
+            "unit": "mW",
+            "minimum": 1,
+            "maximum": 5001000,
+            "requested": 5001000,
+            "board": false,
+            "named_current": false,
+            "writable": true,
+            "consistent": true
+          },
+          {
+            "policy": 6,
+            "type": 18,
+            "channel": 5,
+            "unit": "mW",
+            "minimum": 1,
+            "maximum": 5001000,
+            "requested": 5001000,
+            "board": false,
+            "named_current": false,
+            "writable": true,
+            "consistent": true
+          },
+          {
+            "policy": 7,
+            "type": 32,
+            "channel": 0,
+            "unit": "mW",
+            "minimum": 1,
+            "maximum": 450000,
+            "requested": 450000,
+            "board": false,
+            "named_current": false,
+            "writable": true,
+            "consistent": true
+          },
+          {
+            "policy": 8,
+            "type": 33,
+            "channel": 0,
+            "unit": "mW",
+            "minimum": 250000,
+            "maximum": 450000,
+            "requested": 355000,
+            "board": true,
+            "named_current": false,
+            "writable": false,
+            "consistent": true
+          },
+          {
+            "policy": 9,
+            "type": 30,
+            "channel": 9,
+            "unit": "mA",
+            "minimum": 1,
+            "maximum": 45000,
+            "requested": 45000,
+            "board": false,
+            "named_current": false,
+            "writable": true,
+            "consistent": true
+          },
+          {
+            "policy": 10,
+            "type": 20,
+            "channel": 11,
+            "unit": "mA",
+            "minimum": 1,
+            "maximum": 5001000,
+            "requested": 5001000,
+            "board": false,
+            "named_current": false,
+            "writable": true,
+            "consistent": true
+          },
+          {
+            "policy": 11,
+            "type": 17,
+            "channel": 13,
+            "unit": "mA",
+            "minimum": 1,
+            "maximum": 5001000,
+            "requested": 5001000,
+            "board": false,
+            "named_current": false,
+            "writable": true,
+            "consistent": true
+          },
+          {
+            "policy": 12,
+            "type": 17,
+            "channel": 12,
+            "unit": "mA",
+            "minimum": 1,
+            "maximum": 5001000,
+            "requested": 5001000,
+            "board": false,
+            "named_current": false,
+            "writable": true,
+            "consistent": true
+          },
+          {
+            "policy": 13,
+            "type": 18,
+            "channel": 13,
+            "unit": "mA",
+            "minimum": 1,
+            "maximum": 5001000,
+            "requested": 300000,
+            "board": false,
+            "named_current": true,
+            "writable": false,
+            "consistent": true
+          },
+          {
+            "policy": 14,
+            "type": 18,
+            "channel": 12,
+            "unit": "mA",
+            "minimum": 1,
+            "maximum": 5001000,
+            "requested": 120000,
+            "board": false,
+            "named_current": true,
+            "writable": false,
+            "consistent": true
+          },
+          {
+            "policy": 15,
+            "type": 33,
+            "channel": 0,
+            "unit": "mW",
+            "minimum": 1,
+            "maximum": 50010000,
+            "requested": 50010000,
+            "board": false,
+            "named_current": false,
+            "writable": true,
+            "consistent": true
+          },
+          {
+            "policy": 16,
+            "type": 20,
+            "channel": 3,
+            "unit": "mW",
+            "minimum": 1,
+            "maximum": 50010000,
+            "requested": 50010000,
+            "board": false,
+            "named_current": false,
+            "writable": true,
+            "consistent": true
+          },
+          {
+            "policy": 17,
+            "type": 4,
+            "channel": 14,
+            "unit": "mW",
+            "minimum": 1,
+            "maximum": 1000000,
+            "requested": 1000000,
+            "board": false,
+            "named_current": false,
+            "writable": true,
+            "consistent": true
+          }
+        ],
+        "pins": {}
+      },
+      "undo": {
+        "board_mw": 360000,
+        "rows": [
+          {
+            "policy": 0,
+            "type": 20,
+            "channel": 3,
+            "unit": "mW",
+            "minimum": 1,
+            "maximum": 5001000,
+            "requested": 5001000,
+            "board": false,
+            "named_current": false,
+            "writable": true,
+            "consistent": true
+          },
+          {
+            "policy": 1,
+            "type": 3,
+            "channel": 7,
+            "unit": "mW",
+            "minimum": 1,
+            "maximum": 1001000,
+            "requested": 1001000,
+            "board": false,
+            "named_current": false,
+            "writable": true,
+            "consistent": true
+          },
+          {
+            "policy": 2,
+            "type": 0,
+            "channel": 0,
+            "unit": "mW",
+            "minimum": 1,
+            "maximum": 450000,
+            "requested": 450000,
+            "board": false,
+            "named_current": false,
+            "writable": true,
+            "consistent": true
+          },
+          {
+            "policy": 3,
+            "type": 17,
+            "channel": 4,
+            "unit": "mW",
+            "minimum": 1,
+            "maximum": 5001000,
+            "requested": 5001000,
+            "board": false,
+            "named_current": false,
+            "writable": true,
+            "consistent": true
+          },
+          {
+            "policy": 4,
+            "type": 17,
+            "channel": 5,
+            "unit": "mW",
+            "minimum": 1,
+            "maximum": 5001000,
+            "requested": 5001000,
+            "board": false,
+            "named_current": false,
+            "writable": true,
+            "consistent": true
+          },
+          {
+            "policy": 5,
+            "type": 18,
+            "channel": 4,
+            "unit": "mW",
+            "minimum": 1,
+            "maximum": 5001000,
+            "requested": 5001000,
+            "board": false,
+            "named_current": false,
+            "writable": true,
+            "consistent": true
+          },
+          {
+            "policy": 6,
+            "type": 18,
+            "channel": 5,
+            "unit": "mW",
+            "minimum": 1,
+            "maximum": 5001000,
+            "requested": 5001000,
+            "board": false,
+            "named_current": false,
+            "writable": true,
+            "consistent": true
+          },
+          {
+            "policy": 7,
+            "type": 32,
+            "channel": 0,
+            "unit": "mW",
+            "minimum": 1,
+            "maximum": 450000,
+            "requested": 450000,
+            "board": false,
+            "named_current": false,
+            "writable": true,
+            "consistent": true
+          },
+          {
+            "policy": 8,
+            "type": 33,
+            "channel": 0,
+            "unit": "mW",
+            "minimum": 250000,
+            "maximum": 450000,
+            "requested": 360000,
+            "board": true,
+            "named_current": false,
+            "writable": false,
+            "consistent": true
+          },
+          {
+            "policy": 9,
+            "type": 30,
+            "channel": 9,
+            "unit": "mA",
+            "minimum": 1,
+            "maximum": 45000,
+            "requested": 45000,
+            "board": false,
+            "named_current": false,
+            "writable": true,
+            "consistent": true
+          },
+          {
+            "policy": 10,
+            "type": 20,
+            "channel": 11,
+            "unit": "mA",
+            "minimum": 1,
+            "maximum": 5001000,
+            "requested": 5001000,
+            "board": false,
+            "named_current": false,
+            "writable": true,
+            "consistent": true
+          },
+          {
+            "policy": 11,
+            "type": 17,
+            "channel": 13,
+            "unit": "mA",
+            "minimum": 1,
+            "maximum": 5001000,
+            "requested": 5001000,
+            "board": false,
+            "named_current": false,
+            "writable": true,
+            "consistent": true
+          },
+          {
+            "policy": 12,
+            "type": 17,
+            "channel": 12,
+            "unit": "mA",
+            "minimum": 1,
+            "maximum": 5001000,
+            "requested": 5001000,
+            "board": false,
+            "named_current": false,
+            "writable": true,
+            "consistent": true
+          },
+          {
+            "policy": 13,
+            "type": 18,
+            "channel": 13,
+            "unit": "mA",
+            "minimum": 1,
+            "maximum": 5001000,
+            "requested": 300000,
+            "board": false,
+            "named_current": true,
+            "writable": false,
+            "consistent": true
+          },
+          {
+            "policy": 14,
+            "type": 18,
+            "channel": 12,
+            "unit": "mA",
+            "minimum": 1,
+            "maximum": 5001000,
+            "requested": 120000,
+            "board": false,
+            "named_current": true,
+            "writable": false,
+            "consistent": true
+          },
+          {
+            "policy": 15,
+            "type": 33,
+            "channel": 0,
+            "unit": "mW",
+            "minimum": 1,
+            "maximum": 50010000,
+            "requested": 50010000,
+            "board": false,
+            "named_current": false,
+            "writable": true,
+            "consistent": true
+          },
+          {
+            "policy": 16,
+            "type": 20,
+            "channel": 3,
+            "unit": "mW",
+            "minimum": 1,
+            "maximum": 50010000,
+            "requested": 50010000,
+            "board": false,
+            "named_current": false,
+            "writable": true,
+            "consistent": true
+          },
+          {
+            "policy": 17,
+            "type": 4,
+            "channel": 14,
+            "unit": "mW",
+            "minimum": 1,
+            "maximum": 1000000,
+            "requested": 1000000,
+            "board": false,
+            "named_current": false,
+            "writable": true,
+            "consistent": true
+          }
+        ],
+        "pins": {}
+      }
+    },
+    {
+      "kind": "fan",
+      "baseline": {
+        "fans": [
+          {
+            "default_policy": 0,
+            "id": 0,
+            "level": 30,
+            "manual": false,
+            "max": 100,
+            "min": 30,
+            "policy": 0
+          },
+          {
+            "default_policy": 0,
+            "id": 1,
+            "level": 30,
+            "manual": false,
+            "max": 100,
+            "min": 30,
+            "policy": 0
+          }
+        ],
+        "source": "nvml"
+      },
+      "saved_active": {
+        "fans": [
+          {
+            "default_policy": 0,
+            "id": 0,
+            "level": 40,
+            "manual": true,
+            "max": 100,
+            "min": 30,
+            "policy": 1
+          },
+          {
+            "default_policy": 0,
+            "id": 1,
+            "level": 40,
+            "manual": true,
+            "max": 100,
+            "min": 30,
+            "policy": 1
+          }
+        ],
+        "source": "nvml"
+      },
+      "loaded": {
+        "source": "nvml",
+        "fans": [
+          {
+            "id": 0,
+            "level": 40,
+            "policy": 1,
+            "default_policy": 0,
+            "manual": true,
+            "min": 30,
+            "max": 100
+          },
+          {
+            "id": 1,
+            "level": 40,
+            "policy": 1,
+            "default_policy": 0,
+            "manual": true,
+            "min": 30,
+            "max": 100
+          }
+        ]
+      },
+      "undo": {
+        "source": "nvml",
+        "fans": [
+          {
+            "id": 0,
+            "level": 30,
+            "policy": 0,
+            "default_policy": 0,
+            "manual": false,
+            "min": 30,
+            "max": 100
+          },
+          {
+            "id": 1,
+            "level": 30,
+            "policy": 0,
+            "default_policy": 0,
+            "manual": false,
+            "min": 30,
+            "max": 100
+          }
+        ]
+      }
+    }
+  ],
+  "verification": [
+    "Actual open Save dialog, select Contents, named Save, Load and Undo callbacks.",
+    "Each saved request matched current applied state despite unrelated staged text values.",
+    "All five named profiles loaded their changed requests and Undo restored baseline.",
+    "Full-profile manual-voltage handback, rail selection and I2C verification were forbidden by the harness.",
+    "All five final scoped requests matched baseline; automatic fan measured duty excluded.",
+    "No fallback cleanup was needed."
+  ],
+  "regression": {
+    "passed": 2658,
+    "subtests_passed": 344,
+    "suite_sha256": "16035475de889b5a849d9db5918ec7073942689f799698053daa217aff93ef73",
+    "log_sha256": "a3e27854dc46b2dc7edd2fc7c5a3188f90ae3c84fb513161d5e609be9ee790b9"
+  },
+  "limitations": [
+    "Source callback harness with display refreshes stubbed; not physical mouse input.",
+    "Fan policy restoration was exercised without an active PMBus session; preservation of that session has offline UI routing tests.",
+    "No workload, physical measurement, driver restart, registry mutation or other-adapter access.",
+    "Does not qualify arbitrary voltage replay, changed I2C requests or shared idle/adaptive state."
+  ]
+}

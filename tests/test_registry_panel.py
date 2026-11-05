@@ -3,7 +3,7 @@
 import copy
 import threading
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import ANY, Mock
 
 import dearpygui.dearpygui as dpg
 import pytest
@@ -57,6 +57,7 @@ def harness(monkeypatch):
         gpu=SimpleNamespace(slot=lambda: "0000:09:03.0"),
         s=lambda value: value,
         log=Mock(),
+        open_save_profile=Mock(),
         _closing=False,
         _stop=threading.Event(),
     )
@@ -108,6 +109,29 @@ def harness(monkeypatch):
 
 def enabled(tag):
     return dpg.get_item_configuration(tag)["enabled"]
+
+
+def test_last_recovery_wraps_complete_message_for_selected_adapter(harness):
+    h = harness
+    message = "active failure " * 40 + "\nDetails: saved-receipt.json"
+    h.app._recovery_result = {"slot": h.app.gpu.slot(), "message": message}
+    h.mocks.recover.return_value = receipt("recovery-required")
+    h.panel.recover()
+    assert dpg.get_item_configuration("reg_last_recovery")["show"] is True
+    assert dpg.get_item_configuration("reg_last_recovery")["wrap"] > 0
+    assert dpg.get_value("reg_last_recovery") == "Last device recovery (historical): " + message
+    assert enabled("reg_restore_button") is True
+
+
+@pytest.mark.parametrize("result", [None, {"slot": "0000:01:00.0", "message": "other adapter"}])
+def test_last_recovery_hidden_without_matching_result_but_undo_independent(harness, result):
+    h = harness
+    h.app._recovery_result = result
+    h.mocks.recover.return_value = receipt("recovery-required")
+    h.panel.recover()
+    assert dpg.get_item_configuration("reg_last_recovery")["show"] is False
+    assert dpg.get_value("reg_last_recovery") == ""
+    assert enabled("reg_restore_button") is True
 
 
 def fixed_rel_field():
@@ -180,7 +204,8 @@ def test_linked_current_preview_explains_firmware_readback_and_lower_votes(harne
     h.panel.prepare()
     assert h.mocks.prepare.call_args.args[1] == {key: 44000}
     text = dpg.get_value("reg_preview")
-    assert "linked-current cache and firmware-reported value must match" in text
+    assert "cached base current and its firmware readback must match" in text
+    assert "effective limit differ from this base current" in text
     assert "lower firmware vote" in text
     assert "Other loaded power definitions and requests must stay exact" in text
 
@@ -192,7 +217,7 @@ def gate_reader(h, monkeypatch, initial=True):
     }
     reader = SimpleNamespace(gpu=h.app.gpu, read=Mock(return_value=copy.deepcopy(snapshot)))
 
-    def change(value, *, expected):
+    def change(value, *, expected, before_write):
         assert expected is snapshot["enabled"]
         snapshot["enabled"] = value
         reader.read.return_value = copy.deepcopy(snapshot)
@@ -214,13 +239,13 @@ def test_voltage_gate_read_apply_and_restore_initial(harness, monkeypatch):
     reader.set_enabled.assert_not_called()
     dpg.set_value("reg_voltage_gate_value", False)
     h.panel.apply_voltage_gate()
-    reader.set_enabled.assert_called_once_with(False, expected=True)
+    reader.set_enabled.assert_called_once_with(False, expected=True, before_write=ANY)
     assert enabled("reg_voltage_gate_restore")
     h.panel.refresh_voltage_gate()
     assert h.panel.voltage_gate_initial is True
     h.panel.restore_voltage_gate()
     assert reader.set_enabled.call_args.args == (True,)
-    assert reader.set_enabled.call_args.kwargs == {"expected": False}
+    assert reader.set_enabled.call_args.kwargs == {"expected": False, "before_write": ANY}
     assert not enabled("reg_voltage_gate_restore")
     assert "without a GPU restart" in dpg.get_value("reg_voltage_gate_status")
     factory.assert_called_once_with(h.app.gpu)
@@ -1032,3 +1057,329 @@ def test_rel_clamp_preview_separates_definition_and_reported_voltage(harness):
     assert "Reported REL can remain below the clamp" in text
     assert "rounded to a voltage step" in text
     assert "GPU restart required" in text
+
+
+def test_bit4_preview_describes_shared_capability_and_main_support(harness):
+    h = harness
+    h.mocks.prepare.return_value["grpg_contracts"] = {
+        "schema": 6,
+        "before": {"controllers": {"0": {"configured_pstate_mask": 0x120}}},
+        "after": {
+            "controllers": {"0": {"configured_pstate_mask": 0x100}},
+            "main": {"bit4_group": {"1:0": {"available": True, "value": 1}}},
+        },
+    }
+    prepare_speedo(h)
+    text = dpg.get_value("reg_preview")
+    assert "last contributor to a shared auxiliary capability" in text
+    assert "main controller remains supported" in text
+    assert "P5/P8 -> P8" in text
+
+
+def test_mixed_bit4_preview_describes_multiple_shared_capabilities(harness):
+    h = harness
+    h.mocks.prepare.return_value["grpg_contracts"] = {
+        "schema": 7,
+        "before": {"controllers": {"0": {"configured_pstate_mask": 0x120}}},
+        "after": {
+            "controllers": {"0": {"configured_pstate_mask": 0}},
+            "bit1": {"roles": {str(i): {"available": False, "supported": None} for i in range(11)}},
+            "main": {"bit4_group": {"1:0": {"available": True, "value": 1}}},
+        },
+    }
+    prepare_speedo(h)
+    text = dpg.get_value("reg_preview")
+    assert "multiple shared auxiliary capabilities" in text
+    assert "main controller remains supported" in text
+    assert "P5/P8 -> none" in text
+
+
+@pytest.mark.parametrize("schema,mask,eligibility", [(6, 0x100, "P5/P8 -> P8"), (7, 0, "P5/P8 -> none")])
+def test_bit4_preview_distinguishes_empty_group_from_main_support(harness, schema, mask, eligibility):
+    h = harness
+    h.mocks.prepare.return_value["grpg_contracts"] = {
+        "schema": schema,
+        "before": {"controllers": {"0": {"configured_pstate_mask": 0x120}}},
+        "after": {
+            "controllers": {"0": {"configured_pstate_mask": mask, "supported": True}},
+            "bit1": {"roles": {str(i): {"available": False, "supported": None} for i in range(11)}},
+            "main": {"bit4_group": {"1:0": {"available": False, "value": None}}},
+        },
+    }
+    prepare_speedo(h)
+    text = dpg.get_value("reg_preview")
+    assert "All readbacks for that group become unavailable" in text
+    assert "main controller remains supported" in text
+    assert "separate configuration readback" in text
+    assert "another auxiliary role remains available" not in text
+    assert eligibility in text
+
+
+@pytest.mark.parametrize("family,controller", [("nvenc", "13"), ("ofa", "14"), ("nvjpg", "15")])
+@pytest.mark.parametrize(
+    ("supported", "mask", "expected", "other_state"),
+    [
+        (True, 0x100, "P5/P8 -> P8; support retained", "P5/P8 -> unavailable"),
+        (True, 0, "P5/P8 -> none; support retained", "P5/P8 -> unavailable"),
+        (False, None, "P5/P8 -> unavailable; support removed", "P5/P8 -> none"),
+    ],
+)
+def test_media_lpwr_preview_distinguishes_mask_and_support_states(
+    harness, family, controller, supported, mask, expected, other_state
+):
+    h = harness
+    h.mocks.prepare.return_value["media_contracts"] = {
+        "family": family,
+        "before": {"controllers": {controller: {"configured_pstate_mask": 0x120}}},
+        "after": {
+            "controllers": {
+                controller: {"supported": supported, "configured_pstate_mask": mask},
+            },
+            "bit1": {
+                "roles": {
+                    **{str(i): {"available": False, "supported": None} for i in range(11)},
+                    "0": {"available": True, "supported": True},
+                },
+            },
+        },
+    }
+    prepare_speedo(h)
+    text = dpg.get_value("reg_preview")
+    assert f"{family.upper()} low power:" in text
+    assert expected in text
+    assert other_state not in text
+    assert "Undo verifies the original configuration" in text
+
+
+@pytest.mark.parametrize("schema", [8, 9])
+@pytest.mark.parametrize("all_unavailable", [False, True])
+def test_full_main_grpg_preview_describes_peer_readability(harness, schema, all_unavailable):
+    h = harness
+    before_roles = {str(i): {"available": False, "supported": None} for i in range(11)}
+    before_roles["0"] = {"available": True, "supported": True}
+    after_roles = {str(i): {"available": False, "supported": None} for i in range(11)}
+    if not all_unavailable:
+        after_roles["1"] = {"available": True, "supported": True}
+    h.mocks.prepare.return_value["grpg_contracts"] = {
+        "schema": schema,
+        "before": {
+            "controllers": {"0": {"configured_pstate_mask": 0x8542}},
+            "bit1": {"roles": before_roles},
+        },
+        "after": {
+            "controllers": {"0": {"supported": True, "configured_pstate_mask": 0x8540}},
+            "bit1": {"roles": after_roles},
+        },
+    }
+    prepare_speedo(h)
+    text = dpg.get_value("reg_preview")
+    assert "Restore verifies the original configuration" in text
+    if all_unavailable:
+        assert "main controller remains supported and provides a separate configured-mask and feature readback" in text
+        assert "selected auxiliary support queries all become unavailable" in text
+        assert "another supported role remains readable" not in text
+    else:
+        assert "selected auxiliary role's support query becomes unavailable while another supported role remains readable" in text
+        assert "selected auxiliary support queries all become unavailable" not in text
+
+
+def test_schema7_no_peer_preview_does_not_promise_a_readable_type4_peer(harness):
+    h = harness
+    roles = {str(i): {"available": False, "supported": None} for i in range(11)}
+    roles["0"] = {"available": True, "supported": True}
+    h.mocks.prepare.return_value["grpg_contracts"] = {
+        "schema": 7,
+        "before": {
+            "controllers": {"0": {"configured_pstate_mask": 0x8542}},
+            "bit1": {"roles": roles},
+        },
+        "after": {
+            "controllers": {"0": {"supported": True, "configured_pstate_mask": 0x8540}},
+            "bit1": {"roles": {str(i): {"available": False, "supported": None} for i in range(11)}},
+            "main": {"bit4_group": {"1:0": {"available": True, "value": 1}}},
+        },
+    }
+    prepare_speedo(h)
+    text = dpg.get_value("reg_preview")
+    assert "All support queries for the selected auxiliary group also become unavailable" in text
+    assert "another supported role remains readable" not in text
+    assert "another auxiliary role remains available" not in text
+    assert "Restore verifies the original configuration" in text
+
+
+@pytest.mark.parametrize(
+    ("supported", "mask", "expected", "other_state"),
+    [
+        (True, 0x100, "P5/P8 -> P8; support retained", "P5/P8 -> unavailable"),
+        (True, 0, "P5/P8 -> none; support retained", "P5/P8 -> unavailable"),
+        (False, None, "P5/P8 -> unavailable; support removed", "P5/P8 -> none"),
+    ],
+)
+def test_nvdec_preview_distinguishes_mask_and_support_states(harness, supported, mask, expected, other_state):
+    h = harness
+    h.mocks.prepare.return_value["nvdec_contracts"] = {
+        "before": {"controllers": {"12": {"configured_pstate_mask": 0x120}}},
+        "after": {
+            "controllers": {
+                "12": {"supported": supported, "configured_pstate_mask": mask},
+            },
+            "bit1": {
+                "roles": {
+                    **{str(i): {"available": False, "supported": None} for i in range(11)},
+                    "0": {"available": True, "supported": True},
+                },
+            },
+        },
+    }
+    prepare_speedo(h)
+    text = dpg.get_value("reg_preview")
+    assert expected in text
+    assert other_state not in text
+    assert "Undo verifies the original configuration" in text
+
+
+@pytest.mark.parametrize(
+    "family,contract_key,controller,target_role",
+    [
+        ("nvdec", "nvdec_contracts", "12", "4"),
+        ("nvenc", "media_contracts", "13", "5"),
+        ("ofa", "media_contracts", "14", "7"),
+        ("nvjpg", "media_contracts", "15", "6"),
+    ],
+)
+@pytest.mark.parametrize("all_type4_unavailable", [False, True])
+def test_last_type4_role_preview_only_claims_all_unavailable_when_every_query_is_unavailable(
+    harness, family, contract_key, controller, target_role, all_type4_unavailable
+):
+    h = harness
+    before_roles = {str(i): {"available": False, "supported": None} for i in range(11)}
+    before_roles[target_role] = {"available": True, "supported": True}
+    after_roles = {str(i): {"available": False, "supported": None} for i in range(11)}
+    if not all_type4_unavailable:
+        after_roles["0"] = {"available": True, "supported": True}
+    contract = {
+        "before": {
+            "controllers": {controller: {"configured_pstate_mask": 0x120}},
+            "bit1": {"roles": before_roles},
+        },
+        "after": {
+            "controllers": {controller: {"supported": False, "configured_pstate_mask": None}},
+            "bit1": {"roles": after_roles},
+        },
+    }
+    if family != "nvdec":
+        contract["family"] = family
+    h.mocks.prepare.return_value[contract_key] = contract
+    prepare_speedo(h)
+    text = dpg.get_value("reg_preview")
+    unavailable_notice = "All support queries for this auxiliary group become unavailable"
+    assert (unavailable_notice in text) is all_type4_unavailable
+    assert "Undo verifies the original configuration" in text
+
+
+def _rendered_texts(parent):
+    values = []
+    if dpg.get_item_type(parent).endswith("mvAppItemType::mvText"):
+        values.append(dpg.get_value(parent))
+    for children in dpg.get_item_children(parent).values():
+        for child in children:
+            values.extend(_rendered_texts(child))
+    return values
+
+
+@pytest.mark.parametrize("removed", ["9", "10", "11"])
+def test_difr_subfeature_preview_distinguishes_independent_controllers(harness, removed):
+    h = harness
+    before = {key: {"supported": True, "configured_pstate_mask": 0x120} for key in ("9", "10", "11")}
+    after = copy.deepcopy(before)
+    after[removed] = {"supported": False, "configured_pstate_mask": None}
+    h.mocks.prepare.return_value["lpwr_contracts"] = {"before": {"controllers": before}, "after": after}
+    h.mocks.prepare.return_value["lpwr_contracts"]["before"]["features"] = dict.fromkeys(before, 3)
+    h.mocks.prepare.return_value["lpwr_contracts"]["after_features"] = {key: 3 for key in after if key != removed}
+    prepare_speedo(h)
+    text = dpg.get_value("reg_preview")
+    for key, label in panel_module._DIFR_LABELS.items():
+        expected = "unavailable; support removed" if key == removed else "P5/P8; support retained"
+        assert f"{label}: configured P-states P5/P8 -> {expected}." in text
+        feature = "unavailable" if key == removed else "0x3"
+        assert f"{label} configured features: 0x3 -> {feature}." in text
+
+
+def test_difr_preview_displays_complete_conditional_outcomes(harness):
+    h = harness
+    before = {key: {"supported": True, "configured_pstate_mask": 0x100} for key in ("9", "10", "11")}
+    alone = copy.deepcopy(before)
+    absent = {"supported": False, "configured_pstate_mask": None}
+    alone["9"] = absent
+    outcomes = [
+        {"controllers": alone, "features": {"10": 3, "11": 3}},
+        {"controllers": dict.fromkeys(before, absent), "features": {}},
+    ]
+    h.mocks.prepare.return_value["lpwr_contracts"] = {
+        "before": {"controllers": before, "features": dict.fromkeys(before, 3)},
+        "after": alone, "after_features": outcomes[0]["features"], "after_alternatives": outcomes,
+    }
+    prepare_speedo(h)
+    text = dpg.get_value("reg_preview")
+    assert "Driver dependencies allow either of these complete configured outcomes" in text
+    first, second = text.split("Possible outcome 1:")[1].split("Possible outcome 2:")
+    assert "MS DIFR SW-ASR: configured P-states P8 -> P8; support retained." in first
+    assert "MS DIFR SW-ASR: configured P-states P8 -> unavailable; support removed." in second
+    assert "MS DIFR CG configured features: 0x3 -> unavailable." in second
+
+
+@pytest.mark.parametrize(("current", "expected"), [(False, "False"), (True, "True"), (None, "unavailable")])
+def test_read_only_boolean_fields_render_boolean_state(harness, current, expected):
+    h = harness
+    field = bios_field("lpwr.gr_pg.0.enabled", label="GR power gate", group="Boolean rendering",
+                       units="bool", current=current, mask=1, capability="read-only")
+    h.mocks.inspect.return_value = {"sha256": "fake-digest", "fields": [field], "diagnostics": []}
+    h.panel.refresh()
+    texts = _rendered_texts("reg_fields")
+    assert expected in texts
+    if current is False:
+        assert "0.0" not in texts
+
+
+def test_read_only_numeric_fields_keep_display_units(harness):
+    h = harness
+    field = bios_field("power.4.maximum", label="Board maximum", group="Numeric rendering",
+                       units="mW", current=325000, capability="read-only")
+    h.mocks.inspect.return_value = {"sha256": "fake-digest", "fields": [field], "diagnostics": []}
+    h.panel.refresh()
+    texts = _rendered_texts("reg_fields")
+    assert "325.0" in texts
+    assert "Board maximum (W)" in texts
+    assert "325000.0" not in texts
+
+
+@pytest.mark.parametrize("kind,selection", [
+    ("gate", None), ("rel_bounds", (1, "bounds")),
+    ("constants", (0, "ALT")), ("switch_delay", 5),
+])
+def test_voltage_undo_callback_saves_selected_fresh_snapshot(monkeypatch, kind, selection):
+    app = SimpleNamespace(gpu=object(), log=Mock())
+    panel = panel_module.RegistryPanel(app)
+    snapshot = {"fresh": object()}
+    state = {"captured": True}
+    capture = Mock(return_value=state)
+    save = Mock(return_value=("undo", "path", []))
+    monkeypatch.setattr(panel_module.profiles, "capture_voltage_controls", capture, raising=False)
+    monkeypatch.setattr(panel_module.profiles, "autosave_state", save)
+    panel._voltage_undo_callback(kind, selection)(snapshot)
+    capture.assert_called_once_with(app.gpu, kind, snapshot=snapshot, selection=selection)
+    save.assert_called_once_with(f"voltage-{kind}", state)
+
+
+def test_failed_voltage_undo_prevents_hooked_write(monkeypatch):
+    app = SimpleNamespace(gpu=object(), log=Mock())
+    panel = panel_module.RegistryPanel(app)
+    monkeypatch.setattr(panel_module.profiles, "capture_voltage_controls", Mock(return_value={}), raising=False)
+    monkeypatch.setattr(panel_module.profiles, "autosave_state", Mock(side_effect=OSError("disk full")))
+    writes = []
+    def setter(*, before_write):
+        before_write({"fresh": True})
+        writes.append(True)
+    with pytest.raises(OSError, match="disk full"):
+        setter(before_write=panel._voltage_undo_callback("gate"))
+    assert not writes

@@ -22,11 +22,12 @@ from .clock_vf_registry import _identity
 from .perf_diagnostics import PerfDiagnosticError, PerfDiagnosticsReader
 from .registry_flags import _same_state
 
-KEY = re.compile(r"lpwr\.difr\.(0|[1-9][0-9]*)\.enabled\Z")
+KEY = re.compile(r"lpwr\.difr\.(0|[1-9][0-9]*)\.(enabled|dfpr_enabled|sw_asr_enabled|cg_enabled)\Z")
+BITS = {"enabled": 1, "dfpr_enabled": 2, "sw_asr_enabled": 4, "cg_enabled": 8}
 CONTROLLERS = {9: "DFPR", 10: "MS DIFR SW-ASR", 11: "MS DIFR CG"}
 PSTATE_COMMAND, PSTATE_SIZE = 0x2080A0A7, 0x450C
 ATTRIBUTE_COMMAND, ATTRIBUTE_SIZE = 0x2080A801, 0x404
-SUPPORT, STATES = 0x39, 0x36
+SUPPORT, STATES, FEATURES = 0x39, 0x36, 0x38
 _HEX256 = re.compile(r"[0-9a-f]{64}\Z")
 _OBS_KEYS = {
     "schema",
@@ -78,6 +79,9 @@ def selected(changes):
         result[key] = value
     if result and len(result) != len(changes):
         raise LpwrError("Apply DIFR disables separately from other BIOS controls")
+    roles = {KEY.fullmatch(key)[2] == "enabled" for key in result}
+    if len(roles) > 1:
+        raise LpwrError("Apply DIFR row and subfeature disables in separate transactions")
     return result
 
 
@@ -152,7 +156,7 @@ def _controllers(support_raw, states_raw):
 
 
 def _observation(value):
-    if not isinstance(value, dict) or set(value) != _OBS_KEYS:
+    if not isinstance(value, dict) or set(value) not in (_OBS_KEYS, _OBS_KEYS | {"feature_hex", "features"}):
         raise LpwrError("Malformed LPWR observation")
     if type(value["schema"]) is not int or value["schema"] != 1:
         raise LpwrError("Unknown LPWR observation schema")
@@ -165,7 +169,23 @@ def _observation(value):
     controllers = _controllers(support, states)
     if not _same_state(pstates, value["pstates"]) or not _same_state(controllers, value["controllers"]):
         raise LpwrError("Typed LPWR observation differs from its reply bytes")
-    return {"identity": identity, "pstates": pstates, "controllers": controllers}
+    result = {"identity": identity, "pstates": pstates, "controllers": controllers}
+    if "feature_hex" in value:
+        indices = tuple(i for i in CONTROLLERS if controllers[str(i)]["supported"] is True)
+        if not indices:
+            if value["feature_hex"] is not None or value["features"] != {}:
+                raise LpwrError("Unexpected DIFR feature reply")
+            features = {}
+        else:
+            raw = _hex(value["feature_hex"], ATTRIBUTE_SIZE)
+            decoded = _attributes(raw, FEATURES, indices)
+            if any(not available for available, _ in decoded.values()):
+                raise LpwrError("Supported DIFR feature readback is unavailable")
+            features = {key: number for key, (_, number) in decoded.items()}
+            if not _same_state(features, value["features"]):
+                raise LpwrError("Typed DIFR features differ from reply bytes")
+        result["features"] = features
+    return result
 
 
 def _get(reader, identity, command, size, request=None):
@@ -206,7 +226,7 @@ def _get(reader, identity, command, size, request=None):
     return bytes(buffer)[68:]
 
 
-def _once(reader, identity):
+def _once(reader, identity, features=False):
     info = _get(reader, identity, PSTATE_COMMAND, PSTATE_SIZE)
     _pstates(info)
     support = _get(reader, identity, ATTRIBUTE_COMMAND, ATTRIBUTE_SIZE, _request(SUPPORT, tuple(CONTROLLERS)))
@@ -229,11 +249,16 @@ def _once(reader, identity):
         "states_hex": states.hex() if states is not None else None,
         "controllers": _controllers(support, states),
     }
+    if features:
+        raw = _get(reader, identity, ATTRIBUTE_COMMAND, ATTRIBUTE_SIZE, _request(FEATURES, indices)) if indices else None
+        decoded = _attributes(raw, FEATURES, indices) if raw is not None else {}
+        result["feature_hex"] = raw.hex() if raw is not None else None
+        result["features"] = {key: value for key, (available, value) in decoded.items() if available}
     _observation(result)
     return result
 
 
-def read(gpu):
+def read(gpu, *, features=False):
     """Read loaded configuration. False support remains an available value."""
     reader = PerfDiagnosticsReader(gpu)
     try:
@@ -241,7 +266,7 @@ def read(gpu):
             identity = clock._binding(reader)
             for attempt in range(2):
                 try:
-                    first, second = _once(reader, identity), _once(reader, identity)
+                    first, second = _once(reader, identity, features), _once(reader, identity, features)
                     if not _same_state(_observation(first), _observation(second)):
                         raise PerfDiagnosticError(
                             "unstable", "LPWR routes or controller configuration changed between reads"
@@ -334,7 +359,9 @@ def _table_data(tables):
 def _model(tables, pstates, disable=()):
     data = _table_data(tables)
     index, difr = data["index"], data["difr"]
-    flags = [difr[11 + 18 * i] if i not in disable else difr[11 + 18 * i] & ~1 for i in range(difr[3])]
+    flags = [difr[11 + 18 * i] & ~disable.get(i, 0) for i in range(difr[3])] if isinstance(disable, dict) else [
+        difr[11 + 18 * i] & ~(1 if i in disable else 0) for i in range(difr[3])
+    ]
     masks = {str(i): 0 for i in CONTROLLERS}
     for row in pstates["rows"]:
         selector = row["lpwr_index"]
@@ -365,13 +392,43 @@ def _model(tables, pstates, disable=()):
     return result
 
 
+def _closure(controllers, dependency):
+    result = copy.deepcopy(controllers)
+    if dependency is None:
+        return result
+    if dependency and not result["9"]["supported"]:
+        result["10"].update(supported=False, states_available=False, configured_pstate_mask=None)
+    if not result["10"]["supported"]:
+        result["11"].update(supported=False, states_available=False, configured_pstate_mask=None)
+    return result
+
+
+def _alternatives(tables, changes, core, raw_after):
+    raw_before = _model(tables, core["pstates"])
+    result = []
+    for mode in (False, True):
+        if not _same_state(_closure(raw_before, mode), core["controllers"]):
+            continue
+        controllers = _closure(raw_after, mode)
+        candidate = {"controllers": controllers,
+                     "features": _feature_projection(tables, changes, core, controllers)}
+        if not any(_same_state(candidate, existing) for existing in result):
+            result.append(candidate)
+    if not result:
+        raise LpwrError("No DIFR dependency projection matches the observed state")
+    return result
+
+
 def _derive(changes, before, tables):
     requested = selected(changes)
     core = _observation(before)
     data = _table_data(tables)
-    if not _same_state(core["controllers"], _model(tables, core["pstates"])):
+    before_model = _model(tables, core["pstates"])
+    child = any(KEY.fullmatch(key)[2] != "enabled" for key in requested)
+    modes = (False, True) if child else (None,)
+    if not any(_same_state(core["controllers"], _closure(before_model, mode)) for mode in modes):
         raise LpwrError("Loaded DIFR support or configured masks do not match the bounded BIOS model")
-    bindings, disabled = {}, []
+    bindings, disabled = {}, {}
     for key in requested:
         index = int(KEY.fullmatch(key)[1])
         if index >= data["difr"][3]:
@@ -380,14 +437,56 @@ def _derive(changes, before, tables):
         value = data["difr"][offset]
         if not value & 1:
             raise LpwrError("Selected DIFR entry is already disabled")
+        bit = BITS[KEY.fullmatch(key)[2]]
+        if not value & bit:
+            raise LpwrError("Selected DIFR subfeature is already disabled")
+        disabled[index] = disabled.get(index, 0) | bit
         bindings[key] = {
             "index": index,
             "offset": tables["difr"]["offset"] + offset,
             "before_byte": value,
-            "after_byte": value & ~1,
+            "after_byte": value & ~bit,
         }
-        disabled.append(index)
+    for binding in bindings.values():
+        binding["after_byte"] = binding["before_byte"] & ~disabled[binding["index"]]
     return bindings, _model(tables, core["pstates"], disabled)
+
+
+def _feature_projection(tables, changes, core, after):
+    if "features" not in core:
+        raise LpwrError("DIFR subfeature changes require feature readback")
+    difr = _table_data(tables)["difr"]
+    removed = {}
+    for key in changes:
+        match = KEY.fullmatch(key)
+        index = int(match[1])
+        removed[index] = removed.get(index, 0) | BITS[match[2]]
+    def raw_union(masks):
+        unions = {"9": 0, "10": 0, "11": 0}
+        for index in range(difr[3]):
+            raw = struct.unpack_from("<I", difr, 11 + 18 * index)[0]
+            raw &= ~masks.get(index, 0)
+            if not raw & 1:
+                continue
+            if raw & 2:
+                unions["9"] |= 0xF
+            if raw & 4:
+                unions["10"] |= 0x72B40FE
+            if raw & 8:
+                word = 0x0E0B10D
+                for flag, feature in ((0x10, 0x2000), (0x20, 0x100),
+                                      (0x40, 0xC00000), (0x200, 0x1000)):
+                    if not raw & flag:
+                        word &= ~feature
+                unions["11"] |= word
+        return unions
+
+    before_union = raw_union({})
+    if any(value & ~before_union[key] for key, value in core["features"].items()):
+        raise LpwrError("Loaded DIFR features contradict the BIOS contribution union")
+    unions = raw_union(removed)
+    return {key: core["features"][key] & unions[key] for key in unions
+            if after[key]["supported"] is True}
 
 
 def contracts(gpu, image_bytes, changes):
@@ -395,12 +494,13 @@ def contracts(gpu, image_bytes, changes):
     if not selected(changes):
         return {}
     tables = _tables(image_bytes)
-    before, error = read(gpu)
+    feature_contract = any(KEY.fullmatch(key)[2] != "enabled" for key in changes)
+    before, error = read(gpu, features=True) if feature_contract else read(gpu)
     if error or before is None:
         raise LpwrError("DIFR configuration is unavailable: " + str(error))
     bindings, after = _derive(changes, before, tables)
-    return {
-        "schema": 1,
+    result = {
+        "schema": 2 if feature_contract else 1,
         "kind": "lpwr_difr_disable",
         "before_image_sha256": hashlib.sha256(image_bytes).hexdigest(),
         "before": copy.deepcopy(before),
@@ -408,6 +508,12 @@ def contracts(gpu, image_bytes, changes):
         "selected": bindings,
         "after": after,
     }
+    if feature_contract:
+        alternatives = _alternatives(tables, changes, _observation(before), after)
+        result["after_alternatives"] = alternatives
+        result["after"] = alternatives[0]["controllers"]
+        result["after_features"] = alternatives[0]["features"]
+    return result
 
 
 def validate_contracts(changes, saved):
@@ -419,7 +525,7 @@ def validate_contracts(changes, saved):
         not requested
         or not isinstance(saved, dict)
         or set(saved)
-        != {
+        != ({
             "schema",
             "kind",
             "before_image_sha256",
@@ -427,17 +533,27 @@ def validate_contracts(changes, saved):
             "tables",
             "selected",
             "after",
-        }
+        } | ({"after_features", "after_alternatives"} if saved.get("schema") == 2 else set()))
     ):
         raise LpwrError("Missing or malformed DIFR disable contract")
-    if type(saved["schema"]) is not int or saved["schema"] != 1 or saved["kind"] != "lpwr_difr_disable":
+    expected_schema = 2 if any(KEY.fullmatch(key)[2] != "enabled" for key in requested) else 1
+    if type(saved["schema"]) is not int or saved["schema"] != expected_schema or saved["kind"] != "lpwr_difr_disable":
         raise LpwrError("Unknown DIFR disable contract")
     digest = saved["before_image_sha256"]
     if not isinstance(digest, str) or not _HEX256.fullmatch(digest):
         raise LpwrError("Invalid DIFR before-image binding")
-    bindings, after = _derive(requested, saved["before"], saved["tables"])
-    if not _same_state(bindings, saved["selected"]) or not _same_state(after, saved["after"]):
-        raise LpwrError("Saved DIFR projection differs from selected fields or BIOS model")
+    bindings, raw_after = _derive(requested, saved["before"], saved["tables"])
+    if not _same_state(bindings, saved["selected"]):
+        raise LpwrError("Saved DIFR bindings differ from selected fields or BIOS model")
+    if expected_schema == 1:
+        if not _same_state(raw_after, saved["after"]):
+            raise LpwrError("Saved DIFR projection differs from BIOS model")
+    else:
+        alternatives = _alternatives(saved["tables"], requested, _observation(saved["before"]), raw_after)
+        if (not _same_state(alternatives, saved["after_alternatives"])
+                or not _same_state(alternatives[0]["controllers"], saved["after"])
+                or not _same_state(alternatives[0]["features"], saved["after_features"])):
+            raise LpwrError("Saved DIFR alternatives differ from BIOS model")
 
 
 def verify(observation, saved, restore=False):
@@ -451,7 +567,15 @@ def verify(observation, saved, restore=False):
     before, actual = _observation(saved["before"]), _observation(observation)
     if not _same_state(actual["identity"], before["identity"]) or not _same_state(actual["pstates"], before["pstates"]):
         raise LpwrError("Loaded DIFR target or Pstate routing changed")
-    expected = before["controllers"] if restore else saved["after"]
-    if not _same_state(actual["controllers"], expected):
-        raise LpwrError("Loaded DIFR support or configured masks differ from the expected state")
+    if saved["schema"] == 2 and not restore:
+        if not any(_same_state(actual["controllers"], item["controllers"])
+                   and _same_state(actual.get("features"), item["features"])
+                   for item in saved["after_alternatives"]):
+            raise LpwrError("Loaded DIFR controllers and features differ from all expected alternatives")
+    else:
+        expected = before["controllers"] if restore else saved["after"]
+        if not _same_state(actual["controllers"], expected):
+            raise LpwrError("Loaded DIFR support or configured masks differ from the expected state")
+        if saved["schema"] == 2 and not _same_state(actual.get("features"), before["features"]):
+            raise LpwrError("Loaded DIFR features differ from the expected state")
     return sorted(changes)

@@ -10,6 +10,7 @@ No registry entry is written and no device restart is requested.
 
 from __future__ import annotations
 
+import copy
 import ctypes
 from dataclasses import dataclass
 
@@ -192,7 +193,7 @@ class VoltageRequestGate:
         result["attempted"] = write.dispatched
         return result
 
-    def set_enabled(self, enabled: bool, *, expected: bool | None = None):
+    def set_enabled(self, enabled: bool, *, expected: bool | None = None, before_write=None):
         """Set admission and verify it, restoring the atomic prior state on error.
 
         expected guards a stale UI snapshot. Even an identity write is sent and
@@ -208,6 +209,8 @@ class VoltageRequestGate:
             before = self._read_locked()
             if expected is not None and before["enabled"] is not expected:
                 raise VoltageRequestGateError("stale", "Voltage-request admission changed since the displayed snapshot")
+            if before_write is not None and before["enabled"] is not enabled:
+                before_write(copy.deepcopy(before))
             write = _Write()
             try:
                 transport = self._transport()

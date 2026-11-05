@@ -66,7 +66,9 @@ def test_field_explains_the_shared_capability_boundary(harness):
     detail = harness.panel.fields[key]["detail"]
     assert "separate transaction" in detail
     assert "last shared auxiliary contributor" in detail
-    assert "last enabled entry" in detail
+    assert "Preview admits understood dependency transitions" in detail
+    assert "verifies the predicted related readbacks" in detail
+    assert "needs further validation" not in detail
 
 
 def test_auxiliary_transition_preview_describes_its_additional_verification(harness):
@@ -133,6 +135,35 @@ def test_main_support_loss_preview_describes_candidate_profiles(harness, cleared
     assert ("controller 2 (GR RG)" in text) is expected[0]
     assert ("controller 4 (MS CG)" in text) is expected[1]
     assert "may also become unsupported" in text if any(expected) else "may also become unsupported" not in text
+    assert "controller support and the other low-power controller masks must stay unchanged" not in text
+    assert enabled("reg_apply_button")
+
+
+@pytest.mark.parametrize("availability", [[(True, True)], [(False, False)], [(True, True), (False, False)]])
+def test_complete_main_preview_explains_unavailable_groups_and_complete_profiles(harness, availability):
+    h = harness
+    setup_field(h)
+    contract = h.mocks.prepare.return_value["grpg_contracts"]
+    contract.update(schema=10, after_profiles=[
+        {"cleared": [0], "bit1": {"roles": {"0": {"available": bit1}}},
+         "main": {"bit4_group": {"1:0": {"available": bit4}}}}
+        for bit1, bit4 in availability
+    ])
+    del contract["after"]
+    h.panel.prepare()
+    text = dpg.get_value("reg_preview")
+    assert "main controller 0 support enabled -> unsupported" in text
+    assert "one complete previewed profile" in text
+    assert "Physical residency and power savings remain unmeasured" in text
+    if len(availability) > 1:
+        assert "support queries for one auxiliary group may become unavailable" in text
+        assert "final shared capability group may become unavailable" in text
+    elif availability[0] == (False, False):
+        assert "All support queries for one auxiliary group become unavailable" in text
+        assert "final shared capability group becomes unavailable" in text
+    else:
+        assert "group may become unavailable" not in text
+        assert "group becomes unavailable" not in text
     assert "controller support and the other low-power controller masks must stay unchanged" not in text
     assert enabled("reg_apply_button")
 

@@ -5,7 +5,7 @@
 import copy
 import unittest
 from types import SimpleNamespace
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import ANY, MagicMock, Mock, patch
 
 from druta.registry_panel import RegistryPanel
 
@@ -60,7 +60,7 @@ class LiveClockVfPanelTests(unittest.TestCase):
         self.values.update(reg_vf_live_monotonicity=False, reg_vf_live_smoothening=True)
         self.controller.set.return_value = observation(monotonicity=False)
         self.panel.apply_clock_vf_live()
-        self.controller.set.assert_called_once_with({MONO: False, SMOOTH: True})
+        self.controller.set.assert_called_once_with({MONO: False, SMOOTH: True}, before_write=ANY)
         self.assertTrue(self.enabled["reg_vf_live_restore"])
         self.panel.invalidate.assert_called_once_with()
         self.assertIn("Applied live", self.values["reg_vf_live_status"])
@@ -72,7 +72,7 @@ class LiveClockVfPanelTests(unittest.TestCase):
         self.assertEqual(self.panel.clock_vf_initial, {MONO: True, SMOOTH: True})
         self.controller.set.return_value = observation()
         self.panel.restore_clock_vf_live()
-        self.controller.set.assert_called_once_with({MONO: True, SMOOTH: True})
+        self.controller.set.assert_called_once_with({MONO: True, SMOOTH: True}, before_write=ANY)
         self.assertFalse(self.enabled["reg_vf_live_restore"])
 
     def test_switch_adapter_requires_new_read_and_has_its_own_initial_values(self):
@@ -133,6 +133,39 @@ class LiveClockVfPanelTests(unittest.TestCase):
     def test_restore_without_initial_read_does_nothing(self):
         self.panel.restore_clock_vf_live()
         self.controller.set.assert_not_called()
+
+    def test_before_write_captures_only_changed_fields_from_fresh_snapshot(self):
+        self.read()
+        fresh = observation(monotonicity=True, smoothing=False)
+        self.values.update(reg_vf_live_monotonicity=False, reg_vf_live_smoothening=False)
+        saved = {"scope": "clock_vf"}
+
+        def set_with_callback(changes, *, before_write):
+            before_write(fresh)
+            return observation(monotonicity=False, smoothing=False)
+
+        self.controller.set.side_effect = set_with_callback
+        with (patch("druta.registry_panel.profiles.capture_clock_vf", return_value=saved) as capture,
+              patch("druta.registry_panel.profiles.autosave_state", return_value=("undo", "path", [])) as save):
+            self.panel.apply_clock_vf_live()
+        capture.assert_called_once_with(self.gpu, snapshot=fresh, selection=[MONO])
+        save.assert_called_once_with("live-vf-policies", saved)
+
+    def test_before_write_save_failure_stops_controller_before_write(self):
+        self.read()
+        self.values.update(reg_vf_live_monotonicity=False)
+        write = Mock()
+
+        def set_with_callback(changes, *, before_write):
+            before_write(observation())
+            write(changes)
+
+        self.controller.set.side_effect = set_with_callback
+        with (patch("druta.registry_panel.profiles.capture_clock_vf", return_value={"scope": "clock_vf"}),
+              patch("druta.registry_panel.profiles.autosave_state", side_effect=OSError("disk full"))):
+            self.panel.apply_clock_vf_live()
+        write.assert_not_called()
+        self.assertIn("disk full", self.values["reg_vf_live_status"])
 
 
 if __name__ == "__main__":

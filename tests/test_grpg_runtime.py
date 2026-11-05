@@ -91,6 +91,17 @@ def make_contract(monkeypatch, *, image=None, obs=None, changes=None):
     obs = observation() if obs is None else obs
     changes = DEFAULT_CHANGES if changes is None else changes
     monkeypatch.setattr(gr, "read", lambda gpu, **kwargs: (copy.deepcopy(obs), None))
+    tables = gr._tables(image)
+    loss = gr._aggregate_change(changes, tables)
+    if loss in (2, 10) and "main" not in obs:
+        schema = 3 if loss == 2 else 4
+        bindings, after, auxiliary, bit1 = gr._derive(changes, obs, tables)
+        saved = {"schema": schema, "kind": "lpwr_grpg_disable", "before_image_sha256": hashlib.sha256(image).hexdigest(),
+                 "before": copy.deepcopy(obs), "tables": tables, "selected": bindings, "after": after, "after_bit1": bit1}
+        if schema == 4:
+            saved["after_auxiliary"] = auxiliary
+        gr.validate_contracts(changes, saved)
+        return saved
     return gr.contracts(None, image, changes)
 
 
@@ -235,11 +246,31 @@ def make_main_contract(monkeypatch, *, image=None, obs=None, changes=None):
     )
 
 
+def bit4_observation(**kwargs):
+    result = main_observation(**kwargs)
+    feature = copy.deepcopy(result["auxiliary"]["feature"])
+    feature["value"] |= 8
+    group = copy.deepcopy(result["auxiliary"]["group"])
+    group["806:0"]["value"] = 0x42
+    result["auxiliary"] = _aux_packets(feature, group)
+    main = copy.deepcopy(result["main"])
+    main["features"]["0"] = copy.deepcopy(feature)
+    main["bit4_group"]["805:0"]["value"] = 0x40
+    result["main"] = _main_packets(result["controllers"], main)
+    return result
+
+
+def make_bit4_contract(monkeypatch, *, image=None, obs=None, changes=None):
+    return make_contract(monkeypatch, image=bios(flags=(0x1B, 0x0B, 0x03)) if image is None else image,
+                         obs=bit4_observation() if obs is None else obs,
+                         changes=DEFAULT_CHANGES if changes is None else changes)
+
+
 def observed_main(saved, *, profile=0, restore=False):
     result = copy.deepcopy(saved["before"])
     if restore:
         return result
-    projected = saved["after_profiles"][profile]
+    projected = saved["after"] if saved["schema"] in (6, 7, 8, 9) else saved["after_profiles"][profile]
     controllers = copy.deepcopy(projected["controllers"])
     result["controllers"] = controllers
     result["support_hex"] = _attribute_reply(lp.SUPPORT, gr.CONTROLLERS, controllers).hex()
@@ -252,7 +283,7 @@ def observed_main(saved, *, profile=0, restore=False):
 
 
 def observed(saved, *, restore=False):
-    if saved["schema"] == 5:
+    if saved["schema"] in (5, 6, 7, 8, 9, 10):
         return observed_main(saved, restore=restore)
     result = copy.deepcopy(saved["before"])
     controllers = result["controllers"] if restore else saved["after"]
@@ -380,17 +411,17 @@ def test_strict_disable_keys_values_and_category(changes):
 
 @pytest.mark.parametrize("flags", [(0x1B,), (0x1B, 1, 1), (0x1B, 0x19, 0x19), (0x1B, 0x13, 0x13), (0x1B, 0xB, 0xB)])
 def test_last_main_or_auxiliary_presence_loss_needs_qualified_scope(monkeypatch, flags):
-    with pytest.raises(gr.GrpgError, match="last enabled|auxiliary|bit1"):
+    with pytest.raises(gr.GrpgError, match="last enabled|auxiliary|bit1|bit4|dependency readbacks"):
         make_contract(monkeypatch, image=bios(flags=flags))
 
 
 def test_disabled_auxiliary_bits_do_not_supply_aggregate_preservation(monkeypatch):
-    with pytest.raises(gr.GrpgError, match="auxiliary"):
+    with pytest.raises(gr.GrpgError, match="auxiliary|membership|bit4"):
         make_contract(monkeypatch, image=bios(flags=(0x1B, 0x1A, 1)))
 
 
 def test_multiple_removal_cannot_lose_last_auxiliary_entry(monkeypatch):
-    with pytest.raises(gr.GrpgError, match="auxiliary"):
+    with pytest.raises(gr.GrpgError, match="auxiliary|membership|bit4"):
         make_contract(
             monkeypatch, image=bios(flags=(0x1B, 0x1B, 1)), changes={**DEFAULT_CHANGES, "lpwr.gr_pg.1.enabled": False}
         )
@@ -726,9 +757,9 @@ def test_last_contributor_requires_independent_available_affected_fields(monkeyp
         make_aux_contract(monkeypatch, obs=source)
 
 
-def test_main_and_bit4_loss_remain_unqualified_with_auxiliary_available(monkeypatch):
+def test_main_and_bit4_loss_needs_full_dependency_readbacks(monkeypatch):
     for flags in ((0x1B,), (0x1B, 1, 1), (0x1B, 3, 3)):
-        with pytest.raises(gr.GrpgError, match="unqualified auxiliary|last enabled"):
+        with pytest.raises(gr.GrpgError, match="unqualified auxiliary|last enabled|bit4|dependency readbacks"):
             make_aux_contract(monkeypatch, image=bios(flags=flags))
 
 
@@ -876,7 +907,7 @@ def test_schema3_admission_needs_target_and_independent_supported_witness(monkey
 
 @pytest.mark.parametrize("flags", [(0x6B,), (0x1B, 1, 1), (0x1B, 9, 9)])
 def test_schema3_cannot_admit_main_or_bit4_loss(monkeypatch, flags):
-    with pytest.raises(gr.GrpgError, match="last enabled|unqualified auxiliary|independent dependency"):
+    with pytest.raises(gr.GrpgError, match="last enabled|unqualified auxiliary|independent dependency|bit4"):
         make_bit1_contract(monkeypatch, image=bios(flags=flags), changes=DEFAULT_CHANGES)
 
 
@@ -926,6 +957,12 @@ def test_contracts_request_only_the_selected_readback_scope(monkeypatch):
 
     def read(gpu, **kwargs):
         scopes.append(kwargs)
+        if kwargs.get("main"):
+            obs = main_observation()
+            aux = obs["auxiliary"]
+            aux["group"]["806:0"]["value"] = 0x42
+            obs["auxiliary"] = _aux_packets(aux["feature"], aux["group"])
+            return obs, None
         if kwargs.get("bit1"):
             return bit1_observation(), None
         if kwargs.get("auxiliary"):
@@ -936,8 +973,8 @@ def test_contracts_request_only_the_selected_readback_scope(monkeypatch):
     old = gr.contracts(None, bios(), DEFAULT_CHANGES)
     aux = gr.contracts(None, bios(flags=(0x1B, 0x13, 0x13)), DEFAULT_CHANGES)
     bit1 = gr.contracts(None, bios(flags=(0x69, 0x6B, 0x61)), {"lpwr.gr_pg.1.enabled": False})
-    assert scopes == [{}, {"auxiliary": True}, {"bit1": True}]
-    assert [s["schema"] for s in (old, aux, bit1)] == [1, 2, 3]
+    assert scopes == [{}, {"auxiliary": True}, {"main": True}]
+    assert [s["schema"] for s in (old, aux, bit1)] == [1, 2, 8]
     for saved in (old, aux, bit1):
         assert gr.verify(observed(saved, restore=True), saved, restore=True)
 
@@ -1205,3 +1242,405 @@ def test_main_type7_malformed_or_unstable_get_never_becomes_a_profile(mutation):
     gpu = FakeGPU(obs=main_observation(), actions=(*([None] * 7), action))
     result, error = gr.read(gpu, main=True)
     assert result is None and error and len(gpu.calls) == (16 if mutation == "unstable" else 8)
+
+
+def test_bit4_contract_roundtrip_and_exact_peers(monkeypatch):
+    saved = make_bit4_contract(monkeypatch)
+    assert saved["schema"] == 6
+    assert saved["after"]["controllers"]["0"]["configured_pstate_mask"] == 0x8502
+    assert saved["after"]["main"]["features"]["0"]["value"] & 8 == 0
+    assert saved["after"]["auxiliary"]["feature"]["value"] & 8 == 0
+    assert saved["after"]["main"]["bit4_group"]["801:0"]["value"] == 0
+    gr.validate_contracts(DEFAULT_CHANGES, json.loads(json.dumps(saved)))
+    assert gr.verify(observed(saved), saved) == list(DEFAULT_CHANGES)
+    assert gr.verify(observed(saved, restore=True), saved, restore=True) == list(DEFAULT_CHANGES)
+    bad = observed(saved)
+    main = copy.deepcopy(bad["main"])
+    main["bit4_group"]["805:1"]["value"] ^= 1
+    bad["main"] = _main_packets(bad["controllers"], main)
+    with pytest.raises(gr.GrpgError):
+        gr.verify(bad, saved)
+    bad_saved = copy.deepcopy(saved)
+    bad_saved["after"]["main"]["features"]["0"]["value"] |= 8
+    with pytest.raises(gr.GrpgError):
+        gr.validate_contracts(DEFAULT_CHANGES, bad_saved)
+
+
+@pytest.mark.parametrize("failure", ["mask", "witness", "feature"])
+def test_bit4_requires_complete_witness_and_exact_routes(monkeypatch, failure):
+    obs = bit4_observation()
+    main = copy.deepcopy(obs["main"])
+    if failure == "mask":
+        main["bit4_group"]["805:0"]["value"] ^= 2
+    elif failure == "witness":
+        main["bit4_group"]["801:1"] = {"available": False, "value": None}
+        main["bit4_group"]["801:2"]["value"] = 0
+    else:
+        obs["auxiliary"]["feature"]["value"] &= ~8
+        obs["auxiliary"] = _aux_packets(obs["auxiliary"]["feature"], obs["auxiliary"]["group"])
+        main["features"]["0"]["value"] &= ~8
+    obs["main"] = _main_packets(obs["controllers"], main)
+    with pytest.raises(gr.GrpgError):
+        make_bit4_contract(monkeypatch, obs=obs)
+
+
+def test_bit4_combined_loss_stays_refused(monkeypatch):
+    with pytest.raises(gr.GrpgError):
+        make_bit4_contract(monkeypatch, image=bios(flags=(0x1B, 0x01, 0x01)))
+
+
+def test_bit4_preserves_unavailable_auxiliary_feature(monkeypatch):
+    obs = bit4_observation()
+    obs["auxiliary"] = _aux_packets({"available": False, "value": None}, obs["auxiliary"]["group"])
+    saved = make_bit4_contract(monkeypatch, obs=obs)
+    assert saved["after"]["auxiliary"]["feature"] == {"available": False, "value": None}
+    assert saved["after"]["main"]["features"]["0"]["value"] & 8 == 0
+    assert gr.verify(observed(saved), saved) == list(DEFAULT_CHANGES)
+    assert gr.verify(observed(saved, restore=True), saved, restore=True) == list(DEFAULT_CHANGES)
+
+
+def test_bit4_rejects_disagreeing_available_feature_copies(monkeypatch):
+    obs = bit4_observation()
+    feature = copy.deepcopy(obs["auxiliary"]["feature"])
+    feature["value"] ^= 0x100
+    obs["auxiliary"] = _aux_packets(feature, obs["auxiliary"]["group"])
+    with pytest.raises(gr.GrpgError, match="feature captures disagree"):
+        make_bit4_contract(monkeypatch, obs=obs)
+
+
+def test_bit4_disable_contracts_bit3_mask_with_other_contributor(monkeypatch):
+    routes = ((3, 0x20, 0, 1), (12, 0x100, 1, 0), (27, 0x400, 2, 255), (31, 0x2, 3, 2))
+    controllers = observation()["controllers"]
+    controllers["0"]["configured_pstate_mask"] = 0x8562
+    obs = bit4_observation(routes=routes, controllers=controllers)
+    group = copy.deepcopy(obs["auxiliary"]["group"])
+    group["806:0"]["value"] = 0x120
+    obs["auxiliary"] = _aux_packets(obs["auxiliary"]["feature"], group)
+    main = copy.deepcopy(obs["main"])
+    main["bit4_group"]["805:0"]["value"] = 0x20
+    obs["main"] = _main_packets(obs["controllers"], main)
+    saved = make_bit4_contract(monkeypatch, obs=obs)
+    assert saved["after"]["auxiliary"]["group"]["806:0"]["value"] == 0x100
+    assert saved["after"]["auxiliary"]["group"]["800:0"]["value"] == 1
+    assert saved["after"]["auxiliary"]["feature"]["value"] & 0x10
+    actual = observed(saved)
+    assert gr.verify(actual, saved) == list(DEFAULT_CHANGES)
+    ignored = copy.deepcopy(actual)
+    aux = copy.deepcopy(ignored["auxiliary"])
+    aux["group"]["806:0"]["value"] = 0x120
+    ignored["auxiliary"] = _aux_packets(aux["feature"], aux["group"])
+    with pytest.raises(gr.GrpgError):
+        gr.verify(ignored, saved)
+
+
+def test_bit4_rejects_unavailable_or_inconsistent_bit3_mask(monkeypatch):
+    for group_value in ({"available": False, "value": None}, {"available": True, "value": 0x40}):
+        obs = bit4_observation()
+        group = copy.deepcopy(obs["auxiliary"]["group"])
+        group["806:0"] = group_value
+        obs["auxiliary"] = _aux_packets(obs["auxiliary"]["feature"], group)
+        with pytest.raises(gr.GrpgError):
+            make_bit4_contract(monkeypatch, obs=obs)
+
+
+MIXED_CASES = [
+    (0x12, (0x1B, 0x09, 0x01), (0,)),
+    (0x18, (0x1B, 0x0B, 0x03), (0, 1)),
+    (0x1A, (0x1B, 0x09, 0x01), (0, 1)),
+]
+
+
+def make_mixed_contract(monkeypatch, *, loss=0x12, image=None, obs=None, changes=None):
+    _, flags, indices = next(case for case in MIXED_CASES if case[0] == loss)
+    return make_contract(monkeypatch, image=bios(flags=flags) if image is None else image,
+                         obs=bit4_observation() if obs is None else obs,
+                         changes={f"lpwr.gr_pg.{i}.enabled": False for i in indices} if changes is None else changes)
+
+
+@pytest.mark.parametrize(("loss", "flags", "indices"), MIXED_CASES)
+def test_mixed_bit4_full_projection_and_roundtrip(monkeypatch, loss, flags, indices):
+    saved = make_mixed_contract(monkeypatch, loss=loss)
+    assert saved["schema"] == 7
+    result = saved["after"]
+    assert result["controllers"]["0"]["supported"] is True
+    assert result["controllers"]["0"]["configured_pstate_mask"] == (0x8502 if loss == 0x12 else 0x8500)
+    assert result["main"]["features"]["0"]["value"] & 8 == 0
+    assert bool(result["main"]["features"]["0"]["value"] & 0x10) is not bool(loss & 8)
+    assert result["auxiliary"]["feature"] == result["main"]["features"]["0"]
+    assert result["auxiliary"]["group"]["806:0"]["value"] == (2 if loss == 0x12 else 0)
+    assert result["auxiliary"]["group"]["800:0"]["value"] == (1 if loss == 0x12 else 0)
+    assert result["bit1"]["roles"]["0"]["available"] is not bool(loss & 2)
+    assert result["main"]["bit4_group"]["801:0"]["value"] == 0
+    changes = {f"lpwr.gr_pg.{i}.enabled": False for i in indices}
+    gr.validate_contracts(changes, json.loads(json.dumps(saved)))
+    assert gr.verify(observed(saved), saved) == sorted(changes)
+    assert gr.verify(observed(saved, restore=True), saved, restore=True) == sorted(changes)
+
+
+@pytest.mark.parametrize("loss", [0x12, 0x18, 0x1A])
+def test_mixed_bit4_allows_unavailable_aux_feature_and_rejects_tampering(monkeypatch, loss):
+    obs = bit4_observation()
+    obs["auxiliary"] = _aux_packets({"available": False, "value": None}, obs["auxiliary"]["group"])
+    saved = make_mixed_contract(monkeypatch, loss=loss, obs=obs)
+    assert saved["after"]["auxiliary"]["feature"] == {"available": False, "value": None}
+    assert gr.verify(observed(saved), saved)
+    bad = copy.deepcopy(saved)
+    bad["after"]["main"]["features"]["0"]["value"] ^= 0x20
+    with pytest.raises(gr.GrpgError):
+        gr.validate_contracts(dict.fromkeys(saved["selected"], False), bad)
+
+
+@pytest.mark.parametrize("failure", ["bit1_witness", "bit4_witness", "bit3_mask", "overlap"])
+def test_mixed_bit4_refuses_unwitnessed_or_unowned_state(monkeypatch, failure):
+    obs = bit4_observation()
+    if failure == "bit1_witness":
+        roles = copy.deepcopy(obs["bit1"]["roles"])
+        roles["0"] = {"available": False, "supported": None}
+        obs["bit1"] = _bit1_packet(roles)
+    elif failure == "bit4_witness":
+        main = copy.deepcopy(obs["main"])
+        main["bit4_group"]["801:1"] = {"available": False, "value": None}
+        main["bit4_group"]["801:2"]["value"] = 0
+        obs["main"] = _main_packets(obs["controllers"], main)
+    elif failure == "bit3_mask":
+        aux = copy.deepcopy(obs["auxiliary"])
+        aux["group"]["806:0"]["value"] |= 0x8000
+        obs["auxiliary"] = _aux_packets(aux["feature"], aux["group"])
+    else:
+        obs = bit4_observation(routes=((3, 0x40, 0, 1), (12, 0x2, 1, 0), (27, 0x40, 2, 255), (31, 0x100, 3, 2)))
+    with pytest.raises(gr.GrpgError):
+        make_mixed_contract(monkeypatch, loss=0x1A, obs=obs)
+
+
+def test_mixed_bit4_zero_main_mask_is_valid(monkeypatch):
+    routes = ((3, 0x40, 0, 1), (12, 0x2, 1, 0))
+    controllers = observation()["controllers"]
+    controllers["0"]["configured_pstate_mask"] = 0x42
+    obs = bit4_observation(routes=routes, controllers=controllers)
+    saved = make_mixed_contract(monkeypatch, loss=0x1A, obs=obs)
+    assert saved["after"]["controllers"]["0"]["configured_pstate_mask"] == 0
+    assert saved["after"]["controllers"]["0"]["supported"] is True
+    assert gr.verify(observed(saved), saved)
+
+
+def no_peer_observation(**kwargs):
+    obs = bit4_observation(**kwargs)
+    controllers = obs["controllers"]
+    controllers["4"], controllers["6"], controllers["16"] = controller(False), controller(False), controller(False)
+    controllers["1"] = controller(True, 0)
+    obs["support_hex"] = _attribute_reply(lp.SUPPORT, gr.CONTROLLERS, controllers).hex()
+    indices = tuple(i for i in gr.CONTROLLERS if controllers[str(i)]["supported"] is True)
+    obs["states_hex"] = _attribute_reply(lp.STATES, indices, controllers).hex()
+    aux = copy.deepcopy(obs["auxiliary"])
+    aux["group"]["800:1"]["value"] = 0
+    aux["group"]["806:1"]["value"] = 0
+    obs["auxiliary"] = _aux_packets(aux["feature"], aux["group"])
+    roles = copy.deepcopy(obs["bit1"]["roles"])
+    roles["2"] = {"available": False, "supported": None}
+    obs["bit1"] = _bit1_packet(roles)
+    main = copy.deepcopy(obs["main"])
+    main["features"]["4"] = {"available": False, "value": None}
+    for i in (1, 2):
+        main["bit4_group"][f"801:{i}"] = {"available": True, "value": 0}
+    main["bit4_group"]["805:1"] = {"available": True, "value": 0}
+    obs["main"] = _main_packets(obs["controllers"], main)
+    return obs
+
+
+@pytest.mark.parametrize("loss", [0x10, 0x12, 0x18, 0x1A])
+@pytest.mark.parametrize("missing_aux", [False, True])
+def test_no_peer_bit4_exact_unavailable_and_durable(monkeypatch, loss, missing_aux):
+    obs = no_peer_observation()
+    if missing_aux:
+        obs["auxiliary"] = _aux_packets({"available": False, "value": None}, obs["auxiliary"]["group"])
+    saved = make_bit4_contract(monkeypatch, obs=obs) if loss == 0x10 else make_mixed_contract(monkeypatch, loss=loss, obs=obs)
+    assert saved["schema"] == (6 if loss == 0x10 else 7)
+    expected = {key: {"available": False, "value": None} for key in ("1:0", "801:0", "801:1", "801:2", "805:0", "805:1")}
+    assert saved["after"]["main"]["bit4_group"] == expected
+    assert saved["after"]["controllers"]["0"]["supported"] is True
+    assert saved["after"]["controllers"]["0"]["configured_pstate_mask"] == (0x8502 if loss in (0x10, 0x12) else 0x8500)
+    assert saved["after"]["main"]["features"]["0"]["value"] & 8 == 0
+    if missing_aux:
+        assert saved["after"]["auxiliary"]["feature"] == {"available": False, "value": None}
+    saved = json.loads(json.dumps(saved))
+    changes = dict.fromkeys(saved["selected"], False)
+    gr.validate_contracts(changes, saved)
+    assert gr.verify(observed(saved), saved) == sorted(changes)
+    assert gr.verify(saved["before"], saved, restore=True) == sorted(changes)
+    tampered = copy.deepcopy(saved)
+    tampered["after"]["main"]["bit4_group"]["1:0"] = {"available": True, "value": 0}
+    with pytest.raises(gr.GrpgError):
+        gr.validate_contracts(changes, tampered)
+
+
+@pytest.mark.parametrize("loss", [0x10, 0x12, 0x18, 0x1A])
+@pytest.mark.parametrize("unknown", [1, 2])
+def test_no_peer_rejects_unknown_peer(monkeypatch, loss, unknown):
+    obs = no_peer_observation()
+    main = copy.deepcopy(obs["main"])
+    main["bit4_group"][f"801:{unknown}"] = {"available": False, "value": None}
+    obs["main"] = _main_packets(obs["controllers"], main)
+    with pytest.raises(gr.GrpgError, match="peer support is unknown"):
+        make_bit4_contract(monkeypatch, obs=obs) if loss == 0x10 else make_mixed_contract(monkeypatch, loss=loss, obs=obs)
+
+
+def full_bit1_no_peer_observation(*, bit3_mask=0x42, **kwargs):
+    obs = main_observation(**kwargs)
+    aux = obs["auxiliary"]
+    aux["group"]["806:0"]["value"] = bit3_mask
+    obs["auxiliary"] = _aux_packets(aux["feature"], aux["group"])
+    roles = {str(i): {"available": False, "supported": None} for i in gr._BIT1_ROLES}
+    roles["0"] = {"available": True, "supported": True}
+    obs["bit1"] = _bit1_packet(roles)
+    return obs
+
+
+@pytest.mark.parametrize("loss", [2, 10])
+def test_full_bit1_no_peer_exact_and_durable(monkeypatch, loss):
+    image = bios(flags=(0x69, 0x6B, 0x61)) if loss == 2 else bios(flags=(0x1B, 0x11, 0x11))
+    changes = {"lpwr.gr_pg.1.enabled": False} if loss == 2 else DEFAULT_CHANGES
+    obs = full_bit1_no_peer_observation(bit3_mask=0x42 if loss == 2 else 0x40)
+    saved = make_contract(monkeypatch, image=image, obs=obs, changes=changes)
+    assert saved["schema"] == (8 if loss == 2 else 9)
+    assert saved["after"]["controllers"]["0"]["configured_pstate_mask"] == (0x8540 if loss == 2 else 0x8502)
+    assert saved["after"]["auxiliary"]["group"]["806:0"]["value"] == (0x40 if loss == 2 else 0)
+    assert saved["after"]["main"]["features"]["0"]["value"] == (0x12345010 if loss == 2 else 0x12345000)
+    assert saved["after"]["bit1"]["roles"] == {str(i): {"available": False, "supported": None} for i in gr._BIT1_ROLES}
+    assert saved["after"]["main"]["bit4_group"] == obs["main"]["bit4_group"]
+    saved = json.loads(json.dumps(saved))
+    gr.validate_contracts(changes, saved)
+    assert gr.verify(observed(saved), saved) == sorted(changes)
+    assert gr.verify(saved["before"], saved, restore=True) == sorted(changes)
+    bad = copy.deepcopy(saved)
+    bad["after"]["bit1"]["roles"]["1"] = {"available": True, "supported": True}
+    with pytest.raises(gr.GrpgError):
+        gr.validate_contracts(changes, bad)
+
+
+@pytest.mark.parametrize("loss", [0x12, 0x1A])
+def test_schema7_bit1_no_peer_preserves_other_dependencies(monkeypatch, loss):
+    obs = bit4_observation()
+    roles = {str(i): {"available": False, "supported": None} for i in gr._BIT1_ROLES}
+    roles["0"] = {"available": True, "supported": True}
+    obs["bit1"] = _bit1_packet(roles)
+    saved = make_mixed_contract(monkeypatch, loss=loss, obs=obs)
+    assert saved["schema"] == 7
+    assert saved["after"]["bit1"]["roles"] == {str(i): {"available": False, "supported": None} for i in gr._BIT1_ROLES}
+    assert saved["after"]["main"]["bit4_group"]["801:0"] == {"available": True, "value": 0}
+    assert gr.verify(observed(saved), saved)
+
+
+@pytest.mark.parametrize("loss", [2, 10])
+def test_full_bit1_requires_main_feature_and_role0(monkeypatch, loss):
+    image = bios(flags=(0x69, 0x6B, 0x61)) if loss == 2 else bios(flags=(0x1B, 0x11, 0x11))
+    changes = {"lpwr.gr_pg.1.enabled": False} if loss == 2 else DEFAULT_CHANGES
+    obs = full_bit1_no_peer_observation(bit3_mask=0x42 if loss == 2 else 0x40)
+    obs["auxiliary"] = _aux_packets({"available": False, "value": None}, obs["auxiliary"]["group"])
+    main = copy.deepcopy(obs["main"])
+    main["features"]["0"] = {"available": False, "value": None}
+    obs["main"] = _main_packets(obs["controllers"], main)
+    with pytest.raises(gr.GrpgError, match="main feature"):
+        make_contract(monkeypatch, image=image, obs=obs, changes=changes)
+    obs = full_bit1_no_peer_observation(bit3_mask=0x42 if loss == 2 else 0x40)
+    roles = copy.deepcopy(obs["bit1"]["roles"])
+    roles["0"] = {"available": False, "supported": None}
+    obs["bit1"] = _bit1_packet(roles)
+    with pytest.raises(gr.GrpgError, match="role0 support"):
+        make_contract(monkeypatch, image=image, obs=obs, changes=changes)
+
+
+@pytest.mark.parametrize("loss", [2, 10])
+def test_full_bit1_optional_aux_feature_and_global_read_failure(monkeypatch, loss):
+    image = bios(flags=(0x69, 0x6B, 0x61)) if loss == 2 else bios(flags=(0x1B, 0x11, 0x11))
+    changes = {"lpwr.gr_pg.1.enabled": False} if loss == 2 else DEFAULT_CHANGES
+    obs = full_bit1_no_peer_observation(bit3_mask=0x42 if loss == 2 else 0x40)
+    obs["auxiliary"] = _aux_packets({"available": False, "value": None}, obs["auxiliary"]["group"])
+    saved = make_contract(monkeypatch, image=image, obs=obs, changes=changes)
+    assert saved["after"]["auxiliary"]["feature"] == {"available": False, "value": None}
+    assert gr.verify(observed(saved), saved)
+    monkeypatch.setattr(gr, "read", lambda *args, **kwargs: (None, "global GET failed"))
+    with pytest.raises(gr.GrpgError, match="global GET failed"):
+        gr.contracts(None, image, changes)
+
+@pytest.mark.parametrize("loss", [0x11, 0x13, 0x19, 0x1B])
+def test_main_bit4_loss_uses_full_schema10_apply_projection(monkeypatch, loss):
+    saved = make_main_contract(monkeypatch, image=bios(flags=(loss, 1, 1)), obs=bit4_observation())
+    assert saved["schema"] == 10
+    assert gr.verify(observed_main(saved), saved) == sorted(saved["selected"])
+    altered = observed_main(saved)
+    main = copy.deepcopy(altered["main"])
+    main["bit4_group"]["805:1"]["value"] ^= 1
+    altered["main"] = _main_packets(altered["controllers"], main)
+    with pytest.raises(gr.GrpgError, match="every qualified projection"):
+        gr.verify(altered, saved)
+
+
+@pytest.mark.parametrize("failure", ["feature", "role", "support", "mask"])
+def test_main_bit4_loss_requires_exact_feature_role_and_mask(monkeypatch, failure):
+    obs = bit4_observation()
+    main = copy.deepcopy(obs["main"])
+    if failure == "feature":
+        main["features"]["0"]["value"] &= ~8
+        obs["auxiliary"] = _aux_packets(main["features"]["0"], obs["auxiliary"]["group"])
+    elif failure == "role":
+        main["bit4_group"]["801:0"]["value"] = 0
+    elif failure == "support":
+        main["bit4_group"]["1:0"]["value"] = 0
+    else:
+        main["bit4_group"]["805:0"]["value"] ^= 2
+    obs["main"] = _main_packets(obs["controllers"], main)
+    with pytest.raises(gr.GrpgError, match="bit4"):
+        make_main_contract(monkeypatch, image=bios(flags=(0x1B, 1, 1)), obs=obs)
+
+
+def test_main_bit4_allows_valid_zero_mask_for_unrouted_carrier(monkeypatch):
+    routes = ((3, 0x40, 0, 0), (12, 0x2, 1, 0), (27, 0x400, 2, 255), (31, 0x100, 3, 2))
+    obs = bit4_observation(routes=routes)
+    main = copy.deepcopy(obs["main"])
+    main["bit4_group"]["805:0"]["value"] = 0
+    obs["main"] = _main_packets(obs["controllers"], main)
+    saved = make_main_contract(monkeypatch, image=bios(flags=(0x1B, 1, 1)), obs=obs)
+    assert gr.verify(observed_main(saved), saved) == sorted(saved["selected"])
+
+
+def test_main_bit1_no_peer_accepts_only_full_unavailable_projection(monkeypatch):
+    obs = main_observation()
+    roles = {str(i): {"available": False, "supported": None} for i in gr._BIT1_ROLES}
+    roles["0"] = {"available": True, "supported": True}
+    obs["bit1"] = _bit1_packet(roles)
+    saved = make_main_contract(monkeypatch, obs=obs)
+    assert saved["schema"] == 10
+    after = observed_main(saved)
+    assert all(not row["available"] for row in after["bit1"]["roles"].values())
+    assert gr.verify(after, saved) == sorted(saved["selected"])
+    roles["5"] = {"available": True, "supported": True}
+    after["bit1"] = _bit1_packet(roles)
+    with pytest.raises(gr.GrpgError, match="every qualified projection"):
+        gr.verify(after, saved)
+
+
+def test_main_bit4_optional_aux_feature_and_positive_main_feature(monkeypatch):
+    obs = bit4_observation()
+    obs["auxiliary"] = _aux_packets({"available": False, "value": None}, obs["auxiliary"]["group"])
+    saved = make_main_contract(monkeypatch, image=bios(flags=(0x1B, 1, 1)), obs=obs)
+    assert saved["schema"] == 10
+    assert gr.verify(observed_main(saved), saved) == sorted(saved["selected"])
+
+
+
+def test_legacy_main_receipt_stays_narrow_when_new_prepare_adds_candidate(monkeypatch):
+    image = bios(flags=(0x0B, 0x0B, 0x03))
+    obs = main_observation()
+    roles = {str(i): {"available": False, "supported": None} for i in gr._BIT1_ROLES}
+    for i in (0, 3):
+        roles[str(i)] = {"available": True, "supported": True}
+    obs["bit1"] = _bit1_packet(roles)
+    changes = {f"lpwr.gr_pg.{i}.enabled": False for i in range(3)}
+    tables = gr._tables(image)
+    bindings, legacy, _, _ = gr._derive(changes, obs, tables)
+    saved = {"schema": 5, "kind": "lpwr_grpg_disable", "before_image_sha256": hashlib.sha256(image).hexdigest(),
+             "before": obs, "tables": tables, "selected": bindings, "after_profiles": legacy}
+    gr.validate_contracts(changes, saved)
+    expanded = make_main_contract(monkeypatch, image=image, obs=obs, changes=changes)
+    assert expanded["schema"] == 10 and len(expanded["after_profiles"]) > len(legacy)
+    gr.validate_contracts(changes, saved)

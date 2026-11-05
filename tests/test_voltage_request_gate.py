@@ -464,3 +464,20 @@ def test_failed_set_capability_check_carries_rollback_outcome():
     assert exc.status == 0x56 and exc.rollback["attempted"]
     assert not exc.rollback["verified"] and gpu.enabled is True
     assert gpu.sets() == [(0, 0), (0, 1)]
+
+
+def test_before_write_receives_locked_prior_and_aborts():
+    gpu = FakeGpu()
+    c = gate.VoltageRequestGate(gpu)
+    prior = c.read()
+    seen = []
+    def fail(snapshot):
+        assert gpu._lock.held
+        seen.append(snapshot)
+        raise ValueError("callback failed")
+    with pytest.raises(ValueError, match="callback failed"):
+        c.set_enabled(False, before_write=fail)
+    assert seen == [prior] and all(command != gate._SET for command, _ in gpu.calls)
+    c.set_enabled(True, before_write=lambda _: pytest.fail("no-op callback"))
+    c.set_enabled(False, before_write=seen.append)
+    assert seen == [prior, prior]

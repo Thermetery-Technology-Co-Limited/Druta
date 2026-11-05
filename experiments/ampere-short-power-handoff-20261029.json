@@ -1,0 +1,21 @@
+{
+  "machine": "WIN-S21NMM0KKIR",
+  "repository": "Thermetery-Technology-Co-Limited/Druta",
+  "branch": "codex/registry-controls",
+  "purpose": "Validate the newly implemented shorter v30 class1 persistent power path on the actual3070Ti; use the machine owner's requested remote Codex workflow.",
+  "authorization_scope": "Selected-GPU-only driver restart and reversible driver/registry changes are authorized. No Windows reboot, NVIDIA App install, workload, physical measurement, F219 SET, arbitrary voltage replay or speculative offset/flag sweeps.",
+  "preparation": [
+    "Preserve existing working changes; obtain current codex/registry-controls source including this helper. Record actual HEAD and source hashes. Read AGENTS.md.",
+    "Use existing working Python environment. Find the adapter PCI slot from existing metadata; do not assume a board or driver ID. Save captures under a new private directory. Do not publish ROMs, raw vendor data, private registry paths or packet buffers.",
+    "Run default GET-only preflight first. Review exact0x30/2C/47 geometry, fullclass1/nativeclass0, allthreebounds/units/channel/ordinal and a maximum-only1000mW plan. Any unsupported/mismatched target stops before Prepare.",
+    "Review fresh whole configured-peer snapshots and current power/clock/voltage requests. Establish that existing understood getters/restoration cover the current requests before running; do not substitute zero defaults or unknown SETs. Close exact verified normal GUI process for the restart trial."
+  ],
+  "commands": {
+    "preflight": "python experiments/validate_short_power_override.py --slot ACTUAL_PCI_SLOT --out NEW_PRIVATE_PREFLIGHT_DIRECTORY",
+    "production_trial": "python experiments/validate_short_power_override.py --slot ACTUAL_PCI_SLOT --out NEW_PRIVATE_TRIAL_DIRECTORY --run"
+  },
+  "expected": "Production Prepare/durable reload/Apply once, selected maximum+1000mW, exact independently projected ROM/client/native INFO while requests/control buffers/unknown bytes remain unchanged, then durable Undo once with original registry/image/policies/clientstate restored. Default380W would become381W only if current bound actually380W.",
+  "additional_review": "The helper retains full fresh snapshots but does not claim broader peer equality. Independently compare all readable known configured peers and diagnostic error changes using their actual contracts; evaluated/telemetry fields are diagnostics, never silently treat missing/unavailable as valid zero. Preserve all failed/intermediate GET attempts and report any mismatch.",
+  "recovery": "Do not retry Apply/SET blindly. If Undo is unverified, keep active durable receipt and report recovery-required; use existing recovery workflow with fresh readback. Do not bypass an active receipt with direct registry deletion.",
+  "deliverable": "Report source HEAD/hashes, actual layout/class/channel/units/bounds, complete before/active/Undo verification, retained peers and restoration status, and a sanitized qualification JSON if successful. Build/leave the fresh normal EXE running after restoration. No main/force push, merge, tag/release/asset change; return findings to the supervising task before claiming qualification."
+}

@@ -10,6 +10,7 @@ from druta.druta import DIM, WARN, Druta, KnobRange
 class LivePowerUiTests(unittest.TestCase):
     def setUp(self):
         self.app = Druta.__new__(Druta)
+        self.app.write_tuning_action = lambda kind, value, writer, **kwargs: writer()
         self.app.gpu = SimpleNamespace(
             static={"pl_min_mw": 180000, "pl_max_mw": 420000, "pl_def_mw": 300000},
             read_power_limit_mw=Mock(return_value=300000),

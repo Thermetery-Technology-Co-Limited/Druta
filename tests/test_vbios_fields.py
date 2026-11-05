@@ -61,6 +61,21 @@ def apply(blob, plan):
     return bytes(out)
 
 
+def v30_power_fixture(header=0x2C, stride=0x4B, *, kind=1, extension=0, channel=5, unit=0, device=0x1234, count=1):
+    blob = bytearray(fixture(device=device))
+    blob[0x2000:0x2002] = b"\x00\x00"
+    start = 0x3800
+    blob[start : start + header + stride * count] = bytes(header + stride * count)
+    blob[start : start + 4] = bytes((0x30, header, stride, count))
+    for index in range(count):
+        row = start + header + index * stride
+        blob[row] = kind | (unit << 4)
+        blob[row + 1] = channel
+        struct.pack_into("<III", blob, row + 2, 100000, 310000, 380000)
+        blob[row + 0x42] = extension
+    return bytes(blob)
+
+
 def extend(blob, tables):
     """Add bounded tables to the synthetic metadata directory (P pointers)."""
     b = bytearray(blob)
@@ -496,10 +511,30 @@ class RuntimeVbiosFields(unittest.TestCase):
             with self.subTest(role=role, next_index=next_index), self.assertRaises(ValueError):
                 vf.plan(b, {f"voltage.0.{role}": 15000})
         b = bytearray(voltage_fixture())
-        struct.pack_into("<H", b, 0x800 + 5 + 21, 1)
+        struct.pack_into("<H", b, 0x800 + 5 + 35, 1)
         self.assertEqual(
             next(f for f in vf.inspect(b)["fields"] if f["key"] == "voltage.0.ALT.addend")["capability"], "read-only"
         )
+
+    def test_rail_byte_fields_are_not_word_selectors_and_possible_alias_is_preserved(self):
+        b = bytearray(voltage_fixture())
+        row = 0x800 + 5
+        for offset in (21, 23, 29, 31, *range(41, 65, 2)):
+            struct.pack_into("<H", b, row + offset, 0x1234)
+        fields = {f["key"]: f for f in vf.inspect(b)["fields"]}
+        self.assertEqual(fields["voltage.0.ALT.addend"]["capability"], "editable")
+        changed = apply(b, vf.plan(b, {"voltage.0.ALT.addend": 15000}))
+        self.assertEqual(changed[row + 21:row + 33], b[row + 21:row + 33])
+        self.assertEqual(changed[row + 41:row + 65], b[row + 41:row + 65])
+        b[row + 21:row + 23] = bytes((255, 0x12))
+        fields = {f["key"]: f for f in vf.inspect(b)["fields"]}
+        self.assertEqual(fields["voltage.0.ALT.addend"]["capability"], "editable")
+        for offset in (21, 23):
+            candidate = bytearray(b)
+            struct.pack_into("<H", candidate, row + offset, 1)
+            fields = {f["key"]: f for f in vf.inspect(candidate)["fields"]}
+            self.assertEqual(fields["voltage.0.ALT.addend"]["capability"], "read-only")
+            self.assertEqual(fields["voltage.0.ALT.addend"]["affected_rail_roots"][-1]["role"], "possible_byte")
 
     def test_polynomial_variable_and_coefficient_equation_terms_count_as_sharing(self):
         for coefficient in (False, True):
@@ -663,13 +698,13 @@ class RuntimeVbiosFields(unittest.TestCase):
     def test_rel_shared_roots_and_unsupported_peers_are_reported_independently(self):
         b = bytearray(polynomial_reference_fixture(0))
         # An extra selector consumes REL directly. Its semantics remain unnamed.
-        struct.pack_into("<H", b, 0x800 + 5 + 21, 0)
+        struct.pack_into("<H", b, 0x800 + 5 + 35, 0)
         fields = {f["key"]: f for f in vf.inspect(b)["fields"]}
         field = fields["voltage.0.REL.maximum"]
         self.assertEqual(field["capability"], "editable")
         self.assertTrue(field["shared"])
         self.assertEqual(field["affected_equation_indices"], [0, 1, 3])
-        self.assertEqual([r["role"] for r in field["affected_rail_roots"]], ["REL", "ALT", "unnamed", "INFO_VMIN"])
+        self.assertEqual([r["role"] for r in field["affected_rail_roots"]], ["REL", "ALT", "INFO_VMIN", "unnamed"])
         self.assertEqual(fields["voltage.0.INFO_VMIN.maximum"]["capability"], "read-only")
         clock = {f["key"]: f for f in vf.inspect(voltage_clock_fixture(0))["fields"]}[field["key"]]
         self.assertEqual(clock["capability"], "editable")
@@ -1049,3 +1084,79 @@ class RuntimeVbiosFields(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_v30_class_mapping_is_version_scoped_and_uses_full_encoded_class():
+    for header, stride in ((0x2C, 0x47), (0x2C, 0x4B), (0x32, 0x53), (0x34, 0x5B)):
+        parsed = vf.inspect(v30_power_fixture(header, stride))
+        field = next(f for f in parsed["fields"] if f["key"] == "power.0.maximum")
+        assert field["policy_type"] == 1 and field["runtime_binding"]["runtime_type"] == 0
+        assert field["runtime_binding"]["table_version"] == 0x30
+        assert field["capability"] == "editable"
+        unknown = vf.inspect(v30_power_fixture(header, stride, extension=1))
+        field = next(f for f in unknown["fields"] if f["key"] == "power.0.maximum")
+        assert field["policy_type"] == 0x11 and field["runtime_binding"]["runtime_type"] is None
+        assert field["capability"] == "read-only"
+        assert vf.power_runtime_type(0x40, 1) == 0
+        assert vf.power_runtime_type(0x30, 2) is None
+
+
+def test_short_v30_class1_edits_preserve_every_other_byte():
+    image = bytearray(v30_power_fixture(stride=0x47, device=0xBEEF, count=3, channel=7, unit=1))
+    row = 0x3800 + 0x2C + 2 * 0x47
+    image[row + 0x43 : row + 0x47] = b"\x12\x34\x56\x78"
+    image = bytes(image)
+    changes = {"power.2.minimum": 90000, "power.2.default": 320000, "power.2.maximum": 400000}
+    result = apply(image, vf.plan(image, changes))
+    expected = bytearray(image)
+    struct.pack_into("<III", expected, row + 2, 90000, 320000, 400000)
+    assert result == bytes(expected)
+    assert apply(result, vf.plan(result, {"power.2.minimum": 100000, "power.2.default": 310000,
+                                          "power.2.maximum": 380000})) == image
+
+
+def test_short_v30_other_classes_remain_read_only():
+    for kind, extension in ((2, 0), (1, 1)):
+        image = v30_power_fixture(stride=0x47, kind=kind, extension=extension)
+        with unittest.TestCase().assertRaisesRegex(ValueError, "read-only"):
+            vf.plan(image, {"power.0.maximum": 400000})
+
+
+def test_short_v30_requires_exact_geometry_and_complete_table():
+    image = v30_power_fixture(stride=0x47, count=3)
+    variants = [image[: 0x3800 + 0x2C + 3 * 0x47 - 1]]
+    for header, stride in ((0x2D, 0x47), (0x2C, 0x46), (0x2C, 0x48)):
+        raw = bytearray(image)
+        raw[0x3801:0x3803] = bytes((header, stride))
+        variants.append(bytes(raw))
+    for raw in variants:
+        parsed = vf.inspect(raw)
+        assert not any(t["name"] == "power" for t in parsed["tables"])
+        assert not any(f["key"].startswith("power.") for f in parsed["fields"])
+
+
+def test_difr_subfeatures_require_active_captured_bits():
+    table = bytearray(11 + 18 * 2)
+    table[:4] = bytes((0x10, 11, 18, 2))
+    table[11] = 0x07
+    table[29] = 0x0E
+    image = extend(fixture(), [(0xE8, 0x8E, 0x4600, table)])
+    fields = {f['key']: f for f in vf.inspect(image)['fields']}
+    assert fields['lpwr.difr.0.dfpr_enabled']['capability'] == 'editable'
+    assert fields['lpwr.difr.0.cg_enabled']['capability'] != 'editable'
+    assert fields['lpwr.difr.1.dfpr_enabled']['capability'] != 'editable'
+    result = apply(image, vf.plan(image, {'lpwr.difr.0.dfpr_enabled': False,
+                                         'lpwr.difr.0.sw_asr_enabled': False}))
+    assert result[0x460B] == 1
+    assert result[0x461D] == 0x0E
+
+
+def test_difr_same_byte_unchanged_true_preserved():
+    table = bytearray(11 + 18)
+    table[:4] = bytes((0x10, 11, 18, 1))
+    table[11] = 0x07
+    image = extend(fixture(), [(0xE8, 0x8E, 0x4600, table)])
+    entries = [("lpwr.difr.0.dfpr_enabled", False), ("lpwr.difr.0.sw_asr_enabled", True)]
+    for order in (entries, list(reversed(entries))):
+        result = apply(image, vf.plan(image, dict(order)))
+        assert result[0x460B] == 0x05

@@ -329,3 +329,41 @@ def test_selected_status_rounding_or_disagreement(value):
     obs["status_rows"]["7"]["linked_current_hex"] = struct.pack("<f", value).hex()
     with pytest.raises(lc.LinkedCurrentError):
         lc._selected_current(lc.validate_observation(obs), 7)
+
+
+def test_nonunity_relationship_keeps_base_request_distinct_from_dynamic_vote(monkeypatch):
+    source, target, relation = 4, 12, 5
+    base, wanted, weight_raw = 45000, 44000, 3584  # 0.875, exact Q4.12
+    key = f"power.{source}.linked_current"
+    obs = observation(source, target, relation)
+    bios = inspection(source, target, relation)
+    field = next(row for row in bios["fields"] if row["key"] == key)
+    field["relationship_binding"]["parameter_u16"] = weight_raw
+    info = bytearray.fromhex(obs["info_hex"])
+    relation_at = 0x41D0 + relation * 0x24
+    struct.pack_into("<I", info, 0x41CC, 1 << relation)
+    info[relation_at:relation_at + 2] = bytes((0, target))
+    struct.pack_into("<H", info, relation_at + 6, weight_raw)
+    obs["info_hex"] = info.hex()
+
+    # GPU synthesizes changing STATUS power data on each read; only the
+    # selected linked-current status word is a base-current readback.
+    live, error = lc.read(GPU(obs))
+    assert error is None and live == obs
+    saved = contract(monkeypatch, obs=live, bios=bios, changes={key: wanted})
+    assert saved["selected"][key]["binding"]["relationship"]["parameter_u16"] == weight_raw
+    assert saved["before"]["info_hex"] == obs["info_hex"]
+    assert struct.unpack_from("<H", bytes.fromhex(saved["before"]["info_hex"]), relation_at + 6)[0] == weight_raw
+    expected = bytearray.fromhex(obs["control_hex"])
+    struct.pack_into("<I", expected, lc.CONTROL_BASE + source * lc.CONTROL_STRIDE + 0x28, wanted)
+    assert saved["after_control_hex"] == expected.hex()
+    assert lc.verify(observed(saved), saved) == [key]
+    assert lc.verify(observed(saved, restore=True), saved, restore=True) == [key]
+
+    # The weighted downstream vote is not the source's cached/base request.
+    scaled = wanted * weight_raw // 4096
+    assert scaled != wanted and base != wanted
+    incorrect = observed(saved)
+    incorrect["status_rows"][str(source)]["linked_current_hex"] = struct.pack("<f", scaled).hex()
+    with pytest.raises(lc.LinkedCurrentError, match="cached request and PMU current disagree"):
+        lc.verify(incorrect, saved)

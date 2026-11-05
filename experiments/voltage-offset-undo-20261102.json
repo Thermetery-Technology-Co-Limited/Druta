@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "date": "2026-11-02",
+  "scope": "Selected voltage-policy offset Undo for GUI Apply and explicit file Load",
+  "hardware_undo_roundtrip_qualified": false,
+  "inventory": {
+    "slot": "0000:01:00.0",
+    "scaffold_present": false,
+    "error": "No readable offset scaffold profile for this adapter"
+  },
+  "inventory_sha256": "00012a5423b74bf945f0284739df224a9b577172f0f1a3ca7657a9c8460a987e",
+  "behavior": [
+    "Save changed prior fields after full selection validation, before first write.",
+    "No-op Apply/file Load does not add an undo point.",
+    "Snapshot-save failure prevents dispatch.",
+    "Manual Profiles Undo uses installed recognized heads and typed offsets only.",
+    "Legacy schema-1 files remain compatible; schema-2 undo files are manual only.",
+    "Partial failure stops remaining writes and retains the pre-write snapshot."
+  ],
+  "limits": [
+    "No offset scaffold is installed on the local adapter; live writes were not attempted.",
+    "No registry activation, driver restart, workload or physical measurement.",
+    "Reported policy values and stored offset definitions are not physical voltage measurements.",
+    "No automatic startup or post-reset replay."
+  ],
+  "offline_tests": "2448 passed, 226 subtests passed in 38.63s",
+  "offline_tests_sha256": "9a0e529d647f76baac666a9c87b74143f03efc1a7119064d73d449fb30b23cc1"
+}

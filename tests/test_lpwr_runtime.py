@@ -98,7 +98,18 @@ def make_contract(monkeypatch, *, image=None, obs=None, changes=None):
     image = bios() if image is None else image
     obs = observation() if obs is None else obs
     changes = DEFAULT_CHANGES if changes is None else changes
-    monkeypatch.setattr(lp, "read", lambda gpu: (copy.deepcopy(obs), None))
+    def fake_read(gpu, *, features=False):
+        result = copy.deepcopy(obs)
+        if features:
+            indices = tuple(i for i in lp.CONTROLLERS if result["controllers"][str(i)]["supported"] is True)
+            raw = bytearray(lp._request(lp.FEATURES, indices))
+            values = {"9": 0xF, "10": 0x72B40FE, "11": 0x0E0B10D & ~(0xC00000 | 0x1000)}
+            for pos, index in enumerate(indices):
+                struct.pack_into("<HI", raw, 10 + 16 * pos, 1, values[str(index)])
+            result["feature_hex"] = raw.hex() if indices else None
+            result["features"] = {str(i): values[str(i)] for i in indices}
+        return result, None
+    monkeypatch.setattr(lp, "read", fake_read)
     return lp.contracts(None, image, changes)
 
 
@@ -109,6 +120,13 @@ def observed(saved, *, restore=False):
     result["support_hex"] = _attribute_reply(lp.SUPPORT, tuple(lp.CONTROLLERS), controllers).hex()
     indices = tuple(i for i in lp.CONTROLLERS if controllers[str(i)]["supported"] is True)
     result["states_hex"] = _attribute_reply(lp.STATES, indices, controllers).hex() if indices else None
+    if saved["schema"] == 2:
+        features = saved["before"]["features"] if restore else saved["after_features"]
+        raw = bytearray(lp._request(lp.FEATURES, indices))
+        for pos, index in enumerate(indices):
+            struct.pack_into("<HI", raw, 10 + 16 * pos, 1, features[str(index)])
+        result["feature_hex"] = raw.hex() if indices else None
+        result["features"] = copy.deepcopy(features)
     return result
 
 
@@ -416,3 +434,130 @@ def test_read_allows_diagnostic_clock_changes_between_stable_core_captures():
 def test_architecture_probe_not_driver_or_board_allowlist(architecture):
     result, error = lp.read(FakeGPU(architecture=architecture))
     assert error is None and result["identity"]["architecture"] == architecture
+
+
+def test_multiple_subfeature_projection_and_same_byte_composition(monkeypatch):
+    from druta import vbios_fields as vf
+    from tests.test_vbios_fields import apply
+
+    image = bios()
+    changes = {'lpwr.difr.0.sw_asr_enabled': False, 'lpwr.difr.0.cg_enabled': False}
+    saved = make_contract(monkeypatch, image=image, changes=changes)
+    assert all(value['before_byte'] == 0xBF and value['after_byte'] == 0xB3
+               for value in saved['selected'].values())
+    assert saved['after']['9'] == controller(True, 0x42)
+    assert saved['after']['10'] == controller(False)
+    assert saved['after']['11'] == controller(False)
+    changed = apply(image, vf.plan(image, changes))
+    assert changed[0x460B] == 0xB3
+    assert [i for i, (a, b) in enumerate(zip(image, changed, strict=True)) if a != b] == [0x460B]
+    lp.validate_contracts(changes, saved)
+    assert lp.verify(observed(saved), saved) == sorted(changes)
+
+
+def test_subfeature_requires_enabled_row_and_set_bit(monkeypatch):
+    with pytest.raises(lp.LpwrError):
+        make_contract(monkeypatch, changes={'lpwr.difr.1.dfpr_enabled': False})
+    with pytest.raises(lp.LpwrError):
+        make_contract(monkeypatch, changes={'lpwr.difr.2.cg_enabled': False})
+
+
+def test_feature_observation_requires_exact_supported_packet():
+    obs = observation()
+    indices = (9, 10, 11)
+    raw = bytearray(lp._request(lp.FEATURES, indices))
+    for pos, value in enumerate((0x123, 0x456, 0x789)):
+        struct.pack_into('<HI', raw, 10 + 16 * pos, 1, value)
+    obs['feature_hex'] = raw.hex()
+    obs['features'] = {'9': 0x123, '10': 0x456, '11': 0x789}
+    assert lp._observation(obs)['features'] == obs['features']
+    wrong = copy.deepcopy(obs)
+    wrong['features']['9'] = 0
+    with pytest.raises(lp.LpwrError):
+        lp._observation(wrong)
+    raw[20] ^= 2  # second record's routing word
+    obs['feature_hex'] = raw.hex()
+    with pytest.raises(lp.LpwrError):
+        lp._observation(obs)
+
+
+def test_surviving_cg_provider_feature_is_projected_from_raw_flags(monkeypatch):
+    image = bios(flags=(0xBF, 0, 9))
+    core = observation()
+    core['controllers'] = lp._model(lp._tables(image), core['pstates'])
+    core['support_hex'] = _attribute_reply(lp.SUPPORT, tuple(lp.CONTROLLERS), core['controllers']).hex()
+    indices = tuple(i for i in lp.CONTROLLERS if core['controllers'][str(i)]['supported'])
+    core['states_hex'] = _attribute_reply(lp.STATES, indices, core['controllers']).hex()
+    changes = {'lpwr.difr.0.cg_enabled': False}
+    saved = make_contract(monkeypatch, image=image, obs=core, changes=changes)
+    assert saved['schema'] == 2
+    assert saved['after']['11']['supported'] is True
+    assert saved['after_features']['11'] == (0x0E0B10D & ~(0x2000 | 0x100 | 0xC00000 | 0x1000))
+    lp.verify(observed(saved), saved)
+    tampered = observed(saved)
+    tampered['features']['11'] ^= 1
+    with pytest.raises(lp.LpwrError):
+        lp.verify(tampered, saved)
+
+
+def test_row_and_subfeature_changes_require_separate_transactions():
+    with pytest.raises(lp.LpwrError, match="separate transactions"):
+        lp.selected({"lpwr.difr.0.enabled": False, "lpwr.difr.0.cg_enabled": False})
+
+
+def test_feature_witness_rejects_contradictory_before_bits():
+    image = bios()
+    core = lp._observation(observation())
+    core["features"] = {"9": 0xF, "10": 0x72B40FE, "11": 0x0E0B10D}
+    with pytest.raises(lp.LpwrError, match="contradict"):
+        lp._feature_projection(lp._tables(image), {"lpwr.difr.0.cg_enabled": False}, core, core["controllers"])
+
+
+def test_cg_full_dword_flag_200_contributes_feature_1000():
+    image = bytearray(bios())
+    image[0x460C] = 2
+    tables = lp._tables(bytes(image))
+    core = lp._observation(observation())
+    core["features"] = {"9": 0xF, "10": 0x72B40FE, "11": 0x1000}
+    result = lp._feature_projection(tables, {"lpwr.difr.0.sw_asr_enabled": False}, core, core["controllers"])
+    assert result["11"] == 0x1000
+
+
+def test_subfeature_dependency_outcomes_are_complete_alternatives(monkeypatch):
+    image = bios(flags=(0xBF, 0, 1))
+    obs = observation()
+    obs['controllers'] = lp._model(lp._tables(image), obs['pstates'])
+    obs['support_hex'] = _attribute_reply(lp.SUPPORT, tuple(lp.CONTROLLERS), obs['controllers']).hex()
+    indices = tuple(i for i in lp.CONTROLLERS if obs['controllers'][str(i)]['supported'])
+    obs['states_hex'] = _attribute_reply(lp.STATES, indices, obs['controllers']).hex()
+    changes = {'lpwr.difr.0.dfpr_enabled': False}
+    saved = make_contract(monkeypatch, image=image, obs=obs, changes=changes)
+    alternatives = saved['after_alternatives']
+    assert len(alternatives) == 2
+    assert [item['controllers']['10']['supported'] for item in alternatives] == [True, False]
+    assert alternatives[1]['features'] == {}
+    for item in alternatives:
+        chosen = copy.deepcopy(saved)
+        chosen['after'], chosen['after_features'] = item['controllers'], item['features']
+        lp.verify(observed(chosen), saved)
+    impossible = copy.deepcopy(saved)
+    impossible['after'] = copy.deepcopy(alternatives[0]['controllers'])
+    impossible['after']['11'] = controller(False)
+    impossible['after_features'] = {'10': alternatives[0]['features']['10']}
+    with pytest.raises(lp.LpwrError, match='alternatives'):
+        lp.verify(observed(impossible), saved)
+    tampered = copy.deepcopy(saved)
+    tampered['after_alternatives'].pop()
+    with pytest.raises(lp.LpwrError):
+        lp.validate_contracts(changes, tampered)
+
+
+def test_sw_asr_loss_removes_dependent_cg(monkeypatch):
+    saved = make_contract(monkeypatch, changes={'lpwr.difr.0.sw_asr_enabled': False})
+    assert len(saved['after_alternatives']) == 1
+    expected = saved['after_alternatives'][0]
+    assert expected['controllers']['9'] == controller(True, 0x42)
+    assert expected['controllers']['10'] == controller(False)
+    assert expected['controllers']['11'] == controller(False)
+    assert expected['features'] == {'9': 0xF}
+    lp.verify(observed(saved), saved)

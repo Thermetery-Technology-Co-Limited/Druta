@@ -527,6 +527,7 @@ class PolicyUiCase(unittest.TestCase):
         self.addCleanup(store.stop)
         self.card = PolicyCard()
         self.app = app = Druta.__new__(Druta)
+        app.write_tuning_action = lambda kind, value, writer, **kwargs: writer()
         app.gpu = policy_gpu(self.card)
         app._slider_ranges, app._knob_decimals = {}, {}
         app._carryover_hi, app._current_limits, app._knob_cb = {}, {}, {}

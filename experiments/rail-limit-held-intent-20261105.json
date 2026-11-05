@@ -1,0 +1,38 @@
+{
+  "schema": 1,
+  "date": "2026-11-05",
+  "scope": "Explicit rail requests matching this instance's temporary V/F headroom value",
+  "behavior": "After full readback verification, selected matching values become the owned hold's release targets. Unselected temporary raises retain their original targets.",
+  "verified_offline": [
+    "Absolute Apply and signed raw profile replay retain the chosen value on Release.",
+    "Per-field Stock matching the temporary raise retains the first-read value while peer fields restore their preceding user requests.",
+    "Failed Apply/Stock verification preserves the entire owned record.",
+    "Foreign ownership records and the other rail are unchanged.",
+    "UI Apply, selected Undo, named profile replay, retained V/F hold and eventual Release use the correct user requests."
+  ],
+  "regression": {
+    "passed": 2899,
+    "subtests_passed": 398,
+    "suite_sha256": "7f449af2c9c6952ef9168618b80c0fa0b1d2379250db4ba41aedbdcd1b832f7a",
+    "log_sha256": "eb25c4b16833c6238f12827b93f000961b9d966f7c12dce7ed2438e592c9a99e"
+  },
+  "sources": [
+    {
+      "path": "src/druta/nvbackend.py",
+      "sha256": "e218795f1a2bcbc08806539a820dfac331d330d7a5a9e735ed2458587e9f8c11"
+    },
+    {
+      "path": "tests/test_rail_limit_headroom_intent.py",
+      "sha256": "fab7cee67430d197f027f707336ba559cfa5d9a48f02060cf5f4f96a8b4ab3f3"
+    },
+    {
+      "path": "tests/test_rail_limit_profile_ui.py",
+      "sha256": "9e216f783e2751c265da6a02efbc2322a025e7a0f928aee1e029a4b15e72dc06"
+    }
+  ],
+  "limitations": [
+    "Tests use in-memory drivers; no hardware writes, workload or physical-voltage qualification were performed.",
+    "Only metadata for a hold owned by this GPU object changes. Existing UI refresh mirrors its marker.",
+    "The ordinary rail hardware round trips remain recorded separately in rail-limit-profiles-20261105.json."
+  ]
+}

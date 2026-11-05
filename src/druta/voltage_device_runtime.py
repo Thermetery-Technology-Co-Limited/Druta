@@ -11,6 +11,7 @@ voltage amplitude, restart or persistence operation occurs here.
 
 from __future__ import annotations
 
+import copy
 import ctypes
 import struct
 from dataclasses import dataclass
@@ -246,7 +247,7 @@ class VoltageDeviceController:
         result["error"] = "; ".join(errors) or None
         return result
 
-    def set(self, index, delay_us, *, voltage_domain, operation_type):
+    def set(self, index, delay_us, *, voltage_domain, operation_type, before_write=None):
         """Change one positive uint32 request, bound to its current domain/role.
 
         SET and one possible compensating SET use the same captured transport
@@ -285,6 +286,8 @@ class VoltageDeviceController:
             undo, payload = bytearray(original), bytearray(projected)
             struct.pack_into("<I", undo, 4, 1 << index)
             struct.pack_into("<I", payload, 4, 1 << index)
+            if before_write is not None:
+                before_write(copy.deepcopy(before))
             write = _Write()
             try:
                 self._call(transport, before["identity"], _SET, payload=bytes(payload), write=write)

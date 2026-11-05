@@ -1,0 +1,111 @@
+{
+  "schema": 1,
+  "date": "2026-11-05",
+  "scope": {
+    "name": "NVIDIA GeForce RTX 5080",
+    "driver": "617.42",
+    "vbios": "98.03.3b.c0.6f"
+  },
+  "policy": 2,
+  "board_request_mw": 360000,
+  "named_profile_and_undo_steps": [
+    {
+      "action": "pair active",
+      "lower_raw": 3113,
+      "upper_raw": 4178,
+      "effective_mw": 367207,
+      "exact_selected_projection": true
+    },
+    {
+      "action": "pair undone",
+      "lower_raw": 3072,
+      "upper_raw": 4219,
+      "effective_mw": 370811,
+      "exact_selected_projection": true
+    },
+    {
+      "action": "pair before upper Undo",
+      "lower_raw": 3113,
+      "upper_raw": 4178,
+      "effective_mw": 367207,
+      "exact_selected_projection": true
+    },
+    {
+      "action": "upper undone preserves lower",
+      "lower_raw": 3113,
+      "upper_raw": 4219,
+      "effective_mw": 370811,
+      "exact_selected_projection": true
+    },
+    {
+      "action": "final restored",
+      "lower_raw": 3072,
+      "upper_raw": 4219,
+      "effective_mw": 370811,
+      "exact_selected_projection": true
+    }
+  ],
+  "upper_only_undo_preserved_changed_lower": true,
+  "combined": {
+    "components": [
+      "upper",
+      "lower"
+    ],
+    "active_lower_raw": 3113,
+    "active_upper_raw": 4178,
+    "selected_bounds_only": true,
+    "exact_request_restoration": true
+  },
+  "exact_final_request_restoration": true,
+  "excluded_from_replay": [
+    "mode",
+    "past/next sample counts",
+    "ordinary board/policy requests",
+    "opaque packet fields"
+  ],
+  "workload_started": false,
+  "driver_restart": false,
+  "registry_write": false,
+  "validation": {
+    "tests_passed": 834,
+    "tests_seconds": 19.09,
+    "ruff_new_modules_and_focused_tests": "passed",
+    "review": "Combined crossing-range and partial-result defects fixed and independently rechecked",
+    "source_app_named_save_render": {
+      "state": "complete",
+      "error": null,
+      "scope": "Full source app: Read and named Save callbacks; no hardware Apply",
+      "profile_contents": "Power-policy feedback bounds",
+      "saved_scope": "power_integral",
+      "saved_incomplete": [],
+      "status": "Read complete.",
+      "input": "103.0029296875",
+      "lower_input": "75",
+      "lower_apply_enabled": true,
+      "readback": "Current upper: 103.0029296875%  |  Reported default upper: 103.0029296875%  |  Current lower: 75%  |  Reported default lower: 75%\nRequested: 450 W  |  PMU output: 360 W  |  Effective limit: 370.811 W\nPast samples: 43 (default 43)  |  Next samples: 7 (default 7)",
+      "apply_enabled": true,
+      "image_sha256": "b022b5184e90b2394fed56ba9e66291fed39e66adab8584d37d5bc12a68155d2"
+    }
+  },
+  "limitations": [
+    "Software request/configuration readbacks on one idle adapter, not physical enforcement",
+    "Load and Undo require explicit manual action; no startup or post-reset replay",
+    "Crossing-range transitions, partial failures and automatic-load refusal tested offline",
+    "Sample-count and mode writes remain unqualified"
+  ],
+  "artifact_sha256": {
+    "trial.py": "722ebf6fd227cdfa1c7735008f0b5623ec003987a1e6019bcbe3b6e61e906b44",
+    "trial.json": "c480c119808945adf76ad1551400a06115e260d62e0dfbba7a1442c9325f7047",
+    "combined_trial.py": "9a828cfef280beee1b4d9758842709667b3bcf3c796a682387cef2eb409d9dbf",
+    "combined-trial.json": "339fa60e879c314c7f8ce4179b00a72c9d59fc091428d2b2bfbabffe5b0ac071",
+    "capture_ui.py": "0cf1bc4a6b5b235fb0dcef78c985a518cc05be9fc6b2bc47fa22da4151770b7e"
+  },
+  "source_sha256": {
+    "power_integral_profiles.py": "d50f342073483e39fe1b5bba694a31aa3c1985378aa5ef7abf46ce51d2ddf7d1",
+    "power_integral_panel.py": "54ab17694a5b735f2d463d1bc5fbc0dac0082aecfa1174049608e2ec8aed5782",
+    "profiles.py": "cdd0c7d7aea9d69028fef4d4a8dd409741f5af5786de73491981db60206f9434",
+    "combined_profiles.py": "1685038c1ee3a5a161e1c9cf11023ca3586803134ff4f53d05d9a006f164aeeb",
+    "druta.py": "a6ae529556096c895cdc1e91c79825265e952d11240c772ab55ec13144b7a409",
+    "startup.py": "3cc35cbe4537c3c66e020f41eeea7da33680fc88c783985d75ea1fc4c4a982ea"
+  }
+}

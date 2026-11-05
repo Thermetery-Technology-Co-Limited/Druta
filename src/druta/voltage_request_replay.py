@@ -25,6 +25,7 @@ SET_EXPORT = 0x87C55C8A
 INFO_COMMAND, INFO_SIZE, INFO_STRIDE = 0x2080B201, 0x98C, 76
 CONTROL_COMMAND, CONTROL_SIZE, CONTROL_STRIDE = 0x2080B213, 0x40C, 32
 HEADER = 12
+_CONTROL_TYPES = {0: 2, 2: 4, 3: 5}
 _KEYS = {
     "schema",
     "identity",
@@ -78,7 +79,7 @@ def validate(saved):
     if not isinstance(saved, dict) or set(saved) != _KEYS or type(saved["schema"]) is not int or saved["schema"] != 1:
         _fail("Malformed captured rail replay observation")
     try:
-        policy = voltage.validate_policy(saved["policy"])
+        policy = voltage.validate_policy(saved["policy"], request=True)
         identity = clock._identity(saved["identity"])
     except (ValueError, RuntimeError, TypeError) as exc:
         raise ReplayError("malformed", str(exc)) from exc
@@ -107,19 +108,22 @@ def validate(saved):
             row["name"] != expected["name"]
             or type(row["policy_type"]) is not int
             or row["policy_type"] != expected["type"]
+            or row["policy_type"] != info[HEADER + int(index) * INFO_STRIDE + 0x33]
             or type(row["control_type"]) is not int
-            or row["control_type"] != 3
-            or expected["control_type"] != 3
+            or row["control_type"] not in _CONTROL_TYPES
+            or expected["control_type"] != row["control_type"]
         ):
-            _fail("Rail replay requires independently paired public type3/native type5")
+            _fail("Rail replay requires an independently paired control type")
+        public_type = row["control_type"]
+        native_type = _CONTROL_TYPES[public_type]
         raw = _raw(text, controls.SIZE)
         at, nat = controls.ROW_OFFSET + int(index) * controls.ROW_STRIDE, HEADER + int(index) * CONTROL_STRIDE
         if struct.unpack_from("<II", raw) != (controls.V2, 1 << int(index)):
             _fail("Rail replay requires exact V2 singleton control packets")
         if (
-            struct.unpack_from("<I", raw, at)[0] != 3
-            or info[HEADER + int(index) * INFO_STRIDE] != 5
-            or native[nat] != 5
+            struct.unpack_from("<I", raw, at)[0] != public_type
+            or info[HEADER + int(index) * INFO_STRIDE] != native_type
+            or native[nat] != native_type
         ):
             _fail("Rail replay control/INFO native types disagree")
         if raw[8] != boost or _six(raw, at) != _six(native, nat):
@@ -209,7 +213,8 @@ def _native_get(gpu, reader, command, size, mask=None):
 def _once(gpu, reader):
     identity = clock._binding(reader)
     info = _native_get(gpu, reader, INFO_COMMAND, INFO_SIZE)
-    policy, error = voltage.read(gpu)
+    identities = {i: info[HEADER + i * INFO_STRIDE + 0x33] for i in (0, 1) if i in _indices(_mask(info))}
+    policy, error = voltage.read(gpu, request_identities=identities)
     if error:
         raise PerfDiagnosticError("transient", error)
     if policy["identity"] != identity:
@@ -218,7 +223,8 @@ def _once(gpu, reader):
     for index, row in policy["rails"].items():
         if int(index) not in _indices(_mask(info)):
             raise PerfDiagnosticError("malformed", "Policy rail is absent from native INFO")
-        if row["control_type"] != 3 or info[HEADER + int(index) * INFO_STRIDE] != 5:
+        native_type = _CONTROL_TYPES.get(row["control_type"])
+        if native_type is None or info[HEADER + int(index) * INFO_STRIDE] != native_type:
             continue
         try:
             entry = controls._get(gpu, reader, index, controls.V2, policy)
@@ -231,7 +237,7 @@ def _once(gpu, reader):
         public[index] = entry["payload_hex"]
         identities[index] = {"name": row["name"], "policy_type": row["type"], "control_type": row["control_type"]}
     if not public:
-        raise PerfDiagnosticError("unsupported", "No independently paired type3/native5 rail requests")
+        raise PerfDiagnosticError("unsupported", "No independently paired rail requests")
     native = _native_get(gpu, reader, CONTROL_COMMAND, CONTROL_SIZE, sum(1 << int(i) for i in public))
     boost = ceiling._boost(gpu)
     if boost is None:
@@ -351,7 +357,7 @@ def _packet(state):
     raw[8] = state["boost_percent"]
     for index, text in state["public"].items():
         at = controls.ROW_OFFSET + int(index) * controls.ROW_STRIDE
-        raw[at] = 3  # Canonical zero padding; only the understood type byte.
+        raw[at] = state["rail_identity"][index]["control_type"]  # Canonical zero padding.
         raw[at + 4 : at + 28] = bytes.fromhex(text)[at + 4 : at + 28]
     return bytes(raw)
 

@@ -1496,40 +1496,71 @@ class Nvml:
         except Exception as e:
             self.err_detail = f"nvml.dll not loadable: {e}"
             return
-        self.dll.nvmlErrorString.restype = ctypes.c_char_p
-        st = self.dll.nvmlInit_v2()
-        if st != 0:
-            self.err_detail = f"nvmlInit_v2 status {st}"
+        if self.has("nvmlErrorString"):
+            self.dll.nvmlErrorString.restype = ctypes.c_char_p
+        init_name = next((name for name in ("nvmlInit_v2", "nvmlInit") if self.has(name)), None)
+        if init_name is None:
+            self.err_detail = "NVML has no initialization export"
             return
-        cnt = u32(0)
-        st = self.dll.nvmlDeviceGetCount_v2(ctypes.byref(cnt))
+        st = getattr(self.dll, init_name)()
         if st != 0:
-            self.err_detail = f"nvmlDeviceGetCount_v2 status {st}"
+            self.err_detail = f"{init_name} status {st}"
+            return
+        # NVIDIA documents different v1/v2 index spaces: never mix the pair.
+        pairs = (("nvmlDeviceGetCount_v2", "nvmlDeviceGetHandleByIndex_v2"),
+                 ("nvmlDeviceGetCount", "nvmlDeviceGetHandleByIndex"))
+        pair = next(((count, handle) for count, handle in pairs if self.has(count) and self.has(handle)), None)
+        if pair is None:
+            self.err_detail = "NVML has no matching device-count/index exports"
+            return
+        count_name, handle_name = pair
+        cnt = u32(0)
+        st = getattr(self.dll, count_name)(ctypes.byref(cnt))
+        if st != 0:
+            self.err_detail = f"{count_name} status {st}"
             return
         for i in range(cnt.value):
             dev = PTR()
-            if self.dll.nvmlDeviceGetHandleByIndex_v2(i,
-                                                      ctypes.byref(dev)) != 0:
+            if getattr(self.dll, handle_name)(i, ctypes.byref(dev)) != 0:
                 continue
-            pci = _NvmlPciInfo()
             entry = {"dev": dev, "nvml_index": i, "slot": "",
                      "devid": None, "subsys": None, "name": "", "uuid": ""}
-            if self.dll.nvmlDeviceGetPciInfo_v3(dev, ctypes.byref(pci)) == 0:
+            pci = self._read_pci(dev)
+            if pci is not None:
                 entry["slot"] = format_slot(pci.domain, pci.bus, pci.device)
                 entry["devid"] = pci.pciDeviceId >> 16
                 entry["subsys"] = pci.pciSubSystemId
-            buf = ctypes.create_string_buffer(96)
-            if self.dll.nvmlDeviceGetName(dev, buf, 96) == 0:
-                entry["name"] = buf.value.decode(errors="replace")
             # The only identity that survives two IDENTICAL cards in one host,
             # where name and VBIOS are equal by construction. Profiles lean on
             # it (see profiles.device_mismatch).
-            if self.has("nvmlDeviceGetUUID"):
-                ubuf = ctypes.create_string_buffer(96)
-                if self.dll.nvmlDeviceGetUUID(dev, ubuf, 96) == 0:
-                    entry["uuid"] = ubuf.value.decode(errors="replace")
+            for key, name in (("name", "nvmlDeviceGetName"), ("uuid", "nvmlDeviceGetUUID")):
+                if self.has(name):
+                    buf = ctypes.create_string_buffer(96)
+                    try:
+                        if getattr(self.dll, name)(dev, buf, 96) == 0:
+                            entry[key] = buf.value.decode(errors="replace")
+                    except Exception:
+                        pass
             self.gpus.append(entry)
         self._select(slot)
+
+    def _read_pci(self, dev):
+        """Read a versioned PCI identity; never mix partial or old layouts.
+
+        V2 and V3 share the 16-byte bus ID and five leading identity words.
+        The V3-sized buffer also accommodates the older reserved tail. The
+        unversioned pre-v2 layout cannot establish subsystem identity.
+        https://docs.nvidia.com/deploy/nvml-api/change-log.html
+        """
+        name = next((name for name in ("nvmlDeviceGetPciInfo_v3", "nvmlDeviceGetPciInfo_v2")
+                     if self.has(name)), None)
+        if name is None:
+            return None
+        pci = _NvmlPciInfo()
+        try:
+            return pci if getattr(self.dll, name)(dev, ctypes.byref(pci)) == 0 else None
+        except Exception:
+            return None
 
     def _select(self, slot):
         """Same rule as NvAPI._select: lowest slot by default, exact match or
@@ -1775,12 +1806,15 @@ class GPU:
                         s[key] = buf.value.decode(errors="replace")
                 except Exception:
                     pass
-            # power-limit constraints (mW)
+            # Power metadata getters are optional and independent.
             try:
                 mn, mx = u32(0), u32(0)
                 if nv.dll.nvmlDeviceGetPowerManagementLimitConstraints(
                         nv.dev, ctypes.byref(mn), ctypes.byref(mx)) == 0:
                     s["pl_min_mw"], s["pl_max_mw"] = mn.value, mx.value
+            except Exception:
+                pass
+            try:
                 d = u32(0)
                 if nv.dll.nvmlDeviceGetPowerManagementDefaultLimit(
                         nv.dev, ctypes.byref(d)) == 0:
@@ -3891,6 +3925,19 @@ class GPU:
             return self._set_msvdd_offset_mv(mv, domain)
         if type(rail) is not int or rail != 0:
             return False, "unknown rail offset index"
+        if type(domain) is not int or not 0 <= domain < CLKDOM_SLOTS:
+            return False, "clock-control index must be an integer from 0 to 31"
+        if type(mv) not in (int, float):
+            return False, "NVVDD offset must be a finite number"
+        try:
+            valid = math.isfinite(mv) and -(1 << 31) <= mv * 1000 < (1 << 31)
+        except OverflowError:
+            valid = False
+        if not valid:
+            return False, "NVVDD offset exceeds the signed 32-bit microvolt range"
+        uv = int(round(mv * 1000))
+        if not -(1 << 31) <= uv < (1 << 31):
+            return False, "rounded NVVDD request exceeds signed microvolts"
         a = self.nvapi
         if not (self.clkdom_ok() and a.ClkDomCtlSet):
             return False, "per-domain clock control unavailable"
@@ -3910,9 +3957,14 @@ class GPU:
                            "The rail itself IS readable now via "
                            "read_volt_rail_state, so the check is available. "
                            "Set this GPU's msvdd_write_enabled to allow it.")
-        st, buf = self._clkdom_get(1 << domain)
-        if st != 0:
-            return False, f"read failed (status {st})"
+        mask = 1 << domain
+        try:
+            st, buf = self._clkdom_get(mask)
+            valid = st == 0 and self._clkdom_valid_block(buf, layout, mask)
+        except Exception:  # A malformed or unavailable read cannot authorize a write.
+            valid = False
+        if not valid:
+            return False, "NVVDD request read failed or returned an invalid block"
         dw = (layout.header + domain * layout.stride + field) // 4
         was = ctypes.cast(buf, ctypes.POINTER(i32))[dw]
         if rail == 0:
@@ -3923,7 +3975,6 @@ class GPU:
             if not (lower <= mv <= upper):
                 return False, (f"NVVDD offset {mv:g} mV is outside Druta's "
                                f"{lower:g}..{upper:g} mV bound")
-        uv = int(round(mv * 1000))
         if was == uv:
             # The diff guard below demands exactly one changed dword, so a
             # no-op write would be REFUSED rather than silently doing nothing.
@@ -3932,9 +3983,13 @@ class GPU:
             return True, (f"{_RAIL_NAME[rail]} offset already "
                           f"{uv/1000:+.2f} mV")
         ctypes.cast(buf, ctypes.POINTER(i32))[dw] = uv
-        st2, ref = self._clkdom_get(1 << domain)
-        if st2 != 0:
-            return False, f"verification read failed (status {st2})"
+        try:
+            st2, ref = self._clkdom_get(mask)
+            valid = st2 == 0 and self._clkdom_valid_block(ref, layout, mask)
+        except Exception:
+            valid = False
+        if not valid:
+            return False, "NVVDD verification read failed or returned an invalid block"
         pb = ctypes.cast(buf, ctypes.POINTER(u32))
         pr = ctypes.cast(ref, ctypes.POINTER(u32))
         diffs = [i for i in range(layout.size // 4) if pb[i] != pr[i]]
@@ -3945,12 +4000,23 @@ class GPU:
         if sst != 0:
             return False, (f"{_RAIL_NAME[rail]} write failed "
                            f"(status {sst})")
+        try:
+            status, back = self._clkdom_get(mask)
+            valid = status == 0 and self._clkdom_valid_block(back, layout, mask)
+        except Exception:
+            valid = False
+        if not valid:
+            return False, "NVVDD request sent, but its readback is unavailable or invalid"
+        observed_uv = ctypes.cast(back, ctypes.POINTER(i32))[dw]
+        if observed_uv != uv:
+            return False, (f"NVVDD request readback mismatch: requested {uv / 1000:+g}, "
+                           f"stored {observed_uv / 1000:+g} mV")
         note = ("" if rail == 0 else
                 " - UNVERIFIABLE: nothing on this card reads this rail "
                 "back, so this is a request that was accepted, not a "
                 "change that was observed")
-        return True, (f"{_RAIL_NAME[rail]} offset {was/1000:+.2f} -> "
-                      f"{uv/1000:+.2f} mV{note}")
+        return True, (f"{_RAIL_NAME[rail]} stored request {was/1000:+.2f} -> "
+                      f"{uv/1000:+.2f} mV; physical voltage response is unverified{note}")
 
     def reset_msvdd_offset_mv(self, domain=0):
         """Explicitly clear a stored MSVDD request, including after XOC is off."""
@@ -5695,6 +5761,42 @@ class GPU:
                 self._current_limit_layout_choice = None
         return None, error
 
+    def read_power_relationships(self):
+        """(report, error): configured relationship metadata from INFO only.
+
+        No CONTROL/STATUS query, inferred firmware client, or tuning request.
+        Failure of these diagnostics leaves existing power controls intact.
+        """
+        from .perf_diagnostics import PerfDiagnosticError, PerfDiagnosticsReader
+        from .power_relationships import decode
+
+        binding = PerfDiagnosticsReader(self)
+        error = None
+        for attempt in range(2):
+            try:
+                binding._binding()
+                layout = self._current_limit_abi()
+                info = self._current_limit_rm(0x2080A618)
+                api, slot, architecture = binding._binding()
+                report = decode(layout, info)
+                report["identity"] = {
+                    "slot": slot, "architecture": architecture,
+                    "device_id": api.selected.get("devid"),
+                    "subsystem_id": api.selected.get("subsys"),
+                }
+                report["captured_at"] = time.time()
+                return report, None if report["available"] else report["reason"]
+            except (CurrentLimitUnsupported, PerfDiagnosticError) as exc:
+                error = str(exc)
+                if isinstance(exc, CurrentLimitUnsupported) or exc.kind != "transient":
+                    break
+            except Exception as exc:                                    # noqa: BLE001
+                error = str(exc)
+            if attempt == 0:
+                self._current_limit_transport = None
+                self._current_limit_layout_choice = None
+        return None, error
+
     def _write_policy_limit(self, policy, value):
         """set_current_limit_ma's method for ANY policy in the table: copy the
         control GET, change only this policy's limit word, SET with only it
@@ -6992,6 +7094,18 @@ class GPU:
             return None, "rail write changed the voltage boost setting"
         return back, None
 
+    def _adopt_verified_hold_fields(self, rail, fields, back):
+        """Retain an explicit selected request equal to our temporary raise."""
+        record = getattr(self, "_hold_headroom", None)
+        if not isinstance(record, dict) or record.get("rail") != rail:
+            return
+        written = record.get("written_uv") or {}
+        prior = record.get("prior_uv") or {}
+        for key in fields:
+            if (key in written and key in prior
+                    and int(round(back[rail][key] * 1000)) == written[key]):
+                prior[key] = written[key]
+
     def set_volt_rail_limits(self, rail, **limits):
         """Set one rail's limits, each in ABSOLUTE millivolts against its base.
 
@@ -7059,6 +7173,11 @@ class GPU:
         back, error = self._verify_rail_records(expected, boost)
         if error:
             return False, error
+        # A user can deliberately select the exact value currently supplied by
+        # our temporary hold raise. Readback alone cannot distinguish that
+        # choice from the raise, so make it the release target only after the
+        # selected write and all preserved records have been verified.
+        self._adopt_verified_hold_fields(rail, (key for key, value in limits.items() if value is not None), back)
         # Report the fields that were written AND what they add up to, because
         # the second is not obvious from the first: raising reliability alone
         # can leave the reachable maximum exactly where it was.
@@ -7157,9 +7276,11 @@ class GPU:
         expected = {r: [round(row[k] * 1000) for k in self.VOLT_LIMIT_FIELDS]
                     for r, row in cur.items() if row.get("_base_mv")}
         expected.update(recs)
-        _back, error = self._verify_rail_records(expected, boost)
+        back, error = self._verify_rail_records(expected, boost)
         if error:
             return False, error
+        for r in rails:
+            self._adopt_verified_hold_fields(r, keys, back)
         record = getattr(self, "_hold_headroom", None)
         if record and record["rail"] in rails and set(record["written_uv"]).issubset(keys):
             # The raise was overwritten by first-read values; restoring its

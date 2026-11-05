@@ -1,0 +1,291 @@
+{
+  "schema": 1,
+  "scope": "Source production Prepare/durable Apply/Undo for last raw-bit4 loss alone or with bit1/bit3, while main0 stays supported and neither type7 peer is supported.",
+  "status": "qualified bounded source production transactions",
+  "adapter": "RTX 5080 GB203",
+  "driver": "621.01",
+  "VBIOS": "98.03.3b.c0.6f",
+  "driver_sha256": "3f8d33495cabeb2fa11ebdcf0b12705e9ccfb4e53005324bcd86e9dea8ba2ab4",
+  "schemas": [
+    6,
+    7
+  ],
+  "compatibility": "Existing schemas and peer-bearing projections remain unchanged. New inputs require both type7 peer roles independently available with value0; unknown peers without a supported witness remain refused.",
+  "behavior": "Last role0 removal makes every type7 query unavailable. Main support remains true, its mask and feature change exactly; type1 group-any may become valid0 and type4 role0 becomes unavailable only for its selected loss.",
+  "temporary_setup": "Disable every enabled MS entry using the already-understood bit0, add raw GRPG bit4 to carrier1 and clear only known raw bit1 on enabled noncarrier rows for bit1-loss cases. Production changes clear only selected GRPG bit0. No product enable support is implied.",
+  "trials": [
+    {
+      "loss": "0x10",
+      "schema": 6,
+      "journal": "production-10-3123a7dc00464e3d967a974a61004984.json",
+      "selected": {
+        "lpwr.gr_pg.1.enabled": false
+      },
+      "main_masks_before_after": [
+        288,
+        256
+      ],
+      "all_phase_checks_passed": true,
+      "final_exact": true,
+      "main0_support_retained": true,
+      "feature0_before_after": [
+        32804380,
+        32804372
+      ],
+      "type1_group_any_after": {
+        "available": true,
+        "value": 1
+      },
+      "type1_role0_after": {
+        "supported": 1,
+        "configured_mask": 256
+      },
+      "type4_role0_after": {
+        "available": true,
+        "supported": true
+      },
+      "type7_after": {
+        "1:0": {
+          "available": false,
+          "value": null
+        },
+        "801:0": {
+          "available": false,
+          "value": null
+        },
+        "801:1": {
+          "available": false,
+          "value": null
+        },
+        "801:2": {
+          "available": false,
+          "value": null
+        },
+        "805:0": {
+          "available": false,
+          "value": null
+        },
+        "805:1": {
+          "available": false,
+          "value": null
+        }
+      },
+      "Undo_setup_exact": true
+    },
+    {
+      "loss": "0x12",
+      "schema": 7,
+      "journal": "production-12-0851dd709ff04f409e073073b4850840.json",
+      "selected": {
+        "lpwr.gr_pg.1.enabled": false
+      },
+      "main_masks_before_after": [
+        288,
+        256
+      ],
+      "all_phase_checks_passed": true,
+      "final_exact": true,
+      "main0_support_retained": true,
+      "feature0_before_after": [
+        32804380,
+        32804372
+      ],
+      "type1_group_any_after": {
+        "available": true,
+        "value": 1
+      },
+      "type1_role0_after": {
+        "supported": 1,
+        "configured_mask": 256
+      },
+      "type4_role0_after": {
+        "available": false,
+        "supported": null
+      },
+      "type7_after": {
+        "1:0": {
+          "available": false,
+          "value": null
+        },
+        "801:0": {
+          "available": false,
+          "value": null
+        },
+        "801:1": {
+          "available": false,
+          "value": null
+        },
+        "801:2": {
+          "available": false,
+          "value": null
+        },
+        "805:0": {
+          "available": false,
+          "value": null
+        },
+        "805:1": {
+          "available": false,
+          "value": null
+        }
+      },
+      "Undo_setup_exact": true
+    },
+    {
+      "loss": "0x18",
+      "schema": 7,
+      "journal": "production-18-67034653dd9942d38dd0569f0819044d.json",
+      "selected": {
+        "lpwr.gr_pg.0.enabled": false,
+        "lpwr.gr_pg.1.enabled": false
+      },
+      "main_masks_before_after": [
+        288,
+        0
+      ],
+      "all_phase_checks_passed": true,
+      "final_exact": true,
+      "main0_support_retained": true,
+      "feature0_before_after": [
+        32804380,
+        32804356
+      ],
+      "type1_group_any_after": {
+        "available": true,
+        "value": 0
+      },
+      "type1_role0_after": {
+        "supported": 0,
+        "configured_mask": 0
+      },
+      "type4_role0_after": {
+        "available": true,
+        "supported": true
+      },
+      "type7_after": {
+        "1:0": {
+          "available": false,
+          "value": null
+        },
+        "801:0": {
+          "available": false,
+          "value": null
+        },
+        "801:1": {
+          "available": false,
+          "value": null
+        },
+        "801:2": {
+          "available": false,
+          "value": null
+        },
+        "805:0": {
+          "available": false,
+          "value": null
+        },
+        "805:1": {
+          "available": false,
+          "value": null
+        }
+      },
+      "Undo_setup_exact": true
+    },
+    {
+      "loss": "0x1a",
+      "schema": 7,
+      "journal": "production-1a-3279a34bbc604b8dac98a57ec0febf5c.json",
+      "selected": {
+        "lpwr.gr_pg.0.enabled": false,
+        "lpwr.gr_pg.1.enabled": false
+      },
+      "main_masks_before_after": [
+        288,
+        0
+      ],
+      "all_phase_checks_passed": true,
+      "final_exact": true,
+      "main0_support_retained": true,
+      "feature0_before_after": [
+        32804380,
+        32804356
+      ],
+      "type1_group_any_after": {
+        "available": true,
+        "value": 0
+      },
+      "type1_role0_after": {
+        "supported": 0,
+        "configured_mask": 0
+      },
+      "type4_role0_after": {
+        "available": false,
+        "supported": null
+      },
+      "type7_after": {
+        "1:0": {
+          "available": false,
+          "value": null
+        },
+        "801:0": {
+          "available": false,
+          "value": null
+        },
+        "801:1": {
+          "available": false,
+          "value": null
+        },
+        "801:2": {
+          "available": false,
+          "value": null
+        },
+        "805:0": {
+          "available": false,
+          "value": null
+        },
+        "805:1": {
+          "available": false,
+          "value": null
+        }
+      },
+      "Undo_setup_exact": true
+    }
+  ],
+  "retained_negative": {
+    "journal": "production-1a-58e4375c5bb94126a490c2230a0f3739.json",
+    "targeted_LPWR_client_and_production_Apply_Undo": "passed",
+    "full_broad_active_and_UndoSetup": "failed; exact final original comparison passed",
+    "difference": "110 bytes in 50 declared evaluated V/F frequency words; curve headers, voltage grid, opaque fields/tail, delta requests, equations and other compared controls unchanged. Cause of recalculation unverified.",
+    "classification": "not a successful full qualification; cleanup warning retained even though complete original state was verified restored"
+  },
+  "retry": "Successful 1A retry used a separate diagnostic probe; independent original strict comparison passed for setup/active/UndoSetup/final and every captured retry curve equals its original. No frequency exclusion used for qualification.",
+  "curve_layout": "Read-only current layout and captured grids classify 128 populated rows as 127 GPU points plus trailing other_idx127. Actual positive retry needs no frequency exception; its entire curve is identical to original in every sample. The experimental diagnostic comparator is not a portable helper.",
+  "recovery": "Each of the four qualified runs restored its exact distinguishing setup through production Undo, then setup removal restored the complete original compared state. The retained negative reached exact final original state but failed intermediate broad checks.",
+  "comparison_scope": "Complete raw A801 support/state/features/type1/type4/type7 with independent duplicate queries, complete client/native power records and requests, exact ROM projections and full normalized broad-state comparisons. Capture timestamps/paths and dynamic policy STATUS value/limit are excluded; final evaluated curve is included.",
+  "full_tests": 6633,
+  "focused_tests": 405,
+  "logical_GPU_only_restarts": 20,
+  "Windows_reboot": false,
+  "workload": false,
+  "F219_SET": false,
+  "remaining": [
+    "The bit1/type4 all-unavailable support-query outcome is qualified in grpg-bit1-availability-qualified-20261029.json and media-type4-last-role-qualified-20261029.json. Independent group-presence/mask readback, conditional controller2/4 dependency losses and broader peer/cascade profiles remain pending.",
+    "Physical residency/power savings, other adapters/layouts and a dedicated packaged visual/input walkthrough remain unqualified."
+  ],
+  "source_sha256": {
+    "grpg_runtime.py": "dbc2c460b89b0255aa9282de5f2230415923ab4a428fa63092d4529607e01b16",
+    "registry_panel.py": "1a592c6e7b80b7fd3d0bbbbaa3f8b41d41768b204682acdce319c23d6100c98e",
+    "registry_overrides.py": "f04fe519b1aeba044eee44998d40e613dd4b4ec3abfdc8900d2e4752db3fc879"
+  },
+  "panel_tests": 76,
+  "independent_audit": {
+    "path_name": "luna-raw-audit.json",
+    "sha256": "554795048b9ef98f10fd1384c0daac28ffa2fc322a8932f0cb2b0cf326ee357e",
+    "actual_positive_retry_original_strict_broad_checks": {
+      "setup": true,
+      "active": true,
+      "undo_setup": true,
+      "final": true
+    }
+  },
+  "full_test_seconds": 117.14,
+  "regression_note": "Initial full run exposed two old Preview fixtures without main-group metadata; fixtures were updated and two no-peer Preview cases added. Final full run passed; control implementation was unchanged."
+}

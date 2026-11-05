@@ -14,14 +14,18 @@ from tests.test_voltage_request_replay import Gpu
 
 @pytest.fixture(autouse=True)
 def fake_policy(monkeypatch):
-    monkeypatch.setattr(startup.requests.voltage, "read", lambda gpu: gpu.policy())
+    monkeypatch.setattr(startup.requests.voltage, "read", lambda gpu, *, request_identities=None: gpu.policy())
 
 
 def observation(*, rails=(0, 1), affected=(1,), boost=0, extra=(), **identity):
     gpu = Gpu(rails=rails, extra=extra, **identity)
     gpu.boost = boost
     for index in (*rails, *extra):
-        gpu.info[startup.requests.HEADER + index * startup.requests.INFO_STRIDE + 0x33] = 3 if index in affected else 97
+        rail_type = 3 if index in affected else 1
+        gpu.info[startup.requests.HEADER + index * startup.requests.INFO_STRIDE + 0x33] = rail_type
+        if str(index) in gpu.policy_data["rails"]:
+            gpu.policy_data["rails"][str(index)]["type"] = rail_type
+            gpu.policy_data["rails"][str(index)]["name"] = startup.requests.voltage._request_name(index, rail_type)
     state = startup.requests.read_checked(gpu)
     definitions = native.clamp_observation(**state["identity"])
     result = {"schema": 1, "requests": state, "equations": definitions}
