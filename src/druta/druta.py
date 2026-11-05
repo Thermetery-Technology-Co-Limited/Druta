@@ -101,7 +101,7 @@ from .nvbackend import (GPU, EVENT_REASONS, PERF_DECREASE_BITS, VF_STEP_KHZ, VF_
                         PRIV_LIKELY, PRIV_N_DOMAINS, PRIV_PCIE_GEN, PRIV_SLOT,
                         PRIV_UNNAMED, PRIV_UNPOPULATED)
 
-__version__ = "1.9.0b"
+__version__ = "1.9.07"
 
 # ---- palette (ImGui takes 0-255 RGBA) ------------------------------------- #
 TEXT = (230, 232, 236)
@@ -6463,12 +6463,64 @@ class Druta:
             except (TypeError, ValueError, OverflowError) as exc:
                 self.log(f"power limit input: {exc}", False)
                 return
-            for tag in ("sl_pl", "in_pl"):
-                if dpg.does_item_exist(tag):
-                    dpg.set_value(tag, value)
-            self.report(self.write_tuning_action("power", "board",
-                                                lambda: self.gpu.set_power_limit_mw(int(round(value * 1000)))))
+            requested = int(round(value * 1000))
+            # Capture a verified fallback before dispatch. A typed/dragged
+            # value is a proposal, not evidence that the driver accepted it.
             self.sync_power_slider_from_card()
+            self._power_request_feedback = None
+            dispatched = False
+
+            def write():
+                nonlocal dispatched
+                dispatched = True
+                return self.gpu.set_power_limit_mw(requested)
+
+            try:
+                # Route the write through the tuning-action recorder so a board
+                # request saves an Undo point like the other ordinary controls.
+                ok, message = self.write_tuning_action("power", "board", write)
+            except Exception as exc:                                   # noqa: BLE001
+                ok, message = False, f"power request failed: {exc}"
+            # A failed Undo snapshot stops the request before it reaches the
+            # driver. Verifying a readback then would only describe the card we
+            # never wrote to, so the checks below apply to a real dispatch only.
+            if dispatched:
+                got = self.sync_power_slider_from_card()
+                if got is None:
+                    previous = getattr(self, "_verified_power_request", None)
+                    warning = "Current configured power request is unverified: readback unavailable."
+                    if previous is not None and previous[0] is self.gpu:
+                        self.show_power_request_mw(previous[1])
+                        warning += (f" Slider shows last verified {previous[1] / 1000:g} W, "
+                                    "not a confirmed current setting.")
+                    else:
+                        warning += " Slider value is an unverified proposal."
+                    self._power_request_feedback = (self.gpu, "unverified", warning)
+                    ok, message = False, f"{message}; {warning}"
+                elif got != requested:
+                    warning = (f"Requested {requested / 1000:g} W did not match configured "
+                               f"readback {got / 1000:g} W; slider returned to readback.")
+                    self._power_request_feedback = (self.gpu, "mismatch", warning)
+                    ok, message = False, f"{message}; {warning}"
+                power = {}
+                reader = getattr(self.gpu, "_read_power", None)
+                if callable(reader):
+                    try:
+                        reader(power)
+                    except Exception:                                  # noqa: BLE001
+                        pass
+                enforced = power.get("pl_now_mw")
+                if (type(got) is int and type(enforced) is int and 0 < enforced < (1 << 32)
+                        and got != enforced):
+                    message += (f"; configured request {got / 1000:g} W, NVML-reported "
+                                f"enforced limit {enforced / 1000:g} W. "
+                                "These differ; actual power draw is not verified.")
+                native = self.native_power_limit_for_ui()
+                if (type(got) is int and native is not None and native < got):
+                    message += (f"; native effective limit {native / 1000:g} W is below "
+                                f"configured request {got / 1000:g} W; downstream limits may apply.")
+                self.refresh_power_request_status(got, enforced, native)
+            self.report((ok, message))
             # the driver recalculates the limits it derives from this one
             self.refresh_current_limits(sync=True)
             self.refresh_power_policies(force=True)
@@ -6485,8 +6537,14 @@ class Druta:
             got = self.gpu.read_power_limit_mw()
         except Exception:                                               # noqa: BLE001
             got = None
-        if not got:
+        if type(got) is not int or not 0 < got < (1 << 32):
             return None
+        self._verified_power_request = (self.gpu, got)
+        self.show_power_request_mw(got)
+        return got
+
+    def show_power_request_mw(self, got):
+        """Display an observed request; its verification status is separate."""
         self.power_request_carryover(got)
         if "pl" in getattr(self, "_slider_ranges", {}):
             self.sync_slider_ranges(self._xoc_bounds)
@@ -6494,7 +6552,56 @@ class Druta:
             if dpg.does_item_exist(tag):
                 dpg.set_value(tag, got / 1000)
         self.refresh_power_slider_style()
-        return got
+
+    def native_power_limit_for_ui(self):
+        """An unavailable native diagnostic must not disable the ordinary knob."""
+        reader = getattr(self.gpu, "read_native_power_limit_mw", None)
+        if callable(reader):
+            try:
+                value, _error = reader()
+                if type(value) is int and 0 <= value < 0xFFFFFFFF:
+                    return value
+            except Exception:                                          # noqa: BLE001
+                pass
+        return None
+
+    def refresh_power_request_status(self, requested, enforced=None, native=None):
+        """Keep configured readback, NVML and native effective status distinct."""
+        valid = type(requested) is int and 0 < requested < (1 << 32)
+        feedback = getattr(self, "_power_request_feedback", None)
+        if feedback is not None and feedback[0] is not self.gpu:
+            self._power_request_feedback = feedback = None
+        if valid:
+            self._verified_power_request = (self.gpu, requested)
+            if feedback is not None and feedback[1] == "unverified":
+                self.show_power_request_mw(requested)
+                self._power_request_feedback = feedback = None
+        if not dpg.does_item_exist("power_request_status"):
+            return
+        text = (f"Configured request: {requested / 1000:g} W."
+                if valid else "Configured power request unverified: readback unavailable.")
+        valid_enforced = type(enforced) is int and 0 < enforced < (1 << 32)
+        different = valid_enforced and valid and enforced != requested
+        if valid_enforced:
+            text += f" NVML-reported enforced limit: {enforced / 1000:g} W."
+            if different:
+                text += (" Below configured request; downstream limits may apply."
+                         if enforced < requested else " Differs from configured request.")
+        else:
+            text += " NVML enforced limit unavailable."
+        valid_native = type(native) is int and 0 <= native < 0xFFFFFFFF
+        native_below = valid_native and valid and native < requested
+        if valid_native:
+            text += f" Native effective limit: {native / 1000:g} W."
+            if native_below:
+                text += " Native limit is below configured request; downstream limits may apply."
+        else:
+            text += " Native effective limit unavailable; NVML readback does not verify it."
+        if feedback is not None:
+            text += " " + feedback[2]
+        dpg.set_value("power_request_status", text)
+        dpg.configure_item("power_request_status",
+                           color=WARN if not valid or different or native_below or feedback else DIM)
 
     def apply_volt(self, v):
         if self.guard():
@@ -7792,7 +7899,19 @@ class Druta:
             # "unanswered" flag set with no dialog on screen
             dpg.set_value("hrs_text", self.stale_headroom_text(record))
             self.show_win(user_data="win_headroom_stale")
-            dpg.set_value("hrs_text", self.stale_headroom_text(record, self.pnp_blocker()))
+            supported = self.pnp_restart_supported()
+            if dpg.does_item_exist("hrs_restart"):
+                dpg.configure_item("hrs_restart", enabled=supported)
+            if dpg.does_item_exist("hrs_admin_hint"):
+                dpg.configure_item("hrs_admin_hint", show=supported)
+            self.refresh_stale_headroom_text()
+
+    def refresh_stale_headroom_text(self):
+        """Redraw the open dialog's text, with what would block a restart."""
+        record = getattr(self, "_stale_headroom", None)
+        if record and dpg.does_item_exist("hrs_text"):
+            others = self.pnp_blocker() if self.pnp_restart_supported() else None
+            dpg.set_value("hrs_text", self.stale_headroom_text(record, others))
 
     def note_foreign_headroom(self, record):
         """Another running window's raise on this card: this window's restore
@@ -7849,6 +7968,12 @@ class Druta:
                         "any other Druta window before restarting.")
         return None
 
+    @staticmethod
+    def pnp_restart_supported():
+        """Whether this Windows build can restart a single device (pnputil)."""
+        from . import devicereset
+        return devicereset.pnputil_restart_supported()
+
     def stale_headroom_text(self, record, others=None):
         fields = ", ".join(k.replace("_", "-") for k in sorted(record["written_uv"]))
         hold = record.get("hold_mv")
@@ -7856,17 +7981,24 @@ class Druta:
         text = ("The last Druta session ended without restoring the voltage limits it "
                 f"raised{where} ({fields}). They are still raised on this card.\n\n"
                 "Because this session started with them raised, 'Reset all to stock' "
-                "would treat the raised values as this card's starting values.\n\n"
-                "A GPU device restart (PnP) has returned the voltage limits to the "
-                "card's own values on the card it was tested on; it is not proven "
-                "on every GPU. After the restart Druta opens again and checks this "
-                "card again. Druta will close and the screen may go black for a "
-                "few seconds.")
+                "would treat the raised values as this card's starting values.\n\n")
+        supported = self.pnp_restart_supported()
+        if supported:
+            text += ("A GPU device restart (PnP) has returned the voltage limits to the "
+                     "card's own values on the card it was tested on; it is not proven "
+                     "on every GPU. After the restart Druta opens again and checks this "
+                     "card again. Druta will close and the screen may go black for a "
+                     "few seconds.")
+        else:
+            from . import devicereset
+            text += ("Druta cannot restart the GPU device on this Windows version "
+                     f"({devicereset.PNP_RESTART_REQUIREMENT}), so no restart is offered. "
+                     "Druta does not write the limits from before the raise back itself.")
         held = getattr(self, "_held_startup_request", None)
         if held:
             text += (f"\n\nThe startup profile '{held.get('name', '')}' is waiting for this "
-                     "answer. After a restart it does not run again this boot; load it by "
-                     "hand.")
+                     + ("answer. After a restart it does not run again this boot; load it "
+                        "by hand." if supported else "answer and runs after it."))
         if others:
             text += "\n\n" + others
         return text
@@ -7939,9 +8071,15 @@ class Druta:
         self._stale_headroom = None
         if dpg.does_item_exist("win_headroom_stale"):
             dpg.configure_item("win_headroom_stale", show=False)
-        self.log("headroom: kept the raised limits as they are. 'Restart GPU device "
-                 "(PnP)' in the Device menu may clear them later (tested on one card "
-                 "so far).", None)
+        if self.pnp_restart_supported():
+            self.log("headroom: kept the raised limits as they are. 'Restart GPU device "
+                     "(PnP)' in the Device menu may clear them later (tested on one card "
+                     "so far).", None)
+        else:
+            from . import devicereset
+            self.log("headroom: kept the raised limits as they are; Druta cannot restart "
+                     "the GPU device on this Windows version to clear them "
+                     f"({devicereset.PNP_RESTART_REQUIREMENT})", None)
         self.resume_startup_profile()
 
     def resume_startup_profile(self):
@@ -8184,14 +8322,14 @@ class Druta:
     def refresh_control(self, d):
         requested = d.get("pl_requested_mw")
         if requested is None and "pl" in getattr(self, "_slider_ranges", {}):
-            requested = self.gpu.read_power_limit_mw()
+            try:
+                requested = self.gpu.read_power_limit_mw()
+            except Exception:                                          # noqa: BLE001
+                requested = None
         if self.power_request_carryover(requested):
             self.sync_slider_ranges(self._xoc_bounds)
-        if dpg.does_item_exist("power_request_status"):
-            text = (f"Configured request: {requested / 1000:g} W. "
-                    "Firmware limits: Registry / BIOS overrides > Power/current arbitration."
-                    if type(requested) is int and requested > 0 else "Configured power request unavailable.")
-            dpg.set_value("power_request_status", text)
+        self.refresh_power_request_status(requested, d.get("pl_now_mw"),
+                                          self.native_power_limit_for_ui())
         c_t = d.get("core_p0max", "?")
         m_t = self.mem_fmt(d.get("mem_p0max"))[0]
         self.refresh_rail_live()
@@ -12025,7 +12163,8 @@ deliberately does not put behind a button."""
                 dpg.add_button(label="Keep them for now", width=self.s(180),
                                callback=self.stale_headroom_dismiss)
             dpg.add_spacer(height=self.s(4))
-            dpg.add_text("needs Druta running as administrator", color=DIM)
+            dpg.add_text("needs Druta running as administrator", tag="hrs_admin_hint",
+                         color=DIM)
 
         with dpg.window(label="Licences", tag="win_licence", show=False,
                         width=self.s(860), height=self.s(640),
@@ -12963,6 +13102,13 @@ deliberately does not put behind a button."""
         """Start the bounded selected-GPU recovery helper without a modal step."""
         from . import devicereset
         if getattr(self, "_closing", False):
+            return
+        if not devicereset.pnputil_restart_supported():
+            # The helper checks this too, but only after this window has
+            # closed: it would restart nothing and reopen Druta without a
+            # waiting startup profile. Refuse while the window is still open.
+            self.log(f"GPU device restart: {devicereset.PNP_RESTART_REQUIREMENT}; Druta stays "
+                     "open and no device was restarted", False)
             return
         if not is_admin():
             self.log("GPU device restart requires Druta to run as administrator", False)
@@ -14747,6 +14893,8 @@ deliberately does not put behind a button."""
                 self._held_startup_request, self._startup_request = self._startup_request, None
                 self.log("startup profile held until the raised-voltage-limits dialog is "
                          "answered", None)
+                # check_stale_headroom drew the dialog before this hold
+                self.refresh_stale_headroom_text()
             elif self._startup_request and getattr(self, "_stale_recheck", False):
                 # An earlier session's marker that could not be judged yet: the
                 # same risk until the limits read. It runs once the marker is

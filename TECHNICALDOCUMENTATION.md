@@ -875,6 +875,11 @@ also raises reliability, alt-reliability and overvoltage to the held point plus
 ceiling, where it would run below the clock it shows. That raise does not need
 the Rail limits box; it is written only upward, to exactly hold + margin, and
 restored when the hold ends (`GPU.apply_hold_headroom`).
+The mode's 1200 mV normal / 1500 mV XOC request bound applies to the held
+voltage before the headroom margin is added. The automatic raise may exceed
+that bound by the selected margin (6.25-100 mV): at the default 25 mV, a
+1200 mV hold requests a 1225 mV ceiling without XOC. This does not extend the
+manual rail sliders or permit a hold above the current rail ceiling.
 
 **Headroom first, clocks last.** Cooling before the power budget rises, budget
 before the extra voltage spends it, curve last because it is the only step
@@ -922,6 +927,28 @@ behind the **Unlock controls** checkbox — untick it to make the app read-only.
 
 Core offsets snap **down** onto the card's own grid before being sent, because
 they land in the same per-point V/F delta table the curve editor uses.
+
+In 1.9.05, an exported `nvmlDeviceSetClockOffsets` returning
+`NVML_ERROR_NOT_SUPPORTED` (3) permits the independently available Pstates20
+fallback. Missing NVML exports already select that path. Other NVML failures
+do not dispatch a second setter. The fallback negotiates the understood public
+packet versions, selects the unique editable P0 domain, validates signed-kHz
+range and representability, and sends one sparse clock delta with no voltage
+rows. It requires exact selected offset readback. No driver-version decision
+selects either path. Both paths retain the graphics V/F snapshot/restoration
+handling, including restoration after a refused write when a shape was captured.
+
+On the modified TU104, 472.12 core -15 MHz, memory -1 true MHz and combined
+offset trials restored captured offsets, graphics curve, 1062.5 mV P0 hold and
+the observed 7750 MHz memory baseline. The combined trial preserved a nonzero
+memory offset across a core write. Fan 100% and voltage boost 1% checks also
+restored their captures. These passed with both the installed NVML runtime's
+unsupported offset exports and an explicitly loaded supplied NVML runtime
+without offset exports. Earlier 431.60 trials restored captured offset fields,
+graphics curve and hold, but the observed memory clock changed from 8000 to
+7750 MHz. Its cause is unresolved; selected-field and curve restoration do not
+establish complete physical clock-state restoration. See the
+[472.12 compatibility record](experiments/turing-47212-compatibility-20261028.md).
 
 ## Lockable clocks are not a ceiling
 
@@ -4709,22 +4736,265 @@ remain deferred.
 
 ## Live client power requests
 
-When the modern INFO packet is rejected with INVALID_ARGUMENT, an Ampere
-adapter may expose a smaller 32-row client layout. Druta tries that known
+When the modern INFO packet is rejected with INVALID_ARGUMENT, a Pascal,
+Turing or Ampere adapter may expose a smaller 32-row client layout. Druta tries
+that known
 read-only layout and requires an exact semantic-role/native-INFO binding, a
 stable restorable FE request, matching native CONTROL, and PCI pairing before
 enabling a SET. Packet sizes are capability checks, not driver-version or
 device-ID allowlists. Ada's smaller INFO packet has an independent trace, but
-the complete alternate layout and SET have only been validated here on the
+the 184-byte native CONTROL rows and SET have been validated here on the
 RTX 3070 Ti; packet rejection remains an independent unsupported result.
 
-For the smaller layout, a board SET can recalculate other occupied policies.
-Druta validates their understood type, units, bounds and changed request words
-while preserving all other bytes; it re-applies this session's user-pinned
-values. A failed SET compensates the board request and restores any changed
-peer requests, reporting whether the complete captured state was recovered.
-Legacy-layout arbitration votes and original-BIOS-range provenance may be
-unavailable without disabling the independent request path.
+`LEGACY_GROUP_ARCHITECTURES` lists the generations whose client power-policy
+semantics have been validated against a live adapter and may therefore take
+this fallback. Generation decides whether the semantics are understood at all;
+*which* group a card speaks is still decided by read-only INFO acceptance and
+exact readback. Widening that list is a hardware-validation result, never
+something a refused modern INFO infers on its own.
+
+### The captured transport and the current-policy record layout are separate
+
+Druta borrows a paired RM transport from an unmodified power getter and reuses
+its handles. `_CURRENT_LIMIT_LAYOUTS` separately maps that getter's packet and
+parameter sizes to a *current-policy record* layout — the A618/A619/A61A/E61B
+sizes, bases and strides behind the current (A) sliders.
+
+`GPU._rm_power_transport` answers only the first question. It validates the
+envelope it has to reuse: a 17-word header of a known command family whose
+packet length is its parameter length plus the 68-byte prologue.
+`GPU._current_limit_transport_layouts` then selects the record layout on top
+of it, and a parameter size no entry describes raises
+`CurrentLimitUnsupported` without discarding the captured transport.
+
+The client-power group does not consult that table at all, because it selects
+its own packet sizes by read-only INFO acceptance. So a driver whose
+current-policy records are unknown loses the current (A) sliders and keeps
+live power (W). The loss is reported as an unsupported interface rather than a
+failed read, so profiles stay complete and "Reset all to stock" does not fail.
+PERF diagnostics keep their own independent transport restrictions.
+
+A Gigabyte GTX 1060 6GB (GP106) on driver 576.80 presents an A612 transport of
+11740/11672 bytes, which no earlier entry described, and reaches the same
+1160-byte client group and 124-byte native controls as Turing 581.42. Role 1
+uniquely bound client row 0 to native policy 2 with 90/180/200 W bounds. Idle
+190/201/250 W requests, the latter two above the reported maximum and behind
+XOC, passed exact readback and full restoration of the captured 180 W state.
+See the [Pascal evidence](experiments/pascal-gp106-live-power-20261102.md) and
+its sanitized report. These are idle software observations on one adapter and
+one driver; they do not establish physical enforcement under load.
+
+### Generation lists are per packet family, and stay separate
+
+Two constants record which GPU generations have had their client power-policy
+semantics qualified against a live adapter: `LEGACY_GROUP_ARCHITECTURES` for
+the smaller A6xx client group and `RM26_ARCHITECTURES` for the `20802612`
+families. They are `(4, 6, 7)` and `(4, 6)` and are deliberately not merged —
+a generation qualified against one packet family is not thereby qualified
+against the other, and merging would silently claim Ampere on RM26.
+
+Generation decides only whether a family's policy semantics are understood at
+all. Which packet sizes a card speaks is still decided by read-only
+acceptance and validated by exact binding and readback.
+
+### A wrong parameter size is refused with RM 0x1F or RM 0x3A
+
+Which one a driver uses is a property of **that driver**, not of the command
+family: 516.94 returns `0x3A` on the A612 family that 572.83 and 576.80
+answer with `0x1F`. `SIZE_REFUSALS` carries both, and both select the next
+candidate size; anything else stays transient and selects nothing.
+
+### A transport's identity is its command and its packet geometry
+
+`_CURRENT_LIMIT_LAYOUTS` is keyed on `(command, packet_bytes,
+parameter_bytes)`. 3548/3480 is one record layout under `20802612` and a
+different one under `2080A612` — different role, native INFO and native
+STATUS records — so size alone cannot identify a layout.
+
+For the same reason the client group tracks its command family (`_rm26`,
+which selects the 26xx wire commands) separately from its record layout
+(`_rm26_records`, which selects the compact bases, strides and mask words).
+The 26xx transports imply both; `A612_COMPACT_SIZES` is a driver that answers
+the A612 family with compact records.
+
+### The role GET size fixes the native policy record stride
+
+`2080A61C` returns a 4-byte semantic selector followed by exactly one native
+policy INFO record, so the size it accepts fixes that record's stride:
+264/260, 232/228, 220/216, 136/132 and 120/116 across every ABI measured.
+`_definition_stride` therefore derives the stride from the accepted role size
+instead of carrying it per table, and `_native_geometry` records it on the
+binding as `native_info_stride` only when it differs from that layout's usual
+record size, so bindings captured on previously supported ABIs stay
+byte-identical.
+
+The derived value is never trusted on its own. The role definition must still
+bind to exactly one occupied native policy, which is the check a wrong stride
+fails. The role GET also negotiates its size: a refusal with RM `0x1F` — a
+definite answer about the request's shape — tries the one other understood
+small-group record size, while a transient error selects nothing, matching
+the existing client and native INFO fallbacks.
+
+A GP106 on driver 572.83 presents an A612 transport of 3676/3608 bytes with a
+220-byte role GET and an 8236-byte native INFO block of 216-byte records,
+while sharing the 1160-byte client group, the 4432-byte native CONTROL and
+the 171048-byte native STATUS with the 11740/11672 transport. See the
+[572.83 evidence](experiments/pascal-gp106-driver57283-20261102.md).
+
+### A shared info and control block does not imply a shared status block
+
+The 11740/11672 entry added for that adapter shares the 8620-byte info and
+4432-byte control blocks, and their headers and strides, with the 11748/11680
+entry. It does not share the status block. This driver refuses the 172080-byte
+status GET with RM `0x1F`; 171048 is the only size it accepts across a
+140000..210000 sweep at 4-byte steps.
+
+The record geometry was solved from live data rather than carried over. With
+the mask at word 1 the driver populates the block; across every `(base,
+stride)` with base 0..2048 and stride up to 12000 at 4-byte steps, exactly one
+pair makes all ten occupied policies' status type bytes equal their info type
+bytes and puts every effective value inside that policy's own info bounds:
+base `0x68`, stride `0x1434`, against Turing's `0x70` and `0x1454`.
+
+This matters because `_current_limit_state` reads the status record for three
+things a wrong stride would silently corrupt: the type cross-check, the
+effective limit, and the live value. `set_current_limit_ma` then gates on the
+effective limit before writing and verifies it after, so the status block is
+load-bearing for writes and not merely telemetry. `tests/
+test_current_limits_pascal_status.py` asserts one case per status field that
+carrying the Turing value over breaks the read.
+
+Turing is also eligible to probe the smaller client layout. After explicit
+RM INVALID_ARGUMENT rejection of the 8632-byte native INFO, the controller
+tries 8620-byte INFO with the same 88-byte header / 228-byte rows, paired with
+4432-byte native CONTROL (20-byte header / 124-byte rows) and 172080-byte
+STATUS (112-byte header / 5204-byte rows). Binding retains `layout=legacy32`
+and records `native_layout=policy124`. Request projection, peer validation and
+restoration use the selected native stride. No size fallback follows a
+transient error; no board identity or driver string selects the ABI.
+
+Paired GETs on a Gigabyte RTX 2080 SUPER AORUS Xtreme / 581.42 uniquely bound
+role1 client row0 to native policy2 with 105/250/350 W bounds. Idle 349/351/400 W
+requests and production-backend current-pin replay restored the full captured
+350 W initial state after every trial. A 400 W request derived 378 A core
+current against its advertised 360 A maximum. Turing now retains that
+observation under the same exact matching-table and requested/effective checks
+as Ampere; new current requests remain bounded. These software observations do
+not establish physical enforcement under load. See the
+[Turing evidence](experiments/turing-tu104-live-power-20261028.md) and sanitized
+report for complete geometry, sample values and restoration hashes.
+
+The [offline driver ABI comparison](experiments/turing-driver-abi-review-20261028.md)
+records the investigation before the supplied 431.60 and 621.01 drivers were
+installed. The subsequent [live comparison](experiments/turing-driver-live-comparison-20261028.md)
+qualified configured-request acceptance, readback and restoration through both
+interfaces on the same P0-sensitive board without a Windows reboot. The
+[431.60 static layout evidence](experiments/turing-43160-static-layout-20261028.md)
+adds exact wrapper/kernel instruction bytes, RVAs, hashes and command-table
+entries. Binary identities identify evidence; they do not select support.
+
+The short `20802612` transport is 2524/2456 bytes, independent of the previously
+supported 3548/3480-byte transport. The accepted short geometry is:
+
+| Operation | Wire command | Parameters | Mask and rows |
+| --- | --- | ---: | --- |
+| Client INFO | `20802630` | 644 | Mask +0; rows `4 + 20*i` |
+| Client CONTROL GET / SET | `20802632` / `20802633` | 388 | Mask +0; rows `4 + 12*i`, request +4, caller +8 |
+| Role INFO | `2080261C` | 120 | Selector 1; 116-byte native definition +4 |
+| Native INFO | `20802618` | 5008 | Mask +4; rows `52 + 116*i` |
+| Native CONTROL GET / SET | `2080261A` / `2080261B` | 2108 | Mask +0; rows `4 + 52*i`, request +4 |
+| Native STATUS | `20802619` | 14148 | Mask +0; rows `12 + 372*i`, effective +4 |
+
+The 32-bit occupancy masks bound row capacity independently of unused packet
+tails. Native policy type, units and bounds retain row offsets +4, +6 and
++8/+12/+16. The short CONTROL has a one-word header; selected-mask construction,
+header validation, current writes, full-policy writes, pin replay and
+restoration use its mask offset. Recognizing this power transport does not
+enable modern PERF diagnostic commands on it.
+
+The distinct 3548/3480-byte `20802612` transport was qualified on the same
+TU104 with 472.12 in 1.9.05. Its accepted geometry is:
+
+| Operation | Wire command | Parameters | Mask and rows |
+| --- | --- | ---: | --- |
+| Client INFO | `20802630` | 900 | Mask +0; rows `4 + 28*i` |
+| Client CONTROL GET / SET | `20802632` / `20802633` | 388 | Mask +0; rows `4 + 12*i`, request +4, caller +8 |
+| Role INFO | `2080261C` | 136 | Selector 1; 132-byte native definition +4 |
+| Native INFO | `20802618` | 5520 | Mask +4; rows `60 + 132*i` |
+| Native CONTROL GET / SET | `2080261A` / `2080261B` | 2124 | Classic header, mask +16; rows `20 + 52*i`, request +4 |
+| Native STATUS | `20802619` | 69148 | Mask +0; rows `100 + 2088*i`, effective +4 |
+
+Role1 uniquely bound existing FE client0 to native policy2 with a 250 W
+request and 105/250/350 W ordinary limits. The client and native indices are
+observations, not eligibility conditions. Selection follows exact captured
+transport geometry and validated definitions; this layout remains separate
+from the short interface and modern command families.
+
+On the observed 431.60 interface, role1 uniquely bound client row0 to native
+policy2. The raw FE caller returned the existing 250000 mW request. The public
+NVAPI wrapper's separately traced F8 conversion does not redefine that raw RM
+caller; Druta changes the existing validated FE request, without seeding a
+missing caller. These local row numbers are evidence, not compatibility gates.
+
+On 621.01, the accepted modern INFO/CONTROL/STATUS sizes were
+20512/13876/397048 bytes, carrying a v30 firmware definition in 260-byte native
+INFO rows. Firmware table version and RM packet capacity are independent.
+Selected role/native definitions must match exactly; the modern packet accepts
+the understood v30 or v40 definition, while unknown versions remain refused.
+
+For v30 firmware definitions in any understood packet family, a board SET can
+recalculate other occupied policies. Druta validates their type, units, bounds
+and changed request words while preserving all other bytes; it re-applies this
+session's user-pinned values. A failed SET compensates the board request and
+restores changed peer requests, reporting whether the complete captured state
+was recovered. The selected native geometry drives both checks and recovery.
+Derived current above an advertised maximum requires an extended v30 board
+request and matching complete native INFO/CONTROL snapshots. Effective current
+must equal the stored request or saturate at that policy's reported maximum.
+The latter observation is supported in 1.9.05; it does not admit an independent
+above-maximum current request. Independent writes remain bounded by their own
+descriptors, and applying a value equal to the saturated effective limit still
+writes when the stored request differs.
+Arbitration details requiring v40 definitions and original-BIOS provenance can
+remain unavailable independently of the request control.
+
+Both 431.60 and 621.01 accepted and read back idle 349/351/400 W configured
+requests against the same 105/250/350 W ordinary range. Paired native STATUS
+captures on 431.60 first reported effective board limits of 349/350/350 W,
+then settled within about 0.3 seconds at 359.906/360.938/360.938 W. Four further
+samples per request agreed with the settled value; core current remained at
+324 A throughout. The plateau is consistent with a 350 W clamp plus a driver
+status uplift, rather than a strict 350 W reported effective cap. Configured
+request acceptance therefore does not qualify downstream override on that
+interface or resolve physical behavior. On 621.01, all five samples per request
+reported native effective limits of 359.906/361.969/412.5 W and core current was
+359.640/360.360/378 A. This reports
+software headroom above the ordinary maximum, not measured physical power.
+The control view independently shows the NVML enforced limit alongside the
+configured request; these reported controls do not measure actual power draw.
+Production 351 W checks on both drivers re-applied a separate 350 A pin
+after a repeated board request and refused an independent 360.001 A request.
+Every trial restored its complete captured 250 W client/native baseline with
+the V/F hold unchanged and P0 verified. The original 581.42 trials above had a
+350 W initial baseline. No workload or calibrated physical-power measurement
+was used in these driver comparisons. The separate
+[owner FurMark observation](experiments/turing-owner-furmark-ab-20261028.md)
+supports an operative limit increase during the preceding 581.42 session;
+physical enforcement on 431.60 and 621.01 remains unmeasured.
+
+On 472.12, 349/351/400 W configured requests passed exact readback and complete
+client/native restoration to the 250 W baseline. NVML's enforced getter echoed
+349/351/400 W. The new native effective getter initially returned 349/350/350 W,
+then four settled samples per request returned 359.906/360.938/360.938 W. Raw
+STATUS reads followed the getter and were already settled. Core-current stored
+requests were 359640/360360/378000 mA while effective values were
+359640/360000/360000 mA. The exact v30 proof above retains those observations;
+independent requests remain bounded at the reported 360000 mA maximum. A
+separate 350 A pin survived a repeated 351 W board request. All four power
+trials restored the complete captured client/native state and P0 hold without
+a Windows reboot. The native plateau leaves downstream override unqualified;
+these readings do not measure physical power. See the
+[472.12 evidence](experiments/turing-47212-compatibility-20261028.md).
 
 On the ASUS Strix RTX 3070 Ti / 595.97, the production setter accepted and
 read back 381 W against a reported 380 W maximum at idle. A 65.9 W pinned
@@ -4737,9 +5007,9 @@ modified. See `experiments/ampere-live-client-power-20261027.md`.
 semantic-role INFO and an identical occupied native policy row. The external
 client index and native policy index are distinct namespaces. Two complete
 stable INFO/CONTROL observations establish the existing FE request. The live
-`0x2080E633` setter changes that request once and verifies the exact client and
+`0x2080E633` setter, or short-interface `0x20802633`, changes that request once and verifies the exact client and
 selected native CONTROL; other native bytes are preserved except for the
-validated legacy peer request words described above. A dispatched failure
+validated v30 peer request words described above. A dispatched failure
 attempts one compensating original SET and exact restoration readback. Optional
 power STATUS is diagnostic; it never replaces accepted-request readback.
 
@@ -4754,8 +5024,24 @@ A prior capability can retain its UI range after a transient observation failure
 any SET still requires fresh complete readback. Missing NVML range metadata can
 be populated from the live binding; absent unrelated STATUS does not remove it.
 
-The modern layout preserves full peer CONTROL and existing pin bookkeeping
-without adding pin writes. A policy Stock action under an extended board request writes
+After Power Apply, the frontend reads the configured request again and
+synchronizes both slider and numeric input to it. A mismatch is a reported
+failure even if a setter returned success. Missing readback is explicitly
+unverified; any retained slider value is labeled as this adapter's last verified
+value until a fresh valid poll resolves it. This status is separate from the
+NVML-reported enforced limit and native effective limit.
+
+`GPU.read_native_power_limit_mw` reads native effective status independently of
+NVML. It requires the live role binding, identical complete native INFO and
+CONTROL snapshots, an occupied matching policy type, milliwatt units and a
+selected CONTROL request matching the configured board request. The selected
+STATUS type must also match. A failed, changed or malformed native read remains
+unavailable; NVML agreement cannot substitute for that read, and its absence
+does not disable the ordinary power slider. None of these configured or status
+values establishes actual electrical power draw.
+
+With a v40 firmware definition, peer CONTROL remains exact and existing pin
+bookkeeping is retained without adding pin writes. A policy Stock action under an extended board request writes
 its selected default and verifies the board request stayed exact; it reports
 that host-derived limits were not recomputed. It does not send an intermediate
 ordinary board request. Profiles validate against the same bounds, and capture

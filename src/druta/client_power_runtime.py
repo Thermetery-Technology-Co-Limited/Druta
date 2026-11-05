@@ -34,6 +34,68 @@ LEGACY_SIZES = {
     INFO: 1160, CONTROL: 392, SET: 392, ROLE_INFO: 232,
     NATIVE_INFO: 8632, NATIVE_CONTROL: 6356, NATIVE_STATUS: 190272,
 }
+# The smaller client group can accompany either native policy ABI. Select
+# with read-only INFO acceptance, never a device or driver version.
+TURING_SIZES = {
+    **LEGACY_SIZES,
+    NATIVE_INFO: 8620, NATIVE_CONTROL: 4432, NATIVE_STATUS: 172080,
+}
+# A third native ABI behind the same 1160-byte client group, whose policy
+# INFO record is 216 bytes rather than 228. Its role INFO shrinks with the
+# record (see _definition_stride), which is how it is detected: the role GET
+# is refused for its size before the native INFO GET is ever reached.
+# Selected by read-only acceptance, never by a device or driver version.
+INFO216_SIZES = {
+    **LEGACY_SIZES,
+    ROLE_INFO: 220,
+    NATIVE_INFO: 8236, NATIVE_CONTROL: 4432, NATIVE_STATUS: 171048,
+}
+# Generations whose client power-policy semantics have been validated against
+# a live adapter, and so may fall back from the modern client group to the
+# smaller one. Generation decides whether the semantics are understood at all;
+# WHICH group a card speaks is still decided by read-only INFO acceptance
+# below, never by a device, board or driver version.
+#   4 Pascal, 6 Turing, 7 Ampere
+LEGACY_GROUP_ARCHITECTURES = (4, 6, 7)
+# The same question for the RM26 packet family, kept as a separate list
+# because it rests on separate evidence: a generation qualified against one
+# packet family is not thereby qualified against the other, and merging the
+# two would silently claim Ampere on RM26, which nothing here has tested.
+#   4 Pascal, 6 Turing
+RM26_ARCHITECTURES = (4, 6)
+RM26_SIZES = {
+    INFO: 644, CONTROL: 388, SET: 388, ROLE_INFO: 120,
+    NATIVE_INFO: 5008, NATIVE_CONTROL: 2108, NATIVE_STATUS: 14148,
+}
+RM26_EXTENDED_SIZES = {
+    INFO: 900, CONTROL: 388, SET: 388, ROLE_INFO: 136,
+    NATIVE_INFO: 5520, NATIVE_CONTROL: 2124, NATIVE_STATUS: 69148,
+}
+# The compact record layout above, reached through the A612 command family
+# rather than the 26xx one. Command family and record layout are independent:
+# this driver answers 0x2080A6xx while laying its policies out the compact
+# way, with a 128-byte native INFO record of its own. Selected by read-only
+# INFO acceptance like every other group.
+A612_COMPACT_SIZES = {
+    INFO: 900, CONTROL: 388, SET: 388, ROLE_INFO: 132,
+    NATIVE_INFO: 5392, NATIVE_CONTROL: 2124, NATIVE_STATUS: 70684,
+}
+# RM statuses that answer "this parameter block is not the size this driver's
+# structure has". Both have been observed as the ONLY reply a given driver
+# gives to every wrong size while the right one succeeds: 0x1F across the
+# 580/610 drivers, 0x3A across 472.12 and 516.94. Which one a driver uses is
+# a property of that driver, not of the command family - 516.94 returns 0x3A
+# on the A612 family that others answer 0x1F on - so both are treated as the
+# definite, retry-will-not-help answer that selects the next candidate size.
+SIZE_REFUSALS = (0x1F, 0x3A)
+# The A612 client groups, in probe order after the modern one is refused for
+# its size. Each entry is (sizes, the attribute that records the choice).
+_A612_FALLBACKS = ((LEGACY_SIZES, "_legacy"), (A612_COMPACT_SIZES, "_rm26_records"))
+_RM26_COMMANDS = dict(zip(
+    (INFO, CONTROL, SET, ROLE_INFO, NATIVE_INFO, NATIVE_CONTROL, NATIVE_STATUS),
+    (0x20802630, 0x20802632, 0x20802633, 0x2080261C, 0x20802618, 0x2080261A, 0x20802619),
+    strict=True,
+))
 INFO_BASE, INFO_STRIDE, CONTROL_BASE, CONTROL_STRIDE, CAPACITY = 0x24, 0x24, 0x28, 0xC, 64
 NATIVE_INFO_BASE, NATIVE_INFO_STRIDE = 0xCC, 0x104
 NATIVE_CONTROL_BASE, NATIVE_CONTROL_STRIDE = 0x14, 0xC4
@@ -92,13 +154,61 @@ def _state(observation):
     return {key: observation[key] for key in _STATE_KEYS}
 
 
+def _small_native_geometry(binding):
+    """Native control size/stride selected by the accepted INFO geometry."""
+    if binding.get("native_layout") == "policy124":
+        return TURING_SIZES[NATIVE_CONTROL], 124
+    return LEGACY_SIZES[NATIVE_CONTROL], 184
+
+
+def _definition_stride(role_info_size):
+    """The native policy INFO record stride this role GET implies.
+
+    The role parameter is a 4-byte semantic selector followed by exactly one
+    native policy INFO record, so its accepted size fixes that record's
+    stride. This holds for every ABI measured so far - 264/260, 232/228,
+    220/216, 136/132 and 120/116 - which is why the stride is derived from
+    the accepted role size rather than carried as a per-table constant. The
+    derived value is not trusted blindly: it has to bind the role definition
+    to exactly one occupied native policy before anything uses it.
+    """
+    return role_info_size - 4
+
+
+def _native_geometry(binding):
+    """INFO base/stride and CONTROL base/stride/size for a captured binding.
+
+    native_info_stride is recorded only when it differs from the layout's
+    usual record size, so a binding captured before this existed still reads
+    back with the geometry it was captured under.
+    """
+    stride = binding.get("native_info_stride")
+    if binding.get("layout") == "rm26":
+        if binding.get("native_layout") == "rm26_extended":
+            return 60, stride or 132, 20, 52, RM26_EXTENDED_SIZES[NATIVE_CONTROL]
+        return 52, stride or 116, 4, 52, RM26_SIZES[NATIVE_CONTROL]
+    if binding.get("layout") == "legacy32":
+        size, control_stride = _small_native_geometry(binding)
+        return 88, stride or 228, 20, control_stride, size
+    return (NATIVE_INFO_BASE, stride or NATIVE_INFO_STRIDE,
+            NATIVE_CONTROL_BASE, NATIVE_CONTROL_STRIDE, SIZES[NATIVE_CONTROL])
+
+
+def _coupled_requests(observation):
+    # v30 firmware policies recalculate peer votes in both RM packet families.
+    # Their table version is independent of the client/native buffer sizes.
+    return bytes.fromhex(observation["role_info_hex"])[4] == 0x30
+
+
 def _project(before, mw):
     result = copy.deepcopy(_state(before))
     result["requested_mw"] = mw
     legacy = before["binding"].get("layout") == "legacy32"
+    _, _, native_base, native_stride, _ = _native_geometry(before["binding"])
+    control_base = 4 if before["binding"].get("layout") == "rm26" else 8 if legacy else CONTROL_BASE
     for name, base, stride, index in (
-        ("control_hex", 8 if legacy else CONTROL_BASE, CONTROL_STRIDE, before["binding"]["client_index"]),
-        ("native_control_hex", NATIVE_CONTROL_BASE, 184 if legacy else NATIVE_CONTROL_STRIDE, before["binding"]["native_index"]),
+        ("control_hex", control_base, CONTROL_STRIDE, before["binding"]["client_index"]),
+        ("native_control_hex", native_base, native_stride, before["binding"]["native_index"]),
     ):
         raw = bytearray.fromhex(before[name])
         struct.pack_into("<I", raw, base + index * stride + 4, mw)
@@ -107,15 +217,16 @@ def _project(before, mw):
 
 
 def _matches(expected, observed):
-    """Legacy board writes may recalculate occupied peers' request words."""
+    """v30 board writes may recalculate occupied peers' request words."""
     actual = _state(observed)
-    if expected["binding"].get("layout") != "legacy32":
+    if not _coupled_requests(expected):
         return actual == expected
     if any(actual[k] != expected[k] for k in _STATE_KEYS if k != "native_control_hex"):
         return False
     old, new = bytes.fromhex(expected["native_control_hex"]), bytes.fromhex(actual["native_control_hex"])
     info = bytes.fromhex(expected["native_info_hex"])
-    if len(old) != len(new) or len(old) != LEGACY_SIZES[NATIVE_CONTROL]:
+    info_base, info_stride, control_base, stride, size = _native_geometry(expected["binding"])
+    if len(old) != len(new) or len(old) != size:
         return False
     mask = _u32(info, 4)
     selected = expected["binding"]["native_index"]
@@ -123,7 +234,7 @@ def _matches(expected, observed):
     for i in range(32):
         if not mask >> i & 1 or i == selected:
             continue
-        at, row = 20 + i * 184 + 4, 88 + i * 228
+        at, row = control_base + i * stride + 4, info_base + i * info_stride
         if old[at:at + 4] == new[at:at + 4]:
             continue
         minimum, rated, maximum = struct.unpack_from("<III", info, row + 8)
@@ -144,6 +255,16 @@ class ClientPowerController:
         self._reader = PerfDiagnosticsReader(gpu, attempts=2)
         self.sizes = SIZES
         self._legacy = False
+        self._native_policy124 = False
+        self._role_info216 = False
+        # Command family and record layout are independent. _rm26 selects the
+        # 26xx wire commands; _rm26_records selects the compact bases, strides
+        # and mask words. The 26xx transports imply both, but a driver can
+        # answer the A612 family with compact records (see A612_COMPACT_SIZES).
+        self._rm26_records = False
+        self._rm26 = False
+        self._rm26_extended = False
+        self._transport_key = None
 
     def _reset_transport(self):
         self.gpu._current_limit_transport = None
@@ -167,18 +288,52 @@ class ClientPowerController:
         }
 
     def _transport(self):
-        self._binding()
+        identity = self._binding()
         try:
-            header, fields = self._reader._transport()
+            # The paired transport only, not a current-policy record layout:
+            # this group's own packet sizes are chosen below by read-only INFO
+            # acceptance, so a driver whose current (A) records are unknown can
+            # still carry live power (W).
+            header, fields = self.gpu._rm_power_transport()
+            if (not isinstance(header, (tuple, list)) or len(header) != 17
+                    or any(type(v) is not int or not 0 <= v <= 0xFFFFFFFF for v in header)
+                    or header[2] != 68 + header[15]
+                    or not isinstance(fields, dict)
+                    or set(fields) != {"hAdapter", "hDevice", "Type", "Flags", "hContext"}):
+                raise ClientPowerError("malformed", "Client-power transport geometry is not understood")
+            key = header[14], header[2], header[15]
+            if self._transport_key is not None and key != self._transport_key:
+                raise ClientPowerError("identity", "Client-power transport changed; create a fresh controller")
+            if key in ((0x20802612, 2524, 2456), (0x20802612, 3548, 3480)):
+                if identity["architecture"] not in RM26_ARCHITECTURES:
+                    raise ClientPowerError(
+                        "unsupported", "This client-power RM26 ABI is not qualified for this GPU generation")
+                self._rm26_extended = key == (0x20802612, 3548, 3480)
+                self.sizes = RM26_EXTENDED_SIZES if self._rm26_extended else RM26_SIZES
+                self._rm26 = self._rm26_records = True
+            else:
+                if self._rm26:
+                    raise ClientPowerError("identity", "Client-power transport changed; create a fresh controller")
+                if header[14] != 0x2080A612:
+                    raise ClientPowerError("unsupported", "Client-power command family is not understood")
+        except ClientPowerError:
+            raise
         except PerfDiagnosticError as exc:
             raise ClientPowerError(exc.kind, str(exc)) from exc
+        except ValueError as exc:
+            from .nvbackend import CurrentLimitUnsupported
+
+            kind = "unsupported" if isinstance(exc, CurrentLimitUnsupported) else "transient"
+            raise ClientPowerError(kind, str(exc)) from exc
         except Exception as exc:
             raise ClientPowerError("transient", f"Paired power transport could not be captured: {exc}") from exc
-        self._binding()
+        if self._binding() != identity:
+            raise ClientPowerError("identity", "Client-power target changed during transport capture")
         if any(type(v) is not int or not 0 <= v <= 0xFFFFFFFF for v in fields.values()) or any(
             header[i] != value for i, value in clock._ENVELOPE.items()
         ):
             raise ClientPowerError("malformed", "Client-power transport envelope is not understood")
+        self._transport_key = key
         return header, fields
 
     def _exchange(self, command, payload, *, write=None):
@@ -192,7 +347,8 @@ class ClientPowerController:
         packet = (ctypes.c_uint32 * ((68 + size) // 4)).from_buffer(buffer)
         for index, value in enumerate(header):
             packet[index] = value
-        packet[2], packet[14], packet[15], packet[16] = 68 + size, command, size, 0
+        wire_command = _RM26_COMMANDS[command] if self._rm26 else command
+        packet[2], packet[14], packet[15], packet[16] = 68 + size, wire_command, size, 0
         packet[5] = packet[11] = 0
         buffer[68:] = payload
         expected = tuple(packet[:16])
@@ -213,33 +369,62 @@ class ClientPowerController:
         if type(status) is not int or status != 0 or packet[11] != 1:
             raise ClientPowerError("transient", f"Client-power escape failed (NT {status!r}, completion {packet[11]})")
         if packet[16] != 0:
-            kind = "unsupported" if packet[16] in (0x1F, 0x56, 0x40) else "transient"
-            raise ClientPowerError(kind, f"Client-power command {command:#x} rejected (RM {packet[16]:#x})", rm_status=packet[16])
+            kind = "unsupported" if packet[16] in (*SIZE_REFUSALS, 0x56, 0x40) else "transient"
+            raise ClientPowerError(kind, f"Client-power command {wire_command:#x} rejected (RM {packet[16]:#x})", rm_status=packet[16])
         result = bytes(buffer)[68:]
         if command == SET and result != payload:
             raise ClientPowerError("malformed", "Client-power SET changed the requested packet")
         return result
 
+    def _client_group(self, identity):
+        """The client INFO this driver accepts, chosen by acceptance alone.
+
+        The A612 command family carries three understood groups. Each is
+        tried in turn and only a definite size refusal moves on; a transient
+        error selects nothing, and a group already chosen is never re-probed.
+        """
+        try:
+            return self._exchange(INFO, bytes(self.sizes[INFO]))
+        except ClientPowerError as exc:
+            if (self._legacy or self._rm26_records or exc.rm_status not in SIZE_REFUSALS
+                    or identity["architecture"] not in LEGACY_GROUP_ARCHITECTURES):
+                raise
+        previous, last = self.sizes, len(_A612_FALLBACKS) - 1
+        for position, (sizes, mark) in enumerate(_A612_FALLBACKS):
+            # _exchange checks the payload against self.sizes, so the table has
+            # to be in place to probe with it. Put it back on any failure: a
+            # transient error must leave no group half-selected, or the retry
+            # would read the next size with the previous group's record
+            # offsets and find no role1 row.
+            self.sizes = sizes
+            try:
+                info = self._exchange(INFO, bytes(sizes[INFO]))
+            except ClientPowerError as exc:
+                self.sizes = previous
+                if exc.rm_status not in SIZE_REFUSALS or position == last:
+                    raise
+                continue
+            setattr(self, mark, True)
+            if sizes is A612_COMPACT_SIZES:
+                self._rm26_extended = True
+            return info
+        raise ClientPowerError("unsupported", "No understood client-power group was accepted")
+
     def _metadata_once(self):
         identity = self._binding()
-        try:
-            info = self._exchange(INFO, bytes(self.sizes[INFO]))
-        except ClientPowerError as exc:
-            if self._legacy or identity["architecture"] != 7 or exc.rm_status != 0x1F:
-                raise
-            self.sizes, self._legacy = LEGACY_SIZES, True
-            info = self._exchange(INFO, bytes(self.sizes[INFO]))
-        base, capacity = (8, 32) if self._legacy else (INFO_BASE, CAPACITY)
-        native_base, native_stride = (88, 228) if self._legacy else (NATIVE_INFO_BASE, NATIVE_INFO_STRIDE)
-        mask = int.from_bytes(info[4:base], "little")
+        self._transport()  # Select the command family before allocating INFO.
+        info = self._client_group(identity)
+        base, info_stride, capacity = (4, 28 if self._rm26_extended else 20, 32) if self._rm26_records else (8, INFO_STRIDE, 32) if self._legacy else (INFO_BASE, INFO_STRIDE, CAPACITY)
+        native_base, default_stride = (60, 132) if self._rm26_extended else (52, 116) if self._rm26_records else (88, 228) if self._legacy else (NATIVE_INFO_BASE, NATIVE_INFO_STRIDE)
+        mask = int.from_bytes(info[:4] if self._rm26_records else info[4:base], "little")
         if mask >> capacity:
             raise ClientPowerError("malformed", "Client-power inventory exceeds the understood row capacity")
-        candidates = [i for i in range(capacity) if mask >> i & 1 and info[base + i * INFO_STRIDE + 2] == 1]
+        candidates = [i for i in range(capacity) if mask >> i & 1 and info[base + i * info_stride + 2] == 1]
         if len(candidates) != 1:
             raise ClientPowerError("unsupported", "No unique role1 client-power policy is available")
         index = candidates[0]
-        at = base + index * INFO_STRIDE
-        row = info[at : at + INFO_STRIDE]
+        at = base + index * info_stride
+        row = info[at : at + info_stride]
         if row[0] != row[1]:
             raise ClientPowerError("malformed", "Selected client INFO type discriminants disagree")
         if row[3] != 0:
@@ -248,23 +433,48 @@ class ClientPowerController:
         if not limits[0] <= limits[1] <= limits[2]:
             raise ClientPowerError("malformed", "Client-power ordinary limits are inconsistent")
         role_request = bytes([ROLE]) + bytes(self.sizes[ROLE_INFO] - 1)
-        role = self._exchange(ROLE_INFO, role_request)
+        try:
+            role = self._exchange(ROLE_INFO, role_request)
+        except ClientPowerError as exc:
+            # A role GET refused for its SIZE means this driver's native policy
+            # INFO record is not the one this table describes. That is a
+            # definite capability answer, so try the one other understood
+            # small-group record size; a transient error selects nothing.
+            if not self._legacy or self._role_info216 or exc.rm_status != 0x1F:
+                raise
+            self.sizes, self._role_info216 = INFO216_SIZES, True
+            role_request = bytes([ROLE]) + bytes(self.sizes[ROLE_INFO] - 1)
+            role = self._exchange(ROLE_INFO, role_request)
         if role[:4] != role_request[:4]:
             raise ClientPowerError("malformed", "Power-role INFO changed its semantic selector")
-        native_info = self._exchange(NATIVE_INFO, bytes(self.sizes[NATIVE_INFO]))
+        native_stride = _definition_stride(len(role))
+        if native_stride <= 0 or native_stride % 4 or native_stride < 20:
+            raise ClientPowerError("malformed", "Power-role INFO carries no usable policy definition")
+        definition = role[4:]
+        try:
+            native_info = self._exchange(NATIVE_INFO, bytes(self.sizes[NATIVE_INFO]))
+        except ClientPowerError as exc:
+            if (not self._legacy or self._native_policy124 or self._role_info216
+                    or exc.rm_status != 0x1F):
+                raise
+            self.sizes, self._native_policy124 = TURING_SIZES, True
+            native_info = self._exchange(NATIVE_INFO, bytes(self.sizes[NATIVE_INFO]))
         native_mask = _u32(native_info, 4)
         matches = [
             i
             for i in range(NATIVE_CAPACITY)
             if native_mask >> i & 1
             and native_info[native_base + i * native_stride : native_base + (i + 1) * native_stride]
-            == role[4:]
+            == definition
         ]
         if len(matches) != 1:
             raise ClientPowerError("malformed", "Role1 INFO does not uniquely bind a current native policy")
         native_index = matches[0]
-        source = role[4:]
-        if source[0] != (0x30 if self._legacy else 0x40) or source[6] != row[3] or struct.unpack_from("<III", source, 8) != limits:
+        source = definition
+        # This byte describes the firmware policy table, not the RM packet
+        # capacity. A larger native packet can carry a v30 policy unchanged.
+        table_versions = (0x30,) if self._legacy or self._rm26_records else (0x30, 0x40)
+        if source[0] not in table_versions or source[6] != row[3] or struct.unpack_from("<III", source, 8) != limits:
             raise ClientPowerError("malformed", "Client INFO differs from the bound native policy definition")
         if self._binding() != identity:
             raise ClientPowerError("identity", "Client-power target changed during metadata capture")
@@ -282,6 +492,15 @@ class ClientPowerController:
                 "rated_mw": limits[1],
                 "maximum_mw": limits[2],
                 **({"layout": "legacy32"} if self._legacy else {}),
+                **({"layout": "rm26"} if self._rm26_records else {}),
+                **({"native_layout": "rm26_extended"} if self._rm26_extended else {}),
+                **({"native_layout": "policy124"}
+                   if self._native_policy124 or self._role_info216 else {}),
+                # Recorded only when the derived record stride differs from
+                # this layout's usual one, so bindings captured on every
+                # previously supported ABI stay byte-identical.
+                **({"native_info_stride": native_stride}
+                   if native_stride != default_stride else {}),
             },
             "info_hex": info.hex(),
             "role_info_hex": role.hex(),
@@ -294,15 +513,20 @@ class ClientPowerController:
         native_info = bytes.fromhex(metadata["native_info_hex"])
         source = bytes.fromhex(metadata["role_info_hex"])[4:]
         index, native_index = metadata["binding"]["client_index"], metadata["binding"]["native_index"]
-        base, control_base, native_stride = (8, 8, 184) if self._legacy else (INFO_BASE, CONTROL_BASE, NATIVE_CONTROL_STRIDE)
-        row = info[base + index * INFO_STRIDE : base + (index + 1) * INFO_STRIDE]
+        base, info_stride, control_base = (4, 28 if self._rm26_extended else 20, 4) if self._rm26_records else (8, INFO_STRIDE, 8) if self._legacy else (INFO_BASE, INFO_STRIDE, CONTROL_BASE)
+        _, _, native_base, native_stride, _ = _native_geometry(metadata["binding"])
+        row = info[base + index * info_stride : base + (index + 1) * info_stride]
         request = bytearray(self.sizes[CONTROL])
-        request[:base] = info[:base]
-        request[4:base] = (1 << index).to_bytes(base - 4, "little")
+        if self._rm26_records:
+            struct.pack_into("<I", request, 0, 1 << index)
+        else:
+            request[:base] = info[:base]
+            request[4:base] = (1 << index).to_bytes(base - 4, "little")
         cp = control_base + index * CONTROL_STRIDE
         request[cp : cp + 2], request[cp + 8] = row[:2], CLIENT
         control = self._exchange(CONTROL, request)
-        if control[0] != info[0] or control[4:base] != request[4:base]:
+        if ((control[:4] != request[:4]) if self._rm26_records else
+                (control[0] != info[0] or control[4:base] != request[4:base])):
             raise ClientPowerError("malformed", "Client CONTROL group or selected mask differs")
         if control[cp : cp + 2] != row[:2] or control[cp + 8] != CLIENT:
             raise ClientPowerError("malformed", "Client CONTROL changed the selected row type or client")
@@ -313,11 +537,13 @@ class ClientPowerController:
             raise ClientPowerError("unsupported", "A zero FE input has uncharacterized removal semantics")
         native_mask = _u32(native_info, 4)
         request = bytearray(self.sizes[NATIVE_CONTROL])
-        struct.pack_into("<I", request, 16, native_mask)
+        short_rm26 = self._rm26_records and not self._rm26_extended
+        struct.pack_into("<I", request, 0 if short_rm26 else 16, native_mask)
         native_control = self._exchange(NATIVE_CONTROL, request)
-        if struct.unpack_from("<5I", native_control) != (0, 0, 0, 255, native_mask):
+        if ((struct.unpack_from("<I", native_control) != (native_mask,)) if short_rm26 else
+                (struct.unpack_from("<5I", native_control) != (0, 0, 0, 255, native_mask))):
             raise ClientPowerError("malformed", "Native CONTROL header or inventory differs from INFO")
-        np = NATIVE_CONTROL_BASE + native_index * native_stride
+        np = native_base + native_index * native_stride
         if _u32(native_control, np) != source[4]:
             raise ClientPowerError("malformed", "Bound native policy CONTROL type differs from INFO")
         if _u32(native_control, np + 4) != wanted:
@@ -332,7 +558,7 @@ class ClientPowerController:
         }
 
     def _arbitration(self, observation):
-        if self._legacy:
+        if self._legacy or self._rm26_records:
             return None, "Power arbitration diagnostics are unavailable for this policy layout"
         info, control = bytes.fromhex(observation["native_info_hex"]), bytes.fromhex(observation["native_control_hex"])
         request = bytearray(SIZES[NATIVE_STATUS])
@@ -403,7 +629,7 @@ class ClientPowerController:
         if write.dispatched:
             try:
                 result["readback"] = self._read_locked()
-                if self._legacy and _matches(_state(before), result["readback"]):
+                if _coupled_requests(before) and _matches(_state(before), result["readback"]):
                     # Returning the board request can recalculate peer requests.
                     # Restore only peers that differ from the captured baseline.
                     original = bytes.fromhex(before["native_control_hex"])
@@ -411,7 +637,8 @@ class ClientPowerController:
                     mask = _u32(bytes.fromhex(before["native_info_hex"]), 4)
                     selected = before["binding"]["native_index"]
                     for index in range(32):
-                        at = 20 + index * 184 + 4
+                        _, _, base, stride, _ = _native_geometry(before["binding"])
+                        at = base + index * stride + 4
                         if index == selected or not mask >> index & 1 or original[at:at + 4] == current[at:at + 4]:
                             continue
                         if self._binding() != before["identity"]:

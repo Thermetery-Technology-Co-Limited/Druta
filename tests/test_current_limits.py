@@ -12,7 +12,7 @@ from druta import nvbackend as n
 from tests.fixture_current_47212 import TITAN_INFO
 
 
-def fixture(arch=10, newer=False, legacy=False, ampere_layout=False):
+def fixture(arch=10, newer=False, legacy=False, ampere_layout=False, short_status=False):
     g = n.GPU.__new__(n.GPU)
     g._lock = threading.RLock()
     g.static = {"driver": "580.97", "vbios": "98.03.3b.c0.6f"}
@@ -42,6 +42,14 @@ def fixture(arch=10, newer=False, legacy=False, ampere_layout=False):
         info_base, info_stride = 0x58, 0xE4
         status_base, status_stride = 0x80, 0x168C
         control_base, control_stride = 0x14, 0xB8
+    if short_status:
+        # Same info and control blocks as the 11748/11680 transport, but a
+        # shorter status block with its own header and record geometry: the
+        # measured GP106 / 576.80 interface. Sharing two blocks is exactly
+        # what makes carrying the third one over tempting and wrong.
+        packet_bytes, param_bytes = 11740, 11672
+        status_bytes = 171048
+        status_base, status_stride = 0x68, 0x1434
     status_mask_word = 0 if legacy else 1
     wire = {c: c for c in (0x2080A618, 0x2080A619, 0x2080A61A, 0x2080E61B)}
     if legacy:
@@ -170,9 +178,17 @@ class CurrentLimitTests(unittest.TestCase):
         self.assertFalse(g.set_current_limit_ma(13, 349780)[0])
         self.assertEqual(state.writes, [])
         g, state = fixture(n.GPU.ARCH_TURING, legacy=True)
-        g._capture_current_limit_transport.return_value[0][14] = 0x2080A612
+        g._capture_current_limit_transport.return_value[0][14] = 0x2080A613
         self.assertEqual(g.get_current_limits(), [])
         g._legacy_clk_escape.assert_not_called()
+        # 3548/3480 exists under BOTH command families and they are different
+        # record layouts, which is why the command is part of the key rather
+        # than a check beside it.
+        short = [n.GPU._CURRENT_LIMIT_LAYOUTS[(command, 3548, 3480)]
+                 for command in (0x20802612, 0x2080A612)]
+        self.assertNotEqual(short[0]["sizes"], short[1]["sizes"])
+        self.assertNotEqual(short[0]["info"], short[1]["info"])
+        self.assertNotEqual(short[0]["status"], short[1]["status"])
 
     def test_ampere_large_transport_uses_the_accepted_info_layout(self):
         g, state = fixture(ampere_layout=True)
@@ -198,7 +214,7 @@ class CurrentLimitTests(unittest.TestCase):
         state.control[word] = state.dynamic[status_word] = 270389
 
         def observation():
-            return ({"binding": {"layout": "legacy32", "maximum_mw": 380000},
+            return ({"binding": {"layout": "legacy32", "maximum_mw": 380000}, "role_info_hex": "0100000030",
                      "requested_mw": 381000,
                      "native_info_hex": struct.pack(f"<{len(state.info)}I", *state.info).hex(),
                      "native_control_hex": struct.pack(f"<{len(state.control)}I", *state.control).hex()}, None)
@@ -219,14 +235,14 @@ class CurrentLimitTests(unittest.TestCase):
                 word = (0x14 + 13 * 0xB8) // 4 + 1
                 status_word = (0x80 + 13 * 0x168C) // 4 + 1
                 state.control[word] = state.dynamic[status_word] = 270389
-                observed = {"binding": {"layout": "legacy32", "maximum_mw": 380000},
+                observed = {"binding": {"layout": "legacy32", "maximum_mw": 380000}, "role_info_hex": "0100000030",
                             "requested_mw": 381000,
                             "native_info_hex": struct.pack(f"<{len(state.info)}I", *state.info).hex(),
                             "native_control_hex": struct.pack(f"<{len(state.control)}I", *state.control).hex()}
                 if reason == "normal_board":
                     observed["requested_mw"] = 380000
                 elif reason == "wrong_layout":
-                    observed["binding"]["layout"] = "modern"
+                    observed["role_info_hex"] = "0100000040"
                 elif reason == "different_table":
                     observed["native_control_hex"] = "00"
                 elif reason == "effective_mismatch":
@@ -236,6 +252,39 @@ class CurrentLimitTests(unittest.TestCase):
                 self.assertEqual(g.get_current_limits(), [])
                 self.assertFalse(g.set_current_limit_ma(13, 242000)[0])
                 self.assertEqual(state.writes, [])
+
+    def test_turing_derived_current_uses_matching_board_evidence_and_keeps_request_bounds(self):
+        for reason in (None, "normal_board", "wrong_layout", "different_table", "effective_mismatch", "no_probe"):
+            with self.subTest(reason=reason):
+                g, state = fixture(n.GPU.ARCH_TURING)
+                word = (0x14 + 13 * 0x7C) // 4 + 1
+                status_word = (0x70 + 13 * 0x1454) // 4 + 1
+                state.control[word] = state.dynamic[status_word] = 390360
+                observed = {"binding": {"layout": "legacy32", "native_layout": "policy124", "maximum_mw": 350000},
+                            "role_info_hex": "0100000030",
+                            "requested_mw": 351000,
+                            "native_info_hex": struct.pack(f"<{len(state.info)}I", *state.info).hex(),
+                            "native_control_hex": struct.pack(f"<{len(state.control)}I", *state.control).hex()}
+                if reason == "normal_board":
+                    observed["requested_mw"] = 350000
+                elif reason == "wrong_layout":
+                    observed["role_info_hex"] = "0100000040"
+                elif reason == "different_table":
+                    observed["native_control_hex"] = "00"
+                elif reason == "effective_mismatch":
+                    state.dynamic[status_word] -= 1
+                g.read_live_power_request = Mock(return_value=(None, "probe failed") if reason == "no_probe"
+                                                 else (observed, None))
+                if reason is not None:
+                    self.assertEqual(g.get_current_limits(), [])
+                    self.assertFalse(g.set_current_limit_ma(13, 350000)[0])
+                else:
+                    self.assertEqual(g.get_current_limits()[0]["limit_ma"], 390360)
+                    self.assertFalse(g.set_current_limit_ma(13, 390001)[0])
+                    self.assertEqual(state.writes, [])
+                    ok, message = g.set_current_limit_ma(13, 350000)
+                    self.assertTrue(ok, message)
+                    self.assertEqual(g.get_current_limits()[0]["limit_ma"], 350000)
 
     def test_new_geometry_reads_each_generation_independently_of_identity(self):
         for arch, defaults in ((n.GPU.ARCH_TURING, [350780]),

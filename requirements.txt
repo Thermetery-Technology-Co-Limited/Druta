@@ -6,7 +6,9 @@
 # into the EXE and is NOT a System Library, so the version pinned here
 # identifies the third-party source that goes with a given build.
 #
-# Built and tested on CPython 3.14.7 (Windows, 64-bit).
+# Built and tested on CPython 3.14.4 (Windows, 64-bit). Releases up to and
+# including 1.9.05 were built on CPython 3.13.8; the third-party pins below
+# are unchanged across that move.
 
 dearpygui==2.3.1
 

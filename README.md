@@ -1,6 +1,59 @@
 # Druta
 
-**Version 1.9.0b prerelease** — [release notes](RELEASE-NOTES-1.9.0b.md).
+**Version 1.9.07 prerelease** — [release notes](RELEASE-NOTES-1.9.07.md).
+Supersedes 1.9.06. A role INFO GET refused for its size no longer removes
+live power and the current sliders: that GET now negotiates its size, and the
+native policy record stride is derived from the size it accepts rather than
+carried as a constant. Qualified on the same GTX 1060 under driver 572.83,
+whose policy record is 216 bytes rather than 228. The RM26 packet families
+are also no longer gated to Turing, which is all that stood between the same
+card on 472.12 and an interface Druta already described in full. A transport
+is now identified by its command as well as its packet sizes, because the
+same geometry means different records under different families, and a wrong
+size is recognised whether the driver refuses it with RM `0x1F` or `0x3A`.
+With XOC ticked, Max All asks for the extended envelope rather than the
+nominal maximum. Qualified on four drivers on one GTX 1060:
+[576.80](experiments/pascal-gp106-live-power-20261102.md),
+[572.83](experiments/pascal-gp106-driver57283-20261102.md),
+[472.12](experiments/pascal-gp106-driver47212-20261102.md) and
+[516.94](experiments/pascal-gp106-driver51694-20261102.md).
+
+Under load on 472.12, the binding constraint on that board was **core
+current** at its 95 A ceiling, not board power — raising the power request
+does not move it, because effective limits settle at the firmware maximum
+whatever is requested.
+
+1.9.06 — [release notes](RELEASE-NOTES-1.9.06.md).
+Superseded 1.9.05 and carried its Turing work forward. The XOC power-limit
+slider now extends on Pascal, and core current limits work there too: a
+captured power-GET transport is no longer withheld because the driver's
+current-policy record layout is unrecognized, Pascal may take the smaller
+client-power group, and that driver's measured current-policy layout is now
+described. A Gigabyte GTX 1060 6GB on 576.80 accepted idle 201 W and 250 W
+requests above its 200 W reported maximum with exact readback and full
+restoration, reads Core current at 1/86.8/95 A, and reports a 185.625 W native
+effective limit. Physical enforcement is unmeasured. See the
+[Pascal evidence](experiments/pascal-gp106-live-power-20261102.md).
+
+Carried forward from 1.9.05: clock offsets can use the validated Pstates20
+fallback
+when an exported NVML setter reports that the capability is unsupported.
+Rejected or unmatched power requests return the slider to configured readback;
+unavailable readback stays explicitly unverified. The control view distinguishes
+the configured request, NVML-reported enforced limit and native effective limit,
+and warns when the native limit is lower even if NVML echoes the request.
+
+On one Gigabyte RTX 2080 SUPER AORUS Xtreme, 431.60 native power status settled
+at the same 360.938 W for 351 W and 400 W requests; on 621.01, it rose to
+361.969 W and 412.5 W respectively. On 472.12, configured and NVML-reported
+enforced 400 W still produced settled native status of 360.938 W. Its
+[clock and power comparison](experiments/turing-47212-compatibility-20261028.md)
+records accepted requests, offset checks and captured-state restoration.
+Physical power enforcement on these drivers remains unmeasured. On 431.60,
+clock-offset and curve/hold records were restored,
+but the changed observed memory clock remains under investigation. See the
+[driver comparison and reversible idle validation](experiments/turing-driver-live-comparison-20261028.md)
+and the separate [owner-reported FurMark A/B result](experiments/turing-owner-furmark-ab-20261028.md).
 Work in progress: registry-backed NVIDIA overrides, live power/VF/voltage-device
 controls, and DIFR configuration. The release notes describe the published package; see the current
 [manual](MANUAL.md) and [draft PR #39](https://github.com/Thermetery-Technology-Co-Limited/Druta/pull/39)
@@ -44,7 +97,7 @@ TRADEMARK OF PNY TECHNOLOGIES INC.
 THESE NAMES APPEAR HERE SOLELY
 TO IDENTIFY HARDWARE AND SOFTWARE THAT DRUTA WORKS WITH OR IS COMPARABLE TO.**
 
-Initial development boards (measurements describe these configurations, not universal defaults):
+Development boards (measurements describe these configurations, not universal defaults):
 
 | | die | arch | memory | board |
 |---|---|---|---|---|
@@ -53,6 +106,8 @@ Initial development boards (measurements describe these configurations, not univ
 | **RTX 3090Ti** | GA102 | Ampere | GDDR6X | EVGA Kingpin |
 | **RTX 3070Ti** | GA104 | Ampere | GDDR6X | ASUS Strix OC |
 | **Titan RTX** | TU102 | Turing | GDDR6 | die transplanted onto an ASUS RTX 2080 Ti Strix PCB |
+| **RTX 2080 Super** | TU104 | Turing | GDDR6 | Gigabyte AORUS Xtreme |
+| **RTX 2070 (400 non-A)** | TU106 | Turing | GDDR6 | die transplanted onto an ASUS 2080 Super Strix PCB |
 | **Titan Xp** | GP102 | Pascal | GDDR5X | stock, unmodified |
 | **Titan Xp** | GP102 | Pascal | GDDR5X | die transplanted onto an ASUS 1080Ti Poseidon |
 | **GTX 1060 9Gbps** | GP106 | Pascal | GDDR5 | Gigabyte AORUS Xtreme|
@@ -107,7 +162,7 @@ python -m pip install -r requirements.txt
 ```
 
 The local build produces `dist\Druta\Druta.exe` and
-`dist\Druta-1.9.0b-win64.zip`. Distribute the
+`dist\Druta-1.9.07-win64.zip`. Distribute the
 whole `Druta` folder or ZIP: the EXE needs its adjacent `_internal` folder.
 
 `dist\Druta\source\` contains the matching working-tree source, including
@@ -311,8 +366,9 @@ XBAR = max(540, snap15(0.95 * GPC + 15))
 # Control
 
 The ordinary core and memory offsets work on the tested TITAN RTX and TITAN Xp
-with drivers **472.12 and 580.97**. Druta uses NVML on newer drivers and NVAPI
-Pstates20 on 472.12. The memory slider keeps the same true-MHz units: NVML's
+with drivers **472.12 and 580.97**. Druta selects NVML or the validated NVAPI
+Pstates20 fallback through current capabilities, including an NVML setter that
+reports `NOT_SUPPORTED` despite being exported. The memory slider keeps the same true-MHz units: NVML's
 memory offset numbers are twice the corresponding NVAPI MHz values. For
 example, the TITAN RTX's NVAPI range of -1000..+3000 MHz corresponds to
 NVML -2000..+6000, or -250..+750 true MHz on its GDDR6 memory.
@@ -578,13 +634,19 @@ puts them back when the hold ends.
 - This is the one rail-limit write that does not need the **Rail limits**
   box: it only ever raises those three terms, to exactly the held point +
   margin, for as long as the hold lasts. Untick Keep headroom to stop it.
+- The 1200 mV normal limit (1500 mV with XOC) applies to the held voltage;
+  temporary headroom can exceed it by the selected margin. With the default
+  25 mV margin and XOC off, a 1187.5 mV hold gets a 1212.5 mV ceiling and a
+  1200 mV hold gets a 1225 mV ceiling. Manual rail requests keep their existing
+  bounds. A hold above the current rail ceiling must still be enabled by
+  raising the limits yourself before automatic headroom can apply.
 - The held point's voltage stays the same, but the rail may run up to the
   margin higher. The TITAN RTX ran up to 18.75 mV higher; the 3070 Ti ran the
   full 25 mV higher.
 - If the live rail reads above the raised ceiling, the raise comes off. It
   also comes off if another tool replaces the V/F lock.
 - If Druta dies during a raise, the next session says so and offers a GPU
-  device restart (PnP).
+  device restart (PnP) on Windows 10 version 2004 or later.
 
 ## Power policies
 
@@ -937,7 +999,8 @@ Use this as a recovery attempt after a driver/timing failure. The display can go
 blank and other GPU applications can lose their device; close other workloads
 first. Unsaved edits in Druta are discarded. This does not guarantee recovery
 from a hardware hang or restoration of every setting to stock. It requires
-administrator rights and Windows 10 version 2004 or later. Ambiguous device
+administrator rights and Windows 10 version 2004 or later; on an older Windows
+version Druta stays open and logs that requirement. Ambiguous device
 locations and nonzero PCI segments are refused.
 
 If the GUI is unusable, the same recovery path can be launched from an elevated
