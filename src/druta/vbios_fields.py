@@ -448,7 +448,7 @@ class _Image:
                     )
                 self.field(
                     f"power.{i}.linked_current",
-                    f"Policy {i} linked policy {target} current" if recognized else f"Policy {i} linked current",
+                    f"Policy {i} linked policy {target} base current" if recognized else f"Policy {i} linked base current",
                     "Power / current",
                     row + 61,
                     "I",

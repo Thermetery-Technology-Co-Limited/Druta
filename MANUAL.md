@@ -615,14 +615,19 @@ Its full curve matched in every sample; early driver-request differences remain
 recorded. This does not establish immediate settling or extend packaged input
 coverage.
 
-**Linked current limits** configure a current limit carried by another power
+**Linked base current** configures a base current carried by another power
 policy. Druta resolves the BIOS relationship to its target policy and verifies
-the loaded cache and firmware-reported value after a GPU restart. Other power
-definitions and requests must remain exact. A lower firmware vote can keep the
-effective current below this limit. Apply these separately from other registry
+the loaded cache and firmware-reported base value after a GPU restart. Other power
+definitions and requests must remain exact. The base request, weighted contribution
+and target's effective limit are separate values; a lower competing vote can keep
+the effective limit unchanged when this base request changes. Apply these separately from other registry
 controls. Undo checks the original cache, reported value and requests; an
 unverified restoration stays marked **recovery required**. These checks do not
 measure physical overcurrent protection or enforcement under load.
+The [weight and base-current composition trial](experiments/linked-current-weight-composition-5080-61742-20261105.md)
+documents a changed base request with a non-unity weight. Restoring the current
+edit retained the weight override; restoring that override then recovered the
+original configuration.
 
 **Driver behavior > Cache limit-conversion results** controls reuse of cached limit
 calculations. Disabling it requests recalculation; it does not disable power-limit

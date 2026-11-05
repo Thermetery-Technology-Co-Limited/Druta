@@ -1857,9 +1857,10 @@ class RegistryPanel:
             )
         if receipt.get("linked_current_contracts"):
             lines.append(
-                "The linked-current cache and firmware-reported value must match after GPU restart. "
-                "Other loaded power definitions and requests must stay exact. A lower firmware vote can still "
-                "determine the effective current limit. Undo verifies the original settings. "
+                "The cached base current and its firmware readback must match after GPU restart. "
+                "Other loaded power definitions and requests must stay exact. Relationship weights and "
+                "lower firmware votes can make the target's effective limit differ from this base current. "
+                "Undo verifies the original settings. "
                 "This checks configuration and reported limits; physical enforcement is unmeasured."
             )
         if receipt.get("voltage_contracts"):

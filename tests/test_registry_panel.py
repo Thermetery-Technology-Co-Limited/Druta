@@ -204,7 +204,8 @@ def test_linked_current_preview_explains_firmware_readback_and_lower_votes(harne
     h.panel.prepare()
     assert h.mocks.prepare.call_args.args[1] == {key: 44000}
     text = dpg.get_value("reg_preview")
-    assert "linked-current cache and firmware-reported value must match" in text
+    assert "cached base current and its firmware readback must match" in text
+    assert "effective limit differ from this base current" in text
     assert "lower firmware vote" in text
     assert "Other loaded power definitions and requests must stay exact" in text
 

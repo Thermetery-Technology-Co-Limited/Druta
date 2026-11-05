@@ -1,0 +1,88 @@
+{
+  "scope": "one RTX 5080, driver 617.42, idle; not a compatibility rule",
+  "phases": [
+    {
+      "phase": "before",
+      "samples": 3,
+      "weight_raw": 4096,
+      "weight_multiplier": 1.0,
+      "linked_current_ma": 45000,
+      "policy9_client7_ma": 45000,
+      "policy9_effective_ma": 36002,
+      "image_sha256": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+      "registry_state_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "board_limit_request_mw": null
+    },
+    {
+      "phase": "weighted",
+      "samples": 3,
+      "weight_raw": 4080,
+      "weight_multiplier": 0.99609375,
+      "linked_current_ma": 45000,
+      "policy9_client7_ma": 44824,
+      "policy9_effective_ma": 36035,
+      "image_sha256": "c07415b67e6542d9e90044b170bbeacb17346824381e20dca46124de5e7a0862",
+      "registry_state_sha256": "724180d04af1df1b1cec6a158610a5fae973de17b93e41240587ec4544e070f2",
+      "board_limit_request_mw": 360000
+    },
+    {
+      "phase": "linked_changed",
+      "samples": 3,
+      "weight_raw": 4080,
+      "weight_multiplier": 0.99609375,
+      "linked_current_ma": 44992,
+      "policy9_client7_ma": 44816,
+      "policy9_effective_ma": 36035,
+      "image_sha256": "1dcb508d334a046e66d224359d86631fc30395539fc75806b39afc49d248a8ab",
+      "registry_state_sha256": "128bd073b7ebccf1986f6ed2a28f9ac4bc11eb82aee062d009d4e6c7f37e2cc4",
+      "board_limit_request_mw": 360000
+    },
+    {
+      "phase": "child_restored",
+      "samples": 3,
+      "weight_raw": 4080,
+      "weight_multiplier": 0.99609375,
+      "linked_current_ma": 45000,
+      "policy9_client7_ma": 44824,
+      "policy9_effective_ma": 36035,
+      "image_sha256": "c07415b67e6542d9e90044b170bbeacb17346824381e20dca46124de5e7a0862",
+      "registry_state_sha256": "724180d04af1df1b1cec6a158610a5fae973de17b93e41240587ec4544e070f2",
+      "board_limit_request_mw": 360000
+    },
+    {
+      "phase": "restored",
+      "samples": 3,
+      "weight_raw": 4096,
+      "weight_multiplier": 1.0,
+      "linked_current_ma": 45000,
+      "policy9_client7_ma": 45000,
+      "policy9_effective_ma": 36002,
+      "image_sha256": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+      "registry_state_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "board_limit_request_mw": 360000
+    }
+  ],
+  "info_bytes": 20512,
+  "control_bytes": 13876,
+  "per_sample_preservation": "All INFO and CONTROL bytes match baseline except selected weight and linked-current fields.",
+  "registry_restored_at_each_level": true,
+  "file_sha256": {
+    "trial.json": "4d905c87ab427eb5f93d65dd2ea57b33c39ee4d6297f94ace3671a771e133d8c",
+    "before.json": "decf09265959ed372fc1cdc2fcd165f6a7c397c4a733dedb1d72c3a685544c67",
+    "weighted.json": "1d83bad421afc279306307ed81f3e7102090c281d60e99af312916071ed20670",
+    "linked_changed.json": "28e7ef4a8562e0a1489917ab83cb1632502620d26c256d9d9ef7c641c2f3503a",
+    "child_restored.json": "b088cd1cb6473678a3cc0f7cd2ee7eb789872f7b0cc474a638cde8d04e780946",
+    "restored.json": "2e728d7f64369d50f51360781c95744ce7b029cbe943f4835a9ebda3eef17a99",
+    "parent-prepared.json": "941a5164b1142ea383ddd94044aed1b02ee690657c0d859b59a67ffdd55e8a03",
+    "parent-apply.json": "5f1cad0ce1b8db476bbe43c766cd3a0d937f0f79f2b6bd6165f6a011589a5d7d",
+    "parent-restore.json": "0ce290299ff22225acb9a7a01ccb46a9381a04774f6ef832ab2cce526abff27b",
+    "child-prepared.json": "bcdf3e9eb4014806f825123407e170f20d143c49222c18a17c77f11be4803dc6",
+    "child-apply.json": "907ad69aeef4c17cbe67fbf67d281e38a205a6c11f3424a50c7414c300521b2b",
+    "child-restore.json": "f740321a95f70a56db7ef1d51b927c2cb6f8331f3b794d87d6fb835b465e21f4"
+  },
+  "script_sha256": {
+    "trial.py": "db49c8242bda2e2ba035cbbfc659affe55420cb2a7185b8e54b8051c16e25c68",
+    "audit.py": "dbd7d8110e9ec895ae8fd46f7fbceff13ec87557d7b25454a972baa6237236f5"
+  },
+  "original_rom_sha256": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202"
+}
