@@ -81,3 +81,34 @@ configuration readbacks, and a finite set of known peer outcomes; unexpected
 peer changes fail verification and invoke restoration. Final raw bit 4 BIOS
 contributor removal and broader hardware qualification remain open. These
 configuration checks do not measure physical power-gating residency.
+
+### Manual profiles and Undo (local branch continuation, November 5)
+
+These additions are newer than the published 1.9.0b package. Selected ordinary
+tuning actions, rail limits, live voltage controls and this app's owned low-power
+requests now capture scoped Undo points. Named profiles can save individual
+sections, and combined profiles copy selected saved sections into one manually
+loaded profile with overlap checks and a combined Undo snapshot. See the
+[manual](MANUAL.md) for supported sections and failure behavior.
+
+The new scopes require explicit loading in the current session. They never
+replay automatically at startup or after a GPU driver reset. Existing ordinary
+full-tune startup behavior is unchanged. Rail profiles exclude temporary V/F
+hold headroom; an explicit user choice matching a temporary raise is retained
+when that hold is released.
+
+The focused regression suite passed 2,899 tests plus 398 subtests. The local
+RTX 5080 / 617.42 trials verified selected request changes and Undo for
+[ordinary profiles](experiments/ordinary-named-profiles-20261102.json),
+[rail limits](experiments/rail-limit-profiles-20261105.json), and
+[ordinary full tune with an ELCG request](experiments/combined-full-profiles-20261102.json).
+The [matching-headroom choice fix](experiments/rail-limit-held-intent-20261105.json)
+was verified offline. These checks do not measure physical voltage or power.
+
+Shared idle thresholds and adaptive policy remain excluded because their
+getters do not expose complete restorable state. Combined I2C hardware replay
+remains unqualified. The tested local mode refused V/F monotonicity and
+smoothing changes, so changed-state replay for those flags remains unqualified.
+Arbitrary modern voltage replay and effective VCRIT thresholds remain unresolved.
+Application-owned framebuffer captures now provide packaged UI evidence;
+they do not establish physical input behavior or hardware effects.

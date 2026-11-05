@@ -12,7 +12,7 @@ Druta is from Sanskrit *druta* meaning fast. In Hindu performing art, it can als
 
 # II. A couple useful functions:
 
-## Save a tune and load it at Windows sign-in
+## Manual profiles and Undo
 
 ### Manual voltage-request profiles and Undo
 
@@ -137,8 +137,11 @@ Rail-limit profiles use the existing **Rail limits** write gate and current
 voltage bounds; loading does not enable that gate or XOC automatically.
 
 The local RTX 5080 / 617.42 trial exercised named Save, changed-state Load and
-Undo for all five categories and returned each to its captured baseline.
-See [qualification](experiments/ordinary-named-profiles-20261102.json).
+Undo for memory offset, clock-domain offset, voltage boost, coupled power/current
+requests, and fan policy; each returned to its captured baseline. See
+[qualification](experiments/ordinary-named-profiles-20261102.json). Ordinary
+rail-limit profiles have separate qualification in
+[rail-limit trial](experiments/rail-limit-profiles-20261105.json).
 
 ### Combined manual profiles
 
@@ -200,7 +203,8 @@ I2C requests use the identified controller's step. Core offsets snap to the
 card's physical frequency bin on Apply, and the displayed result can be
 reapplied without moving to another bin.
 
-Choose **Load at startup** beside a named profile to apply a saved copy at
+Only ordinary full-tune profiles support startup loading. For one of these,
+choose **Load at startup** beside its named profile to apply a saved copy at
 Windows sign-in. Configure this while running Druta as administrator. Selecting
 it again updates that copy; **Disable startup loading** turns it off. The card,
 VBIOS and driver must still match. After changing drivers, save a fresh profile.
