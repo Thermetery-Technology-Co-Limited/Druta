@@ -73,6 +73,8 @@ include experiments/pascal-gp106-driver51694-20261102.md
 include experiments/pascal-gp106-driver51694-20261102.json
 include experiments/pascal-gp106-58142-capability-20261105.md
 include experiments/pascal-gp106-58142-capability-20261105.json
+include experiments/ampere-ga102-kingpin-61742-20261105.md
+include experiments/ampere-ga102-kingpin-61742-20261105.json
 include experiments/turing-driver-abi-review-20261028.md
 include experiments/turing-driver-abi-review-20261028.json
 include experiments/turing-43160-static-layout-20261028.md

@@ -35,56 +35,57 @@ driver accepts, which is not proof the interface is absent.
 | TRTX | TITAN RTX on an ASUS RTX 2080 Ti Strix PCB (TU102) | 472.12, 566.36, 580.97, 610.88 |
 | 2080S | Gigabyte RTX 2080 SUPER AORUS Xtreme, shunt and 16 GB mods (TU104) | 431.60, 472.12, 581.42, 621.01 |
 | 3070Ti | ASUS Strix RTX 3070 Ti, shunt mod (GA104) | 595.97 |
+| KP | EVGA RTX 3090 Ti Kingpin, water-cooled (GA102) | 617.42 |
 | 4080S | Manli RTX 4080 SUPER (AD103) | 581.42, 617.42 |
 | 5080 | ASUS RTX 5080 Astral (GB203) | 580.97, 610.88, 617.14, 617.42, 621.01 |
 
 ## Matrix
 
-| Interface | 770 | 690 | 745 | TXp | 1060 | TRTX | 2080S | 3070Ti | 4080S | 5080 |
-| --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
-| **Clocks and V/F** | | | | | | | | | | |
-| Core and memory offsets | W | W | W | W | R | W | W | | W | W |
-| Per-domain clocks (XBAR, SYS, VIDEO, LTC, extra MEM) | R | N | R | W¹ | | W | | W | W | W |
-| V/F curve edit, point lock and hold | N | N | N | W | R | W | R | | W | W |
-| NVML frequency lock | N | N | N | N | | W | | | W | W |
-| Legacy P0 hold and max fan | W | W | W | | | | | | | |
-| V/F hold headroom | | | | | | W | | W | W | |
-| Clock V/F policy (monotonicity, smoothing) | | | | | N | | | | | W² |
-| Memory timings (nvtune) | W | W | W | W | | N | | | N | R |
-| **Voltage** | | | | | | | | | | |
-| Voltage boost | N | N | N | W | R | W | W | | W | W |
-| NVVDD offset | | N | | W | R | W | | W | W | W |
-| NVVDD rail limits (REL, ALT, OV, VMIN) | | N | | W | R | W | R | W | W | W |
-| MSVDD rail | | N | | N | N | N | | N | N | W³ |
-| Six-word rail requests | | | | | N | | | W | | W⁴ |
-| Voltage-request gate | | | | | R | | | R | | W |
-| `EnableCoreVoltage` registry startup gate | | | | | N | | | | | N |
-| VFE equations: constants, REL clamps and bounds, startup REL | | | | | N | | | | | W |
-| Independent VFE policy offsets | | | | | N | | | | | W |
-| PERF-limit voltage request, PWM switch delay | | | | | | | | | | W⁵ |
-| **Power and current** | | | | | | | | | | |
-| Board power limit | N | N | N | W | W⁸ | W | W | | W | W |
-| Live client power above reported max (XOC) | | | | | W⁸ | | W | W | S | W |
-| Current limits and named power policies | N | | N | W | W⁸ | W | W | W | W | W |
-| Power-policy feedback bounds | | | | | N | | | | | W⁶ |
-| Power relationships: weight, linked base current | | | | | N | | | | | W |
-| **Low power** | | | | | | | | | | |
-| GR power gating (GRPG) entry disables (registry) | | | | | N | | | | | W |
-| MS, NVDEC, NVENC, OFA, NVJPG entry disables (registry) | | | | | N | | | | | W |
-| DIFR (entry disable, live inhibit) | | | | | N | | | | | W |
-| Grouped engine-level power gating (ELPG) hold | | | | | R | | | | | W |
-| Engine clock gating (ELCG) hold | | | | | R | | | | | W |
-| Block clock gating (BLCG) hold | | | | | N | S | S | S | S | W |
-| Second-level clock gating (SLCG) hold | | | | | N | S | S | S | S | W |
-| Individual power-gating inhibits | | | | | N | | | S | S | W |
-| Idle thresholds | | | | | N | | | | | W |
-| Adaptive power policy | | | | | N | | | | | W |
-| **Other** | | | | | | | | | | |
-| PCIe link speed | | | | | N | | | | | W⁷ |
-| Fan manual and Auto | W | W | W | W | R | W | W | | W | W |
-| `RmFan2XOverride` fan-init selector (registry) | | | | | W⁹ | | | | | W⁹ |
-| Registry and BIOS overrides, Undo, recovery | | | | | | | | R | | W |
-| Profiles and Undo | W | W | W | W | | W | | | W | W |
+| Interface | 770 | 690 | 745 | TXp | 1060 | TRTX | 2080S | 3070Ti | KP | 4080S | 5080 |
+| --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
+| **Clocks and V/F** | | | | | | | | | | | |
+| Core and memory offsets | W | W | W | W | R | W | W | | R | W | W |
+| Per-domain clocks (XBAR, SYS, VIDEO, LTC, extra MEM) | R | N | R | W¹ | | W | | W | R | W | W |
+| V/F curve edit, point lock and hold | N | N | N | W | R | W | R | | R | W | W |
+| NVML frequency lock | N | N | N | N | | W | | |  | W | W |
+| Legacy P0 hold and max fan | W | W | W | | | | | |  | | |
+| V/F hold headroom | | | | | | W | | W |  | W | |
+| Clock V/F policy (monotonicity, smoothing) | | | | | N | | | | W | | W² |
+| Memory timings (nvtune) | W | W | W | W | | N | | |  | N | R |
+| **Voltage** | | | | | | | | | | | |
+| Voltage boost | N | N | N | W | R | W | W | | R | W | W |
+| NVVDD offset | | N | | W | R | W | | W | R | W | W |
+| NVVDD rail limits (REL, ALT, OV, VMIN) | | N | | W | R | W | R | W | R | W | W |
+| MSVDD rail | | N | | N | N | N | | N | N | N | W³ |
+| Six-word rail requests | | | | | N | | | W | R | | W⁴ |
+| Voltage-request gate | | | | | R | | | R | R | | W |
+| `EnableCoreVoltage` registry startup gate | | | | | N | | | |  | | N |
+| VFE equations: constants, REL clamps and bounds, startup REL | | | | | N | | | | N | | W |
+| Independent VFE policy offsets | | | | | N | | | | N | | W |
+| PERF-limit voltage request, PWM switch delay | | | | | | | | |  | | W⁵ |
+| **Power and current** | | | | | | | | | | | |
+| Board power limit | N | N | N | W | W⁸ | W | W | | W | W | W |
+| Live client power above reported max (XOC) | | | | | W⁸ | | W | W¹⁰ | W¹⁰ | S | W |
+| Current limits and named power policies | N | | N | W | W⁸ | W | W | W | R | W | W |
+| Power-policy feedback bounds | | | | | N | | | | R¹¹ | | W⁶ |
+| Power relationships: weight, linked base current | | | | | N | | | | R¹¹ | | W |
+| **Low power** | | | | | | | | | | | |
+| GR power gating (GRPG) entry disables (registry) | | | | | N | | | | R | | W |
+| MS, NVDEC, NVENC, OFA, NVJPG entry disables (registry) | | | | | N | | | | R | | W |
+| DIFR (entry disable, live inhibit) | | | | | N | | | | N | | W |
+| Grouped engine-level power gating (ELPG) hold | | | | | R | | | | R | | W |
+| Engine clock gating (ELCG) hold | | | | | R | | | | R | | W |
+| Block clock gating (BLCG) hold | | | | | N | S | S | S | R | S | W |
+| Second-level clock gating (SLCG) hold | | | | | N | S | S | S | R | S | W |
+| Individual power-gating inhibits | | | | | N | | | S | R¹² | S | W |
+| Idle thresholds | | | | | N | | | | N | | W |
+| Adaptive power policy | | | | | N | | | | N | | W |
+| **Other** | | | | | | | | | | | |
+| PCIe link speed | | | | | N | | | | N | | W⁷ |
+| Fan manual and Auto | W | W | W | W | R | W | W | | R | W | W |
+| `RmFan2XOverride` fan-init selector (registry) | | | | | W⁹ | | | | W⁹ | | W⁹ |
+| Registry and BIOS overrides, Undo, recovery | | | | | | | | R |  | | W |
+| Profiles and Undo | W | W | W | W | | W | | | W¹³ | W | W |
 
 1. Additional Memory Clock only. XBAR, SYS and VIDEO are hidden on Pascal
    because the measured clocks did not follow.
@@ -104,8 +105,15 @@ driver accepts, which is not proof the interface is absent.
 9. DWORD 1 was consumed: after a GPU restart the public fan readbacks and
    controls were unavailable. Restoring the absent value returned them. Physical
    fan behavior is unmeasured.
+10. Native board status equals floor((request × policy-2 upper word + 2048) / 4096)
+    mod 2^20 at every request tested from 850 to 1,999 W, with this board's word
+    4424. The 3070 Ti's 33/32 fit corresponds to a word of 4224.
+11. Raw bounds or weights read. Ampere policy rows are not decoded, so Druta
+    reports the controls unavailable.
+12. GR and MS only; the media inhibits are unavailable.
+13. Clock V/F policy profiles and selected Undo only.
 
-GTX 1060 581.42 evidence: [survey and registry trials](experiments/pascal-gp106-58142-capability-20261105.md).
+Evidence from 2026-11-05: [GTX 1060, 581.42](experiments/pascal-gp106-58142-capability-20261105.md); [RTX 3090 Ti Kingpin, 617.42](experiments/ampere-ga102-kingpin-61742-20261105.md).
 
 ## I2C regulators
 
