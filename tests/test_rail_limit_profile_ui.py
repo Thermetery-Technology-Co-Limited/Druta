@@ -110,7 +110,8 @@ class RailLimitProfileUiTests(FakeUiTest):
 
 
 class RailLimitHeldProfileTests(AppTestCase):
-    def test_apply_undo_reconciles_retained_hold_and_release_keeps_user_baseline(self):
+    def setUp(self):
+        super().setUp()
         self.gpu.slot = lambda: '0000:01:00.0'
         self.gpu.volt_rail_limit_fields = lambda rail: self.gpu.VOLT_LIMIT_FIELDS if rail == 0 else ()
         self.gpu.volt_limits_write_enabled = True
@@ -126,6 +127,8 @@ class RailLimitHeldProfileTests(AppTestCase):
         self.app.refresh_profile_list = Mock()
         self.app.set_pending_load = Mock()
         self.app.profile_failure = Mock()
+
+    def test_apply_undo_reconciles_retained_hold_and_release_keeps_user_baseline(self):
         self.hold(1093.75)
         held = dict(self.app._clk_lock)
         with patch.object(profiles, 'DIR', str(self.root / 'profiles')):
@@ -139,3 +142,20 @@ class RailLimitHeldProfileTests(AppTestCase):
         self.assertEqual(self.limits(), (1093.75, 1118.75, 1125.0))
         self.app.set_lock_state(None)
         self.assertEqual(self.limits(), (1068.75, 1093.75, 1125.0))
+
+    def test_matching_held_raise_is_saved_and_replayed_as_explicit_user_choice(self):
+        self.hold(1093.75)
+        held = dict(self.app._clk_lock)
+        with patch.object(profiles, 'DIR', str(self.root / 'profiles')):
+            self.app.apply_vlim(0, reliability=1093.75)
+            self.assertEqual(self.gpu.user_rail_limits()[0]['reliability'], 25.0)
+            saved = profiles.capture_rail_limits(self.gpu, {0: ['reliability']})
+            profiles.save('chosen', saved)
+            self.app.undo_last_write()
+            self.assertEqual(self.gpu.user_rail_limits()[0]['reliability'], 0.0)
+            self.app.load_profile('chosen')
+        self.app.profile_failure.assert_not_called()
+        self.assertEqual(self.app._clk_lock, held)
+        self.assertEqual(self.gpu.user_rail_limits()[0]['reliability'], 25.0)
+        self.app.set_lock_state(None)
+        self.assertEqual(self.limits(), (1093.75, 1093.75, 1125.0))

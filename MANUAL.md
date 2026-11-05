@@ -109,6 +109,10 @@ value, and **Reset all** captures all affected rail fields. These resets restore
 the session's first-read values, which may already include tuning. Undo returns
 to the values immediately before the action. Temporary V/F hold headroom is
 excluded from the saved user requests and replanned for a retained hold.
+For a hold owned by this Druta window, explicitly applying or restoring a value
+equal to its temporary raise makes that value your chosen request. Profile
+capture retains the choice, and releasing the hold restores only the other
+temporary values. Failed readback does not change the recorded user choice.
 
 An unchanged Apply creates no Undo point. If saving fails, Apply stops; an
 explicit Stock/reset remains available and logs that Undo could not be saved.

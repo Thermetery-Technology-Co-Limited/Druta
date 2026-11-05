@@ -6897,6 +6897,18 @@ class GPU:
             return None, "rail write changed the voltage boost setting"
         return back, None
 
+    def _adopt_verified_hold_fields(self, rail, fields, back):
+        """Retain an explicit selected request equal to our temporary raise."""
+        record = getattr(self, "_hold_headroom", None)
+        if not isinstance(record, dict) or record.get("rail") != rail:
+            return
+        written = record.get("written_uv") or {}
+        prior = record.get("prior_uv") or {}
+        for key in fields:
+            if (key in written and key in prior
+                    and int(round(back[rail][key] * 1000)) == written[key]):
+                prior[key] = written[key]
+
     def set_volt_rail_limits(self, rail, **limits):
         """Set one rail's limits, each in ABSOLUTE millivolts against its base.
 
@@ -6964,6 +6976,11 @@ class GPU:
         back, error = self._verify_rail_records(expected, boost)
         if error:
             return False, error
+        # A user can deliberately select the exact value currently supplied by
+        # our temporary hold raise. Readback alone cannot distinguish that
+        # choice from the raise, so make it the release target only after the
+        # selected write and all preserved records have been verified.
+        self._adopt_verified_hold_fields(rail, (key for key, value in limits.items() if value is not None), back)
         # Report the fields that were written AND what they add up to, because
         # the second is not obvious from the first: raising reliability alone
         # can leave the reachable maximum exactly where it was.
@@ -7062,9 +7079,11 @@ class GPU:
         expected = {r: [round(row[k] * 1000) for k in self.VOLT_LIMIT_FIELDS]
                     for r, row in cur.items() if row.get("_base_mv")}
         expected.update(recs)
-        _back, error = self._verify_rail_records(expected, boost)
+        back, error = self._verify_rail_records(expected, boost)
         if error:
             return False, error
+        for r in rails:
+            self._adopt_verified_hold_fields(r, keys, back)
         record = getattr(self, "_hold_headroom", None)
         if record and record["rail"] in rails and set(record["written_uv"]).issubset(keys):
             # The raise was overwritten by first-read values; restoring its

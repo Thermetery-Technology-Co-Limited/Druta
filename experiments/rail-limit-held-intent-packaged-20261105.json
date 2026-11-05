@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "date": "2026-11-05",
+  "source_files_verified": 569,
+  "executable_sha256": "c97facc75335a3075c9ccb569fe584a8c1044f3c50940cac495aa7f1771e0c23",
+  "zip_sha256": "be1f6c0221c02edebb6a178125aa9b412bc461b4bdba667048c067ec6454522b",
+  "zip_crc": "passed",
+  "qualification": "experiments/rail-limit-held-intent-20261105.json",
+  "qualification_sha256": "85d2be9d72c3010c0f3304cc9137e3f5ddf5b517d3cd7d88b463e192ce942b9f",
+  "note": "Backend ownership-metadata fix, qualified offline; this post-build receipt is not bundled."
+}

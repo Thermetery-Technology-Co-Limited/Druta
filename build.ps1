@@ -176,6 +176,7 @@ function Get-SourceSnapshot {
         'experiments/combined-full-profiles-20261102.json',
         'experiments/ordinary-named-profiles-20261102.json',
         'experiments/rail-limit-profiles-20261105.json',
+        'experiments/rail-limit-held-intent-20261105.json',
         'experiments/clock-vf-smoothing-profile-20261105.json',
         'experiments/shared-power-profile-boundary-20261102.json',
         'experiments/voltage-61742-unblocked-objectives-20261101.json',
