@@ -1200,8 +1200,20 @@ It also shows understood type-0 source ranges and type-32 linked references.
 The latter select a relationship record, which is then joined to its target
 policy; the two indices are not interchangeable. Other source-policy types
 remain explicitly uninterpreted. These records explain configured dependencies,
-not which firmware client produced a vote. Weights are read-only and no limits
-are predicted or applied. See the [INFO source and live-read evidence](experiments/power-relationship-info-20261105.md).
+not which firmware client produced a vote. This view does not predict or apply
+limits. See the [INFO source and live-read evidence](experiments/power-relationship-info-20261105.md).
+
+**BIOS fields > Power / current > Relationship weight** edits qualified weights
+through the existing registry override preview. Enter a multiplier, where 1 is
+unity, in exact steps of 1/4096 (0.000244140625). Apply refreshes the GPU driver;
+this BIOS-override exception persists until changed or restored. It does not
+change ordinary tuning controls' session-only behavior. The selected weight,
+target identity and all other INFO bytes must match after refresh. A shared
+relationship can affect multiple contributions to a limit, so its weight is
+not a direct multiplier of the final effective limit. See the
+[changed-weight trial](experiments/power-weight-override-5080-61742-20261105.md)
+for the tested request and its driver-reported effect; no physical enforcement
+or universal accepted range is implied.
 
 **Driver policy diagnostics > Read driver policies** shows registered performance
 limit slots, feedback-controller flags and registry-selected feedback policies.

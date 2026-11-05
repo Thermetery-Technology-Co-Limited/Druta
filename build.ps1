@@ -111,6 +111,8 @@ function Get-SourceSnapshot {
         'experiments/nvvdd-offset-profiles-20261105.json',
         'experiments/policy-intermediate-delay-5080-61742-20261105.md',
         'experiments/policy-intermediate-delay-5080-61742-20261105.json',
+        'experiments/power-weight-override-5080-61742-20261105.md',
+        'experiments/power-weight-override-5080-61742-20261105.json',
         'experiments/power-v30-class1-20261028.json',
         'experiments/power-v30-short-row-20261029.json',
         'experiments/validate_short_power_override.py',

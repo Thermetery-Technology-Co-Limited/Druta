@@ -42,6 +42,7 @@ from . import (
     ms_runtime,
     nvdec_runtime,
     power_runtime,
+    power_weight_runtime,
     rated_clock_runtime,
     registry_flags,
     startup,
@@ -1032,6 +1033,11 @@ def prepare(
     ):
         raise OverrideError("Apply linked-current limits separately from other registry controls")
     linked_current = linked_current_runtime.contracts(gpu, inspection, changes)
+    if any(power_weight_runtime.KEY.fullmatch(key) for key in changes) and (
+        named_changes or flag_changes or pstate_changes or clock_vf_changes or startup_changes
+    ):
+        raise OverrideError("Apply relationship weights separately from other registry controls")
+    power_weight = power_weight_runtime.contracts(gpu, inspection, changes)
     lpwr = lpwr_runtime.contracts(gpu, image, changes)
     grpg = grpg_runtime.contracts(gpu, image, changes)
     ms = ms_runtime.contracts(gpu, image, changes)
@@ -1148,6 +1154,8 @@ def prepare(
         "voltage_rel_contracts": voltage_rel,
         "linked_current_contract_version": 1,
         "linked_current_contracts": linked_current,
+        "power_weight_contract_version": 1,
+        "power_weight_contracts": power_weight,
         "lpwr_contract_version": 1,
         "lpwr_contracts": lpwr,
         "grpg_contract_version": 1,
@@ -1344,6 +1352,25 @@ def _execute(
         if isinstance(gpu, dict):
             return gpu.get(name)
         observation, error = module.read(gpu)
+        if error:
+            raise OverrideError(error)
+        return observation
+
+    def power_weight_observation(gpu):
+        # Weight INFO is read only for a transaction that needs it.
+        if isinstance(gpu, dict):
+            if "power_weight" in gpu:
+                if gpu.get("power_weight_error"):
+                    raise OverrideError(gpu["power_weight_error"])
+                return gpu["power_weight"]
+            if gpu.get("target") != target:
+                raise OverrideError("Fresh power weight observation has no validated selected target")
+            from .nvbackend import GPU
+
+            gpu = GPU(target.slot)
+            if bind_target(gpu) != target:
+                raise OverrideError("Selected GPU or its driver mapping changed before power weight readback")
+        observation, error = power_weight_runtime.read(gpu)
         if error:
             raise OverrideError(error)
         return observation
@@ -1652,6 +1679,23 @@ def _execute(
             )
         ):
             raise OverrideError("Apply linked-current limits separately from other registry controls")
+        weight_contracts = receipt.get("power_weight_contracts", {})
+        weight_version = "power_weight_contract_version" in receipt
+        weight_selected = {key: value for key, value in receipt["changes"].items()
+                           if power_weight_runtime.KEY.fullmatch(key)}
+        if "power_weight_contracts" in receipt and not weight_version:
+            raise OverrideError("Power relationship weight contract version is missing")
+        if weight_version and (not registry_flags._same_state(receipt["power_weight_contract_version"], 1)
+                               or "power_weight_contracts" not in receipt):
+            raise OverrideError("Missing or unrecognized power relationship weight contracts")
+        if weight_version or weight_contracts or (weight_selected and not restore):
+            power_weight_runtime.validate_contracts(receipt["changes"], weight_contracts)
+            if weight_contracts and weight_contracts["before"]["identity"]["slot"] != target.slot:
+                raise OverrideError("Saved power relationship contract does not match the selected GPU")
+        if weight_selected and not restore and any(
+            receipt.get(name) for name in ("named_changes", "flag_changes", "pstate_changes", "clock_vf_changes", "startup_changes")
+        ):
+            raise OverrideError("Apply relationship weights separately from other registry controls")
         saved_requests = _validate_voltage_replay(receipt, target, (ceiling_contracts, rel_contracts))
         if startup_contracts:
             saved_requests = {"schema": 1, "before": startup_contracts["before"]["requests"]}
@@ -1713,6 +1757,8 @@ def _execute(
                     voltage_rel_runtime.validate_inspection(inspection, receipt["changes"], rel_contracts)
                 if linked_contracts:
                     linked_current_runtime.validate_inspection(inspection, receipt["changes"], linked_contracts)
+                if weight_contracts:
+                    power_weight_runtime.validate_inspection(inspection, receipt["changes"], weight_contracts)
             rebuilt = (
                 compose_records(
                     image,
@@ -1817,6 +1863,10 @@ def _execute(
             if linked_contracts:
                 linked_current_runtime.verify(
                     typed_observation(gpu, "linked_current", linked_current_runtime), linked_contracts, restore=True
+                )
+            if weight_contracts:
+                power_weight_runtime.verify(
+                    power_weight_observation(gpu), weight_contracts, restore=True
                 )
             if lpwr_contracts:
                 lpwr_runtime.verify(lpwr_observation(gpu), lpwr_contracts, restore=True)
@@ -1958,6 +2008,12 @@ def _execute(
                     restore=restore,
                 )
             )
+        if weight_contracts:
+            receipt.setdefault("runtime_verified_fields", []).extend(
+                power_weight_runtime.verify(
+                    power_weight_observation(fresh), weight_contracts, restore=restore
+                )
+            )
         if lpwr_contracts:
             receipt.setdefault("runtime_verified_fields", []).extend(
                 lpwr_runtime.verify(lpwr_observation(fresh), lpwr_contracts, restore=restore)
@@ -2097,6 +2153,10 @@ def _execute(
                         typed_observation(rollback, "linked_current", linked_current_runtime),
                         linked_contracts,
                         restore=True,
+                    )
+                if weight_contracts:
+                    power_weight_runtime.verify(
+                        power_weight_observation(rollback), weight_contracts, restore=True
                     )
                 if lpwr_contracts:
                     lpwr_runtime.verify(lpwr_observation(rollback), lpwr_contracts, restore=True)

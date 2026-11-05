@@ -466,6 +466,29 @@ class _Image:
                     },
                 )
 
+        if modern:
+            try:
+                stride, count = self.span(t["offset"] + 4, 2)
+                if stride != 18:
+                    raise FormatError("unknown relationship geometry")
+                base = t["offset"] + t["size"]
+                self.own(t["offset"], t["size"] + stride * count, 0x13)
+                self.span(base, stride * count)
+                for index in range(min(count, 32)):
+                    at = base + index * stride
+                    kind, target = self.b[at] & 15, self.b[at + 1]
+                    if kind != 1 or target >= t["count"]:
+                        continue
+                    self.field(
+                        f"power_relationship.{index}.weight", f"Relationship {index} to policy {target} weight",
+                        "Power / current", at + 2, "H", "multiplier", scale=4096,
+                        meta={"relationship_index": index, "relationship_kind": kind,
+                              "relationship_stride": stride, "relationship_count": count,
+                              "relationship_offset": at, "target_policy": target},
+                    )
+            except FormatError:
+                pass  # Optional relationship fields do not suppress policy fields.
+
     def clocks(self):
         at = self.pointer("C", 8)
         ver, hs, es, count, subcount, subsize = self.span(at, 6)

@@ -29,6 +29,11 @@ Saving a profile does not authorize automatic startup or post-reset application
 of the new session-only controls. Applying their saved settings requires an
 explicit user action in the current session.
 
+The user authorizes a narrow exception for power relationship-weight overrides
+through registry/VBIOS configuration. These overrides require a GPU driver
+refresh to load and persist until removed or changed. This exception does not
+change the session-only rule for ordinary tuning controls.
+
 # Agent collaboration
 
 The root agent supervises the work. Subagents are authorized for concrete,

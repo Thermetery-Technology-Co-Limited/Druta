@@ -178,7 +178,8 @@ class RegistryPanel:
             dpg.add_input_text(tag="reg_arbitration", readonly=True, multiline=True, width=-1, height=self.app.s(260))
             dpg.add_text(
                 "Configured relationships describe policy targets, weights and available source-policy ranges. "
-                "This partial mapping does not establish the producer of an active vote. Weights are read-only.", wrap=self.app.s(900),
+                "This partial mapping does not establish the producer of an active vote. "
+                "Qualified weights can be edited through the BIOS field preview and require a driver refresh.", wrap=self.app.s(900),
             )
             dpg.add_button(label="Read relationships", tag="reg_relationships_read", callback=self.refresh_relationships)
             dpg.add_input_text(tag="reg_relationships", readonly=True, multiline=True,
@@ -1042,7 +1043,8 @@ class RegistryPanel:
             lines.append(f"Relationship {row['index']} -> target policy {row['target']} (type {row['type']})")
             weight = row.get("weight_raw")
             if row["type"] == 0 and type(weight) is int:
-                lines.append(f"  Weight: {weight / 4096:g} (raw {weight})")
+                value = f"{weight / 4096:.12f}".rstrip("0").rstrip(".")
+                lines.append(f"  Weight: {value} (raw {weight})")
             else:
                 lines.append("  Relationship type is uninterpreted.")
             metadata = row.get("target_metadata")
@@ -1196,6 +1198,12 @@ class RegistryPanel:
         factor = 1000 if unit in ("mW", "mA", "uV", "kHz") else 1
         return factor, {"mW": "W", "mA": "A", "uV": "mV", "kHz": "MHz"}.get(unit, unit)
 
+    @staticmethod
+    def format_field_value(field, value):
+        if field["key"].startswith("power_relationship."):
+            return f"{value:.12f}".rstrip("0").rstrip(".")
+        return f"{value:g}"
+
     def invalidate(self, *unused):
         self.preview = None
         dpg.configure_item("reg_apply_button", enabled=False)
@@ -1250,6 +1258,16 @@ class RegistryPanel:
         try:
             image = overrides.read_vbios(self.app.gpu)
             inspection = vbios_fields.inspect(image)
+            from . import power_weight_runtime
+            try:
+                inspection, weight_error = power_weight_runtime.annotate_fields(self.app.gpu, inspection)
+                if weight_error:
+                    errors.append("Power relationship weights: " + str(weight_error))
+            except Exception as exc:
+                for field in inspection.get("fields", []):
+                    if power_weight_runtime.KEY.fullmatch(field["key"]):
+                        field.update(capability="read-only", reason="Runtime qualification unavailable: " + str(exc))
+                errors.append("Power relationship weights: " + str(exc))
             self.inspection = inspection
             self.fields = {
                 key: field
@@ -1429,6 +1447,13 @@ class RegistryPanel:
                     "Preview admits understood dependency transitions and verifies the predicted related readbacks. "
                     "Physical residency and power savings are unmeasured."
                 )
+            elif field["key"].startswith("power_relationship."):
+                field["detail"] = (
+                    "Persistent BIOS registry override; apply refreshes the GPU driver. "
+                    "Weights use steps of 1/4096 (0.000244140625); 1 is nominal. "
+                    "The configured relationship weight is verified in loaded driver INFO. "
+                    "This does not establish an active vote or physical enforcement."
+                )
             groups[field["group"]].append(field)
         with dpg.group(parent="reg_fields"):
             dpg.add_text(
@@ -1475,13 +1500,15 @@ class RegistryPanel:
                                     default_value=field["current"] / factor,
                                     width=self.app.s(135),
                                     step=0,
-                                    format="%.4f",
+                                    format="%.12f" if field["key"].startswith("power_relationship.") else "%.4f",
                                     callback=self.invalidate,
                                 )
                             else:
                                 dpg.add_text(
                                     "unavailable" if field["current"] is None else
-                                    str(bool(field["current"])) if unit == "bool" else str(field["current"] / factor),
+                                    str(bool(field["current"])) if unit == "bool" else
+                                    self.format_field_value(field, field["current"] / factor)
+                                    if field["key"].startswith("power_relationship.") else str(field["current"] / factor),
                                     tag=tag,
                                 )
                             dpg.add_text(f"{field['label']} ({unit})")
@@ -1492,8 +1519,10 @@ class RegistryPanel:
                                     (
                                         "Select an explicit startup setting.\n"
                                         if field.get("choices")
-                                        else f"Stored: {field['current'] / factor:g} {unit}\n"
+                                        else f"Stored: {self.format_field_value(field, field['current'] / factor)} {unit}\n"
                                     )
+                                    + (f"Raw Q4.12: {field['raw']} / 4096\n"
+                                       if field["key"].startswith("power_relationship.") else "")
                                     + "Driver and hardware behavior may impose additional limits.",
                                     wrap=self.app.s(420),
                                 )
@@ -1590,9 +1619,14 @@ class RegistryPanel:
                 old, new = ("enabled" if state else "disabled" for state in (field["current"], value))
                 lines.append(f"{field['label']}: {old} -> {new}")
             else:
-                lines.append(f"{field['label']}: {field['current'] / factor:g} -> {value / factor:g} {unit}")
+                old = self.format_field_value(field, field["current"] / factor)
+                new = self.format_field_value(field, value / factor)
+                lines.append(f"{field['label']}: {old} -> {new} {unit}")
         if any(value is False for value in clock_vf_changes.values()):
             lines.append("Disabling either VF check also changes a derived VF processing mode.")
+        if receipt.get("power_weight_contracts"):
+            lines.append("Relationship weights: the selected multiplier and retained INFO data are checked after "
+                         "driver refresh; Restore verifies the previous configuration. This does not measure enforcement.")
         if receipt.get("lpwr_contracts"):
             contract = receipt["lpwr_contracts"]
 
