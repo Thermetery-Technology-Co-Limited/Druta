@@ -59,14 +59,15 @@ driver accepts, which is not proof the interface is absent.
 | MSVDD rail | | N | | N | N | N | | N | N | N | W³ |
 | Six-word rail requests | | | | | N | | | W | R | | W⁴ |
 | Voltage-request gate | | | | | R | | | R | R | | W |
-| `EnableCoreVoltage` registry startup gate | | | | | N | | | |  | | N |
+| `EnableCoreVoltage` registry startup gate | | | | | N | | | | N | | N |
 | VFE equations: constants, REL clamps and bounds, startup REL | | | | | N | | | | N | | W |
 | Independent VFE policy offsets | | | | | N | | | | N | | W |
+| IDDQ model inputs (registry) | | | | | | | | | W¹⁴ | | W |
 | PERF-limit voltage request, PWM switch delay | | | | | | | | |  | | W⁵ |
 | **Power and current** | | | | | | | | | | | |
 | Board power limit | N | N | N | W | W⁸ | W | W | | W | W | W |
 | Live client power above reported max (XOC) | | | | | W⁸ | | W | W¹⁰ | W¹⁰ | S | W |
-| Current limits and named power policies | N | | N | W | W⁸ | W | W | W | R | W | W |
+| Current limits and named power policies | N | | N | W | W⁸ | W | W | W | W | W | W |
 | Power-policy feedback bounds | | | | | N | | | | R¹¹ | | W⁶ |
 | Power relationships: weight, linked base current | | | | | N | | | | R¹¹ | | W |
 | **Low power** | | | | | | | | | | | |
@@ -112,8 +113,11 @@ driver accepts, which is not proof the interface is absent.
     reports the controls unavailable.
 12. GR and MS only; the media inhibits are unavailable.
 13. Clock V/F policy profiles and selected Undo only.
+14. Written with a trial script; Druta's reader decodes only the Blackwell row
+    type, so it lists no IDDQ input here. NVVDD IDDQ followed every request; the
+    voltage policy did not move, because no loaded VFE equation reads IDDQ.
 
-Evidence from 2026-11-05: [GTX 1060, 581.42](experiments/pascal-gp106-58142-capability-20261105.md); [RTX 3090 Ti Kingpin, 617.42](experiments/ampere-ga102-kingpin-61742-20261105.md).
+Evidence from 2026-11-05: [GTX 1060, 581.42](experiments/pascal-gp106-58142-capability-20261105.md); RTX 3090 Ti Kingpin, 617.42: [survey](experiments/ampere-ga102-kingpin-61742-20261105.md), [current, EnableCoreVoltage, IDDQ](experiments/ampere-ga102-kingpin-trials-61742-20261105.md).
 
 ## I2C regulators
 

@@ -109,6 +109,8 @@ function Get-SourceSnapshot {
         'experiments/pascal-gp106-58142-capability-20261105.json',
         'experiments/ampere-ga102-kingpin-61742-20261105.md',
         'experiments/ampere-ga102-kingpin-61742-20261105.json',
+        'experiments/ampere-ga102-kingpin-trials-61742-20261105.md',
+        'experiments/ampere-ga102-kingpin-trials-61742-20261105.json',
         'experiments/turing-driver-abi-review-20261028.md',
         'experiments/turing-driver-abi-review-20261028.json',
         'experiments/turing-43160-static-layout-20261028.md',
