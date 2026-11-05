@@ -23,6 +23,7 @@ _CURRENT_CONTROLS = (
     ("individual", "reg_individual_power_gating_header", "individual_power_gating_panel", "read", "individual_power_gating_0_status", "individual_power_gating_0_readback"),
     ("idle-thresholds", "reg_gr_idle_threshold_header", "gr_idle_threshold_panel", "read", "gr_idle_threshold_status", "gr_idle_threshold_readback"),
     ("adaptive-policy", "reg_adaptive_power_header", "adaptive_power_panel", "read", "adaptive_power_status", "adaptive_power_readback"),
+    ("pcie-speed", "reg_pcie_speed_header", "pcie_speed_panel", "read", "pcie_speed_status", "pcie_speed_readback"),
 )
 
 

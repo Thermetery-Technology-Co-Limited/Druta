@@ -1,4 +1,4 @@
-﻿"""Cross-panel invalidation for known low-power policy side effects."""
+"""Cross-panel invalidation for known low-power policy side effects."""
 
 import sys
 from types import SimpleNamespace
@@ -50,7 +50,7 @@ def views(monkeypatch):
     monkeypatch.setitem(sys.modules, "druta.adaptive_power_live", SimpleNamespace(AdaptivePowerController=Adaptive))
     monkeypatch.setitem(sys.modules, "druta.gr_idle_threshold_live", SimpleNamespace(IdleThresholdController=Threshold))
     app = SimpleNamespace(gpu=SimpleNamespace(calls=[], fail=False, noop=False), s=lambda n: n,
-                          guard=Mock(return_value=True), log=Mock())
+                          guard=Mock(return_value=True), log=Mock(), open_save_profile=Mock())
     parent = RegistryPanel(app)
     dpg.create_context()
     with dpg.window():

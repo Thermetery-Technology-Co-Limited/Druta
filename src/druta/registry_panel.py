@@ -125,6 +125,11 @@ class RegistryPanel:
         self.difr_live_panel = DifrLivePanel(self.app)
         with dpg.collapsing_header(label="Live DIFR disable request", tag="reg_difr_live_header"):
             self.difr_live_panel.build()
+        from .pcie_speed_panel import PcieSpeedPanel
+
+        self.pcie_speed_panel = PcieSpeedPanel(self.app)
+        with dpg.collapsing_header(label="Manual PCIe speed request", tag="reg_pcie_speed_header"):
+            self.pcie_speed_panel.build()
         from .gr_gating_live_panel import GrGatingLivePanel
 
         self.gr_gating_live_panel = GrGatingLivePanel(self.app)

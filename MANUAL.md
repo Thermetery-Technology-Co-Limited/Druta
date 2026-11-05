@@ -1090,6 +1090,26 @@ selected controller, Druta marks that readback stale and requires **Refresh**
 before another change there. Any typed idle-threshold value is preserved.
 This does not issue another tuning request or restore an earlier setting.
 
+**Manual PCIe speed request** provides **Refresh**, **Request speed** and
+**Request previous speed**. Refresh to read the programmed target, both endpoints'
+negotiated generation and width, and their maximum generations. Available choices
+come from the current adapter and link capabilities on the understood Blackwell
+register layout.
+
+A request asks the driver to retrain the link; it is not a permanent speed lock.
+Druta reports a verified change only when the target and both endpoint speeds
+match, width is preserved, and unrelated target-register bits remain unchanged.
+An accepted command without that readback remains unverified. The driver may
+later change speed through its own power management.
+
+Request previous speed explicitly requests the target captured before the last
+verified change in this panel. It does not restore every internal driver state.
+These requests use no registry entry, require no restart, and are never saved or
+automatically reapplied at startup or after a driver restart. The local
+[Gen 1 / Gen 2 trial](experiments/pcie-speed-5080-61742-20261105.md) verified
+both the change and return to the original observed state; it did not measure
+power savings or throughput. ASPM L1 and LTR are separate controls.
+
 **Runtime VF policy control** reads the active monotonicity and smoothing checks.
 After **Read VF policies**, use **Apply policies now** to change either check
 without restarting the GPU. **Restore initial policies** restores the values
