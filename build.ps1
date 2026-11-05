@@ -185,6 +185,8 @@ function Get-SourceSnapshot {
         'experiments/validate_strix_mp2888_production.py',
         'experiments/validate_strix_mp2888_production.json',
         'experiments/meter_strix_mp2888_production.json',
+        'experiments/ampere-ga102-kingpin-grpg-61742-20261105.md',
+        'experiments/ampere-ga102-kingpin-grpg-61742-20261105.json',
         'experiments/kepler-p0-fan-ui-gtx770-47212-20260909.json',
         'experiments/gating-refresh-gtx770-47212-20260909.json',
         'experiments/i2c-direct-vmon-worker-gtx770-47212-20260909.json',
