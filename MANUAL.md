@@ -1225,8 +1225,11 @@ records a changed reported effective limit and exact restoration on one RTX
 5080. The [lower-bound trial](experiments/power-integral-lower-5080-61742-20261105.md)
 verified a retained configuration change and exact restoration, with no change
 to the effective limit at idle; its effect under load remains unmeasured.
-Sample-count and mode writes are not exposed. A past-count trial failed and
-temporarily disrupted policy reads; future-count writes were not attempted.
+Sample-count and mode writes are not exposed. The
+[past-count failure investigation](experiments/power-integral-count-failure-20261105.md)
+records a timeout, invalid-client errors and a driver TDR recovery sequence.
+Future-count writes were not attempted; accepted count ranges and the active
+receiver's update requirements remain unproved.
 
 The [manual profile qualification](experiments/power-integral-profiles-20261105.json)
 records saved-pair loading, pair Undo and upper-only Undo preserving a changed
