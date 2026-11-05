@@ -1,0 +1,1085 @@
+{
+  "schema": 1,
+  "date": "2026-11-05",
+  "device": {
+    "name": "NVIDIA GeForce RTX 5080",
+    "driver": "617.42",
+    "vbios": "98.03.3b.c0.6f"
+  },
+  "source_sha256": {
+    "raw_trial": "903A79F46C4A83A3A8EB3354ECE9FA14A89B9426D28A6F6303EEC32EC739D0D4",
+    "harness": "1503156E19656A0A621F9FB8D6A71F2268840A2180DB6F27214DAF2F4496F390"
+  },
+  "test": {
+    "mode": "ordinary NVML setter",
+    "pstate": 8,
+    "gpu_utilization_percent": 6,
+    "baseline_board_request_mw": 360000,
+    "nominal_default_mw": 360000,
+    "minimum_mw": 250000,
+    "maximum_mw": 450000,
+    "sample_count_per_round": 3,
+    "pins_empty": true,
+    "nvml_route_calls_mw": [
+      355000,
+      360000,
+      365000,
+      360000
+    ],
+    "baseline_restored_after_each_round_and_outer": true,
+    "restoration_check": "exact captured power_action and native/client definitions and controls; STATUS telemetry excluded"
+  },
+  "conclusions": {
+    "request_changed_policies": [
+      8
+    ],
+    "effective_limit_changed_policies": [
+      0,
+      2,
+      7,
+      8,
+      9
+    ],
+    "metadata_default_min_max_unchanged": true,
+    "note": "Policy 0 effective limit varies across samples; no formula is inferred. Row status limits and separately captured host/PMU arbitration outputs are distinct, non-atomic observations. Policy 13 and 14 request and effective limit remain 300000 and 120000 mA. This is not a physical power measurement or a universal dependency formula. The nominal/default metadata did not change.",
+    "arbitration_note": "Captured policies 2, 7 and 9 use minimum arbitration. Their explicit host requests stay fixed while other PMU votes move. Numeric client IDs are preserved without assigning unverified meanings."
+  },
+  "policies": [
+    {
+      "policy": 0,
+      "type": 20,
+      "channel": 3,
+      "unit": "mW",
+      "minimum": 1,
+      "default": 5001000,
+      "maximum": 5001000,
+      "baseline_request": 5001000,
+      "baseline_effective_limit": 365159,
+      "rounds": [
+        {
+          "target_board_mw": 355000,
+          "samples": 3,
+          "request": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "effective_limit": {
+            "min": 360024,
+            "max": 360378
+          },
+          "host_output": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "pmu_output": {
+            "min": 360275,
+            "max": 360338
+          }
+        },
+        {
+          "target_board_mw": 365000,
+          "samples": 3,
+          "request": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "effective_limit": {
+            "min": 370397,
+            "max": 370561
+          },
+          "host_output": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "pmu_output": {
+            "min": 370443,
+            "max": 370730
+          }
+        }
+      ]
+    },
+    {
+      "policy": 1,
+      "type": 3,
+      "channel": 7,
+      "unit": "mW",
+      "minimum": 1,
+      "default": 1001000,
+      "maximum": 1001000,
+      "baseline_request": 1001000,
+      "baseline_effective_limit": 1001000,
+      "rounds": [
+        {
+          "target_board_mw": 355000,
+          "samples": 3,
+          "request": {
+            "min": 1001000,
+            "max": 1001000
+          },
+          "effective_limit": {
+            "min": 1001000,
+            "max": 1001000
+          },
+          "host_output": {
+            "min": 1001000,
+            "max": 1001000
+          },
+          "pmu_output": {
+            "min": 1001000,
+            "max": 1001000
+          }
+        },
+        {
+          "target_board_mw": 365000,
+          "samples": 3,
+          "request": {
+            "min": 1001000,
+            "max": 1001000
+          },
+          "effective_limit": {
+            "min": 1001000,
+            "max": 1001000
+          },
+          "host_output": {
+            "min": 1001000,
+            "max": 1001000
+          },
+          "pmu_output": {
+            "min": 1001000,
+            "max": 1001000
+          }
+        }
+      ]
+    },
+    {
+      "policy": 2,
+      "type": 0,
+      "channel": 0,
+      "unit": "mW",
+      "minimum": 1,
+      "default": 450000,
+      "maximum": 450000,
+      "baseline_request": 450000,
+      "baseline_effective_limit": 370811,
+      "rounds": [
+        {
+          "target_board_mw": 355000,
+          "samples": 3,
+          "request": {
+            "min": 450000,
+            "max": 450000
+          },
+          "effective_limit": {
+            "min": 365660,
+            "max": 365660
+          },
+          "host_output": {
+            "min": 450000,
+            "max": 450000
+          },
+          "pmu_output": {
+            "min": 355000,
+            "max": 355000
+          },
+          "last_pmu_inputs": [
+            {
+              "client": 254,
+              "value": 450000
+            },
+            {
+              "client": 8,
+              "value": 355000
+            }
+          ],
+          "pmu_method": "minimum"
+        },
+        {
+          "target_board_mw": 365000,
+          "samples": 3,
+          "request": {
+            "min": 450000,
+            "max": 450000
+          },
+          "effective_limit": {
+            "min": 375961,
+            "max": 375961
+          },
+          "host_output": {
+            "min": 450000,
+            "max": 450000
+          },
+          "pmu_output": {
+            "min": 365000,
+            "max": 365000
+          },
+          "last_pmu_inputs": [
+            {
+              "client": 254,
+              "value": 450000
+            },
+            {
+              "client": 8,
+              "value": 365000
+            }
+          ],
+          "pmu_method": "minimum"
+        }
+      ]
+    },
+    {
+      "policy": 3,
+      "type": 17,
+      "channel": 4,
+      "unit": "mW",
+      "minimum": 1,
+      "default": 5001000,
+      "maximum": 5001000,
+      "baseline_request": 5001000,
+      "baseline_effective_limit": 5001000,
+      "rounds": [
+        {
+          "target_board_mw": 355000,
+          "samples": 3,
+          "request": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "effective_limit": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "host_output": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "pmu_output": {
+            "min": 5001000,
+            "max": 5001000
+          }
+        },
+        {
+          "target_board_mw": 365000,
+          "samples": 3,
+          "request": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "effective_limit": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "host_output": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "pmu_output": {
+            "min": 5001000,
+            "max": 5001000
+          }
+        }
+      ]
+    },
+    {
+      "policy": 4,
+      "type": 17,
+      "channel": 5,
+      "unit": "mW",
+      "minimum": 1,
+      "default": 5001000,
+      "maximum": 5001000,
+      "baseline_request": 5001000,
+      "baseline_effective_limit": 5001000,
+      "rounds": [
+        {
+          "target_board_mw": 355000,
+          "samples": 3,
+          "request": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "effective_limit": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "host_output": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "pmu_output": {
+            "min": 5001000,
+            "max": 5001000
+          }
+        },
+        {
+          "target_board_mw": 365000,
+          "samples": 3,
+          "request": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "effective_limit": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "host_output": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "pmu_output": {
+            "min": 5001000,
+            "max": 5001000
+          }
+        }
+      ]
+    },
+    {
+      "policy": 5,
+      "type": 18,
+      "channel": 4,
+      "unit": "mW",
+      "minimum": 1,
+      "default": 5001000,
+      "maximum": 5001000,
+      "baseline_request": 5001000,
+      "baseline_effective_limit": 5001000,
+      "rounds": [
+        {
+          "target_board_mw": 355000,
+          "samples": 3,
+          "request": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "effective_limit": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "host_output": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "pmu_output": {
+            "min": 5001000,
+            "max": 5001000
+          }
+        },
+        {
+          "target_board_mw": 365000,
+          "samples": 3,
+          "request": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "effective_limit": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "host_output": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "pmu_output": {
+            "min": 5001000,
+            "max": 5001000
+          }
+        }
+      ]
+    },
+    {
+      "policy": 6,
+      "type": 18,
+      "channel": 5,
+      "unit": "mW",
+      "minimum": 1,
+      "default": 5001000,
+      "maximum": 5001000,
+      "baseline_request": 5001000,
+      "baseline_effective_limit": 5001000,
+      "rounds": [
+        {
+          "target_board_mw": 355000,
+          "samples": 3,
+          "request": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "effective_limit": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "host_output": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "pmu_output": {
+            "min": 5001000,
+            "max": 5001000
+          }
+        },
+        {
+          "target_board_mw": 365000,
+          "samples": 3,
+          "request": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "effective_limit": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "host_output": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "pmu_output": {
+            "min": 5001000,
+            "max": 5001000
+          }
+        }
+      ]
+    },
+    {
+      "policy": 7,
+      "type": 32,
+      "channel": 0,
+      "unit": "mW",
+      "minimum": 1,
+      "default": 450000,
+      "maximum": 450000,
+      "baseline_request": 450000,
+      "baseline_effective_limit": 360000,
+      "rounds": [
+        {
+          "target_board_mw": 355000,
+          "samples": 3,
+          "request": {
+            "min": 450000,
+            "max": 450000
+          },
+          "effective_limit": {
+            "min": 355000,
+            "max": 355000
+          },
+          "host_output": {
+            "min": 450000,
+            "max": 450000
+          },
+          "pmu_output": {
+            "min": 355000,
+            "max": 355000
+          },
+          "last_pmu_inputs": [
+            {
+              "client": 254,
+              "value": 450000
+            },
+            {
+              "client": 8,
+              "value": 355000
+            },
+            {
+              "client": 15,
+              "value": 450000
+            }
+          ],
+          "pmu_method": "minimum"
+        },
+        {
+          "target_board_mw": 365000,
+          "samples": 3,
+          "request": {
+            "min": 450000,
+            "max": 450000
+          },
+          "effective_limit": {
+            "min": 365000,
+            "max": 365000
+          },
+          "host_output": {
+            "min": 450000,
+            "max": 450000
+          },
+          "pmu_output": {
+            "min": 365000,
+            "max": 365000
+          },
+          "last_pmu_inputs": [
+            {
+              "client": 254,
+              "value": 450000
+            },
+            {
+              "client": 8,
+              "value": 365000
+            },
+            {
+              "client": 15,
+              "value": 450000
+            }
+          ],
+          "pmu_method": "minimum"
+        }
+      ]
+    },
+    {
+      "policy": 8,
+      "type": 33,
+      "channel": 0,
+      "unit": "mW",
+      "minimum": 250000,
+      "default": 360000,
+      "maximum": 450000,
+      "baseline_request": 360000,
+      "baseline_effective_limit": 360000,
+      "rounds": [
+        {
+          "target_board_mw": 355000,
+          "samples": 3,
+          "request": {
+            "min": 355000,
+            "max": 355000
+          },
+          "effective_limit": {
+            "min": 355000,
+            "max": 355000
+          },
+          "host_output": {
+            "min": 355000,
+            "max": 355000
+          },
+          "pmu_output": {
+            "min": 355000,
+            "max": 355000
+          }
+        },
+        {
+          "target_board_mw": 365000,
+          "samples": 3,
+          "request": {
+            "min": 365000,
+            "max": 365000
+          },
+          "effective_limit": {
+            "min": 365000,
+            "max": 365000
+          },
+          "host_output": {
+            "min": 365000,
+            "max": 365000
+          },
+          "pmu_output": {
+            "min": 365000,
+            "max": 365000
+          }
+        }
+      ]
+    },
+    {
+      "policy": 9,
+      "type": 30,
+      "channel": 9,
+      "unit": "mA",
+      "minimum": 1,
+      "default": 45000,
+      "maximum": 45000,
+      "baseline_request": 45000,
+      "baseline_effective_limit": 36002,
+      "rounds": [
+        {
+          "target_board_mw": 355000,
+          "samples": 3,
+          "request": {
+            "min": 45000,
+            "max": 45000
+          },
+          "effective_limit": {
+            "min": 35497,
+            "max": 35497
+          },
+          "host_output": {
+            "min": 45000,
+            "max": 45000
+          },
+          "pmu_output": {
+            "min": 35497,
+            "max": 35497
+          },
+          "last_pmu_inputs": [
+            {
+              "client": 254,
+              "value": 45000
+            },
+            {
+              "client": 2,
+              "value": 35497
+            },
+            {
+              "client": 7,
+              "value": 45000
+            }
+          ],
+          "pmu_method": "minimum"
+        },
+        {
+          "target_board_mw": 365000,
+          "samples": 3,
+          "request": {
+            "min": 45000,
+            "max": 45000
+          },
+          "effective_limit": {
+            "min": 36497,
+            "max": 36497
+          },
+          "host_output": {
+            "min": 45000,
+            "max": 45000
+          },
+          "pmu_output": {
+            "min": 36497,
+            "max": 36497
+          },
+          "last_pmu_inputs": [
+            {
+              "client": 254,
+              "value": 45000
+            },
+            {
+              "client": 2,
+              "value": 36497
+            },
+            {
+              "client": 7,
+              "value": 45000
+            }
+          ],
+          "pmu_method": "minimum"
+        }
+      ]
+    },
+    {
+      "policy": 10,
+      "type": 20,
+      "channel": 11,
+      "unit": "mA",
+      "minimum": 1,
+      "default": 5001000,
+      "maximum": 5001000,
+      "baseline_request": 5001000,
+      "baseline_effective_limit": 5001000,
+      "rounds": [
+        {
+          "target_board_mw": 355000,
+          "samples": 3,
+          "request": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "effective_limit": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "host_output": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "pmu_output": {
+            "min": 5001000,
+            "max": 5001000
+          }
+        },
+        {
+          "target_board_mw": 365000,
+          "samples": 3,
+          "request": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "effective_limit": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "host_output": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "pmu_output": {
+            "min": 5001000,
+            "max": 5001000
+          }
+        }
+      ]
+    },
+    {
+      "policy": 11,
+      "type": 17,
+      "channel": 13,
+      "unit": "mA",
+      "minimum": 1,
+      "default": 5001000,
+      "maximum": 5001000,
+      "baseline_request": 5001000,
+      "baseline_effective_limit": 5001000,
+      "rounds": [
+        {
+          "target_board_mw": 355000,
+          "samples": 3,
+          "request": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "effective_limit": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "host_output": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "pmu_output": {
+            "min": 5001000,
+            "max": 5001000
+          }
+        },
+        {
+          "target_board_mw": 365000,
+          "samples": 3,
+          "request": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "effective_limit": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "host_output": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "pmu_output": {
+            "min": 5001000,
+            "max": 5001000
+          }
+        }
+      ]
+    },
+    {
+      "policy": 12,
+      "type": 17,
+      "channel": 12,
+      "unit": "mA",
+      "minimum": 1,
+      "default": 5001000,
+      "maximum": 5001000,
+      "baseline_request": 5001000,
+      "baseline_effective_limit": 5001000,
+      "rounds": [
+        {
+          "target_board_mw": 355000,
+          "samples": 3,
+          "request": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "effective_limit": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "host_output": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "pmu_output": {
+            "min": 5001000,
+            "max": 5001000
+          }
+        },
+        {
+          "target_board_mw": 365000,
+          "samples": 3,
+          "request": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "effective_limit": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "host_output": {
+            "min": 5001000,
+            "max": 5001000
+          },
+          "pmu_output": {
+            "min": 5001000,
+            "max": 5001000
+          }
+        }
+      ]
+    },
+    {
+      "policy": 13,
+      "type": 18,
+      "channel": 13,
+      "unit": "mA",
+      "minimum": 1,
+      "default": 300000,
+      "maximum": 5001000,
+      "baseline_request": 300000,
+      "baseline_effective_limit": 300000,
+      "rounds": [
+        {
+          "target_board_mw": 355000,
+          "samples": 3,
+          "request": {
+            "min": 300000,
+            "max": 300000
+          },
+          "effective_limit": {
+            "min": 300000,
+            "max": 300000
+          },
+          "host_output": {
+            "min": 300000,
+            "max": 300000
+          },
+          "pmu_output": {
+            "min": 300000,
+            "max": 300000
+          }
+        },
+        {
+          "target_board_mw": 365000,
+          "samples": 3,
+          "request": {
+            "min": 300000,
+            "max": 300000
+          },
+          "effective_limit": {
+            "min": 300000,
+            "max": 300000
+          },
+          "host_output": {
+            "min": 300000,
+            "max": 300000
+          },
+          "pmu_output": {
+            "min": 300000,
+            "max": 300000
+          }
+        }
+      ]
+    },
+    {
+      "policy": 14,
+      "type": 18,
+      "channel": 12,
+      "unit": "mA",
+      "minimum": 1,
+      "default": 120000,
+      "maximum": 5001000,
+      "baseline_request": 120000,
+      "baseline_effective_limit": 120000,
+      "rounds": [
+        {
+          "target_board_mw": 355000,
+          "samples": 3,
+          "request": {
+            "min": 120000,
+            "max": 120000
+          },
+          "effective_limit": {
+            "min": 120000,
+            "max": 120000
+          },
+          "host_output": {
+            "min": 120000,
+            "max": 120000
+          },
+          "pmu_output": {
+            "min": 120000,
+            "max": 120000
+          }
+        },
+        {
+          "target_board_mw": 365000,
+          "samples": 3,
+          "request": {
+            "min": 120000,
+            "max": 120000
+          },
+          "effective_limit": {
+            "min": 120000,
+            "max": 120000
+          },
+          "host_output": {
+            "min": 120000,
+            "max": 120000
+          },
+          "pmu_output": {
+            "min": 120000,
+            "max": 120000
+          }
+        }
+      ]
+    },
+    {
+      "policy": 15,
+      "type": 33,
+      "channel": 0,
+      "unit": "mW",
+      "minimum": 1,
+      "default": 50010000,
+      "maximum": 50010000,
+      "baseline_request": 50010000,
+      "baseline_effective_limit": 50010000,
+      "rounds": [
+        {
+          "target_board_mw": 355000,
+          "samples": 3,
+          "request": {
+            "min": 50010000,
+            "max": 50010000
+          },
+          "effective_limit": {
+            "min": 50010000,
+            "max": 50010000
+          },
+          "host_output": {
+            "min": 50010000,
+            "max": 50010000
+          },
+          "pmu_output": {
+            "min": 50010000,
+            "max": 50010000
+          }
+        },
+        {
+          "target_board_mw": 365000,
+          "samples": 3,
+          "request": {
+            "min": 50010000,
+            "max": 50010000
+          },
+          "effective_limit": {
+            "min": 50010000,
+            "max": 50010000
+          },
+          "host_output": {
+            "min": 50010000,
+            "max": 50010000
+          },
+          "pmu_output": {
+            "min": 50010000,
+            "max": 50010000
+          }
+        }
+      ]
+    },
+    {
+      "policy": 16,
+      "type": 20,
+      "channel": 3,
+      "unit": "mW",
+      "minimum": 1,
+      "default": 50010000,
+      "maximum": 50010000,
+      "baseline_request": 50010000,
+      "baseline_effective_limit": 50010000,
+      "rounds": [
+        {
+          "target_board_mw": 355000,
+          "samples": 3,
+          "request": {
+            "min": 50010000,
+            "max": 50010000
+          },
+          "effective_limit": {
+            "min": 50010000,
+            "max": 50010000
+          },
+          "host_output": {
+            "min": 50010000,
+            "max": 50010000
+          },
+          "pmu_output": {
+            "min": 50010000,
+            "max": 50010000
+          }
+        },
+        {
+          "target_board_mw": 365000,
+          "samples": 3,
+          "request": {
+            "min": 50010000,
+            "max": 50010000
+          },
+          "effective_limit": {
+            "min": 50010000,
+            "max": 50010000
+          },
+          "host_output": {
+            "min": 50010000,
+            "max": 50010000
+          },
+          "pmu_output": {
+            "min": 50010000,
+            "max": 50010000
+          }
+        }
+      ]
+    },
+    {
+      "policy": 17,
+      "type": 4,
+      "channel": 14,
+      "unit": "mW",
+      "minimum": 1,
+      "default": 1000000,
+      "maximum": 1000000,
+      "baseline_request": 1000000,
+      "baseline_effective_limit": 1000000,
+      "rounds": [
+        {
+          "target_board_mw": 355000,
+          "samples": 3,
+          "request": {
+            "min": 1000000,
+            "max": 1000000
+          },
+          "effective_limit": {
+            "min": 1000000,
+            "max": 1000000
+          },
+          "host_output": {
+            "min": 1000000,
+            "max": 1000000
+          },
+          "pmu_output": {
+            "min": 1000000,
+            "max": 1000000
+          }
+        },
+        {
+          "target_board_mw": 365000,
+          "samples": 3,
+          "request": {
+            "min": 1000000,
+            "max": 1000000
+          },
+          "effective_limit": {
+            "min": 1000000,
+            "max": 1000000
+          },
+          "host_output": {
+            "min": 1000000,
+            "max": 1000000
+          },
+          "pmu_output": {
+            "min": 1000000,
+            "max": 1000000
+          }
+        }
+      ]
+    }
+  ]
+}
