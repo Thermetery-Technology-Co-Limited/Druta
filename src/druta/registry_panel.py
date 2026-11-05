@@ -39,6 +39,8 @@ class RegistryPanel:
         self.diagnostics = None
         self.arbitration = None
         self.arbitration_target = None
+        self.relationships = None
+        self.relationships_target = None
         self.voltage_gate = None
         self.voltage_gate_snapshot = None
         self.voltage_gate_initial = None
@@ -165,7 +167,7 @@ class RegistryPanel:
         self.second_level_clock_gating_panel = SecondLevelClockGatingPanel(self.app)
         with dpg.collapsing_header(label="Live second-level clock gating (SLCG)", tag="reg_second_level_clock_gating_header"):
             self.second_level_clock_gating_panel.build()
-        with dpg.collapsing_header(label="Power/current arbitration"):
+        with dpg.collapsing_header(label="Power/current arbitration", tag="reg_power_arbitration_header"):
             dpg.add_text(
                 "Compare each request with host votes, firmware votes, and the effective limit. "
                 "Firmware values can lag a recent change; refresh to check again. "
@@ -174,6 +176,13 @@ class RegistryPanel:
             )
             dpg.add_button(label="Read arbitration", callback=self.refresh_arbitration)
             dpg.add_input_text(tag="reg_arbitration", readonly=True, multiline=True, width=-1, height=self.app.s(260))
+            dpg.add_text(
+                "Configured relationships describe policy targets, weights and available source-policy ranges. "
+                "This partial mapping does not establish the producer of an active vote. Weights are read-only.", wrap=self.app.s(900),
+            )
+            dpg.add_button(label="Read relationships", tag="reg_relationships_read", callback=self.refresh_relationships)
+            dpg.add_input_text(tag="reg_relationships", readonly=True, multiline=True,
+                               width=-1, height=self.app.s(180))
         with dpg.collapsing_header(label="Runtime voltage-request control", tag="reg_voltage_gate_header"):
             dpg.add_text(
                 "Allow or suppress the driver's voltage-request processing. Changes take effect immediately. "
@@ -975,6 +984,79 @@ class RegistryPanel:
     def restore_voltage_gate(self, *unused):
         if self.voltage_gate_initial is not None:
             self._set_voltage_gate(self.voltage_gate_initial)
+
+    def refresh_relationships(self, *unused):
+        target = (id(self.app.gpu), self.app.gpu.slot())
+        if self.relationships_target != target:
+            self.relationships = None
+            self.relationships_target = target
+        try:
+            report, error = self.app.gpu.read_power_relationships()
+        except Exception as exc:
+            report, error = None, str(exc)
+        lines = []
+        if report is not None and report.get("available") and not error:
+            self.relationships = report
+        else:
+            reason = error or (report or {}).get("reason") or "No decoded result"
+            lines.append("Configured relationships read unavailable: " + str(reason))
+            if self.relationships is not None:
+                lines.append("Previous successful read follows; these values are historical.")
+            report = self.relationships
+        if report is not None:
+            lines.extend(self.relationship_lines(report))
+        dpg.set_value("reg_relationships", "\n".join(lines))
+
+    @staticmethod
+    def relationship_lines(report):
+        def amount(value, unit):
+            if value == 0xFFFFFFFF:
+                return "unavailable (sentinel)"
+            if unit in ("mW", "mA"):
+                return f"{value / 1000:g} " + ("W" if unit == "mW" else "A")
+            return f"{value} {unit}"
+
+        lines = ["Configured relationships for adapter " + str(report.get("identity", {}).get("slot", "unknown"))]
+        for source in report.get("source_references", []):
+            policy = source["policy"]
+            if not source.get("available"):
+                lines.append(f"Source policy {policy}: unavailable ({source.get('reason') or 'unknown reason'})")
+            elif not source.get("enabled"):
+                lines.append(f"Source policy {policy}: configured relationship range disabled")
+            else:
+                indices = ", ".join(str(index) for index in source.get("relationships", [])) or "none"
+                lines.append(f"Source policy {policy} -> configured relationships: {indices}")
+        for source in report.get("linked_references", []):
+            policy, relationship = source["policy"], source["relationship"]
+            if source.get("available"):
+                lines.append(f"Source policy {policy} -> configured relationship {relationship} "
+                             f"-> target policy {source['target']}")
+            else:
+                lines.append(f"Source policy {policy} -> configured relationship {relationship}: unavailable "
+                             f"({source.get('reason') or 'unknown reason'})")
+        uninterpreted = report.get("source_uninterpreted_policies", [])
+        if uninterpreted:
+            lines.append("Source mapping uninterpreted for policy types at indices: "
+                         + ", ".join(str(index) for index in uninterpreted))
+        for row in report.get("relationships", []):
+            lines.append(f"Relationship {row['index']} -> target policy {row['target']} (type {row['type']})")
+            weight = row.get("weight_raw")
+            if row["type"] == 0 and type(weight) is int:
+                lines.append(f"  Weight: {weight / 4096:g} (raw {weight})")
+            else:
+                lines.append("  Relationship type is uninterpreted.")
+            metadata = row.get("target_metadata")
+            if metadata is None:
+                lines.append("  Target details unavailable: " + str(row.get("target_reason") or "unknown reason"))
+                continue
+            unit = metadata.get("unit", "raw")
+            lines.append(f"  Target policy type {metadata['type']}, channel {metadata['channel']}: "
+                         f"minimum {amount(metadata['minimum'], unit)}; "
+                         f"nominal {amount(metadata['default'], unit)}; "
+                         f"maximum {amount(metadata['maximum'], unit)}")
+        if not report.get("relationships"):
+            lines.append("No configured relationships.")
+        return lines
 
     def refresh_arbitration(self, *unused):
         target = (id(self.app.gpu), self.app.gpu.slot())

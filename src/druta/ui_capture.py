@@ -24,6 +24,7 @@ _CURRENT_CONTROLS = (
     ("idle-thresholds", "reg_gr_idle_threshold_header", "gr_idle_threshold_panel", "read", "gr_idle_threshold_status", "gr_idle_threshold_readback"),
     ("adaptive-policy", "reg_adaptive_power_header", "adaptive_power_panel", "read", "adaptive_power_status", "adaptive_power_readback"),
     ("pcie-speed", "reg_pcie_speed_header", "pcie_speed_panel", "read", "pcie_speed_status", "pcie_speed_readback"),
+    ("power-relationships", "reg_power_arbitration_header", None, "refresh_relationships", "reg_relationships", "reg_relationships"),
 )
 
 

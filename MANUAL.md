@@ -1177,6 +1177,15 @@ explains the endpoint interpolation and rounding found in saved 5080 captures.
 Its exact numerical fit does not establish the PMU producer or a live weight
 setter; Druta continues to show returned limits rather than calculated substitutes.
 
+**Read relationships** in the same panel shows configured relationship targets,
+reported weights, and each understood target's minimum, nominal and maximum.
+It also shows understood type-0 source ranges and type-32 linked references.
+The latter select a relationship record, which is then joined to its target
+policy; the two indices are not interchangeable. Other source-policy types
+remain explicitly uninterpreted. These records explain configured dependencies,
+not which firmware client produced a vote. Weights are read-only and no limits
+are predicted or applied. See the [INFO source and live-read evidence](experiments/power-relationship-info-20261105.md).
+
 **Driver policy diagnostics > Read driver policies** shows registered performance
 limit slots, feedback-controller flags and registry-selected feedback policies.
 Registered slots are an inventory; their presence does not show that they are

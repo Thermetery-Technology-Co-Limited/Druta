@@ -70,7 +70,7 @@ def test_current_control_frames_use_readbacks_and_restore_display(tmp_path):
         capture.tick()
     assert capture.manifest['state'] == 'complete'
     cases = {item['stage']: item for item in capture.manifest['captures'] if item['stage'].startswith('current-')}
-    assert len(cases) == 20
+    assert len(cases) == 21
     expected = {
         'current-voltage-offsets': ('voltage_offsets_header', 'voltage_offsets_inventory'),
         'current-vf-policies': ('reg_vf_live_header', 'reg_vf_live_monotonicity'),
@@ -84,6 +84,7 @@ def test_current_control_frames_use_readbacks_and_restore_display(tmp_path):
         'current-idle-thresholds': ('reg_gr_idle_threshold_header', 'gr_idle_threshold_readback'),
         'current-adaptive-policy': ('reg_adaptive_power_header', 'adaptive_power_readback'),
         'current-pcie-speed': ('reg_pcie_speed_header', 'pcie_speed_readback'),
+        'current-power-relationships': ('reg_power_arbitration_header', 'reg_relationships'),
     }
     for stage, (header, readback) in expected.items():
         frame = dpg.output_values[[x['stage'] for x in capture.manifest['captures']].index(stage)]

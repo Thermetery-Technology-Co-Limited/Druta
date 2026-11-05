@@ -5614,6 +5614,42 @@ class GPU:
                 self._current_limit_layout_choice = None
         return None, error
 
+    def read_power_relationships(self):
+        """(report, error): configured relationship metadata from INFO only.
+
+        No CONTROL/STATUS query, inferred firmware client, or tuning request.
+        Failure of these diagnostics leaves existing power controls intact.
+        """
+        from .perf_diagnostics import PerfDiagnosticError, PerfDiagnosticsReader
+        from .power_relationships import decode
+
+        binding = PerfDiagnosticsReader(self)
+        error = None
+        for attempt in range(2):
+            try:
+                binding._binding()
+                layout = self._current_limit_abi()
+                info = self._current_limit_rm(0x2080A618)
+                api, slot, architecture = binding._binding()
+                report = decode(layout, info)
+                report["identity"] = {
+                    "slot": slot, "architecture": architecture,
+                    "device_id": api.selected.get("devid"),
+                    "subsystem_id": api.selected.get("subsys"),
+                }
+                report["captured_at"] = time.time()
+                return report, None if report["available"] else report["reason"]
+            except (CurrentLimitUnsupported, PerfDiagnosticError) as exc:
+                error = str(exc)
+                if isinstance(exc, CurrentLimitUnsupported) or exc.kind != "transient":
+                    break
+            except Exception as exc:                                    # noqa: BLE001
+                error = str(exc)
+            if attempt == 0:
+                self._current_limit_transport = None
+                self._current_limit_layout_choice = None
+        return None, error
+
     def _write_policy_limit(self, policy, value):
         """set_current_limit_ma's method for ANY policy in the table: copy the
         control GET, change only this policy's limit word, SET with only it
