@@ -1187,3 +1187,31 @@ Druta reads the original limits from its saved original BIOS when an override is
 active. If the original image cannot be established, the slider tooltip explains
 that extension coloring is unavailable. A higher requested value can still be
 limited by another power or current policy.
+
+### Power-policy feedback adjustment
+
+Under **Power policies**, **Power-policy feedback adjustment** exposes the
+active upper adjustment bound for understood integral-control policies.
+Press **Read**, select a policy, enter **Upper adjustment (%)**, and press
+**Apply now**. **Use reported default** reapplies that policy's reported
+default upper bound. The active value and the default are displayed separately.
+
+100% means a 1x bound relative to the policy's current limit. This is a
+feedback-controller bound, not a guaranteed constant multiplier or a change
+to the main board power request. The lower bound is read-only; the driver must
+retain an entered upper value at or above it. Percentages are rounded to the
+nearest representable step of 100/4096 percentage points, and the exact active
+value is shown after readback. A successful request does not prove physical
+power consumption or remove other firmware limits.
+
+The panel preserves the mode, sample counts, other limits and opaque fields.
+Changes require explicit application in the current session. They are not
+included in existing saved profiles or automatically replayed at startup or
+after a driver reset. A failed read marks retained values stale and disables
+Apply until another read succeeds. Other power controls remain available if
+this additional interface is unavailable.
+
+The local [upper-bound qualification](experiments/power-policy-integral-upper-5080-61742-20261105.md)
+records a changed reported effective limit and exact restoration on one RTX
+5080. Other policy modes, minimum-ratio writes and sample-count changes are
+not exposed by this control.

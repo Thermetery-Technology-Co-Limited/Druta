@@ -56,8 +56,11 @@ the [compact receipt](power-policy-integral-upper-5080-61742-20261105.json).
 
 ## Product boundary
 
-This identifies and locally qualifies a live upper-adjustment control path;
-it has not yet been added to Druta's UI. Minimum ratio, sample counts and mode
+This initial trial identified and locally qualified the live upper-adjustment
+control path. The subsequent [production qualification](power-integral-production-20261105.json)
+also exercised the new backend at 4178 and 4260, below and above the reported
+default, with exact restoration; the manual control is now in the Power
+policies UI. Minimum ratio, sample counts and mode
 changes were not tested. Arbitrary ratio ranges and other devices remain
 unqualified. Any integration must use current reported capabilities and
 preserve opaque fields, with explicit manual application and no startup or

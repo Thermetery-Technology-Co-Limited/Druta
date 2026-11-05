@@ -2698,6 +2698,7 @@ class Druta:
         self.gpu.power_policy_names = dict(self._policy_names)
         if error:
             dpg.add_text(f"Power policies unavailable: {error}", color=DIM, wrap=self.s(900))
+            self.build_power_integral_panel()
             return
         with dpg.group(horizontal=True):
             dpg.add_text("Beware of your PSU's rating as you change power limit.", color=WARN)
@@ -2718,6 +2719,12 @@ class Druta:
             for row in rows:
                 self.power_policy_row(row)
         self.refresh_power_policies(sync=True)
+        self.build_power_integral_panel()
+
+    def build_power_integral_panel(self):
+        from .power_integral_panel import PowerIntegralPanel
+        self._power_integral_panel = PowerIntegralPanel(self)
+        self._power_integral_panel.build()
 
     def power_policy_row(self, row):
         policy = row["policy"]
