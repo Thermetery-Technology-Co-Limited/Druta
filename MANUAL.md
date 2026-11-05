@@ -79,10 +79,12 @@ The startup processing mode, curve and registry settings are not saved or change
 by these profiles. Automatic startup and post-reset loading are unavailable.
 
 The existing driver restrictions still apply. In the current local startup mode,
-disabling monotonicity was refused; exact restoration was verified, but a changed
+disabling monotonicity and a separate smoothing attempt were refused; exact restoration was verified, but a changed
 profile round trip was not qualified. Pre-write snapshots remain available after
 a failed attempt, so Undo can be a no-op after verified automatic restoration.
 Choose an earlier autosave explicitly to return to an earlier action.
+The [separate smoothing trial](experiments/clock-vf-smoothing-profile-20261105.json)
+returned RM 0x56 on the RTX 5080 / 617.42 and verified the exact original header.
 
 ### Undo for ordinary tuning actions
 
@@ -101,10 +103,23 @@ snapshot cannot be saved, with a log message. Power actions can change pin
 intent even when their displayed number is unchanged, so they still save a
 snapshot. These Undo profiles are manually loaded and never replay after reset.
 
+Ordinary rail-limit **Apply** now saves only the selected fields; linked
+reliability edits save both fields. Each field's **Stock** saves its preceding
+value, and **Reset all** captures all affected rail fields. These resets restore
+the session's first-read values, which may already include tuning. Undo returns
+to the values immediately before the action. Temporary V/F hold headroom is
+excluded from the saved user requests and replanned for a retained hold.
+
+An unchanged Apply creates no Undo point. If saving fails, Apply stops; an
+explicit Stock/reset remains available and logs that Undo could not be saved.
+The [local rail trial](experiments/rail-limit-profiles-20261105.json) covered all
+eight fields across NVVDD and MSVDD, linked edits, Stock, Reset all and manual
+profile loading. Every original request and voltage boost matched afterward.
+
 ### Named profiles for individual ordinary controls
 
 In **Profiles > Save profile**, choose **Contents** to save just the current
-memory offset, voltage boost, fan policy, coupled power/current requests, or an
+memory offset, voltage boost, rail limits, fan policy, coupled power/current requests, or an
 available clock-domain offset. Saving reads the applied requests; staged edits
 in the input boxes are not saved. **Full tune** retains the ordinary capture.
 
@@ -114,6 +129,8 @@ Fan-only loads preserve unrelated manual voltage control and P0 holds. Fan
 profiles require the same adapter and a currently compatible fan layout;
 driver and VBIOS version strings are informational for these manual profiles.
 Scoped profiles never load at startup or after a GPU reset.
+Rail-limit profiles use the existing **Rail limits** write gate and current
+voltage bounds; loading does not enable that gate or XOC automatically.
 
 The local RTX 5080 / 617.42 trial exercised named Save, changed-state Load and
 Undo for all five categories and returned each to its captured baseline.

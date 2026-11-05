@@ -80,6 +80,29 @@ def test_save_combined_uses_only_selected_snapshots(monkeypatch):
     assert events == [[('one', {'scope': 'fan'})], ('bundle', {'scope': 'combined'})]
 
 
+def test_partial_full_tune_preserves_scoped_rail_gate_intent(monkeypatch):
+    import druta.druta as ui
+    for enabled in (False, True):
+        events = []
+        app = app_stub(events)
+        app.rail_for_profile = lambda child: None
+        app._finish_manual_voltage = lambda reason: (True, '')
+        values = {'vlim_mode': enabled}
+        app.sync_risk_ui = lambda: events.append(('rail-gate', values['vlim_mode']))
+        full = {'schema': 2, 'scope': None, 'mem_off_units': 1}
+        items = [{'state': full}, {'state': {'scope': 'rail_limits'}}]
+        monkeypatch.setattr(combined_profiles, 'validate', lambda state: items)
+        monkeypatch.setattr(combined_profiles, 'preflight', lambda *args: None)
+        monkeypatch.setattr(combined_profiles, 'capture_undo', lambda *args: {})
+        monkeypatch.setattr(profiles, 'autosave_state', lambda *args: ('undo', '', []))
+        monkeypatch.setattr(profiles, 'device_mismatch', lambda *args: None)
+        monkeypatch.setattr(ui.dpg, 'get_value', values.get)
+        monkeypatch.setattr(ui.dpg, 'set_value', values.__setitem__)
+        Druta.begin_combined_profile_load(app, 'test', {'scope': 'combined'})
+        assert ('rail-gate', enabled) in events
+        assert events[-1][0] == 'restore'
+
+
 def test_combined_restore_refreshes_each_scope_without_replaying(monkeypatch):
     events = []
     children = [{'scope': None}, {'scope': 'lowpower_requests'}, {'scope': 'clock_vf'}]

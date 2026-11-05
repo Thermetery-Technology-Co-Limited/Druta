@@ -74,6 +74,9 @@ def incomplete(state):
             elif state.get("scope") == "power_action":
                 from . import power_action_profiles
                 power_action_profiles.validate(state)
+            elif state.get("scope") == "rail_limits":
+                from . import rail_limit_profiles
+                rail_limit_profiles.validate(state)
             elif state.get("scope") == "tuning_action":
                 from . import tuning_profiles
                 tuning_profiles.validate(state)
@@ -421,6 +424,23 @@ def autosave_power_action(gpu, action, template):
         if error:
             raise ValueError(error)
         return autosave_state(action, capture_power_action(gpu))
+
+
+def capture_rail_limits(gpu, selection=None):
+    """Capture selected ordinary rail-limit requests in signed microvolts."""
+    from . import rail_limit_profiles
+    return rail_limit_profiles.capture(gpu, selection)
+
+
+def autosave_rail_limits(gpu, action, template):
+    from . import rail_limit_profiles
+    with gpu._lock:
+        target = rail_limit_profiles.validate(template)
+        error = rail_limit_profiles.preflight(gpu, template)
+        if error:
+            raise ValueError(error)
+        state = capture_rail_limits(gpu, {rail: tuple(fields) for rail, fields in target.items()})
+        return autosave_state(action, state)
 
 
 def capture_tuning_action(gpu, kind, index=None):
@@ -1164,6 +1184,9 @@ def preflight(gpu, state, rail=None, *, apply_curve=True):
             return "combined profiles require manual loading in the owning application"
         if state.get("scope") == "power_action":
             return power_action_preflight(gpu, state)
+        if state.get("scope") == "rail_limits":
+            from . import rail_limit_profiles
+            return rail_limit_profiles.preflight(gpu, state)
         if state.get("scope") == "tuning_action":
             from . import tuning_profiles
             return tuning_profiles.preflight(gpu, state)
@@ -1504,6 +1527,9 @@ def _restore_validated(gpu, state, apply_curve, rail, results, *, i2c_verified):
         from . import power_action_profiles as scoped
         with gpu._lock:
             return scoped.restore(gpu, scoped.validate(state))
+    if state.get("scope") == "rail_limits":
+        from . import rail_limit_profiles as scoped
+        return scoped.restore(gpu, state)
     if state.get("scope") == "tuning_action":
         from . import tuning_profiles as scoped
         return scoped.restore(gpu, state)
@@ -1691,6 +1717,13 @@ def summarize(state):
             return f"invalid combined profile: {exc}"
     if state.get("scope") == "power_action":
         bits.append("board/policy requests and pin intent, manual apply only")
+    if state.get("scope") == "rail_limits":
+        from . import rail_limit_profiles as scoped
+        try:
+            data = scoped.validate(state)
+            bits.append(f"{sum(len(fields) for fields in data.values())} rail limit field(s), manual apply only")
+        except ValueError as exc:
+            bits.append(f"invalid rail limits: {exc}")
     if state.get("scope") == "tuning_action":
         from . import tuning_profiles as scoped
         try:

@@ -10,6 +10,7 @@ from . import (
     lowpower_profiles,
     power_action_profiles,
     profiles,
+    rail_limit_profiles,
     tuning_profiles,
     voltage_control_profiles,
     voltage_offset_profiles,
@@ -22,6 +23,7 @@ _VALIDATORS = {
     'clock_vf': clock_vf_profiles.validate, 'lowpower_requests': lowpower_profiles.validate,
     'voltage_controls': voltage_control_profiles.validate, 'voltage_offsets': voltage_offset_profiles.validate,
     'voltage_requests': voltage_request_profiles.validate, 'fan': profiles._validate_fan_scope,
+    'rail_limits': rail_limit_profiles.validate,
 }
 
 
@@ -46,6 +48,9 @@ def _targets(state):
         return {('clock_vf', k) for k in data['policies']}
     if scope == 'voltage_offsets':
         return {('voltage_offsets', k) for k in data['values']}
+    if scope == 'rail_limits':
+        mapping = {'reliability': 'REL', 'alt_reliability': 'ALT/OP', 'overvoltage': 'OV', 'vmin': 'VMIN'}
+        return {('rail', rail, mapping[field]) for rail, fields in data.items() for field in fields}
     if scope == 'voltage_requests':
         return {('rail', rail, field) for rail, row in data['rails'].items() for field in row['offsets_uv']}
     if scope == 'lowpower_requests':
@@ -203,6 +208,8 @@ def _capture(app, child):
                                for rail, fields in result[key].items() if rail in selected}
                 result[key] = {rail: fields for rail, fields in result[key].items() if fields}
         return result
+    if scope == 'rail_limits':
+        return profiles.capture_rail_limits(gpu, {rail: tuple(fields) for rail, fields in child[scope].items()})
     if scope == 'fan':
         return profiles.capture_fan(gpu)
     if scope == 'tuning_action':
