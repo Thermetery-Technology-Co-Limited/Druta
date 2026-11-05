@@ -42,7 +42,7 @@ TRADEMARK OF PNY TECHNOLOGIES INC.
 THESE NAMES APPEAR HERE SOLELY
 TO IDENTIFY HARDWARE AND SOFTWARE THAT DRUTA WORKS WITH OR IS COMPARABLE TO.**
 
-Initial development boards (measurements describe these configurations, not universal defaults):
+Development boards (measurements describe these configurations, not universal defaults):
 
 | | die | arch | memory | board |
 |---|---|---|---|---|
@@ -51,6 +51,8 @@ Initial development boards (measurements describe these configurations, not univ
 | **RTX 3090Ti** | GA102 | Ampere | GDDR6X | EVGA Kingpin |
 | **RTX 3070Ti** | GA104 | Ampere | GDDR6X | ASUS Strix OC |
 | **Titan RTX** | TU102 | Turing | GDDR6 | die transplanted onto an ASUS RTX 2080 Ti Strix PCB |
+| **RTX 2080 Super** | TU104 | Turing | GDDR6 | Gigabyte AORUS Xtreme |
+| **RTX 2070 (400 non-A)** | TU106 | Turing | GDDR6 | die transplanted onto an ASUS 2080 Super Strix PCB |
 | **Titan Xp** | GP102 | Pascal | GDDR5X | stock, unmodified |
 | **Titan Xp** | GP102 | Pascal | GDDR5X | die transplanted onto an ASUS 1080Ti Poseidon |
 | **GTX 1060 9Gbps** | GP106 | Pascal | GDDR5 | Gigabyte AORUS Xtreme|
