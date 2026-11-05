@@ -100,18 +100,18 @@ def _tables(image, include_difr=False):
     for name, ptr, owner, shapes in (("index", lp.INDEX_POINTER, lp.INDEX_OWNER, lp.INDEX_SHAPES),
                                      ("ms", 0x84, 0x3A, ((0x10, 7, 16),))):
         table = parsed.table("lpwr_" + name, "P", ptr, shapes, owner)
-        if table["object_id"] != owner or not 0 < table["count"] < 6:
+        if table["object_id"] != lp.table_owner(parsed, owner) or not 0 < table["count"] < 6:
             raise MsError("MS table ownership or row count is not understood")
         tables[name] = {
             "offset": table["offset"],
-            "owner": owner,
+            "owner": table["object_id"],
             "raw_hex": parsed.span(table["offset"], table["size"]).hex(),
         }
     if include_difr:
         table = parsed.table("lpwr_difr", "P", 0xE8, ((0x10, 11, 18),), 0x8E)
-        if table["object_id"] != 0x8E or not 0 < table["count"] < 6:
+        if table["object_id"] != lp.table_owner(parsed, 0x8E) or not 0 < table["count"] < 6:
             raise MsError("DIFR witness ownership or row count is not understood")
-        tables["difr"] = {"offset": table["offset"], "owner": 0x8E,
+        tables["difr"] = {"offset": table["offset"], "owner": table["object_id"],
                           "raw_hex": parsed.span(table["offset"], table["size"]).hex()}
     at = parsed.pointer("P", 0)
     header = parsed.span(at, 14)
@@ -119,12 +119,12 @@ def _tables(image, include_difr=False):
         raise MsError("MS requires the populated PERF v70 aggregation path")
     stride = header[2] + header[4] * header[5]
     size = 14 + stride * header[3]
-    if parsed.own(at, size, 0x0E) != 0x0E:
+    if parsed.own(at, size, 0x0E) != lp.table_owner(parsed, 0x0E):
         raise MsError("PERF owner is not understood")
     raw = parsed.span(at, size)
     tables["perf"] = {
         "offset": at,
-        "owner": 0x0E,
+        "owner": lp.table_owner(parsed, 0x0E),
         "header_hex": header.hex(),
         "row_first_hex": bytes(raw[14 + i * stride] for i in range(header[3])).hex(),
         "table_sha256": hashlib.sha256(raw).hexdigest(),
@@ -141,7 +141,7 @@ def _table_data(tables, schema=1):
     # A None stride means the table declares its own row size (the LPWR index).
     for name, owner, hs, stride in (("index", lp.INDEX_OWNER, lp.INDEX_HEADER, None), ("ms", 0x3A, 7, 16)):
         item = tables[name]
-        if not isinstance(item, dict) or set(item) != {"offset", "owner", "raw_hex"} or item["owner"] != owner:
+        if not isinstance(item, dict) or set(item) != {"offset", "owner", "raw_hex"} or not lp.owner_valid(item["owner"], owner):
             raise MsError("Malformed MS table evidence")
         at = lp._int(item["offset"], 0, 16 * 1024 * 1024)
         text = item["raw_hex"]
@@ -165,7 +165,7 @@ def _table_data(tables, schema=1):
         spans.append((at, at + len(raw)))
     if schema in (2, 3, 4):
         item = tables["difr"]
-        if not isinstance(item, dict) or set(item) != {"offset", "owner", "raw_hex"} or item["owner"] != 0x8E:
+        if not isinstance(item, dict) or set(item) != {"offset", "owner", "raw_hex"} or not lp.owner_valid(item["owner"], 0x8E):
             raise MsError("Malformed DIFR table witness")
         at = lp._int(item["offset"], 0, 16 * 1024 * 1024)
         text = item["raw_hex"]
@@ -180,7 +180,7 @@ def _table_data(tables, schema=1):
     if (
         not isinstance(perf, dict)
         or set(perf) != {"offset", "owner", "header_hex", "row_first_hex", "table_sha256"}
-        or perf["owner"] != 0x0E
+        or not lp.owner_valid(perf["owner"], 0x0E)
     ):
         raise MsError("Malformed PERF table evidence")
     at = lp._int(perf["offset"], 0, 16 * 1024 * 1024)

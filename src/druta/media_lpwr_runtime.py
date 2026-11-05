@@ -56,11 +56,11 @@ def _tables(image, family):
         (family, _PROFILES[family][0], _PROFILES[family][1], ((0x10, 10, 2),)),
     ):
         table = parsed.table("lpwr_" + name, "P", ptr, shapes, owner)
-        if table["object_id"] != owner or not 0 < table["count"] < 6:
+        if table["object_id"] != lp.table_owner(parsed, owner) or not 0 < table["count"] < 6:
             raise MediaLpwrError("Media LPWR table ownership or row count is not understood")
         tables[name] = {
             "offset": table["offset"],
-            "owner": owner,
+            "owner": table["object_id"],
             "raw_hex": parsed.span(table["offset"], table["size"]).hex(),
         }
     at = parsed.pointer("P", 0)
@@ -69,12 +69,12 @@ def _tables(image, family):
         raise MediaLpwrError("Media LPWR requires the populated PERF v70 aggregation path")
     stride = header[2] + header[4] * header[5]
     size = 14 + stride * header[3]
-    if parsed.own(at, size, 0x0E) != 0x0E:
+    if parsed.own(at, size, 0x0E) != lp.table_owner(parsed, 0x0E):
         raise MediaLpwrError("PERF owner is not understood")
     raw = parsed.span(at, size)
     tables["perf"] = {
         "offset": at,
-        "owner": 0x0E,
+        "owner": lp.table_owner(parsed, 0x0E),
         "header_hex": header.hex(),
         "row_first_hex": bytes(raw[14 + i * stride] for i in range(header[3])).hex(),
         "table_sha256": hashlib.sha256(raw).hexdigest(),
@@ -91,7 +91,7 @@ def _table_data(tables, family):
     for name, owner, hs, stride in (("index", lp.INDEX_OWNER, lp.INDEX_HEADER, None),
                                     (family, _PROFILES[family][1], 10, 2)):
         item = tables[name]
-        if not isinstance(item, dict) or set(item) != {"offset", "owner", "raw_hex"} or item["owner"] != owner:
+        if not isinstance(item, dict) or set(item) != {"offset", "owner", "raw_hex"} or not lp.owner_valid(item["owner"], owner):
             raise MediaLpwrError("Malformed Media LPWR table evidence")
         at = lp._int(item["offset"], 0, 16 * 1024 * 1024)
         text = item["raw_hex"]
@@ -117,7 +117,7 @@ def _table_data(tables, family):
     if (
         not isinstance(perf, dict)
         or set(perf) != {"offset", "owner", "header_hex", "row_first_hex", "table_sha256"}
-        or perf["owner"] != 0x0E
+        or not lp.owner_valid(perf["owner"], 0x0E)
     ):
         raise MediaLpwrError("Malformed PERF table evidence")
     at = lp._int(perf["offset"], 0, 16 * 1024 * 1024)

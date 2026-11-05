@@ -313,25 +313,38 @@ def _tables(image):
     for name, pointer, owner, hs, stride in _TABLES:
         shapes = lp.INDEX_SHAPES if stride is None else ((0x10, hs, stride),)
         table = parsed.table("lpwr_" + name, "P", pointer, shapes, owner)
-        if table["object_id"] != owner or not 0 < table["count"] < 6:
+        if table["object_id"] != lp.table_owner(parsed, owner) or not 0 < table["count"] < 6:
             raise GrpgError("GRPG model lacks understood bounded object ownership")
         result[name] = {
             "offset": table["offset"],
-            "owner": owner,
+            "owner": table["object_id"],
             "raw_hex": parsed.span(table["offset"], table["size"]).hex(),
         }
     at = parsed.pointer("P", 0)
+    version, header_size = parsed.span(at, 2)
+    if version != 0x70:
+        # Other PERF versions have an untraced row layout, so only their declared
+        # header is checked and fingerprinted. The loaded selectors come from the
+        # driver's live P-state reply, which every contract checks against the
+        # BIOS model; the whole image is fingerprinted separately.
+        if header_size < 4 or parsed.own(at, header_size, 0x0E) != lp.table_owner(parsed, 0x0E):
+            raise GrpgError("PERF table header is not understood")
+        header = parsed.span(at, header_size)
+        result["perf"] = {"offset": at, "owner": lp.table_owner(parsed, 0x0E), "header_hex": header.hex(),
+                          "row_first_hex": "", "table_sha256": hashlib.sha256(header).hexdigest()}
+        _table_data(result)
+        return result
     header = parsed.span(at, 14)
     if header[:2] != b"\x70\x0e" or not header[2] or not header[3]:
         raise GrpgError("GRPG projection requires the populated PERF v70 aggregation path")
     stride = header[2] + header[4] * header[5]
     size = 14 + stride * header[3]
-    if parsed.own(at, size, 0x0E) != 0x0E:
+    if parsed.own(at, size, 0x0E) != lp.table_owner(parsed, 0x0E):
         raise GrpgError("PERF table lacks its bounded object owner")
     raw = parsed.span(at, size)
     result["perf"] = {
         "offset": at,
-        "owner": 0x0E,
+        "owner": lp.table_owner(parsed, 0x0E),
         "header_hex": header.hex(),
         "row_first_hex": bytes(raw[14 + i * stride] for i in range(header[3])).hex(),
         "table_sha256": hashlib.sha256(raw).hexdigest(),
@@ -349,7 +362,7 @@ def _table_data(tables):
         if not isinstance(value, dict) or set(value) != {"offset", "owner", "raw_hex"}:
             raise GrpgError("Malformed GRPG table evidence")
         at = lp._int(value["offset"], 0, 16 * 1024 * 1024)
-        if type(value["owner"]) is not int or value["owner"] != owner:
+        if not lp.owner_valid(value["owner"], owner):
             raise GrpgError("GRPG table owner differs")
         text = value["raw_hex"]
         if not isinstance(text, str) or len(text) % 2 or not 8 <= len(text) <= 2 * (hs + 5 * 255):
@@ -366,17 +379,26 @@ def _table_data(tables):
     if not isinstance(perf, dict) or set(perf) != {"offset", "owner", "header_hex", "row_first_hex", "table_sha256"}:
         raise GrpgError("Malformed PERF aggregation evidence")
     at = lp._int(perf["offset"], 0, 16 * 1024 * 1024)
-    if type(perf["owner"]) is not int or perf["owner"] != 0x0E:
+    if not lp.owner_valid(perf["owner"], 0x0E):
         raise GrpgError("PERF table owner differs")
-    header = lp._hex(perf["header_hex"], 14)
-    if header[:2] != b"\x70\x0e" or not header[2] or not header[3]:
-        raise GrpgError("PERF v70 composite geometry is not understood")
-    first = lp._hex(perf["row_first_hex"], header[3])
-    if all(value == 255 for value in first):
-        raise GrpgError("PERF is not on the populated aggregation branch")
     if not isinstance(perf["table_sha256"], str) or not lp._HEX256.fullmatch(perf["table_sha256"]):
         raise GrpgError("Missing exact PERF table fingerprint")
-    spans.append((at, at + 14 + (header[2] + header[4] * header[5]) * header[3]))
+    text = perf["header_hex"]
+    if not isinstance(text, str) or len(text) % 2 or not 8 <= len(text) <= 2 * 255:
+        raise GrpgError("Malformed PERF aggregation evidence")
+    header = lp._hex(text, len(text) // 2)
+    if header[0] != 0x70:
+        if (header[1] != len(header) or perf["row_first_hex"] != ""
+                or perf["table_sha256"] != hashlib.sha256(header).hexdigest()):
+            raise GrpgError("PERF header fingerprint differs")
+        spans.append((at, at + len(header)))
+    else:
+        if len(header) != 14 or header[:2] != b"\x70\x0e" or not header[2] or not header[3]:
+            raise GrpgError("PERF v70 composite geometry is not understood")
+        first = lp._hex(perf["row_first_hex"], header[3])
+        if all(value == 255 for value in first):
+            raise GrpgError("PERF is not on the populated aggregation branch")
+        spans.append((at, at + 14 + (header[2] + header[4] * header[5]) * header[3]))
     spans.sort()
     if any(end > 16 * 1024 * 1024 for _, end in spans) or any(
         a[1] > b[0] for a, b in zip(spans, spans[1:], strict=False)

@@ -515,7 +515,7 @@ def test_alternate_indices_identity_and_nondefault_pstate_bits(monkeypatch):
 
 @pytest.mark.parametrize(
     "offset,value",
-    [(0x4500, 0x20), (0x4501, 7), (0x4503, 6), (0x4601, 9), (0x4602, 6), (0x4603, 6), (0x4800, 0x60), (0x4802, 0)],
+    [(0x4500, 0x20), (0x4501, 7), (0x4503, 6), (0x4601, 9), (0x4602, 6), (0x4603, 6), (0x4801, 13), (0x4802, 0)],
 )
 def test_bounded_table_geometry_is_required(monkeypatch, offset, value):
     image = bytearray(bios())
@@ -1666,3 +1666,41 @@ def test_declared_index_row_size_must_match_the_stored_rows(monkeypatch):
     saved["tables"]["index"]["raw_hex"] = raw.hex()
     with pytest.raises(gr.GrpgError, match="geometry differs"):
         gr.validate_contracts(DEFAULT_CHANGES, saved)
+
+def test_non_v70_perf_is_fingerprinted_by_its_declared_header(monkeypatch):
+    # Pre-Blackwell ROMs carry other PERF versions; their rows are not parsed.
+    image = bytearray(bios())
+    image[0x4800] = 0x60
+    saved = make_contract(monkeypatch, image=bytes(image))
+    perf = saved["tables"]["perf"]
+    header = bytes(image[0x4800 : 0x4800 + 14])
+    assert perf["header_hex"] == header.hex() and perf["row_first_hex"] == ""
+    assert perf["table_sha256"] == hashlib.sha256(header).hexdigest()
+    assert gr.verify(observed(saved), saved) == list(DEFAULT_CHANGES)
+    gr.validate_contracts(DEFAULT_CHANGES, json.loads(json.dumps(saved, allow_nan=False)))
+    tampered = copy.deepcopy(saved)
+    tampered["tables"]["perf"]["header_hex"] = (header[:5] + b"\x00" + header[6:]).hex()
+    with pytest.raises(gr.GrpgError, match="fingerprint differs"):
+        gr.validate_contracts(DEFAULT_CHANGES, tampered)
+
+
+def test_non_v70_perf_needs_a_declared_header(monkeypatch):
+    image = bytearray(bios())
+    image[0x4800], image[0x4801] = 0x60, 3
+    with pytest.raises(gr.GrpgError, match="header is not understood"):
+        make_contract(monkeypatch, image=bytes(image))
+
+def test_legacy_table_rom_contract_has_no_object_owners(monkeypatch):
+    # A pre-Blackwell ROM: no object directory, 10-byte index rows, PERF v60.
+    image = bytearray(bios(row_size=10))
+    image[0x2000:0x2002] = b"\x00\x00"
+    image[0x4800] = 0x60
+    saved = make_contract(monkeypatch, image=bytes(image))
+    assert {saved["tables"][name]["owner"] for name in ("index", "grpg", "perf")} == {None}
+    assert saved["selected"] == make_contract(monkeypatch)["selected"]
+    assert gr.verify(observed(saved), saved) == list(DEFAULT_CHANGES)
+    gr.validate_contracts(DEFAULT_CHANGES, json.loads(json.dumps(saved, allow_nan=False)))
+    wrong = copy.deepcopy(saved)
+    wrong["tables"]["grpg"]["owner"] = 0x24
+    with pytest.raises(gr.GrpgError, match="owner differs"):
+        gr.validate_contracts(DEFAULT_CHANGES, wrong)

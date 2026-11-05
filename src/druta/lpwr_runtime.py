@@ -77,6 +77,17 @@ def index_rows_valid(raw):
             and 0 < raw[3] < 6 and len(raw) == INDEX_HEADER + raw[2] * raw[3])
 
 
+def table_owner(parsed, owner):
+    """The owner a table must report: its BIOS object on object-directory ROMs,
+    None on legacy-table ROMs, where ownership is image containment instead."""
+    return owner if parsed.objects else None
+
+
+def owner_valid(value, owner):
+    """Saved evidence names either the expected BIOS object or no object."""
+    return value is None or (type(value) is int and value == owner)
+
+
 def index_route(index, selector, byte):
     """Feature slot for one loaded selector, or None when its rows lack that byte.
 
@@ -316,11 +327,11 @@ def _tables(image):
     for name, pointer, owner, shapes in (("index", INDEX_POINTER, INDEX_OWNER, INDEX_SHAPES),
                                          ("difr", 0xE8, 0x8E, ((0x10, 11, 18),))):
         table = parsed.table("lpwr_" + name, "P", pointer, shapes, owner)
-        if table["object_id"] != owner or not 0 < table["count"] < 6:
+        if table["object_id"] != table_owner(parsed, owner) or not 0 < table["count"] < 6:
             raise LpwrError("LPWR table lacks the understood bounded object ownership")
         result[name] = {
             "offset": table["offset"],
-            "owner": owner,
+            "owner": table["object_id"],
             "raw_hex": parsed.span(table["offset"], table["size"]).hex(),
         }
     at = parsed.pointer("P", 0)
@@ -329,12 +340,12 @@ def _tables(image):
         raise LpwrError("DIFR projection requires the populated PERF v70 aggregation path")
     stride = header[2] + header[4] * header[5]
     size = 14 + stride * header[3]
-    if parsed.own(at, size, 0x0E) != 0x0E:
+    if parsed.own(at, size, 0x0E) != table_owner(parsed, 0x0E):
         raise LpwrError("PERF table lacks its bounded object owner")
     raw = parsed.span(at, size)
     result["perf"] = {
         "offset": at,
-        "owner": 0x0E,
+        "owner": table_owner(parsed, 0x0E),
         "header_hex": header.hex(),
         "row_first_hex": bytes(raw[14 + i * stride] for i in range(header[3])).hex(),
         "table_sha256": hashlib.sha256(raw).hexdigest(),
@@ -352,7 +363,7 @@ def _table_data(tables):
         if not isinstance(value, dict) or set(value) != {"offset", "owner", "raw_hex"}:
             raise LpwrError("Malformed LPWR table evidence")
         at = _int(value["offset"], 0, 16 * 1024 * 1024)
-        if type(value["owner"]) is not int or value["owner"] != owner:
+        if not owner_valid(value["owner"], owner):
             raise LpwrError("LPWR table owner differs")
         text = value["raw_hex"]
         if not isinstance(text, str) or len(text) % 2 or not 8 <= len(text) <= 2 * (11 + 5 * 255):
@@ -369,7 +380,7 @@ def _table_data(tables):
     if not isinstance(perf, dict) or set(perf) != {"offset", "owner", "header_hex", "row_first_hex", "table_sha256"}:
         raise LpwrError("Malformed PERF aggregation evidence")
     at = _int(perf["offset"], 0, 16 * 1024 * 1024)
-    if type(perf["owner"]) is not int or perf["owner"] != 0x0E:
+    if not owner_valid(perf["owner"], 0x0E):
         raise LpwrError("PERF table owner differs")
     header = _hex(perf["header_hex"], 14)
     if header[:2] != b"\x70\x0e" or not header[2] or not header[3]:
