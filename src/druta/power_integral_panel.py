@@ -161,6 +161,18 @@ class PowerIntegralPanel:
                 raise ValueError("selected policy is no longer available")
             if use_default:
                 raw = row['default_lower_raw' if lower else 'default_upper_raw']
+            field = 'lower_raw' if lower else 'upper_raw'
+            if raw == row[field]:
+                self._show(fresh, gpu, "Adjustment already matches; nothing written.")
+                return
+            from . import profiles
+            template = profiles.capture_power_integral(gpu, {policy: (field,)})
+            if template['power_integral']['identity'] != identity or gpu is not self.app.gpu:
+                raise ValueError("adapter identity changed while capturing Undo")
+            name, _, missing = profiles.autosave_power_integral(gpu, "power-feedback", template)
+            if missing:
+                raise ValueError("could not capture a complete selected-field Undo point")
+            self.app.log(f"Undo point saved as '{name}'", None)
             setter = controller.set_lower if lower else controller.set_upper
             result = setter(policy, raw, expected_identity=identity)
             self._show(result, gpu, "Adjustment applied and read back.")

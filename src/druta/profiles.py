@@ -77,6 +77,9 @@ def incomplete(state):
             elif state.get("scope") == "rail_limits":
                 from . import rail_limit_profiles
                 rail_limit_profiles.validate(state)
+            elif state.get("scope") == "power_integral":
+                from . import power_integral_profiles
+                power_integral_profiles.validate(state)
             elif state.get("scope") == "tuning_action":
                 from . import tuning_profiles
                 tuning_profiles.validate(state)
@@ -424,6 +427,23 @@ def autosave_power_action(gpu, action, template):
         if error:
             raise ValueError(error)
         return autosave_state(action, capture_power_action(gpu))
+
+
+def capture_power_integral(gpu, selection=None):
+    """Capture selected integral policy bounds for manual replay."""
+    from . import power_integral_profiles
+    return power_integral_profiles.capture(gpu, selection)
+
+
+def autosave_power_integral(gpu, action, template):
+    from . import power_integral_profiles
+    with gpu._lock:
+        target = power_integral_profiles.validate(template)
+        error = power_integral_profiles.preflight(gpu, template)
+        if error:
+            raise ValueError(error)
+        selection = {row["policy"]: tuple(row["values"]) for row in target["policies"]}
+        return autosave_state(action, capture_power_integral(gpu, selection))
 
 
 def capture_rail_limits(gpu, selection=None):
@@ -1187,6 +1207,9 @@ def preflight(gpu, state, rail=None, *, apply_curve=True):
         if state.get("scope") == "rail_limits":
             from . import rail_limit_profiles
             return rail_limit_profiles.preflight(gpu, state)
+        if state.get("scope") == "power_integral":
+            from . import power_integral_profiles
+            return power_integral_profiles.preflight(gpu, state)
         if state.get("scope") == "tuning_action":
             from . import tuning_profiles
             return tuning_profiles.preflight(gpu, state)
@@ -1530,6 +1553,9 @@ def _restore_validated(gpu, state, apply_curve, rail, results, *, i2c_verified):
     if state.get("scope") == "rail_limits":
         from . import rail_limit_profiles as scoped
         return scoped.restore(gpu, state)
+    if state.get("scope") == "power_integral":
+        from . import power_integral_profiles as scoped
+        return scoped.restore(gpu, state)
     if state.get("scope") == "tuning_action":
         from . import tuning_profiles as scoped
         return scoped.restore(gpu, state)
@@ -1717,6 +1743,14 @@ def summarize(state):
             return f"invalid combined profile: {exc}"
     if state.get("scope") == "power_action":
         bits.append("board/policy requests and pin intent, manual apply only")
+    if state.get("scope") == "power_integral":
+        from . import power_integral_profiles as scoped
+        try:
+            data = scoped.validate(state)
+            count = sum(len(row["values"]) for row in data["policies"])
+            bits.append(f"{count} power integral bound(s), manual apply only")
+        except ValueError as exc:
+            bits.append(f"invalid power integral profile: {exc}")
     if state.get("scope") == "rail_limits":
         from . import rail_limit_profiles as scoped
         try:

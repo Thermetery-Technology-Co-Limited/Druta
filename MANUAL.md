@@ -123,7 +123,8 @@ profile loading. Every original request and voltage boost matched afterward.
 ### Named profiles for individual ordinary controls
 
 In **Profiles > Save profile**, choose **Contents** to save just the current
-memory offset, voltage boost, rail limits, fan policy, coupled power/current requests, or an
+memory offset, voltage boost, rail limits, fan policy, coupled power/current requests,
+power-policy feedback bounds, or an
 available clock-domain offset. Saving reads the applied requests; staged edits
 in the input boxes are not saved. **Full tune** retains the ordinary capture.
 
@@ -1206,9 +1207,16 @@ value is shown after readback. A successful request does not prove physical
 power consumption or remove other firmware limits.
 
 The panel preserves the mode, sample counts, other limits and opaque fields.
-Changes require explicit application in the current session. They are not
-included in existing saved profiles or automatically replayed at startup or
-after a driver reset. A failed read marks retained values stale and disables
+Changes require explicit application in the current session. Each bound action
+saves a selected-field Undo point before writing; a no-op saves nothing.
+Choose **Profiles > Save profile > Contents: Power-policy feedback bounds**
+to save the currently applied bounds of all available integral policies.
+Staged input, sample counts, modes and ordinary board/policy requests are not
+included. Loading is manual, saves Undo first, and checks the current adapter
+and policy identities. These profiles never replay at startup or after a reset.
+Combined profiles may include separate lower and upper snapshots; the loader
+validates their final pair and orders writes without inverting the bounds.
+If a later write fails, the results identify earlier verified changes. A failed read marks retained values stale and disables
 Apply until another read succeeds. Other power controls remain available if
 this additional interface is unavailable.
 
@@ -1219,3 +1227,7 @@ verified a retained configuration change and exact restoration, with no change
 to the effective limit at idle; its effect under load remains unmeasured.
 Sample-count and mode writes are not exposed. A past-count trial failed and
 temporarily disrupted policy reads; future-count writes were not attempted.
+
+The [manual profile qualification](experiments/power-integral-profiles-20261105.json)
+records saved-pair loading, pair Undo and upper-only Undo preserving a changed
+lower bound, with exact final request-state restoration.

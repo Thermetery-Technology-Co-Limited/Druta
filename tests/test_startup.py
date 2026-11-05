@@ -46,7 +46,7 @@ class StartupRecovery(unittest.TestCase):
 
     def test_combined_profile_cannot_register_for_startup(self):
         manager, _ = self.manager()
-        for scope in ('combined', 'fan', 'rail_limits'):
+        for scope in ('combined', 'fan', 'rail_limits', 'power_integral'):
             with self.subTest(scope=scope), self.assertRaisesRegex(ValueError, "manual loading"):
                 manager.enable(scope, {"schema": 2, "scope": scope})
         self.registrar.assert_not_called()

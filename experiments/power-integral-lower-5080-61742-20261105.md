@@ -9,3 +9,7 @@ Before the authorized GPU-only reset, INFO and CONTROL GETs had recovered and th
 These are observations on one adapter at idle, not physical power measurements or a general controller formula. The manual lower control subsequently passed a separate [production-path trial](power-integral-lower-production-20261105.json): three exact 3113 readbacks, upper and counts unchanged, effective limit still 370811 mW, and complete request-state restoration. The panel displays counts read-only. The focused suite passed 324 tests; the full application rendered both bound controls and current/default readbacks successfully. Neither bound is included in saved profiles or Undo yet.
 
 The compact [machine-readable evidence](power-integral-lower-5080-61742-20261105.json) includes SHA-256 hashes for the source trial, packet audit, harness, reset and post-reset captures. The raw records are under `experiments/registry-overrides/power-integral-remaining-terra-20261105/`.
+
+A subsequent [profile/Undo increment](power-integral-profiles-20261105.json)
+adds manual saved feedback bounds and selected-field Undo. The earlier
+production receipt above describes the implementation before that increment.

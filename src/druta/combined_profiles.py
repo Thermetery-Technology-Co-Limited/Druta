@@ -9,6 +9,7 @@ from . import (
     clock_vf_profiles,
     lowpower_profiles,
     power_action_profiles,
+    power_integral_profiles,
     profiles,
     rail_limit_profiles,
     tuning_profiles,
@@ -23,7 +24,7 @@ _VALIDATORS = {
     'clock_vf': clock_vf_profiles.validate, 'lowpower_requests': lowpower_profiles.validate,
     'voltage_controls': voltage_control_profiles.validate, 'voltage_offsets': voltage_offset_profiles.validate,
     'voltage_requests': voltage_request_profiles.validate, 'fan': profiles._validate_fan_scope,
-    'rail_limits': rail_limit_profiles.validate,
+    'rail_limits': rail_limit_profiles.validate, 'power_integral': power_integral_profiles.validate,
 }
 
 
@@ -42,6 +43,9 @@ def _targets(state):
         return {('tuning', data['kind'], data['index'])}
     if scope == 'power_action':
         return {('power',)}
+    if scope == 'power_integral':
+        return {('power_integral', row['policy'], field)
+                for row in data['policies'] for field in row['values']}
     if scope == 'fan':
         return {('fan',)}
     if scope == 'clock_vf':
@@ -157,13 +161,50 @@ def _child_preflight(app, child, projected_gate=False):
     return profiles.preflight(app.gpu, child, rail=app.rail)
 
 
+def _coalesce_power_integral(components, gpu):
+    """Combine disjoint bounds transiently so range transitions stay valid."""
+    result, merged, rows, names = [], None, {}, []
+    for item in components:
+        child = item['state']
+        if child.get('scope') != 'power_integral':
+            result.append(item)
+            continue
+        error = tuning_profiles.device_error(gpu, child)
+        if error:
+            raise ValueError(f"{item['name']}: {error}")
+        data = power_integral_profiles.validate(child)
+        if merged is None:
+            merged = copy.deepcopy(child)
+            merged['power_integral']['policies'] = []
+            result.append({'name': '', 'state': merged})
+        elif data['identity'] != merged['power_integral']['identity']:
+            raise ValueError(f"{item['name']}: power-integral identity differs")
+        names.append(item['name'])
+        for row in data['policies']:
+            policy = row['policy']
+            if policy not in rows:
+                rows[policy] = copy.deepcopy(row)
+                merged['power_integral']['policies'].append(rows[policy])
+            else:
+                target = rows[policy]
+                if any(row[key] != target[key] for key in ('type', 'channel', 'unit')):
+                    raise ValueError(f"{item['name']}: power-integral policy metadata differs")
+                if set(row['values']) & set(target['values']):
+                    raise ValueError(f"{item['name']}: overlapping profile targets")
+                target['values'].update(row['values'])
+    if merged is not None:
+        power_integral_profiles.validate(merged)
+        next(item for item in result if item['state'] is merged)['name'] = ' + '.join(names)
+    return result
+
+
 def preflight(app, state):
     try:
         components = validate(state)
         enable = any(c['state'].get('scope') == 'voltage_controls'
                      and c['state']['voltage_controls']['kind'] == 'gate'
                      and c['state']['voltage_controls']['rows'][0]['enabled'] for c in components)
-        for item in components:
+        for item in _coalesce_power_integral(components, getattr(app, 'gpu', None)):
             error = _child_preflight(app, item['state'], projected_gate=enable)
             if error:
                 return f"{item['name']}: {error}"
@@ -208,6 +249,10 @@ def _capture(app, child):
                                for rail, fields in result[key].items() if rail in selected}
                 result[key] = {rail: fields for rail, fields in result[key].items() if fields}
         return result
+    if scope == 'power_integral':
+        data = power_integral_profiles.validate(child)
+        selection = {row['policy']: tuple(row['values']) for row in data['policies']}
+        return profiles.capture_power_integral(gpu, selection)
     if scope == 'rail_limits':
         return profiles.capture_rail_limits(gpu, {rail: tuple(fields) for rail, fields in child[scope].items()})
     if scope == 'fan':
@@ -259,7 +304,11 @@ def restore(app, state):
     if error:
         return [(False, f'combined profile not applied: {error}')]
     results = []
-    for item in validate(state):
+    try:
+        components = _coalesce_power_integral(validate(state), getattr(app, 'gpu', None))
+    except Exception as exc:
+        return [(False, f'combined profile not applied: {exc}')]
+    for item in components:
         child = item['state']
         error = _child_preflight(app, child)
         if error:

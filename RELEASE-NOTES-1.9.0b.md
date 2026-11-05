@@ -71,7 +71,8 @@ for policies reporting the understood integral-controller layout. It displays
 active and default bounds separately, preserves other request fields, and
 checks exact readback. The percentage is a controller bound relative to the
 policy limit; it does not change the board request or promise physical
-power. These controls are session-only and are not included in existing profiles or Undo.
+power. These controls now support selected-field Undo and manual named/combined
+profiles. They remain session-only, with no startup or post-reset replay.
 See the [local qualification](experiments/power-policy-integral-upper-5080-61742-20261105.md).
 The [lower-bound trial](experiments/power-integral-lower-5080-61742-20261105.md)
 verified retained configuration and exact restoration without changing the idle

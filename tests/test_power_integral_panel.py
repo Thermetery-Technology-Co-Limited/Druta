@@ -6,6 +6,7 @@ from unittest.mock import Mock
 import dearpygui.dearpygui as dpg
 import pytest
 
+from druta import profiles
 from druta.power_integral_panel import PowerIntegralPanel
 
 
@@ -52,6 +53,9 @@ def panel(monkeypatch):
     monkeypatch.setitem(sys.modules, "druta.power_integral_runtime", SimpleNamespace(
         PowerIntegralController=FakeController, percent_to_raw=lambda text: int(text),
         raw_to_percent=lambda raw: str(raw)))
+    monkeypatch.setattr(profiles, "capture_power_integral", Mock(side_effect=lambda gpu, selection: {
+        "power_integral": {"identity": {"slot": gpu.slot}, "selection": selection}}), raising=False)
+    monkeypatch.setattr(profiles, "autosave_power_integral", Mock(return_value=("undo", "path", [])), raising=False)
     dpg.create_context()
     app = SimpleNamespace(gpu=SimpleNamespace(slot="A", error=None, upper=103, lower=75),
                           s=lambda n: n, guard=Mock(return_value=True), log=Mock())
@@ -162,3 +166,22 @@ def test_lower_failure_disables_both_actions_until_read(panel):
     panel.app.gpu.slot = "B"
     panel.use_lower_default()
     assert len([call for call in FakeController.calls if call[0] == "set_lower"]) == 1
+
+
+def test_selected_field_undo_failure_and_noop(panel):
+    panel.read()
+    panel.apply_lower()
+    profiles.autosave_power_integral.assert_not_called()
+    assert not any(call[0] == "set_lower" for call in FakeController.calls)
+    dpg.set_value("integral_lower_input", "76")
+    profiles.autosave_power_integral.side_effect = OSError("disk full")
+    panel.apply_lower()
+    profiles.capture_power_integral.assert_called_once_with(panel.app.gpu, {7: ("lower_raw",)})
+    assert not any(call[0] == "set_lower" for call in FakeController.calls)
+    assert "disk full" in dpg.get_value("integral_status")
+    profiles.autosave_power_integral.side_effect = None
+    panel.read()
+    dpg.set_value("integral_input", "99")
+    panel.apply()
+    assert profiles.capture_power_integral.call_args.args[1] == {7: ("upper_raw",)}
+    assert ("set", 7, 99, {"slot": "A"}) in FakeController.calls
