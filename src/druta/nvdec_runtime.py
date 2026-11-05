@@ -45,8 +45,9 @@ def read(gpu):
 def _tables(image):
     parsed = vbios_fields._Image(image)
     tables = {}
-    for name, ptr, owner, hs, stride in (("index", 0x74, 0x24, 6, 18), ("nvdec", 0x11C, 0xB4, 10, 2)):
-        table = parsed.table("lpwr_" + name, "P", ptr, ((0x10, hs, stride),), owner)
+    for name, ptr, owner, shapes in (("index", lp.INDEX_POINTER, lp.INDEX_OWNER, lp.INDEX_SHAPES),
+                                     ("nvdec", 0x11C, 0xB4, ((0x10, 10, 2),))):
+        table = parsed.table("lpwr_" + name, "P", ptr, shapes, owner)
         if table["object_id"] != owner or not 0 < table["count"] < 6:
             raise NvdecError("NVDEC table ownership or row count is not understood")
         tables[name] = {
@@ -78,19 +79,23 @@ def _table_data(tables):
     if not isinstance(tables, dict) or set(tables) != {"index", "nvdec", "perf"}:
         raise NvdecError("Missing NVDEC table evidence")
     data, spans = {}, []
-    for name, owner, hs, stride in (("index", 0x24, 6, 18), ("nvdec", 0xB4, 10, 2)):
+    # A None stride means the table declares its own row size (the LPWR index).
+    for name, owner, hs, stride in (("index", lp.INDEX_OWNER, lp.INDEX_HEADER, None), ("nvdec", 0xB4, 10, 2)):
         item = tables[name]
         if not isinstance(item, dict) or set(item) != {"offset", "owner", "raw_hex"} or item["owner"] != owner:
             raise NvdecError("Malformed NVDEC table evidence")
         at = lp._int(item["offset"], 0, 16 * 1024 * 1024)
         text = item["raw_hex"]
-        if not isinstance(text, str) or not 2 * hs <= len(text) <= 2 * (hs + 5 * stride):
+        if not isinstance(text, str) or not 2 * hs <= len(text) <= 2 * (hs + 5 * (stride or 255)):
             raise NvdecError("Malformed NVDEC table bytes")
         try:
             raw = lp._hex(text, len(text) // 2)
         except (ValueError, lp.LpwrError) as exc:
             raise NvdecError("Malformed NVDEC table bytes") from exc
-        if (
+        if stride is None:
+            if not lp.index_rows_valid(raw):
+                raise NvdecError("NVDEC table geometry differs")
+        elif (
             len(raw) < hs
             or raw[:3] != bytes((0x10, hs, stride))
             or not 0 < raw[3] < 6
@@ -172,11 +177,9 @@ def _derive(changes, before, tables):
     expected = projected_mask = 0
     for row in core["pstates"]["rows"]:
         p = row["lpwr_index"]
-        slot = 5
-        if p < index[3]:
-            slot = index[6 + p * 18 + 13]
-            if slot >= 6:
-                slot = 5
+        slot = lp.index_route(index, p, 13) if p < index[3] else 5
+        if slot is None:
+            raise NvdecError("The LPWR index rows carry no NVDEC route")
         ids = row["pstate_id_mask"]
         if slot < len(flags) and flags[slot] & 3 == 3:
             expected |= ids

@@ -63,6 +63,34 @@ def _hex(value, size):
     return raw
 
 
+# The v10 LPWR index table at BIT P+0x74 declares its own row size in header
+# byte 2. Each feature reads one fixed route byte per row (GRPG 1, MS 2, DIFR 10,
+# NVDEC 13, ...), so a shorter row is not malformed: it carries no route for the
+# later features. Rows are stepped by the declared size, never a fixed width.
+INDEX_POINTER, INDEX_OWNER, INDEX_HEADER = 0x74, 0x24, 6
+INDEX_SHAPES = tuple((0x10, INDEX_HEADER, stride) for stride in range(1, 256))
+
+
+def index_rows_valid(raw):
+    """True for a complete v10 index table: header, declared rows, nothing extra."""
+    return (len(raw) >= 4 and raw[0] == 0x10 and raw[1] == INDEX_HEADER and raw[2] > 0
+            and 0 < raw[3] < 6 and len(raw) == INDEX_HEADER + raw[2] * raw[3])
+
+
+def index_route(index, selector, byte):
+    """Feature slot for one loaded selector, or None when its rows lack that byte.
+
+    Selectors of 6 or more and route values of 6 or more use fallback slot 5. A
+    selector addressing an absent row is the caller's error to report.
+    """
+    if byte >= index[2]:
+        return None
+    if selector >= 6:
+        return 5
+    slot = index[INDEX_HEADER + index[2] * selector + byte]
+    return slot if slot < 6 else 5
+
+
 def selected(changes):
     """Select only this category; no selected keys requires no capability GET."""
     if not isinstance(changes, Mapping) or any(not isinstance(key, str) for key in changes):
@@ -285,8 +313,9 @@ def read(gpu, *, features=False):
 def _tables(image):
     parsed = vbios_fields._Image(image)
     result = {}
-    for name, pointer, owner, hs in (("index", 0x74, 0x24, 6), ("difr", 0xE8, 0x8E, 11)):
-        table = parsed.table("lpwr_" + name, "P", pointer, ((0x10, hs, 18),), owner)
+    for name, pointer, owner, shapes in (("index", INDEX_POINTER, INDEX_OWNER, INDEX_SHAPES),
+                                         ("difr", 0xE8, 0x8E, ((0x10, 11, 18),))):
+        table = parsed.table("lpwr_" + name, "P", pointer, shapes, owner)
         if table["object_id"] != owner or not 0 < table["count"] < 6:
             raise LpwrError("LPWR table lacks the understood bounded object ownership")
         result[name] = {
@@ -318,7 +347,7 @@ def _table_data(tables):
     if not isinstance(tables, dict) or set(tables) != {"index", "difr", "perf"}:
         raise LpwrError("Missing bounded LPWR model tables")
     decoded, spans = {}, []
-    for name, owner, hs in (("index", 0x24, 6), ("difr", 0x8E, 11)):
+    for name, owner in (("index", INDEX_OWNER), ("difr", 0x8E)):
         value = tables[name]
         if not isinstance(value, dict) or set(value) != {"offset", "owner", "raw_hex"}:
             raise LpwrError("Malformed LPWR table evidence")
@@ -326,10 +355,13 @@ def _table_data(tables):
         if type(value["owner"]) is not int or value["owner"] != owner:
             raise LpwrError("LPWR table owner differs")
         text = value["raw_hex"]
-        if not isinstance(text, str) or not 2 * (hs + 18) <= len(text) <= 2 * (hs + 5 * 18):
+        if not isinstance(text, str) or len(text) % 2 or not 8 <= len(text) <= 2 * (11 + 5 * 255):
             raise LpwrError("LPWR table extent is invalid")
         raw = _hex(text, len(text) // 2)
-        if raw[:3] != bytes((0x10, hs, 18)) or not 0 < raw[3] < 6 or len(raw) != hs + 18 * raw[3]:
+        if name == "index":
+            if not index_rows_valid(raw):
+                raise LpwrError("LPWR table geometry differs")
+        elif raw[:3] != bytes((0x10, 11, 18)) or not 0 < raw[3] < 6 or len(raw) != 11 + 18 * raw[3]:
             raise LpwrError("LPWR table geometry differs")
         decoded[name] = raw
         spans.append((at, at + len(raw)))
@@ -365,13 +397,11 @@ def _model(tables, pstates, disable=()):
     masks = {str(i): 0 for i in CONTROLLERS}
     for row in pstates["rows"]:
         selector = row["lpwr_index"]
-        if selector >= 6:
-            slot = 5
-        else:
-            if selector >= index[3]:
-                raise LpwrError("A valid LPWR selector addresses an unloaded index row")
-            slot = index[6 + 18 * selector + 10]
-            slot = slot if slot < 6 else 5
+        if selector < 6 and selector >= index[3]:
+            raise LpwrError("A valid LPWR selector addresses an unloaded index row")
+        slot = index_route(index, selector, 10)
+        if slot is None:
+            raise LpwrError("The LPWR index rows carry no DIFR route")
         if slot != 5 and slot >= len(flags):
             # Unloaded DIFR slots retain the traced zero construction flags.
             continue

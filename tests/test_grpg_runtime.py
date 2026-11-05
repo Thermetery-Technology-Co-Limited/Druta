@@ -18,11 +18,13 @@ DEFAULT_CHANGES = {"lpwr.gr_pg.0.enabled": False}
 ROUTES = ((3, 0x40, 0, 1), (12, 0x2, 1, 0), (27, 0x400, 2, 255), (31, 0x100, 3, 2))
 
 
-def bios(*, flags=(0x1B, 0x1B, 0x1B), selectors=(1, 0, 2), first=(7, 255, 4), device=0x4321):
-    index = bytearray(6 + 18 * len(selectors))
-    index[:6] = bytes((0x10, 6, 18, len(selectors), 31, 7))
+def bios(*, flags=(0x1B, 0x1B, 0x1B), selectors=(1, 0, 2), first=(7, 255, 4), device=0x4321, row_size=18):
+    # Other sizes fill non-route bytes with noise, so stepping rows by any size
+    # but the declared one reads a wrong route and fails the membership check.
+    index = bytearray([0 if row_size == 18 else 0xEE]) * (6 + row_size * len(selectors))
+    index[:6] = bytes((0x10, 6, row_size, len(selectors), 31, 7))
     for number, selector in enumerate(selectors):
-        index[6 + number * 18 + 1] = selector
+        index[6 + number * row_size + 1] = selector
     grpg = bytearray(10 + 5 * len(flags))
     grpg[:4] = bytes((0x10, 10, 5, len(flags)))
     grpg[4:10] = b"opaque"
@@ -1644,3 +1646,23 @@ def test_legacy_main_receipt_stays_narrow_when_new_prepare_adds_candidate(monkey
     expanded = make_main_contract(monkeypatch, image=image, obs=obs, changes=changes)
     assert expanded["schema"] == 10 and len(expanded["after_profiles"]) > len(legacy)
     gr.validate_contracts(changes, saved)
+
+
+@pytest.mark.parametrize("row_size", [10, 24])
+def test_index_rows_are_stepped_by_their_declared_size(monkeypatch, row_size):
+    # Pre-Blackwell ROMs declare shorter LPWR index rows; the GRPG route is still byte 1.
+    expected = make_contract(monkeypatch)
+    saved = make_contract(monkeypatch, image=bios(row_size=row_size))
+    assert saved["selected"] == expected["selected"]
+    assert saved["after"] == expected["after"]
+    assert gr.verify(observed(saved), saved) == list(DEFAULT_CHANGES)
+    gr.validate_contracts(DEFAULT_CHANGES, json.loads(json.dumps(saved, allow_nan=False)))
+
+
+def test_declared_index_row_size_must_match_the_stored_rows(monkeypatch):
+    saved = make_contract(monkeypatch, image=bios(row_size=10))
+    raw = bytearray.fromhex(saved["tables"]["index"]["raw_hex"])
+    raw[2] = 9
+    saved["tables"]["index"]["raw_hex"] = raw.hex()
+    with pytest.raises(gr.GrpgError, match="geometry differs"):
+        gr.validate_contracts(DEFAULT_CHANGES, saved)

@@ -24,7 +24,8 @@ from .registry_flags import _same_state
 
 KEY = re.compile(r"lpwr\.gr_pg\.(0|[1-9][0-9]*)\.enabled\Z")
 CONTROLLERS = tuple(range(22))
-_TABLES = (("index", 0x74, 0x24, 6, 18), ("grpg", 0x80, 0x39, 10, 5))
+# A None stride means the table declares its own row size (the LPWR index).
+_TABLES = (("index", lp.INDEX_POINTER, lp.INDEX_OWNER, lp.INDEX_HEADER, None), ("grpg", 0x80, 0x39, 10, 5))
 _AUX_KEYS = ((0, 1), *((role, 0x800) for role in range(4)), *((role, 0x806) for role in range(4)))
 _BIT1_ROLES = tuple(range(11))
 _BIT4_KEYS = ((0, 1), *((role, 0x801) for role in range(3)), (0, 0x805), (1, 0x805))
@@ -310,7 +311,8 @@ def _tables(image):
     parsed = vbios_fields._Image(image)
     result = {}
     for name, pointer, owner, hs, stride in _TABLES:
-        table = parsed.table("lpwr_" + name, "P", pointer, ((0x10, hs, stride),), owner)
+        shapes = lp.INDEX_SHAPES if stride is None else ((0x10, hs, stride),)
+        table = parsed.table("lpwr_" + name, "P", pointer, shapes, owner)
         if table["object_id"] != owner or not 0 < table["count"] < 6:
             raise GrpgError("GRPG model lacks understood bounded object ownership")
         result[name] = {
@@ -350,10 +352,13 @@ def _table_data(tables):
         if type(value["owner"]) is not int or value["owner"] != owner:
             raise GrpgError("GRPG table owner differs")
         text = value["raw_hex"]
-        if not isinstance(text, str) or not 2 * (hs + stride) <= len(text) <= 2 * (hs + 5 * stride):
+        if not isinstance(text, str) or len(text) % 2 or not 8 <= len(text) <= 2 * (hs + 5 * 255):
             raise GrpgError("GRPG table extent is invalid")
         raw = lp._hex(text, len(text) // 2)
-        if raw[:3] != bytes((0x10, hs, stride)) or not 0 < raw[3] < 6 or len(raw) != hs + stride * raw[3]:
+        if stride is None:
+            if not lp.index_rows_valid(raw):
+                raise GrpgError("GRPG table geometry differs")
+        elif raw[:3] != bytes((0x10, hs, stride)) or not 0 < raw[3] < 6 or len(raw) != hs + stride * raw[3]:
             raise GrpgError("GRPG table geometry differs")
         decoded[name] = raw
         spans.append((at, at + len(raw)))
@@ -497,12 +502,11 @@ def _derive(changes, before, tables, *, full_scope=False, expanded_main=False):
     untouched, routes = 0, []
     for row in core["pstates"]["rows"]:
         selector = row["lpwr_index"]
-        slot = 5
-        if selector < 6:
-            if selector >= index[3]:
-                raise GrpgError("A valid LPWR selector addresses an unloaded index row")
-            slot = index[6 + 18 * selector + 1]
-            slot = slot if slot < 6 else 5
+        if selector < 6 and selector >= index[3]:
+            raise GrpgError("A valid LPWR selector addresses an unloaded index row")
+        slot = lp.index_route(index, selector, 1)
+        if slot is None:
+            raise GrpgError("The LPWR index rows carry no GRPG route")
         routes.append((slot, row["pstate_id_mask"]))
         if slot < len(flags):
             mask = row["pstate_id_mask"]

@@ -97,8 +97,9 @@ def read(gpu, *, mapping=False):
 def _tables(image, include_difr=False):
     parsed = vbios_fields._Image(image)
     tables = {}
-    for name, ptr, owner, hs, stride in (("index", 0x74, 0x24, 6, 18), ("ms", 0x84, 0x3A, 7, 16)):
-        table = parsed.table("lpwr_" + name, "P", ptr, ((0x10, hs, stride),), owner)
+    for name, ptr, owner, shapes in (("index", lp.INDEX_POINTER, lp.INDEX_OWNER, lp.INDEX_SHAPES),
+                                     ("ms", 0x84, 0x3A, ((0x10, 7, 16),))):
+        table = parsed.table("lpwr_" + name, "P", ptr, shapes, owner)
         if table["object_id"] != owner or not 0 < table["count"] < 6:
             raise MsError("MS table ownership or row count is not understood")
         tables[name] = {
@@ -137,19 +138,23 @@ def _table_data(tables, schema=1):
     if not isinstance(tables, dict) or set(tables) != expected:
         raise MsError("Missing MS table evidence")
     data, spans = {}, []
-    for name, owner, hs, stride in (("index", 0x24, 6, 18), ("ms", 0x3A, 7, 16)):
+    # A None stride means the table declares its own row size (the LPWR index).
+    for name, owner, hs, stride in (("index", lp.INDEX_OWNER, lp.INDEX_HEADER, None), ("ms", 0x3A, 7, 16)):
         item = tables[name]
         if not isinstance(item, dict) or set(item) != {"offset", "owner", "raw_hex"} or item["owner"] != owner:
             raise MsError("Malformed MS table evidence")
         at = lp._int(item["offset"], 0, 16 * 1024 * 1024)
         text = item["raw_hex"]
-        if not isinstance(text, str) or not 2 * hs <= len(text) <= 2 * (hs + 5 * stride):
+        if not isinstance(text, str) or not 2 * hs <= len(text) <= 2 * (hs + 5 * (stride or 255)):
             raise MsError("Malformed MS table bytes")
         try:
             raw = lp._hex(text, len(text) // 2)
         except (ValueError, lp.LpwrError) as exc:
             raise MsError("Malformed MS table bytes") from exc
-        if (
+        if stride is None:
+            if not lp.index_rows_valid(raw):
+                raise MsError("MS table geometry differs")
+        elif (
             len(raw) < hs
             or raw[:3] != bytes((0x10, hs, stride))
             or not 0 < raw[3] < 6
@@ -296,13 +301,11 @@ def _derive(changes, before, tables, schema=1):
     routes = []
     for row in core["pstates"]["rows"]:
         p = row["lpwr_index"]
-        slot = 5
-        if p < 6:
-            if p >= index[3]:
-                raise MsError("Pstate selects an unloaded LPWR index")
-            slot = index[6 + p * 18 + 2]
-            if slot >= 6:
-                slot = 5
+        if p < 6 and p >= index[3]:
+            raise MsError("Pstate selects an unloaded LPWR index")
+        slot = lp.index_route(index, p, 2)
+        if slot is None:
+            raise MsError("The LPWR index rows carry no MS route")
         routes.append((slot, row["pstate_id_mask"]))
 
     def project_mask(before_mask, bit):

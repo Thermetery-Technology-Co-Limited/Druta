@@ -51,11 +51,11 @@ def read(gpu):
 def _tables(image, family):
     parsed = vbios_fields._Image(image)
     tables = {}
-    for name, ptr, owner, hs, stride in (
-        ("index", 0x74, 0x24, 6, 18),
-        (family, _PROFILES[family][0], _PROFILES[family][1], 10, 2),
+    for name, ptr, owner, shapes in (
+        ("index", lp.INDEX_POINTER, lp.INDEX_OWNER, lp.INDEX_SHAPES),
+        (family, _PROFILES[family][0], _PROFILES[family][1], ((0x10, 10, 2),)),
     ):
-        table = parsed.table("lpwr_" + name, "P", ptr, ((0x10, hs, stride),), owner)
+        table = parsed.table("lpwr_" + name, "P", ptr, shapes, owner)
         if table["object_id"] != owner or not 0 < table["count"] < 6:
             raise MediaLpwrError("Media LPWR table ownership or row count is not understood")
         tables[name] = {
@@ -87,19 +87,24 @@ def _table_data(tables, family):
     if not isinstance(tables, dict) or set(tables) != {"index", family, "perf"}:
         raise MediaLpwrError("Missing Media LPWR table evidence")
     data, spans = {}, []
-    for name, owner, hs, stride in (("index", 0x24, 6, 18), (family, _PROFILES[family][1], 10, 2)):
+    # A None stride means the table declares its own row size (the LPWR index).
+    for name, owner, hs, stride in (("index", lp.INDEX_OWNER, lp.INDEX_HEADER, None),
+                                    (family, _PROFILES[family][1], 10, 2)):
         item = tables[name]
         if not isinstance(item, dict) or set(item) != {"offset", "owner", "raw_hex"} or item["owner"] != owner:
             raise MediaLpwrError("Malformed Media LPWR table evidence")
         at = lp._int(item["offset"], 0, 16 * 1024 * 1024)
         text = item["raw_hex"]
-        if not isinstance(text, str) or not 2 * hs <= len(text) <= 2 * (hs + 5 * stride):
+        if not isinstance(text, str) or not 2 * hs <= len(text) <= 2 * (hs + 5 * (stride or 255)):
             raise MediaLpwrError("Malformed Media LPWR table bytes")
         try:
             raw = lp._hex(text, len(text) // 2)
         except (ValueError, lp.LpwrError) as exc:
             raise MediaLpwrError("Malformed Media LPWR table bytes") from exc
-        if (
+        if stride is None:
+            if not lp.index_rows_valid(raw):
+                raise MediaLpwrError("Media LPWR table geometry differs")
+        elif (
             len(raw) < hs
             or raw[:3] != bytes((0x10, hs, stride))
             or not 0 < raw[3] < 6
@@ -195,11 +200,9 @@ def _derive(changes, before, tables):
     before_mask = after_mask = 0
     for row in core["pstates"]["rows"]:
         p = row["lpwr_index"]
-        slot = 5
-        if p < index[3]:
-            slot = index[6 + p * 18 + route_byte]
-            if slot >= 6:
-                slot = 5
+        slot = lp.index_route(index, p, route_byte) if p < index[3] else 5
+        if slot is None:
+            raise MediaLpwrError("The LPWR index rows carry no route for this media family")
         if slot < len(flags) and contributes(flags[slot]):
             before_mask |= row["pstate_id_mask"]
             if slot not in disabled:
