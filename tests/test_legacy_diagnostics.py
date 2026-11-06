@@ -218,6 +218,11 @@ class SelfCheckTests(unittest.TestCase):
         diagnostics._probe_imports(SimpleNamespace(line=lines.append))
         self.assertFalse([line for line in lines if line.startswith("FAILED")], lines)
 
+    def test_an_empty_module_listing_fails_instead_of_passing(self):
+        with patch.object(diagnostics, "_druta_modules", return_value=[]):
+            with self.assertRaisesRegex(RuntimeError, "did not list its modules"):
+                diagnostics._probe_imports(SimpleNamespace(line=lambda text: None))
+
     def test_crash_event_probe_keeps_only_druta_events(self):
         stdout = ("Event[0]:\n  Description: Faulting application name: Druta.exe\n"
                   "  Faulting module name: nvapi64.dll\n"
