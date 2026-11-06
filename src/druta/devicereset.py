@@ -11,6 +11,23 @@ documents ``/restart-device`` as available from Windows 10 version 2004:
 * https://learn.microsoft.com/windows-hardware/drivers/devtest/pnputil-command-syntax
 * https://learn.microsoft.com/windows/win32/api/cfgmgr32/nf-cfgmgr32-cm_get_devnode_status
 
+Older Windows (Windows 10 before 2004, 8.x, 7, Vista and XP) has no
+``/restart-device``. There the same exact device is restarted through
+SetupAPI's property-change request, the documented class-installer path that
+Microsoft's DevCon "restart" also uses: ``SP_PROPCHANGE_PARAMS`` with
+``DICS_PROPCHANGE`` and ``DICS_FLAG_CONFIGSPECIFIC`` for the current hardware
+profile, sent with ``DIF_PROPERTYCHANGE``. Windows reports through
+``DI_NEEDREBOOT``/``DI_NEEDRESTART`` when it could not restart the device in
+place:
+
+* https://learn.microsoft.com/windows-hardware/drivers/install/dif-propertychange
+* https://learn.microsoft.com/windows/win32/api/setupapi/ns-setupapi-sp_propchange_params
+* https://learn.microsoft.com/windows/win32/api/setupapi/nf-setupapi-setupdicallclassinstaller
+* https://learn.microsoft.com/windows/win32/api/setupapi/ns-setupapi-sp_devinstall_params_w
+
+Both methods share target resolution, the same-device check before the
+restart, and the started-without-problem check after it.
+
 SetupAPI's documented bus/address properties contain no PCI segment/domain.
 Consequently the module rejects non-zero domains and treats ``0000`` as the
 caller's conventional Windows slot label, never as a value proven by SetupAPI.
@@ -27,6 +44,7 @@ import os
 import platform
 import re
 import subprocess
+import threading
 from typing import Iterable
 
 
@@ -46,6 +64,21 @@ _SPDRP_ADDRESS = 28
 
 _CR_SUCCESS = 0
 _DN_STARTED = 0x00000008
+
+# SetupAPI property-change restart (setupapi.h).
+_DIF_PROPERTYCHANGE = 0x00000012
+_DICS_PROPCHANGE = 0x00000003
+_DICS_FLAG_CONFIGSPECIFIC = 0x00000002
+_DI_NEEDRESTART = 0x00000080
+_DI_NEEDREBOOT = 0x00000100
+_ERROR_SUCCESS_REBOOT_REQUIRED = 3010
+_SETUPAPI_RESTART_EXPORTS = (
+    "SetupDiCreateDeviceInfoList", "SetupDiOpenDeviceInfoW", "SetupDiSetClassInstallParamsW",
+    "SetupDiCallClassInstaller", "SetupDiGetDeviceInstallParamsW", "SetupDiDestroyDeviceInfoList",
+)
+
+RESTART_PNPUTIL = "pnputil"
+RESTART_SETUPAPI = "setupapi"
 _PNPUTIL_DIAGNOSTIC_LIMIT = 512
 _SLOT = re.compile(r"^(?P<domain>[0-9A-Fa-f]{4}):(?P<bus>[0-9A-Fa-f]{2}):(?P<device>[0-9A-Fa-f]{2})\.(?P<function>[0-7])$")
 _NVIDIA_PCI_ID = re.compile(r"^PCI\\VEN_10DE&DEV_[0-9A-F]{4}(?:&[A-Z0-9_]+)*$", re.IGNORECASE)
@@ -70,6 +103,7 @@ class RestartResult:
     reboot_required: bool
     message: str
     returncode: int | None
+    method: str = ""
 
 
 def _parse_slot(slot: str) -> tuple[str, int, int, int]:
@@ -135,22 +169,85 @@ def _target_from_display_info(setupapi, handle, info) -> DeviceTarget | None:
     )
 
 
-def _windows_build() -> int | None:
+def _windows_version() -> tuple[int, int, int] | None:
+    """(major, minor, build) of the running Windows, e.g. (6, 1, 7601) for Windows 7."""
     if platform.system() != "Windows":
         return None
     numbers = [int(value) for value in re.findall(r"\d+", platform.version())]
-    if len(numbers) < 3 or numbers[0] < 10:
+    if len(numbers) < 3:
         return None
-    return numbers[2]
+    return numbers[0], numbers[1], numbers[2]
 
 
-PNP_RESTART_REQUIREMENT = "PnP device restart requires Windows 10 version 2004 or later"
+def _windows_build() -> int | None:
+    version = _windows_version()
+    if version is None or version[0] < 10:
+        return None
+    return version[2]
+
+
+PNP_RESTART_REQUIREMENT = (
+    "GPU device restart needs Windows PnPUtil /restart-device (Windows 10 version 2004 or "
+    "later) or SetupAPI's device restart from a native (not WOW64) process"
+)
 
 
 def pnputil_restart_supported() -> bool:
     """``/restart-device`` was introduced in Windows 10 version 2004 (build 19041)."""
     build = _windows_build()
     return build is not None and build >= 19041
+
+
+def _is_wow64(kernel_loader=None) -> bool:
+    """A 32-bit process on 64-bit Windows cannot call class installers (ERROR_IN_WOW64)."""
+    try:
+        kernel = (kernel_loader or ctypes.WinDLL)("kernel32", use_last_error=True)
+        query = kernel.IsWow64Process
+    except (AttributeError, OSError):
+        return False  # no IsWow64Process: Windows without WOW64
+    query.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int)]
+    query.restype = ctypes.c_int
+    kernel.GetCurrentProcess.argtypes = []
+    kernel.GetCurrentProcess.restype = ctypes.c_void_p
+    flag = ctypes.c_int(0)
+    if not query(kernel.GetCurrentProcess(), ctypes.byref(flag)):
+        return True  # cannot prove a native process: do not attempt
+    return bool(flag.value)
+
+
+def _load_setupapi():
+    return ctypes.WinDLL("setupapi", use_last_error=True)
+
+
+def setupapi_restart_supported(loader=None) -> bool:
+    """SetupAPI property-change restart: every export present, native process."""
+    if platform.system() != "Windows":
+        return False
+    try:
+        setupapi = (loader or _load_setupapi)()
+        for name in _SETUPAPI_RESTART_EXPORTS:
+            getattr(setupapi, name)
+    except (AttributeError, OSError):
+        return False
+    return not _is_wow64()
+
+
+def restart_method() -> str | None:
+    """The restart method for this Windows: PnPUtil where it exists, else SetupAPI.
+
+    Windows 10 version 2004 and later keep the PnPUtil path that main has always
+    used. Older Windows, where ``/restart-device`` does not exist, uses the
+    SetupAPI property-change restart when its exports are present.
+    """
+    if pnputil_restart_supported():
+        return RESTART_PNPUTIL
+    if setupapi_restart_supported():
+        return RESTART_SETUPAPI
+    return None
+
+
+def device_restart_supported() -> bool:
+    return restart_method() is not None
 
 
 def is_admin() -> bool:
@@ -180,8 +277,44 @@ class _SP_DEVINFO_DATA(ctypes.Structure):
     ]
 
 
+def _setupapi_structs(pointer_size: int):
+    """SetupAPI install structures for a 4- or 8-byte-pointer process.
+
+    setupapi.h packs these structures to 1 byte on 32-bit Windows and to 8 bytes
+    on 64-bit Windows, and ``cbSize`` must equal the native ``sizeof``:
+    SP_DEVINSTALL_PARAMS_W is 556 bytes on x86 and 584 bytes on x64.
+    """
+    pack = 8 if pointer_size == 8 else 1
+    pointer = ctypes.c_uint64 if pointer_size == 8 else ctypes.c_uint32
+
+    class Header(ctypes.Structure):
+        _pack_ = pack
+        _fields_ = [("cbSize", ctypes.c_uint32), ("InstallFunction", ctypes.c_uint32)]
+
+    class PropChange(ctypes.Structure):
+        _pack_ = pack
+        _fields_ = [("ClassInstallHeader", Header), ("StateChange", ctypes.c_uint32),
+                    ("Scope", ctypes.c_uint32), ("HwProfile", ctypes.c_uint32)]
+
+    class DevInstallParams(ctypes.Structure):
+        _pack_ = pack
+        _fields_ = [("cbSize", ctypes.c_uint32), ("Flags", ctypes.c_uint32), ("FlagsEx", ctypes.c_uint32),
+                    ("hwndParent", pointer), ("InstallMsgHandler", pointer),
+                    ("InstallMsgHandlerContext", pointer), ("FileQueue", pointer),
+                    ("ClassInstallReserved", pointer), ("Reserved", ctypes.c_uint32),
+                    ("DriverPath", ctypes.c_uint16 * 260)]
+
+    return Header, PropChange, DevInstallParams
+
+
 def _last_error() -> int:
     return ctypes.get_last_error()
+
+
+def _clear_last_error() -> None:
+    clear = getattr(ctypes, "set_last_error", None)  # Windows-only ctypes API
+    if clear is not None:
+        clear(0)
 
 
 def _property_bytes(setupapi, handle, info, property_id: int) -> bytes:
@@ -331,22 +464,115 @@ def _pnputil_diagnostics(completed: subprocess.CompletedProcess) -> str:
     return "; ".join(parts) or "no PnPUtil diagnostic output"
 
 
+def _setupapi_property_change(instance_id: str, loader=None) -> bool:
+    """Ask the class installer to restart exactly ``instance_id``.
+
+    Returns True when Windows restarted the device in place and False when it
+    reports that a reboot is needed. Raises DeviceResetError with the Win32
+    error when SetupAPI refuses; nothing is retried.
+    """
+    setupapi = (loader or _load_setupapi)()
+    _, PropChange, DevInstallParams = _setupapi_structs(ctypes.sizeof(ctypes.c_void_p))
+    setupapi.SetupDiCreateDeviceInfoList.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    setupapi.SetupDiCreateDeviceInfoList.restype = ctypes.c_void_p
+    setupapi.SetupDiOpenDeviceInfoW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_void_p,
+                                                ctypes.c_ulong, ctypes.POINTER(_SP_DEVINFO_DATA)]
+    setupapi.SetupDiOpenDeviceInfoW.restype = ctypes.c_int
+    setupapi.SetupDiSetClassInstallParamsW.argtypes = [ctypes.c_void_p, ctypes.POINTER(_SP_DEVINFO_DATA),
+                                                       ctypes.c_void_p, ctypes.c_ulong]
+    setupapi.SetupDiSetClassInstallParamsW.restype = ctypes.c_int
+    setupapi.SetupDiCallClassInstaller.argtypes = [ctypes.c_uint, ctypes.c_void_p, ctypes.POINTER(_SP_DEVINFO_DATA)]
+    setupapi.SetupDiCallClassInstaller.restype = ctypes.c_int
+    setupapi.SetupDiGetDeviceInstallParamsW.argtypes = [ctypes.c_void_p, ctypes.POINTER(_SP_DEVINFO_DATA),
+                                                        ctypes.c_void_p]
+    setupapi.SetupDiGetDeviceInstallParamsW.restype = ctypes.c_int
+    setupapi.SetupDiDestroyDeviceInfoList.argtypes = [ctypes.c_void_p]
+    setupapi.SetupDiDestroyDeviceInfoList.restype = ctypes.c_int
+
+    handle = setupapi.SetupDiCreateDeviceInfoList(None, None)
+    if handle in (None, ctypes.c_void_p(-1).value):
+        raise DeviceResetError(f"SetupAPI could not create a device list (error {_last_error():#x})")
+    try:
+        info = _SP_DEVINFO_DATA()
+        info.cbSize = ctypes.sizeof(_SP_DEVINFO_DATA)
+        _clear_last_error()
+        if not setupapi.SetupDiOpenDeviceInfoW(handle, instance_id, None, 0, ctypes.byref(info)):
+            raise DeviceResetError(f"SetupAPI could not open the selected GPU device (error {_last_error():#x})")
+        params = PropChange()
+        params.ClassInstallHeader.cbSize = ctypes.sizeof(params.ClassInstallHeader)
+        params.ClassInstallHeader.InstallFunction = _DIF_PROPERTYCHANGE
+        params.StateChange = _DICS_PROPCHANGE
+        params.Scope = _DICS_FLAG_CONFIGSPECIFIC
+        params.HwProfile = 0  # the current hardware profile
+        _clear_last_error()
+        if not setupapi.SetupDiSetClassInstallParamsW(handle, ctypes.byref(info), ctypes.byref(params),
+                                                      ctypes.sizeof(params)):
+            raise DeviceResetError(f"SetupAPI refused the restart request (error {_last_error():#x})")
+        _clear_last_error()
+        if not setupapi.SetupDiCallClassInstaller(_DIF_PROPERTYCHANGE, handle, ctypes.byref(info)):
+            raise DeviceResetError(f"Windows could not restart the selected GPU device (error {_last_error():#x})")
+        install = DevInstallParams()
+        install.cbSize = ctypes.sizeof(install)
+        _clear_last_error()
+        if not setupapi.SetupDiGetDeviceInstallParamsW(handle, ctypes.byref(info), ctypes.byref(install)):
+            # The restart call succeeded, but whether Windows deferred it to a
+            # reboot is unknown: never report that as an in-place restart.
+            raise DeviceResetError("Windows accepted the GPU restart, but whether it needs a reboot "
+                                   f"could not be read (error {_last_error():#x})")
+        return not install.Flags & (_DI_NEEDREBOOT | _DI_NEEDRESTART)
+    finally:
+        setupapi.SetupDiDestroyDeviceInfoList(handle)
+
+
+def _restart_with_setupapi(current: DeviceTarget, timeout: float) -> RestartResult:
+    """Run the synchronous class-installer call with the same bounded wait as PnPUtil."""
+    outcome = {}
+
+    def work():
+        try:
+            outcome["restarted"] = _setupapi_property_change(current.instance_id)
+        except Exception as error:  # reported below; never escapes the worker
+            outcome["error"] = error
+
+    worker = threading.Thread(target=work, name="druta-device-restart", daemon=True)
+    worker.start()
+    worker.join(timeout)
+    if worker.is_alive():
+        return RestartResult(False, False, "Windows SetupAPI did not finish restarting the GPU before the "
+                             "timeout; the restart may still complete", None, RESTART_SETUPAPI)
+    error = outcome.get("error")
+    if error is not None:
+        return RestartResult(False, False, str(error), None, RESTART_SETUPAPI)
+    if not outcome.get("restarted"):
+        return RestartResult(False, True, "GPU restart requires a Windows reboot; Druta will not reboot Windows",
+                             _ERROR_SUCCESS_REBOOT_REQUIRED, RESTART_SETUPAPI)
+    ok, message = _post_restart_status(current)
+    return RestartResult(ok, False, message, 0, RESTART_SETUPAPI)
+
+
 def restart_target(target: DeviceTarget, timeout: float = 30) -> RestartResult:
-    """Restart exactly ``target`` once; this function never requests an OS reboot."""
-    if not pnputil_restart_supported():
+    """Restart exactly ``target`` once; this function never requests an OS reboot.
+
+    The method follows the running Windows: PnPUtil from Windows 10 version
+    2004, SetupAPI's property-change restart before it.
+    """
+    method = restart_method()
+    if method is None:
         return RestartResult(False, False, PNP_RESTART_REQUIREMENT, None)
     if not is_admin():
-        return RestartResult(False, False, "Administrator rights are required to restart this GPU device", None)
+        return RestartResult(False, False, "Administrator rights are required to restart this GPU device", None, method)
     try:
         current = resolve_target(target.slot)
     except DeviceResetError as error:
-        return RestartResult(False, False, f"GPU target changed before restart: {error}", None)
+        return RestartResult(False, False, f"GPU target changed before restart: {error}", None, method)
     if current != target:
-        return RestartResult(False, False, "GPU target changed before restart; no device was restarted", None)
+        return RestartResult(False, False, "GPU target changed before restart; no device was restarted", None, method)
+    if method == RESTART_SETUPAPI:
+        return _restart_with_setupapi(current, timeout)
     try:
         command = [system_pnputil(), "/restart-device", current.instance_id]
     except DeviceResetError as error:
-        return RestartResult(False, False, str(error), None)
+        return RestartResult(False, False, str(error), None, RESTART_PNPUTIL)
     try:
         completed = subprocess.run(
             command,
@@ -357,16 +583,16 @@ def restart_target(target: DeviceTarget, timeout: float = 30) -> RestartResult:
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except subprocess.TimeoutExpired:
-        return RestartResult(False, False, "PnPUtil did not finish restarting the GPU before the timeout", None)
+        return RestartResult(False, False, "PnPUtil did not finish restarting the GPU before the timeout", None, RESTART_PNPUTIL)
     except OSError as error:
-        return RestartResult(False, False, f"cannot start Windows PnPUtil: {error}", None)
+        return RestartResult(False, False, f"cannot start Windows PnPUtil: {error}", None, RESTART_PNPUTIL)
     if completed.returncode == 3010:
-        return RestartResult(False, True, "GPU restart requires a Windows reboot; Druta will not reboot Windows", 3010)
+        return RestartResult(False, True, "GPU restart requires a Windows reboot; Druta will not reboot Windows", 3010, RESTART_PNPUTIL)
     if completed.returncode != 0:
         message = (
             f"PnPUtil could not restart the selected GPU device (exit code {completed.returncode}; "
             f"{_pnputil_diagnostics(completed)})"
         )
-        return RestartResult(False, False, message, completed.returncode)
+        return RestartResult(False, False, message, completed.returncode, RESTART_PNPUTIL)
     ok, message = _post_restart_status(current)
-    return RestartResult(ok, False, message, completed.returncode)
+    return RestartResult(ok, False, message, completed.returncode, RESTART_PNPUTIL)
