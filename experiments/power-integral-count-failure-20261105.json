@@ -1,0 +1,180 @@
+{
+  "schema": 1,
+  "date": "2026-11-05",
+  "scope": {
+    "name": "NVIDIA GeForce RTX 5080",
+    "driver": "617.42",
+    "vbios": "98.03.3b.c0.6f"
+  },
+  "original_probe": {
+    "field": "past sample count",
+    "from": 43,
+    "to": 44,
+    "set_error": "ValueError('policy request failed (NTSTATUS 0, RM 0x65)')",
+    "cleanup_error": "ValueError('policy request failed (NTSTATUS 0, RM 0x23)')",
+    "call_timestamps_retained": false,
+    "last_timestamped_exact_baseline_utc": "2026-11-05T09:56:01.345956Z",
+    "changed_count_readback_obtained": false,
+    "future_count_attempted": false
+  },
+  "events": [
+    {
+      "utc": "2026-11-05T09:56:01.5388375Z",
+      "record_id": 7266,
+      "event_id": 153,
+      "messages": [
+        "\\Device\\Video2044",
+        "UCodeReset TDR occurred on GPUID:100"
+      ]
+    },
+    {
+      "utc": "2026-11-05T09:56:03.8752490Z",
+      "record_id": 7267,
+      "event_id": 153,
+      "messages": [
+        "\\Device\\Video2044",
+        "Error occurred on GPUID: 100"
+      ]
+    },
+    {
+      "utc": "2026-11-05T09:56:04.3608019Z",
+      "record_id": 7268,
+      "event_id": 14,
+      "messages": [
+        "\\Device\\Video2044",
+        "GPU recovery action changed from 0x0 (None) to 0x1 (PF FLR)"
+      ]
+    },
+    {
+      "utc": "2026-11-05T09:56:08.5227906Z",
+      "record_id": 7269,
+      "event_id": 153,
+      "messages": [
+        "\\Device\\Video2044",
+        "GpuRcReset TDR occurred on GPUID:100"
+      ]
+    },
+    {
+      "utc": "2026-11-05T09:56:11.6135686Z",
+      "record_id": 7270,
+      "event_id": 153,
+      "messages": [
+        "\\Device\\Video2044",
+        "GpuRcReset TDR occurred on GPUID:100"
+      ]
+    },
+    {
+      "utc": "2026-11-05T09:56:11.6293679Z",
+      "record_id": 7271,
+      "event_id": 153,
+      "messages": [
+        "\\Device\\Video2044",
+        "Resetting TDR occurred on GPUID:100"
+      ]
+    },
+    {
+      "utc": "2026-11-05T09:56:16.8125823Z",
+      "record_id": 7272,
+      "event_id": 153,
+      "messages": [
+        "\\Device\\Video2044",
+        "Reset TDR occurred on GPUID:100"
+      ]
+    },
+    {
+      "utc": "2026-11-05T09:56:16.8282098Z",
+      "record_id": 7273,
+      "event_id": 153,
+      "messages": [
+        "\\Device\\Video2044",
+        "Restarting TDR occurred on GPUID:100"
+      ]
+    }
+  ],
+  "recovery": {
+    "pre_manual_reset_fields": {
+      "mode": 2,
+      "past": 43,
+      "next": 7,
+      "lower": 3072,
+      "upper": 4219
+    },
+    "manual_reset_record_utc": "2026-11-05T09:58:09.038267Z",
+    "manual_reset_finished_record_utc": "2026-11-05T09:58:10.019885Z",
+    "result": {
+      "ok": true,
+      "reboot_required": false,
+      "message": "GPU PnP restart completed and Windows reports the device started",
+      "returncode": 0
+    },
+    "post_reset_record_utc": "2026-11-05T09:59:08.258108Z",
+    "full_request_state_equal_to_original": true,
+    "timing_note": "Record timestamps do not independently establish exact API entry/completion times"
+  },
+  "public_status_definitions": {
+    "url": "https://github.com/NVIDIA/open-gpu-kernel-modules/blob/e6a2e01579fbbd1ca2ed43fef2ee2589e9bd8bd9/src/common/sdk/nvidia/inc/nvstatuscodes.h",
+    "sha256": "1909dc11c30763563fdc34b8a7cb00166a9665f18947f7ce43e983b96397bb54",
+    "0x65": "NV_ERR_TIMEOUT",
+    "0x23": "NV_ERR_INVALID_CLIENT"
+  },
+  "host_trace": {
+    "binary_sha256": "db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b",
+    "row_setter_rva": "0xC57310",
+    "get_helper_rva": "0x685C50",
+    "set_helper_rva": "0x685F00",
+    "serializer_rva": "0xC56C30",
+    "finding": "Examined row setter and direct helpers contain no count-specific admission/reinitialization; active ten-byte block is copied together",
+    "limit": "Static host paths do not establish actual captured-call routing, indirect callees or firmware count handling"
+  },
+  "export_and_local_path": {
+    "metadata_file_offset": "0xE68850",
+    "metadata_rva": "0xE6AC50",
+    "metadata_hex": "80144e400100000044000000000000001be680203436000090b0e64001000000",
+    "method": "0x2080E61B",
+    "parameter_bytes": 13876,
+    "flags": "0x44",
+    "flag_meanings": [
+      "PRIVILEGED (0x04)",
+      "ROUTE_TO_PHYSICAL (0x40)"
+    ],
+    "handler_rva": "0x4E1480",
+    "group_rva": "0x4DE5A0",
+    "selected_row_dispatch": "interface+0x30, packet+0x14+index*0xC4",
+    "interface_constructor_rva": "0xC56BB0",
+    "installed_row_setter_rva": "0xC57310",
+    "later_call_rva": "0x8E2800",
+    "interpretation": "On this conditional local construction/dispatch path, a later error can be returned after successful row callbacks",
+    "routing_limit": "Public forwarding logic permits a physical-routed call to bypass pFunc; the captured calls actual route and failure stage are unproved",
+    "metadata_correction": "Command ID is record+0x10; the pointer after classInfo belongs to the following export, not this one",
+    "public_source_commit": "ca2d03e6fafd4d4b56b383497d931c25b283bfcf",
+    "public_source_sha256": {
+      "src/nvidia/inc/libraries/nvoc/runtime.h": "eeafdd82e65566308b500ec5f7c1f0fd1e96fcda49f94248c4f7c5a1a8f7afcb",
+      "src/nvidia/inc/kernel/rmapi/control.h": "a53dbb3f94bbf841b332cc31aa6d52681dd6c69e6de7155a91aed6f09d2a97aa",
+      "src/nvidia/src/kernel/rmapi/resource.c": "acb206ae73463d90391c3091f77487debd5d6306e6d68239864ca823880f1e1f",
+      "src/nvidia/src/libraries/resserv/src/rs_resource.c": "984e490eb2c4b31bc5cfaeb455b291d97fcbf99020b9e93fd2901c57177a35eb"
+    }
+  },
+  "decision": "Keep sample counts read-only; no repeat count write justified by this evidence",
+  "limitations": [
+    "Event sequence and failed request are associated in the same captured run; precise causal order is unproved",
+    "Timeout is not an explicit unsupported or invalid-argument response",
+    "No admissible count range, required reinitialization or safe next value established",
+    "No new GPU, registry, restart or workload operation in this audit"
+  ],
+  "artifact_sha256": {
+    "trial.json": "75ec9f68663d659047a53b0d11c9af45fb4054b43c49c6087fd2d85fc0897240",
+    "trial.py": "a65757efd4dc7e3b686393fda95ddebc25ab2b37373ec2b99d953eebfbc6f595",
+    "driver-events-before-reset.xml": "79391c3093337d609f7f9dfa6634cad8bfcdc30e0eafee4fca158e3abb1df447",
+    "reset.json": "42edd2e5db01ae8f48697ac89c1b30883fea6402bfa9c1587e194b6bb3a82cc6",
+    "post-reset.json": "e172f2109bd28ae4d74c671ae4a662913b097f07e4667ba9567a7f36420c4f49"
+  },
+  "root_disassembly_sha256": {
+    "setter.txt": "12142932e1883d27b467d607716e5be28b8bdd816dddfd885ce1ea63103e27ef",
+    "set-validation.txt": "78751ddd353f191492c63822eec8775b934c889e950335a2ec07a0a5d2b21bc2",
+    "get-validation.txt": "c84134ff320657887b5da73b69db29ae2cd23e2100194da0a3850899cdb24ef0",
+    "pmu-serializer.txt": "0c426f3df134eae7e903b881c82a83bb3a3f19575b1f5853641bea7026fc2984",
+    "export-e61b.txt": "6169dbfbba30fa76e55cc3c5cf907b1415592c9d458b146b884a5d3f7475e76f",
+    "group-e61b-full.txt": "48f83dd7c6434d105d952502e2d0af903989e03042b6d3ef071f8f30f7fd828d",
+    "interface-constructor.txt": "ee4aa202e3238350493fcc78041f1b1b2e8a4770efa8e96d019f05a89de25cb6"
+  }
+}

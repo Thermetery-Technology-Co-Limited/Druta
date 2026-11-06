@@ -1,8 +1,11 @@
 # Druta
 
-**Version 1.8.1** — [release notes](RELEASE-NOTES-1.8.1.md).
-Supersedes 1.8.0. Adds explicit MP2888A manual PMBus control for the tested
-ASUS Strix RTX 3070 Ti while preserving the original ASUS Turing offset method.
+**Version 1.9.1** — latest stable release, [release notes](RELEASE-NOTES-1.9.1.md).
+Supersedes 1.8.1 and the 1.9 prereleases. Adds registry/BIOS overrides with
+durable Undo, session-only live voltage and power-saving controls, extended
+power requests and Pascal core current limits, profiles and Undo across the
+tuning controls, Ampere GA102 table support, and an Advanced tab that groups
+everything beyond daily tuning by scope.
 
 Hardware validation: [Maxwell/Pascal](MAXWELL-PASCAL-VALIDATION.md),
 [RTX 5080 / Blackwell](BLACKWELL-VALIDATION.md) and
@@ -42,7 +45,7 @@ TRADEMARK OF PNY TECHNOLOGIES INC.
 THESE NAMES APPEAR HERE SOLELY
 TO IDENTIFY HARDWARE AND SOFTWARE THAT DRUTA WORKS WITH OR IS COMPARABLE TO.**
 
-Initial development boards (measurements describe these configurations, not universal defaults):
+Development boards (measurements describe these configurations, not universal defaults):
 
 | | die | arch | memory | board |
 |---|---|---|---|---|
@@ -51,6 +54,8 @@ Initial development boards (measurements describe these configurations, not univ
 | **RTX 3090Ti** | GA102 | Ampere | GDDR6X | EVGA Kingpin |
 | **RTX 3070Ti** | GA104 | Ampere | GDDR6X | ASUS Strix OC |
 | **Titan RTX** | TU102 | Turing | GDDR6 | die transplanted onto an ASUS RTX 2080 Ti Strix PCB |
+| **RTX 2080 Super** | TU104 | Turing | GDDR6 | Gigabyte AORUS Xtreme |
+| **RTX 2070 (400 non-A)** | TU106 | Turing | GDDR6 | die transplanted onto an ASUS 2080 Super Strix PCB |
 | **Titan Xp** | GP102 | Pascal | GDDR5X | stock, unmodified |
 | **Titan Xp** | GP102 | Pascal | GDDR5X | die transplanted onto an ASUS 1080Ti Poseidon |
 | **GTX 1060 9Gbps** | GP106 | Pascal | GDDR5 | Gigabyte AORUS Xtreme|
@@ -73,7 +78,16 @@ a few seconds and writes no register.
 - **Reversible, needs admin, cleared by a reboot:** clock offsets, power limit,
 voltage boost, fan, both lock mechanisms, and every V/F curve edit. A V/F edit
 can crash the display driver and hang the machine; a reboot clears the settings
-either way. Nothing Druta applies *to the card* besides the I2C survives a reboot.
+either way. Registry overrides are a separate persistent path described below.
+
+- **Persistent registry overrides, needs admin:** selected VBIOS-field and driver-policy
+changes activate after restarting the selected GPU and survive driver/Windows
+restarts. Use **Restore previous registry settings** to undo them; restarting
+Windows alone does not remove them. These overrides do not flash the physical VBIOS.
+The development branch supports qualified GR power-gating entry disables,
+including removal of all enabled entries, with exact configuration readback and
+Restore. Additional dependency transitions and broader hardware qualification retain
+their documented limits; configuration readback does not measure physical residency. See the [manual](MANUAL.md).
 
 - **Can hang the machine and corrupt data held in VRAM, also cleared by a reboot:** memory timing writes.
 They are volatile — the driver reprograms these registers per clock band, so an
@@ -98,7 +112,7 @@ python -m pip install -r requirements.txt
 ```
 
 The local build produces `dist\Druta\Druta.exe` and
-`dist\Druta-1.8.1-win64.zip`. Distribute the
+`dist\Druta-1.9.08-win64.zip`. Distribute the
 whole `Druta` folder or ZIP: the EXE needs its adjacent `_internal` folder.
 
 `dist\Druta\source\` contains the matching working-tree source, including
@@ -310,8 +324,9 @@ XBAR = max(540, snap15(0.95 * GPC + 15))
 # Control
 
 The ordinary core and memory offsets work on the tested TITAN RTX and TITAN Xp
-with drivers **472.12 and 580.97**. Druta uses NVML on newer drivers and NVAPI
-Pstates20 on 472.12. The memory slider keeps the same true-MHz units: NVML's
+with drivers **472.12 and 580.97**. Druta selects NVML or the validated NVAPI
+Pstates20 fallback through current capabilities, including an NVML setter that
+reports `NOT_SUPPORTED` despite being exported. The memory slider keeps the same true-MHz units: NVML's
 memory offset numbers are twice the corresponding NVAPI MHz values. For
 example, the TITAN RTX's NVAPI range of -1000..+3000 MHz corresponds to
 NVML -2000..+6000, or -250..+750 true MHz on its GDDR6 memory.
@@ -577,13 +592,19 @@ puts them back when the hold ends.
 - This is the one rail-limit write that does not need the **Rail limits**
   box: it only ever raises those three terms, to exactly the held point +
   margin, for as long as the hold lasts. Untick Keep headroom to stop it.
+- The 1200 mV normal limit (1500 mV with XOC) applies to the held voltage;
+  temporary headroom can exceed it by the selected margin. With the default
+  25 mV margin and XOC off, a 1187.5 mV hold gets a 1212.5 mV ceiling and a
+  1200 mV hold gets a 1225 mV ceiling. Manual rail requests keep their existing
+  bounds. A hold above the current rail ceiling must still be enabled by
+  raising the limits yourself before automatic headroom can apply.
 - The held point's voltage stays the same, but the rail may run up to the
   margin higher. The TITAN RTX ran up to 18.75 mV higher; the 3070 Ti ran the
   full 25 mV higher.
 - If the live rail reads above the raised ceiling, the raise comes off. It
   also comes off if another tool replaces the V/F lock.
 - If Druta dies during a raise, the next session says so and offers a GPU
-  device restart (PnP).
+  device restart (PnP) on Windows 10 version 2004 or later.
 
 ## Power policies
 
@@ -706,6 +727,14 @@ with a suitable V/F request. Restoring the original limits restored the lower
 live voltage in two repeated cycles on each card. The former claim here that
 this cap could not be raised was disproved by that measurement. See
 [the per-rail findings](VOLTAGE-RAILS-TITAN.md) for exact conditions and scope.
+
+The Controls page also provides **Live voltage rail requests** for REL, ALT/OP,
+OV, VMIN, VCRIT low and VCRIT high. Read the current requests, choose the rail
+and field, and enter its offset in mV. Apply changes only that request and checks
+the stored result without restarting the GPU. VCRIT readback confirms the stored
+request; its effective threshold remains unverified. A driver that returns
+success without applying a changed request is reported as a readback failure.
+Availability is checked on the selected adapter, without a driver-version list.
 
 ## Contributing I2C controller support
 
@@ -937,7 +966,8 @@ Use this as a recovery attempt after a driver/timing failure. The display can go
 blank and other GPU applications can lose their device; close other workloads
 first. Unsaved edits in Druta are discarded. This does not guarantee recovery
 from a hardware hang or restoration of every setting to stock. It requires
-administrator rights and Windows 10 version 2004 or later. Ambiguous device
+administrator rights and Windows 10 version 2004 or later; on an older Windows
+version Druta stays open and logs that requirement. Ambiguous device
 locations and nonzero PCI segments are refused.
 
 If the GUI is unusable, the same recovery path can be launched from an elevated

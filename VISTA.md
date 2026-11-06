@@ -168,6 +168,36 @@ parsed both bundled regulator profiles and rendered three frames. The Vista
 guest, the full-interface fixture and physical NVIDIA checks were not
 repeated for this follow-up.
 
+## Shared feature update (2026-11-06): Druta 1.9.1
+
+The draft now carries the shared Druta 1.9.1 source (main `fa6ee83`, through
+#79) through the Windows 7 update. Its application code under `src\druta`,
+outside `src\druta\tools`, is still identical to the Windows 7 branch. The
+new features, the Python 3.8 changes (a strict-capable `zip`, a portable
+`add_note`, and `dict |` / `int.bit_count` replacements), the new
+diagnostics, and the behavior of the new controls without
+`D3DKMTEnumAdapters2` or PnP device restart are described in
+[the Windows 7 record](WINDOWS7.md#shared-feature-update-2026-11-06-druta-191).
+All of it applies to Vista:
+
+- The live PERF, power-saving and client-power controls stay unavailable
+  for the same missing `gdi32` export, and report it as unsupported.
+- Registry and VBIOS overrides cannot be activated, because Druta's GPU
+  restart needs Windows 10 version 2004. Main's panel does not check this
+  before staging; that is reported for main rather than refused here.
+
+`build-vista.ps1` now copies `Druta-Diagnose.cmd` into the package and
+writes `Druta-imports.txt` after the optional nvtune files are added, so the
+import check covers them. Vista has no API sets at all, so any
+`api-ms-win-*` name that the import check reports as missing points at a
+binary that needs Windows 7 or later. The collector's update check includes
+the Vista Platform Update (KB971644) that provides Direct3D 11.
+
+This update was checked on Linux only, with CPython 3.13 and stock CPython
+3.8 (not the patched Vista runtime). The hardware-free suite matches main's
+3.13 baseline except for tests that need Windows' `ctypes.WinDLL`. No Vista
+package was built and nothing was run on Vista or on a physical GPU.
+
 ## Shared feature update (2026-10-19)
 
 The draft now carries the shared Druta 1.8.1 source (main `81094be`) through

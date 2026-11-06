@@ -1,0 +1,425 @@
+{
+  "schema": "driver61742-unblocked-objectives-v1",
+  "driver": "617.42",
+  "identity": {
+    "slot": "0000:01:00.0",
+    "architecture": 10,
+    "device_id": 11266,
+    "subsystem_id": 2313031747
+  },
+  "raw_report": "experiments/registry-overrides/driver-downgrade-rel-20261101/unblocked-objectives-61742/result.json",
+  "raw_report_sha256": "c5e8e1d46a7f55777283b2a47eae4d30174da6daf0fbc0415078d5f161660f10",
+  "modern_get_count": 72,
+  "results": [
+    {
+      "rail": "0",
+      "field": "REL",
+      "delta_uv": 5000,
+      "requested_before_uv": 0,
+      "requested_active_uv": 5000,
+      "policy_before_uv": {
+        "reliability": 1040000,
+        "alt_reliability": 1060000,
+        "overvoltage": 1200000,
+        "effective": 1040000,
+        "vmin": 800000
+      },
+      "policy_active_uv": {
+        "reliability": 1045000,
+        "alt_reliability": 1060000,
+        "overvoltage": 1200000,
+        "effective": 1045000,
+        "vmin": 800000
+      },
+      "modern_active_comparison": {
+        "info": {
+          "identical": true,
+          "changed_byte_count": 0,
+          "changed_offsets": []
+        },
+        "control": {
+          "identical": true,
+          "changed_byte_count": 0,
+          "changed_offsets": []
+        }
+      },
+      "modern_final_comparison": {
+        "info": {
+          "identical": true,
+          "changed_byte_count": 0,
+          "changed_offsets": []
+        },
+        "control": {
+          "identical": true,
+          "changed_byte_count": 0,
+          "changed_offsets": []
+        }
+      },
+      "modern_mask": [
+        31,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "modern_payloads": {
+        "info": {
+          "sha256": "0df800647b7fcaf73a9024b8b6160615c27e1c86cb42f2ced03f7c4614f7bac5",
+          "bytes": 499936
+        },
+        "control": {
+          "sha256": "80bf8dec7252f3aaccffe3f3483bf1f243e983e2d8b846f875e3898841269639",
+          "bytes": 9220
+        }
+      },
+      "exact_request_and_policy_restoration": true
+    },
+    {
+      "rail": "1",
+      "field": "REL",
+      "delta_uv": 5000,
+      "requested_before_uv": -50000,
+      "requested_active_uv": -45000,
+      "policy_before_uv": {
+        "reliability": 990000,
+        "alt_reliability": 1060000,
+        "overvoltage": 1200000,
+        "effective": 990000,
+        "vmin": 800000
+      },
+      "policy_active_uv": {
+        "reliability": 995000,
+        "alt_reliability": 1060000,
+        "overvoltage": 1200000,
+        "effective": 995000,
+        "vmin": 800000
+      },
+      "modern_active_comparison": {
+        "info": {
+          "identical": true,
+          "changed_byte_count": 0,
+          "changed_offsets": []
+        },
+        "control": {
+          "identical": true,
+          "changed_byte_count": 0,
+          "changed_offsets": []
+        }
+      },
+      "modern_final_comparison": {
+        "info": {
+          "identical": true,
+          "changed_byte_count": 0,
+          "changed_offsets": []
+        },
+        "control": {
+          "identical": true,
+          "changed_byte_count": 0,
+          "changed_offsets": []
+        }
+      },
+      "modern_mask": [
+        31,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "modern_payloads": {
+        "info": {
+          "sha256": "0df800647b7fcaf73a9024b8b6160615c27e1c86cb42f2ced03f7c4614f7bac5",
+          "bytes": 499936
+        },
+        "control": {
+          "sha256": "80bf8dec7252f3aaccffe3f3483bf1f243e983e2d8b846f875e3898841269639",
+          "bytes": 9220
+        }
+      },
+      "exact_request_and_policy_restoration": true
+    },
+    {
+      "rail": "0",
+      "field": "VCRIT low",
+      "delta_uv": -5000,
+      "requested_before_uv": 0,
+      "requested_active_uv": -5000,
+      "policy_before_uv": {
+        "reliability": 1040000,
+        "alt_reliability": 1060000,
+        "overvoltage": 1200000,
+        "effective": 1040000,
+        "vmin": 800000
+      },
+      "policy_active_uv": {
+        "reliability": 1040000,
+        "alt_reliability": 1060000,
+        "overvoltage": 1200000,
+        "effective": 1040000,
+        "vmin": 800000
+      },
+      "modern_active_comparison": {
+        "info": {
+          "identical": true,
+          "changed_byte_count": 0,
+          "changed_offsets": []
+        },
+        "control": {
+          "identical": true,
+          "changed_byte_count": 0,
+          "changed_offsets": []
+        }
+      },
+      "modern_final_comparison": {
+        "info": {
+          "identical": true,
+          "changed_byte_count": 0,
+          "changed_offsets": []
+        },
+        "control": {
+          "identical": true,
+          "changed_byte_count": 0,
+          "changed_offsets": []
+        }
+      },
+      "modern_mask": [
+        31,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "modern_payloads": {
+        "info": {
+          "sha256": "0df800647b7fcaf73a9024b8b6160615c27e1c86cb42f2ced03f7c4614f7bac5",
+          "bytes": 499936
+        },
+        "control": {
+          "sha256": "80bf8dec7252f3aaccffe3f3483bf1f243e983e2d8b846f875e3898841269639",
+          "bytes": 9220
+        }
+      },
+      "exact_request_and_policy_restoration": true
+    },
+    {
+      "rail": "0",
+      "field": "VCRIT high",
+      "delta_uv": -5000,
+      "requested_before_uv": 0,
+      "requested_active_uv": -5000,
+      "policy_before_uv": {
+        "reliability": 1040000,
+        "alt_reliability": 1060000,
+        "overvoltage": 1200000,
+        "effective": 1040000,
+        "vmin": 800000
+      },
+      "policy_active_uv": {
+        "reliability": 1040000,
+        "alt_reliability": 1060000,
+        "overvoltage": 1200000,
+        "effective": 1040000,
+        "vmin": 800000
+      },
+      "modern_active_comparison": {
+        "info": {
+          "identical": true,
+          "changed_byte_count": 0,
+          "changed_offsets": []
+        },
+        "control": {
+          "identical": true,
+          "changed_byte_count": 0,
+          "changed_offsets": []
+        }
+      },
+      "modern_final_comparison": {
+        "info": {
+          "identical": true,
+          "changed_byte_count": 0,
+          "changed_offsets": []
+        },
+        "control": {
+          "identical": true,
+          "changed_byte_count": 0,
+          "changed_offsets": []
+        }
+      },
+      "modern_mask": [
+        31,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "modern_payloads": {
+        "info": {
+          "sha256": "0df800647b7fcaf73a9024b8b6160615c27e1c86cb42f2ced03f7c4614f7bac5",
+          "bytes": 499936
+        },
+        "control": {
+          "sha256": "80bf8dec7252f3aaccffe3f3483bf1f243e983e2d8b846f875e3898841269639",
+          "bytes": 9220
+        }
+      },
+      "exact_request_and_policy_restoration": true
+    },
+    {
+      "rail": "1",
+      "field": "VCRIT low",
+      "delta_uv": -5000,
+      "requested_before_uv": 0,
+      "requested_active_uv": -5000,
+      "policy_before_uv": {
+        "reliability": 990000,
+        "alt_reliability": 1060000,
+        "overvoltage": 1200000,
+        "effective": 990000,
+        "vmin": 800000
+      },
+      "policy_active_uv": {
+        "reliability": 990000,
+        "alt_reliability": 1060000,
+        "overvoltage": 1200000,
+        "effective": 990000,
+        "vmin": 800000
+      },
+      "modern_active_comparison": {
+        "info": {
+          "identical": true,
+          "changed_byte_count": 0,
+          "changed_offsets": []
+        },
+        "control": {
+          "identical": true,
+          "changed_byte_count": 0,
+          "changed_offsets": []
+        }
+      },
+      "modern_final_comparison": {
+        "info": {
+          "identical": true,
+          "changed_byte_count": 0,
+          "changed_offsets": []
+        },
+        "control": {
+          "identical": true,
+          "changed_byte_count": 0,
+          "changed_offsets": []
+        }
+      },
+      "modern_mask": [
+        31,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "modern_payloads": {
+        "info": {
+          "sha256": "0df800647b7fcaf73a9024b8b6160615c27e1c86cb42f2ced03f7c4614f7bac5",
+          "bytes": 499936
+        },
+        "control": {
+          "sha256": "80bf8dec7252f3aaccffe3f3483bf1f243e983e2d8b846f875e3898841269639",
+          "bytes": 9220
+        }
+      },
+      "exact_request_and_policy_restoration": true
+    },
+    {
+      "rail": "1",
+      "field": "VCRIT high",
+      "delta_uv": -5000,
+      "requested_before_uv": 0,
+      "requested_active_uv": -5000,
+      "policy_before_uv": {
+        "reliability": 990000,
+        "alt_reliability": 1060000,
+        "overvoltage": 1200000,
+        "effective": 990000,
+        "vmin": 800000
+      },
+      "policy_active_uv": {
+        "reliability": 990000,
+        "alt_reliability": 1060000,
+        "overvoltage": 1200000,
+        "effective": 990000,
+        "vmin": 800000
+      },
+      "modern_active_comparison": {
+        "info": {
+          "identical": true,
+          "changed_byte_count": 0,
+          "changed_offsets": []
+        },
+        "control": {
+          "identical": true,
+          "changed_byte_count": 0,
+          "changed_offsets": []
+        }
+      },
+      "modern_final_comparison": {
+        "info": {
+          "identical": true,
+          "changed_byte_count": 0,
+          "changed_offsets": []
+        },
+        "control": {
+          "identical": true,
+          "changed_byte_count": 0,
+          "changed_offsets": []
+        }
+      },
+      "modern_mask": [
+        31,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "modern_payloads": {
+        "info": {
+          "sha256": "0df800647b7fcaf73a9024b8b6160615c27e1c86cb42f2ced03f7c4614f7bac5",
+          "bytes": 499936
+        },
+        "control": {
+          "sha256": "80bf8dec7252f3aaccffe3f3483bf1f243e983e2d8b846f875e3898841269639",
+          "bytes": 9220
+        }
+      },
+      "exact_request_and_policy_restoration": true
+    }
+  ],
+  "bracket_checks": {
+    "target_exact": true,
+    "managed_registry_exact": true,
+    "vbios_sha256_and_length_equal": true
+  },
+  "interpretation": [
+    "Positive REL requests now raise reported REL/effective policy on both captured rails. No physical voltage or arbitrary range qualification.",
+    "B212 INFO and B218 CONTROL remained identical during accepted REL and VCRIT requests; this run found no responsive modern readback to identify VCRIT effective thresholds.",
+    "No new F219 field meanings or modern SET are qualified. Other remaining initialization/dependency/consumer questions are independent of legacy offset suppression."
+  ],
+  "release_order": "Owner confirms 617.42 is the final release before 621.01; paired live tests identify 621.01 as the first suppressed release in that sequence for the captured RTX 5080.",
+  "no_registry_write": true,
+  "no_restart": true,
+  "no_workload": true
+}

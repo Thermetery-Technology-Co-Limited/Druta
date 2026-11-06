@@ -1,0 +1,160 @@
+{
+  "schema": 1,
+  "date_utc": "2026-11-02",
+  "scope": "Source-bound conditional controller12/17 ELPG group routing and clearer presentation of the existing session-owned request; no new hardware operations or separate engine selector.",
+  "driver_sha256": "db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b",
+  "source": {
+    "registration": "Constructor jump table7370BC selects736FD4 for12 and737044 for17. Both choose group3 and call752430 at73709C. Registration requires controller support through7383F0, then sets that controller bit at group+193C.",
+    "hold_release": "Feature6 callback42B784 selects nonempty group0 else group1; independently selects nonempty group3. Group3 hold7522A0 and release752340 iterate dynamic membership and change reason0.",
+    "limit": "Subsequent752480 removal can change membership. Current support alone does not prove membership, ownership or an actual transition. The separate7EC330/7EC3F0 object branch is not equated to A801 LPWR controllers."
+  },
+  "existing_hardware_evidence": {
+    "path": "experiments/live-gr-power-gating-20261101.json",
+    "sha256": "8da2234589f8f54ba4f0986f485f08b4ee16a9a7e55b04b6956e6fcf5fddebfe",
+    "observed_controllers": [
+      "0",
+      "1",
+      "12",
+      "13",
+      "14",
+      "15"
+    ],
+    "controller17": "No live qualification. It was unsupported in the captured configuration.",
+    "scope": "One RTX5080/617.42 configuration, software reason-mask witnesses only."
+  },
+  "product": {
+    "label": "Live engine-level power gating (ELPG)",
+    "behavior": "One grouped request, with driver-selected graphics/media participants. Individual engines cannot be selected.",
+    "readback": "Each supported controller is distinguished as request transition observed or no new request transition observed while held. Unsupported and unavailable support observations remain separate from enabled predicates.",
+    "limits": [
+      "Overall hold verification requires at least one independent transition and does not prove every supported controller changed.",
+      "No claim of selective NVDEC control, controller17 hardware qualification, complete group coverage or physical gating.",
+      "No new registry capability, driver restart, profile replay, recovery machinery or backend request behavior."
+    ]
+  },
+  "source_artifacts": [
+    {
+      "path": "experiments/registry-overrides/functional-backlog-audit-terra-20261101/nvdec-elpg-group3-61742.json",
+      "sha256": "bff7cc7fb0858d79921ee626770813b444ad270b72e6724317993ecc3b63b539",
+      "root_verified_windows": 11
+    },
+    {
+      "path": "experiments/registry-overrides/profiler-more-terra-20261101/elpg-group-scope-61742.json",
+      "sha256": "dfd3ba2216d7cb7a4c9382028c7e5af6ab43f3107be542c22d3a24832b40a332",
+      "root_verified_windows": 4
+    }
+  ],
+  "verified_windows": [
+    {
+      "label": "controller_constructor_dispatch",
+      "rva": "0x736db0",
+      "length": 144,
+      "bytes_hex": "48895c240848896c2410488974241857415641574883ec204c8bb150250000488d9af00000004533ff418bf04c69ce08010000488bfa488be94903d94c897b70c703ff000b044c897b0c44897b384c897b40c7432402000000c643040344897b08e8ead7ffff448bc6488bd7488bcde81c45000083fe150f8774020000488d15cc918cff8b8cb2bc7073004803caffe1",
+      "sha256": "e58412d93f4d160bfabcbed38d5e8c8fcc357162d611a9126e0889ce5154dbfb"
+    },
+    {
+      "label": "controller_jump_table",
+      "rva": "0x7370bc",
+      "length": 88,
+      "bytes_hex": "406e7300c96e73009c6e7300a1707300d86e7300296f7300f76e7300176f73006f6f7300816f7300a36f7300bf6f7300d46f7300ed6f7300067073001c70730032707300447073005a7073007070730086707300456f7300",
+      "sha256": "91fb2674ea9bfe8457466554d4380b6754e626f2caef44663c0e37b515629cab"
+    },
+    {
+      "label": "controller12_group3",
+      "rva": "0x736fd4",
+      "length": 25,
+      "bytes_hex": "0faee8c643020441b803000000c743480fe00300e9a6000000",
+      "sha256": "22f9b3ce27cfc4d4dbdbff2f32c32a229bcfaf1bd38faec2f41c7b294d577cc3"
+    },
+    {
+      "label": "controller17_group3",
+      "rva": "0x737044",
+      "length": 25,
+      "bytes_hex": "0faee8c643020841b803000000c743480fe0ff03eb390faee8",
+      "sha256": "31ecd0d14dcd0dffad286ed0ffc72939dda6371fc91347d62ca5f8bd3b1b17dd"
+    },
+    {
+      "label": "register_group_call",
+      "rva": "0x737093",
+      "length": 18,
+      "bytes_hex": "448bce488bd7488bcde88fb30100488b5c24",
+      "sha256": "ce6e04c32bc5a55aeb64477f27888b82f141711098d7fbfbac4f584203c73ce7"
+    },
+    {
+      "label": "register_if_supported",
+      "rva": "0x752430",
+      "length": 76,
+      "bytes_hex": "48895c2408574883ec20418bc0418bf9458bc1488d1c82e8a45ffeff84c07510b856000000488b5c24304883c4205fc38b83301900000fabf889833019000033c0488b5c24304883c4205fc3",
+      "sha256": "6fa245b36b3ca8600bb58ddf0cf12b8b734065dde863f6b3e28a51976545005e"
+    },
+    {
+      "label": "support_bit_predicate",
+      "rva": "0x7383f0",
+      "length": 23,
+      "bytes_hex": "4183f816730e8b82e8000000440fa3c00f92c0c332c0c3",
+      "sha256": "57ab39d9f6bb5699c930ac637b15df55b772640eb6e78857080b7fa1c740f8d1"
+    },
+    {
+      "label": "feature6_groups_hold_release",
+      "rva": "0x42b784",
+      "length": 288,
+      "bytes_hex": "4885ff0f84810100004533c0488bd7488bcbe8456c320041b801000000488bd7488bcb440fb6f8e8306c320041b803000000488bd7488bcb440fb6e0e81b6c3200498bd58845c7488bcbe80d0d3c00837de7028845c875734584ff74054533c0eb0b4584e4741441b8010000004533c9488bd7488bcbe8a16a3200403875c774144533c941b803000000488bd7488bcbe8876a3200403875c8741141b802000000498bd5488bcbe8000b3c004138b63a0900000f84d1000000498bd6488bcbe8e80600008bc6e959feffff4138b63a090000740b498bd6488bcbe8cd0600004584ff74054533c0eb0b4584e4741441b8010000004533c9488bd7488bcbe8ba6a3200403875c774144533c941b803000000488bd7488bcbe8a06a3200403875c8",
+      "sha256": "b8f7dbf7054f350f28912c5e3abe76ccf5acb3342f276c1dce29528e70a79b51"
+    },
+    {
+      "label": "group_hold_iteration",
+      "rva": "0x7522a0",
+      "length": 152,
+      "bytes_hex": "48895c240848896c2410488974241848897c242041564883ec2033c0418bd8410fb6e9488bf24c8bf18bf88b9c9a3019000085db7446f6c301741b4885f6741e440fb6cd448bc7488bd6498bcee8be80feff85c07526ffc7d1eb75daeb1eba0000df00b962db1a0ee883e998ffb9df000000e8a9dd9affb8ffff0000488b5c2430488b6c2438488b742440488b7c24484883c420415ec3cc",
+      "sha256": "d5db31aff3b4d57feabcf4be7bc3dc0f6c3e64864d351afb6256f2085ce5ea9f"
+    },
+    {
+      "label": "group_release_iteration",
+      "rva": "0x752340",
+      "length": 152,
+      "bytes_hex": "48895c240848896c2410488974241848897c242041564883ec2033c0418bd8410fb6e9488bf24c8bf18bf88b9c9a3019000085db7446f6c301741b4885f6741e440fb6cd448bc7488bd6498bcee8ee80feff85c07526ffc7d1eb75daeb1eba0000b800b962db1a0ee8e3e898ffb9b8000000e809dd9affb8ffff0000488b5c2430488b6c2438488b742440488b7c24484883c420415ec3cc",
+      "sha256": "5821cd552eeeb463ed651fcd96ddf3d884bb9489c0a1842e8773ef42401a6af5"
+    },
+    {
+      "label": "group_membership_removal",
+      "rva": "0x752480",
+      "length": 114,
+      "bytes_hex": "48895c2408574883ec20418bf8488bdae85b5ffeff84c07510b856000000488b5c24304883c4205fc38b83301900000fb3f88983301900008b83341900000fb3f88983341900008b83381900000fb3f88983381900008b833c1900000fb3f889833c19000033c0488b5c24304883c4205fc3",
+      "sha256": "31593d23ffce91c7af8a01b94e841eb2066df99ea49b99589c17420dce42e708"
+    },
+    {
+      "label": "feature6_group_dispatch",
+      "rva": "0x42b784",
+      "length": 307,
+      "bytes_hex": "4885ff0f84810100004533c0488bd7488bcbe8456c320041b801000000488bd7488bcb440fb6f8e8306c320041b803000000488bd7488bcb440fb6e0e81b6c3200498bd58845c7488bcbe80d0d3c00837de7028845c875734584ff74054533c0eb0b4584e4741441b8010000004533c9488bd7488bcbe8a16a3200403875c774144533c941b803000000488bd7488bcbe8876a3200403875c8741141b802000000498bd5488bcbe8000b3c004138b63a0900000f84d1000000498bd6488bcbe8e80600008bc6e959feffff4138b63a090000740b498bd6488bcbe8cd0600004584ff74054533c0eb0b4584e4741441b8010000004533c9488bd7488bcbe8ba6a3200403875c774144533c941b803000000488bd7488bcbe8a06a3200403875c8746841b802000000498bd5488bcbe8390b3c00",
+      "sha256": "330fe52bb730ded8193b77c869d6a304626fc6174a8b3e78f0ca5b92b7915cfb"
+    },
+    {
+      "label": "group_mask_query",
+      "rva": "0x7523e0",
+      "length": 16,
+      "bytes_hex": "418bc083bc8230190000000f95c0c3cc",
+      "sha256": "4d8c9e77bb57a1f8a45de2b96336630a0b62722ab0c05ba506af39d6eb7a6b4d"
+    },
+    {
+      "label": "group_disable_loop",
+      "rva": "0x7522a0",
+      "length": 152,
+      "bytes_hex": "48895c240848896c2410488974241848897c242041564883ec2033c0418bd8410fb6e9488bf24c8bf18bf88b9c9a3019000085db7446f6c301741b4885f6741e440fb6cd448bc7488bd6498bcee8be80feff85c07526ffc7d1eb75daeb1eba0000df00b962db1a0ee883e998ffb9df000000e8a9dd9affb8ffff0000488b5c2430488b6c2438488b742440488b7c24484883c420415ec3cc",
+      "sha256": "d5db31aff3b4d57feabcf4be7bc3dc0f6c3e64864d351afb6256f2085ce5ea9f"
+    },
+    {
+      "label": "group_release_loop",
+      "rva": "0x752340",
+      "length": 152,
+      "bytes_hex": "48895c240848896c2410488974241848897c242041564883ec2033c0418bd8410fb6e9488bf24c8bf18bf88b9c9a3019000085db7446f6c301741b4885f6741e440fb6cd448bc7488bd6498bcee8ee80feff85c07526ffc7d1eb75daeb1eba0000b800b962db1a0ee8e3e898ffb9b8000000e809dd9affb8ffff0000488b5c2430488b6c2438488b742440488b7c24484883c420415ec3cc",
+      "sha256": "5821cd552eeeb463ed651fcd96ddf3d884bb9489c0a1842e8773ef42401a6af5"
+    }
+  ],
+  "validation": {
+    "focused_tests_passed": 235,
+    "elpg_backend_tests": 22,
+    "elpg_panel_tests": 3,
+    "ruff_passed": true
+  }
+}

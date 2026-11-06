@@ -1,0 +1,73 @@
+{
+  "schema": 1,
+  "date": "2026-11-02",
+  "offline_tests": {"passed": 2421, "subtests_passed": 226, "log": "experiments/registry-overrides/clock-vf-profiles-root-20261102/scoped-tests.log"},
+  "broader_suite_limit": "An expanded run was stopped after unrelated existing test_registry_voltage_replay fixtures failed the independently paired control type requirement; both files are unchanged from HEAD. This is not a full-suite pass.",
+  "scope": "Clock VF selected-field Undo and manual profiles; local RTX 5080 / 617.42",
+  "artifact": "experiments/registry-overrides/clock-vf-profiles-root-20261102/trial.json",
+  "artifact_sha256": "2908fc00497850be241cb8044b137733b78e47d8e9b5368d1a67c7c5fd45b31d",
+  "hardware_changed_state_roundtrip_qualified": false,
+  "profile_capture_verified": true,
+  "first_attempt": {
+    "policy": "clock_vf.monotonicity",
+    "before": true,
+    "requested": false,
+    "driver_status": "0x56",
+    "result": "Refused in current startup mode"
+  },
+  "exact_header_restored": true,
+  "subsequent_smoothing_and_manual_replay_cases": "Not reached after first refusal",
+  "before": {
+    "group": "clock_domains",
+    "control_command": "0x2080901B",
+    "control_bytes": 2108,
+    "request_mask": 0,
+    "identity": {
+      "slot": "0000:01:00.0",
+      "architecture": 10,
+      "device_id": 11266,
+      "subsystem_id": 2313031747
+    },
+    "header_hex": "ffa5a5a500000000000001010000a5a50000000000000000000000000000000000000000000000000000000000000000000000000000000000a5a5a5",
+    "vf_monotonicity_enforced": true,
+    "vf_smoothening_enforced": true,
+    "stable_reads": 2
+  },
+  "after": {
+    "group": "clock_domains",
+    "control_command": "0x2080901B",
+    "control_bytes": 2108,
+    "request_mask": 0,
+    "identity": {
+      "slot": "0000:01:00.0",
+      "architecture": 10,
+      "device_id": 11266,
+      "subsystem_id": 2313031747
+    },
+    "header_hex": "ffa5a5a500000000000001010000a5a50000000000000000000000000000000000000000000000000000000000000000000000000000000000a5a5a5",
+    "vf_monotonicity_enforced": true,
+    "vf_smoothening_enforced": true,
+    "stable_reads": 2
+  },
+  "log": [
+    [
+      true,
+      "saved 'vf-baseline.json' - 2 clock VF policy field(s), manual apply only"
+    ],
+    [
+      null,
+      "Undo point saved as 'autosave-live-vf-policies-20261102-172920.467'"
+    ],
+    [
+      false,
+      "Live VF policy change failed: Clock VF policy request was refused in the current startup mode (RM 0x56). Original Clock VF header restored and verified"
+    ]
+  ],
+  "limits": [
+    "Changed-state profile replay and Undo have offline coverage only in this increment.",
+    "Saved flags are driver policy readback, not measured physical enforcement.",
+    "No registry change, GPU restart, Windows reboot or workload.",
+    "Failed-attempt autosave retained; Undo may be a no-op after verified compensation.",
+    "Driver and VBIOS labels do not gate feature availability."
+  ]
+}

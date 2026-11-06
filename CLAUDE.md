@@ -6,6 +6,20 @@
 Work on this repo alternates between those agents, so when either file gains a
 newer standing instruction, bring the other one up to date.
 
+## Session-only tuning
+
+Undo and manual saved-profile integration for qualified controls are now in
+scope, as recorded in AGENTS.md. Unresolved control research remains separate.
+
+Follow AGENTS.md's session-only requirement: GPU driver restart is the user's
+panic/reset action. Do not persist or automatically reapply new tuning requests
+across it, or add restart-persistence validation to the functional backlog.
+
+The user authorizes a narrow exception for power relationship-weight overrides
+through registry/VBIOS configuration. These overrides require a GPU driver
+refresh to load and persist until removed or changed. Ordinary tuning controls
+remain session-only.
+
 ## Driver versions
 
 - Never add a driver whitelist, allowlist or denylist, and never make a

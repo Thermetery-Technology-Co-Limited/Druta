@@ -1,0 +1,719 @@
+{
+  "schema": 1,
+  "scope": "One RTX 5080 configuration, selected NVVDD IDDQ model-input intervention and passive driver readbacks. No workload or physical measurement. Artifact identities identify evidence, not product eligibility.",
+  "identity": {
+    "architecture": 10,
+    "device_id": 11266,
+    "slot": "0000:01:00.0",
+    "subsystem_id": 2313031747
+  },
+  "input": {
+    "name": "RmPmgrIddqNvvddOverride",
+    "before_active": 26000,
+    "requested_active": 52000,
+    "final_active": 26000,
+    "active_exact": true,
+    "cached_override_exact": true,
+    "physical_units": "unresolved"
+  },
+  "native_get_geometry": {
+    "info_command": "0x2080A610",
+    "info_bytes": "0xA410",
+    "status_command": "0x2080A611",
+    "status_bytes": "0x1208C",
+    "frame_header_bytes": 68,
+    "status_row_base": "0xC",
+    "status_row_stride": "0x904",
+    "record_base": "row+4",
+    "record_stride": "0x60",
+    "records_per_row": 14,
+    "selected_type": "0x0C",
+    "selected_indices": [
+      8,
+      9,
+      10
+    ],
+    "selected_mask": "0x700",
+    "all_six_info_and_48_status_gets_accepted": true
+  },
+  "calculated_policy_response_uv": {
+    "0": {
+      "after": {
+        "alt_reliability": 940000,
+        "effective": 920000,
+        "overvoltage": 1200000,
+        "reliability": 920000,
+        "vmin": 800000
+      },
+      "before": {
+        "alt_reliability": 1060000,
+        "effective": 1040000,
+        "overvoltage": 1200000,
+        "reliability": 1040000,
+        "vmin": 800000
+      }
+    },
+    "1": {
+      "after": {
+        "alt_reliability": 940000,
+        "effective": 870000,
+        "overvoltage": 1200000,
+        "reliability": 870000,
+        "vmin": 800000
+      },
+      "before": {
+        "alt_reliability": 1060000,
+        "effective": 990000,
+        "overvoltage": 1200000,
+        "reliability": 990000,
+        "vmin": 800000
+      }
+    }
+  },
+  "preserved_during_B": {
+    "active_exact": true,
+    "equations_exact": true,
+    "extended_pstates_exact": true,
+    "image_sha256_exact": true,
+    "override_exact": true,
+    "override_present": true,
+    "power_constraints_exact": true,
+    "power_policy_exact": true,
+    "power_request_mw_exact": true,
+    "public_pstates_exact": true,
+    "vf_tables_exact": true,
+    "vfe_control_exact": true,
+    "vfe_peer_info_exact": true,
+    "voltage_requested_exact": true
+  },
+  "final_request_checks": {
+    "clock_requests": true,
+    "voltage_policy": true
+  },
+  "attempts": [
+    {
+      "collector": "v4",
+      "capture_path": "experiments/registry-overrides/iddq-model-row-ab-terra-20261030/iddq-row-ab-7ce6115c6080411aaa7a14ecb847532a.json",
+      "capture_sha256": "49c4877d0353af7361a0ce3094db56b2e1a1f4f98f0e2dc0fb4df0e91a4b86de",
+      "collector_sha256": "79890bedcedac4f069e0eae83de20d90af9d98cea42f25dbeafe242134578926",
+      "failure": "Independent active or peer check failed",
+      "phase_sample_counts": {
+        "A1": 16
+      },
+      "full_final_checks": {
+        "active_receipt": true,
+        "equations_exact": true,
+        "extended_pstates_exact": true,
+        "image_sha256_exact": true,
+        "model": true,
+        "power_constraints_exact": true,
+        "power_policy_exact": true,
+        "power_request_mw_exact": true,
+        "public_pstates_exact": true,
+        "registry": true,
+        "vf_tables_exact": true,
+        "vfe_control_exact": true,
+        "vfe_peer_info_exact": true,
+        "voltage_policy_exact": true
+      }
+    },
+    {
+      "collector": "v5",
+      "capture_path": "experiments/registry-overrides/iddq-model-row-ab-terra-20261030/iddq-row-ab-49117634c89b4d859fdba2cc2c0ab35c.json",
+      "capture_sha256": "7fb29d58ac0af8485d9174c6f06c6e3e0eef8ce1a6f4077dcefe9a814f443503",
+      "collector_sha256": "e26fb13bbc532e95c27daa2f33065755dab761f40a4ce106f4a805c934d8241c",
+      "failure": null,
+      "phase_sample_counts": {
+        "A1": 16,
+        "B": 16,
+        "A2": 16
+      },
+      "full_final_checks": {
+        "active_receipt": true,
+        "equations_exact": true,
+        "extended_pstates_exact": true,
+        "image_sha256_exact": true,
+        "model": true,
+        "power_constraints_exact": true,
+        "power_policy_exact": true,
+        "power_request_mw_exact": true,
+        "public_pstates_exact": true,
+        "registry": true,
+        "vf_tables_exact": true,
+        "vfe_control_exact": true,
+        "vfe_peer_info_exact": true,
+        "voltage_policy_exact": true
+      }
+    },
+    {
+      "collector": "v6",
+      "capture_path": "experiments/registry-overrides/iddq-model-row-ab-terra-20261030/iddq-row-ab-f65d0ac20cf146f391cb3a6943d899a0.json",
+      "capture_sha256": "49b72ccf2ce1338994362e572fb10566f7da01c24ae12b54716441c7758b8f89",
+      "collector_sha256": "8b75c661ff4413b496bdcfeac953c3df1c5d4aaa5965ff9696055b1c27885b7c",
+      "failure": null,
+      "phase_sample_counts": {
+        "A1": 16,
+        "B": 16,
+        "A2": 16
+      },
+      "full_final_checks": {
+        "active_receipt": true,
+        "equations_exact": true,
+        "extended_pstates_exact": true,
+        "image_sha256_exact": true,
+        "model": true,
+        "power_constraints_exact": true,
+        "power_policy_exact": true,
+        "power_request_mw_exact": true,
+        "public_pstates_exact": true,
+        "registry": true,
+        "vf_tables_exact": true,
+        "vfe_control_exact": true,
+        "vfe_peer_info_exact": true,
+        "voltage_policy_exact": true
+      }
+    }
+  ],
+  "matched_repeat": [
+    {
+      "phase": "A1",
+      "total_samples": 16,
+      "matched_samples": 16,
+      "matched_sample_indices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ],
+      "warmup_observations": 1,
+      "reference": {
+        "core": 255,
+        "mem": 405,
+        "pstate": 8,
+        "rail_live": {
+          "0": 800.0,
+          "1": 800.0
+        }
+      },
+      "post_matches_reference": true,
+      "telemetry_exceptions": 0,
+      "info_sha256": "7d50f7be825860583d85b6cbce93d35512369a8f2cf44035202d58842a821d8b",
+      "matched_adjacent_telemetry": {
+        "pstate": {
+          "available": 16,
+          "minimum": 8,
+          "maximum": 8
+        },
+        "core": {
+          "available": 16,
+          "minimum": 255,
+          "maximum": 255
+        },
+        "mem": {
+          "available": 16,
+          "minimum": 405,
+          "maximum": 405
+        },
+        "vcore_mv": {
+          "available": 16,
+          "minimum": 800.0,
+          "maximum": 800.0
+        },
+        "temp_edge": {
+          "available": 16,
+          "minimum": 31,
+          "maximum": 31
+        },
+        "temp_hotspot": {
+          "available": 16,
+          "minimum": 40.0,
+          "maximum": 40.0
+        },
+        "power_w": {
+          "available": 16,
+          "minimum": 11.586,
+          "maximum": 11.717
+        },
+        "util_gpu": {
+          "available": 16,
+          "minimum": 0,
+          "maximum": 0
+        }
+      },
+      "matched_raw_record0": [
+        {
+          "row_index": 8,
+          "record_index": 0,
+          "raw_first_five_dwords": [
+            {
+              "minimum": 364,
+              "median": 365.0,
+              "maximum": 418
+            },
+            {
+              "minimum": 455,
+              "median": 456.0,
+              "maximum": 523
+            },
+            {
+              "minimum": 800000,
+              "median": 800000.0,
+              "maximum": 800000
+            },
+            {
+              "minimum": 0,
+              "median": 0.0,
+              "maximum": 0
+            },
+            {
+              "minimum": 0,
+              "median": 0.0,
+              "maximum": 0
+            }
+          ]
+        },
+        {
+          "row_index": 9,
+          "record_index": 0,
+          "raw_first_five_dwords": [
+            {
+              "minimum": 1547,
+              "median": 1549.0,
+              "maximum": 1549
+            },
+            {
+              "minimum": 1934,
+              "median": 1936.0,
+              "maximum": 1936
+            },
+            {
+              "minimum": 800000,
+              "median": 800000.0,
+              "maximum": 800000
+            },
+            {
+              "minimum": 0,
+              "median": 0.0,
+              "maximum": 0
+            },
+            {
+              "minimum": 0,
+              "median": 0.0,
+              "maximum": 0
+            }
+          ]
+        },
+        {
+          "row_index": 10,
+          "record_index": 0,
+          "raw_first_five_dwords": [
+            {
+              "minimum": 1549,
+              "median": 1549.0,
+              "maximum": 1549
+            },
+            {
+              "minimum": 1936,
+              "median": 1936.0,
+              "maximum": 1936
+            },
+            {
+              "minimum": 800000,
+              "median": 800000.0,
+              "maximum": 800000
+            },
+            {
+              "minimum": 0,
+              "median": 0.0,
+              "maximum": 0
+            },
+            {
+              "minimum": 0,
+              "median": 0.0,
+              "maximum": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "phase": "B",
+      "total_samples": 16,
+      "matched_samples": 6,
+      "matched_sample_indices": [
+        0,
+        1,
+        12,
+        13,
+        14,
+        15
+      ],
+      "warmup_observations": 12,
+      "reference": {
+        "core": 255,
+        "mem": 405,
+        "pstate": 8,
+        "rail_live": {
+          "0": 800.0,
+          "1": 800.0
+        }
+      },
+      "post_matches_reference": true,
+      "telemetry_exceptions": 0,
+      "info_sha256": "7d50f7be825860583d85b6cbce93d35512369a8f2cf44035202d58842a821d8b",
+      "matched_adjacent_telemetry": {
+        "pstate": {
+          "available": 6,
+          "minimum": 8,
+          "maximum": 8
+        },
+        "core": {
+          "available": 6,
+          "minimum": 255,
+          "maximum": 255
+        },
+        "mem": {
+          "available": 6,
+          "minimum": 405,
+          "maximum": 405
+        },
+        "vcore_mv": {
+          "available": 6,
+          "minimum": 800.0,
+          "maximum": 800.0
+        },
+        "temp_edge": {
+          "available": 6,
+          "minimum": 31,
+          "maximum": 31
+        },
+        "temp_hotspot": {
+          "available": 6,
+          "minimum": 40.0,
+          "maximum": 42.0
+        },
+        "power_w": {
+          "available": 6,
+          "minimum": 11.968,
+          "maximum": 12.496
+        },
+        "util_gpu": {
+          "available": 6,
+          "minimum": 0,
+          "maximum": 0
+        }
+      },
+      "matched_raw_record0": [
+        {
+          "row_index": 8,
+          "record_index": 0,
+          "raw_first_five_dwords": [
+            {
+              "minimum": 367,
+              "median": 387.0,
+              "maximum": 439
+            },
+            {
+              "minimum": 459,
+              "median": 484.0,
+              "maximum": 549
+            },
+            {
+              "minimum": 800000,
+              "median": 800000.0,
+              "maximum": 800000
+            },
+            {
+              "minimum": 0,
+              "median": 0.0,
+              "maximum": 0
+            },
+            {
+              "minimum": 0,
+              "median": 0.0,
+              "maximum": 0
+            }
+          ]
+        },
+        {
+          "row_index": 9,
+          "record_index": 0,
+          "raw_first_five_dwords": [
+            {
+              "minimum": 3118,
+              "median": 3118.0,
+              "maximum": 3118
+            },
+            {
+              "minimum": 3898,
+              "median": 3898.0,
+              "maximum": 3898
+            },
+            {
+              "minimum": 800000,
+              "median": 800000.0,
+              "maximum": 800000
+            },
+            {
+              "minimum": 0,
+              "median": 0.0,
+              "maximum": 0
+            },
+            {
+              "minimum": 0,
+              "median": 0.0,
+              "maximum": 0
+            }
+          ]
+        },
+        {
+          "row_index": 10,
+          "record_index": 0,
+          "raw_first_five_dwords": [
+            {
+              "minimum": 3118,
+              "median": 3118.0,
+              "maximum": 3118
+            },
+            {
+              "minimum": 3898,
+              "median": 3898.0,
+              "maximum": 3898
+            },
+            {
+              "minimum": 800000,
+              "median": 800000.0,
+              "maximum": 800000
+            },
+            {
+              "minimum": 0,
+              "median": 0.0,
+              "maximum": 0
+            },
+            {
+              "minimum": 0,
+              "median": 0.0,
+              "maximum": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "phase": "A2",
+      "total_samples": 16,
+      "matched_samples": 16,
+      "matched_sample_indices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ],
+      "warmup_observations": 12,
+      "reference": {
+        "core": 255,
+        "mem": 405,
+        "pstate": 8,
+        "rail_live": {
+          "0": 800.0,
+          "1": 800.0
+        }
+      },
+      "post_matches_reference": true,
+      "telemetry_exceptions": 0,
+      "info_sha256": "7d50f7be825860583d85b6cbce93d35512369a8f2cf44035202d58842a821d8b",
+      "matched_adjacent_telemetry": {
+        "pstate": {
+          "available": 16,
+          "minimum": 8,
+          "maximum": 8
+        },
+        "core": {
+          "available": 16,
+          "minimum": 255,
+          "maximum": 255
+        },
+        "mem": {
+          "available": 16,
+          "minimum": 405,
+          "maximum": 405
+        },
+        "vcore_mv": {
+          "available": 16,
+          "minimum": 800.0,
+          "maximum": 800.0
+        },
+        "temp_edge": {
+          "available": 16,
+          "minimum": 31,
+          "maximum": 31
+        },
+        "temp_hotspot": {
+          "available": 16,
+          "minimum": 42.0,
+          "maximum": 42.0
+        },
+        "power_w": {
+          "available": 16,
+          "minimum": 11.533,
+          "maximum": 12.68
+        },
+        "util_gpu": {
+          "available": 16,
+          "minimum": 0,
+          "maximum": 0
+        }
+      },
+      "matched_raw_record0": [
+        {
+          "row_index": 8,
+          "record_index": 0,
+          "raw_first_five_dwords": [
+            {
+              "minimum": 369,
+              "median": 377.0,
+              "maximum": 508
+            },
+            {
+              "minimum": 461,
+              "median": 471.0,
+              "maximum": 635
+            },
+            {
+              "minimum": 800000,
+              "median": 800000.0,
+              "maximum": 800000
+            },
+            {
+              "minimum": 0,
+              "median": 0.0,
+              "maximum": 0
+            },
+            {
+              "minimum": 0,
+              "median": 0.0,
+              "maximum": 0
+            }
+          ]
+        },
+        {
+          "row_index": 9,
+          "record_index": 0,
+          "raw_first_five_dwords": [
+            {
+              "minimum": 1569,
+              "median": 1569.0,
+              "maximum": 1569
+            },
+            {
+              "minimum": 1961,
+              "median": 1961.0,
+              "maximum": 1961
+            },
+            {
+              "minimum": 800000,
+              "median": 800000.0,
+              "maximum": 800000
+            },
+            {
+              "minimum": 0,
+              "median": 0.0,
+              "maximum": 0
+            },
+            {
+              "minimum": 0,
+              "median": 0.0,
+              "maximum": 0
+            }
+          ]
+        },
+        {
+          "row_index": 10,
+          "record_index": 0,
+          "raw_first_five_dwords": [
+            {
+              "minimum": 1569,
+              "median": 1569.0,
+              "maximum": 1569
+            },
+            {
+              "minimum": 1961,
+              "median": 1961.0,
+              "maximum": 1961
+            },
+            {
+              "minimum": 800000,
+              "median": 800000.0,
+              "maximum": 800000
+            },
+            {
+              "minimum": 0,
+              "median": 0.0,
+              "maximum": 0
+            },
+            {
+              "minimum": 0,
+              "median": 0.0,
+              "maximum": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "analysis": {
+    "path": "experiments/registry-overrides/iddq-model-row-review-terra-20261030/analysis-v2.json",
+    "sha256": "e166790ae10cc28d9515ba0ff84cf6838bee60719f8ed8c1d4c2015332b1a9ed"
+  },
+  "conclusions": [
+    "Doubling the evaluated NVVDD IDDQ input coincided with a reversible 120000-uV reduction in calculated REL, ALT_REL and effective policy on both reported rails. Voltage offsets, reported boost and requested clocks were unchanged.",
+    "At matched adjacent idle observations, rows 9/10 record 0 first two raw DWORDs increased to 3118/3898; baseline values were 1547-1549/1934-1936 and restored values 1569/1961. This supports an intervention-associated software response under the recorded conditions.",
+    "Only six of sixteen B samples matched the recorded reference; ten mismatches remain captured. All sixteen samples in each A phase matched. Baseline/restored values drifted, so this is not an exact equation or identical baseline distribution."
+  ],
+  "limits": [
+    "Telemetry is adjacent, not simultaneous, and samples may share cached values. Hotspot readings changed from 40 C in A1 to 42 C in A2.",
+    "The immediate-post-restart v5 comparison had P8/P0 confounding and 32 caught operating-power getter access-violation exceptions; it is not the matched comparison. Fresh sampling children in v6 recorded no telemetry exceptions.",
+    "Current type0C raw field units, provider and rail roles, numerical producer and direct causal path remain unqualified. Historical tuple names and arithmetic consistency are insufficient.",
+    "No physical power/current/voltage effect or enforcement, arbitrary six-word voltage replay, live 16-byte VFE encoding or modern F219 setter is established.",
+    "No new recovery/Undo or saved-profile restoration/replay integration was implemented. Existing transaction cleanup removed the experiment. No Windows reboot, NVIDIA App, driver installation, release or tag operation."
+  ],
+  "product_change": "The existing IDDQ field details and preview now disclose possible calculated-voltage-limit effects on linked rails; control and receipt contracts are unchanged.",
+  "independent_audits": [
+    {
+      "path": "experiments/registry-overrides/iddq-model-row-audit-luna-20261030/audit-v4.json",
+      "sha256": "687c5ae56867894f95157c160c36afb5b80d3c2ddebc04db88c179f29a33d339"
+    },
+    {
+      "path": "experiments/registry-overrides/iddq-model-row-audit-luna-20261030/audit-v9.json",
+      "sha256": "ff1dc99a925de8cc31e1e4d79159eb63f939e00a2fb46f2732d05fd8ab1cb7a2"
+    },
+    {
+      "path": "experiments/registry-overrides/iddq-model-row-audit-luna-20261030/audit-v12.json",
+      "sha256": "44fa00e847c4d5113380924b6a84fa6d12ec5609964c9336f3cc80f2b00b085d"
+    }
+  ]
+}

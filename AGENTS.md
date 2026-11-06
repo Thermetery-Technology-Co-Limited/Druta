@@ -12,6 +12,28 @@ whose current valid state has already been established. Add meaningful tests
 for observable behavior and failure cases, rather than tests that merely mirror
 the implementation.
 
+# Active-goal priority
+
+Prioritize implementing and shipping working functionality in the active goal.
+The user has now authorized Undo and manual saved-profile work for the qualified
+controls while unresolved control research remains parked. Implement those
+features in bounded increments using the existing verified write/readback paths;
+do not treat unresolved firmware semantics as permission to replay opaque state.
+
+New tuning controls must be session-only. A GPU driver restart is the user's
+panic/reset action: do not persist or automatically reapply tuning requests
+across it. Do not add restart-persistence validation as a functional objective.
+Releasing a live control's own request or freeing its owned API object is part
+of that control's lifecycle, not saved-profile restoration.
+Saving a profile does not authorize automatic startup or post-reset application
+of the new session-only controls. Applying their saved settings requires an
+explicit user action in the current session.
+
+The user authorizes a narrow exception for power relationship-weight overrides
+through registry/VBIOS configuration. These overrides require a GPU driver
+refresh to load and persist until removed or changed. This exception does not
+change the session-only rule for ordinary tuning controls.
+
 # Agent collaboration
 
 The root agent supervises the work. Subagents are authorized for concrete,

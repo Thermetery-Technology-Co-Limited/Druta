@@ -1,0 +1,781 @@
+{
+  "scope": "Offline integer arithmetic and original capture inventory audit; no GPU access.",
+  "source_input_is_hypothesis": true,
+  "limitation": "The traced host getter reads host current arbitration, not the PMU output assumed in this exact empirical fit. Neither actual PMU producer nor physical current enforcement is established.",
+  "sources": [
+    {
+      "path": "experiments/registry-overrides/power-coupling-61742-root-20261105/trial.json",
+      "sha256": "903a79f46c4a83a3a8eb3354ece9fa14a89b9426d28a6f6303eec32ec739d0d4"
+    },
+    {
+      "path": "experiments/registry-overrides/client-power-production-5fc99ddc21804be488759154cc455c03.json",
+      "sha256": "315d92bf533817342bb1d946fadd9ce49a520d52199f6c5f46c5b96b657429fa"
+    },
+    {
+      "path": "experiments/registry-overrides/arbitration-propagation-10e0f61c67614af582f257a1c253c664-00-before.json",
+      "sha256": "f047876264f08800f4302157563a519ee325b057038569ce152aa7239b2e4352"
+    },
+    {
+      "path": "experiments/registry-overrides/arbitration-propagation-10e0f61c67614af582f257a1c253c664-01-before.json",
+      "sha256": "064dbcceb452095011696d16b9555e9a74dd2fafd234fc1ffe31148e012d2289"
+    },
+    {
+      "path": "experiments/registry-overrides/arbitration-propagation-10e0f61c67614af582f257a1c253c664-02-before.json",
+      "sha256": "a5204d9dce18c7bf1d56758d6c626d33189ce96404663c50f498d1de44e54cc4"
+    },
+    {
+      "path": "experiments/registry-overrides/arbitration-propagation-10e0f61c67614af582f257a1c253c664-03-active.json",
+      "sha256": "0b8f4b5bc0c301c17bd47b4b106de8d474d152933b368eb13c2cd42411bb5e64"
+    },
+    {
+      "path": "experiments/registry-overrides/arbitration-propagation-10e0f61c67614af582f257a1c253c664-04-active.json",
+      "sha256": "fae736d77b50cdc4240c275c8043d74960685311ca6a78fb99da401f91ff049a"
+    },
+    {
+      "path": "experiments/registry-overrides/arbitration-propagation-10e0f61c67614af582f257a1c253c664-05-active.json",
+      "sha256": "914fac95f760dfb8f3023fc589b3cbcebf89f9df5208b8791226b9c373d7f3e8"
+    },
+    {
+      "path": "experiments/registry-overrides/arbitration-propagation-10e0f61c67614af582f257a1c253c664-06-active.json",
+      "sha256": "7c0113c443c05d6e08057af21981233163b0b08bafca7be20e5938fba39d4869"
+    },
+    {
+      "path": "experiments/registry-overrides/arbitration-propagation-10e0f61c67614af582f257a1c253c664-07-restored.json",
+      "sha256": "7186c189fd4e6293785a032efd38b88bf80a3a8696a9938c60a6e64814dcfccf"
+    },
+    {
+      "path": "experiments/registry-overrides/arbitration-propagation-10e0f61c67614af582f257a1c253c664-08-restored.json",
+      "sha256": "05f3b22727f04d2b4ddc8ea88f968242b9ce3f78882266bc77900716f9a02c6d"
+    },
+    {
+      "path": "experiments/registry-overrides/arbitration-propagation-10e0f61c67614af582f257a1c253c664-09-restored.json",
+      "sha256": "05613abb85585d0f6adb91fc14cfbaeeed08443b360239ab6a1d96a46aef1409"
+    },
+    {
+      "path": "experiments/registry-overrides/arbitration-propagation-10e0f61c67614af582f257a1c253c664-10-restored.json",
+      "sha256": "5c27dbda58f99f1e0da0096635ac3c01819020d8bb451586c5da12a88ad09c9c"
+    },
+    {
+      "path": "experiments/registry-overrides/arbitration-propagation-10e0f61c67614af582f257a1c253c664-11-restored.json",
+      "sha256": "659d59f4ab35fd2941a592b052d32acea6732b0dbbc31166b30c2715dee22a35"
+    },
+    {
+      "path": "experiments/registry-overrides/arbitration-propagation-10e0f61c67614af582f257a1c253c664-12-restored.json",
+      "sha256": "357d8ee4777f7a7a49795d4ef84a6ab136258166e62b0c28be49fec2e455fcba"
+    },
+    {
+      "path": "experiments/registry-overrides/arbitration-propagation-10e0f61c67614af582f257a1c253c664-13-restored.json",
+      "sha256": "c4ab1f267858d2566d09352b62cb1ce0865f40f5395ed612390c9af1bdd432a5"
+    },
+    {
+      "path": "experiments/registry-overrides/arbitration-propagation-10e0f61c67614af582f257a1c253c664-14-restored.json",
+      "sha256": "845b87a566147ef6c057d0a363d2c417b76bc5fbed8c8803bced85eab4c025f2"
+    },
+    {
+      "path": "experiments/registry-overrides/arbitration-propagation-10e0f61c67614af582f257a1c253c664-15-restored.json",
+      "sha256": "7165200b4854f08146154275e9e920be965b546f3f32a9797c66cee008f78f1f"
+    }
+  ],
+  "samples": [
+    {
+      "source": "experiments/registry-overrides/power-coupling-61742-root-20261105/trial.json",
+      "path": "$.rounds[0].readbacks[0].client_power.arbitration",
+      "assumed_input_mw": 355000,
+      "p2_effective_mw": 365660,
+      "q12": 865,
+      "candidate_ma": 35497,
+      "observed_client2_ma": 35497,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/power-coupling-61742-root-20261105/trial.json",
+      "path": "$.rounds[0].readbacks[1].client_power.arbitration",
+      "assumed_input_mw": 355000,
+      "p2_effective_mw": 365660,
+      "q12": 865,
+      "candidate_ma": 35497,
+      "observed_client2_ma": 35497,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/power-coupling-61742-root-20261105/trial.json",
+      "path": "$.rounds[0].readbacks[2].client_power.arbitration",
+      "assumed_input_mw": 355000,
+      "p2_effective_mw": 365660,
+      "q12": 865,
+      "candidate_ma": 35497,
+      "observed_client2_ma": 35497,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/power-coupling-61742-root-20261105/trial.json",
+      "path": "$.rounds[0].restoration.observation.client_power.arbitration",
+      "assumed_input_mw": 360000,
+      "p2_effective_mw": 370811,
+      "q12": 819,
+      "candidate_ma": 36002,
+      "observed_client2_ma": 36002,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/power-coupling-61742-root-20261105/trial.json",
+      "path": "$.rounds[1].readbacks[0].client_power.arbitration",
+      "assumed_input_mw": 365000,
+      "p2_effective_mw": 375961,
+      "q12": 774,
+      "candidate_ma": 36497,
+      "observed_client2_ma": 36497,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/power-coupling-61742-root-20261105/trial.json",
+      "path": "$.rounds[1].readbacks[1].client_power.arbitration",
+      "assumed_input_mw": 365000,
+      "p2_effective_mw": 375961,
+      "q12": 774,
+      "candidate_ma": 36497,
+      "observed_client2_ma": 36497,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/power-coupling-61742-root-20261105/trial.json",
+      "path": "$.rounds[1].readbacks[2].client_power.arbitration",
+      "assumed_input_mw": 365000,
+      "p2_effective_mw": 375961,
+      "q12": 774,
+      "candidate_ma": 36497,
+      "observed_client2_ma": 36497,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/power-coupling-61742-root-20261105/trial.json",
+      "path": "$.rounds[1].restoration.observation.client_power.arbitration",
+      "assumed_input_mw": 360000,
+      "p2_effective_mw": 370811,
+      "q12": 819,
+      "candidate_ma": 36002,
+      "observed_client2_ma": 36002,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/power-coupling-61742-root-20261105/trial.json",
+      "path": "$.before.client_power.arbitration",
+      "assumed_input_mw": 360000,
+      "p2_effective_mw": 370811,
+      "q12": 819,
+      "candidate_ma": 36002,
+      "observed_client2_ma": 36002,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/power-coupling-61742-root-20261105/trial.json",
+      "path": "$.baseline_confirmation.client_power.arbitration",
+      "assumed_input_mw": 360000,
+      "p2_effective_mw": 370811,
+      "q12": 819,
+      "candidate_ma": 36002,
+      "observed_client2_ma": 36002,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/power-coupling-61742-root-20261105/trial.json",
+      "path": "$.outer_restoration.observation.client_power.arbitration",
+      "assumed_input_mw": 360000,
+      "p2_effective_mw": 370811,
+      "q12": 819,
+      "candidate_ma": 36002,
+      "observed_client2_ma": 36002,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/client-power-production-5fc99ddc21804be488759154cc455c03.json",
+      "path": "$.original.arbitration",
+      "assumed_input_mw": 360000,
+      "p2_effective_mw": 370811,
+      "q12": 819,
+      "candidate_ma": 36002,
+      "observed_client2_ma": 36002,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/client-power-production-5fc99ddc21804be488759154cc455c03.json",
+      "path": "$.rounds[0].followups[0].arbitration",
+      "assumed_input_mw": 249000,
+      "p2_effective_mw": 256477,
+      "q12": 1830,
+      "candidate_ma": 24895,
+      "observed_client2_ma": 24895,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/client-power-production-5fc99ddc21804be488759154cc455c03.json",
+      "path": "$.rounds[0].followups[1].arbitration",
+      "assumed_input_mw": 249000,
+      "p2_effective_mw": 256477,
+      "q12": 1830,
+      "candidate_ma": 24895,
+      "observed_client2_ma": 24895,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/client-power-production-5fc99ddc21804be488759154cc455c03.json",
+      "path": "$.rounds[0].followups[2].arbitration",
+      "assumed_input_mw": 249000,
+      "p2_effective_mw": 256477,
+      "q12": 1830,
+      "candidate_ma": 24895,
+      "observed_client2_ma": 24895,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/client-power-production-5fc99ddc21804be488759154cc455c03.json",
+      "path": "$.rounds[0].followups[3].arbitration",
+      "assumed_input_mw": 249000,
+      "p2_effective_mw": 256477,
+      "q12": 1830,
+      "candidate_ma": 24895,
+      "observed_client2_ma": 24895,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/client-power-production-5fc99ddc21804be488759154cc455c03.json",
+      "path": "$.rounds[0].followups[4].arbitration",
+      "assumed_input_mw": 249000,
+      "p2_effective_mw": 256477,
+      "q12": 1830,
+      "candidate_ma": 24895,
+      "observed_client2_ma": 24895,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/client-power-production-5fc99ddc21804be488759154cc455c03.json",
+      "path": "$.rounds[0].followups[5].arbitration",
+      "assumed_input_mw": 249000,
+      "p2_effective_mw": 256477,
+      "q12": 1830,
+      "candidate_ma": 24895,
+      "observed_client2_ma": 24895,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/client-power-production-5fc99ddc21804be488759154cc455c03.json",
+      "path": "$.rounds[0].followups[6].arbitration",
+      "assumed_input_mw": 249000,
+      "p2_effective_mw": 256477,
+      "q12": 1830,
+      "candidate_ma": 24895,
+      "observed_client2_ma": 24895,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/client-power-production-5fc99ddc21804be488759154cc455c03.json",
+      "path": "$.rounds[0].followups[7].arbitration",
+      "assumed_input_mw": 249000,
+      "p2_effective_mw": 256477,
+      "q12": 1830,
+      "candidate_ma": 24895,
+      "observed_client2_ma": 24895,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/client-power-production-5fc99ddc21804be488759154cc455c03.json",
+      "path": "$.rounds[0].result.after.arbitration",
+      "assumed_input_mw": 249000,
+      "p2_effective_mw": 370811,
+      "q12": 1830,
+      "candidate_ma": 24895,
+      "observed_client2_ma": 24895,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/client-power-production-5fc99ddc21804be488759154cc455c03.json",
+      "path": "$.rounds[0].result.before.arbitration",
+      "assumed_input_mw": 360000,
+      "p2_effective_mw": 370811,
+      "q12": 819,
+      "candidate_ma": 36002,
+      "observed_client2_ma": 36002,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/client-power-production-5fc99ddc21804be488759154cc455c03.json",
+      "path": "$.rounds[0].undo.after.arbitration",
+      "assumed_input_mw": 360000,
+      "p2_effective_mw": 256477,
+      "q12": 819,
+      "candidate_ma": 36002,
+      "observed_client2_ma": 36002,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/client-power-production-5fc99ddc21804be488759154cc455c03.json",
+      "path": "$.rounds[0].undo.before.arbitration",
+      "assumed_input_mw": 249000,
+      "p2_effective_mw": 256477,
+      "q12": 1830,
+      "candidate_ma": 24895,
+      "observed_client2_ma": 24895,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/client-power-production-5fc99ddc21804be488759154cc455c03.json",
+      "path": "$.rounds[1].followups[0].arbitration",
+      "assumed_input_mw": 450000,
+      "p2_effective_mw": 463513,
+      "q12": 0,
+      "candidate_ma": 45000,
+      "observed_client2_ma": 45000,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/client-power-production-5fc99ddc21804be488759154cc455c03.json",
+      "path": "$.rounds[1].followups[1].arbitration",
+      "assumed_input_mw": 450000,
+      "p2_effective_mw": 463513,
+      "q12": 0,
+      "candidate_ma": 45000,
+      "observed_client2_ma": 45000,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/client-power-production-5fc99ddc21804be488759154cc455c03.json",
+      "path": "$.rounds[1].followups[2].arbitration",
+      "assumed_input_mw": 450000,
+      "p2_effective_mw": 463513,
+      "q12": 0,
+      "candidate_ma": 45000,
+      "observed_client2_ma": 45000,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/client-power-production-5fc99ddc21804be488759154cc455c03.json",
+      "path": "$.rounds[1].followups[3].arbitration",
+      "assumed_input_mw": 450000,
+      "p2_effective_mw": 463513,
+      "q12": 0,
+      "candidate_ma": 45000,
+      "observed_client2_ma": 45000,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/client-power-production-5fc99ddc21804be488759154cc455c03.json",
+      "path": "$.rounds[1].followups[4].arbitration",
+      "assumed_input_mw": 450000,
+      "p2_effective_mw": 463513,
+      "q12": 0,
+      "candidate_ma": 45000,
+      "observed_client2_ma": 45000,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/client-power-production-5fc99ddc21804be488759154cc455c03.json",
+      "path": "$.rounds[1].followups[5].arbitration",
+      "assumed_input_mw": 450000,
+      "p2_effective_mw": 463513,
+      "q12": 0,
+      "candidate_ma": 45000,
+      "observed_client2_ma": 45000,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/client-power-production-5fc99ddc21804be488759154cc455c03.json",
+      "path": "$.rounds[1].followups[6].arbitration",
+      "assumed_input_mw": 450000,
+      "p2_effective_mw": 463513,
+      "q12": 0,
+      "candidate_ma": 45000,
+      "observed_client2_ma": 45000,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/client-power-production-5fc99ddc21804be488759154cc455c03.json",
+      "path": "$.rounds[1].followups[7].arbitration",
+      "assumed_input_mw": 450000,
+      "p2_effective_mw": 463513,
+      "q12": 0,
+      "candidate_ma": 45000,
+      "observed_client2_ma": 45000,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/client-power-production-5fc99ddc21804be488759154cc455c03.json",
+      "path": "$.rounds[1].result.after.arbitration",
+      "assumed_input_mw": 450000,
+      "p2_effective_mw": 370811,
+      "q12": 0,
+      "candidate_ma": 45000,
+      "observed_client2_ma": 45000,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/client-power-production-5fc99ddc21804be488759154cc455c03.json",
+      "path": "$.rounds[1].result.before.arbitration",
+      "assumed_input_mw": 360000,
+      "p2_effective_mw": 370811,
+      "q12": 819,
+      "candidate_ma": 36002,
+      "observed_client2_ma": 36002,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/client-power-production-5fc99ddc21804be488759154cc455c03.json",
+      "path": "$.rounds[1].undo.after.arbitration",
+      "assumed_input_mw": 360000,
+      "p2_effective_mw": 463513,
+      "q12": 819,
+      "candidate_ma": 36002,
+      "observed_client2_ma": 36002,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/client-power-production-5fc99ddc21804be488759154cc455c03.json",
+      "path": "$.rounds[1].undo.before.arbitration",
+      "assumed_input_mw": 450000,
+      "p2_effective_mw": 463513,
+      "q12": 0,
+      "candidate_ma": 45000,
+      "observed_client2_ma": 45000,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/client-power-production-5fc99ddc21804be488759154cc455c03.json",
+      "path": "$.rounds[2].followups[0].arbitration",
+      "assumed_input_mw": 450000,
+      "p2_effective_mw": 463513,
+      "q12": 0,
+      "candidate_ma": 45000,
+      "observed_client2_ma": 45000,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/client-power-production-5fc99ddc21804be488759154cc455c03.json",
+      "path": "$.rounds[2].followups[1].arbitration",
+      "assumed_input_mw": 450000,
+      "p2_effective_mw": 463513,
+      "q12": 0,
+      "candidate_ma": 45000,
+      "observed_client2_ma": 45000,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/client-power-production-5fc99ddc21804be488759154cc455c03.json",
+      "path": "$.rounds[2].followups[2].arbitration",
+      "assumed_input_mw": 450000,
+      "p2_effective_mw": 463513,
+      "q12": 0,
+      "candidate_ma": 45000,
+      "observed_client2_ma": 45000,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/client-power-production-5fc99ddc21804be488759154cc455c03.json",
+      "path": "$.rounds[2].followups[3].arbitration",
+      "assumed_input_mw": 450000,
+      "p2_effective_mw": 463513,
+      "q12": 0,
+      "candidate_ma": 45000,
+      "observed_client2_ma": 45000,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/client-power-production-5fc99ddc21804be488759154cc455c03.json",
+      "path": "$.rounds[2].followups[4].arbitration",
+      "assumed_input_mw": 450000,
+      "p2_effective_mw": 463513,
+      "q12": 0,
+      "candidate_ma": 45000,
+      "observed_client2_ma": 45000,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/client-power-production-5fc99ddc21804be488759154cc455c03.json",
+      "path": "$.rounds[2].followups[5].arbitration",
+      "assumed_input_mw": 450000,
+      "p2_effective_mw": 463513,
+      "q12": 0,
+      "candidate_ma": 45000,
+      "observed_client2_ma": 45000,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/client-power-production-5fc99ddc21804be488759154cc455c03.json",
+      "path": "$.rounds[2].followups[6].arbitration",
+      "assumed_input_mw": 450000,
+      "p2_effective_mw": 463513,
+      "q12": 0,
+      "candidate_ma": 45000,
+      "observed_client2_ma": 45000,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/client-power-production-5fc99ddc21804be488759154cc455c03.json",
+      "path": "$.rounds[2].followups[7].arbitration",
+      "assumed_input_mw": 450000,
+      "p2_effective_mw": 463513,
+      "q12": 0,
+      "candidate_ma": 45000,
+      "observed_client2_ma": 45000,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/client-power-production-5fc99ddc21804be488759154cc455c03.json",
+      "path": "$.rounds[2].result.after.arbitration",
+      "assumed_input_mw": 450000,
+      "p2_effective_mw": 370811,
+      "q12": 0,
+      "candidate_ma": 45000,
+      "observed_client2_ma": 45000,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/client-power-production-5fc99ddc21804be488759154cc455c03.json",
+      "path": "$.rounds[2].result.before.arbitration",
+      "assumed_input_mw": 360000,
+      "p2_effective_mw": 370811,
+      "q12": 819,
+      "candidate_ma": 36002,
+      "observed_client2_ma": 36002,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/client-power-production-5fc99ddc21804be488759154cc455c03.json",
+      "path": "$.rounds[2].undo.after.arbitration",
+      "assumed_input_mw": 360000,
+      "p2_effective_mw": 463513,
+      "q12": 819,
+      "candidate_ma": 36002,
+      "observed_client2_ma": 36002,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/client-power-production-5fc99ddc21804be488759154cc455c03.json",
+      "path": "$.rounds[2].undo.before.arbitration",
+      "assumed_input_mw": 450000,
+      "p2_effective_mw": 463513,
+      "q12": 0,
+      "candidate_ma": 45000,
+      "observed_client2_ma": 45000,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/arbitration-propagation-10e0f61c67614af582f257a1c253c664-00-before.json",
+      "path": "$.decoded",
+      "assumed_input_mw": 360000,
+      "p2_effective_mw": 370811,
+      "q12": 819,
+      "candidate_ma": 36002,
+      "observed_client2_ma": 36002,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/arbitration-propagation-10e0f61c67614af582f257a1c253c664-01-before.json",
+      "path": "$.decoded",
+      "assumed_input_mw": 360000,
+      "p2_effective_mw": 370811,
+      "q12": 819,
+      "candidate_ma": 36002,
+      "observed_client2_ma": 36002,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/arbitration-propagation-10e0f61c67614af582f257a1c253c664-02-before.json",
+      "path": "$.decoded",
+      "assumed_input_mw": 360000,
+      "p2_effective_mw": 370811,
+      "q12": 819,
+      "candidate_ma": 36002,
+      "observed_client2_ma": 36002,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/arbitration-propagation-10e0f61c67614af582f257a1c253c664-03-active.json",
+      "path": "$.decoded",
+      "assumed_input_mw": 360000,
+      "p2_effective_mw": 360000,
+      "q12": 819,
+      "candidate_ma": 36002,
+      "observed_client2_ma": 36002,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/arbitration-propagation-10e0f61c67614af582f257a1c253c664-04-active.json",
+      "path": "$.decoded",
+      "assumed_input_mw": 361000,
+      "p2_effective_mw": 371841,
+      "q12": 810,
+      "candidate_ma": 36101,
+      "observed_client2_ma": 36101,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/arbitration-propagation-10e0f61c67614af582f257a1c253c664-05-active.json",
+      "path": "$.decoded",
+      "assumed_input_mw": 361000,
+      "p2_effective_mw": 371841,
+      "q12": 810,
+      "candidate_ma": 36101,
+      "observed_client2_ma": 36101,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/arbitration-propagation-10e0f61c67614af582f257a1c253c664-06-active.json",
+      "path": "$.decoded",
+      "assumed_input_mw": 361000,
+      "p2_effective_mw": 371841,
+      "q12": 810,
+      "candidate_ma": 36101,
+      "observed_client2_ma": 36101,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/arbitration-propagation-10e0f61c67614af582f257a1c253c664-07-restored.json",
+      "path": "$.decoded",
+      "assumed_input_mw": 361000,
+      "p2_effective_mw": 361000,
+      "q12": 810,
+      "candidate_ma": 36101,
+      "observed_client2_ma": 36101,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/arbitration-propagation-10e0f61c67614af582f257a1c253c664-08-restored.json",
+      "path": "$.decoded",
+      "assumed_input_mw": 361000,
+      "p2_effective_mw": 361000,
+      "q12": 810,
+      "candidate_ma": 36101,
+      "observed_client2_ma": 36101,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/arbitration-propagation-10e0f61c67614af582f257a1c253c664-09-restored.json",
+      "path": "$.decoded",
+      "assumed_input_mw": 361000,
+      "p2_effective_mw": 361000,
+      "q12": 810,
+      "candidate_ma": 36101,
+      "observed_client2_ma": 36101,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/arbitration-propagation-10e0f61c67614af582f257a1c253c664-10-restored.json",
+      "path": "$.decoded",
+      "assumed_input_mw": 361000,
+      "p2_effective_mw": 361000,
+      "q12": 810,
+      "candidate_ma": 36101,
+      "observed_client2_ma": 36101,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/arbitration-propagation-10e0f61c67614af582f257a1c253c664-11-restored.json",
+      "path": "$.decoded",
+      "assumed_input_mw": 361000,
+      "p2_effective_mw": 361000,
+      "q12": 810,
+      "candidate_ma": 36101,
+      "observed_client2_ma": 36101,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/arbitration-propagation-10e0f61c67614af582f257a1c253c664-12-restored.json",
+      "path": "$.decoded",
+      "assumed_input_mw": 361000,
+      "p2_effective_mw": 361000,
+      "q12": 810,
+      "candidate_ma": 36101,
+      "observed_client2_ma": 36101,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/arbitration-propagation-10e0f61c67614af582f257a1c253c664-13-restored.json",
+      "path": "$.decoded",
+      "assumed_input_mw": 360000,
+      "p2_effective_mw": 370811,
+      "q12": 819,
+      "candidate_ma": 36002,
+      "observed_client2_ma": 36002,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/arbitration-propagation-10e0f61c67614af582f257a1c253c664-14-restored.json",
+      "path": "$.decoded",
+      "assumed_input_mw": 360000,
+      "p2_effective_mw": 370811,
+      "q12": 819,
+      "candidate_ma": 36002,
+      "observed_client2_ma": 36002,
+      "residual_ma": 0
+    },
+    {
+      "source": "experiments/registry-overrides/arbitration-propagation-10e0f61c67614af582f257a1c253c664-15-restored.json",
+      "path": "$.decoded",
+      "assumed_input_mw": 360000,
+      "p2_effective_mw": 370811,
+      "q12": 819,
+      "candidate_ma": 36002,
+      "observed_client2_ma": 36002,
+      "residual_ma": 0
+    }
+  ],
+  "schema": 1,
+  "device_scope": {
+    "gpu": "RTX 5080",
+    "vbios": "98.03.3b.c0.6f",
+    "capture_drivers": [
+      "617.42",
+      "621.01"
+    ],
+    "host_source_driver": "621.01"
+  },
+  "candidate_constants": {
+    "source_min_mw": 1,
+    "source_default_mw": 450000,
+    "source_max_mw": 450000,
+    "target_min_ma": 1,
+    "target_default_ma": 45000,
+    "target_max_ma": 45000,
+    "weight_q12": 4096
+  },
+  "candidate_formula": [
+    "q=((450000-x)*4096+224999)//449999",
+    "w=(q*4096+2048)//4096",
+    "y=45000-(44999*w+2048)//4096"
+  ],
+  "result": {
+    "paired_samples": 64,
+    "nonzero_residuals": 0,
+    "live_weight_setter_qualified": false
+  },
+  "host_source_binding": {
+    "getter": "object+0x338=4EF750 -> object+0x2E0=4EB640, selector3 -> object+0x1F8",
+    "meaning": "host current arbitration output",
+    "baseline_host_mw": 450000,
+    "baseline_pmu_mw": 360000,
+    "host_interpolation_at_baseline_ma": 45000,
+    "observed_pmu_client2_ma": 36002,
+    "runtime_invocation_observed": false,
+    "zero_stack_argument_is_client_id": false
+  },
+  "weight_readback": {
+    "snapshots": 30,
+    "raw": 4096,
+    "source_bound_serializer_driver": "621.01",
+    "617_serializer_separately_traced": false
+  },
+  "host_binary_sha256": "3F8D33495CABEB2FA11EBDCF0B12705E9CCFB4E53005324BCD86E9DEA8BA2AB4",
+  "offline_verifiers": [
+    {
+      "path": "experiments/registry-overrides/power-policy9-formula-20261105/root_formula_audit.py",
+      "sha256": "0b2486f08a3ec4aff65e9c9d00c56730f7fe950d3e3ed3d40530be5826230546"
+    },
+    {
+      "path": "experiments/registry-overrides/power-policy9-formula-20261105/root_weight_audit.py",
+      "sha256": "71657cdb428299b831d047e9ff4343938e43d3736c02b10452f7f4eac9c24cc4"
+    },
+    {
+      "path": "experiments/registry-overrides/power-policy9-formula-20261105/root_audit.py",
+      "sha256": "f14263edcaf8ff5a8cf4d4923a17c02a385565ea3678eae965aea1f9c555e13f"
+    }
+  ]
+}

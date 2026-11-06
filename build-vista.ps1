@@ -32,12 +32,17 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Vista build failed ($LASTEXITCODE)." }
     $bundle = Join-Path $PSScriptRoot 'dist\Druta-Vista-Portable'
     if (-not (Test-Path -LiteralPath (Join-Path $bundle 'Druta.exe'))) { throw 'Missing portable Druta.exe.' }
+    # Diagnostics for machines nobody can debug on: the collector script, and
+    # the list of DLLs this exact bundle expects Windows to provide.
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Druta-Diagnose.cmd') -Destination $bundle -Force
     & $Python -m pip freeze | Set-Content -LiteralPath (Join-Path $bundle 'BUILD-DEPENDENCIES.txt') -Encoding UTF8
     if ($LASTEXITCODE -ne 0) { throw 'Could not record build dependencies.' }
     if ($nvtunePath) {
         & $Python src/druta/tools/package_vista_nvtune.py --source $nvtunePath --bundle $bundle
         if ($LASTEXITCODE -ne 0) { throw 'The optional nvtune package failed validation.' }
     }
+    & $Python src/druta/tools/pe_import_manifest.py --bundle $bundle
+    if ($LASTEXITCODE -ne 0) { throw 'Could not write the bundle import manifest.' }
     & $Python src/druta/tools/package_source.py package --root $PSScriptRoot --snapshot $sourceSnapshot --bundle $bundle
     if ($LASTEXITCODE -ne 0) { throw 'Source changed during the build or source packaging failed.' }
     $archive = Join-Path $PSScriptRoot 'dist\Druta-dev-vista-x64-portable.zip'

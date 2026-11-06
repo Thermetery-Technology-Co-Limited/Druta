@@ -1,0 +1,494 @@
+{
+  "schema": 1,
+  "scope": "Packaged LPWR row-0 programmatic UI callback/framebuffer qualification; selected partial disables only",
+  "tested_configuration": {
+    "adapter": "GeForce RTX 5080",
+    "architecture": "Blackwell",
+    "driver": "621.01",
+    "identity_role": "Evidence identification only. Product admission uses current layouts, ownership, capabilities, routing and exact readbacks; no device/driver-version allowlist"
+  },
+  "command": "--ui-capture-lpwr-trial FAMILY NEW_DIRECTORY",
+  "families": [
+    "gr_pg",
+    "ms",
+    "nvdec",
+    "nvenc",
+    "ofa",
+    "nvjpg"
+  ],
+  "actor": "DearPyGUI widget staging invokes ordinary RegistryPanel Prepare/Apply/Restore, existing durable helper and packaged-app relaunch. Root launcher performs observation and baseline/final GETs only. No mouse or keyboard interaction is established.",
+  "implementation": "Explicit enabled/editable row0 singleton, understood mask and whole-image plan, schema-specific contract/read scope, exact receipt/target/registry/image/client state, saved raw full-main LPWR and client replies, final-frame terminal marker and failure recovery context",
+  "trial_code_commit": "093de78a3eeaec9cc6641972ec039c1a251411ce",
+  "trial_executable_sha256": "d4bc1283037b8e22a76c49e40e7263c1de0d5f6eed10b1578141b34c7cb840f3",
+  "trial_package": "450 committed source files and19 compiled modules verified before execution; final documentation/package rebuild checked separately",
+  "cases": {
+    "gr_pg": {
+      "field": "lpwr.gr_pg.0.enabled",
+      "receipt_schema": 1,
+      "enable_mask": 1,
+      "native_mask_changes": {
+        "0": [
+          288,
+          32
+        ]
+      },
+      "image_sha256": {
+        "before": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+        "active": "1fa60ceca38ab6a0e72e1737274fc5cb377d52f3d407c337890ff7e9dd3936c3",
+        "restored": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202"
+      },
+      "UI_sequence": "before true / Preview false / active read-only False / restored checked true",
+      "framebuffer": {
+        "before": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "f1c3059c7e722af7e5b24a5d36c8f1dcf4f94774408da91eb1055f3a7398d8a2",
+          "recorded_value": true
+        },
+        "preview": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "fd0a8704570c3d1767daddb528e667a2f0ffa0cc9d6b2c618e5aa37707bcd0b6",
+          "recorded_value": false
+        },
+        "active": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "55e93fd74bb585d8441d2e7a05b2fbaebe48a4d09054136f090c97465ea6c043",
+          "recorded_value": false
+        },
+        "restored": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "f1c3059c7e722af7e5b24a5d36c8f1dcf4f94774408da91eb1055f3a7398d8a2",
+          "recorded_value": true
+        }
+      },
+      "full_raw_packet_client_peer_and_receipt_audit": true
+    },
+    "ms": {
+      "field": "lpwr.ms.0.enabled",
+      "receipt_schema": 1,
+      "enable_mask": 1,
+      "native_mask_changes": {
+        "1": [
+          288,
+          0
+        ],
+        "4": [
+          288,
+          0
+        ]
+      },
+      "image_sha256": {
+        "before": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+        "active": "e26f8c178a1086fd0b45f6f22e97693d49968c2adf03429e170706a47d87e43d",
+        "restored": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202"
+      },
+      "UI_sequence": "before true / Preview false / active read-only False / restored checked true",
+      "framebuffer": {
+        "before": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "feefe6a5c5ff8cbf3f01f819a736900778715443a86bd0e206b9120244c457ec",
+          "recorded_value": true
+        },
+        "preview": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "2b82d708be5c279fab3adc664276076c97f25f08a6506749581567a832f03284",
+          "recorded_value": false
+        },
+        "active": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "e2a8acace00a458c1d9d8f3eca5463400e0c3912a088bfeffe7d9ad0d7cf9bab",
+          "recorded_value": false
+        },
+        "restored": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "feefe6a5c5ff8cbf3f01f819a736900778715443a86bd0e206b9120244c457ec",
+          "recorded_value": true
+        }
+      },
+      "full_raw_packet_client_peer_and_receipt_audit": true
+    },
+    "nvdec": {
+      "field": "lpwr.nvdec.0.enabled",
+      "receipt_schema": 1,
+      "enable_mask": 1,
+      "native_mask_changes": {
+        "12": [
+          297,
+          9
+        ]
+      },
+      "image_sha256": {
+        "before": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+        "active": "eda7b5d7b91c17f5a19b27de62c9e2c79bbab5f2d22fc048d61dd4dfc8c479f7",
+        "restored": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202"
+      },
+      "UI_sequence": "before true / Preview false / active read-only False / restored checked true",
+      "framebuffer": {
+        "before": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "9237612fb4359bc34b28d55fb99dec1059b530973f162f2662564801cc8c32f2",
+          "recorded_value": true
+        },
+        "preview": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "76f71875cb87a266f9566cfdc72bc958fd8334dfb3a3b3a45d99468814f43b00",
+          "recorded_value": false
+        },
+        "active": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "5c8594549b05842384e7be302cb224a97bdbb524d68c3b6048fcd84f99d73f2d",
+          "recorded_value": false
+        },
+        "restored": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "9237612fb4359bc34b28d55fb99dec1059b530973f162f2662564801cc8c32f2",
+          "recorded_value": true
+        }
+      },
+      "full_raw_packet_client_peer_and_receipt_audit": true
+    },
+    "nvenc": {
+      "field": "lpwr.nvenc.0.enabled",
+      "receipt_schema": 1,
+      "enable_mask": 1,
+      "native_mask_changes": {
+        "13": [
+          297,
+          9
+        ]
+      },
+      "image_sha256": {
+        "before": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+        "active": "3212039850ba6751cbb3edcd83993a1b1b6b00d6eb757b1be4c9f3098a0e21f5",
+        "restored": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202"
+      },
+      "UI_sequence": "before true / Preview false / active read-only False / restored checked true",
+      "framebuffer": {
+        "before": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "075dd312e81ec5cf8139b2faae943f5f4ab4cc8a0165a28c33f4573b311fbfec",
+          "recorded_value": true
+        },
+        "preview": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "eed877e831e673b6ec46f7364c242cca0d9b6ad673e4d0bdae24e45fe1d4b77d",
+          "recorded_value": false
+        },
+        "active": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "8fbf7560df236bc491bc8ca2537646642f21e35a0f39d4bc3efa8ee460e8cb1f",
+          "recorded_value": false
+        },
+        "restored": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "075dd312e81ec5cf8139b2faae943f5f4ab4cc8a0165a28c33f4573b311fbfec",
+          "recorded_value": true
+        }
+      },
+      "full_raw_packet_client_peer_and_receipt_audit": true
+    },
+    "ofa": {
+      "field": "lpwr.ofa.0.enabled",
+      "receipt_schema": 1,
+      "enable_mask": 1,
+      "native_mask_changes": {
+        "14": [
+          297,
+          9
+        ]
+      },
+      "image_sha256": {
+        "before": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+        "active": "10bc7bb10b2340d06e7746c82129a7d437730fc2bbaa9127d4d32cbe70842bc8",
+        "restored": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202"
+      },
+      "UI_sequence": "before true / Preview false / active read-only False / restored checked true",
+      "framebuffer": {
+        "before": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "506cd2e093e1348b9176279f708922207a3cfe6457e4009144f21deec90cdb5f",
+          "recorded_value": true
+        },
+        "preview": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "59094d9979d66fe8399430411b35edda5195b0d5025ae46232098d97bfab22e3",
+          "recorded_value": false
+        },
+        "active": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "bdc30516e3c33c6d9c6299d6e7268788e29ef42be12a103fed2fae48466f5fb5",
+          "recorded_value": false
+        },
+        "restored": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "6162f4244fcb6c236b17afc1c6ca1deab52064278c17484261fee3c5e3a5d9cc",
+          "recorded_value": true
+        }
+      },
+      "full_raw_packet_client_peer_and_receipt_audit": true
+    },
+    "nvjpg": {
+      "field": "lpwr.nvjpg.0.enabled",
+      "receipt_schema": 1,
+      "enable_mask": 2,
+      "native_mask_changes": {
+        "15": [
+          297,
+          9
+        ]
+      },
+      "image_sha256": {
+        "before": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+        "active": "9e16b7ac267e771d9fd0cdaad78107a56a4ac9a1378f0187ed00b1c3cdac1b3d",
+        "restored": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202"
+      },
+      "UI_sequence": "before true / Preview false / active read-only False / restored checked true",
+      "framebuffer": {
+        "before": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "839cb639e3496b5d21df85f7b1d8400e5448c57dd738b9402ba38cefcbe3151b",
+          "recorded_value": true
+        },
+        "preview": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "a884a083e4505b4e880bd531fa2a94d96987904ff3700130d790299992b06a14",
+          "recorded_value": false
+        },
+        "active": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "5cd4660a40277885e83196cc3580bb192831a80d87512fdf7d01ef61bafe0972",
+          "recorded_value": false
+        },
+        "restored": {
+          "width": 1528,
+          "height": 1261,
+          "sha256": "f334640b86cec2f6b1a6b64a9ac42002bd5099ff19b522f1b8c473d073177fe0",
+          "recorded_value": true
+        }
+      },
+      "full_raw_packet_client_peer_and_receipt_audit": true
+    }
+  },
+  "visual_review": {
+    "root": "All six active and Preview frames inspected; selected False rows and Preview text legible. Before/restored GRPG and NVJPG sampled independently.",
+    "Luna": "All twelve before/restored frames inspected; six row0 checkboxes checked and labels legible.",
+    "scope": "PNG hashes/CRC/dimensions and recorded widget values audited separately from actual visual inspection; 24 fixed-build frames"
+  },
+  "external_original_comparison": {
+    "initial_strict_pass": [
+      "gr_pg",
+      "ms",
+      "nvdec",
+      "nvenc"
+    ],
+    "ofa": {
+      "initial": "All8 post-Undo strict broad samples failed; final3 only V/F curve differed, first5 also driver flag13/hash. LPWR/client and restored ROM/receipt matched",
+      "curve": "110 changed bytes in50 evaluated GPU frequency words; cause unproven",
+      "later_GET_only": "Complete original including curve matched first sample, no write or restart",
+      "classification": "Initial broad negative retained separately from later exact GET; not a fully clean external trial"
+    },
+    "nvjpg": {
+      "initial": "Observer raised Two fresh complete baseline captures disagree before returning a full broad result; UI sequence had completed. Disagreeing raw pair was not returned/saved",
+      "later_GET_only": "Complete original including curve matched first sample, no write or restart",
+      "classification": "Initial observer error retained separately from later exact GET; no fabricated raw pair"
+    },
+    "all_six_final_original_verified": true,
+    "curve_exclusions": false
+  },
+  "presentation_fix": {
+    "observation": "First GRPG trial completed and restored but exposed read-only False rendered as0.0 and obsolete blanket guidance about last-entry transitions",
+    "change": "Boolean fields now display False/True/unavailable; numeric scaling retained. Guidance follows understood dependency contracts",
+    "pre_fix_trial": "packaged-grpg-1 retained separately; corrected GRPG trial repeated on the fixed build"
+  },
+  "Windows_capture_limit": "External computer-use capture failed twice with Class not registered0x80040154; Druta framebuffer capture used instead. This does not qualify physical input.",
+  "independent_audits": "Terra independently reconstructed all singleton ROM edits, actual-ID routes/native and auxiliary masks, full raw1028-byte LPWR routing/opaque bytes, full client requests/Pstate/receipts/helper events and PNG integrity; root reproduced both six-case UI and external audits",
+  "GPU_only_restarts": 14,
+  "Windows_reboot": false,
+  "workload_started": false,
+  "F219_SET": false,
+  "NVIDIA_App_installed": false,
+  "release_changes": false,
+  "validation": {
+    "focused": "206 passed in1.43s; includes88 UI capture cases and105 panel cases",
+    "full_suite": "6823 passed in119.23s",
+    "Ruff": "Runner, panel and changed tests passed; CLI changed lines clean. The app file retains26 pre-existing findings."
+  },
+  "pending": [
+    "Physical mouse/keyboard input and other displays/DPI/adapters",
+    "GRPG no-peer and other dependency profiles, and post-restart failure/recovery walkthroughs; captured media-family no-peer packaged qualifications are linked below",
+    "Earlier OFA all-shutdown/no-peer intermediate curve-negative records are retained; later source full-phase qualification does not extend this packaged row0 scope",
+    "Curve freshness/recalculation and observer stability semantics",
+    "Other field types, cross-generation validation and physical residency/power effects"
+  ],
+  "later_source_OFA_repeat": "See media-type4-last-role-qualified-20261029.json, OFA_repeat_20261029: last two full broad samples exact in every phase, all curves exact, early BOOST_LOW mismatches retained; physical input/recovery/full-shutdown packaged coverage remains pending",
+  "later_MS_compound_callback": "See ms-configured-qualified-20261029.json partial_aggregate_extension_20261029.packaged_callback_qualification for the separate schema2 rows0/1 callback/framebuffer trial, four visually inspected frames, exact native/client/receipt/Undo and last-two strict final broad match; all early BOOST_LOW negatives retained. No physical input or independent active broad window added. Its two GPU restarts are excluded from this original row0 series'14.",
+  "later_MS_full_shutdown_callback": "See ms-configured-qualified-20261029.json packaged_full_shutdown_20261029 for schema1 disabling all3enabledMSrows, corrected four visually inspected frames and exact native/client/receipt/Undo. Attempt1's collapsed active frame and all early BOOST_LOW negatives remain retained. The4GPUrestarts are excluded from this original row0series14. Other-family shutdown/no-peer, physical input and recovery remain pending; no independent active broad window is added",
+  "later_NVDEC_full_shutdown_callback": "See nvdec-configured-qualified-20261029.json packaged_full_shutdown_20261029: existing schema1 disables all five enabled NVDEC rows through packaged panel/helper/relaunch and durable Undo, with exact native/client/receipt recovery. All four framebuffers inspected by root/Luna; Preview qualifies the five change lines, while its checkbox rows are below the viewport. Final samples0-2 retain driver-flag differences and samples3-7 match; all16 before/final curves match. Its two GPU restarts are separate from this original row0 series14. Other-family shutdown/no-peer, physical input and failure/recovery remain pending; no independent active broad window added",
+  "later_media_full_shutdown_callback": "See media-lpwr-configured-qualified-20261029.json packaged_full_shutdown_20261029 for separate five-row peer-bearing NVENC/OFA/NVJPG panel/helper/Undo trials. Preview change lines are visible but checkbox rows are below viewport; all before/final curves match and early driver-flag differences are retained. Six restarts are separate from the original row0 series. No independent active broad window, physical input or effects claim.",
+  "packaged_GRPG_full_shutdown_20261029": {
+    "scope": "One captured configuration, programmatic packaged panel callbacks and durable helper Apply/Undo for all three enabled GRPG rows; no product runtime or admission change.",
+    "command": "--ui-capture-lpwr-rows gr_pg 0,1,2 NEW_DIRECTORY",
+    "contract": "Existing GRPG schema5, outer version1; all three selected byte bit0 fields verified on Apply and Undo",
+    "source_commit": "2f32fbe45bd96ce1ebcca9bdede98f3637860688",
+    "executable_sha256": "ba57c070cb78e2f10936e00191693d0c129cb633b7a0f82ac40cf69c319b8dec",
+    "package_provenance": "Previous verified 460 sources and 20 compiled modules, same executable; no new runtime code",
+    "session": 25518,
+    "exit_code": 0,
+    "selected_fields": [
+      "lpwr.gr_pg.0.enabled",
+      "lpwr.gr_pg.1.enabled",
+      "lpwr.gr_pg.2.enabled"
+    ],
+    "image_changes": "Three selected GRPG row byte bit0 changes only",
+    "ROM_sha256": {
+      "before": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+      "active": "d6372a72eef572b35d85ddf2cc0560f3c5a0ae97fe4d31fa46d7f127ae40cdb0",
+      "restored": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202"
+    },
+    "controller_transition": "Main0 unsupported and mask/feature unavailable; controller2 already unsupported, controller4 remains supported. Conditional losses of 2/4 are not qualified.",
+    "auxiliary_transition": "Auxiliary controller0 feature row has invalid flag and uninterpreted raw value; corresponding bulk feature row absent. Native controller9 feature 0xF to 0x7; type1 role0 support/mask valid zero; type4 role0 unavailable; type7 remains available through MS peer.",
+    "preservation": "Independent full raw LPWR packet and opaque-byte projections, full Pstate and client/native power requests, receipt, target, image and original registry restored; unselected peers retained.",
+    "GUI_PIDs": {
+      "initial": 11260,
+      "applying": 24740,
+      "restoring": 27568
+    },
+    "observed_helpers": [
+      {
+        "action": "apply",
+        "process_id": 13320,
+        "parent_pid": 11260
+      },
+      {
+        "action": "restore",
+        "process_id": 12728,
+        "parent_pid": 24740
+      }
+    ],
+    "frame_sha256": {
+      "before": "f1c3059c7e722af7e5b24a5d36c8f1dcf4f94774408da91eb1055f3a7398d8a2",
+      "preview": "96c1725fde91b045ee41ff3bb37159827c3c36919abf13f5e17eeaa66d3bb5b8",
+      "active": "45b93ee596a9137c6080b39eff21999551b77ae5ab5a9439d10441ae8de45404",
+      "restored": "f1c3059c7e722af7e5b24a5d36c8f1dcf4f94774408da91eb1055f3a7398d8a2"
+    },
+    "visual": "Root and Luna inspected four frames: all three checkboxes checked before/restored and visibly blank in Preview, with three change lines and main0 unsupported/P5-P8 unavailable clauses visible; active rows show read-only False. Far-right generic caption tail has no separate legibility qualification. Before/restored images are byte-identical.",
+    "before_broad_exact": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ],
+    "final_broad_exact": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true
+    ],
+    "final_difference_paths": [
+      [
+        "voltage.broad.broad.driver_flags.control_sha256",
+        "voltage.broad.broad.driver_flags.entries[13].control_hex"
+      ],
+      [
+        "voltage.broad.broad.driver_flags.control_sha256",
+        "voltage.broad.broad.driver_flags.entries[13].control_hex"
+      ],
+      [
+        "voltage.broad.broad.driver_flags.control_sha256",
+        "voltage.broad.broad.driver_flags.entries[13].control_hex"
+      ],
+      [],
+      [],
+      [],
+      [],
+      []
+    ],
+    "before_final_curve_changed_bytes": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "broad_scope": "Before eight exact; final 0\u20132 retain BOOST_LOW request/hash differences and 3\u20137 exact; all sixteen full curves exact without exclusions. No independent active broad window.",
+    "GPU_only_restarts": 2,
+    "physical_input": false,
+    "physical_effects_measured": false,
+    "source_sha256": {
+      "registry_ui_trial.py": "2dc273fb893bc46be20e03abb05c000143e6fa5e133167f9e7a08eb05dc9c943",
+      "druta.py": "be12e1e3c80185008439e4d3042ab833605e8b76295ec5215fc2fa3c6a3a38b4",
+      "registry_panel.py": "d3903a662398aa9aff9dadd53258f16b721bba1263d34d4ee54ab38d2c0492a0",
+      "registry_overrides.py": "b67080f4b635d7ae7903a87e0fc2da6a224f7424064459a09e29d14941c0bd29",
+      "grpg_runtime.py": "eae295d031f6c12712014b50417eb0051e78d9ad36eff7b4d5d67d7611d221a1",
+      "ms_runtime.py": "d7eafb6f6477dc52f2b5b2d1aef910eab0c214a79ce25b33971cd8c4ff474f5e",
+      "nvdec_runtime.py": "bf234e1876b29d537485acadf1248c9bd8affff05028bdb461abd928e0efe0c6",
+      "media_lpwr_runtime.py": "823c6083c949edcb07f8ebe60ffea11eca76994710f253f3c3db948aeb6245ef"
+    },
+    "private_evidence_sha256": {
+      "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/root-ui-audit.json": "db72f8da284436054e733690aa52e9dd513f1cc570f5e6b7288a2d0811634786",
+      "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/root-external-audit.json": "64d191924f9ca6376efa6ebaa3067921dd52e8a0c9816046e1d32095a42e2d31",
+      "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/luna-visual-review.json": "3472c43d5e3bb867b658b89d9097a1a05818cbfd8262c3f2998afb5ce0598926",
+      "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/trial-package-reference.json": "276e69c51ec98babfeedbcabd6dd5bbc1dfd5963066397994bed8e972541d8ff",
+      "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/packaged-grpg-shutdown-1-baseline.json": "44431bd5faa4174621b86909cfe32496ff10922226483d11939361cd47f5f5af",
+      "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/packaged-grpg-shutdown-1-launch.json": "622fa2a76ebada229cb48065550077a846a29ec958c74e24ac4c0a844d2cebc4",
+      "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/packaged-grpg-shutdown-1-root-baseline-review.json": "b77f77a0026f948ae7bf7b05aaa945ec2e9bbd98f70473aa945e97d6a925d560",
+      "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/packaged-grpg-shutdown-1-root-final.json": "8cf18a34d63c1f9f21edadb74cb6c3fcb0ef2ca1cf6d07811371fc41ba1d25f6",
+      "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/packaged-grpg-shutdown-1/trial.json": "497a0a4409e6761d005a1a3427a1ef2890025c4990fc071d700c3c7b3869a327",
+      "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/packaged-grpg-shutdown-1/trial-result.json": "5b45a285456713a236147fef37c2e2d7b0997b45e7521a832b20a2e8087fb8d7",
+      "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/packaged-grpg-shutdown-1/lpwr-initial.json": "77742a2eadf60ad876ae791c48c70dd69ea2e6117875b2c4efe2958762c2378b",
+      "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/packaged-grpg-shutdown-1/lpwr-before.json": "bb648f27eb5913c8f619a11fa499c238bf4aa956f32e7877837320d8e3149ade",
+      "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/packaged-grpg-shutdown-1/lpwr-active.json": "2d3d8df938ae2ff5036ed5effbc79e16db0d0d2d0e09378749c3647531421cb9",
+      "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/packaged-grpg-shutdown-1/lpwr-restored.json": "c1d270f696ed114b4d3eda369774139122bf0ec1fa7d64f12bf777e4e5a6e222",
+      "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/packaged-grpg-shutdown-1/initial/manifest.json": "53ec2af44fa504d5722544914061f5fa71c334141410a4f6253e6d3f308ea61a",
+      "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/packaged-grpg-shutdown-1/applying/manifest.json": "4733a04ffcb9a1a5ffcd5ff76005ad5572856e49f172258d698aed7bb61bc08e",
+      "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/packaged-grpg-shutdown-1/restoring/manifest.json": "ef579c0a1e5c54e534617a6f8eb4a14ff7b3369bc56948069c1f4ba8e0c6d2bd",
+      "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/launch_grpg.py": "97d955248aebda8f92ae6189053f26a308cc68c7f4a002c21bbe1797b741cb76",
+      "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/audit_grpg.py": "f724c221fdd89929acd3f8aa6dce4ee10549a30e745d3da1d76dfa2564a41ae0",
+      "experiments/registry-overrides/ui-grpg-shutdown-root-20261029/audit_external.py": "005bdd32a8ba857e9458509683ec2564dd6bfb206dfe66ebc96a6c4940d9e4b6"
+    },
+    "pending": "Other schema5 conditional profiles, no-peer UI, recovery, physical input and effects, other adapters/layouts."
+  },
+  "later_NVDEC_no_peer_callback": "See media-type4-last-role-qualified-20261029.json packaged_NVDEC_no_peer_20261029: three packaged attempts preserve an OS-observer negative and a clipped Preview negative; the fixed-height third passes strict and visual checks. Undo returns temporary setup, then the supervisor restores original. Twelve GPU-only restarts are separate from this original row0 series; no independent active broad window or physical input/effects claim.",
+  "later_media_no_peer_callback": "See media-type4-last-role-qualified-20261029.json packaged_media_no_peer_20261029 for separately scoped NVENC/OFA/NVJPG packaged last-role callbacks. Undo returns temporary setup; the supervisor then restores original. Twelve restarts are separate from earlier series; no active broad window, independent empty-mask, physical-input or effect claim."
+}

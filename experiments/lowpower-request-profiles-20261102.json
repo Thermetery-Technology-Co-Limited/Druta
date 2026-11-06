@@ -1,0 +1,169 @@
+{
+  "schema": 1,
+  "date": "2026-11-02",
+  "scope": "Session-owned low-power Undo and explicitly loaded profiles, local RTX 5080 / 617.42",
+  "artifact": "experiments/registry-overrides/lowpower-profiles-root-20261102/verified/trial.json",
+  "artifact_sha256": "03bfb19b372047a3eaeef9b1345f28e20281f9a2ec29e76e960a4c05e0f5193d",
+  "qualified": true,
+  "round_trips": [
+    {
+      "kind": "difr",
+      "index": null,
+      "mode": "disabled",
+      "undo_verified": true,
+      "manual_load_verified": true,
+      "baseline_load_verified": true,
+      "mode_transition_and_undo_verified": false
+    },
+    {
+      "kind": "elpg",
+      "index": null,
+      "mode": "disabled",
+      "undo_verified": true,
+      "manual_load_verified": true,
+      "baseline_load_verified": true,
+      "mode_transition_and_undo_verified": false
+    },
+    {
+      "kind": "elcg",
+      "index": null,
+      "mode": "disabled",
+      "undo_verified": true,
+      "manual_load_verified": true,
+      "baseline_load_verified": true,
+      "mode_transition_and_undo_verified": false
+    },
+    {
+      "kind": "blcg",
+      "index": null,
+      "mode": "disabled",
+      "undo_verified": true,
+      "manual_load_verified": true,
+      "baseline_load_verified": true,
+      "mode_transition_and_undo_verified": false
+    },
+    {
+      "kind": "slcg",
+      "index": null,
+      "mode": "disabled",
+      "undo_verified": true,
+      "manual_load_verified": true,
+      "baseline_load_verified": true,
+      "mode_transition_and_undo_verified": false
+    },
+    {
+      "kind": "individual",
+      "index": 0,
+      "mode": "disabled",
+      "undo_verified": true,
+      "manual_load_verified": true,
+      "baseline_load_verified": true,
+      "mode_transition_and_undo_verified": false
+    },
+    {
+      "kind": "individual",
+      "index": 4,
+      "mode": "disabled",
+      "undo_verified": true,
+      "manual_load_verified": true,
+      "baseline_load_verified": true,
+      "mode_transition_and_undo_verified": false
+    },
+    {
+      "kind": "individual",
+      "index": 10,
+      "mode": "disabled",
+      "undo_verified": true,
+      "manual_load_verified": true,
+      "baseline_load_verified": true,
+      "mode_transition_and_undo_verified": false
+    },
+    {
+      "kind": "individual",
+      "index": 11,
+      "mode": "disabled",
+      "undo_verified": true,
+      "manual_load_verified": true,
+      "baseline_load_verified": true,
+      "mode_transition_and_undo_verified": false
+    },
+    {
+      "kind": "individual",
+      "index": 12,
+      "mode": "disabled",
+      "undo_verified": true,
+      "manual_load_verified": true,
+      "baseline_load_verified": true,
+      "mode_transition_and_undo_verified": false
+    },
+    {
+      "kind": "individual",
+      "index": 13,
+      "mode": "disabled",
+      "undo_verified": true,
+      "manual_load_verified": true,
+      "baseline_load_verified": true,
+      "mode_transition_and_undo_verified": false
+    },
+    {
+      "kind": "individual",
+      "index": 14,
+      "mode": "disabled",
+      "undo_verified": true,
+      "manual_load_verified": true,
+      "baseline_load_verified": true,
+      "mode_transition_and_undo_verified": false
+    },
+    {
+      "kind": "individual",
+      "index": 15,
+      "mode": "disabled",
+      "undo_verified": true,
+      "manual_load_verified": true,
+      "baseline_load_verified": true,
+      "mode_transition_and_undo_verified": false
+    },
+    {
+      "kind": "elcg",
+      "index": null,
+      "mode": "enabled",
+      "undo_verified": true,
+      "manual_load_verified": true,
+      "baseline_load_verified": true,
+      "mode_transition_and_undo_verified": true
+    },
+    {
+      "kind": "slcg",
+      "index": null,
+      "mode": "enabled",
+      "undo_verified": true,
+      "manual_load_verified": true,
+      "baseline_load_verified": true,
+      "mode_transition_and_undo_verified": true
+    }
+  ],
+  "all_owned_requests_released": true,
+  "baseline_witnesses_restored": true,
+  "first_trial": {
+    "artifact": "experiments/registry-overrides/lowpower-profiles-root-20261102/trial.json",
+    "sha256": "66ceedfd7f37a4caa0396d90469c66914ccb1012d3540c7939fb8693240dad46",
+    "finding": "Outer Load profile incorrectly used GPU-only preflight before owned-app route; corrected and regression-tested. Cleanup witness comparison ran before DIFR release; corrected to release all first, then compare."
+  },
+  "limits": [
+    "No physical power, latency or residency claim; no workload or driver restart.",
+    "Profiles contain owned intent, not global reason bits, native handles or guaranteed aggregate state.",
+    "Threshold/adaptive policy full-state Undo remains unresolved because their writes couple and aggregate enabled is not owned intent.",
+    "DIFR explicit release lifecycle unchanged."
+  ],
+  "source_sha256": {
+    "src/druta/druta.py": "74ba73ba1425b99260d8bac967dd39c6875de46da9b0d0c3ba331b91b7a4839f",
+    "src/druta/profiles.py": "6621b0a0302bdbd1edea06bc0bb8d2ecc70aaac3c864cf464f3fab4cbd20391d",
+    "src/druta/lowpower_profiles.py": "96b341fbcbdff7e0741edadd76b816ac6a5e63cdd6c8f0db4e0c2c345a9750f6",
+    "src/druta/difr_live_panel.py": "22728bfcc6cb28c588fcbab6cb8f05c2f7e78b4386066336502dbb05571093ef",
+    "src/druta/gr_gating_live_panel.py": "8cbc51b1ebb7f34ecbc8311f2cce43d7d2327f40271a72aac54f1b13b81ed914",
+    "src/druta/engine_clock_gating_panel.py": "23f9ae7856344ef2d6b79f76712fd24156c41829e5de76d413ca957bdaf419b3",
+    "src/druta/block_clock_gating_panel.py": "8eae7b2eca30af4e863fe231527de045d87b9de1687795e5bb74e0a30de118a1",
+    "src/druta/second_level_clock_gating_panel.py": "319bde9de6f3b669dcd922ee4d17737b8809d7856919e287315ca1b20c6681a1",
+    "src/druta/individual_power_gating_panel.py": "fc974d8677023f6bf6ecacfbe40bc8f99356b8a57267f87658a200108c13187e"
+  }
+}

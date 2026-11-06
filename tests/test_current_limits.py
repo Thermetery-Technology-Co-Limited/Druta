@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Hardware-free current-policy guards, preservation and effective readback."""
 import ctypes
+import struct
 import threading
 import unittest
 from types import SimpleNamespace
@@ -11,7 +12,7 @@ from druta import nvbackend as n
 from tests.fixture_current_47212 import TITAN_INFO
 
 
-def fixture(arch=10, newer=False, legacy=False, ampere_layout=False):
+def fixture(arch=10, newer=False, legacy=False, ampere_layout=False, short_status=False):
     g = n.GPU.__new__(n.GPU)
     g._lock = threading.RLock()
     g.static = {"driver": "580.97", "vbios": "98.03.3b.c0.6f"}
@@ -41,6 +42,14 @@ def fixture(arch=10, newer=False, legacy=False, ampere_layout=False):
         info_base, info_stride = 0x58, 0xE4
         status_base, status_stride = 0x80, 0x168C
         control_base, control_stride = 0x14, 0xB8
+    if short_status:
+        # Same info and control blocks as the 11748/11680 transport, but a
+        # shorter status block with its own header and record geometry: the
+        # measured GP106 / 576.80 interface. Sharing two blocks is exactly
+        # what makes carrying the third one over tempting and wrong.
+        packet_bytes, param_bytes = 11740, 11672
+        status_bytes = 171048
+        status_base, status_stride = 0x68, 0x1434
     status_mask_word = 0 if legacy else 1
     wire = {c: c for c in (0x2080A618, 0x2080A619, 0x2080A61A, 0x2080E61B)}
     if legacy:
@@ -170,9 +179,17 @@ class CurrentLimitTests(unittest.TestCase):
         self.assertFalse(g.set_current_limit_ma(13, 349780)[0])
         self.assertEqual(state.writes, [])
         g, state = fixture(n.GPU.ARCH_TURING, legacy=True)
-        g._capture_current_limit_transport.return_value[0][14] = 0x2080A612
+        g._capture_current_limit_transport.return_value[0][14] = 0x2080A613
         self.assertEqual(g.get_current_limits(), [])
         g._legacy_clk_escape.assert_not_called()
+        # 3548/3480 exists under BOTH command families and they are different
+        # record layouts, which is why the command is part of the key rather
+        # than a check beside it.
+        short = [n.GPU._CURRENT_LIMIT_LAYOUTS[(command, 3548, 3480)]
+                 for command in (0x20802612, 0x2080A612)]
+        self.assertNotEqual(short[0]["sizes"], short[1]["sizes"])
+        self.assertNotEqual(short[0]["info"], short[1]["info"])
+        self.assertNotEqual(short[0]["status"], short[1]["status"])
 
     def test_ampere_large_transport_uses_the_accepted_info_layout(self):
         g, state = fixture(ampere_layout=True)
@@ -190,6 +207,85 @@ class CurrentLimitTests(unittest.TestCase):
                           if pair[0] != pair[1]], [word])
         self.assertEqual(state.writes[0][4], 1 << 13)
         self.assertEqual(len(state.writes[0]) * 4, 0x18D4)
+
+    def test_extended_board_request_keeps_derived_core_current_controllable(self):
+        g, state = fixture(ampere_layout=True)
+        word = (0x14 + 13 * 0xB8) // 4 + 1
+        status_word = (0x80 + 13 * 0x168C) // 4 + 1
+        state.control[word] = state.dynamic[status_word] = 270389
+
+        def observation():
+            return ({"binding": {"layout": "legacy32", "maximum_mw": 380000}, "role_info_hex": "0100000030",
+                     "requested_mw": 381000,
+                     "native_info_hex": struct.pack(f"<{len(state.info)}I", *state.info).hex(),
+                     "native_control_hex": struct.pack(f"<{len(state.control)}I", *state.control).hex()}, None)
+
+        g.read_live_power_request = Mock(side_effect=observation)
+        self.assertEqual(g.get_current_limits()[0]["limit_ma"], 270389)
+        self.assertFalse(g.set_current_limit_ma(13, 270001)[0])
+        self.assertEqual(state.writes, [])
+        ok, message = g.set_current_limit_ma(13, 242000)
+        self.assertTrue(ok, message)
+        self.assertEqual(g.get_current_limits()[0]["limit_ma"], 242000)
+        self.assertEqual(g._power_policy_pins[13], 242000)
+
+    def test_out_of_range_current_requires_matching_extended_board_evidence(self):
+        for reason in ("normal_board", "wrong_layout", "different_table", "effective_mismatch", "no_probe"):
+            with self.subTest(reason=reason):
+                g, state = fixture(ampere_layout=True)
+                word = (0x14 + 13 * 0xB8) // 4 + 1
+                status_word = (0x80 + 13 * 0x168C) // 4 + 1
+                state.control[word] = state.dynamic[status_word] = 270389
+                observed = {"binding": {"layout": "legacy32", "maximum_mw": 380000}, "role_info_hex": "0100000030",
+                            "requested_mw": 381000,
+                            "native_info_hex": struct.pack(f"<{len(state.info)}I", *state.info).hex(),
+                            "native_control_hex": struct.pack(f"<{len(state.control)}I", *state.control).hex()}
+                if reason == "normal_board":
+                    observed["requested_mw"] = 380000
+                elif reason == "wrong_layout":
+                    observed["role_info_hex"] = "0100000040"
+                elif reason == "different_table":
+                    observed["native_control_hex"] = "00"
+                elif reason == "effective_mismatch":
+                    state.dynamic[status_word] -= 1
+                g.read_live_power_request = Mock(return_value=(None, "probe failed") if reason == "no_probe"
+                                                 else (observed, None))
+                self.assertEqual(g.get_current_limits(), [])
+                self.assertFalse(g.set_current_limit_ma(13, 242000)[0])
+                self.assertEqual(state.writes, [])
+
+    def test_turing_derived_current_uses_matching_board_evidence_and_keeps_request_bounds(self):
+        for reason in (None, "normal_board", "wrong_layout", "different_table", "effective_mismatch", "no_probe"):
+            with self.subTest(reason=reason):
+                g, state = fixture(n.GPU.ARCH_TURING)
+                word = (0x14 + 13 * 0x7C) // 4 + 1
+                status_word = (0x70 + 13 * 0x1454) // 4 + 1
+                state.control[word] = state.dynamic[status_word] = 390360
+                observed = {"binding": {"layout": "legacy32", "native_layout": "policy124", "maximum_mw": 350000},
+                            "role_info_hex": "0100000030",
+                            "requested_mw": 351000,
+                            "native_info_hex": struct.pack(f"<{len(state.info)}I", *state.info).hex(),
+                            "native_control_hex": struct.pack(f"<{len(state.control)}I", *state.control).hex()}
+                if reason == "normal_board":
+                    observed["requested_mw"] = 350000
+                elif reason == "wrong_layout":
+                    observed["role_info_hex"] = "0100000040"
+                elif reason == "different_table":
+                    observed["native_control_hex"] = "00"
+                elif reason == "effective_mismatch":
+                    state.dynamic[status_word] -= 1
+                g.read_live_power_request = Mock(return_value=(None, "probe failed") if reason == "no_probe"
+                                                 else (observed, None))
+                if reason is not None:
+                    self.assertEqual(g.get_current_limits(), [])
+                    self.assertFalse(g.set_current_limit_ma(13, 350000)[0])
+                else:
+                    self.assertEqual(g.get_current_limits()[0]["limit_ma"], 390360)
+                    self.assertFalse(g.set_current_limit_ma(13, 390001)[0])
+                    self.assertEqual(state.writes, [])
+                    ok, message = g.set_current_limit_ma(13, 350000)
+                    self.assertTrue(ok, message)
+                    self.assertEqual(g.get_current_limits()[0]["limit_ma"], 350000)
 
     def test_new_geometry_reads_each_generation_independently_of_identity(self):
         for arch, defaults in ((n.GPU.ARCH_TURING, [350780]),
@@ -466,6 +562,54 @@ class CurrentLimitTests(unittest.TestCase):
         self.assertTrue(g.set_current_limit_ma(13, 600000)[0])
         self.assertFalse(g.set_current_limit_ma(13, 600001)[0])
         self.assertTrue(g.set_current_limit_ma(13, 300000)[0])
+
+    @staticmethod
+    def raise_default(state, policy, default, maximum):
+        """Give a policy a driver default above the generation's normal cap,
+        the request and effective limit sitting at that default."""
+        meta = (0x58 + policy * 0xE4) // 4
+        record = (0x14 + policy * 0x7C) // 4
+        status = (0x70 + policy * 0x1454) // 4
+        state.info[meta + 3:meta + 5] = [default, maximum]
+        state.control[record + 1] = state.dynamic[status + 1] = default
+
+    def test_default_above_normal_cap_stays_reachable_without_xoc(self):
+        # RTX 3090 Ti Kingpin shape: core default and maximum 845 A, 500 A cap.
+        g, state = fixture()
+        self.raise_default(state, 13, 845000, 845000)
+        row = next(r for r in g.get_current_limits() if r["policy"] == 13)
+        self.assertEqual((row["default_ma"], row["normal_maximum_ma"]), (845000, 845000))
+        self.assertTrue(g.set_current_limit_ma(13, 844200)[0])
+        ok, message = g.set_current_limit_ma(13, 845000)
+        self.assertTrue(ok, message)
+        self.assertIn("845 A", message)
+        self.assertTrue(g.set_current_limit_ma(13, 400000)[0])
+        self.assertTrue(g.set_current_limit_ma(13, 845000)[0])
+        writes = len(state.writes)
+        ok, message = g.set_current_limit_ma(13, 845001)
+        self.assertFalse(ok)
+        self.assertIn("0.001 and 845 A", message)
+        self.assertEqual(len(state.writes), writes)
+
+    def test_default_between_cap_and_api_maximum_bounds_normal_mode(self):
+        g, state = fixture()
+        self.raise_default(state, 13, 700000, 5001000)
+        self.assertTrue(g.set_current_limit_ma(13, 300000)[0])
+        self.assertTrue(g.set_current_limit_ma(13, 700000)[0])
+        self.assertTrue(g.set_current_limit_ma(13, 300000)[0])
+        writes = len(state.writes)
+        self.assertFalse(g.set_current_limit_ma(13, 700001)[0])
+        self.assertEqual(len(state.writes), writes)
+        g.voltage_xoc_enabled = True
+        self.assertTrue(g.set_current_limit_ma(13, 5001000)[0])
+        self.assertFalse(g.set_current_limit_ma(13, 5001001)[0])
+
+    def test_default_below_cap_leaves_normal_bound_unchanged(self):
+        g, state = fixture()
+        row = next(r for r in g.get_current_limits() if r["policy"] == 13)
+        self.assertEqual((row["default_ma"], row["normal_maximum_ma"]), (300000, 500000))
+        self.assertFalse(g.set_current_limit_ma(13, 500001)[0])
+        self.assertEqual(state.writes, [])
 
     def test_large_current_messages_preserve_milliamp_precision(self):
         g, state = fixture()

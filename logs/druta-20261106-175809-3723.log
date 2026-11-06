@@ -1,0 +1,12 @@
+Druta 1.9.1 session log
+started: 2026-11-06 17:58:09 (pid 3723)
+argv: /home/user/Druta/src/run_druta.py --version
+python: 3.8.20 (default, Oct  2 2024, 16:34:12)  (64bit)
+frozen: False
+executable: /tmp/claude-0/v38/bin/python
+platform: Linux-6.18.44-fc-v242-x86_64-with-glibc2.2.5
+python shims: none needed
+17:58:09 stage: session log started
+17:58:09 stage: importing the application
+17:58:09 stage: application imported
+17:58:09 stage: exit 0

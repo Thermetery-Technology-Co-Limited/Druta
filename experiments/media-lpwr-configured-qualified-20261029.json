@@ -1,0 +1,556 @@
+{
+  "schema": 1,
+  "scope": "Disable-only media low-power configured-state control, not physical residency or power savings",
+  "tested_configuration": {
+    "adapter": "GeForce RTX 5080",
+    "architecture": "Blackwell",
+    "driver": "621.01",
+    "identity_role": "Evidence identification only; eligibility uses understood layouts, capabilities and exact readbacks"
+  },
+  "geometry": "Owned v10 tables, header10/WORD stride2, fewer than six rows",
+  "profiles": {
+    "nvenc": {
+      "BIT_P": "0x120",
+      "object": "0xB5",
+      "enable_mask": "0x1",
+      "index_raw_byte": 14,
+      "primary_controller": 13,
+      "unsupported_alternate": 18,
+      "primary_role": 5
+    },
+    "ofa": {
+      "BIT_P": "0x124",
+      "object": "0xB6",
+      "enable_mask": "0x1",
+      "index_raw_byte": 15,
+      "primary_controller": 14,
+      "unsupported_alternate": 19,
+      "primary_role": 7
+    },
+    "nvjpg": {
+      "BIT_P": "0x128",
+      "object": "0xB7",
+      "enable_mask": "0x2",
+      "index_raw_byte": 16,
+      "primary_controller": 15,
+      "unsupported_alternate": null,
+      "primary_role": 6
+    }
+  },
+  "NVJPG_correction": "The traced loader consumes WORD bit1 directly and ignores bit0. The exposed field/planner now clears mask0x2 while preserving bit0 and every other field; a bit0-only patch was not a consumed disable on this path.",
+  "qualified_source_production_cases": {
+    "nvenc": {
+      "row0": "Controller13 support/feature and role5 retained; configured mask0x129 ->0x009",
+      "all_five_enabled": "Controller13 unsupported; mask/feature unavailable; role5 unavailable with an independent surviving peer"
+    },
+    "ofa": {
+      "row0": "Controller14 support/feature and role7 retained; configured mask0x129 ->0x009",
+      "all_five_enabled": "Controller14 unsupported; mask/feature unavailable; role7 unavailable with an independent surviving peer"
+    },
+    "nvjpg": {
+      "row0": "Controller15 support/feature and role6 retained; configured mask0x129 ->0x009",
+      "all_five_enabled": "Controller15 unsupported; mask/feature unavailable; role6 unavailable with an independent surviving peer"
+    }
+  },
+  "independent_checks": [
+    "Actual loaded PERF P-state IDs and family-specific index selectors; exact full before-mask and surviving-route prediction",
+    "Complete 1028-byte raw/typed LPWR support, mask, feature and auxiliary packets with opaque bytes preserved",
+    "Whole-ROM selected-WORD enable-mask-only edits; NVJPG bit0 remains intact",
+    "Complete native/client power records and configured requests",
+    "Durable production Prepare, Apply and Undo with every selected field verified",
+    "Strict compared configuration including the complete curve at settled active and restored phases"
+  ],
+  "retained_negative": {
+    "case": "Initial NVJPG complete shutdown attempt",
+    "source_Apply_and_Undo": "Both verified all selected fields, LPWR peers and client requests",
+    "failure": "Strict active and final broad comparisons did not settle within the captured attempts; after flags settled, only the evaluated V/F frequency curve differed",
+    "curve_delta": "110 bytes in 50 GPU frequency words; voltage/header/other words/tail unchanged",
+    "later_restoration": "A later GET-only capture matched the complete original state without another restart",
+    "retry": "Unchanged strict harness passed; no frequency exceptions",
+    "interpretation": "Negative retained separately; cause remains unproven; cleanup warning was not an active recovery receipt"
+  },
+  "current_product_profile": [
+    "Apply one media family at a time; independently supported primary mask/feature required",
+    "NVENC/OFA alternates independently unsupported; NVJPG has no inferred alternate",
+    "Auxiliary role support agrees with the enabled-row aggregate",
+    "All-enabled shutdown can also project all type4 queries unavailable when the selected role is the only valid before query; selected native controller/mask/feature and all peers must match. See later_availability_extension for qualification limits.",
+    "All captured peers must match; unexpected differences invoke restoration",
+    "Legacy image-only Undo remains available; new Apply requires fresh runtime contracts"
+  ],
+  "pending": [
+    "Supported alternate controllers, mixed aggregate losses and other layouts",
+    "Curve freshness, actual BOOST_LOW producer and remaining dependency transitions; later_availability_extension records the later OFA full-phase repeat",
+    "Packaged no-peer/error-recovery and physical-input walkthroughs; peer-bearing five-row packaged shutdowns are recorded in packaged_full_shutdown_20261029",
+    "Physical residency, trustworthy activity telemetry and power savings"
+  ],
+  "GPU_only_restarts": 14,
+  "Windows_reboot": false,
+  "workload_started": false,
+  "F219_SET": false,
+  "physical_effects_measured": false,
+  "release_changes": false,
+  "validation": {
+    "full_suite": "6721 passed in117.49s",
+    "focused_media_NVDEC_MS_and_Preview": "176passed, including after new-test import cleanup",
+    "changed_source_and_test_Ruff": "passed",
+    "independent_raw_audit": "six clean cases plus the retained negative and later GET-only restoration; root reproduced all seven",
+    "package_scope": "Source/compiled-code parity and baseline readbacks checked separately from source production transactions"
+  },
+  "later_availability_extension": "See media-type4-last-role-qualified-20261029.json: no-peer source contract, three earlier complete media trials and later OFA last-two-exact full-phase repeat. Earlier OFA curve-negative records remain unchanged; original trials here retain their historical scope.",
+  "later_packaged_row0_UI": "See ui-lpwr-configured-qualified-20261029.json: programmatic row0 partial-disable callback/framebuffer sequence. Full-shutdown/no-peer, physical input and other packaged cases remain separate. Later source OFA qualification is recorded in later_availability_extension and does not extend packaged coverage.",
+  "packaged_full_shutdown_20261029": {
+    "scope": "One captured configuration; packaged programmatic callbacks, durable helper and Undo for each peer-bearing full shutdown. No runtime or admission change.",
+    "command": "--ui-capture-lpwr-rows FAMILY 0,1,2,3,4 NEW_DIRECTORY",
+    "contract": "Existing media schema1, outer version1, all five fields validated on Apply and Undo",
+    "source_build_commit": "400cdff1ff20c718409b6d844c1c17c49a15ce7c",
+    "executable_sha256": "ba57c070cb78e2f10936e00191693d0c129cb633b7a0f82ac40cf69c319b8dec",
+    "package_validation": "460 committed sources and 20 compiled modules verified before trials",
+    "runtime_tests": "6965 passed in 120.88 seconds on unchanged runtime; not rerun for this evidence-only update",
+    "cases": {
+      "nvenc": {
+        "selected_fields": [
+          "lpwr.nvenc.0.enabled",
+          "lpwr.nvenc.1.enabled",
+          "lpwr.nvenc.2.enabled",
+          "lpwr.nvenc.3.enabled",
+          "lpwr.nvenc.4.enabled"
+        ],
+        "enable_bit_mask": 1,
+        "pstate_route_byte": 14,
+        "primary_controller": 13,
+        "alternate_controller": 18,
+        "type4_role": 5,
+        "before_controller": {
+          "available": true,
+          "supported": true,
+          "states_available": true,
+          "configured_pstate_mask": 297
+        },
+        "before_feature": {
+          "available": true,
+          "value": 254048
+        },
+        "active_controller": "Unsupported; mask and feature unavailable",
+        "type4_role_transition": "Supported to unavailable; independent supported peers remain",
+        "rom_sha256": {
+          "before": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+          "active": "6c38c2f7e7470e680a61ab41a723f52a0fe89b99f644b24eb74550b1b519a02b",
+          "restored": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202"
+        },
+        "frame_sha256": {
+          "before": "7f0f099b0f56b48bcd8789ae21cd27f30ff1a31ddf88f409eff85522ffb84cbb",
+          "preview": "cb5ae89b783e815c8193b746e841ca63bc9c47c74c4c68a55893782fe7cad34a",
+          "active": "8ee45999524528930b8860f86781084483c22d00aa822c7786131279e5191035",
+          "restored": "7f0f099b0f56b48bcd8789ae21cd27f30ff1a31ddf88f409eff85522ffb84cbb"
+        },
+        "phase_GUI_PIDs": {
+          "initial": 28720,
+          "applying": 17596,
+          "restoring": 26364
+        },
+        "observed_helpers": [
+          {
+            "action": "apply",
+            "process_id": 5160,
+            "parent_pid": 28720
+          },
+          {
+            "action": "restore",
+            "process_id": 18064,
+            "parent_pid": 17596
+          }
+        ],
+        "before_broad_exact": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "final_broad_exact": [
+          false,
+          false,
+          false,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "final_difference_paths": [
+          [
+            "voltage.broad.broad.driver_flags.control_sha256",
+            "voltage.broad.broad.driver_flags.entries[13].control_hex"
+          ],
+          [
+            "voltage.broad.broad.driver_flags.control_sha256",
+            "voltage.broad.broad.driver_flags.entries[13].control_hex"
+          ],
+          [
+            "voltage.broad.broad.driver_flags.control_sha256",
+            "voltage.broad.broad.driver_flags.entries[13].control_hex"
+          ],
+          [],
+          [],
+          [],
+          [],
+          []
+        ],
+        "before_final_curve_changed_bytes": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "source_sha256": {
+          "registry_ui_trial.py": "2dc273fb893bc46be20e03abb05c000143e6fa5e133167f9e7a08eb05dc9c943",
+          "druta.py": "be12e1e3c80185008439e4d3042ab833605e8b76295ec5215fc2fa3c6a3a38b4",
+          "registry_panel.py": "d3903a662398aa9aff9dadd53258f16b721bba1263d34d4ee54ab38d2c0492a0",
+          "registry_overrides.py": "b67080f4b635d7ae7903a87e0fc2da6a224f7424064459a09e29d14941c0bd29",
+          "grpg_runtime.py": "eae295d031f6c12712014b50417eb0051e78d9ad36eff7b4d5d67d7611d221a1",
+          "ms_runtime.py": "d7eafb6f6477dc52f2b5b2d1aef910eab0c214a79ce25b33971cd8c4ff474f5e",
+          "nvdec_runtime.py": "bf234e1876b29d537485acadf1248c9bd8affff05028bdb461abd928e0efe0c6",
+          "media_lpwr_runtime.py": "823c6083c949edcb07f8ebe60ffea11eca76994710f253f3c3db948aeb6245ef"
+        },
+        "private_evidence_sha256": {
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/nvenc-root-ui-audit.json": "c452e6d47c26fee4b39b8680ad37e73315c88564f1262726d057edf3bd1f3c6c",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/nvenc-root-external-audit.json": "54dac5b16015e25c1d753bca0ea72bba104b2f9fa549a423de6dc3cba88066ad",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/nvenc-luna-visual-review.json": "5701518dbcfc3743fc6f672acac86aa4c465bdb200670a716f3002fc514482c7",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/packaged-nvenc-shutdown-1-baseline.json": "0d452fbed022a26b9ee44d11c03a256b499fc8433743ad2f937b1047e64a8cbb",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/packaged-nvenc-shutdown-1-launch.json": "206e7098adc41fe4ae52c1f88abc3ef71fe4ac82bf9491d6bb0bfb328b4a1f21",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/packaged-nvenc-shutdown-1-root-final.json": "df2d1894cfa87241770e425190ea66ec5153490f4138f98e1fefdd2d495d71cf",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/packaged-nvenc-shutdown-1-root-baseline-review.json": "930a7a62c33351518945b3ef1d29204ea81179f10d9442ee241e22d3fbc80ed4",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/packaged-nvenc-shutdown-1/trial.json": "276bb22b9c2249a438f07f2bf534ecdf74419a7d377c288ee5e1d3b50a708692",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/packaged-nvenc-shutdown-1/trial-result.json": "40666daa002b8cc734dea8cdb8c129a318efa4ead2dea460f523a9f4b62a9941",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/packaged-nvenc-shutdown-1/lpwr-initial.json": "2c727bf041f1a63b1d7010d47bf88909081c4cbede731a3fa2eae6b279812bc3",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/packaged-nvenc-shutdown-1/lpwr-before.json": "27dfcdb3896469ea525f2a423287abf9f414c5cc9efa90e10671d023e167317d",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/packaged-nvenc-shutdown-1/lpwr-active.json": "0009701537f60e596787eababa8c71a60fce2a78b1317d369d8333d69775ba61",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/packaged-nvenc-shutdown-1/lpwr-restored.json": "56c0a09c6936ad3367c121e5a0e73b76efd300b3e271a4c815404a09bdf35a2c",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/packaged-nvenc-shutdown-1/initial/manifest.json": "30eeb680fbf74bca1123450bdfd509f70c7bc72cb06b61c9bdde26557c03cbaf",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/packaged-nvenc-shutdown-1/applying/manifest.json": "67dbe2db505b669d5b51abb7fa144666e11521c8634856e56039ec435d7b4ff6",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/packaged-nvenc-shutdown-1/restoring/manifest.json": "970e19afaa8a620f8372937068f92cf3d75ae1ff58053e9c16ecc8b8a35c8619"
+        },
+        "GPU_only_restarts": 2,
+        "raw_packet_audit": "Seven complete LPWR packet projections including opaque bytes match; per-packet hashes and unavailable values are retained in the hashed root UI audit."
+      },
+      "ofa": {
+        "selected_fields": [
+          "lpwr.ofa.0.enabled",
+          "lpwr.ofa.1.enabled",
+          "lpwr.ofa.2.enabled",
+          "lpwr.ofa.3.enabled",
+          "lpwr.ofa.4.enabled"
+        ],
+        "enable_bit_mask": 1,
+        "pstate_route_byte": 15,
+        "primary_controller": 14,
+        "alternate_controller": 19,
+        "type4_role": 7,
+        "before_controller": {
+          "available": true,
+          "supported": true,
+          "states_available": true,
+          "configured_pstate_mask": 297
+        },
+        "before_feature": {
+          "available": true,
+          "value": 254208
+        },
+        "active_controller": "Unsupported; mask and feature unavailable",
+        "type4_role_transition": "Supported to unavailable; independent supported peers remain",
+        "rom_sha256": {
+          "before": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+          "active": "6b4248bd35bcb3e2117f17deb50d1d4244bc030e2fa91fb89db8a50a2c7901ac",
+          "restored": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202"
+        },
+        "frame_sha256": {
+          "before": "cccfd683087a96ded2923e9aa31a473bfb2f2f96db2892c11a1e48675c1e4f4b",
+          "preview": "de7ffb8a591f556b405928f9cfc113e59cac12cd56c9aa02e9bacdd9061f8cfc",
+          "active": "4ece98c0641ce189c4f0203bd2eee106ebc59a3f50ad6ff826827308cb6ceee9",
+          "restored": "cccfd683087a96ded2923e9aa31a473bfb2f2f96db2892c11a1e48675c1e4f4b"
+        },
+        "phase_GUI_PIDs": {
+          "initial": 10452,
+          "applying": 16768,
+          "restoring": 4188
+        },
+        "observed_helpers": [
+          {
+            "action": "apply",
+            "process_id": 6036,
+            "parent_pid": 10452
+          },
+          {
+            "action": "restore",
+            "process_id": 19124,
+            "parent_pid": 16768
+          }
+        ],
+        "before_broad_exact": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "final_broad_exact": [
+          false,
+          false,
+          false,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "final_difference_paths": [
+          [
+            "voltage.broad.broad.driver_flags.control_sha256",
+            "voltage.broad.broad.driver_flags.entries[13].control_hex"
+          ],
+          [
+            "voltage.broad.broad.driver_flags.control_sha256",
+            "voltage.broad.broad.driver_flags.entries[13].control_hex"
+          ],
+          [
+            "voltage.broad.broad.driver_flags.control_sha256",
+            "voltage.broad.broad.driver_flags.entries[13].control_hex"
+          ],
+          [],
+          [],
+          [],
+          [],
+          []
+        ],
+        "before_final_curve_changed_bytes": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "source_sha256": {
+          "registry_ui_trial.py": "2dc273fb893bc46be20e03abb05c000143e6fa5e133167f9e7a08eb05dc9c943",
+          "druta.py": "be12e1e3c80185008439e4d3042ab833605e8b76295ec5215fc2fa3c6a3a38b4",
+          "registry_panel.py": "d3903a662398aa9aff9dadd53258f16b721bba1263d34d4ee54ab38d2c0492a0",
+          "registry_overrides.py": "b67080f4b635d7ae7903a87e0fc2da6a224f7424064459a09e29d14941c0bd29",
+          "grpg_runtime.py": "eae295d031f6c12712014b50417eb0051e78d9ad36eff7b4d5d67d7611d221a1",
+          "ms_runtime.py": "d7eafb6f6477dc52f2b5b2d1aef910eab0c214a79ce25b33971cd8c4ff474f5e",
+          "nvdec_runtime.py": "bf234e1876b29d537485acadf1248c9bd8affff05028bdb461abd928e0efe0c6",
+          "media_lpwr_runtime.py": "823c6083c949edcb07f8ebe60ffea11eca76994710f253f3c3db948aeb6245ef"
+        },
+        "private_evidence_sha256": {
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/ofa-root-ui-audit.json": "0e11e5a5521574cb913215f4aa9c45793017010897bc24791f4dd03b00f0a426",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/ofa-root-external-audit.json": "d29e129cb3e0d4f53ae11da65a63c8ad01530d94e622ef71005a4610b7445adf",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/ofa-luna-visual-review.json": "531b4fa0ec6a068b2c4503f0d82353aee03dd2746d652fb6a409ea2339337477",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/packaged-ofa-shutdown-1-baseline.json": "b1d255ea4ef90e1fe65bae49c6910e3ed87e03034e95db55167f7da0778f701d",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/packaged-ofa-shutdown-1-launch.json": "4947c999bbe3422366551c6d1a476885af2927b3f199af7c15ff1ef5794c07c8",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/packaged-ofa-shutdown-1-root-final.json": "dace58ebf37c1f6140ded7445cb60e38796b94c3a9464b9d2e1b93a269b2f1b2",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/packaged-ofa-shutdown-1-root-baseline-review.json": "efcd89001152285084b20d01cb4fe198892b4c81db78c09b45432209362dced3",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/packaged-ofa-shutdown-1/trial.json": "29b0685b1333d7603466b77f46cf2291da47125b733225a2afa019184e37d747",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/packaged-ofa-shutdown-1/trial-result.json": "1674df4fe4afa202863fe13ccb9532dc91aa3a13268e6de542b56e3df16785b6",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/packaged-ofa-shutdown-1/lpwr-initial.json": "c6e8e8e4e842823a94da934761e2db9b78c52e4097beb9a66c4fc811f789541e",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/packaged-ofa-shutdown-1/lpwr-before.json": "a06a4ca6d9f9fc7c70ab968d9f869893362425b59bc3414ab104050f38e12a51",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/packaged-ofa-shutdown-1/lpwr-active.json": "022e7834778e05a46b029f9811cc16e832b4f1ecb33f79a6e16d16faeb079e46",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/packaged-ofa-shutdown-1/lpwr-restored.json": "fe023d3432c08e33b7ef754e7bf0854d0ff8fc78de435ee5bbfca07af84e4ce3",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/packaged-ofa-shutdown-1/initial/manifest.json": "ed6e98b2e873576447aff95259c20a5ad25fb68f39330240cffe613bb00f77e1",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/packaged-ofa-shutdown-1/applying/manifest.json": "0a32aaa41f7e2d4a958ea31b19caf901b00f6f714818b0689ab2d44686ebcfab",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/packaged-ofa-shutdown-1/restoring/manifest.json": "9ee16f269ee5c1a89fe18c629beed9b88969ac7a707525726bfbc6839e264d16"
+        },
+        "GPU_only_restarts": 2,
+        "raw_packet_audit": "Seven complete LPWR packet projections including opaque bytes match; per-packet hashes and unavailable values are retained in the hashed root UI audit."
+      },
+      "nvjpg": {
+        "selected_fields": [
+          "lpwr.nvjpg.0.enabled",
+          "lpwr.nvjpg.1.enabled",
+          "lpwr.nvjpg.2.enabled",
+          "lpwr.nvjpg.3.enabled",
+          "lpwr.nvjpg.4.enabled"
+        ],
+        "enable_bit_mask": 2,
+        "pstate_route_byte": 16,
+        "primary_controller": 15,
+        "alternate_controller": null,
+        "type4_role": 6,
+        "before_controller": {
+          "available": true,
+          "supported": true,
+          "states_available": true,
+          "configured_pstate_mask": 297
+        },
+        "before_feature": {
+          "available": true,
+          "value": 254976
+        },
+        "active_controller": "Unsupported; mask and feature unavailable",
+        "type4_role_transition": "Supported to unavailable; independent supported peers remain",
+        "rom_sha256": {
+          "before": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+          "active": "8876336fb087a4520653c9310e1efc7961b78f5b88b7f1535d1badb67a5f86ca",
+          "restored": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202"
+        },
+        "frame_sha256": {
+          "before": "d2541a47dad49e521d6d26184ed57b198348692d5574bd7a1c821949806ee244",
+          "preview": "f37682722025a06a8d361945dc79ae289284762ccb0a89a3ba6b9dab7a254bd1",
+          "active": "a41104269f94207cc086b39ff35123210402fcaf5b3661bebcd7a3c55e4f7f53",
+          "restored": "d2541a47dad49e521d6d26184ed57b198348692d5574bd7a1c821949806ee244"
+        },
+        "phase_GUI_PIDs": {
+          "initial": 28896,
+          "applying": 27316,
+          "restoring": 24076
+        },
+        "observed_helpers": [
+          {
+            "action": "apply",
+            "process_id": 2204,
+            "parent_pid": 28896
+          },
+          {
+            "action": "restore",
+            "process_id": 24588,
+            "parent_pid": 27316
+          }
+        ],
+        "before_broad_exact": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "final_broad_exact": [
+          false,
+          false,
+          false,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "final_difference_paths": [
+          [
+            "voltage.broad.broad.driver_flags.control_sha256",
+            "voltage.broad.broad.driver_flags.entries[13].control_hex"
+          ],
+          [
+            "voltage.broad.broad.driver_flags.control_sha256",
+            "voltage.broad.broad.driver_flags.entries[13].control_hex"
+          ],
+          [
+            "voltage.broad.broad.driver_flags.control_sha256",
+            "voltage.broad.broad.driver_flags.entries[13].control_hex"
+          ],
+          [],
+          [],
+          [],
+          [],
+          []
+        ],
+        "before_final_curve_changed_bytes": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "source_sha256": {
+          "registry_ui_trial.py": "2dc273fb893bc46be20e03abb05c000143e6fa5e133167f9e7a08eb05dc9c943",
+          "druta.py": "be12e1e3c80185008439e4d3042ab833605e8b76295ec5215fc2fa3c6a3a38b4",
+          "registry_panel.py": "d3903a662398aa9aff9dadd53258f16b721bba1263d34d4ee54ab38d2c0492a0",
+          "registry_overrides.py": "b67080f4b635d7ae7903a87e0fc2da6a224f7424064459a09e29d14941c0bd29",
+          "grpg_runtime.py": "eae295d031f6c12712014b50417eb0051e78d9ad36eff7b4d5d67d7611d221a1",
+          "ms_runtime.py": "d7eafb6f6477dc52f2b5b2d1aef910eab0c214a79ce25b33971cd8c4ff474f5e",
+          "nvdec_runtime.py": "bf234e1876b29d537485acadf1248c9bd8affff05028bdb461abd928e0efe0c6",
+          "media_lpwr_runtime.py": "823c6083c949edcb07f8ebe60ffea11eca76994710f253f3c3db948aeb6245ef"
+        },
+        "private_evidence_sha256": {
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/nvjpg-root-ui-audit.json": "89fc48839e010b51a2d8bc1ab0810db7bbd8aff9ec88e946cf7996ffddd58481",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/nvjpg-root-external-audit.json": "1ac6785fd7409dcbb846c7652e885f35174d6ae0c9b090b952c9fdf39a455589",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/nvjpg-luna-visual-review.json": "63021858234f9bf7a80533052e1805ff3ca7f0800ce4ee60d0a45566c34c46c9",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/packaged-nvjpg-shutdown-1-baseline.json": "29599c30c09ea9a074018fefb1af9b50bf0cacee0d01a2fc0a13f765e17db223",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/packaged-nvjpg-shutdown-1-launch.json": "57ac17e4b8f3fc89d90eb9e1c9387ac7c8f3a58b1050f6e955b7221d9811aefe",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/packaged-nvjpg-shutdown-1-root-final.json": "ccf38dc2097104d9393ea55c18b84136ed4ebcd5532fbd7550220a66a576a48c",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/packaged-nvjpg-shutdown-1-root-baseline-review.json": "6b85d77d4af8c81a734422c1768b3f27b8bf4eca8229044c42cac8ff25568b96",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/packaged-nvjpg-shutdown-1/trial.json": "7a374dd67e62d8de2a9998941a33d563d1e3444fc5d7d156da4e182b2700ad8a",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/packaged-nvjpg-shutdown-1/trial-result.json": "b079e01cd07905d48ff67db7d305e6d4880ef36b9fcb3af8020aecd247b248b3",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/packaged-nvjpg-shutdown-1/lpwr-initial.json": "0fb3b3fd71895b9379d1bedde388781d7c8135a74fcaefdc81867e757c4e2d61",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/packaged-nvjpg-shutdown-1/lpwr-before.json": "e9f6a4f8e8716f52e5dfb435982d44a91905304e9dc9fa718e2580c70438324b",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/packaged-nvjpg-shutdown-1/lpwr-active.json": "b078d9a6e6e126bfaaf54fce409820fda1816e78f65c8ce2a811f85e8b6e17ab",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/packaged-nvjpg-shutdown-1/lpwr-restored.json": "13dc12f3a17383999f204806cab07c038281ca8899a92557c464fd3a462c930b",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/packaged-nvjpg-shutdown-1/initial/manifest.json": "5510c947e7aa82f0b12fc4932ca395614a8e4be29f0d5b79cc4b084a5a51f3a7",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/packaged-nvjpg-shutdown-1/applying/manifest.json": "d844300b0678ee0c9dfbb4b49c83ccf1c5487714a9d2fa9f27627a106ba46f1a",
+          "experiments/registry-overrides/ui-media-shutdown-root-20261029/packaged-nvjpg-shutdown-1/restoring/manifest.json": "0183fbb3a0aafd8932f5c2c0047dee56d1378dae1ed5707edb8dcc573468bf1a"
+        },
+        "GPU_only_restarts": 2,
+        "raw_packet_audit": "Seven complete LPWR packet projections including opaque bytes match; per-packet hashes and unavailable values are retained in the hashed root UI audit."
+      }
+    },
+    "preservation": "Independent audits reconstruct selected ROM bits and full LPWR packet projection including opaque bytes; all other captured controllers, roles and features, full Pstate packet and complete client/native power requests preserved; Undo and original registry/image restored.",
+    "visual": "Root and Luna inspected twelve framebuffers: five checked before and restored and five read-only False labels active per case. Each Preview shows five change lines and the availability caption; checkbox rows are below viewport, so their unchecked pixels are not qualified. Before/restored images are byte-identical per case.",
+    "broad": "Eight before samples strictly exact per case. Final samples 0\u20132 retain BOOST_LOW driver flag request/hash differences; samples 3\u20137 strictly exact. All 48 before/final full curves exact, no exclusions. No independent active broad window was captured.",
+    "GPU_only_restarts": 6,
+    "physical_input": false,
+    "physical_effects_measured": false,
+    "Windows_reboot": false,
+    "workload_started": false,
+    "pending": [
+      "Type4 no-peer and GRPG full-shutdown packaged UI, post-restart failure/recovery, physical input, other profiles/layouts/adapters and physical effects."
+    ],
+    "shared_private_evidence_sha256": {
+      "experiments/registry-overrides/ui-media-shutdown-root-20261029/compiled-trial-package-check.json": "fd68a24f5aa4bc9329861aab1f61f0faf530c42696af0fa86a35dbd50f6bc465",
+      "experiments/registry-overrides/ui-media-shutdown-root-20261029/archive-trial-validation.json": "7cac55ffddd0dc1b1a098d06018cdc867cb1174d787b95ae5b205bb89b4788e4",
+      "experiments/registry-overrides/ui-media-shutdown-root-20261029/root-batch-audit.json": "0ff6a428c2a03d56c046eb3e69aa7cd206bd2ff7982efa73d5a2580c5535d25e",
+      "experiments/registry-overrides/ui-media-shutdown-root-20261029/launch_media.py": "5f824f198b7db0ca7b0dbea5ae9c2f4bf7bc92ee9f81e79c6706a6547e741537",
+      "experiments/registry-overrides/ui-media-shutdown-root-20261029/audit_media.py": "b73c6f4103f0b7ea799b208f445e2d6b50d8dbd5ffc2deabe4522d9d72feb80b",
+      "experiments/registry-overrides/ui-media-shutdown-root-20261029/audit_external.py": "220c4fa43540769456af98e2972a5a812d4c74ae3a48aebcc2d4a6eadaf0823b",
+      "experiments/registry-overrides/ui-media-shutdown-root-20261029/audit_batch.py": "b8887759f5314993bfdd4ebd2fc5ee459054740affa575f4f96745eae9a120f8"
+    }
+  },
+  "later_packaged_full_shutdown": "See packaged_full_shutdown_20261029 for the separate peer-bearing NVENC/OFA/NVJPG packaged shutdown and Undo trials; no-peer UI, recovery, physical input and effects remain pending."
+}

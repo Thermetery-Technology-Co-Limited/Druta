@@ -1,3 +1,6 @@
 # Runtime provenance hashes must survive Windows checkouts unchanged.
 # Diff context intentionally retains upstream whitespace and its leading space.
 src/druta/tools/vista/*.patch text eol=lf -whitespace
+
+# cmd.exe on Windows Vista and 7 needs CRLF batch files.
+*.cmd text eol=crlf

@@ -1,0 +1,940 @@
+{
+  "alternate_nvml_runtime": {
+    "auxiliary": {
+      "fan_100": {
+        "message": "fans set to manual 100%",
+        "ok": true
+      },
+      "fan_count_verified": 2,
+      "restoration": {
+        "boost_message": "core voltage boost set to 0% (ceiling unlock)",
+        "fan": true,
+        "fan_message": "fan control state restored",
+        "voltage_boost": true
+      },
+      "voltage_boost": {
+        "message": "core voltage boost set to 1% (ceiling unlock)",
+        "ok": true,
+        "target_percent": 1
+      }
+    },
+    "baseline": {
+      "core": 1965,
+      "core_off": 0,
+      "fans": [
+        [
+          34,
+          960
+        ],
+        [
+          34,
+          959
+        ]
+      ],
+      "mem": 7750,
+      "mem_off": 0,
+      "pl_now_mw": 250000,
+      "pl_requested_mw": 250000,
+      "power_w": 51.224,
+      "pstate": 0,
+      "temp_edge": 55,
+      "util_gpu": 0,
+      "vboost_pct": 0,
+      "vcore_mv": 1037.5
+    },
+    "captured_offsets_and_graphics_curve_restored": true,
+    "clock_domain_controls": [
+      0,
+      1,
+      2,
+      3,
+      5,
+      9
+    ],
+    "curve_points": 128,
+    "curve_sha256": "4e8154bbde16f78b8933d0dff118f8c818cd18d72a44612a8eb6c61bc744dfdf",
+    "date": "2026-10-28",
+    "fan_capabilities": {
+      "auto": true,
+      "manual": true,
+      "max": 100,
+      "min": 0,
+      "source": "nvapi_client"
+    },
+    "final": {
+      "core": 1965,
+      "core_off": 0,
+      "fans": [
+        [
+          34,
+          951
+        ],
+        [
+          34,
+          957
+        ]
+      ],
+      "mem": 7750,
+      "mem_off": 0,
+      "pl_now_mw": 250000,
+      "pl_requested_mw": 250000,
+      "power_w": 61.136,
+      "pstate": 0,
+      "temp_edge": 55,
+      "util_gpu": 0,
+      "vboost_pct": 0,
+      "vcore_mv": 1037.5
+    },
+    "hold": {
+      "count": 7,
+      "domain": 6,
+      "lockMode": 3,
+      "volt_mv": 1062.5,
+      "volt_uV": 1062500
+    },
+    "identity": {
+      "driver": "472.12",
+      "name": "NVIDIA GeForce RTX 2080 SUPER",
+      "slot": "0000:0a:00.0",
+      "vbios": "90.04.7a.40.3d"
+    },
+    "nvml_clock_offset_exports": {
+      "nvmlDeviceGetClockOffsets": false,
+      "nvmlDeviceSetClockOffsets": false
+    },
+    "nvml_library_sha256": "dc3783c02bdb692bfc3bb2706dd88eec23864b14c9c993b50c04e2fc76bbd97a",
+    "nvml_runtime_note": "A separate test process explicitly loaded the supplied 472.12 NVML (8.17.14.7212) without changing installed files; its clock-offset exports are absent. The same production backend selected NVAPI and completed all recorded clock/fan/boost checks.",
+    "observed_memory_clock_before_after_mhz": [
+      7750,
+      7750
+    ],
+    "observed_memory_clock_matched": true,
+    "offset_ranges": {
+      "0": [
+        -1000,
+        1000,
+        0
+      ],
+      "2": [
+        -2000,
+        6000,
+        0
+      ]
+    },
+    "rail_state": {
+      "0": {
+        "_boost_mv": 0.0,
+        "alt_reliability": 1093.75,
+        "effective": 1068.75,
+        "live": 1043.75,
+        "overvoltage": 1125.0,
+        "reliability": 1068.75,
+        "type": 1,
+        "vmin": 631.25
+      }
+    },
+    "scope": "Idle core/memory offset acceptance, readback, curve and hold restoration; no load qualification",
+    "trials": [
+      {
+        "before": {
+          "core": 1965,
+          "core_off": 0,
+          "fans": [
+            [
+              34,
+              961
+            ],
+            [
+              34,
+              959
+            ]
+          ],
+          "mem": 7750,
+          "mem_off": 0,
+          "pl_now_mw": 250000,
+          "pl_requested_mw": 250000,
+          "power_w": 54.007,
+          "pstate": 0,
+          "temp_edge": 55,
+          "util_gpu": 0,
+          "vboost_pct": 0,
+          "vcore_mv": 1037.5
+        },
+        "ctype": 0,
+        "hold_preserved": true,
+        "message": "core offset set to -15 MHz (NVAPI Pstates20)",
+        "ok": true,
+        "readback": [
+          -1000,
+          1000,
+          -15
+        ],
+        "requested": -15.0,
+        "restoration": {
+          "messages": [
+            {
+              "ctype": 0,
+              "message": "core offset set to +0 MHz (NVAPI Pstates20)",
+              "ok": true
+            },
+            {
+              "ctype": 2,
+              "message": "mem offset set to +0 MHz true",
+              "ok": true
+            }
+          ],
+          "verified": true
+        },
+        "samples": [
+          {
+            "core": 1950,
+            "core_off": -15,
+            "fans": [
+              [
+                35,
+                966
+              ],
+              [
+                34,
+                958
+              ]
+            ],
+            "mem": 7750,
+            "mem_off": 0,
+            "pl_now_mw": 250000,
+            "pl_requested_mw": 250000,
+            "power_w": 50.853,
+            "pstate": 0,
+            "temp_edge": 54,
+            "util_gpu": 0,
+            "vboost_pct": 0,
+            "vcore_mv": 1037.5
+          },
+          {
+            "core": 1950,
+            "core_off": -15,
+            "fans": [
+              [
+                35,
+                966
+              ],
+              [
+                34,
+                957
+              ]
+            ],
+            "mem": 7750,
+            "mem_off": 0,
+            "pl_now_mw": 250000,
+            "pl_requested_mw": 250000,
+            "power_w": 50.697,
+            "pstate": 0,
+            "temp_edge": 55,
+            "util_gpu": 0,
+            "vboost_pct": 0,
+            "vcore_mv": 1037.5
+          },
+          {
+            "core": 1950,
+            "core_off": -15,
+            "fans": [
+              [
+                35,
+                967
+              ],
+              [
+                34,
+                957
+              ]
+            ],
+            "mem": 7750,
+            "mem_off": 0,
+            "pl_now_mw": 250000,
+            "pl_requested_mw": 250000,
+            "power_w": 50.54,
+            "pstate": 0,
+            "temp_edge": 54,
+            "util_gpu": 0,
+            "vboost_pct": 0,
+            "vcore_mv": 1037.5
+          }
+        ],
+        "unit": "MHz"
+      },
+      {
+        "before": {
+          "core": 1965,
+          "core_off": 0,
+          "fans": [
+            [
+              35,
+              966
+            ],
+            [
+              34,
+              957
+            ]
+          ],
+          "mem": 7750,
+          "mem_off": 0,
+          "pl_now_mw": 250000,
+          "pl_requested_mw": 250000,
+          "power_w": 59.51,
+          "pstate": 0,
+          "temp_edge": 55,
+          "util_gpu": 0,
+          "vboost_pct": 0,
+          "vcore_mv": 1037.5
+        },
+        "ctype": 2,
+        "hold_preserved": true,
+        "message": "mem offset set to -1 MHz true (NVAPI Pstates20)",
+        "ok": true,
+        "readback": [
+          -2000,
+          6000,
+          -8
+        ],
+        "requested": -1.0,
+        "restoration": {
+          "messages": [
+            {
+              "ctype": 0,
+              "message": "core offset set to +0 MHz",
+              "ok": true
+            },
+            {
+              "ctype": 2,
+              "message": "mem offset set to +0 MHz true (NVAPI Pstates20)",
+              "ok": true
+            }
+          ],
+          "verified": true
+        },
+        "samples": [
+          {
+            "core": 1965,
+            "core_off": 0,
+            "fans": [
+              [
+                34,
+                962
+              ],
+              [
+                34,
+                957
+              ]
+            ],
+            "mem": 7746,
+            "mem_off": -8,
+            "pl_now_mw": 250000,
+            "pl_requested_mw": 250000,
+            "power_w": 50.938,
+            "pstate": 0,
+            "temp_edge": 55,
+            "util_gpu": 0,
+            "vboost_pct": 0,
+            "vcore_mv": 1037.5
+          },
+          {
+            "core": 1965,
+            "core_off": 0,
+            "fans": [
+              [
+                34,
+                960
+              ],
+              [
+                34,
+                959
+              ]
+            ],
+            "mem": 7746,
+            "mem_off": -8,
+            "pl_now_mw": 250000,
+            "pl_requested_mw": 250000,
+            "power_w": 50.692,
+            "pstate": 0,
+            "temp_edge": 55,
+            "util_gpu": 0,
+            "vboost_pct": 0,
+            "vcore_mv": 1037.5
+          },
+          {
+            "core": 1965,
+            "core_off": 0,
+            "fans": [
+              [
+                34,
+                958
+              ],
+              [
+                34,
+                959
+              ]
+            ],
+            "mem": 7746,
+            "mem_off": -8,
+            "pl_now_mw": 250000,
+            "pl_requested_mw": 250000,
+            "power_w": 50.805,
+            "pstate": 0,
+            "temp_edge": 55,
+            "util_gpu": 0,
+            "vboost_pct": 0,
+            "vcore_mv": 1037.5
+          }
+        ],
+        "unit": "MHz true"
+      },
+      {
+        "before": {
+          "core": 1965,
+          "core_off": 0,
+          "fans": [
+            [
+              34,
+              955
+            ],
+            [
+              34,
+              959
+            ]
+          ],
+          "mem": 7750,
+          "mem_off": 0,
+          "pl_now_mw": 250000,
+          "pl_requested_mw": 250000,
+          "power_w": 60.832,
+          "pstate": 0,
+          "temp_edge": 55,
+          "util_gpu": 0,
+          "vboost_pct": 0,
+          "vcore_mv": 1037.5
+        },
+        "core_readback": [
+          -1000,
+          1000,
+          -15
+        ],
+        "hold_preserved": true,
+        "label": "core_write_preserves_nonzero_memory_offset",
+        "memory_readback": [
+          -2000,
+          6000,
+          -8
+        ],
+        "message": "core offset set to -15 MHz (NVAPI Pstates20)",
+        "ok": true,
+        "restoration": {
+          "messages": [
+            {
+              "ctype": 0,
+              "message": "core offset set to +0 MHz (NVAPI Pstates20)",
+              "ok": true
+            },
+            {
+              "ctype": 2,
+              "message": "mem offset set to +0 MHz true (NVAPI Pstates20)",
+              "ok": true
+            }
+          ],
+          "verified": true
+        },
+        "sample": {
+          "core": 1950,
+          "core_off": -15,
+          "fans": [
+            [
+              34,
+              952
+            ],
+            [
+              34,
+              960
+            ]
+          ],
+          "mem": 7746,
+          "mem_off": -8,
+          "pl_now_mw": 250000,
+          "pl_requested_mw": 250000,
+          "power_w": 61.037,
+          "pstate": 0,
+          "temp_edge": 55,
+          "util_gpu": 0,
+          "vboost_pct": 0,
+          "vcore_mv": 1037.5
+        }
+      }
+    ],
+    "voltage_boost": 0
+  },
+  "auxiliary": {
+    "fan_100": {
+      "message": "fans set to manual 100%",
+      "ok": true
+    },
+    "fan_count_verified": 2,
+    "restoration": {
+      "boost_message": "core voltage boost set to 0% (ceiling unlock)",
+      "fan": true,
+      "fan_message": "fan control state restored",
+      "voltage_boost": true
+    },
+    "voltage_boost": {
+      "message": "core voltage boost set to 1% (ceiling unlock)",
+      "ok": true,
+      "target_percent": 1
+    }
+  },
+  "baseline": {
+    "core": 1965,
+    "core_off": 0,
+    "fans": [
+      [
+        29,
+        824
+      ],
+      [
+        29,
+        812
+      ]
+    ],
+    "mem": 7750,
+    "mem_off": 0,
+    "pl_now_mw": 250000,
+    "pl_requested_mw": 250000,
+    "power_w": 50.709,
+    "pstate": 0,
+    "temp_edge": 55,
+    "util_gpu": 0,
+    "vboost_pct": 0,
+    "vcore_mv": 1037.5
+  },
+  "captured_offsets_and_graphics_curve_restored": true,
+  "clock_domain_controls": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    9
+  ],
+  "curve_points": 128,
+  "curve_sha256": "4e8154bbde16f78b8933d0dff118f8c818cd18d72a44612a8eb6c61bc744dfdf",
+  "date": "2026-10-28",
+  "fan_capabilities": {
+    "auto": true,
+    "manual": true,
+    "max": 100,
+    "min": 0,
+    "source": "nvapi_client"
+  },
+  "final": {
+    "core": 1965,
+    "core_off": 0,
+    "fans": [
+      [
+        29,
+        808
+      ],
+      [
+        30,
+        835
+      ]
+    ],
+    "mem": 7750,
+    "mem_off": 0,
+    "pl_now_mw": 250000,
+    "pl_requested_mw": 250000,
+    "power_w": 58.416,
+    "pstate": 0,
+    "temp_edge": 55,
+    "util_gpu": 0,
+    "vboost_pct": 0,
+    "vcore_mv": 1037.5
+  },
+  "hold": {
+    "count": 7,
+    "domain": 6,
+    "lockMode": 3,
+    "volt_mv": 1062.5,
+    "volt_uV": 1062500
+  },
+  "identity": {
+    "driver": "472.12",
+    "name": "NVIDIA GeForce RTX 2080 SUPER",
+    "slot": "0000:0a:00.0",
+    "vbios": "90.04.7a.40.3d"
+  },
+  "nvml_clock_offset_exports": {
+    "nvmlDeviceGetClockOffsets": true,
+    "nvmlDeviceSetClockOffsets": true
+  },
+  "nvml_library_sha256": "0b8a01f48e22d0bafd285ef9191389491b9039db4b6163cf245cee82a1942b9c",
+  "nvml_runtime_note": "The normal installed-library loader selected retained NVML 8.17.16.2101 from the Windows system directory while the active display kernel and NVAPI were 472.12. Its clock-offset exports exist but return unsupported; the production status-based NVAPI fallback was exercised.",
+  "observed_memory_clock_before_after_mhz": [
+    7750,
+    7750
+  ],
+  "observed_memory_clock_matched": true,
+  "offset_ranges": {
+    "0": [
+      -1000,
+      1000,
+      0
+    ],
+    "2": [
+      -2000,
+      6000,
+      0
+    ]
+  },
+  "rail_state": {
+    "0": {
+      "_boost_mv": 0.0,
+      "alt_reliability": 1093.75,
+      "effective": 1068.75,
+      "live": 1043.75,
+      "overvoltage": 1125.0,
+      "reliability": 1068.75,
+      "type": 1,
+      "vmin": 631.25
+    }
+  },
+  "scope": "Idle core/memory offset acceptance, readback, curve and hold restoration; no load qualification",
+  "trials": [
+    {
+      "before": {
+        "core": 1965,
+        "core_off": 0,
+        "fans": [
+          [
+            29,
+            826
+          ],
+          [
+            29,
+            810
+          ]
+        ],
+        "mem": 7750,
+        "mem_off": 0,
+        "pl_now_mw": 250000,
+        "pl_requested_mw": 250000,
+        "power_w": 50.709,
+        "pstate": 0,
+        "temp_edge": 55,
+        "util_gpu": 0,
+        "vboost_pct": 0,
+        "vcore_mv": 1037.5
+      },
+      "ctype": 0,
+      "hold_preserved": true,
+      "message": "core offset set to -15 MHz (NVAPI Pstates20)",
+      "ok": true,
+      "readback": [
+        -1000,
+        1000,
+        -15
+      ],
+      "requested": -15.0,
+      "restoration": {
+        "messages": [
+          {
+            "ctype": 0,
+            "message": "core offset set to +0 MHz (NVAPI Pstates20)",
+            "ok": true
+          },
+          {
+            "ctype": 2,
+            "message": "mem offset set to +0 MHz true",
+            "ok": true
+          }
+        ],
+        "verified": true
+      },
+      "samples": [
+        {
+          "core": 1950,
+          "core_off": -15,
+          "fans": [
+            [
+              30,
+              837
+            ],
+            [
+              29,
+              803
+            ]
+          ],
+          "mem": 7750,
+          "mem_off": 0,
+          "pl_now_mw": 250000,
+          "pl_requested_mw": 250000,
+          "power_w": 50.607,
+          "pstate": 0,
+          "temp_edge": 55,
+          "util_gpu": 0,
+          "vboost_pct": 0,
+          "vcore_mv": 1037.5
+        },
+        {
+          "core": 1950,
+          "core_off": -15,
+          "fans": [
+            [
+              30,
+              839
+            ],
+            [
+              29,
+              804
+            ]
+          ],
+          "mem": 7750,
+          "mem_off": 0,
+          "pl_now_mw": 250000,
+          "pl_requested_mw": 250000,
+          "power_w": 50.709,
+          "pstate": 0,
+          "temp_edge": 54,
+          "util_gpu": 0,
+          "vboost_pct": 0,
+          "vcore_mv": 1037.5
+        },
+        {
+          "core": 1950,
+          "core_off": -15,
+          "fans": [
+            [
+              30,
+              838
+            ],
+            [
+              29,
+              807
+            ]
+          ],
+          "mem": 7750,
+          "mem_off": 0,
+          "pl_now_mw": 250000,
+          "pl_requested_mw": 250000,
+          "power_w": 50.906,
+          "pstate": 0,
+          "temp_edge": 55,
+          "util_gpu": 0,
+          "vboost_pct": 0,
+          "vcore_mv": 1037.5
+        }
+      ],
+      "unit": "MHz"
+    },
+    {
+      "before": {
+        "core": 1965,
+        "core_off": 0,
+        "fans": [
+          [
+            30,
+            834
+          ],
+          [
+            29,
+            810
+          ]
+        ],
+        "mem": 7750,
+        "mem_off": 0,
+        "pl_now_mw": 250000,
+        "pl_requested_mw": 250000,
+        "power_w": 61.328,
+        "pstate": 0,
+        "temp_edge": 55,
+        "util_gpu": 0,
+        "vboost_pct": 0,
+        "vcore_mv": 1037.5
+      },
+      "ctype": 2,
+      "hold_preserved": true,
+      "message": "mem offset set to -1 MHz true (NVAPI Pstates20)",
+      "ok": true,
+      "readback": [
+        -2000,
+        6000,
+        -8
+      ],
+      "requested": -1.0,
+      "restoration": {
+        "messages": [
+          {
+            "ctype": 0,
+            "message": "core offset set to +0 MHz",
+            "ok": true
+          },
+          {
+            "ctype": 2,
+            "message": "mem offset set to +0 MHz true (NVAPI Pstates20)",
+            "ok": true
+          }
+        ],
+        "verified": true
+      },
+      "samples": [
+        {
+          "core": 1965,
+          "core_off": 0,
+          "fans": [
+            [
+              29,
+              824
+            ],
+            [
+              29,
+              817
+            ]
+          ],
+          "mem": 7746,
+          "mem_off": -8,
+          "pl_now_mw": 250000,
+          "pl_requested_mw": 250000,
+          "power_w": 50.83,
+          "pstate": 0,
+          "temp_edge": 55,
+          "util_gpu": 0,
+          "vboost_pct": 0,
+          "vcore_mv": 1037.5
+        },
+        {
+          "core": 1965,
+          "core_off": 0,
+          "fans": [
+            [
+              29,
+              817
+            ],
+            [
+              29,
+              820
+            ]
+          ],
+          "mem": 7746,
+          "mem_off": -8,
+          "pl_now_mw": 250000,
+          "pl_requested_mw": 250000,
+          "power_w": 50.806,
+          "pstate": 0,
+          "temp_edge": 55,
+          "util_gpu": 0,
+          "vboost_pct": 0,
+          "vcore_mv": 1037.5
+        },
+        {
+          "core": 1965,
+          "core_off": 0,
+          "fans": [
+            [
+              29,
+              811
+            ],
+            [
+              29,
+              821
+            ]
+          ],
+          "mem": 7746,
+          "mem_off": -8,
+          "pl_now_mw": 250000,
+          "pl_requested_mw": 250000,
+          "power_w": 50.822,
+          "pstate": 0,
+          "temp_edge": 55,
+          "util_gpu": 0,
+          "vboost_pct": 0,
+          "vcore_mv": 1037.5
+        }
+      ],
+      "unit": "MHz true"
+    },
+    {
+      "before": {
+        "core": 1965,
+        "core_off": 0,
+        "fans": [
+          [
+            29,
+            804
+          ],
+          [
+            29,
+            820
+          ]
+        ],
+        "mem": 7750,
+        "mem_off": 0,
+        "pl_now_mw": 250000,
+        "pl_requested_mw": 250000,
+        "power_w": 60.118,
+        "pstate": 0,
+        "temp_edge": 55,
+        "util_gpu": 0,
+        "vboost_pct": 0,
+        "vcore_mv": 1037.5
+      },
+      "core_readback": [
+        -1000,
+        1000,
+        -15
+      ],
+      "hold_preserved": true,
+      "label": "core_write_preserves_nonzero_memory_offset",
+      "memory_readback": [
+        -2000,
+        6000,
+        -8
+      ],
+      "message": "core offset set to -15 MHz (NVAPI Pstates20)",
+      "ok": true,
+      "restoration": {
+        "messages": [
+          {
+            "ctype": 0,
+            "message": "core offset set to +0 MHz (NVAPI Pstates20)",
+            "ok": true
+          },
+          {
+            "ctype": 2,
+            "message": "mem offset set to +0 MHz true (NVAPI Pstates20)",
+            "ok": true
+          }
+        ],
+        "verified": true
+      },
+      "sample": {
+        "core": 1950,
+        "core_off": -15,
+        "fans": [
+          [
+            29,
+            798
+          ],
+          [
+            29,
+            820
+          ]
+        ],
+        "mem": 7746,
+        "mem_off": -8,
+        "pl_now_mw": 250000,
+        "pl_requested_mw": 250000,
+        "power_w": 61.216,
+        "pstate": 0,
+        "temp_edge": 55,
+        "util_gpu": 0,
+        "vboost_pct": 0,
+        "vcore_mv": 1037.5
+      }
+    }
+  ],
+  "voltage_boost": 0
+}

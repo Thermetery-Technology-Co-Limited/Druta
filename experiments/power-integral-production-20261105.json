@@ -1,0 +1,85 @@
+{
+  "schema": 1,
+  "date": "2026-11-05",
+  "scope": {
+    "name": "NVIDIA GeForce RTX 5080",
+    "driver": "617.42",
+    "vbios": "98.03.3b.c0.6f"
+  },
+  "path": "PowerIntegralController.set_upper through negotiated native policy transport",
+  "before": {
+    "upper_raw": 4219,
+    "effective_mw": 370811,
+    "board_request_mw": 360000,
+    "policy_request_mw": 450000
+  },
+  "steps": [
+    {
+      "upper_raw": 4178,
+      "percent": 102.001953125,
+      "effective_mw": [
+        367207,
+        367207,
+        367207
+      ],
+      "pmu_output_mw": [
+        360000,
+        360000,
+        360000
+      ],
+      "restored_effective_mw": 370811,
+      "exact_request_state_restored": true
+    },
+    {
+      "upper_raw": 4260,
+      "percent": 104.00390625,
+      "effective_mw": [
+        374414,
+        374414,
+        374414
+      ],
+      "pmu_output_mw": [
+        360000,
+        360000,
+        360000
+      ],
+      "restored_effective_mw": 370811,
+      "exact_request_state_restored": true
+    }
+  ],
+  "final_request_state_exact": true,
+  "preserved": [
+    "native and client INFO",
+    "main and secondary requests",
+    "all unrelated CONTROL bytes"
+  ],
+  "workload_started": false,
+  "registry_write": false,
+  "driver_restart": false,
+  "validation": {
+    "focused_tests_passed": 320,
+    "ruff_new_modules_and_tests": "passed",
+    "full_app_read_only_render": {
+      "state": "complete",
+      "error": null,
+      "scope": "Full source app rendering; new panel Read callback only; no Apply",
+      "status": "Read complete.",
+      "input": "103.0029296875",
+      "readback": "Current upper: 103.0029296875%  |  Reported default upper: 103.0029296875%  |  Lower bound: 75%\nRequested: 450 W  |  PMU output: 360 W  |  Effective limit: 370.811 W",
+      "apply_enabled": true,
+      "image_sha256": "3349abe78b6b0a5ca2cf1844ad77e0ca198f79b386a913830cb00d699432cd3f"
+    },
+    "independent_product_review": "label qualification applied"
+  },
+  "limitations": [
+    "Software reported limits, not physical power or load behavior",
+    "Minimum ratio, sample counts and modes not qualified or editable",
+    "No existing profile capture or startup/reset replay of this control"
+  ],
+  "sha256": {
+    "trial": "66e6dd9e45c8eb638ada145ab645b177d2c6826a09f09e27e28e78dbcd2e7406",
+    "trial_script": "d5ffcd1ad491fed694480ba5c1c3848c73021965e155313735ca1f6bfa50f100",
+    "runtime": "0020adf942c4c9799fba2bd9e5dc6370cef09448c4397b6b76cf716cc2d08d51",
+    "panel": "0bc832c48b6ef5f8f940804a6495f874b58644cfe2ef55f890578d640fe3f631"
+  }
+}

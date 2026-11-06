@@ -14,6 +14,10 @@ from tests.test_power_limit_readback import PowerDriver
 
 
 class BlackwellClockUiTests(FakeUiTest):
+    def setUp(self):
+        super().setUp()
+        self.app.write_tuning_action = lambda kind, value, writer, **kwargs: writer()
+
     def test_core_uses_graphics_grid_and_reapply_preserves_the_encoded_request(self):
         for grid, request, expected in (
                 (7500, 8, 8), (7500, 13, 8), (7500, 130, 128),
@@ -147,6 +151,7 @@ class ClockLockUiTests(FakeUiTest):
 class PowerRequestUiTests(FakeUiTest):
     def setUp(self):
         super().setUp()
+        self.app.write_tuning_action = lambda kind, value, writer, **kwargs: writer()
         self.driver = PowerDriver()
         self.app.gpu = self.driver.gpu()
         self.app.gpu.mem_offset_scale = lambda: (2, "MHz eff")

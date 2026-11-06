@@ -1,0 +1,936 @@
+{
+  "schema": 1,
+  "date": "2026-11-05",
+  "device": {
+    "name": "NVIDIA GeForce RTX 5080",
+    "driver": "617.42",
+    "vbios": "98.03.3b.c0.6f",
+    "metadata_source": "experiments/power-explicit-source-20261105.json"
+  },
+  "source_sha256": {
+    "baseline.json": "1f2d15ed6c6a677457f38f3e6f4e94322c16b44defc7d4c4adfb4d71c7400ad7",
+    "baseline.rom": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+    "baseline.py": "26b015f8e5a74374c70e690b735d788ba30ff2547e3edb6e0c37eb9b800f8687",
+    "before.json": "f1be976da9178f7061b94ec67998bdd3da7fc329da97d71ae2c1d0723e0935c8",
+    "prepare.py": "b9640e8c2f39c5e4ab805c0a4c8c28132adf131e118667394b4f1628784d2019",
+    "prepared.json": "b974973f9c2f39c866e0d58ca12b1d4d6c6dc192995fa050e80901eaa8d61590",
+    "sample.py": "d61808ffd5e4ae04dfa26e21247a68feb587907aa741e96b81973fb26de1d59e",
+    "trial.py": "6e466883e6f34fcde141943b12b6317158a4ceb8ed9da7eccfa7af5dc40d51c2",
+    "trial.json": "5baf63f49f6d6b5e90664a90cced8a6e721f8e69aafba85de255a872d7884267",
+    "changed.json": "66585ada5b7d667818bb9f270a7acab3e8fafc2743b9cc24a26eced16d32b381",
+    "restored.json": "25872aa03a3da2d676378bd7359fea3f1a74f2bbfeb6afe72cd916a6fa828ce3",
+    "audit.py": "6b9e9768c89f429414929c989111ce9befff8d232eeb59a1b4a3375101422d9d",
+    "formula_reference": "7e6e243a773f9e7e16012f4e4bd531ffdc3203eb1236c8c9a307b7ee1c802469",
+    "prior_device_receipt": "0e2f9522658c71295b505d8649761bcf0ceec7e05680e481fafc397a7b970fa0"
+  },
+  "rom_patch": {
+    "offset": 360417,
+    "before": "0010",
+    "after": "f00f",
+    "upper_halfword_preserved": true,
+    "original_sha256": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+    "changed_sha256": "c07415b67e6542d9e90044b170bbeacb17346824381e20dca46124de5e7a0862",
+    "restored_sha256": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202"
+  },
+  "qualification": {
+    "info_full_projection_exact_all_nine_samples": true,
+    "control_full_equal_baseline_all_nine_samples": true,
+    "selected_raw_status_prefix_matches_decoded_all_nine_samples": true,
+    "initial_registry_empty_and_restored": true,
+    "image_hash_restored": true,
+    "driver_refreshes_succeeded": true,
+    "windows_reboot_required": false,
+    "ordinary_board_request_after_each_refresh_mw": 360000,
+    "no_workload": true
+  },
+  "observations": [
+    {
+      "phase": "before",
+      "sample": 1,
+      "board_request_mw": 360000,
+      "weight_raw": 4096,
+      "policy2": {
+        "requested": 450000,
+        "effective": 370811,
+        "host": {
+          "available": true,
+          "reason": null,
+          "method": "minimum",
+          "method_code": 0,
+          "count": 1,
+          "output": 450000,
+          "initial_value": 450000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 450000
+            }
+          ],
+          "computed_output": 450000,
+          "consistent": true
+        },
+        "pmu": {
+          "available": true,
+          "reason": null,
+          "method": "minimum",
+          "method_code": 0,
+          "count": 2,
+          "output": 360000,
+          "initial_value": 450000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 450000
+            },
+            {
+              "client": 8,
+              "value": 360000
+            }
+          ],
+          "computed_output": 360000,
+          "consistent": true
+        },
+        "status_prefix_sha256": "89a891f5e597d5df697e901cb4303694d73dabe0b642809f5fe5020e662fa35f"
+      },
+      "policy9": {
+        "requested": 45000,
+        "effective": 36002,
+        "host": {
+          "available": true,
+          "reason": null,
+          "method": "minimum",
+          "method_code": 0,
+          "count": 1,
+          "output": 45000,
+          "initial_value": 45000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 45000
+            }
+          ],
+          "computed_output": 45000,
+          "consistent": true
+        },
+        "pmu": {
+          "available": true,
+          "reason": null,
+          "method": "minimum",
+          "method_code": 0,
+          "count": 3,
+          "output": 36002,
+          "initial_value": 45000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 45000
+            },
+            {
+              "client": 2,
+              "value": 36002
+            },
+            {
+              "client": 7,
+              "value": 45000
+            }
+          ],
+          "computed_output": 36002,
+          "consistent": true
+        },
+        "status_prefix_sha256": "cf63056082824241bff484f8608d5daf23d64914dda470a61c2df7930fdfb539"
+      },
+      "client2_hypothetical_prediction_ma": 36002,
+      "client7_simple_weight_fit_ma": 45000
+    },
+    {
+      "phase": "before",
+      "sample": 2,
+      "board_request_mw": 360000,
+      "weight_raw": 4096,
+      "policy2": {
+        "requested": 450000,
+        "effective": 370811,
+        "host": {
+          "available": true,
+          "reason": null,
+          "method": "minimum",
+          "method_code": 0,
+          "count": 1,
+          "output": 450000,
+          "initial_value": 450000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 450000
+            }
+          ],
+          "computed_output": 450000,
+          "consistent": true
+        },
+        "pmu": {
+          "available": true,
+          "reason": null,
+          "method": "minimum",
+          "method_code": 0,
+          "count": 2,
+          "output": 360000,
+          "initial_value": 450000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 450000
+            },
+            {
+              "client": 8,
+              "value": 360000
+            }
+          ],
+          "computed_output": 360000,
+          "consistent": true
+        },
+        "status_prefix_sha256": "5aa4b6ee450ec2f0344055cc9e6fc3fac9b564c170c12edbae29db0ec3c9e669"
+      },
+      "policy9": {
+        "requested": 45000,
+        "effective": 36002,
+        "host": {
+          "available": true,
+          "reason": null,
+          "method": "minimum",
+          "method_code": 0,
+          "count": 1,
+          "output": 45000,
+          "initial_value": 45000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 45000
+            }
+          ],
+          "computed_output": 45000,
+          "consistent": true
+        },
+        "pmu": {
+          "available": true,
+          "reason": null,
+          "method": "minimum",
+          "method_code": 0,
+          "count": 3,
+          "output": 36002,
+          "initial_value": 45000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 45000
+            },
+            {
+              "client": 2,
+              "value": 36002
+            },
+            {
+              "client": 7,
+              "value": 45000
+            }
+          ],
+          "computed_output": 36002,
+          "consistent": true
+        },
+        "status_prefix_sha256": "be10329ff02fe52ffe1ade860adcf19545a8e5266312d485c1de49aebf3b25b8"
+      },
+      "client2_hypothetical_prediction_ma": 36002,
+      "client7_simple_weight_fit_ma": 45000
+    },
+    {
+      "phase": "before",
+      "sample": 3,
+      "board_request_mw": 360000,
+      "weight_raw": 4096,
+      "policy2": {
+        "requested": 450000,
+        "effective": 370811,
+        "host": {
+          "available": true,
+          "reason": null,
+          "method": "minimum",
+          "method_code": 0,
+          "count": 1,
+          "output": 450000,
+          "initial_value": 450000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 450000
+            }
+          ],
+          "computed_output": 450000,
+          "consistent": true
+        },
+        "pmu": {
+          "available": true,
+          "reason": null,
+          "method": "minimum",
+          "method_code": 0,
+          "count": 2,
+          "output": 360000,
+          "initial_value": 450000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 450000
+            },
+            {
+              "client": 8,
+              "value": 360000
+            }
+          ],
+          "computed_output": 360000,
+          "consistent": true
+        },
+        "status_prefix_sha256": "42588561ac95f91ee55ee2978ef0128690e70280060d3a10895ea38aa6370a96"
+      },
+      "policy9": {
+        "requested": 45000,
+        "effective": 36002,
+        "host": {
+          "available": true,
+          "reason": null,
+          "method": "minimum",
+          "method_code": 0,
+          "count": 1,
+          "output": 45000,
+          "initial_value": 45000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 45000
+            }
+          ],
+          "computed_output": 45000,
+          "consistent": true
+        },
+        "pmu": {
+          "available": true,
+          "reason": null,
+          "method": "minimum",
+          "method_code": 0,
+          "count": 3,
+          "output": 36002,
+          "initial_value": 45000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 45000
+            },
+            {
+              "client": 2,
+              "value": 36002
+            },
+            {
+              "client": 7,
+              "value": 45000
+            }
+          ],
+          "computed_output": 36002,
+          "consistent": true
+        },
+        "status_prefix_sha256": "179e5d2d0382bc0f8252377292681180e708d2a5aa00d8bd582f4154db5592bf"
+      },
+      "client2_hypothetical_prediction_ma": 36002,
+      "client7_simple_weight_fit_ma": 45000
+    },
+    {
+      "phase": "changed",
+      "sample": 1,
+      "board_request_mw": 360000,
+      "weight_raw": 4080,
+      "policy2": {
+        "requested": 450000,
+        "effective": 370811,
+        "host": {
+          "available": true,
+          "reason": null,
+          "method": "minimum",
+          "method_code": 0,
+          "count": 1,
+          "output": 450000,
+          "initial_value": 450000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 450000
+            }
+          ],
+          "computed_output": 450000,
+          "consistent": true
+        },
+        "pmu": {
+          "available": true,
+          "reason": null,
+          "method": "minimum",
+          "method_code": 0,
+          "count": 2,
+          "output": 360000,
+          "initial_value": 450000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 450000
+            },
+            {
+              "client": 8,
+              "value": 360000
+            }
+          ],
+          "computed_output": 360000,
+          "consistent": true
+        },
+        "status_prefix_sha256": "bc19f8093bdc2689a3761542a473f160ebaa92b9e954f7ace714bfc4394ec78d"
+      },
+      "policy9": {
+        "requested": 45000,
+        "effective": 36035,
+        "host": {
+          "available": true,
+          "reason": null,
+          "method": "minimum",
+          "method_code": 0,
+          "count": 1,
+          "output": 45000,
+          "initial_value": 45000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 45000
+            }
+          ],
+          "computed_output": 45000,
+          "consistent": true
+        },
+        "pmu": {
+          "available": true,
+          "reason": null,
+          "method": "minimum",
+          "method_code": 0,
+          "count": 3,
+          "output": 36035,
+          "initial_value": 45000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 45000
+            },
+            {
+              "client": 2,
+              "value": 36035
+            },
+            {
+              "client": 7,
+              "value": 44824
+            }
+          ],
+          "computed_output": 36035,
+          "consistent": true
+        },
+        "status_prefix_sha256": "18cbe2815f92ef1ac232371be70e0aa03ffb3ca0520657b11035e3f6996e3a3c"
+      },
+      "client2_hypothetical_prediction_ma": 36035,
+      "client7_simple_weight_fit_ma": 44824
+    },
+    {
+      "phase": "changed",
+      "sample": 2,
+      "board_request_mw": 360000,
+      "weight_raw": 4080,
+      "policy2": {
+        "requested": 450000,
+        "effective": 370811,
+        "host": {
+          "available": true,
+          "reason": null,
+          "method": "minimum",
+          "method_code": 0,
+          "count": 1,
+          "output": 450000,
+          "initial_value": 450000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 450000
+            }
+          ],
+          "computed_output": 450000,
+          "consistent": true
+        },
+        "pmu": {
+          "available": true,
+          "reason": null,
+          "method": "minimum",
+          "method_code": 0,
+          "count": 2,
+          "output": 360000,
+          "initial_value": 450000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 450000
+            },
+            {
+              "client": 8,
+              "value": 360000
+            }
+          ],
+          "computed_output": 360000,
+          "consistent": true
+        },
+        "status_prefix_sha256": "9bd257b228eddae18e604efaa3a09be96381503c87ea664a1cdf8d31c43c266d"
+      },
+      "policy9": {
+        "requested": 45000,
+        "effective": 36035,
+        "host": {
+          "available": true,
+          "reason": null,
+          "method": "minimum",
+          "method_code": 0,
+          "count": 1,
+          "output": 45000,
+          "initial_value": 45000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 45000
+            }
+          ],
+          "computed_output": 45000,
+          "consistent": true
+        },
+        "pmu": {
+          "available": true,
+          "reason": null,
+          "method": "minimum",
+          "method_code": 0,
+          "count": 3,
+          "output": 36035,
+          "initial_value": 45000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 45000
+            },
+            {
+              "client": 2,
+              "value": 36035
+            },
+            {
+              "client": 7,
+              "value": 44824
+            }
+          ],
+          "computed_output": 36035,
+          "consistent": true
+        },
+        "status_prefix_sha256": "056b129992de7cd4c9b130441ae2894b46715803a6838d7df468213dc98867fb"
+      },
+      "client2_hypothetical_prediction_ma": 36035,
+      "client7_simple_weight_fit_ma": 44824
+    },
+    {
+      "phase": "changed",
+      "sample": 3,
+      "board_request_mw": 360000,
+      "weight_raw": 4080,
+      "policy2": {
+        "requested": 450000,
+        "effective": 370811,
+        "host": {
+          "available": true,
+          "reason": null,
+          "method": "minimum",
+          "method_code": 0,
+          "count": 1,
+          "output": 450000,
+          "initial_value": 450000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 450000
+            }
+          ],
+          "computed_output": 450000,
+          "consistent": true
+        },
+        "pmu": {
+          "available": true,
+          "reason": null,
+          "method": "minimum",
+          "method_code": 0,
+          "count": 2,
+          "output": 360000,
+          "initial_value": 450000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 450000
+            },
+            {
+              "client": 8,
+              "value": 360000
+            }
+          ],
+          "computed_output": 360000,
+          "consistent": true
+        },
+        "status_prefix_sha256": "7ef73f8537e56c93f77eae25d60713952d929ed167b0886bdb904bee642ce7c5"
+      },
+      "policy9": {
+        "requested": 45000,
+        "effective": 36035,
+        "host": {
+          "available": true,
+          "reason": null,
+          "method": "minimum",
+          "method_code": 0,
+          "count": 1,
+          "output": 45000,
+          "initial_value": 45000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 45000
+            }
+          ],
+          "computed_output": 45000,
+          "consistent": true
+        },
+        "pmu": {
+          "available": true,
+          "reason": null,
+          "method": "minimum",
+          "method_code": 0,
+          "count": 3,
+          "output": 36035,
+          "initial_value": 45000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 45000
+            },
+            {
+              "client": 2,
+              "value": 36035
+            },
+            {
+              "client": 7,
+              "value": 44824
+            }
+          ],
+          "computed_output": 36035,
+          "consistent": true
+        },
+        "status_prefix_sha256": "901742f78476f32a770f856be06270a9d07a8ecd4bf816c4305bd42b4b71f1cc"
+      },
+      "client2_hypothetical_prediction_ma": 36035,
+      "client7_simple_weight_fit_ma": 44824
+    },
+    {
+      "phase": "restored",
+      "sample": 1,
+      "board_request_mw": 360000,
+      "weight_raw": 4096,
+      "policy2": {
+        "requested": 450000,
+        "effective": 370811,
+        "host": {
+          "available": true,
+          "reason": null,
+          "method": "minimum",
+          "method_code": 0,
+          "count": 1,
+          "output": 450000,
+          "initial_value": 450000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 450000
+            }
+          ],
+          "computed_output": 450000,
+          "consistent": true
+        },
+        "pmu": {
+          "available": true,
+          "reason": null,
+          "method": "minimum",
+          "method_code": 0,
+          "count": 2,
+          "output": 360000,
+          "initial_value": 450000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 450000
+            },
+            {
+              "client": 8,
+              "value": 360000
+            }
+          ],
+          "computed_output": 360000,
+          "consistent": true
+        },
+        "status_prefix_sha256": "c24eb2df802c28f2d456e40249fe38b6fed0da4d426198cfc6738a40f41a39a7"
+      },
+      "policy9": {
+        "requested": 45000,
+        "effective": 36002,
+        "host": {
+          "available": true,
+          "reason": null,
+          "method": "minimum",
+          "method_code": 0,
+          "count": 1,
+          "output": 45000,
+          "initial_value": 45000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 45000
+            }
+          ],
+          "computed_output": 45000,
+          "consistent": true
+        },
+        "pmu": {
+          "available": true,
+          "reason": null,
+          "method": "minimum",
+          "method_code": 0,
+          "count": 3,
+          "output": 36002,
+          "initial_value": 45000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 45000
+            },
+            {
+              "client": 2,
+              "value": 36002
+            },
+            {
+              "client": 7,
+              "value": 45000
+            }
+          ],
+          "computed_output": 36002,
+          "consistent": true
+        },
+        "status_prefix_sha256": "08a8dd7e08c7479f8397280e99a24a5196c42bf57f23d3b6991b6e57f9c085ba"
+      },
+      "client2_hypothetical_prediction_ma": 36002,
+      "client7_simple_weight_fit_ma": 45000
+    },
+    {
+      "phase": "restored",
+      "sample": 2,
+      "board_request_mw": 360000,
+      "weight_raw": 4096,
+      "policy2": {
+        "requested": 450000,
+        "effective": 370811,
+        "host": {
+          "available": true,
+          "reason": null,
+          "method": "minimum",
+          "method_code": 0,
+          "count": 1,
+          "output": 450000,
+          "initial_value": 450000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 450000
+            }
+          ],
+          "computed_output": 450000,
+          "consistent": true
+        },
+        "pmu": {
+          "available": true,
+          "reason": null,
+          "method": "minimum",
+          "method_code": 0,
+          "count": 2,
+          "output": 360000,
+          "initial_value": 450000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 450000
+            },
+            {
+              "client": 8,
+              "value": 360000
+            }
+          ],
+          "computed_output": 360000,
+          "consistent": true
+        },
+        "status_prefix_sha256": "df7917a1b86706ce4644c658ff307f72be3d734fcb555ab8c54f975b6e38edeb"
+      },
+      "policy9": {
+        "requested": 45000,
+        "effective": 36002,
+        "host": {
+          "available": true,
+          "reason": null,
+          "method": "minimum",
+          "method_code": 0,
+          "count": 1,
+          "output": 45000,
+          "initial_value": 45000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 45000
+            }
+          ],
+          "computed_output": 45000,
+          "consistent": true
+        },
+        "pmu": {
+          "available": true,
+          "reason": null,
+          "method": "minimum",
+          "method_code": 0,
+          "count": 3,
+          "output": 36002,
+          "initial_value": 45000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 45000
+            },
+            {
+              "client": 2,
+              "value": 36002
+            },
+            {
+              "client": 7,
+              "value": 45000
+            }
+          ],
+          "computed_output": 36002,
+          "consistent": true
+        },
+        "status_prefix_sha256": "461579be23b15c01e3c7ec4fc33e9cc6bb2d3499e1f160506a47f56292540333"
+      },
+      "client2_hypothetical_prediction_ma": 36002,
+      "client7_simple_weight_fit_ma": 45000
+    },
+    {
+      "phase": "restored",
+      "sample": 3,
+      "board_request_mw": 360000,
+      "weight_raw": 4096,
+      "policy2": {
+        "requested": 450000,
+        "effective": 370811,
+        "host": {
+          "available": true,
+          "reason": null,
+          "method": "minimum",
+          "method_code": 0,
+          "count": 1,
+          "output": 450000,
+          "initial_value": 450000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 450000
+            }
+          ],
+          "computed_output": 450000,
+          "consistent": true
+        },
+        "pmu": {
+          "available": true,
+          "reason": null,
+          "method": "minimum",
+          "method_code": 0,
+          "count": 2,
+          "output": 360000,
+          "initial_value": 450000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 450000
+            },
+            {
+              "client": 8,
+              "value": 360000
+            }
+          ],
+          "computed_output": 360000,
+          "consistent": true
+        },
+        "status_prefix_sha256": "8283b80d4814a736149937d901d68185b14580029c60bea3f2b2b88bede86a63"
+      },
+      "policy9": {
+        "requested": 45000,
+        "effective": 36002,
+        "host": {
+          "available": true,
+          "reason": null,
+          "method": "minimum",
+          "method_code": 0,
+          "count": 1,
+          "output": 45000,
+          "initial_value": 45000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 45000
+            }
+          ],
+          "computed_output": 45000,
+          "consistent": true
+        },
+        "pmu": {
+          "available": true,
+          "reason": null,
+          "method": "minimum",
+          "method_code": 0,
+          "count": 3,
+          "output": 36002,
+          "initial_value": 45000,
+          "inputs": [
+            {
+              "client": 254,
+              "value": 45000
+            },
+            {
+              "client": 2,
+              "value": 36002
+            },
+            {
+              "client": 7,
+              "value": 45000
+            }
+          ],
+          "computed_output": 36002,
+          "consistent": true
+        },
+        "status_prefix_sha256": "0c8d1f3e47308d0bff6571438760ce8a68590906a0b57af8138e66b3b5782998"
+      },
+      "client2_hypothetical_prediction_ma": 36002,
+      "client7_simple_weight_fit_ma": 45000
+    }
+  ],
+  "candidate": {
+    "input": "hypothetical policy 2 PMU output, not source-bound",
+    "formula": "q=((450000-x)*4096+224999)//449999; weighted=(q*w+2048)//4096; y=45000-(44999*weighted+2048)//4096",
+    "client7": "round_half_up(45000*w/4096) fits these values; producer and consumer unproven",
+    "limits": "One device and operating point; numerical fit does not bind the producer, prove a universal rule, or measure physical current."
+  }
+}

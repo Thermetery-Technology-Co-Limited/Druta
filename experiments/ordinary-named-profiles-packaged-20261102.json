@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "date": "2026-11-02",
+  "source_files_verified": 562,
+  "executable_sha256": "448da26a9ecfcc9e2e0be2b49cf4fc6e80c4562eb0eddbdf3e6ba7c2e6c0a9e0",
+  "zip_sha256": "53425bd6140cb16b96d9696c1dbbea31083de4e6f9da50b1f96136db1e4c42d8",
+  "zip_crc": "passed",
+  "qualification": "experiments/ordinary-named-profiles-20261102.json",
+  "qualification_sha256": "9b31d52a4299ba91ff1fe8820c1d152b779a4e2134c0848a6d303614f66ffba5",
+  "packaged_capture": {
+    "frames": 35,
+    "manifest_sha256": "6248dd8dd54313fa60ddb281a46e18fbf97f1b770af86afe2bfdfbb34ce52120",
+    "skipped": [
+      "current-voltage-offsets: Could not read offsets: No readable offset scaffold profile for this adapter"
+    ]
+  },
+  "note": "Read-only packaged UI smoke walkthrough; new named Save/Load callback qualification is source-level. This post-build receipt is not bundled."
+}

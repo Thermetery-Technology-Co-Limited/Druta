@@ -1,0 +1,1196 @@
+{
+  "schema": 1,
+  "date_utc": "2026-11-02",
+  "scope": "Session-only shared adaptive-power policy Allow/Disable; local RTX5080 driver617.42, not physical gating or residency qualification.",
+  "driver_sha256": "db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b",
+  "identity": {
+    "slot": "0000:01:00.0",
+    "architecture": 10,
+    "device_id": 11266,
+    "subsystem_id": 2313031747
+  },
+  "role_mapping": {
+    "0": "Graphics (GR)",
+    "2": "Memory subsystem (MS)",
+    "4": "NVDEC",
+    "5": "NVENC",
+    "6": "NVJPG",
+    "7": "OFA"
+  },
+  "contract": {
+    "get": "2080A801 type4 attr9 support; attr10 enabled iff complete reason DWORD zero. Invalid rows are unavailable.",
+    "set": "2080E802 type4 attr10 value0 sets shared bit1; value1 clears only bit1. Other reasons may keep policy disabled. Not counted or per-client ownership.",
+    "verification": "Exact routing/opaque preservation, Boolean support/state, exact SET acknowledgement and stable before/after aggregate. No SET retry. Unchanged/masked aggregate is explicitly unverified request effect.",
+    "admission": "Native Blackwell 0x1B0, source-qualified implementations2/3/5/6/7 and current per-role support; no board or driver allowlist.",
+    "lifecycle": "No owned-reference cleanup, numeric threshold restoration, profile or driver-restart replay."
+  },
+  "source_verification": "Root matched all36 retained source windows to the installed image, byte-for-byte and by each stored SHA256.",
+  "sources": [
+    {
+      "path": "experiments/registry-overrides/adaptive-power-identity-terra-20261102/controller-identities-61742.json",
+      "sha256": "771bbe24cbc475c374a63d9dff0e61051d2e8b62c080defb135b1ae6b5e7f70d",
+      "findings": [
+        "736DB0 uses controller-specific jump table 7370BC, initializes row first four bytes to FF 00 0B 04, then selected cases overwrite byte row+F2, identifying the adaptive object index; 734600 independently maps that same controller index to the recorded registry literal. The row byte identifies a relation, not runtime presence or enabled state.",
+        "The names are exactly the source literal abbreviations: do not expand RG, PG or RPG or merge similarly named video controllers without another source join. Adaptive index1 is not identified by this row mapping; no label is inferred.",
+        "8F59B0 constructs parent+12C8 object, initializes eleven presence bits, filters according to object and GPU capabilities, and checks feature policy. 8F5980 tests a given index less than 11 against presence bitmap. The first-field threshold handler conditionally associates the selected row with this object. These facts do not prove any specific index is present or expose a user-toggle contract.",
+        "NVIDIA-authored older GK20A AP source explicitly calls the corresponding historical system adaptive power, identifies graphics controller0, and describes its algorithm as updating idle filters based on predicted savings and residency. Its older protocol and controller numbering are not source-bound to the current object; this supplies conceptual context only, not present firmware policy or measurable effect.",
+        "Reason-bit numeric controls remain unnamed and no setter or readback qualification is asserted in this identity audit. User-facing per-engine labels can reflect mapped source associations only once separate API and readable state are established."
+      ],
+      "windows": [
+        {
+          "name": "row_address_default_and_switch",
+          "rva": "0x736dc8",
+          "length": 120,
+          "bytes": "4c8bb150250000488d9af00000004533ff418bf04c69ce08010000488bfa488be94903d94c897b70c703ff000b044c897b0c44897b384c897b40c7432402000000c643040344897b08e8ead7ffff448bc6488bd7488bcde81c45000083fe150f8774020000488d15cc918cff8b8cb2bc7073004803caffe1",
+          "sha256": "cecc3db27caffe1bf90ee851ab3a7f3973a119732eec7bde628bc2332d999257"
+        },
+        {
+          "name": "row_switch_table",
+          "rva": "0x7370bc",
+          "length": 88,
+          "bytes": "406e7300c96e73009c6e7300a1707300d86e7300296f7300f76e7300176f73006f6f7300816f7300a36f7300bf6f7300d46f7300ed6f7300067073001c70730032707300447073005a7073007070730086707300456f7300",
+          "sha256": "91fb2674ea9bfe8457466554d4380b6754e626f2caef44663c0e37b515629cab"
+        },
+        {
+          "name": "gr_rg_and_ms_rows",
+          "rva": "0x736e40",
+          "length": 183,
+          "bytes": "0faee86644897b0244887b044438bfe10000007504834b0810c74348be9ffc534438bfe500000074190faee8488b87c0000000448bc6488bd7488bcdff1526bc6c0041f786c0020000000100000f84fd010000834b0804e9f40100000faee8c6430203448bc6c6437901488bd7c74348e1e7afed488bcd488b87c0000000ff15e4bb6c00e9c70100000faee8c7434800040000e9b80100000faee866c74302020141b801000000c6430401c74348fff9ff07e99c010000",
+          "sha256": "af33255dfc2c5104fc0676b572bb33018bb4c631e4dbd4956f7c1c2eb4a24685"
+        },
+        {
+          "name": "media_rpg_rows",
+          "rva": "0x736fd4",
+          "length": 94,
+          "bytes": "0faee8c643020441b803000000c743480fe00300e9a60000000faee8c643020541b803000000c74348f0e00300e98d0000000faee8c643020741b803000000c7434800e10300eb770faee8c643020641b803000000c7434800fe0300eb61",
+          "sha256": "37593a08ba78d1c73cedad87bb74ab1e4a0baf0cde4d4cbdc5850821c9387957"
+        },
+        {
+          "name": "media_pg_rows",
+          "rva": "0x737044",
+          "length": 66,
+          "bytes": "0faee8c643020841b803000000c743480fe0ff03eb390faee8c643020941b803000000c74348f0e0ff03eb230faee8c643020a41b803000000c7434800e1ff03eb0d",
+          "sha256": "634658d80710af85ed2f110dc7fc68b67630d32469fc2d9e10e8041e11cda9d5"
+        },
+        {
+          "name": "registry_switch",
+          "rva": "0x734618",
+          "length": 66,
+          "bytes": "488bb150250000488bea418bc0488bd94869f808010000c7442420000000004803fa4183f8150f87db030000488d0db5b98cff418bc08b9481504a73004803d1ffe2",
+          "sha256": "6fff5c9a0766190eb64fb5d2aeb3624036a5e9075bfba409fe454e5fe4f551e6"
+        },
+        {
+          "name": "gr_rg_literal_use",
+          "rva": "0x734705",
+          "length": 25,
+          "bytes": "0faee84c8d8724010000488bcb488d15672e5e00e8b263a3ff",
+          "sha256": "033db3fe3f055d1b14a5270aba6b2fde327efa97bfdc758314aa90655ac2481d"
+        },
+        {
+          "name": "gr_literal_use",
+          "rva": "0x73465a",
+          "length": 25,
+          "bytes": "0faee84c8d8724010000488bcb488d15b22e5e00e85d64a3ff",
+          "sha256": "6850972c82d936fdf7368147e6318b500cc73d8c519d11663f85c4e30b64cec0"
+        },
+        {
+          "name": "ms_literal_use",
+          "rva": "0x734723",
+          "length": 32,
+          "bytes": "4c897424300faee84c8d8724010000488bcb488d15642e5e00e88f63a3ff4c8d",
+          "sha256": "929448c888e1e5f5bf7106a0137bd22f69fc9db4d34e346ac9ef91885b908c25"
+        },
+        {
+          "name": "media_rpg_literal_uses",
+          "rva": "0x73491d",
+          "length": 120,
+          "bytes": "0faee84c8d8724010000488bcb488d15ef2d5e00e89a61a3ffe9fd0000000faee84c8d8724010000488bcb488d15012e5e00e87c61a3ffe9df0000000faee84c8d8724010000488bcb488d15132e5e00e85e61a3ffe9c10000000faee84c8d8724010000488bcb488d15152e5e00e84061a3ffe9a3000000",
+          "sha256": "3b34f73cd814ed9270de3ddf888e1a3b91f585142ff253e0d7758cf3f75428a3"
+        },
+        {
+          "name": "media_pg_literal_uses",
+          "rva": "0x7349b3",
+          "length": 81,
+          "bytes": "0faee84c8d8724010000488bcb488d15292e5e00e80461a3ffeb6a0faee84c8d8724010000488bcb488d152e2e5e00e8e960a3ffeb4f0faee84c8d8724010000488bcb488d15332e5e00e8ce60a3ffeb34",
+          "sha256": "a4f099a2d19504815d9bc2a6c7933d041918508b92f761ed2d6b9c5037e0fbd6"
+        },
+        {
+          "name": "adaptive_alloc_and_presence",
+          "rva": "0x8f59b0",
+          "length": 245,
+          "bytes": "48895c24184889742420574883ec30488b05ba3f8a004833c4488944242833c0488bfa4885d24889442420488bf1488d4c2420480f44d04533c0e8610ef0008bd885c07416ba00003800b9ac08c50ee88cb27eff8bc3e9c3020000488b442420488987c812000083486801488b4424208388e800000001488b44242083886801000001488b4424208388e801000001488b44242083886802000001488b4424208388e802000001488b44242083886803000001488b4424208388e803000001488b44242083886804000001488b4424208388e804000001488b44242083886805000001b8ff0700004c8b4424204189405c80be9609",
+          "sha256": "622d9b7e9e7940fbe6745b3f9f2b8ee77850bb86a6beaf3a89c5a3bfa67af156"
+        },
+        {
+          "name": "adaptive_presence_guard",
+          "rva": "0x8f5980",
+          "length": 23,
+          "bytes": "4180f80b730e8b425c410fb6c80fa3c80f92c0c332c0c3",
+          "sha256": "c7062c32dee10bf2e2e24e6d36614976213f027a4fd3b62aedb48b5c8261fb7a"
+        },
+        {
+          "name": "adaptive_policy_gate",
+          "rva": "0x8f5c6b",
+          "length": 36,
+          "bytes": "488b5c2420ba0d00000041b800153bb3488bcee87da1a5ff83f8017527448b435c4532c9",
+          "sha256": "300f9120ab367ce816c9692304106226f9bd5a8a09d4cbe552c82fe5f64daf7d"
+        },
+        {
+          "name": "adaptive_first_threshold_aux_binding",
+          "rva": "0x738b1f",
+          "length": 99,
+          "bytes": "4d85ff743a440fb686f2000000498bd7488bcfe849ce1b0084c07423440fb686f200000041b902000000498bd7488bcfe89cd11b008bd885c00f85f6000000418b45084c8d4c2430458bc689442430488bd5c744243400000000488bcfe87ff6ffff8b",
+          "sha256": "6f99373e1e3da5e4e1054a7915310650ea4c8d69813257998b6b2a0349d8bfb6"
+        }
+      ]
+    },
+    {
+      "path": "experiments/registry-overrides/adaptive-power-terra-20261102/adaptive-type4-control-61742.json",
+      "sha256": "5a39c457cc12d8d0b7ce8afc818bf4cd3f254eebdb4da6c553ca981581a6bfc6",
+      "findings": [
+        "A801 GET and E802 SET use size 0x404 attribute packets: u32 count at +0 and 16-byte entries at +4; each row contains u16 type +0, u16 role +2, u16 attribute +4, u16 flags +6, u32 value +8. Type4 selects the auxiliary object at LPWR parent+12C8. Source current GRPG implementation already queries type4 attribute9 roles 0..10 and checks unchanged opaque bytes and per-row validity.",
+        "A801 type4 first requires object+5C nonzero and 8F5EC0 further requires role low byte <11 and the corresponding support bit in +5C. Attribute9 returns support value1 for a valid role. Unsupported role is an invalid row, not a valid value0. Attribute10 invokes 8F5960 and returns 1 iff the selected reason DWORD aux+role*0x80+0x68 is zero, else 0. The inspected getter dispatch does not expose that reason DWORD directly.",
+        "E802 type4 dispatches 8F61F0, accepts attribute10 only. Value0 sets bit1 in the selected reason DWORD; if the prior DWORD was zero it may call B9C340 (firmware 00/03/0D) and for role1 additionally invokes GPU+2120 virtual+598. Nonzero clears bit1 only; if that makes the complete reason DWORD zero it invokes B9C420 (firmware 02/03/0C). It leaves other reason bits intact. If reason DWORD already zero, the clear operation is a no-op. These are shared bit operations, not counted or per-client references; an enabled predicate change does not identify an owner.",
+        "Source-initialized controller-to-auxiliary role association via group row+F2: GR controller0 -> role0, MS controller4 -> role2, NVDEC12 -> role4, NVENC13 -> role5, OFA14 -> role7, NVJPG15 -> role6. Controller10/11 initialize row+F2 to 11, outside supported range. These are construction-path associations; device capabilities and runtime validity must be read independently.",
+        "A bounded read-only probe may adapt existing _bit1_request/_bit1_roles packet for type4 attribute9 plus matching attribute10 rows for exact roles 0,2,4,5,6,7, preserving packet routing/opaque fields and interpreting invalid rows as unavailable. If enabled=1 it establishes reason DWORD is zero at that read, not ownership or physical gating. This is a read-only candidate; no SET or hardware performed."
+      ],
+      "windows": [
+        {
+          "label": "get_descriptor",
+          "rva": "0xe6a0f0",
+          "length": 32,
+          "bytes_hex": "a03b4f4001000000480000000000000001a880200404000090b0e64001000000",
+          "sha256": "dd66e2142443b6e016523152d7eacc55933057fa4a1c83808a9d089862a81ff3"
+        },
+        {
+          "label": "set_descriptor",
+          "rva": "0xe6add0",
+          "length": 32,
+          "bytes_hex": "00414f4001000000440000000000000002e880200404000090b0e64001000000",
+          "sha256": "c63891811d9f4acd12e3c4922b4a4a314680a99c664cf2c04878aee99becf362"
+        },
+        {
+          "label": "get_type4_dispatch",
+          "rva": "0x4f3c82",
+          "length": 262,
+          "bytes_hex": "8bdebafeff000048c1e3044903dd66235306440fb70366895306418d40ff83f80d0f872b0300004898418b8c81a4404f004903c9ffe14c8bc3498bd6488bcfe83af6ffffe902030000488b97482500004d8bc5488bcfe8338b2500448bf885c075066641834d060183f816b9000800000f45cd41894d08e9cf020000498baec01200004885ed0f84ba02000066837b04397418440fb74302488bd5488bcfe8cb46240084c00f849b020000440fb743024c8bcb488bd5488bcfe8d0462400bdff08000085c00f858002000066834b0601e976020000498baec81200004885ed0f8461020000488bd5488bcfe82eeb3f0084c00f844e0200004c8bc3488bd5488bcfe838214000",
+          "sha256": "b691b5599f7b2523cb95e2de54eaa32c51a1534c1114e33cdf5e04861a529aa8"
+        },
+        {
+          "label": "get_type_switch",
+          "rva": "0x4f40a4",
+          "length": 56,
+          "bytes_hex": "b83c4f00cb3c4f00fe3c4f00573d4f00cd3f4f008a3d4f00d23d4f00083e4f00bc3e4f00d63e4f00f03e4f005e3f4f008c3f4f00233f4f00",
+          "sha256": "e53739704c616a55280f0160e044c0f505483233ffc866a26c9a3939c03c22f1"
+        },
+        {
+          "label": "set_type4_dispatch",
+          "rva": "0x4f41b0",
+          "length": 238,
+          "bytes_hex": "8bde48c1e3044883c3044903dc440fb70366214b06418d40ff83f80d0f87610300004898418b8c81b4454f004903c9ffe14d85f60f8443030000498bd6498bcfe8abe63f0084c00f84300300004c8bc3498bd6498bcfe8f5ec3f00e91b0300004c8bc3498bcfe8b58c2500e90b0300004c8bb5c0120000bf560000004d85f60f84f8020000440fb74302498bd6498bcfe8ab41240084c00f84e0020000440fb743024c8bcb498bd6498bcfe8804624008bf885c00f85c302000066834b0601e9b9020000488b95c8120000bf560000004885d20f84a40200004c8bc3498bcfe85c1f40008bf885c00f858f020000",
+          "sha256": "bff7489af93dafdfdc1b316ecae18b75437d9e2d67102cc5b571921934b2b077"
+        },
+        {
+          "label": "set_type_switch",
+          "rva": "0x4f45b4",
+          "length": 56,
+          "bytes_hex": "e1414f0010424f0020424f0074424f0033454f0033454f00c2434f00a8424f0005444f002b444f0051444f00c6444f00f1444f008d444f00",
+          "sha256": "b476cbe4fc962b217ec2b31f2f075d55206bedbad6c0e51e9798915b9a07a7b7"
+        },
+        {
+          "label": "presence_and_enabled",
+          "rva": "0x8f5960",
+          "length": 55,
+          "bytes_hex": "4180f80b7311410fb6c048c1e007837c1068000f94c0c332c0c3cccccccccccc4180f80b730e8b425c410fb6c80fa3c80f92c0c332c0c3",
+          "sha256": "0e036654a4a959f4b075211ebe9e7c3d04aee52cbca400dd996214f47b709d06"
+        },
+        {
+          "label": "getter_support_and_reason_zero",
+          "rva": "0x8f5ec0",
+          "length": 235,
+          "bytes_hex": "48895c242055565741544155415641574883ec40488b05a53a8a004833c448894424304c8bb15025000033ff498bd84c8bfa488be94d85f674094d8ba6c0120000eb034c8be7410fb670024c8ba9202100004d85ff0f8442020000440fb6c6e85cfaffff84c00f84310200000fb75304448bce49c1e1078bc24d03cf81fa000800000f87bb0100000f84de010000ffc883f80c0f87fb01000048984c8d059ea070ff418b848088618f004903c0ffe0440fb6c6498bd7488bcde802faffff84c08bcf8bc70f95c1894b08e9d3010000440fb6c6498bd7488bcde8c2f9ffff84c08bcf8bc70f95c1894b08e9",
+          "sha256": "f3d959a0079be41c7d61193b34aeb9f00e62c46822631e9d4237f278ce0e4fd6"
+        },
+        {
+          "label": "getter_attribute_jump_table",
+          "rva": "0x8f6188",
+          "length": 52,
+          "bytes_hex": "c55f8f00af5f8f00d65f8f0061608f0070608f008e608f009c608f00aa608f006f5f8f008f5f8f007f608f00b8608f00df608f00",
+          "sha256": "81f3c472ad45f6eaca6e5ff66c7aef1dfcc7804f5e8df167194483593863a429"
+        },
+        {
+          "label": "setter_attribute10",
+          "rva": "0x8f61f0",
+          "length": 384,
+          "bytes_hex": "48895c241048896c2418488974242041564883ec20410fb67002498bd8488bea4c8bf14885d20f8435010000440fb6c6e85bf7ffff84c00f842401000066837b040a740cbb1f0000008bc3e91601000048897c2430440fb6c6488bfe488bd548c1e707498bce4803fd837b0800746433dbe81af7ffff84c00f84d5000000389fe00000007466440fb6c6488bd5498bcee8dbf6ffff84c00f85bb000000836768fd440fb6c6488bd5498bcee8c0f6ffff84c00f84a0000000440fb6c6488bd5498bcee869612a00488b7c24308bd8e993000000498b9e20210000e8b1f6ffff84c0747080bfe000000000750e488b7c2430bbffff00008bc3eb6c440fb6c6488bd5498bcee867f6ffff834f680284c074374080fe017519488b839805000041b8e8030000488bd3498bceff1588c75000440fb6c6488bd5498bcee811602a00488b7c24308bd8eb1e488b7c243033db8bc3eb13bb56000000488b7c24308bc3eb05b856000000488b5c2438488b6c2440488b7424484883c420415ec3cccccccc",
+          "sha256": "30a29f358f69773fbdfe4e93a5f639f21b1801027631a0bd3b82571a32a79d38"
+        },
+        {
+          "label": "send_disable",
+          "rva": "0xb9c340",
+          "length": 221,
+          "bytes_hex": "48895c24104889742420574883ec60488b052ad65f004833c44889442458488bb950250000410fb6d8488bf141b818000000488d4c244033d2e8723654ff33d2885c245041b810000000488d4c2440e85c3654ff488b96b02300004c8d44244033c966c7442441030dc64424400041b9140000000fb68729130000488b92381000008844243048894c242866894c2420488bcee8087b7bff8bd885c0741e448bc0ba00101201b9cc50b20ee8a04854ffb913010000e8064b57ff8bc3488b4c24584833cce857181500488b5c2478488bb424880000004883c4605fc3cc",
+          "sha256": "066616a30c54ec0e9123db734fdc202001e5948b7e00cbfb8b7782f6398bb2d2"
+        },
+        {
+          "label": "send_enable",
+          "rva": "0xb9c420",
+          "length": 221,
+          "bytes_hex": "48895c24104889742420574883ec60488b054ad55f004833c44889442458488bb950250000410fb6d8488bf141b818000000488d4c244033d2e8923554ff33d2885c245041b810000000488d4c2440e87c3554ff488b96b02300004c8d44244033c966c7442441030cc64424400241b9140000000fb68729130000488b92381000008844243048894c242866894c2420488bcee8287a7bff8bd885c0741e448bc0ba0010e700b9cc50b20ee8c04754ffb9e8000000e8264a57ff8bc3488b4c24584833cce877171500488b5c2478488bb424880000004883c4605fc3cc",
+          "sha256": "bd5f67ddd3dddad733715c7c0c88f8a09ebd11412b2e7db61e7749b17f3199a5"
+        },
+        {
+          "label": "controller_row_defaults",
+          "rva": "0x736dc8",
+          "length": 63,
+          "bytes_hex": "4c8bb150250000488d9af00000004533ff418bf04c69ce08010000488bfa488be94903d94c897b70c703ff000b044c897b0c44897b384c897b40c743240200",
+          "sha256": "6fcb68dda711f6038057afede1845761bca1ec70931ab3ef1aca378bf2041309"
+        },
+        {
+          "label": "controller_0_4",
+          "rva": "0x736e40",
+          "length": 167,
+          "bytes_hex": "0faee86644897b0244887b044438bfe10000007504834b0810c74348be9ffc534438bfe500000074190faee8488b87c0000000448bc6488bd7488bcdff1526bc6c0041f786c0020000000100000f84fd010000834b0804e9f40100000faee8c6430203448bc6c6437901488bd7c74348e1e7afed488bcd488b87c0000000ff15e4bb6c00e9c70100000faee8c7434800040000e9b80100000faee866c74302020141b801000000",
+          "sha256": "ef42c6ae0c22368f059ade29d0265981eb7561d222cc98d42bbb624ae03cd1bd"
+        },
+        {
+          "label": "controller_12_15",
+          "rva": "0x736fd4",
+          "length": 94,
+          "bytes_hex": "0faee8c643020441b803000000c743480fe00300e9a60000000faee8c643020541b803000000c74348f0e00300e98d0000000faee8c643020741b803000000c7434800e10300eb770faee8c643020641b803000000c7434800fe0300eb61",
+          "sha256": "37593a08ba78d1c73cedad87bb74ab1e4a0baf0cde4d4cbdc5850821c9387957"
+        }
+      ]
+    },
+    {
+      "path": "experiments/registry-overrides/adaptive-power-terra-20261102/adaptive-threshold-host-boundary-61742.json",
+      "sha256": "8630818d151499ead3214ddfb74003b7bd178941c07c10d15149ca371274fac5",
+      "findings": [
+        "8F61F0 type4 attribute10 modifies selected auxiliary reason bit1; an enabled-to-disabled transition calls B9C340, and a transition back to all-reasons-zero calls B9C420. Role1 alone has an additional GPU+2120 virtual+598 call with 1000 on the disable transition; roles0,4,5,6,7 do not take that direct role1 branch.",
+        "B9C340 constructs firmware header 00/03/0D with the selected role byte. B9C420 constructs header 02/03/0C with the selected role byte. Neither inspected packet contains an explicit threshold number, and the inspected direct host transition path has no call to the known threshold converter or raw threshold register writer.",
+        "B9825E initializes a GR-related parent threshold field to 70000 on one constructor path, but matching that literal to a measured scaled 70000 does not establish that this initialization or default generator caused the adaptive-policy response. The firmware receiver, dynamic policy and timing behavior are not decoded.",
+        "User-reported local trial observed selected first threshold 70000 while the second word was unchanged after adaptive transitions; in an earlier trial the GR first threshold later returned to its previous value without numeric write. These observations are scoped to the reported adapter/trial and do not establish a universal timing guarantee or physical latency. Capture exact selected and peer readback per step; no threshold restoration framework is inferred as a prerequisite for the manual policy control."
+      ],
+      "windows": [
+        {
+          "label": "type4_set_transition",
+          "rva": "0x8f61f0",
+          "length": 384,
+          "bytes_hex": "48895c241048896c2418488974242041564883ec20410fb67002498bd8488bea4c8bf14885d20f8435010000440fb6c6e85bf7ffff84c00f842401000066837b040a740cbb1f0000008bc3e91601000048897c2430440fb6c6488bfe488bd548c1e707498bce4803fd837b0800746433dbe81af7ffff84c00f84d5000000389fe00000007466440fb6c6488bd5498bcee8dbf6ffff84c00f85bb000000836768fd440fb6c6488bd5498bcee8c0f6ffff84c00f84a0000000440fb6c6488bd5498bcee869612a00488b7c24308bd8e993000000498b9e20210000e8b1f6ffff84c0747080bfe000000000750e488b7c2430bbffff00008bc3eb6c440fb6c6488bd5498bcee867f6ffff834f680284c074374080fe017519488b839805000041b8e8030000488bd3498bceff1588c75000440fb6c6488bd5498bcee811602a00488b7c24308bd8eb1e488b7c243033db8bc3eb13bb56000000488b7c24308bc3eb05b856000000488b5c2438488b6c2440488b7424484883c420415ec3cccccccc",
+          "sha256": "30a29f358f69773fbdfe4e93a5f639f21b1801027631a0bd3b82571a32a79d38"
+        },
+        {
+          "label": "shared_reason_bit_transition",
+          "rva": "0x8f5cf0",
+          "length": 205,
+          "bytes_hex": "48895c240848896c2410488974241857415641574883ec204c8bb920210000458bf1410fb6f8488bea8bdf488bf148c1e3074803da4885d27475440fb6c7e84dfcffff84c0746880bbe0000000007507b8ffff0000eb5d440fb6c7488bd5488bcee80afcffff84c08b43687437440fabf08943684080ff017519498b879805000041b8e8030000498bd7488bceff1525cd5000440fb6c7488bd5488bcee8ae652a00eb10440fabf089436833c0eb05b856000000488b5c2440488b6c2448488b7424504883c420415f415e5fc3",
+          "sha256": "e193a9d0c5933e94bec2ef3a46198ae637a5f75c6dc66fb35b7fdc85ad470485"
+        },
+        {
+          "label": "disable_firmware_packet",
+          "rva": "0xb9c340",
+          "length": 220,
+          "bytes_hex": "48895c24104889742420574883ec60488b052ad65f004833c44889442458488bb950250000410fb6d8488bf141b818000000488d4c244033d2e8723654ff33d2885c245041b810000000488d4c2440e85c3654ff488b96b02300004c8d44244033c966c7442441030dc64424400041b9140000000fb68729130000488b92381000008844243048894c242866894c2420488bcee8087b7bff8bd885c0741e448bc0ba00101201b9cc50b20ee8a04854ffb913010000e8064b57ff8bc3488b4c24584833cce857181500488b5c2478488bb424880000004883c4605fc3",
+          "sha256": "1ffa52f0f131e8cb6100ff7de6b58691fbf1df2ff8cfddb9996c949aac691309"
+        },
+        {
+          "label": "allow_firmware_packet",
+          "rva": "0xb9c420",
+          "length": 220,
+          "bytes_hex": "48895c24104889742420574883ec60488b054ad55f004833c44889442458488bb950250000410fb6d8488bf141b818000000488d4c244033d2e8923554ff33d2885c245041b810000000488d4c2440e87c3554ff488b96b02300004c8d44244033c966c7442441030cc64424400241b9140000000fb68729130000488b92381000008844243048894c242866894c2420488bcee8287a7bff8bd885c0741e448bc0ba0010e700b9cc50b20ee8c04754ffb9e8000000e8264a57ff8bc3488b4c24584833cce877171500488b5c2478488bb424880000004883c4605fc3",
+          "sha256": "3544dd76535d92225c43849565c2c6a055f9970dc0eca0f36a3e76d6b61b23a8"
+        },
+        {
+          "label": "known_gr_default_threshold",
+          "rva": "0xb98257",
+          "length": 28,
+          "bytes_hex": "c6827803000005c7827c03000070110100c78280030000dc050000c7",
+          "sha256": "39fc207f0442e1036f3c2a0ca321defc171b5bc4b0bd175dcc767a9357ec5da4"
+        },
+        {
+          "label": "selected_raw_pair_provider",
+          "rva": "0xb8fb80",
+          "length": 211,
+          "bytes_hex": "4889742410574883ec30418bc0498bf14869f8080100004803fa0fb687f00000003cff7529ba00008a00b92717bd0ee8dc1055ffb98a000000e8020557ffb8ffff0000488b7424484883c4305fc348895c2440448d0c8500718f00488d991044000048c744242000000000488bcb4533c033d2e8586a59ff89064533c0440fb68ff000000033d2488bcb48c744242000000000468d0c8d80718f00e8306a59ff833e00488b5c24408946047719ba00009000b92717bd0ee8541055ffb990000000e87a0457ff488b74244833c04883c4305fc3",
+          "sha256": "604f3ee9fed983334df21cd6516339dd56c9e89b32263785a9770eb47890570f"
+        }
+      ]
+    }
+  ],
+  "local_trial": {
+    "receipt": {
+      "path": "experiments/registry-overrides/adaptive-power-root-20261102/adaptive-policy-product-trial-v2-20261102.json",
+      "sha256": "5e9895fb23f8e22908f820323bbf553872db77315412514a4b1aac03b40d57cf"
+    },
+    "method": "Actual production panel callbacks; disable five present roles together in order0/4/5/6/7, allow in reverse, independently compare all six aggregate roles at every step.",
+    "callbacks": [
+      {
+        "index": 0,
+        "allowed": false,
+        "snapshot": {
+          "index": 0,
+          "name": "Graphics (GR)",
+          "available": true,
+          "status": "available",
+          "architecture": {
+            "architecture": 432,
+            "implementation": 3,
+            "revision": 161,
+            "raw_auxiliary": 1
+          },
+          "enabled": false,
+          "requested_allowed": false,
+          "request_accepted": true,
+          "before_enabled": true,
+          "verification": "aggregate_transition"
+        },
+        "stale": false,
+        "status": "Request accepted; aggregate policy is disabled."
+      },
+      {
+        "index": 4,
+        "allowed": false,
+        "snapshot": {
+          "index": 4,
+          "name": "NVDEC",
+          "available": true,
+          "status": "available",
+          "architecture": {
+            "architecture": 432,
+            "implementation": 3,
+            "revision": 161,
+            "raw_auxiliary": 1
+          },
+          "enabled": false,
+          "requested_allowed": false,
+          "request_accepted": true,
+          "before_enabled": true,
+          "verification": "aggregate_transition"
+        },
+        "stale": false,
+        "status": "Request accepted; aggregate policy is disabled."
+      },
+      {
+        "index": 5,
+        "allowed": false,
+        "snapshot": {
+          "index": 5,
+          "name": "NVENC",
+          "available": true,
+          "status": "available",
+          "architecture": {
+            "architecture": 432,
+            "implementation": 3,
+            "revision": 161,
+            "raw_auxiliary": 1
+          },
+          "enabled": false,
+          "requested_allowed": false,
+          "request_accepted": true,
+          "before_enabled": true,
+          "verification": "aggregate_transition"
+        },
+        "stale": false,
+        "status": "Request accepted; aggregate policy is disabled."
+      },
+      {
+        "index": 6,
+        "allowed": false,
+        "snapshot": {
+          "index": 6,
+          "name": "NVJPG",
+          "available": true,
+          "status": "available",
+          "architecture": {
+            "architecture": 432,
+            "implementation": 3,
+            "revision": 161,
+            "raw_auxiliary": 1
+          },
+          "enabled": false,
+          "requested_allowed": false,
+          "request_accepted": true,
+          "before_enabled": true,
+          "verification": "aggregate_transition"
+        },
+        "stale": false,
+        "status": "Request accepted; aggregate policy is disabled."
+      },
+      {
+        "index": 7,
+        "allowed": false,
+        "snapshot": {
+          "index": 7,
+          "name": "OFA",
+          "available": true,
+          "status": "available",
+          "architecture": {
+            "architecture": 432,
+            "implementation": 3,
+            "revision": 161,
+            "raw_auxiliary": 1
+          },
+          "enabled": false,
+          "requested_allowed": false,
+          "request_accepted": true,
+          "before_enabled": true,
+          "verification": "aggregate_transition"
+        },
+        "stale": false,
+        "status": "Request accepted; aggregate policy is disabled."
+      },
+      {
+        "index": 7,
+        "allowed": true,
+        "snapshot": {
+          "index": 7,
+          "name": "OFA",
+          "available": true,
+          "status": "available",
+          "architecture": {
+            "architecture": 432,
+            "implementation": 3,
+            "revision": 161,
+            "raw_auxiliary": 1
+          },
+          "enabled": true,
+          "requested_allowed": true,
+          "request_accepted": true,
+          "before_enabled": false,
+          "verification": "aggregate_transition"
+        },
+        "stale": false,
+        "status": "Request accepted; aggregate policy is enabled."
+      },
+      {
+        "index": 6,
+        "allowed": true,
+        "snapshot": {
+          "index": 6,
+          "name": "NVJPG",
+          "available": true,
+          "status": "available",
+          "architecture": {
+            "architecture": 432,
+            "implementation": 3,
+            "revision": 161,
+            "raw_auxiliary": 1
+          },
+          "enabled": true,
+          "requested_allowed": true,
+          "request_accepted": true,
+          "before_enabled": false,
+          "verification": "aggregate_transition"
+        },
+        "stale": false,
+        "status": "Request accepted; aggregate policy is enabled."
+      },
+      {
+        "index": 5,
+        "allowed": true,
+        "snapshot": {
+          "index": 5,
+          "name": "NVENC",
+          "available": true,
+          "status": "available",
+          "architecture": {
+            "architecture": 432,
+            "implementation": 3,
+            "revision": 161,
+            "raw_auxiliary": 1
+          },
+          "enabled": true,
+          "requested_allowed": true,
+          "request_accepted": true,
+          "before_enabled": false,
+          "verification": "aggregate_transition"
+        },
+        "stale": false,
+        "status": "Request accepted; aggregate policy is enabled."
+      },
+      {
+        "index": 4,
+        "allowed": true,
+        "snapshot": {
+          "index": 4,
+          "name": "NVDEC",
+          "available": true,
+          "status": "available",
+          "architecture": {
+            "architecture": 432,
+            "implementation": 3,
+            "revision": 161,
+            "raw_auxiliary": 1
+          },
+          "enabled": true,
+          "requested_allowed": true,
+          "request_accepted": true,
+          "before_enabled": false,
+          "verification": "aggregate_transition"
+        },
+        "stale": false,
+        "status": "Request accepted; aggregate policy is enabled."
+      },
+      {
+        "index": 0,
+        "allowed": true,
+        "snapshot": {
+          "index": 0,
+          "name": "Graphics (GR)",
+          "available": true,
+          "status": "available",
+          "architecture": {
+            "architecture": 432,
+            "implementation": 3,
+            "revision": 161,
+            "raw_auxiliary": 1
+          },
+          "enabled": true,
+          "requested_allowed": true,
+          "request_accepted": true,
+          "before_enabled": false,
+          "verification": "aggregate_transition"
+        },
+        "stale": false,
+        "status": "Request accepted; aggregate policy is enabled."
+      }
+    ],
+    "exact_packets": [
+      {
+        "request_prefix_20_hex": "01000000040000000a0000000000000000000000",
+        "response_prefix_20_hex": "01000000040000000a0001000000000000000000",
+        "remaining_1008_bytes_zero": true,
+        "ntstatus": 0
+      },
+      {
+        "request_prefix_20_hex": "01000000040004000a0000000000000000000000",
+        "response_prefix_20_hex": "01000000040004000a0001000000000000000000",
+        "remaining_1008_bytes_zero": true,
+        "ntstatus": 0
+      },
+      {
+        "request_prefix_20_hex": "01000000040005000a0000000000000000000000",
+        "response_prefix_20_hex": "01000000040005000a0001000000000000000000",
+        "remaining_1008_bytes_zero": true,
+        "ntstatus": 0
+      },
+      {
+        "request_prefix_20_hex": "01000000040006000a0000000000000000000000",
+        "response_prefix_20_hex": "01000000040006000a0001000000000000000000",
+        "remaining_1008_bytes_zero": true,
+        "ntstatus": 0
+      },
+      {
+        "request_prefix_20_hex": "01000000040007000a0000000000000000000000",
+        "response_prefix_20_hex": "01000000040007000a0001000000000000000000",
+        "remaining_1008_bytes_zero": true,
+        "ntstatus": 0
+      },
+      {
+        "request_prefix_20_hex": "01000000040007000a0000000100000000000000",
+        "response_prefix_20_hex": "01000000040007000a0001000100000000000000",
+        "remaining_1008_bytes_zero": true,
+        "ntstatus": 0
+      },
+      {
+        "request_prefix_20_hex": "01000000040006000a0000000100000000000000",
+        "response_prefix_20_hex": "01000000040006000a0001000100000000000000",
+        "remaining_1008_bytes_zero": true,
+        "ntstatus": 0
+      },
+      {
+        "request_prefix_20_hex": "01000000040005000a0000000100000000000000",
+        "response_prefix_20_hex": "01000000040005000a0001000100000000000000",
+        "remaining_1008_bytes_zero": true,
+        "ntstatus": 0
+      },
+      {
+        "request_prefix_20_hex": "01000000040004000a0000000100000000000000",
+        "response_prefix_20_hex": "01000000040004000a0001000100000000000000",
+        "remaining_1008_bytes_zero": true,
+        "ntstatus": 0
+      },
+      {
+        "request_prefix_20_hex": "01000000040000000a0000000100000000000000",
+        "response_prefix_20_hex": "01000000040000000a0001000100000000000000",
+        "remaining_1008_bytes_zero": true,
+        "ntstatus": 0
+      }
+    ],
+    "all_disabled_verified": true,
+    "aggregate_peer_checks_passed": true,
+    "adaptive_baseline_returned": true,
+    "unavailable_role": 2,
+    "voltage_unchanged": true,
+    "configured_lpwr_unchanged": true,
+    "threshold_observations": [
+      {
+        "phase": "disable",
+        "role": 0,
+        "raw_pairs": {
+          "0": [
+            7560000,
+            108000000
+          ],
+          "4": [
+            16200,
+            108000000
+          ],
+          "10": [
+            16200,
+            108000000
+          ],
+          "11": [
+            16200,
+            108000000
+          ],
+          "12": [
+            10800,
+            108000000
+          ],
+          "13": [
+            10800,
+            108000000
+          ],
+          "14": [
+            10800,
+            108000000
+          ],
+          "15": [
+            10800,
+            108000000
+          ]
+        }
+      },
+      {
+        "phase": "disable",
+        "role": 4,
+        "raw_pairs": {
+          "0": [
+            7560000,
+            108000000
+          ],
+          "4": [
+            16200,
+            108000000
+          ],
+          "10": [
+            16200,
+            108000000
+          ],
+          "11": [
+            16200,
+            108000000
+          ],
+          "12": [
+            7560000,
+            108000000
+          ],
+          "13": [
+            10800,
+            108000000
+          ],
+          "14": [
+            10800,
+            108000000
+          ],
+          "15": [
+            10800,
+            108000000
+          ]
+        }
+      },
+      {
+        "phase": "disable",
+        "role": 5,
+        "raw_pairs": {
+          "0": [
+            7560000,
+            108000000
+          ],
+          "4": [
+            16200,
+            108000000
+          ],
+          "10": [
+            16200,
+            108000000
+          ],
+          "11": [
+            16200,
+            108000000
+          ],
+          "12": [
+            7560000,
+            108000000
+          ],
+          "13": [
+            7560000,
+            108000000
+          ],
+          "14": [
+            10800,
+            108000000
+          ],
+          "15": [
+            10800,
+            108000000
+          ]
+        }
+      },
+      {
+        "phase": "disable",
+        "role": 6,
+        "raw_pairs": {
+          "0": [
+            7560000,
+            108000000
+          ],
+          "4": [
+            16200,
+            108000000
+          ],
+          "10": [
+            16200,
+            108000000
+          ],
+          "11": [
+            16200,
+            108000000
+          ],
+          "12": [
+            7560000,
+            108000000
+          ],
+          "13": [
+            7560000,
+            108000000
+          ],
+          "14": [
+            10800,
+            108000000
+          ],
+          "15": [
+            7560000,
+            108000000
+          ]
+        }
+      },
+      {
+        "phase": "disable",
+        "role": 7,
+        "raw_pairs": {
+          "0": [
+            7560000,
+            108000000
+          ],
+          "4": [
+            16200,
+            108000000
+          ],
+          "10": [
+            16200,
+            108000000
+          ],
+          "11": [
+            16200,
+            108000000
+          ],
+          "12": [
+            7560000,
+            108000000
+          ],
+          "13": [
+            7560000,
+            108000000
+          ],
+          "14": [
+            7560000,
+            108000000
+          ],
+          "15": [
+            7560000,
+            108000000
+          ]
+        }
+      },
+      {
+        "phase": "allow",
+        "role": 7,
+        "raw_pairs": {
+          "0": [
+            7560000,
+            108000000
+          ],
+          "4": [
+            16200,
+            108000000
+          ],
+          "10": [
+            16200,
+            108000000
+          ],
+          "11": [
+            16200,
+            108000000
+          ],
+          "12": [
+            7560000,
+            108000000
+          ],
+          "13": [
+            7560000,
+            108000000
+          ],
+          "14": [
+            7560000,
+            108000000
+          ],
+          "15": [
+            7560000,
+            108000000
+          ]
+        }
+      },
+      {
+        "phase": "allow",
+        "role": 6,
+        "raw_pairs": {
+          "0": [
+            7560000,
+            108000000
+          ],
+          "4": [
+            16200,
+            108000000
+          ],
+          "10": [
+            16200,
+            108000000
+          ],
+          "11": [
+            16200,
+            108000000
+          ],
+          "12": [
+            7560000,
+            108000000
+          ],
+          "13": [
+            7560000,
+            108000000
+          ],
+          "14": [
+            7560000,
+            108000000
+          ],
+          "15": [
+            7560000,
+            108000000
+          ]
+        }
+      },
+      {
+        "phase": "allow",
+        "role": 5,
+        "raw_pairs": {
+          "0": [
+            7560000,
+            108000000
+          ],
+          "4": [
+            16200,
+            108000000
+          ],
+          "10": [
+            16200,
+            108000000
+          ],
+          "11": [
+            16200,
+            108000000
+          ],
+          "12": [
+            7560000,
+            108000000
+          ],
+          "13": [
+            7560000,
+            108000000
+          ],
+          "14": [
+            7560000,
+            108000000
+          ],
+          "15": [
+            7560000,
+            108000000
+          ]
+        }
+      },
+      {
+        "phase": "allow",
+        "role": 4,
+        "raw_pairs": {
+          "0": [
+            7560000,
+            108000000
+          ],
+          "4": [
+            16200,
+            108000000
+          ],
+          "10": [
+            16200,
+            108000000
+          ],
+          "11": [
+            16200,
+            108000000
+          ],
+          "12": [
+            7560000,
+            108000000
+          ],
+          "13": [
+            7560000,
+            108000000
+          ],
+          "14": [
+            7560000,
+            108000000
+          ],
+          "15": [
+            7560000,
+            108000000
+          ]
+        }
+      },
+      {
+        "phase": "allow",
+        "role": 0,
+        "raw_pairs": {
+          "0": [
+            7560000,
+            108000000
+          ],
+          "4": [
+            16200,
+            108000000
+          ],
+          "10": [
+            16200,
+            108000000
+          ],
+          "11": [
+            16200,
+            108000000
+          ],
+          "12": [
+            7560000,
+            108000000
+          ],
+          "13": [
+            7560000,
+            108000000
+          ],
+          "14": [
+            7560000,
+            108000000
+          ],
+          "15": [
+            7560000,
+            108000000
+          ]
+        }
+      }
+    ],
+    "initial_raw_pairs": {
+      "0": [
+        10800,
+        108000000
+      ],
+      "4": [
+        16200,
+        108000000
+      ],
+      "10": [
+        16200,
+        108000000
+      ],
+      "11": [
+        16200,
+        108000000
+      ],
+      "12": [
+        10800,
+        108000000
+      ],
+      "13": [
+        10800,
+        108000000
+      ],
+      "14": [
+        10800,
+        108000000
+      ],
+      "15": [
+        10800,
+        108000000
+      ]
+    },
+    "immediate_final_raw_pairs": {
+      "0": [
+        7560000,
+        108000000
+      ],
+      "4": [
+        16200,
+        108000000
+      ],
+      "10": [
+        16200,
+        108000000
+      ],
+      "11": [
+        16200,
+        108000000
+      ],
+      "12": [
+        7560000,
+        108000000
+      ],
+      "13": [
+        7560000,
+        108000000
+      ],
+      "14": [
+        7560000,
+        108000000
+      ],
+      "15": [
+        7560000,
+        108000000
+      ]
+    },
+    "numeric_thresholds_restored": false,
+    "threshold_scope": "Each affected first field changed100 to70000 microseconds (raw10800 to7560000); paired second words stayed108000000. MS/DIFR first words stayed16200. Allow is not numeric restoration. Later GR returned100 while media remained70000. Firmware receiver/algorithm and physical latency not established."
+  },
+  "earlier_attempt": {
+    "receipt": {
+      "path": "experiments/registry-overrides/adaptive-power-root-20261102/adaptive-policy-product-trial-20261102.json",
+      "sha256": "6c5591e90b10a7c62fd46c6a0a51bb45e4b486450a02248cf96096200051639e"
+    },
+    "result": "GR Disable/Allow aggregate1→0→1 succeeded, but the initial assertion that numeric thresholds would remain unchanged failed. Cleanup Allow succeeded. A later read showed the eight threshold pairs back at baseline. The v2 trial explicitly records threshold changes rather than imposing that incorrect invariant."
+  },
+  "final_driver_reset": {
+    "receipt": {
+      "path": "experiments/registry-overrides/adaptive-power-root-20261102/driver-restart-cleanup-20261102.json",
+      "sha256": "e6ef1c8ead6940c1ffa475ac4a04e7b8d578cfb87d95e2e658237909af8c9ece"
+    },
+    "result": {
+      "ok": true,
+      "reboot_required": false,
+      "message": "GPU PnP restart completed and Windows reports the device started",
+      "returncode": 0
+    },
+    "aggregate_after": {
+      "0": {
+        "9": {
+          "available": true,
+          "value": 1
+        },
+        "10": {
+          "available": true,
+          "value": 1
+        }
+      },
+      "2": {
+        "9": {
+          "available": false,
+          "value": null
+        },
+        "10": {
+          "available": false,
+          "value": null
+        }
+      },
+      "4": {
+        "9": {
+          "available": true,
+          "value": 1
+        },
+        "10": {
+          "available": true,
+          "value": 1
+        }
+      },
+      "5": {
+        "9": {
+          "available": true,
+          "value": 1
+        },
+        "10": {
+          "available": true,
+          "value": 1
+        }
+      },
+      "6": {
+        "9": {
+          "available": true,
+          "value": 1
+        },
+        "10": {
+          "available": true,
+          "value": 1
+        }
+      },
+      "7": {
+        "9": {
+          "available": true,
+          "value": 1
+        },
+        "10": {
+          "available": true,
+          "value": 1
+        }
+      }
+    },
+    "thresholds_after": {
+      "0": [
+        7560000,
+        108000000
+      ],
+      "4": [
+        16200,
+        108000000
+      ],
+      "10": [
+        16200,
+        108000000
+      ],
+      "11": [
+        16200,
+        108000000
+      ],
+      "12": [
+        7560000,
+        108000000
+      ],
+      "13": [
+        7560000,
+        108000000
+      ],
+      "14": [
+        7560000,
+        108000000
+      ],
+      "15": [
+        7560000,
+        108000000
+      ]
+    },
+    "scope": "GPU-only restart completed; all five present aggregate policies enabled. Fresh first thresholds70000 for GR/media and150 for MS/DIFR. Restart does not promise prior adaptive numbers; no requests replayed, no Windows reboot."
+  },
+  "validation": "337 focused tests passed before trials; panel explanatory text updated to disclose threshold changes. No workload or physical measurement."
+}

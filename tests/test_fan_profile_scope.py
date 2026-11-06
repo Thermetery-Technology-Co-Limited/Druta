@@ -95,13 +95,23 @@ class FanProfileScopeTests(unittest.TestCase):
 
     def test_wrong_card_or_missing_identity_blocks_fan_restore(self):
         state = profiles.capture_fan(self.gpu)
-        for field in ("uuid", "vbios", "driver"):
+        for field in ("uuid",):
             invalid = copy.deepcopy(state)
             invalid["device"][field] = "other"
             self.assertFalse(profiles.restore(self.gpu, invalid)[0][0])
         invalid = dict(state, device={})
         self.assertFalse(profiles.restore(self.gpu, invalid)[0][0])
         self.assertEqual(self.calls, [])
+
+    def test_fan_profile_uses_adapter_identity_not_driver_or_bios_version(self):
+        state = profiles.capture_fan(self.gpu)
+        state['device'].update(name='old display name', vbios='old firmware', driver='old driver')
+        self.assertIsNone(profiles.preflight(self.gpu, state))
+        self.assertTrue(all(ok for ok, _ in profiles.restore(self.gpu, state)))
+        # Older adapters may lack a UUID; their exact slot still binds the target.
+        state['device']['uuid'] = None
+        state['device']['slot'] = '0000:04:00.0'
+        self.assertIn('slot', profiles.preflight(self.gpu, state))
 
     def test_fan_writer_failure_does_not_continue_to_other_settings(self):
         state = profiles.capture_fan(self.gpu)
