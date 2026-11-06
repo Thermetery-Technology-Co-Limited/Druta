@@ -161,6 +161,10 @@ class SessionLogTests(unittest.TestCase):
         self.assertIn("uncaught exception (thread poller)", text)
         self.assertIn("ZeroDivisionError", text)
 
+    def test_log_directory_override(self):
+        self.assertEqual(diagnostics.log_directories({"DRUTA_LOG_DIR": str(self.tmp)}), [self.tmp])
+        self.assertNotIn(self.tmp, diagnostics.log_directories({"TEMP": "/t"}))
+
     def test_never_raises_when_no_directory_is_writable(self):
         blocked = self.tmp / "file"
         blocked.write_text("x")
